@@ -1,13 +1,7 @@
 name: Nightly Multi-Platform Build
 
 on:
-  # push:
-       # branches: ['develop']
-  # pull_request:
-  #   branches: ['release/v1.0.0']
-  # schedule:
-  #   - cron: '0 0 * * *' # Runs every day at midnight UTC
-  workflow_dispatch: # Allows manual triggering
+  workflow_dispatch:
   workflow_call:
 
 jobs:
@@ -18,11 +12,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Init private submodule
-        run: |
-          git config --global url."https://x-access-token:${{ secrets.PRIVATE_SUBMODULE_PAT }}@github.com/".insteadOf "https://github.com/"
-          git submodule update --init private
+        with:
+          submodules: 'recursive'
+          token: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -63,11 +55,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Init private submodule
-        run: |
-          git config --global url."https://x-access-token:${{ secrets.PRIVATE_SUBMODULE_PAT }}@github.com/".insteadOf "https://github.com/"
-          git submodule update --init private
+        with:
+          submodules: 'recursive'
+          token: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -110,11 +100,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Init private submodule
-        run: |
-          git config --global url."https://x-access-token:${{ secrets.PRIVATE_SUBMODULE_PAT }}@github.com/".insteadOf "https://github.com/"
-          git submodule update --init private
+        with:
+          submodules: 'recursive'
+          token: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -150,6 +138,7 @@ jobs:
     if: success()
     permissions:
       contents: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -187,7 +176,6 @@ jobs:
       - name: Prepare assets for release
         run: |
           mkdir release-dist
-          # Collect all installers and metadata files from all download paths
           find release-assets -type f \( -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.exe" -o -name "latest*.yml" -o -name "latest*.json" \) -exec cp -v {} release-dist/ \;
           echo "--- Assets collected for release ---"
           ls -R release-dist
