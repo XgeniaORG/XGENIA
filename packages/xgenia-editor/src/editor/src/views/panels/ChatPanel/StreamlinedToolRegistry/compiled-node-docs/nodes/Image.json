@@ -1,0 +1,36 @@
+{
+  "name": "Image",
+  "file": "image.js",
+  "relativePath": "visual/image.js",
+  "inputs": {
+    "code": "{\n    src: {\n      displayName: 'Source',\n      group: 'Image',\n      propPath: 'dom',\n      type: {\n        name: 'image'\n      },\n      index: 30,\n      allowVisualStates: true,\n      set(url) {\n        this.props.dom.src = getAbsoluteUrl(url);\n        this.forceUpdate();\n      }\n    },\n    testId: {\n      index: 100009,\n      displayName: 'Test ID Attribute',\n      group: 'Advanced HTML',\n      type: 'string',\n      set(value) {\n        this.props.attrs[\"data-testid\"] = value;\n        this.forceUpdate();\n      }\n    }\n  }",
+    "startLine": 87
+  },
+  "outputs": {
+    "code": "{\n    nodeReference: {\n      displayName: 'Node Reference',\n      group: 'General',\n      type: 'node',\n      getter: function() {\n        return this;\n      }\n    }\n  }",
+    "startLine": 48
+  },
+  "inputFormatHints": {
+    "src": {
+      "displayName": "Source"
+    },
+    "testId": {
+      "type": "string",
+      "displayName": "Test ID Attribute"
+    }
+  },
+  "outputFormatHints": {
+    "nodeReference": {
+      "type": "node",
+      "displayName": "Node Reference"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'Image',\n  docs: 'https://docsapp.xgenia.com/nodes/basic-elements/image',\n  xgeniaNodeAsProp: true,\n  visualStates: [\n    { name: 'neutral', label: 'Neutral' },\n    { name: 'hover', label: 'Hover' }\n  ],\n  connectionPanel: {\n    groupPriority: [\n      'General',\n      'Image',\n      'Style',\n      'Actions',\n      'Events',\n      'Mounted',\n      'Pointer Events',\n      'Hover Events',\n      'Dimensions',\n      'Margin and padding'\n    ]\n  },\n  initialize() {\n    this.props.attrs = {",
+  "category": null,
+  "docs": "https://docsapp.xgenia.com/nodes/basic-elements/image",
+  "color": null,
+  "lineCount": 192,
+  "byteSize": 5053
+}

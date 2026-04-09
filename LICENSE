@@ -1,0 +1,64 @@
+XGENIA — License
+
+Copyright (C) 2024-2026 XGENIA
+Based on Noodl Editor, Copyright (C) 2024 Future Platforms AB
+
+XGENIA Editor is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with
+this program. If not, see <https://www.gnu.org/licenses/>.
+
+The full text of the GPL-3.0 license is available at:
+    LICENSES/GPL-3.0.txt
+
+
+ADDITIONAL LICENSES
+===================
+
+This project contains components under different licenses:
+
+1. XGENIA Editor (this repository's core)
+   License: GPL-3.0-or-later
+   See: LICENSES/GPL-3.0.txt
+
+2. XGENIA Runtime (packages/xgenia-runtime)
+   License: MIT
+   Copyright (c) 2024 Future Platforms AB
+   See: packages/xgenia-runtime/LICENSE
+
+3. XGENIA Cloud Viewer (packages/xgenia-viewer-cloud)
+   License: MIT
+   Copyright (c) 2024 Future Platforms AB
+   See: packages/xgenia-viewer-cloud/LICENSE
+
+4. XGENIA React Viewer (packages/xgenia-viewer-react)
+   License: MIT
+   Copyright (c) 2024 Future Platforms AB
+   See: packages/xgenia-viewer-react/LICENSE
+
+5. Proprietary Components (Pro Nodes, AI Service, Agent Nodes)
+   License: Proprietary — NOT covered by GPL-3.0
+   See: LICENSES/XGENIA-PROPRIETARY.md
+
+Applications built WITH XGENIA use the MIT-licensed runtime and viewers.
+Your deployed applications are NOT subject to GPL-3.0 copyleft.
+
+
+ATTRIBUTION
+===========
+
+For upstream Noodl / Future Platforms AB attribution:
+    LICENSES/NOODL-ORIGINAL.md
+
+For third-party open source dependency notices:
+    LICENSES/THIRD-PARTY-NOTICES.md
+
+For clarification on proprietary files in prior versions:
+    LICENSE_CLARIFICATION.md

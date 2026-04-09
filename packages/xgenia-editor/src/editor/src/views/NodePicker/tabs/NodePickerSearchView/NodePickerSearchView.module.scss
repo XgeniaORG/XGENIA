@@ -1,0 +1,54 @@
+@use '@scss-mixins/layout' as *;
+@use '@scss-placeholders/util' as *;
+
+.Root {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(16,20,30,0.98) 0%, rgba(22,28,45,0.98) 100%);
+}
+
+.SearchContainer {
+  padding: 0 15px;
+  background: linear-gradient(180deg, rgba(16,20,30,0.98) 0%, rgba(22,28,45,0.98) 100%);
+}
+
+.TagList {
+  padding-left: 15px;
+  padding-bottom: 12px;
+  padding-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.GridContainer {
+  flex-grow: 1;
+  flex-shrink: 1;
+  overflow: hidden; // container controls scroll
+  z-index: 0;
+}
+
+// Default grid (modules)
+.Grid {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
+  padding: 5px 10px 16px 15px;
+}
+
+// Single-column list (prefabs)
+.SingleRowScroller {
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  padding: 5px 10px 16px 15px;
+  overflow-y: auto;
+}
+
+.ModuleContainer {
+  flex: 0 0 auto; // for scroller items
+}

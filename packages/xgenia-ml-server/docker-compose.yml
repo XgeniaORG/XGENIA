@@ -1,0 +1,7 @@
+services:
+  ml-coordinator:
+    build: ./ml-coordinator
+    ports:
+      - "3001:3001"
+    environment:
+      - HF_ACCESS_TOKEN=${HF_ACCESS_TOKEN}

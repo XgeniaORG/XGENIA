@@ -1,0 +1,73 @@
+.Root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.Container1 {
+  position: absolute;
+  overflow: hidden;
+  transition: width 0.25s ease, height 0.25s ease, top 0.25s ease, left 0.25s ease;
+}
+
+.Container2 {
+  position: absolute;
+  overflow: hidden;
+  transition: width 0.25s ease, height 0.25s ease, top 0.25s ease, left 0.25s ease;
+}
+
+.Divider {
+  position: absolute;
+  z-index: 9;
+  user-select: none;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  &.is-horizontal {
+    width: 6px;
+    top: 0;
+    bottom: 0;
+    cursor: col-resize;
+
+    .DividerBorder {
+      width: 2px;
+      height: 100%;
+    }
+  }
+
+  &.is-vertical {
+    height: 6px;
+    left: 0;
+    right: 0;
+    cursor: row-resize;
+
+    .DividerBorder {
+      width: 100%;
+      height: 2px;
+    }
+  }
+
+  &:hover .DividerHighlight {
+    background-color: white;
+    opacity: 0.5;
+  }
+}
+
+.DividerHighlight {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+}
+
+.DividerBorder {
+  position: absolute;
+  background-color: transparent;
+
+  // Only show a subtle accent on hover so the panels feel unified by default.
+  .Divider:hover & {
+    background-color: var(--theme-color-fg-highlight);
+    opacity: 0.35;
+  }
+}

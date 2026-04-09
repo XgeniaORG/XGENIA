@@ -1,0 +1,270 @@
+.connectedServicesPanel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+}
+
+/* Section header — uppercase muted label */
+.sectionHeader {
+    color: rgba(255, 255, 255, 0.4);
+    font-weight: 600;
+    font-size: 10px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    background: transparent;
+    margin: 0;
+    padding: 0 4px;
+}
+
+/* Service card — glass tile */
+.serviceCard {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    background: rgba(255, 255, 255, 0.04);
+    border: none;
+    border-radius: 10px;
+    transition: background 0.15s ease;
+    cursor: default;
+}
+
+.serviceCard:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+/* Icon container */
+.serviceIcon {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.6);
+    flex-shrink: 0;
+    font-size: 18px;
+}
+
+.serviceIcon.connected {
+    background: rgba(103, 222, 146, 0.12);
+    color: #67DE92;
+}
+
+/* Service info text */
+.serviceInfo {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.serviceName {
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.85);
+    margin: 0;
+}
+
+.serviceDescription {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Status badge */
+.statusBadge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    line-height: 1;
+}
+
+.statusBadge.connected {
+    background: rgba(103, 222, 146, 0.12);
+    color: #67DE92;
+}
+
+.statusBadge.disconnected {
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.statusBadge.expired {
+    background: rgba(236, 91, 224, 0.12);
+    color: #EC5BE0;
+}
+
+/* Connect / Disconnect button */
+.connectButton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.7);
+    background: rgba(255, 255, 255, 0.06);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.connectButton:hover {
+    background: rgba(255, 255, 255, 0.10);
+    color: #fff;
+}
+
+.connectButton.primary {
+    background: rgba(103, 222, 146, 0.15);
+    color: #67DE92;
+}
+
+.connectButton.primary:hover {
+    background: rgba(103, 222, 146, 0.25);
+    color: #67DE92;
+}
+
+.connectButton.danger {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.connectButton.danger:hover {
+    background: rgba(236, 91, 224, 0.12);
+    color: #EC5BE0;
+}
+
+.connectButton:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Toggle between OAuth / API key mode */
+.modeToggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 8px;
+    font-size: 10px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.04);
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.modeToggle:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.6);
+}
+
+/* Row containing Connect button + key toggle */
+.connectActions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+/* API key input row (for fal) */
+.apiKeyRow {
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.apiKeyInput {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    color: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.06);
+    border: none;
+    border-radius: 6px;
+    outline: none;
+    transition: all 0.15s ease;
+}
+
+.apiKeyInput:hover {
+    background: rgba(255, 255, 255, 0.09);
+}
+
+.apiKeyInput:focus {
+    background: rgba(255, 255, 255, 0.10);
+    box-shadow: 0 0 0 1px rgba(103, 222, 146, 0.4);
+}
+
+.apiKeyInput::placeholder {
+    color: rgba(255, 255, 255, 0.25);
+}
+
+/* Connected username display */
+.connectedUser {
+    font-size: 11px;
+    color: #67DE92;
+    margin: 0;
+}
+
+/* Action buttons row */
+.cardActions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+/* Loading spinner */
+.spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-top-color: #67DE92;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Deploy readiness banner */
+.readinessBanner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.readinessBanner.ready {
+    background: rgba(103, 222, 146, 0.08);
+    color: #67DE92;
+}
+
+.readinessBanner.notReady {
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.5);
+}

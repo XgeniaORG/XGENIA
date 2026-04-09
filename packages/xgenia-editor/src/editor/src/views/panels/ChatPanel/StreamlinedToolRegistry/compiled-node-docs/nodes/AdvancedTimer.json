@@ -1,0 +1,93 @@
+{
+  "name": "AdvancedTimer",
+  "file": "AdvancedTimerNode.js",
+  "relativePath": "std-library/AdvancedTimerNode.js",
+  "inputs": {
+    "code": "{\n    // Timer setup\n    duration: {\n      displayName: 'Duration (ms)',\n      group: 'Setup',\n      type: 'number',\n      default: 1000,\n      set(value) {\n        this._internal.duration = Math.max(0, value || 1000);\n        this._internal.timeLeftOriginal = this._internal.duration / 1000;\n        this._internal.timeLeft = this._internal.timeLeftOriginal;\n      }\n    },\n    \n    name: {\n      displayName: 'Timer Name',\n      group: 'Setup',\n      type: 'string',\n      default: 'unnamed',\n      set(value) {\n        this._internal.name = value || 'unnamed';\n      }\n    },\n    \n    isUi: {\n      displayName: 'Is UI Timer',\n      group: 'Setup',\n      type: 'boolean',\n      default: false,\n      set(value) {\n        this._internal.isUi = !!value;\n      }\n    },\n    \n    roomNodeId: {\n      displayName: 'Room Node ID',\n      group: 'Setup',\n      type: 'string',\n      set(id) {\n        if (id) {\n          const roomNode = xgenia.getNode(id);\n          this._internal.roomUid = roomNode?.roomId || null;\n        } else {\n          this._internal.roomUid = null;\n        }\n      }\n    },\n    \n    // Timer control\n    start: {\n      displayName: 'Start',\n      group: 'Control',\n      type: 'boolean',\n      valueChangedToTrue() {\n        this.startTimer();\n      }\n    },\n    \n    restart: {\n      displayName: 'Restart',\n      group: 'Control',\n      type: 'boolean',\n      valueChangedToTrue() {\n        this.restartTimer();\n      }\n    },\n    \n    stop: {\n      displayName: 'Stop',\n      group: 'Control',\n      type: 'boolean',\n      valueChangedToTrue() {\n        this.stopTimer();\n      }\n    },\n    \n    resolve: {\n      displayName: 'Resolve',\n      group: 'Control',\n      type: 'boolean',\n      valueChangedToTrue() {\n        this.resolveTimer();\n      }\n    },\n    \n    reject: {\n      displayName: 'Reject',\n      group: 'Control',\n      type: 'boolean',\n      valueChangedToTrue() {\n        this.rejectTimer();\n      }\n    }\n  }",
+    "startLine": 39
+  },
+  "outputs": {
+    "code": "{\n    // Timer state\n    isRunning: {\n      displayName: 'Is Running',\n      group: 'State',\n      type: 'boolean',\n      getter() {\n        return !this._internal.done && !this._internal.rejected && this._internal.timeLeft > 0;\n      }\n    },\n    \n    timePassed: {\n      displayName: 'Time Passed (s)',\n      group: 'State',\n      type: 'number',\n      getter() {\n        return this._internal.time;\n      }\n    },\n    \n    timeLeft: {\n      displayName: 'Time Left (s)',\n      group: 'State',\n      type: 'number',\n      getter() {\n        return this._internal.timeLeft;\n      }\n    },\n    \n    progress: {\n      displayName: 'Progress (0-1)',\n      group: 'State',\n      type: 'number',\n      getter() {\n        if (this._internal.timeLeftOriginal <= 0) return 0;\n        return 1 - (this._internal.timeLeft / this._internal.timeLeftOriginal);\n      }\n    },\n    \n    // Timer events\n    onStart: {\n      displayName: 'Timer Started',\n      group: 'Events',\n      type: 'signal'\n    },\n    \n    onFinish: {\n      displayName: 'Timer Finished',\n      group: 'Events',\n      type: 'signal'\n    },\n    \n    onReject: {\n      displayName: 'Timer Rejected',\n      group: 'Events',\n      type: 'signal'\n    },\n    \n    // Promise outputs\n    promise: {\n      displayName: 'Promise',\n      group: 'Promise',\n      type: 'object',\n      getter() {\n        return this._internal.promise;\n      }\n    }\n  }",
+    "startLine": 134
+  },
+  "inputFormatHints": {
+    "duration": {
+      "type": "number",
+      "displayName": "Duration (ms)",
+      "default": "1000",
+      "format_hint": "Integer number"
+    },
+    "name": {
+      "type": "string",
+      "displayName": "Timer Name",
+      "default": "'unnamed'"
+    },
+    "isUi": {
+      "type": "boolean",
+      "displayName": "Is UI Timer",
+      "default": "false"
+    },
+    "start": {
+      "type": "boolean",
+      "displayName": "Start"
+    },
+    "restart": {
+      "type": "boolean",
+      "displayName": "Restart"
+    },
+    "stop": {
+      "type": "boolean",
+      "displayName": "Stop"
+    },
+    "resolve": {
+      "type": "boolean",
+      "displayName": "Resolve"
+    },
+    "reject": {
+      "type": "boolean",
+      "displayName": "Reject"
+    }
+  },
+  "outputFormatHints": {
+    "isRunning": {
+      "type": "boolean",
+      "displayName": "Is Running"
+    },
+    "timePassed": {
+      "type": "number",
+      "displayName": "Time Passed (s)"
+    },
+    "timeLeft": {
+      "type": "number",
+      "displayName": "Time Left (s)"
+    },
+    "progress": {
+      "type": "number",
+      "displayName": "Progress (0-1)"
+    },
+    "onStart": {
+      "type": "signal",
+      "displayName": "Timer Started"
+    },
+    "onFinish": {
+      "type": "signal",
+      "displayName": "Timer Finished"
+    },
+    "onReject": {
+      "type": "signal",
+      "displayName": "Timer Rejected"
+    },
+    "promise": {
+      "type": "object",
+      "displayName": "Promise"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'AdvancedTimer',\n  displayNodeName: 'Advanced Timer',\n  category: 'Utilities',\n  color: 'utility',\n  initialize() {\n    this._internal = {\n      // Timer state\n      time: 0, // Time passed in seconds\n      timeLeft: 0, // Time remaining in seconds\n      timeLeftOriginal: 0, // Original duration\n      duration: 1000, // Duration in milliseconds\n      \n      // Timer properties\n      name: 'unnamed',\n      isUi: false, // UI timer vs game timer\n      roomUid: null, // Associated room ID\n      \n      // Timer state\n      done: false,\n      rejected: false,\n      settled: false,\n      \n      // Promise system\n      promise: null,\n      promiseResolve: null,\n      promiseReject: null,\n      \n      // Internal state\n      tickerAttached: false,\n      lastUpdateTime: 0\n    ",
+  "category": "Utilities",
+  "docs": null,
+  "color": "utility",
+  "lineCount": 364,
+  "byteSize": 9016
+}

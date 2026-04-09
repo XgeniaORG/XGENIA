@@ -1,0 +1,28 @@
+{
+  "name": "CSS Definition",
+  "file": "css-definition.js",
+  "relativePath": "visual/css-definition.js",
+  "inputs": {
+    "code": "{\n    style: {\n      index: 4005,\n      type: { name: 'string', allowEditOnly: true, codeeditor: 'css' },\n      displayName: 'Style',\n      group: 'Content',\n      default: '',\n\n      set: function (value) {\n        this.updateStyle(value);\n      }\n    }\n  }",
+    "startLine": 31
+  },
+  "outputs": {
+    "code": "{}",
+    "startLine": 44
+  },
+  "inputFormatHints": {
+    "style": {
+      "displayName": "Style",
+      "default": "''"
+    }
+  },
+  "outputFormatHints": {},
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'CSS Definition',\n  docs: 'https://docsapp.xgenia.com/nodes/utilities/css-definition',\n  category: 'CustomCode',\n  color: 'javascript',\n  nodeDoubleClickAction: {\n    focusPort: 'Style'\n  },\n  initialize: function () {\n    var internal = this._internal;\n    internal.style = '';\n\n    const styleId = this.getStyleRefId();\n\n    this.addDeleteListener(() => {\n      _refCount.set(styleId, _refCount.get(styleId) - 1);\n      if (_refCount.get(styleId) === 0) {\n        this.removeStyleDeclaration();\n        _refCount.delete(styleId);\n      }\n    ",
+  "category": "CustomCode",
+  "docs": "https://docsapp.xgenia.com/nodes/utilities/css-definition",
+  "color": "javascript",
+  "lineCount": 87,
+  "byteSize": 2163
+}

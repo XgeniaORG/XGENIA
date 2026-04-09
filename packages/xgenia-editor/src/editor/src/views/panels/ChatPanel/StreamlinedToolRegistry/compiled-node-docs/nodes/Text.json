@@ -1,0 +1,38 @@
+{
+  "name": "Text",
+  "file": "text.js",
+  "relativePath": "visual/text.js",
+  "inputs": {
+    "code": "{\n    textAlignX: {\n      group: 'Text Alignment',\n      index: 13,\n      displayName: 'Text Horizontal Align',\n      type: {\n        name: 'enum',\n        enums: [\n          { label: 'left', value: 'left' },\n          { label: 'center', value: 'center' },\n          { label: 'right', value: 'right' }\n        ],\n        alignComp: 'justify'\n      },\n      default: 'left',\n      set(value) {\n        switch (value) {\n          case 'left':\n            this.setStyle({ textAlign: 'left', justifyContent: 'flex-start' });\n            break;\n          case 'center':\n            this.setStyle({ textAlign: 'center', justifyContent: 'center' });\n            break;\n          case 'right':\n            this.setStyle({ textAlign: 'right', justifyContent: 'flex-end' });\n            break;\n        }\n      }\n    },\n    textAlignY: {\n      group: 'Text Alignment',\n      index: 14,\n      displayName: 'Text Vertical Align',\n      type: {\n        name: 'enum',\n        enums: [\n          { label: 'Top', value: 'top' },\n          { label: 'Center', value: 'center' },\n          { label: 'Bottom', value: 'bottom' }\n        ],\n        alignComp: 'vertical'\n      },\n      default: 'top',\n      set(value) {\n        switch (value) {\n          case 'top':\n            this.setStyle({ alignItems: 'flex-start' });\n            break;\n          case 'center':\n            this.setStyle({ alignItems: 'center' });\n            break;\n          case 'bottom':\n            this.setStyle({ alignItems: 'flex-end' });\n            break;\n        }\n      }\n    },\n    testId: {\n      index: 100009,\n      displayName: 'Test ID Attribute',\n      group: 'Advanced HTML',\n      type: 'string',\n      set(value) {\n        this.props.attrs[\"data-testid\"] = value;\n        this.forceUpdate();\n      }\n    }\n  }",
+    "startLine": 103
+  },
+  "outputs": {
+    "code": "{\n    nodeReference: {\n      displayName: 'Node Reference',\n      group: 'General',\n      type: 'node',\n      getter: function () {\n        return this;\n      }\n    }\n  }",
+    "startLine": 33
+  },
+  "inputFormatHints": {
+    "testId": {
+      "type": "string",
+      "displayName": "Test ID Attribute"
+    }
+  },
+  "outputFormatHints": {
+    "nodeReference": {
+      "type": "node",
+      "displayName": "Node Reference"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "defineTooltips",
+      "code": "function defineTooltips(node) {\n  node.inputCss.wordBreak.tooltip = createTooltip({\n    title: 'Word break',\n    body: [\n      'Control where line breaks are allowed',\n      '- Normal: Break on spaces and other whitespace characters',\n      '- Break All: Allow line breaks between any two characters, including inside words'\n    ]\n  });\n}"
+    }
+  ],
+  "fullDefinition": "\n  name: 'Text',\n  docs: 'https://docsapp.xgenia.com/nodes/basic-elements/text',\n  visualStates: [\n    { name: 'neutral', label: 'Neutral' },\n    { name: 'hover', label: 'Hover' }\n  ],\n  allowChildren: false,\n  xgeniaNodeAsProp: true,\n  usePortAsLabel: 'text',\n  portLabelTruncationMode: 'length',\n  connectionPanel: {\n    groupPriority: ['General', 'Text', 'Text Style', 'Style', 'Events', 'Mounted', 'Hover Events', 'Pointer Events']\n  },\n  nodeDoubleClickAction: {\n    focusPort: 'text'\n  },\n  initialize() {\n    this.props.attrs = {",
+  "category": null,
+  "docs": "https://docsapp.xgenia.com/nodes/basic-elements/text",
+  "color": null,
+  "lineCount": 231,
+  "byteSize": 6410
+}

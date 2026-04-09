@@ -1,0 +1,61 @@
+{
+  "name": "Loop",
+  "file": "loop.js",
+  "relativePath": "std-library/loop.js",
+  "inputs": {
+    "code": "{\n    Do: {\n      type: 'signal',\n      group: 'Actions',\n      displayName: 'Do',\n      valueChangedToTrue: function () {\n        // Reset index to initial value when starting\n        this._internal.index = this._internal.initialIndex;\n        this._internal.isRunning = true;\n        this.flagOutputDirty('currentIndex');\n        this.flagOutputDirty('index');\n        this.sendSignalOnOutput('indexUpdated');\n      }\n    },\n    next: {\n      type: 'signal',\n      group: 'Actions',\n      displayName: 'Next Iteration',\n      valueChangedToTrue: function () {\n        if (!this._internal.isRunning) {\n          return;\n        }\n\n        // Increment index by steps\n        this._internal.index += this._internal.steps;\n\n        // Check conditions before incrementing\n        let shouldContinue = true;\n\n        if (this._internal.steps > 0) {\n          // For positive steps, check if index is less than the limit\n          if (this._internal.index >= this._internal.lessThan) {\n            shouldContinue = false;\n          }\n        } else if (this._internal.steps < 0) {\n          // For negative steps, check if index is more than the limit\n          if (this._internal.index <= this._internal.moreThan) {\n            shouldContinue = false;\n          }\n        }\n\n        if (shouldContinue) {\n          this.flagOutputDirty('currentIndex');\n          this.flagOutputDirty('index');\n          // Only emit signal if index meets the condition to continue\n          this.sendSignalOnOutput('indexUpdated');\n        } else {\n          this._internal.isRunning = false;\n          // Send finished signal when loop is completed\n          this.sendSignalOnOutput('Done');\n        }\n      }\n    },\n    index: {\n      type: 'number',\n      displayName: 'Initial Index',\n      default: 0,\n      set: function (value) {\n        this._internal.initialIndex = Number(value);\n        // Only update current index if loop is not running\n        if (!this._internal.isRunning) {\n          this._internal.index = this._internal.initialIndex;\n          // this.flagOutputDirty('currentIndex');\n          // this.flagOutputDirty('index');\n        }\n      }\n    },\n    steps: {\n      type: 'number',\n      displayName: 'Steps',\n      default: 1,\n      set: function (value) {\n        this._internal.steps = Number(value);\n      }\n    },\n    lessThan: {\n      type: 'number',\n      displayName: 'Less Than',\n      group: 'Conditions',\n      default: 1,\n      set: function (value) {\n        this._internal.lessThan = Number(value);\n      }\n    },\n    moreThan: {\n      type: 'number',\n      displayName: 'More Than',\n      group: 'Conditions',\n      default: -1,\n      set: function (value) {\n        this._internal.moreThan = Number(value);\n      }\n    }\n  }",
+    "startLine": 18
+  },
+  "outputs": {
+    "code": "{\n    index: {\n      displayName: 'Index',\n      type: 'number',\n      getter: function () {\n        return this._internal.index;\n      }\n    },\n    currentIndex: {\n      displayName: 'Current Index',\n      type: 'number',\n      getter: function () {\n        return this._internal.index;\n      }\n    },\n    indexUpdated: {\n      displayName: 'Index Updated',\n      type: 'signal'\n    },\n    Done: {\n      displayName: 'Done',\n      type: 'signal'\n    }\n  }",
+    "startLine": 112
+  },
+  "inputFormatHints": {
+    "Do": {
+      "type": "signal",
+      "displayName": "Do"
+    },
+    "steps": {
+      "type": "number",
+      "displayName": "Steps",
+      "default": "1",
+      "format_hint": "Integer number"
+    },
+    "lessThan": {
+      "type": "number",
+      "displayName": "Less Than",
+      "default": "1",
+      "format_hint": "Integer number"
+    },
+    "moreThan": {
+      "type": "number",
+      "displayName": "More Than"
+    }
+  },
+  "outputFormatHints": {
+    "index": {
+      "type": "number",
+      "displayName": "Index"
+    },
+    "currentIndex": {
+      "type": "number",
+      "displayName": "Current Index"
+    },
+    "indexUpdated": {
+      "type": "signal",
+      "displayName": "Index Updated"
+    },
+    "Done": {
+      "type": "signal",
+      "displayName": "Done"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'Loop',\n  docs: 'https://docsapp.xgenia.com/nodes/utilities/loop',\n  category: 'Utilities',\n  initialize: function () {\n    this._internal.index = 0;\n    this._internal.initialIndex = 0;\n    this._internal.steps = 1;\n    this._internal.lessThan = 1;\n    this._internal.moreThan = -1;\n    this._internal.isRunning = false;\n  },\n  getInspectInfo() {\n    return 'Index: ' + this._internal.index;\n  },\n  inputs: {\n    Do: {\n      type: 'signal',\n      group: 'Actions',\n      displayName: 'Do',\n      valueChangedToTrue: function () {\n        // Reset index to initial value when starting\n        this._internal.index = this._internal.initialIndex;\n        this._internal.isRunning = true;\n        this.flagOutputDirty('currentIndex');\n        this.flagOutputDirty('index');\n        this.sendSignalOnOutput('indexUpdated');\n      }\n    },\n    next: {\n      type: 'signal',\n      group: 'Actions',\n      displayName: 'Next Iteration',\n      valueChangedToTrue: function () {\n        if (!this._internal.isRunning) {\n          return;\n        }\n\n        // Increment index by steps\n        this._internal.index += this._internal.steps;\n\n        // Check conditions before incrementing\n        let shouldContinue = true;\n\n        if (this._internal.steps > 0) {\n          // For positive steps, check if index is less than the limit\n          if (this._internal.index >= this._internal.lessThan) {\n            shouldContinue = false;\n          }\n        } else if (this._internal.steps < 0) {\n          // For negative steps, check if index is more than the limit\n          if (this._internal.index <= this._internal.moreThan) {\n            shouldContinue = false;\n          }\n        }\n\n        if (shouldContinue) {\n          this.flagOutputDirty('currentIndex');\n          this.flagOutputDirty('index');\n          // Only emit signal if index meets the condition to continue\n          this.sendSignalOnOutput('indexUpdated');\n        } else {\n          this._internal.isRunning = false;\n          // Send finished signal when loop is completed\n          this.sendSignalOnOutput('Done');\n        }\n      }\n    },\n    index: {\n      type: 'number',\n      displayName: 'Initial Index',\n      default: 0,\n      set: function (value) {\n        this._internal.initialIndex = Number(value);\n        // Only update current index if loop is not running\n        if (!this._internal.isRunning) {\n          this._internal.index = this._internal.initialIndex;\n          // this.flagOutputDirty('currentIndex');\n          // this.flagOutputDirty('index');\n        }\n      }\n    },\n    steps: {\n      type: 'number',\n      displayName: 'Steps',\n      default: 1,\n      set: function (value) {\n        this._internal.steps = Number(value);\n      }\n    },\n    lessThan: {\n      type: 'number',\n      displayName: 'Less Than',\n      group: 'Conditions',\n      default: 1,\n      set: function (value) {\n        this._internal.lessThan = Number(value);\n      }\n    },\n    moreThan: {\n      type: 'number',\n      displayName: 'More Than',\n      group: 'Conditions',\n      default: -1,\n      set: function (value) {\n        this._internal.moreThan = Number(value);\n      }\n    }\n  },\n  outputs: {\n    index: {\n      displayName: 'Index',\n      type: 'number',\n      getter: function () {\n        return this._internal.index;\n      }\n    },\n    currentIndex: {\n      displayName: 'Current Index',\n      type: 'number',\n      getter: function () {\n        return this._internal.index;\n      }\n    },\n    indexUpdated: {\n      displayName: 'Index Updated',\n      type: 'signal'\n    },\n    Done: {\n      displayName: 'Done',\n      type: 'signal'\n    }\n  }\n",
+  "category": "Utilities",
+  "docs": "https://docsapp.xgenia.com/nodes/utilities/loop",
+  "color": null,
+  "lineCount": 141,
+  "byteSize": 3711
+}

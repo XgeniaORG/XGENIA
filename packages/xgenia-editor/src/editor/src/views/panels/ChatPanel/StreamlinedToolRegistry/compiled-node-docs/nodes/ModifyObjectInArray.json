@@ -1,0 +1,67 @@
+{
+  "name": "ModifyObjectInArray",
+  "file": "modifyobjectinarraynode.js",
+  "relativePath": "std-library/data/modifyobjectinarraynode.js",
+  "inputs": {
+    "code": "{\n    objectId: {\n      type: 'string',\n      displayName: 'Object Id',\n      group: 'Input',\n      set: function (value) {\n        this._internal.objectId = value;\n        this._internal.lastError = null;\n        this._internal.modified = false;\n        // Don't automatically validate - wait for trigger\n      }\n    },\n    keyPath: {\n      type: 'string',\n      displayName: 'Key Path',\n      group: 'Object Options',\n      default: '',\n      set: function (value) {\n        this._internal.keyPath = value || '';\n        this._internal.modified = false;\n        // Don't automatically validate - wait for trigger\n      }\n    },\n    newValue: {\n      type: '*',\n      displayName: 'New Value',\n      group: 'Input',\n      set: function (value) {\n        this._internal.newValue = value;\n        this._internal.modified = false;\n      }\n    },\n    Do: {\n      type: 'signal',\n      displayName: 'Do',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this._internal.hasBeenTriggered = true;\n        this.performModification();\n      }\n    }\n  }",
+    "startLine": 100
+  },
+  "outputs": {
+    "code": "{\n    originalValue: {\n      type: '*',\n      displayName: 'Original Value',\n      group: 'Output',\n      getter: function () {\n        return this._internal.originalValue;\n      }\n    },\n    newValue: {\n      type: '*',\n      displayName: 'New Value',\n      group: 'Output',\n      getter: function () {\n        return this._internal.newValue;\n      }\n    },\n    modifiedObject: {\n      type: '*',\n      displayName: 'Modified Object',\n      group: 'Output',\n      getter: function () {\n        return this._internal.modifiedObject;\n      }\n    },\n    Done: {\n      type: 'signal',\n      displayName: 'Done',\n      group: 'Events'\n    },\n    failure: {\n      type: 'signal',\n      displayName: 'Failure',\n      group: 'Events'\n    }\n  }",
+    "startLine": 143
+  },
+  "inputFormatHints": {
+    "objectId": {
+      "type": "string",
+      "displayName": "Object Id"
+    },
+    "keyPath": {
+      "type": "string",
+      "displayName": "Key Path",
+      "default": "''"
+    },
+    "newValue": {
+      "displayName": "New Value"
+    },
+    "Do": {
+      "type": "signal",
+      "displayName": "Do"
+    }
+  },
+  "outputFormatHints": {
+    "originalValue": {
+      "displayName": "Original Value"
+    },
+    "newValue": {
+      "displayName": "New Value"
+    },
+    "modifiedObject": {
+      "displayName": "Modified Object"
+    },
+    "Done": {
+      "type": "signal",
+      "displayName": "Done"
+    },
+    "failure": {
+      "type": "signal",
+      "displayName": "Failure"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "getValueFromPath",
+      "code": "function getValueFromPath(obj, path) {\n  if (!path || path.trim() === '') {\n    return obj;\n  }\n\n  const keys = path.split(',').map((key) => key.trim());\n  let value = obj;\n\n  for (const key of keys) {\n    if (value === null || value === undefined) {\n      return undefined;\n    }\n    value = value[key];\n  }\n\n  return value;\n}"
+    },
+    {
+      "name": "setValueAtPath",
+      "code": "function setValueAtPath(obj, path, newValue) {\n  if (!path || path.trim() === '') {\n    throw new Error('Key path is required for modification');\n  }\n\n  const keys = path.split(',').map((key) => key.trim());\n  let current = obj;\n\n  // Navigate to the parent of the target property\n  for (let i = 0; i < keys.length - 1; i++) {\n    const key = keys[i];\n    if (current === null || current === undefined) {\n      throw new Error(`Cannot access property \"${key}\" on null or undefined`);\n    }\n    if (!(key in current)) {\n      throw new Error(`Property \"${key}\" not found in object`);\n    }\n    current = current[key];\n  }\n\n  // Set the final property\n  const finalKey = keys[keys.length - 1];\n  if (current === null || current === undefined) {\n    throw new Error(`Cannot set property \"${finalKey}\" on null or undefined`);\n  }\n\n  current[finalKey] = newValue;\n}"
+    }
+  ],
+  "fullDefinition": "\n  name: 'ModifyObjectInArray',\n  docs: 'https://docsapp.xgenia.com/nodes/data/array/modify-object-in-array',\n  displayNodeName: 'Modify Object in Array',\n  shortDesc: 'Modify a property of an object by object ID and key path when triggered.',\n  category: 'Data',\n  color: 'data',\n  searchTags: ['modify', 'update', 'object', 'property', 'set', 'change', 'edit', 'key', 'path', 'trigger'],\n\n  initialize: function () {\n    this._internal.objectId = null;\n    this._internal.keyPath = '';\n    this._internal.newValue = null;\n    this._internal.originalValue = null;\n    this._internal.modifiedObject = null;\n    this._internal.lastError = null;\n    this._internal.modified = false;\n    this._internal.hasBeenTriggered = false;\n  },\n\n  getInspectInfo() {\n    if (this._internal.lastError) {\n      return { type: 'text', value: `Error: ${this._internal.lastError}` ",
+  "category": "Data",
+  "docs": "https://docsapp.xgenia.com/nodes/data/array/modify-object-in-array",
+  "color": "data",
+  "lineCount": 281,
+  "byteSize": 8273
+}

@@ -1,0 +1,73 @@
+{
+  "name": "RunTasks",
+  "file": "runtasks.js",
+  "relativePath": "std-library/runtasks.js",
+  "inputs": {
+    "code": "{\n    items: {\n      group: 'Data',\n      displayName: 'Items',\n      type: 'array',\n      set: function (value) {\n        if (!value) return;\n        if (value === this._internal.items) return;\n\n        this._internal.items = value;\n      }\n    },\n    stopOnFailure: {\n      group: 'General',\n      displayName: 'Stop On Failure',\n      type: 'boolean',\n      default: false,\n      set: function (value) {\n        this._internal.stopOnFailure = value;\n      }\n    },\n    maxRunningTasks: {\n      group: 'General',\n      displayName: 'Max Running Tasks',\n      type: 'number',\n      default: 10,\n      set: function (value) {\n        this._internal.maxRunningTasks = value;\n      }\n    },\n    taskTemplate: {\n      type: 'component',\n      displayName: 'Template',\n      group: 'General',\n      set: function (value) {\n        this._internal.template = value;\n      }\n    },\n    run: {\n      group: 'General',\n      displayName: 'Do',\n      type: 'signal',\n      valueChangedToTrue: function () {\n        this.scheduleRun();\n      }\n    },\n    abort: {\n      group: 'General',\n      displayName: 'Abort',\n      type: 'signal',\n      valueChangedToTrue: function () {\n        this.scheduleAbort();\n      }\n    }\n  }",
+    "startLine": 22
+  },
+  "outputs": {
+    "code": "{\n    success: {\n      type: 'signal',\n      group: 'Events',\n      displayName: 'Success'\n    },\n    failure: {\n      type: 'signal',\n      group: 'Events',\n      displayName: 'Failure'\n    },\n    done: {\n      type: 'signal',\n      group: 'Events',\n      displayName: 'Done'\n    },\n    aborted: {\n      type: 'signal',\n      group: 'Events',\n      displayName: 'Aborted'\n    }\n  }",
+    "startLine": 77
+  },
+  "inputFormatHints": {
+    "items": {
+      "type": "array",
+      "displayName": "Items"
+    },
+    "stopOnFailure": {
+      "type": "boolean",
+      "displayName": "Stop On Failure",
+      "default": "false"
+    },
+    "maxRunningTasks": {
+      "type": "number",
+      "displayName": "Max Running Tasks",
+      "default": "10",
+      "format_hint": "Integer number"
+    },
+    "taskTemplate": {
+      "type": "component",
+      "displayName": "Template"
+    },
+    "run": {
+      "type": "signal",
+      "displayName": "Do"
+    },
+    "abort": {
+      "type": "signal",
+      "displayName": "Abort"
+    }
+  },
+  "outputFormatHints": {
+    "success": {
+      "type": "signal",
+      "displayName": "Success"
+    },
+    "failure": {
+      "type": "signal",
+      "displayName": "Failure"
+    },
+    "done": {
+      "type": "signal",
+      "displayName": "Done"
+    },
+    "aborted": {
+      "type": "signal",
+      "displayName": "Aborted"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "sendSignalOnInput",
+      "code": "function sendSignalOnInput(itemNode, name) {\n  itemNode.queueInput(name, true); // send signal\n  itemNode.queueInput(name, false);\n}"
+    }
+  ],
+  "fullDefinition": "\n  name: 'RunTasks',\n  displayNodeName: 'Run Tasks',\n  docs: 'https://docsapp.xgenia.com/nodes/data/run-tasks',\n  color: 'data',\n  category: 'Data',\n  initialize() {\n    this._internal.queuedOperations = [];\n    this._internal.state = 'idle';\n    this._internal.maxRunningTasks = 10;\n    this._internal.activeTasks = new Map(); //id => ComponentInstanceNode\n  },\n  inputs: {\n    items: {\n      group: 'Data',\n      displayName: 'Items',\n      type: 'array',\n      set: function (value) {\n        if (!value) return;\n        if (value === this._internal.items) return;\n\n        this._internal.items = value;\n      }\n    },\n    stopOnFailure: {\n      group: 'General',\n      displayName: 'Stop On Failure',\n      type: 'boolean',\n      default: false,\n      set: function (value) {\n        this._internal.stopOnFailure = value;\n      }\n    },\n    maxRunningTasks: {\n      group: 'General',\n      displayName: 'Max Running Tasks',\n      type: 'number',\n      default: 10,\n      set: function (value) {\n        this._internal.maxRunningTasks = value;\n      }\n    },\n    taskTemplate: {\n      type: 'component',\n      displayName: 'Template',\n      group: 'General',\n      set: function (value) {\n        this._internal.template = value;\n      }\n    },\n    run: {\n      group: 'General',\n      displayName: 'Do',\n      type: 'signal',\n      valueChangedToTrue: function () {\n        this.scheduleRun();\n      }\n    },\n    abort: {\n      group: 'General',\n      displayName: 'Abort',\n      type: 'signal',\n      valueChangedToTrue: function () {\n        this.scheduleAbort();\n      }\n    }\n  },\n  outputs: {\n    success: {\n      type: 'signal',\n      group: 'Events',\n      displayName: 'Success'\n    },\n    failure: {\n      type: 'signal',\n      group: 'Events',\n      displayName: 'Failure'\n    },\n    done: {\n      type: 'signal',\n      group: 'Events',\n      displayName: 'Done'\n    },\n    aborted: {\n      type: 'signal',\n      group: 'Events',\n      displayName: 'Aborted'\n    }\n  },\n  methods: {\n    scheduleRun() {\n      var internal = this._internal;\n      if (!internal.hasScheduledRun) {\n        internal.hasScheduledRun = true;\n        this.scheduleAfterInputsHaveUpdated(() => {\n          this._queueOperation(() => {\n            internal.hasScheduledRun = false;\n            this.run();\n          ",
+  "category": "Data",
+  "docs": "https://docsapp.xgenia.com/nodes/data/run-tasks",
+  "color": "data",
+  "lineCount": 326,
+  "byteSize": 9142
+}

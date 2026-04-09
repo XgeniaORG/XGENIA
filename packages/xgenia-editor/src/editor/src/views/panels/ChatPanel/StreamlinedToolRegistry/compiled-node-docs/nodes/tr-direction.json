@@ -1,0 +1,17 @@
+{
+  "name": "tr-direction",
+  "file": "push-transition.js",
+  "relativePath": "navigation/transitions/push-transition.js",
+  "inputs": null,
+  "outputs": null,
+  "inputFormatHints": {},
+  "outputFormatHints": {},
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n        Up: { x: 0, y: -1 },\n        Down: { x: 0, y: 1 },\n        Left: { x: -1, y: 0 },\n        Right: { x: 1, y: 0 }\n      ",
+  "category": null,
+  "docs": null,
+  "color": null,
+  "lineCount": 187,
+  "byteSize": 5045
+}

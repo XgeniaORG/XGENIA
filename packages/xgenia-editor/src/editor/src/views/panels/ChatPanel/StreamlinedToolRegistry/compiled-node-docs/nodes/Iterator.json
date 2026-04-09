@@ -1,0 +1,51 @@
+{
+  "name": "Iterator",
+  "file": "iteratornode.js",
+  "relativePath": "std-library/data/iteratornode.js",
+  "inputs": {
+    "code": "{\n    array: {\n      type: 'array',\n      displayName: 'Array',\n      group: 'Input',\n      default: [],\n      set: function (value) {\n        this._internal.items = normalizeToArray(value);\n      }\n    },\n    next: {\n      type: 'signal',\n      displayName: 'Next',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this._advance();\n      }\n    },\n    reset: {\n      type: 'signal',\n      displayName: 'Reset',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this._reset();\n      }\n    }\n  }",
+    "startLine": 35
+  },
+  "outputs": {
+    "code": "{\n    value: {\n      type: '*',\n      displayName: 'Value',\n      group: 'Output',\n      getter: function () {\n        return this._internal.currentValue;\n      }\n    },\n    done: {\n      type: 'signal',\n      displayName: 'Done',\n      group: 'Events'\n    }\n  }",
+    "startLine": 63
+  },
+  "inputFormatHints": {
+    "array": {
+      "type": "array",
+      "displayName": "Array",
+      "default": "[]",
+      "format_hint": "Array"
+    },
+    "next": {
+      "type": "signal",
+      "displayName": "Next"
+    },
+    "reset": {
+      "type": "signal",
+      "displayName": "Reset"
+    }
+  },
+  "outputFormatHints": {
+    "value": {
+      "displayName": "Value"
+    },
+    "done": {
+      "type": "signal",
+      "displayName": "Done"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "normalizeToArray",
+      "code": "function normalizeToArray(input) {\n  if (!input) return [];\n  if (Array.isArray(input)) return input;\n  if (input instanceof Collection) return input.items || [];\n  if (Array.isArray(input.items)) return input.items;\n  return [];\n}"
+    }
+  ],
+  "fullDefinition": "\n  name: 'Iterator',\n  docs: 'https://docsapp.xgenia.com/nodes/data/array/iterator',\n  displayNodeName: 'Iterator',\n  shortDesc: 'Iterates through an array on Next; Reset returns to start.',\n  category: 'Data',\n  color: 'data',\n\n  initialize: function () {\n    this._internal.items = [];\n    this._internal.index = -1;\n    this._internal.currentValue = null;\n  },\n\n  getInspectInfo() {\n    const length = Array.isArray(this._internal.items) ? this._internal.items.length : 0;\n    return [\n      { type: 'text', value: `Index: ${this._internal.index} / ${Math.max(length - 1, -1)}` },\n      { type: 'value', value: this._internal.currentValue }\n    ];\n  },\n\n  inputs: {\n    array: {\n      type: 'array',\n      displayName: 'Array',\n      group: 'Input',\n      default: [],\n      set: function (value) {\n        this._internal.items = normalizeToArray(value);\n      }\n    },\n    next: {\n      type: 'signal',\n      displayName: 'Next',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this._advance();\n      }\n    },\n    reset: {\n      type: 'signal',\n      displayName: 'Reset',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this._reset();\n      }\n    }\n  },\n\n  outputs: {\n    value: {\n      type: '*',\n      displayName: 'Value',\n      group: 'Output',\n      getter: function () {\n        return this._internal.currentValue;\n      }\n    },\n    done: {\n      type: 'signal',\n      displayName: 'Done',\n      group: 'Events'\n    }\n  },\n\n  methods: {\n    _reset: function () {\n      this._internal.index = -1;\n      this._internal.currentValue = null;\n      this.flagOutputDirty('value');\n    },\n    _advance: function () {\n      const items = this._internal.items || [];\n      const length = Array.isArray(items) ? items.length : 0;\n      if (length === 0) {\n        // No items; value stays null\n        this._internal.currentValue = null;\n        this.flagOutputDirty('value');\n        return;\n      }\n\n      if (this._internal.index < length - 1) {\n        this._internal.index++;\n        this._internal.currentValue = items[this._internal.index];\n        this.flagOutputDirty('value');\n        this.sendSignalOnOutput('done');\n      }\n      // If already at end, do not change value\n    }\n  }\n",
+  "category": "Data",
+  "docs": "https://docsapp.xgenia.com/nodes/data/array/iterator",
+  "color": "data",
+  "lineCount": 109,
+  "byteSize": 2624
+}

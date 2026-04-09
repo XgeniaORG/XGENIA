@@ -1,0 +1,73 @@
+{
+  "name": "Project Version Tag",
+  "file": "project-version-tag.js",
+  "relativePath": "visual/project-version-tag.js",
+  "inputs": {
+    "code": "{\n    Do: {\n      type: 'signal',\n      displayName: 'Do',\n      group: 'Actions',\n      valueChangedToTrue() {\n        this.scheduleAfterInputsHaveUpdated(async () => {\n          try {\n            const { json: projectJson, text: projectText, lastModified } = await fetchProjectJson();\n            const projectIntegrityHash = await sha256Hex(projectText);\n            // Use only the project's file timestamp; do not fallback to current time\n            const dateTime = toDateTimeString(lastModified) || '';\n            let dateOnly = toDateOnly(lastModified) || (dateTime ? dateTime.split(' ')[0] : '');\n            const projectName = (projectJson && projectJson.name) || '';\n            const templateVersion = await resolveTemplateVersion(projectName, projectJson);\n            const buildId = `build_${dateOnly}_${templateVersion}`;\n            this._internal.values = { projectIntegrityHash, timestamp: dateTime, templateVersion, buildId };\n            this.flagOutputDirty('projectIntegrityHash');\n            this.flagOutputDirty('timestamp');\n            this.flagOutputDirty('templateVersion');\n            this.flagOutputDirty('buildId');\n            this.forceUpdate();\n          } catch (e) {\n            // ignore\n          }\n        });\n      }\n    }\n  }",
+    "startLine": 152
+  },
+  "outputs": {
+    "code": "{\n    projectIntegrityHash: {\n      displayName: 'Project Id',\n      group: 'Version',\n      type: 'string',\n      getter: function () {\n        return (this._internal && this._internal.values && this._internal.values.projectIntegrityHash) || '';\n      }\n    },\n    timestamp: {\n      displayName: 'Timestamp',\n      group: 'Version',\n      type: 'string',\n      getter: function () {\n        return (this._internal && this._internal.values && this._internal.values.timestamp) || '';\n      }\n    },\n    templateVersion: {\n      displayName: 'Template Version',\n      group: 'Version',\n      type: 'string',\n      getter: function () {\n        return (this._internal && this._internal.values && this._internal.values.templateVersion) || '';\n      }\n    },\n    buildId: {\n      displayName: 'Build Id',\n      group: 'Version',\n      type: 'string',\n      getter: function () {\n        return (this._internal && this._internal.values && this._internal.values.buildId) || '';\n      }\n    }\n  }",
+    "startLine": 181
+  },
+  "inputFormatHints": {},
+  "outputFormatHints": {
+    "projectIntegrityHash": {
+      "type": "string",
+      "displayName": "Project Id"
+    },
+    "timestamp": {
+      "type": "string",
+      "displayName": "Timestamp"
+    },
+    "templateVersion": {
+      "type": "string",
+      "displayName": "Template Version"
+    },
+    "buildId": {
+      "type": "string",
+      "displayName": "Build Id"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "toDateOnly",
+      "code": "function toDateOnly(value) {\n  try {\n    if (!value) return null;\n    const d = new Date(value);\n    if (isNaN(d.getTime())) return null;\n    return d.toISOString().split('T')[0];\n  } catch (e) {\n    return null;\n  }\n}"
+    },
+    {
+      "name": "toDateTimeString",
+      "code": "function toDateTimeString(value) {\n  try {\n    if (!value) return null;\n    const d = new Date(value);\n    if (isNaN(d.getTime())) return null;\n    const iso = d.toISOString();\n    const datePart = iso.split('T')[0];\n    const timePart = iso.split('T')[1].split('.')[0];\n    return `${datePart} ${timePart}`;\n  } catch (e) {\n    return null;\n  }\n}"
+    },
+    {
+      "name": "fetchProjectJson",
+      "code": "function fetchProjectJson() {\n  const res = await fetch('/project.json', { method: 'GET' });\n  const text = await res.text();\n  let json;\n  try {\n    json = JSON.parse(text);\n  } catch (e) {\n    json = {};\n  }\n  const lastModified = res.headers ? res.headers.get('last-modified') : undefined;\n  return { json, text, lastModified };\n}"
+    },
+    {
+      "name": "sha256Hex",
+      "code": "function sha256Hex(input) {\n  try {\n    if (typeof crypto !== 'undefined' && crypto.subtle && typeof TextEncoder !== 'undefined') {\n      const data = new TextEncoder().encode(input || '');\n      const hashBuffer = await crypto.subtle.digest('SHA-256', data);\n      const hashArray = Array.from(new Uint8Array(hashBuffer));\n      return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');\n    }\n  } catch (e) {\n    // fall through to fnv1a fallback\n  }\n  return fnv1aHex(input || '');\n}"
+    },
+    {
+      "name": "fnv1aHex",
+      "code": "function fnv1aHex(str) {\n  let hash = 0x811c9dc5;\n  for (let i = 0; i < str.length; i++) {\n    hash ^= str.charCodeAt(i);\n    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);\n  }\n  return ('00000000' + (hash >>> 0).toString(16)).slice(-8);\n}"
+    },
+    {
+      "name": "extractTemplateVersionFromMetadata",
+      "code": "function extractTemplateVersionFromMetadata(projectJson) {\n  const meta = (projectJson && projectJson.metadata) || {};\n  const url = meta.templateUrl || meta.templateURL || meta.projectTemplate || meta.template || meta.templateSource;\n  if (typeof url === 'string' && url) {\n    const fname = url.split('/').pop() || '';\n    return fname.replace(/\\.zip$/i, '');\n  }\n  return undefined;\n}"
+    },
+    {
+      "name": "resolveTemplateVersion",
+      "code": "function resolveTemplateVersion(projectName, projectJson) {\n  // Prefer explicit template URL stored in project metadata\n  const fromMeta = extractTemplateVersionFromMetadata(projectJson);\n  if (fromMeta) return fromMeta;\n\n  try {\n    const res = await fetch('https://docsapp.xgenia.com/projecttemplates/index.json', { method: 'GET' });\n    if (!res.ok) return 'unknown';\n    const list = await res.json();\n    if (!Array.isArray(list)) return 'unknown';\n    let match = list.find((t) => {\n      const p = (t && t.projectURL) || '';\n      const fname = p.split('/').pop() || '';\n      return fname.toLowerCase().startsWith((projectName || '').toLowerCase());\n    });\n    if (!match) match = list.find((t) => (t.title || '').toLowerCase().includes((projectName || '').toLowerCase()));\n    if (match && match.projectURL) {\n      const fname = match.projectURL.split('/').pop() || '';\n      return fname.replace(/\\.zip$/i, '');\n    }\n  } catch (e) {\n    /* no-op */\n  }\n\n  return 'unknown';\n}"
+    },
+    {
+      "name": "ProjectVersionTagComponent",
+      "code": "function ProjectVersionTagComponent(props) {\n  const style = {\n    display: 'inline-flex',\n    flexDirection: 'column',\n    gap: '2px',\n    fontFamily: 'monospace',\n    fontSize: '12px',\n    lineHeight: '16px',\n    color: '#333',\n    ...(props.style || {})\n  };\n  const node = props && props.xgeniaNode;\n  const values = (node && node._internal && node._internal.values) || {};\n  return (\n    <div style={style} className={['xgenia-project-version-tag', props.className].filter(Boolean).join(' ')}>\n      <div>{`projectIntegrityHash: ${values.projectIntegrityHash || ''}`}</div>\n      <div>{`timestamp: ${values.timestamp || ''}`}</div>\n      <div>{`templateVersion: ${values.templateVersion || ''}`}</div>\n      <div>{`buildId: ${values.buildId || ''}`}</div>\n    </div>\n  );\n}"
+    }
+  ],
+  "fullDefinition": "\n    display: 'inline-flex',\n    flexDirection: 'column',\n    gap: '2px',\n    fontFamily: 'monospace',\n    fontSize: '12px',\n    lineHeight: '16px',\n    color: '#333',\n    ...(props.style || {",
+  "category": null,
+  "docs": "https://docsapp.xgenia.com/nodes/visual/project-version-tag",
+  "color": "#333",
+  "lineCount": 236,
+  "byteSize": 7876
+}

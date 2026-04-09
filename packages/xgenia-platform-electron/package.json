@@ -1,0 +1,16 @@
+{
+  "name": "@xgenia/platform-electron",
+  "version": "2.7.0",
+  "main": "src/index.ts",
+  "description": "Cross platform implementation of platform specific features.",
+  "author": "XGENIA <contact@xgenia.io>",
+  "homepage": "https://xgenia.io",
+  "dependencies": {
+    "@xgenia/platform": "file:../xgenia-platform",
+    "@xgenia/platform-node": "file:../xgenia-platform-node"
+  },
+  "peerDependencies": {
+    "@electron/remote": ">=2.0.8",
+    "electron": ">=20.1.0"
+  }
+}

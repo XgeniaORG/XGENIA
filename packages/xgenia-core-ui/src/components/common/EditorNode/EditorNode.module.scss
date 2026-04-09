@@ -1,0 +1,61 @@
+// EditorNode - Clean, minimal node item display
+$node-color: var(--node-color, #8B9AAF);
+
+.Root {
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  background: transparent;
+  border: 1px solid transparent;
+  gap: 8px;
+  
+  &:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+  
+  &.is-highlighted {
+    background: rgba($node-color, 0.12);
+    border-color: rgba($node-color, 0.25);
+    
+    .IconWrapper {
+      background: rgba($node-color, 0.2);
+    }
+    
+    .Label {
+      color: rgba(255, 255, 255, 0.95);
+    }
+  }
+}
+
+.IconWrapper {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba($node-color, 0.12);
+  color: $node-color;
+  flex-shrink: 0;
+  transition: background 0.12s ease;
+  
+  svg {
+    width: 12px;
+    height: 12px;
+  }
+}
+
+.Label {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.75);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  transition: color 0.12s ease;
+}

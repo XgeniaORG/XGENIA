@@ -1,0 +1,48 @@
+{
+  "name": "vertex-ai-mcp-server",
+  "version": "0.4.0",
+  "description": "A Model Context Protocol server supporting Vertex AI and Gemini API",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "vertex-ai-mcp-server": "build/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shariqriazz/vertex-ai-mcp-server.git"
+  },
+  "homepage": "https://github.com/shariqriazz/vertex-ai-mcp-server#readme",
+  "bugs": {
+    "url": "https://github.com/shariqriazz/vertex-ai-mcp-server/issues"
+  },
+  "files": [
+    "build"
+  ],
+  "scripts": {
+    "build": "npx tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "build:npm": "npx tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "start": "npm run start:build",
+    "start:tsx": "npx tsx src/index.ts",
+    "start:build": "npm run build:npm && node build/index.js",
+    "dev": "npx tsc --watch & node src/index.js",
+    "dev:npm": "npx tsc --watch & node src/index.js",
+    "watch": "npx tsc --watch",
+    "inspector": "npx @modelcontextprotocol/inspector build/index.js"
+  },
+  "dependencies": {
+    "@google/genai": "1.0.0",
+    "@modelcontextprotocol/sdk": "^1.11.0",
+    "diff": "^7.0.0",
+    "dotenv": "^16.5.0",
+    "minimatch": "^10.0.1",
+    "zod": "3.23.8",
+    "zod-to-json-schema": "3.23.2"
+  },
+  "devDependencies": {
+    "@types/diff": "^7.0.2",
+    "@types/minimatch": "^5.1.2",
+    "@types/node": "^20.11.24",
+    "typescript": "^5.3.3",
+    "tsx": "^4.7.0"
+  }
+}

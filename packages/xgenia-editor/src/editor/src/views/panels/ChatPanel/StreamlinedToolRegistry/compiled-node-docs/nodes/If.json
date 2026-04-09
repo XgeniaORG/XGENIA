@@ -1,0 +1,41 @@
+{
+  "name": "If",
+  "file": "if.js",
+  "relativePath": "std-library/if.js",
+  "inputs": {
+    "code": "{\n    input: {\n      type: 'boolean',\n      displayName: 'Boolean Input',\n      group: 'General',\n      set: function (value) {\n        // Store the boolean value but don't automatically evaluate\n        // Evaluation will happen when Do signal is triggered\n      }\n    },\n    do: {\n      type: 'signal',\n      displayName: 'Do',\n      group: 'Control',\n      valueChangedToTrue: function () {\n        // When Do signal is triggered, evaluate the boolean input and emit appropriate signal\n        this.scheduleEvaluate();\n      }\n    }\n  }",
+    "startLine": 11
+  },
+  "outputs": {
+    "code": "{\n    trueCondition: {\n      type: 'signal',\n      displayName: 'True Condition',\n      group: 'Signals'\n    },\n    falseCondition: {\n      type: 'signal',\n      displayName: 'False Condition',\n      group: 'Signals'\n    }\n  }",
+    "startLine": 31
+  },
+  "inputFormatHints": {
+    "input": {
+      "type": "boolean",
+      "displayName": "Boolean Input"
+    },
+    "do": {
+      "type": "signal",
+      "displayName": "Do"
+    }
+  },
+  "outputFormatHints": {
+    "trueCondition": {
+      "type": "signal",
+      "displayName": "True Condition"
+    },
+    "falseCondition": {
+      "type": "signal",
+      "displayName": "False Condition"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'If',\n  docs: 'https://docsapp.xgenia.com/nodes/utilities/logic/if',\n  category: 'Logic',\n  shortDesc: 'Receives a boolean signal and conditionally emits true or false signals when triggered by the Do signal.',\n  initialize: function () {\n    // No internal state needed for simple if logic\n  },\n  inputs: {\n    input: {\n      type: 'boolean',\n      displayName: 'Boolean Input',\n      group: 'General',\n      set: function (value) {\n        // Store the boolean value but don't automatically evaluate\n        // Evaluation will happen when Do signal is triggered\n      }\n    },\n    do: {\n      type: 'signal',\n      displayName: 'Do',\n      group: 'Control',\n      valueChangedToTrue: function () {\n        // When Do signal is triggered, evaluate the boolean input and emit appropriate signal\n        this.scheduleEvaluate();\n      }\n    }\n  },\n  outputs: {\n    trueCondition: {\n      type: 'signal',\n      displayName: 'True Condition',\n      group: 'Signals'\n    },\n    falseCondition: {\n      type: 'signal',\n      displayName: 'False Condition',\n      group: 'Signals'\n    }\n  },\n  methods: {\n    scheduleEvaluate: function () {\n      this.scheduleAfterInputsHaveUpdated(() => {\n        const inputValue = this.getInputValue('input');\n\n        // Emit the appropriate signal based on the boolean input\n        if (inputValue === true) {\n          this.sendSignalOnOutput('trueCondition');\n        } else if (inputValue === false) {\n          this.sendSignalOnOutput('falseCondition');\n        }\n        // If inputValue is undefined/null, don't emit any signal\n      ",
+  "category": "Logic",
+  "docs": "https://docsapp.xgenia.com/nodes/utilities/logic/if",
+  "color": null,
+  "lineCount": 63,
+  "byteSize": 1668
+}

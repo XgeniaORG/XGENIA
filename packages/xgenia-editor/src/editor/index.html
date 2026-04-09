@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src * 'unsafe-inline' ws: wss: data: blob:; style-src * 'unsafe-inline' data: blob:; img-src * 'unsafe-inline' data: blob:; font-src * 'unsafe-inline' data: blob:; frame-src * 'unsafe-inline' data: blob:; object-src * 'unsafe-inline' data: blob:; media-src * 'unsafe-inline' data: blob:; child-src * 'unsafe-inline' data: blob:;" />
+  <title>XGENIA</title>
+  <link href="../assets/lib/fontawesome/css/font-awesome.min.css" rel="stylesheet" />
+  <link href="../assets/css/style.css" rel="stylesheet" />
+
+  <!-- Libs that don't have npm packaged -->
+  <script type="text/javascript" src="../assets/lib/jquery-min.js"></script>
+  <script type="text/javascript" src="../assets/lib/jquery.autosize.min.js"></script>
+
+  <!-- REMOVED CDN SCRIPTS - Provided by preload.js now -->
+  <!-- <script crossorigin src="https://unpkg.com/react@19.1.0/umd/react.production.min.js"></script> -->
+  <!-- <script crossorigin src="https://unpkg.com/react-dom@19.1.0/umd/react-dom.production.min.js"></script> -->
+
+  <!-- REMOVED PIXI CDN SCRIPT - Provided by preload.js -->
+  <!-- <script src="https://unpkg.com/pixi.js@8.2.6/dist/pixi.min.js"></script> -->
+
+  <link rel="preload" href="../assets/Inter/Inter-Light.ttf" as="font" />
+  <link rel="preload" href="../assets/Inter/Inter-Regular.ttf" as="font" />
+  <link rel="preload" href="../assets/Inter/Inter-Medium.ttf" as="font" />
+  <link rel="preload" href="../assets/Inter/Inter-Bold.ttf" as="font" />
+  <link rel="preload" href="../assets/Inter/Inter-SemiBold.ttf" as="font" />
+
+  <script>
+    // --- NODEJS GLOBALS POLYFILL (browser only) ---
+    if (typeof window !== 'undefined') {
+      window.global = window;
+    }
+    // --- ELECTRON MOCK & WEB POLYFILLS (only when NOT in Electron) ---
+    if (typeof window !== 'undefined' && !window.require) {
+      if (typeof module === 'undefined') { window.module = { exports: {} }; }
+      if (typeof exports === 'undefined') { window.exports = window.module.exports; }
+      if (typeof Buffer === 'undefined') {
+        window.Buffer = { from: function (d, e) { if (e === 'base64') { var b = atob(d); var a = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; } return new TextEncoder().encode(String(d)); }, alloc: function (n) { return new Uint8Array(n); }, isBuffer: function () { return false; }, concat: function (bufs) { var len = bufs.reduce(function (a, b) { return a + b.length; }, 0); var r = new Uint8Array(len); var off = 0; bufs.forEach(function (b) { r.set(b, off); off += b.length; }); return r; } };
+      }
+      if (!window.process) {
+        window.process = { env: { devMode: 'yes', NODE_ENV: 'development' } };
+      }
+      window.addEventListener('error', function (e) {
+        console.error('[Web Mode] Uncaught error:', e.message, e.error ? e.error.stack : '');
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        console.error('[Web Mode] Unhandled rejection:', e.reason);
+      });
+      console.log('[Electron Mock] Initializing Electron API mocks for standard browser');
+      window.require = function (moduleName) {
+        if (moduleName === 'electron') {
+          return {
+            app: {
+              getPath: (p) => '/mock/' + p,
+              getAppPath: () => '/mock/app',
+              getVersion: () => '1.0.0',
+            },
+            shell: { openExternal: () => Promise.resolve() },
+            clipboard: { writeText: () => { } },
+            ipcRenderer: {
+              send: (channel, ...args) => console.log(`[Electron Mock] ipcRenderer.send('${channel}')`, args),
+              invoke: async (channel, ...args) => {
+                console.log(`[Electron Mock] ipcRenderer.invoke('${channel}')`, args);
+                if (channel === 'mcp:isTokenExpired') return false;
+                if (channel === 'mcp:loadAllMcpServers') return [];
+                return {};
+              },
+              on: (channel, listener) => console.log(`[Electron Mock] ipcRenderer.on('${channel}')`),
+              once: (channel, listener) => console.log(`[Electron Mock] ipcRenderer.once('${channel}')`),
+              removeListener: (channel, listener) => console.log(`[Electron Mock] ipcRenderer.removeListener('${channel}')`),
+            }
+          };
+        }
+        if (moduleName === '@electron/remote') {
+          return {
+            app: {
+              getPath: (p) => '/mock/' + p,
+              getAppPath: () => '/mock/app',
+              getVersion: () => '1.0.0',
+            },
+            getCurrentWindow: () => ({ focus: () => { }, isMaximized: () => false, maximize: () => { }, unmaximize: () => { }, minimize: () => { }, close: () => { }, setTitle: () => { }, on: () => { }, removeListener: () => { } }),
+            getGlobal: (name) => undefined,
+            dialog: {
+              showOpenDialog: () => Promise.resolve({ canceled: true, filePaths: [] }),
+              showSaveDialog: () => Promise.resolve({ canceled: true, filePath: '' }),
+              showMessageBox: () => Promise.resolve({ response: 0 }),
+            },
+            BrowserWindow: function () { },
+            screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 1920, height: 1080 } }) },
+            process: { env: { devMode: 'yes', NODE_ENV: 'development', xgeniaURI: undefined }, platform: 'browser', type: 'browser' },
+          };
+        }
+        if (moduleName === 'fs') {
+          var _memFS = {};
+          var _mockPkgJson = '{"buildNumber": 1, "fullVersion": "1.0.0", "versionTag": "mock", "version": "1.0.0", "name": "xgenia-editor"}';
+          return {
+            existsSync: function (p) { var s = String(p); if (s.indexOf('package.json') !== -1) return true; return _memFS.hasOwnProperty(s); },
+            readFileSync: function (p, opts) {
+              var key = String(p);
+              if (key.indexOf('package.json') !== -1) return _mockPkgJson;
+              if (_memFS[key] !== undefined) return _memFS[key];
+              return _mockPkgJson;
+            },
+            writeFileSync: function (p, data) { _memFS[String(p)] = String(data); },
+            readFile: function (p, opts, cb) {
+              if (typeof opts === 'function') { cb = opts; opts = {}; }
+              var key = String(p);
+              if (_memFS[key] !== undefined) { cb(null, _memFS[key]); }
+              else { var err = new Error('ENOENT'); err.code = 'ENOENT'; cb(err); }
+            },
+            writeFile: function (p, data, opts, cb) {
+              if (typeof opts === 'function') { cb = opts; opts = {}; }
+              _memFS[String(p)] = String(data);
+              if (cb) cb(null);
+            },
+            mkdirSync: function () { },
+            readdirSync: function () { return []; },
+            readdir: function (p, cb) { if (cb) cb(null, []); },
+            statSync: function () { return { isFile: function () { return true; }, isDirectory: function () { return false; }, size: 0, mtime: new Date() }; },
+            stat: function (p, cb) { if (cb) cb(null, { isFile: function () { return true; }, isDirectory: function () { return false; }, size: 0, mtime: new Date() }); },
+            unlinkSync: function (p) { delete _memFS[String(p)]; },
+            unlink: function (p, cb) { delete _memFS[String(p)]; if (cb) cb(null); },
+            createWriteStream: function () { return { on: function () { return this; }, write: function () { }, end: function () { }, once: function () { return this; }, emit: function () { } }; },
+            createReadStream: function () { return { on: function () { return this; }, pipe: function () { return this; }, once: function () { return this; }, emit: function () { } }; }
+          };
+        }
+        if (moduleName === 'path') {
+          return {
+            sep: '/',
+            delimiter: ':',
+            join: function () { return Array.prototype.slice.call(arguments).filter(Boolean).join('/').replace(/\/+/g, '/'); },
+            resolve: function () { return '/' + Array.prototype.slice.call(arguments).filter(Boolean).join('/').replace(/\/+/g, '/'); },
+            basename: function (p, ext) { var base = String(p).split('/').pop() || ''; if (ext && base.endsWith(ext)) base = base.slice(0, -ext.length); return base; },
+            dirname: function (p) { var parts = String(p).split('/'); parts.pop(); return parts.join('/') || '.'; },
+            extname: function (p) { var base = String(p).split('/').pop() || ''; var idx = base.lastIndexOf('.'); return idx > 0 ? base.slice(idx) : ''; },
+            normalize: function (p) { return String(p).replace(/\/+/g, '/'); },
+            isAbsolute: function (p) { return String(p).charAt(0) === '/'; },
+            parse: function (p) { var s = String(p); return { root: s.charAt(0) === '/' ? '/' : '', dir: s.split('/').slice(0, -1).join('/'), base: s.split('/').pop() || '', ext: (s.split('/').pop() || '').indexOf('.') > 0 ? (s.split('/').pop() || '').slice((s.split('/').pop() || '').lastIndexOf('.')) : '', name: ((s.split('/').pop() || '').indexOf('.') > 0 ? (s.split('/').pop() || '').slice(0, (s.split('/').pop() || '').lastIndexOf('.')) : s.split('/').pop() || '') }; },
+            relative: function (from, to) { return to; },
+            format: function (obj) { return (obj.dir ? obj.dir + '/' : '') + (obj.base || ''); }
+          };
+        }
+        if (moduleName === '@fal-ai/client') {
+          return {
+            subscribe: () => Promise.resolve({ data: {}, requestId: 'mock-1' }),
+            config: () => { }
+          };
+        }
+        if (moduleName === 'fs-extra') {
+          return {
+            copySync: function () { }, removeSync: function () { }, emptyDirSync: function () { },
+            mkdirp: function (p) { return Promise.resolve(); }, mkdirpSync: function () { },
+            ensureDir: function (p) { return Promise.resolve(); }, ensureDirSync: function () { },
+            pathExists: function (p) { return Promise.resolve(false); }, pathExistsSync: function () { return false; },
+            readJson: function (p) { return Promise.resolve({}); }, readJsonSync: function () { return {}; },
+            writeJson: function (p, d) { return Promise.resolve(); }, writeJsonSync: function () { },
+            copy: function () { return Promise.resolve(); }, move: function () { return Promise.resolve(); },
+            remove: function () { return Promise.resolve(); }
+          };
+        }
+        if (moduleName === 'mkdirp') {
+          var sync = function () { };
+          sync.sync = sync;
+          return sync;
+        }
+        if (moduleName === 'md5-file') {
+          var sync = function () { return 'mock-md5'; };
+          sync.sync = sync;
+          return sync;
+        }
+        if (moduleName === 'archiver') {
+          return function () {
+            return {
+              on: function () { return this; },
+              file: function () { return this; },
+              finalize: function () { return this; },
+              pipe: function () { return this; }
+            };
+          };
+        }
+        if (moduleName === 'glob') {
+          var g = function () { };
+          g.sync = function () { return []; };
+          return g;
+        }
+        if (moduleName === 'rimraf') {
+          var r = function (p, cb) { if (cb) cb(null); };
+          r.sync = function () { };
+          return r;
+        }
+        if (moduleName === 'mkdirp-sync') {
+          return function () { };
+        }
+        if (moduleName === 'os') {
+          return {
+            homedir: function () { return '/mock/home'; },
+            tmpdir: function () { return '/mock/tmp'; },
+            platform: function () { return 'browser'; },
+            arch: function () { return 'x64'; },
+            hostname: function () { return 'localhost'; },
+            type: function () { return 'Browser'; },
+            release: function () { return '1.0.0'; },
+            cpus: function () { return []; },
+            totalmem: function () { return 0; },
+            freemem: function () { return 0; },
+            EOL: '\n'
+          };
+        }
+        if (moduleName === 'env-paths') {
+          return function (name) { return { data: '/mock/data/' + name, config: '/mock/config/' + name, cache: '/mock/cache/' + name, log: '/mock/log/' + name, temp: '/mock/temp/' + name }; };
+        }
+        if (moduleName === 'electron-store') {
+          function MockStore() { this._data = {}; }
+          MockStore.prototype.get = function (k, d) { return this._data[k] !== undefined ? this._data[k] : d; };
+          MockStore.prototype.set = function (k, v) { this._data[k] = v; };
+          MockStore.prototype.delete = function (k) { delete this._data[k]; };
+          MockStore.prototype.has = function (k) { return this._data.hasOwnProperty(k); };
+          MockStore.prototype.clear = function () { this._data = {}; };
+          return MockStore;
+        }
+        if (moduleName === 'jquery' || moduleName === 'jQuery') {
+          var jq = function (selector) {
+            var els;
+            if (typeof selector === 'string') {
+              if (selector.charAt(0) === '<') {
+                var tmp = document.createElement('div'); tmp.innerHTML = selector.trim(); els = Array.from(tmp.children);
+              } else { try { els = Array.from(document.querySelectorAll(selector)); } catch (e) { els = []; } }
+            } else if (Array.isArray(selector)) { els = selector.filter(function (e) { return e; }); }
+            else if (selector instanceof Element || selector === document || selector === window) {
+              els = [selector];
+            } else if (selector && selector.nodeType) { els = [selector]; }
+            else if (selector && typeof selector === 'object' && selector.length !== undefined) { els = Array.from(selector); }
+            else { els = []; }
+            var wrap = {
+              length: els.length, 0: els[0],
+              each: function (fn) { els.forEach(function (el, i) { fn.call(el, i, el); }); return wrap; },
+              append: function (child) { if (els[0]) { if (child && child.nodeType) els[0].appendChild(child); else if (typeof child === 'string') els[0].insertAdjacentHTML('beforeend', child); else if (child && child[0]) els[0].appendChild(child[0]); } return wrap; },
+              prepend: function (child) { if (els[0]) { if (child && child.nodeType) els[0].insertBefore(child, els[0].firstChild); } return wrap; },
+              html: function (h) { if (h === undefined) return els[0] ? els[0].innerHTML : ''; els.forEach(function (el) { el.innerHTML = h; }); return wrap; },
+              text: function (t) { if (t === undefined) return els[0] ? els[0].textContent : ''; els.forEach(function (el) { el.textContent = t; }); return wrap; },
+              css: function (k, v) { if (typeof k === 'object') { els.forEach(function (el) { for (var p in k) el.style[p] = k[p]; }); } else if (v !== undefined) { els.forEach(function (el) { el.style[k] = v; }); } return wrap; },
+              addClass: function (c) { els.forEach(function (el) { if (el && el.classList) el.classList.add(c); }); return wrap; },
+              removeClass: function (c) { els.forEach(function (el) { if (el && el.classList) el.classList.remove(c); }); return wrap; },
+              toggleClass: function (c) { els.forEach(function (el) { if (el && el.classList) el.classList.toggle(c); }); return wrap; },
+              hasClass: function (c) { return els[0] && els[0].classList ? els[0].classList.contains(c) : false; },
+              attr: function (k, v) { if (v === undefined) return els[0] ? els[0].getAttribute(k) : null; els.forEach(function (el) { el.setAttribute(k, v); }); return wrap; },
+              removeAttr: function (k) { els.forEach(function (el) { el.removeAttribute(k); }); return wrap; },
+              find: function (s) { var r = []; els.forEach(function (el) { if (el && el.querySelectorAll) Array.from(el.querySelectorAll(s)).forEach(function (m) { r.push(m); }); }); return jq(r); },
+              filter: function (s) { var r = els.filter(function (el) { return el && el.matches && el.matches(s); }); return jq(r); },
+              add: function (other) { var combined = els.slice(); if (other && typeof other === 'object' && other.length !== undefined) { for (var i = 0; i < (other.length || 0); i++) { if (other[i] && combined.indexOf(other[i]) === -1) combined.push(other[i]); } } else if (other && other.nodeType) { combined.push(other); } return jq(combined); },
+              clone: function () { return els[0] ? jq(els[0].cloneNode(true)) : jq([]); },
+              on: function (evts, fn) { var evtList = evts.split(/\s+/); els.forEach(function (el) { evtList.forEach(function (e) { if (el && el.addEventListener) el.addEventListener(e, fn); }); }); return wrap; },
+              off: function (evts, fn) { var evtList = evts.split(/\s+/); els.forEach(function (el) { evtList.forEach(function (e) { if (el && el.removeEventListener) el.removeEventListener(e, fn); }); }); return wrap; },
+              trigger: function (evt) { els.forEach(function (el) { if (el && el.dispatchEvent) el.dispatchEvent(new Event(evt)); }); return wrap; },
+              val: function (v) { if (v === undefined) return els[0] ? els[0].value : ''; els.forEach(function (el) { el.value = v; }); return wrap; },
+              prop: function (k, v) { if (v === undefined) return els[0] ? els[0][k] : undefined; els.forEach(function (el) { el[k] = v; }); return wrap; },
+              show: function () { els.forEach(function (el) { el.style.display = ''; }); return wrap; },
+              hide: function () { els.forEach(function (el) { el.style.display = 'none'; }); return wrap; },
+              remove: function () { els.forEach(function (el) { if (el && el.parentNode) el.parentNode.removeChild(el); }); return wrap; },
+              detach: function () { els.forEach(function (el) { if (el && el.parentNode) el.parentNode.removeChild(el); }); return wrap; },
+              blur: function () { if (els[0] && els[0].blur) els[0].blur(); return wrap; },
+              focus: function () { if (els[0] && els[0].focus) els[0].focus(); return wrap; },
+              data: function (k, v) { if (!els[0]) return v === undefined ? undefined : wrap; if (v === undefined) return els[0].dataset ? els[0].dataset[k] : undefined; els.forEach(function (el) { if (el.dataset) el.dataset[k] = v; }); return wrap; },
+              width: function () { return els[0] ? els[0].offsetWidth : 0; },
+              height: function () { return els[0] ? els[0].offsetHeight : 0; },
+              is: function (s) { if (!els[0]) return false; if (typeof s === 'string') return els[0].matches ? els[0].matches(s) : false; if (s && typeof s === 'object' && s.length !== undefined) { for (var _j = 0; _j < s.length; _j++) { if (els.indexOf(s[_j]) !== -1 || (s[_j] && els.some(function (e) { return e === s[_j] || (e && e.contains && e.contains(s[_j])); }))) return true; } return false; } return false; },
+              closest: function (s) { return els[0] && els[0].closest ? jq(els[0].closest(s)) : jq([]); },
+              parent: function () { return els[0] && els[0].parentNode ? jq(els[0].parentNode) : jq([]); },
+              children: function () { return els[0] ? jq(Array.from(els[0].children)) : jq([]); },
+              eq: function (i) { return i >= 0 && i < els.length ? jq(els[i]) : jq([]); },
+              first: function () { return els.length > 0 ? jq(els[0]) : jq([]); },
+              last: function () { return els.length > 0 ? jq(els[els.length - 1]) : jq([]); },
+              parents: function (s) { var r = []; els.forEach(function (el) { var p = el ? el.parentElement : null; while (p) { if (!s || (p.matches && p.matches(s))) r.push(p); p = p.parentElement; } }); return jq(r); },
+              siblings: function (s) { var r = []; els.forEach(function (el) { if (el && el.parentNode) Array.from(el.parentNode.children).forEach(function (c) { if (c !== el && (!s || (c.matches && c.matches(s)))) r.push(c); }); }); return jq(r); },
+              next: function (s) { var n = els[0] ? els[0].nextElementSibling : null; if (s && n && !n.matches(s)) n = null; return jq(n ? [n] : []); },
+              prev: function (s) { var p = els[0] ? els[0].previousElementSibling : null; if (s && p && !p.matches(s)) p = null; return jq(p ? [p] : []); },
+              click: function (fn) { if (typeof fn === 'function') { return wrap.on('click', fn); } els.forEach(function (el) { if (el && el.click) el.click(); }); return wrap; },
+              replaceWith: function (content) { if (els[0] && els[0].parentNode) { if (typeof content === 'string') { els[0].insertAdjacentHTML('afterend', content); els[0].parentNode.removeChild(els[0]); } else if (content && content.nodeType) { els[0].parentNode.replaceChild(content, els[0]); } else if (content && content[0]) { els[0].parentNode.replaceChild(content[0], els[0]); } } return wrap; },
+              empty: function () { els.forEach(function (el) { while (el.firstChild) el.removeChild(el.firstChild); }); return wrap; },
+              index: function () { if (!els[0] || !els[0].parentNode) return -1; return Array.from(els[0].parentNode.children).indexOf(els[0]); },
+              scrollTop: function (v) { if (v === undefined) return els[0] ? els[0].scrollTop : 0; els.forEach(function (el) { el.scrollTop = v; }); return wrap; },
+              offset: function () { if (!els[0]) return { top: 0, left: 0 }; var r = els[0].getBoundingClientRect(); return { top: r.top + window.scrollY, left: r.left + window.scrollX }; },
+              position: function () { if (!els[0]) return { top: 0, left: 0 }; return { top: els[0].offsetTop, left: els[0].offsetLeft }; },
+              outerWidth: function (m) { return els[0] ? els[0].offsetWidth : 0; },
+              outerHeight: function (m) { return els[0] ? els[0].offsetHeight : 0; },
+              not: function (s) { var r = els.filter(function (el) { return !(el && el.matches && el.matches(s)); }); return jq(r); },
+              render: function () { return els[0]; },
+              get: function (i) { return typeof i === 'number' ? els[i] : els; }
+            };
+            // Ensure indexed access like jQuery collections
+            for (var _i = 0; _i < els.length; _i++) { wrap[_i] = els[_i]; }
+            return wrap;
+          };
+          jq.ajax = function () { return Promise.resolve(); };
+          jq.fn = { extend: function (o) { Object.assign(jq.prototype || {}, o); } };
+          jq.extend = function () { return Object.assign.apply(null, arguments); };
+          jq.Deferred = function () { var d = {}; d.resolve = function () { return d; }; d.reject = function () { return d; }; d.promise = function () { return d; }; d.then = function (fn) { if (fn) fn(); return d; }; return d; };
+          jq.ready = function (fn) { if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); return jq; };
+          window.$ = window.jQuery = jq;
+          jq.__esModule = true;
+          jq.default = jq;
+          return jq;
+        }
+        // --- Node.js built-in modules ---
+        if (moduleName === 'net') {
+          return {
+            createServer: function () { return { listen: function () { return this; }, close: function (cb) { if (cb) cb(); }, on: function () { return this; }, address: function () { return { port: 0 }; }, unref: function () { return this; }, ref: function () { return this; } }; },
+            createConnection: function () { return { on: function () { return this; }, write: function () { }, end: function () { }, destroy: function () { }, connect: function () { return this; } }; },
+            Socket: function () { return { on: function () { return this; }, connect: function () { return this; }, write: function () { }, end: function () { }, destroy: function () { } }; },
+            isIP: function () { return 0; }
+          };
+        }
+        if (moduleName === 'http' || moduleName === 'https') {
+          return {
+            createServer: function () { return { listen: function () { return this; }, close: function (cb) { if (cb) cb(); }, on: function () { return this; } }; },
+            request: function (opts, cb) { var res = { on: function () { return this; }, statusCode: 200 }; if (cb) setTimeout(function () { cb(res); }, 0); return { on: function () { return this; }, write: function () { }, end: function () { } }; },
+            get: function (opts, cb) { return this.request(opts, cb); },
+            Agent: function () { },
+            globalAgent: {}
+          };
+        }
+        if (moduleName === 'child_process') {
+          return {
+            exec: function (cmd, opts, cb) { if (typeof opts === 'function') { cb = opts; } if (cb) cb(null, '', ''); },
+            execSync: function () { return ''; },
+            spawn: function () { return { on: function () { return this; }, stdout: { on: function () { return this; } }, stderr: { on: function () { return this; } }, kill: function () { } }; },
+            fork: function () { return { on: function () { return this; }, send: function () { }, kill: function () { } }; }
+          };
+        }
+        if (moduleName === 'stream') {
+          function MockStream() { }
+          MockStream.prototype.on = function () { return this; };
+          MockStream.prototype.pipe = function () { return this; };
+          MockStream.prototype.write = function () { return true; };
+          MockStream.prototype.end = function () { };
+          MockStream.Readable = MockStream;
+          MockStream.Writable = MockStream;
+          MockStream.Duplex = MockStream;
+          MockStream.Transform = MockStream;
+          MockStream.PassThrough = MockStream;
+          return MockStream;
+        }
+        if (moduleName === 'crypto') {
+          return {
+            createHash: function () { return { update: function () { return this; }, digest: function () { return 'mock-hash'; } }; },
+            createHmac: function () { return { update: function () { return this; }, digest: function () { return 'mock-hmac'; } }; },
+            randomBytes: function (n) { var a = new Uint8Array(n); if (typeof window !== 'undefined' && window.crypto) window.crypto.getRandomValues(a); return a; },
+            randomUUID: function () { return typeof window !== 'undefined' && window.crypto ? window.crypto.randomUUID() : 'mock-uuid'; }
+          };
+        }
+        if (moduleName === 'url') {
+          return { parse: function (u) { try { var o = new URL(u); return o; } catch (e) { return {}; } }, format: function (o) { return String(o); }, URL: typeof URL !== 'undefined' ? URL : function () { } };
+        }
+        if (moduleName === 'util') {
+          return { inherits: function (c, s) { c.prototype = Object.create(s.prototype); c.prototype.constructor = c; }, promisify: function (fn) { return fn; }, inspect: function (o) { return String(o); }, deprecate: function (fn) { return fn; } };
+        }
+        if (moduleName === 'zlib' || moduleName === 'tls' || moduleName === 'dgram' || moduleName === 'dns' || moduleName === 'tty' || moduleName === 'assert' || moduleName === 'constants' || moduleName === 'querystring' || moduleName === 'string_decoder') {
+          return {};
+        }
+        if (moduleName === 'express') {
+          var app = function () {
+            var a = { _routes: {}, use: function () { return a; }, get: function () { return a; }, post: function () { return a; }, put: function () { return a; }, delete: function () { return a; }, listen: function (port, cb) { if (cb) cb(); return { close: function () { } }; }, set: function () { return a; } };
+            return a;
+          };
+          app.Router = function () { return { use: function () { return this; }, get: function () { return this; }, post: function () { return this; } }; };
+          app.static = function () { return function () { }; };
+          return app;
+        }
+        if (moduleName === 'ansi-html-community') {
+          return { setColors: () => { } };
+        }
+        if (moduleName === 'html-entities') {
+          return { decode: (s) => s };
+        }
+        if (moduleName === 'events') {
+          function EventEmitter() { this._events = {}; }
+          EventEmitter.prototype.on = function (type, listener) {
+            (this._events[type] = this._events[type] || []).push(listener);
+            return this;
+          };
+          EventEmitter.prototype.emit = function (type, ...args) {
+            if (!this._events[type]) return false;
+            this._events[type].forEach(l => l(...args));
+            return true;
+          };
+          EventEmitter.prototype.removeListener = function (type, listener) {
+            if (this._events[type]) this._events[type] = this._events[type].filter(l => l !== listener);
+            return this;
+          };
+          EventEmitter.EventEmitter = EventEmitter;
+          return EventEmitter;
+        }
+        return {};
+      };
+      window.XgeniaEditorAPI = {
+        sendMessage: (channel, data) => console.log(`[Electron Mock] XgeniaEditorAPI.sendMessage('${channel}')`, data),
+        setResponseHandler: (handler) => { window.handleEditorApiResponse = handler; }
+      };
+      window.mcpAPI = {
+        loadAllMcpServers: async () => [],
+        addOrUpdateMcpServer: async () => ({}),
+        removeMcpServer: async () => ({}),
+        fetchTools: async () => [],
+        callTool: async () => ({}),
+        isInitialized: () => true,
+        onInitialized: (cb) => cb(),
+        startOAuthServer: async () => ({}),
+        setOAuthRedirectUri: () => { },
+        registerOAuthClient: async () => ({}),
+        initiateOAuthFlow: async () => ({}),
+        handleOAuthCallback: async () => ({}),
+        handleMCPOAuthTokens: async () => ({}),
+        refreshOAuthToken: async () => ({}),
+        isTokenExpired: async () => false,
+        onServersChanged: (cb) => { return () => { }; }
+      };
+      window.XgeniaEditorInspectorAPI = { setEnabled: (enabled) => console.log(`[Electron Mock] Inspector enabled: ${enabled}`) };
+      window.XgeniaEditorHighlightAPI = { selectNode: (nodeId) => console.log(`[Electron Mock] Selected node: ${nodeId}`) };
+    }
+    // -----------------------------------------
+
+    // Use XGENIAPORT (default 8080) for dev mode, otherwise relative path for production
+    const devPort = 8080; // Default XGENIA port, align with web-server.js
+    const path = window.process && window.process.env && window.process.env.devMode === 'yes' ? `http://localhost:${devPort}/src/editor` : '.';
+    document.write(`<script defer src="${path}/index.bundle.js"><\/script>`);
+  </script>
+</head>
+
+<body>
+  <div id="root" style="position: relative; width: 100vw; height: 100vh; overflow: hidden"></div>
+
+</body>
+
+</html>

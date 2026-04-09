@@ -1,0 +1,48 @@
+{
+  "name": "net.xgenia.user.LogIn",
+  "file": "login.js",
+  "relativePath": "std-library/user/login.js",
+  "inputs": {
+    "code": "{\n    login: {\n      displayName: 'Do',\n      group: 'Actions',\n      valueChangedToTrue() {\n        this.scheduleLogIn();\n      }\n    },\n    username: {\n      displayName: 'Username',\n      type: 'string',\n      group: 'General',\n      set(value) {\n        this._internal.username = value;\n      }\n    },\n    password: {\n      displayName: 'Password',\n      type: 'string',\n      group: 'General',\n      set(value) {\n        this._internal.password = value;\n      }\n    }\n  }",
+    "startLine": 31
+  },
+  "outputs": {
+    "code": "{\n    success: {\n      type: 'signal',\n      displayName: 'Success',\n      group: 'Events'\n    },\n    failure: {\n      type: 'signal',\n      displayName: 'Failure',\n      group: 'Events'\n    },\n    error: {\n      type: 'string',\n      displayName: 'Error',\n      group: 'Error',\n      getter() {\n        return this._internal.error;\n      }\n    }\n  }",
+    "startLine": 11
+  },
+  "inputFormatHints": {
+    "login": {
+      "displayName": "Do"
+    },
+    "username": {
+      "type": "string",
+      "displayName": "Username"
+    },
+    "password": {
+      "type": "string",
+      "displayName": "Password"
+    }
+  },
+  "outputFormatHints": {
+    "success": {
+      "type": "signal",
+      "displayName": "Success"
+    },
+    "failure": {
+      "type": "signal",
+      "displayName": "Failure"
+    },
+    "error": {
+      "type": "string",
+      "displayName": "Error"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'net.xgenia.user.LogIn',\n  docs: 'https://docsapp.xgenia.com/nodes/data/user/log-in',\n  displayNodeName: 'Log In',\n  category: 'Cloud Services',\n  color: 'data',\n  outputs: {\n    success: {\n      type: 'signal',\n      displayName: 'Success',\n      group: 'Events'\n    },\n    failure: {\n      type: 'signal',\n      displayName: 'Failure',\n      group: 'Events'\n    },\n    error: {\n      type: 'string',\n      displayName: 'Error',\n      group: 'Error',\n      getter() {\n        return this._internal.error;\n      }\n    }\n  },\n  inputs: {\n    login: {\n      displayName: 'Do',\n      group: 'Actions',\n      valueChangedToTrue() {\n        this.scheduleLogIn();\n      }\n    },\n    username: {\n      displayName: 'Username',\n      type: 'string',\n      group: 'General',\n      set(value) {\n        this._internal.username = value;\n      }\n    },\n    password: {\n      displayName: 'Password',\n      type: 'string',\n      group: 'General',\n      set(value) {\n        this._internal.password = value;\n      }\n    }\n  },\n  methods: {\n    setError(err) {\n      this._internal.error = err;\n      this.flagOutputDirty('error');\n      this.sendSignalOnOutput('failure');\n\n      if (this.context.editorConnection) {\n        this.context.editorConnection.sendWarning(this.nodeScope.componentOwner.name, this.id, 'user-login-warning', {\n          message: err,\n          showGlobally: true\n        ",
+  "category": "Cloud Services",
+  "docs": "https://docsapp.xgenia.com/nodes/data/user/log-in",
+  "color": "data",
+  "lineCount": 100,
+  "byteSize": 2298
+}

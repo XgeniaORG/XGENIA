@@ -1,0 +1,105 @@
+import { CustomPropertyAnimation, useCustomPropertyValue } from '@xgenia-hooks/useCustomPropertyValue';
+import classNames from 'classnames';
+import React, { ReactNode, useEffect, useState } from 'react';
+
+import { NodeType } from '@xgenia-constants/NodeType';
+
+import { Collapsible } from '@xgenia-core-ui/components/layout/Collapsible';
+import { Text, TextSize, TextType } from '@xgenia-core-ui/components/typography/Text';
+import { Title, TitleSize, TitleVariant } from '@xgenia-core-ui/components/typography/Title';
+
+import css from './NodePickerCategory.module.scss';
+
+interface NodePickerCategoryProps {
+  title: string;
+  description: string;
+  type?: NodeType | NodeColor;
+  children: ReactNode;
+
+  isKeyboardCursored?: boolean;
+  isCollapsed?: boolean;
+
+  disableTransition?: boolean;
+}
+
+export default function NodePickerCategory({
+  title,
+  description,
+  children,
+  type = NodeType.Visual,
+
+  isKeyboardCursored,
+  isCollapsed,
+
+  disableTransition
+}: NodePickerCategoryProps) {
+  const transitionSpeed = useCustomPropertyValue(CustomPropertyAnimation.SpeedQuick);
+  const descriptionEasingFunction = useCustomPropertyValue(CustomPropertyAnimation.EasingEqual);
+  const [isCollapsedState, setIsCollapsedState] = useState(isCollapsed);
+  const [isHighlightedState, setIsHighlightedState] = useState(isKeyboardCursored);
+
+  useEffect(() => {
+    setIsHighlightedState(isKeyboardCursored);
+  }, [isKeyboardCursored]);
+
+  useEffect(() => {
+    setIsCollapsedState(isCollapsed);
+  }, [isCollapsed]);
+
+  function addHighlight() {
+    setIsHighlightedState(true);
+  }
+
+  function removeHighlight() {
+    setIsHighlightedState(false);
+  }
+
+  return (
+    <section
+      className={classNames(
+        css['Root'],
+        css[`Root--is-theme-${type}`],
+        isHighlightedState && css['Root--is-highlighted']
+      )}
+      onMouseEnter={addHighlight}
+      onMouseLeave={removeHighlight}
+    >
+      <header
+        className={classNames([css['Header'], css[`Header--is-theme-${type}`]])}
+        onClick={() => setIsCollapsedState(!isCollapsedState)}
+      >
+        <div style={{
+          display: 'flex', flexDirection:
+            'column', justifyContent: 'space-between',
+            // alignItems: 'center'
+        }}> <Title variant={TitleVariant.Highlighted} size={TitleSize.Medium}>
+            {title}
+          </Title>
+
+          <Collapsible
+            isCollapsed={!isCollapsedState}
+            transitionMs={transitionSpeed * 0.5}
+            disableTransition={disableTransition}
+            easingFunction={descriptionEasingFunction}
+          >
+            <Text textType={TextType.Default} size={TextSize.Medium}>
+              {description}
+            </Text>
+          </Collapsible></div>
+
+
+        <img
+          className={classNames([
+            css['Arrow'],
+            isCollapsedState ? css['Arrow--is-not-collapsed'] : css['Arrow--is-collapsed']
+          ])}
+          src="../assets/icons/editor/right_arrow_22.svg"
+        />
+      </header>
+
+      <Collapsible isCollapsed={isCollapsedState} transitionMs={transitionSpeed} disableTransition={disableTransition}>
+        <div>{children}</div>
+      </Collapsible>
+    </section>
+  );
+}

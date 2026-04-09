@@ -1,0 +1,159 @@
+.Root {
+  padding: 4px;
+  border: 0;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  transition: background-color var(--speed-turbo) var(--easing-base);
+
+  path {
+    transition: fill var(--speed-turbo) var(--easing-base);
+  }
+
+  &:disabled {
+    background-color: var(--theme-color-bg-2);
+
+    path {
+      fill: var(--theme-color-fg-default-shy);
+    }
+  }
+
+  &.is-variant-default {
+    background-color: var(--theme-color-bg-3);
+
+    path {
+      fill: var(--theme-color-fg-default);
+    }
+
+    &.is-state-active,
+    &:not(:disabled):hover {
+      background-color: var(--theme-color-bg-1);
+
+      path {
+        fill: var(--theme-color-fg-highlight);
+      }
+    }
+  }
+
+  &.is-variant-semi-transparent {
+    background-color: var(--theme-color-fg-transparent);
+
+    path {
+      fill: var(--theme-color-fg-highlight);
+    }
+
+    &.is-state-active,
+    &:not(:disabled):hover {
+      background-color: var(--theme-color-bg-1-transparent);
+
+      path {
+        fill: var(--theme-color-fg-highlight);
+      }
+    }
+  }
+
+  &.is-variant-transparent {
+    background-color: transparent !important;
+    border: 1px solid transparent;
+    border-radius: 8px;
+
+    path {
+      fill: var(--theme-color-fg-default);
+    }
+
+    &:disabled {
+      path {
+        fill: var(--theme-color-bg-4);
+      }
+    }
+
+    &.is-state-active,
+    &:not(:disabled):hover {
+      background-color: var(--theme-color-bg-3);
+      border-color: var(--theme-color-bg-1);
+      box-shadow: 0 0 0 1px var(--theme-color-bg-1);
+
+      path {
+        fill: var(--theme-color-fg-highlight);
+      }
+    }
+  }
+
+  &.is-variant-opaque-on-hover {
+    background-color: transparent;
+
+    path {
+      fill: var(--theme-color-fg-default);
+    }
+
+    &:not(:disabled):hover {
+      background-color: var(--theme-color-bg-3);
+
+      path {
+        fill: var(--theme-color-fg-highlight);
+      }
+    }
+
+    &:disabled {
+      path {
+        fill: var(--theme-color-bg-4);
+      }
+    }
+  }
+
+  &.is-button-size-bigger {
+    padding: 6px;
+  }
+}
+
+.Icon {
+  transition: transform var(--speed-quick) var(--easing-base);
+
+  .Root.is-state-rotated & {
+    transform: rotate(180deg);
+  }
+
+  .Root.is-icon-variant-notice:hover & {
+    path {
+      fill: var(--theme-color-primary-highlight) !important;
+    }
+  }
+}
+
+.Label {
+  margin-left: 4px;
+}
+
+// Style for the gradient border on external icons - REMOVED
+/* .Root.is-external-icon {
+  position: relative; // Needed for absolute positioning of pseudo-element
+  overflow: hidden; // Prevent pseudo-element overflow if needed
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    border-radius: inherit; // Match button's border radius
+    padding: 1px; // Thickness of the border effect
+    background: linear-gradient(to bottom right, var(--theme-color-primary-default), var(--theme-color-secondary-default)); // Gradient colors
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    pointer-events: none; // Don't interfere with clicks
+  }
+} */
+
+// Add override for external icons to prevent fill
+.Root.is-external-icon {
+  path,
+  circle,
+  rect,
+  line { // Target potential shapes within external SVGs
+    fill: none !important; // Force no fill, overriding variant styles
+  }
+}

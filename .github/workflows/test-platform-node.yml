@@ -1,0 +1,41 @@
+name: Test xgenia/xgenia-platform-node
+
+on:
+  # push:
+  #   branches: ["main"]
+  #   paths:
+  #     - 'packages/xgenia-platform/**'
+  #     - 'packages/xgenia-platform-node/**'
+  #     - 'packages/xgenia-platform-electron/**'
+
+  # pull_request:
+  #   paths:
+  #     - 'packages/xgenia-platform/**'
+  #     - 'packages/xgenia-platform-node/**'
+  #     - 'packages/xgenia-platform-electron/**'
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  test_platform:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup node env 🏗
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies 🏗
+        run: npm install
+
+      - name: Run tests
+        run: npx lerna exec --scope @xgenia/platform-node -- npm run test
+
+      - name: Print coverage
+        run: npx lerna exec --scope @xgenia/platform-node -- npm run test:coverage

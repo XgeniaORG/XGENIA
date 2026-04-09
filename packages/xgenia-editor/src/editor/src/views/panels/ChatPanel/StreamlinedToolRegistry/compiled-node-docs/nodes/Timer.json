@@ -1,0 +1,51 @@
+{
+  "name": "Timer",
+  "file": "timer.js",
+  "relativePath": "std-library/timer.js",
+  "inputs": {
+    "code": "{\n    start: {\n      displayName: 'Start',\n      valueChangedToTrue: function () {\n        if (this._internal._animation._isRunning === false) {\n          this._internal._animation.start();\n        }\n      }\n    },\n    restart: {\n      displayName: 'Restart',\n      valueChangedToTrue: function () {\n        this._internal._animation.start();\n      }\n    },\n    duration: {\n      type: 'number',\n      displayName: 'Duration',\n      default: 0,\n      set: function (value) {\n        this._internal._animation.duration = value;\n      }\n    },\n    startDelay: {\n      type: 'number',\n      displayName: 'Start Delay',\n      default: 0,\n      set: function (value) {\n        this._internal._animation.delay = value;\n      }\n    },\n    stop: {\n      displayName: 'Stop',\n      valueChangedToTrue: function () {\n        this._internal._animation.stop();\n      }\n    }\n  }",
+    "startLine": 33
+  },
+  "outputs": {
+    "code": "{\n    timerStarted: {\n      type: 'signal',\n      displayName: 'Started'\n    },\n    timerFinished: {\n      type: 'signal',\n      displayName: 'Finished'\n    }\n  }",
+    "startLine": 71
+  },
+  "inputFormatHints": {
+    "restart": {
+      "displayName": "Restart"
+    },
+    "duration": {
+      "type": "number",
+      "displayName": "Duration",
+      "default": "0",
+      "format_hint": "Integer number"
+    },
+    "startDelay": {
+      "type": "number",
+      "displayName": "Start Delay",
+      "default": "0",
+      "format_hint": "Integer number"
+    },
+    "stop": {
+      "displayName": "Stop"
+    }
+  },
+  "outputFormatHints": {
+    "timerStarted": {
+      "type": "signal",
+      "displayName": "Started"
+    },
+    "timerFinished": {
+      "type": "signal",
+      "displayName": "Finished"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'Timer',\n  docs: 'https://docsapp.xgenia.com/nodes/utilities/delay',\n  displayName: 'Delay',\n  category: 'Utilities',\n  nodeDoubleClickAction: {\n    focusPort: 'duration'\n  },\n  initialize: function () {\n    var self = this;\n    this._internal._animation = this.context.timerScheduler.createTimer({\n      duration: 0,\n      onStart: function () {\n        self.sendSignalOnOutput('timerStarted');\n      },\n      onFinish: function () {\n        self.sendSignalOnOutput('timerFinished');\n      }\n    ",
+  "category": "Utilities",
+  "docs": "https://docsapp.xgenia.com/nodes/utilities/delay",
+  "color": null,
+  "lineCount": 86,
+  "byteSize": 1919
+}

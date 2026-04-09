@@ -1,0 +1,33 @@
+{
+  "name": "Screen Resolution",
+  "file": "screenresolution.js",
+  "relativePath": "std-library/screenresolution.js",
+  "inputs": null,
+  "outputs": {
+    "code": "{\n    width: {\n      type: 'number',\n      displayName: 'Width',\n      get() {\n        return this._internal.width;\n      }\n    },\n    height: {\n      type: 'number',\n      displayName: 'Height',\n      get() {\n        return this._internal.height;\n      }\n    },\n    aspectRatio: {\n      type: 'number',\n      displayName: 'Aspect Ratio',\n      get() {\n        return this._internal.width / this._internal.height;\n      }\n    }\n  }",
+    "startLine": 19
+  },
+  "inputFormatHints": {},
+  "outputFormatHints": {
+    "width": {
+      "type": "number",
+      "displayName": "Width"
+    },
+    "height": {
+      "type": "number",
+      "displayName": "Height"
+    },
+    "aspectRatio": {
+      "type": "number",
+      "displayName": "Aspect Ratio"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'Screen Resolution',\n  docs: 'https://docsapp.xgenia.com/nodes/utilities/screen-resolution',\n  category: 'Utilities',\n  initialize() {\n    // Add SSR Support\n    if (typeof window === 'undefined') return;\n\n    window.addEventListener('resize', () => {\n      this._viewportSizeChanged();\n    ",
+  "category": "Utilities",
+  "docs": "https://docsapp.xgenia.com/nodes/utilities/screen-resolution",
+  "color": null,
+  "lineCount": 54,
+  "byteSize": 1153
+}

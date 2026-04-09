@@ -1,0 +1,35 @@
+{
+  "name": "Unique Id",
+  "file": "uniqueid.js",
+  "relativePath": "std-library/uniqueid.js",
+  "inputs": {
+    "code": "{\n    new: {\n      displayName: 'New',\n      valueChangedToTrue: function () {\n        var internal = this._internal;\n        internal.guid = Model.guid();\n        this.flagOutputDirty('guid');\n      }\n    }\n  }",
+    "startLine": 16
+  },
+  "outputs": {
+    "code": "{\n    guid: {\n      type: 'string',\n      displayName: 'Id',\n      getter: function () {\n        var internal = this._internal;\n        return internal.guid;\n      }\n    }\n  }",
+    "startLine": 26
+  },
+  "inputFormatHints": {
+    "new": {
+      "displayName": "New"
+    }
+  },
+  "outputFormatHints": {
+    "guid": {
+      "type": "string",
+      "displayName": "Id"
+    }
+  },
+  "prototypeExtensions": {
+    "code": "{}",
+    "startLine": 36
+  },
+  "helpers": [],
+  "fullDefinition": "\n  name: 'Unique Id',\n  docs: 'https://docsapp.xgenia.com/nodes/utilities/unique-id',\n  category: 'String Manipulation',\n  initialize: function () {\n    var internal = this._internal;\n    internal.guid = Model.guid();\n  },\n  getInspectInfo() {\n    return this._internal.guid;\n  },\n  inputs: {\n    new: {\n      displayName: 'New',\n      valueChangedToTrue: function () {\n        var internal = this._internal;\n        internal.guid = Model.guid();\n        this.flagOutputDirty('guid');\n      }\n    }\n  },\n  outputs: {\n    guid: {\n      type: 'string',\n      displayName: 'Id',\n      getter: function () {\n        var internal = this._internal;\n        return internal.guid;\n      }\n    }\n  },\n  prototypeExtensions: {}\n",
+  "category": "String Manipulation",
+  "docs": "https://docsapp.xgenia.com/nodes/utilities/unique-id",
+  "color": null,
+  "lineCount": 42,
+  "byteSize": 841
+}

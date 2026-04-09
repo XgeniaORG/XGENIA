@@ -1,0 +1,32 @@
+{
+  "name": "Cloud File",
+  "file": "cloudfilenode.js",
+  "relativePath": "std-library/data/cloudfilenode.js",
+  "inputs": {
+    "code": "{\n    file: {\n      type: 'cloudfile',\n      displayName: 'Cloud File',\n      group: 'General',\n      set(value) {\n        if (value instanceof CloudFile === false) {\n          return;\n        }\n        this._internal.cloudFile = value;\n        this.flagOutputDirty('name');\n        this.flagOutputDirty('url');\n      }\n    }\n  }",
+    "startLine": 34
+  },
+  "outputs": {
+    "code": "{\n    url: {\n      type: 'string',\n      displayName: 'URL',\n      group: 'General',\n      get() {\n        return this._internal.cloudFile && this._internal.cloudFile.getUrl();\n      }\n    },\n    name: {\n      type: 'string',\n      displayName: 'Name',\n      group: 'General',\n      get() {\n        if (!this._internal.cloudFile) return;\n\n        //parse prefixes the file with a guid_\n        //remove it so the name is the same as the original file name\n        const n = this._internal.cloudFile.getName().split('_');\n        return n.length === 1 ? n[0] : n.slice(1).join('_');\n      }\n    }\n  }",
+    "startLine": 11
+  },
+  "inputFormatHints": {},
+  "outputFormatHints": {
+    "url": {
+      "type": "string",
+      "displayName": "URL"
+    },
+    "name": {
+      "type": "string",
+      "displayName": "Name"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'Cloud File',\n  docs: 'https://docsapp.xgenia.com/nodes/data/cloud-data/cloud-file',\n  category: 'Cloud Services',\n  color: 'data',\n  getInspectInfo() {\n    return this._internal.cloudFile && this._internal.cloudFile.getUrl();\n  },\n  outputs: {\n    url: {\n      type: 'string',\n      displayName: 'URL',\n      group: 'General',\n      get() {\n        return this._internal.cloudFile && this._internal.cloudFile.getUrl();\n      }\n    },\n    name: {\n      type: 'string',\n      displayName: 'Name',\n      group: 'General',\n      get() {\n        if (!this._internal.cloudFile) return;\n\n        //parse prefixes the file with a guid_\n        //remove it so the name is the same as the original file name\n        const n = this._internal.cloudFile.getName().split('_');\n        return n.length === 1 ? n[0] : n.slice(1).join('_');\n      }\n    }\n  },\n  inputs: {\n    file: {\n      type: 'cloudfile',\n      displayName: 'Cloud File',\n      group: 'General',\n      set(value) {\n        if (value instanceof CloudFile === false) {\n          return;\n        }\n        this._internal.cloudFile = value;\n        this.flagOutputDirty('name');\n        this.flagOutputDirty('url');\n      }\n    }\n  }\n",
+  "category": "Cloud Services",
+  "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/cloud-file",
+  "color": "data",
+  "lineCount": 54,
+  "byteSize": 1318
+}

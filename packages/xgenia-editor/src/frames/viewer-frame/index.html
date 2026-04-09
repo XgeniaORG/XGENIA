@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>XGENIA Viewer</title>
+    <script>
+        (function() {
+            var isHttp = /^https?:/.test(location.protocol);
+            var host = location.hostname || '127.0.0.1';
+            var assetsBaseDev = 'http://' + host + ':9080/src';
+
+            var fa = document.createElement('link');
+            fa.rel = 'stylesheet';
+            fa.href = isHttp ? (assetsBaseDev + '/assets/lib/fontawesome/css/font-awesome.min.css') : '../../assets/lib/fontawesome/css/font-awesome.min.css';
+            document.head.appendChild(fa);
+
+            var css = document.createElement('link');
+            css.rel = 'stylesheet';
+            css.href = isHttp ? (assetsBaseDev + '/frames/viewer-frame/assets/style.css') : 'assets/style.css';
+            document.head.appendChild(css);
+        })();
+    </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const { ipcRenderer } = require('electron');
+            const { app } = require('@electron/remote');
+            const path = require('path');
+
+            // Build container
+            var container = document.createElement('div');
+            container.className = 'container';
+            var header = document.createElement('div');
+            header.className = 'sidebar-panel-header';
+            var title = document.createElement('div');
+            title.className = 'title weburl';
+            title.textContent = 'Viewer';
+            header.appendChild(title);
+            var webviewContainer = document.createElement('div');
+            webviewContainer.className = 'webview-container';
+            container.appendChild(header);
+            container.appendChild(webviewContainer);
+            document.body.appendChild(container);
+
+            // Create webview
+            var wv = document.createElement('webview');
+            wv.style.width = '100%';
+            wv.style.height = '100%';
+            wv.setAttribute('nodeintegration', 'false');
+            wv.setAttribute('disablewebsecurity', 'true');
+            wv.setAttribute('allowpopups', 'true');
+            wv.setAttribute('webpreferences', 'contextIsolation=false, webSecurity=false, enableRemoteModule=true');
+
+            // Set preload for viewer APIs
+            try {
+                var preloadPath = app.isPackaged
+                    ? `file://${path.join(app.getAppPath(), 'assets/webview-preload-viewer.js')}`
+                    : `file://${path.join(app.getAppPath(), 'src/assets/webview-preload-viewer.js')}`;
+                wv.setAttribute('preload', preloadPath);
+            } catch {}
+
+            webviewContainer.appendChild(wv);
+
+            // Helper to get preview server URL
+            function getPreviewBase() {
+                // Prefer 127.0.0.1 to avoid resolution issues
+                var port = 8574; // fixed dev port used by web-server.js
+                var protocol = process.env && process.env.ssl ? 'https://' : 'http://';
+                return protocol + '127.0.0.1:' + port;
+            }
+
+            function stripTimestamp(route) {
+                if (!route) return '/';
+                try {
+                    var u = new URL(route, getPreviewBase());
+                    u.searchParams.delete('t');
+                    u.searchParams.delete('_t');
+                    return u.pathname + u.search + u.hash || '/';
+                } catch {
+                    return route;
+                }
+            }
+
+            function navigateTo(route) {
+                try {
+                    const base = getPreviewBase();
+                    const r = stripTimestamp(route) || '/';
+                    wv.src = base + r;
+                } catch (e) {}
+            }
+
+            async function waitForServerReady(maxAttempts = 40, delayMs = 500) {
+                const base = getPreviewBase();
+                for (let i = 0; i < maxAttempts; i++) {
+                    try {
+                        const ctrl = new AbortController();
+                        const t = setTimeout(() => ctrl.abort(), Math.min(2000, delayMs * 2));
+                        const res = await fetch(base + '/config', { cache: 'no-store', signal: ctrl.signal });
+                        clearTimeout(t);
+                        if (res.ok) return true;
+                    } catch (e) {}
+                    await new Promise(r => setTimeout(r, delayMs));
+                }
+                return false;
+            }
+
+            // Wire IPC -> webview
+            ipcRenderer.on('viewer-refresh', () => { try { wv.reload(); } catch {} });
+            ipcRenderer.on('viewer-open-devtools', () => { try { wv.openDevTools(); } catch {} });
+            ipcRenderer.on('viewer-select-node', (e, nodeId) => {
+                try { wv.executeJavaScript(`(window.XgeniaEditorHighlightAPI&&XgeniaEditorHighlightAPI.selectNode) && XgeniaEditorHighlightAPI.selectNode(${JSON.stringify(nodeId)})`); } catch {}
+            });
+            ipcRenderer.on('viewer-set-zoom-factor', (e, zf) => {
+                try { wv.executeJavaScript(`document.body && (document.body.style.zoom='${zf||1}')`); } catch {}
+            });
+            ipcRenderer.on('viewer-set-route', (e, route) => { navigateTo(route); });
+            ipcRenderer.on('viewer-set-inspect-mode', (e, enabled) => {
+                try { wv.executeJavaScript(`(window.XgeniaEditorInspectorAPI&&XgeniaEditorInspectorAPI.setEnabled) && XgeniaEditorInspectorAPI.setEnabled(${enabled?true:false})`); } catch {}
+            });
+            ipcRenderer.on('viewer-set-viewport-size', (e, viewport) => {
+                // No-op: the embedded content will layout itself
+            });
+            ipcRenderer.on('viewer-navigate-forward', () => { try { wv.goForward(); } catch {} });
+            ipcRenderer.on('viewer-navigate-back', () => { try { wv.goBack(); } catch {} });
+            ipcRenderer.on('viewer-focus', () => { try { require('@electron/remote').getCurrentWindow().focus(); } catch {} });
+
+            // Send navigation state back to main/editor
+            function sendNavState() {
+                try {
+                    wv.executeJavaScript(`({route: location.pathname + location.search + location.hash, canGoBack: (history.length>1), canGoForward: false})`).then((state)=>{
+                        ipcRenderer.send('viewer-navigation-state', state);
+                    });
+                } catch {}
+            }
+            wv.addEventListener('did-navigate', sendNavState);
+            wv.addEventListener('did-navigate-in-page', sendNavState);
+            wv.addEventListener('dom-ready', () => {
+                // Initial route comes from editor after open; fallback to '/'
+                sendNavState();
+            });
+
+            wv.addEventListener('did-fail-load', async (e) => {
+                // Retry once server is ready; strip any timestamp query to avoid cache issues
+                try {
+                    await waitForServerReady();
+                    const current = wv.src;
+                    const base = getPreviewBase();
+                    let route = '/';
+                    try {
+                        const u = new URL(current);
+                        route = u.pathname + u.search + u.hash;
+                    } catch {}
+                    navigateTo(route);
+                } catch {}
+            });
+
+            // Initial load (wait for server to be up)
+            (async () => {
+                await waitForServerReady();
+                navigateTo('/');
+            })();
+        });
+    </script>
+</head>
+<body>
+    <div id="app"></div>
+</body>
+</html>

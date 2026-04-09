@@ -1,0 +1,79 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "moduleResolution": "node",
+    "module": "es2020",
+    "skipLibCheck": true,
+    "typeRoots": [
+      "./node_modules/@types"
+    ],
+    "paths": {
+      "@xgenia-ai/*": [
+        "../../private/xgenia-ai/src/*"
+      ],
+      "@xgenia-core-ui/*": [
+        "../xgenia-core-ui/src/*"
+      ],
+      "@xgenia-hooks/*": [
+        "./src/editor/src/hooks/*"
+      ],
+      "@xgenia-utils/*": [
+        "./src/editor/src/utils/*"
+      ],
+      "@xgenia-models/*": [
+        "./src/editor/src/models/*"
+      ],
+      "@xgenia-constants/*": [
+        "./src/editor/src/constants/*"
+      ],
+      "@xgenia-contexts/*": [
+        "./src/editor/src/contexts/*"
+      ],
+      "@xgenia-types/*": [
+        "./src/editor/src/types/*"
+      ],
+      "@xgenia-store/*": [
+        "./src/editor/src/store/*"
+      ],
+      "@xgenia-shared/*": [
+        "./src/shared/*"
+      ],
+      "@xgenia-services/*": [
+        "./src/editor/src/services/*"
+      ],
+      "@xgenia-editor-views/*": [
+        "./src/editor/src/views/*"
+      ],
+      "@xgenia-ai/*": [
+        "../../private/xgenia-ai/src/*",
+        "./src/stubs/xgenia-ai/*"
+      ],
+      "@xgenia/image-editor": [
+        "../../private/xgenia-image-editor/src/index.ts"
+      ],
+      "@xgenia/image-editor/*": [
+        "../../private/xgenia-image-editor/src/*"
+      ]
+    },
+    "resolveJsonModule": true
+  },
+  "include": [
+    "src/editor",
+    "src/shared",
+    "src/main",
+    "src/stubs",
+    "src/assets.d.ts",
+    "@include-types"
+  ],
+  "exclude": [
+    "dist",
+    "src/external",
+    "build",
+    "build-tmp",
+    "webpackconfigs",
+    "**/*.stories.tsx",
+    "**/*.test.ts",
+    "**/*.test.tsx"
+  ]
+}

@@ -1,0 +1,338 @@
+name: Multi-Platform Build & Release
+
+on:
+  # push:
+  #      branches: ['release/v1.0.0']
+  # pull_request:
+  #   branches: ['release/v1.0.0']
+  # schedule:
+  #   - cron: '0 0 * * *' # Runs every day at midnight UTC
+  workflow_dispatch: # Allows manual triggering
+    inputs:
+      release_type:
+        description: 'Type of release to create'
+        required: true
+        default: 'nightly'
+        type: choice
+        options:
+          - nightly
+          - official
+  workflow_call:
+    inputs:
+      release_type:
+        description: 'Type of release to create'
+        required: false
+        default: 'nightly'
+        type: string
+  push:
+    tags:
+      - 'v*' # Trigger on version tags (e.g., v1.0.1)
+
+jobs:
+  build-macos:
+    name: Build macOS (Universal)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18' # Adjust if your project needs a different Node.js version
+
+      - name: Install dependencies
+        run: npm install # Assumes lerna/npm workspaces handle monorepo installs correctly
+
+      - name: Build macOS x64
+        env:
+          TARGET_PLATFORM: 'darwin-universal'
+          DISABLE_SIGNING: false
+          CSC_CONTENT: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          echo "$CSC_CONTENT" | base64 --decode > packages/xgenia-editor/certificate.p12
+          export CSC_LINK="./certificate.p12"
+          npm run build:editor -- --skip-git
+
+      - name: Packing DMG file
+        run: npm run build:editor:pack
+
+      - name: Upload macOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: XGENIA-macOS-universal
+          path: publish
+          retention-days: 7
+
+  build-linux:
+    name: Build Linux (x64)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+          libarchive-tools \
+          libfuse2 \
+          fakeroot \
+          dpkg \
+          rpm
+
+      - name: Build Linux App (AppImage, deb)
+        env:
+          TARGET_PLATFORM: 'linux-x64'
+          DISABLE_SIGNING: true
+        run: npm run build:editor -- --skip-git
+
+      - name: Packing AppImage and Deb File
+        run: npm run build:editor:pack
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: XGENIA-Linux-x64
+          path: publish
+          retention-days: 7
+
+  build-windows:
+    name: Build Windows (x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build MCP package
+        run: npx lerna exec --scope @xgenia/mcp -- npm run build
+
+      - name: Build Windows App (NSIS)
+        env:
+          TARGET_PLATFORM: 'win32-x64' # build.ts splits this into platform 'win32' and arch 'x64'
+          DISABLE_SIGNING: true
+        run: npm run build:editor -- --skip-git
+
+      - name: Packing NSIS Installer
+        run: npm run build:editor:pack
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: XGENIA-Windows-x64
+          path: publish
+          retention-days: 7
+
+  # notify-all-builds:
+  #   name: Notify All Builds Complete
+  #   needs: [build-macos, build-linux, build-windows]
+  #   if: always()
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #     - name: Send Teams notification
+  #       uses: ./.github/actions/teams-notification
+  #       with:
+  #         webhook-url: ${{ secrets.TEAMS_WEBHOOK_URL }}
+  #         msg-title: 'Multi-Platform Build Complete – ${{ github.repository }}'
+  #         msg-text: |
+  #           **Build Summary:**
+  #           • **macOS (Universal):** ${{ needs.build-macos.result }}
+  #           • **Linux (x64):** ${{ needs.build-linux.result }}
+  #           • **Windows (x64):** ${{ needs.build-windows.result }}
+
+  #           **Details:**
+  #           **Commit:** ${{ github.sha }}
+  #           **Branch:** ${{ github.ref_name }}
+  #           **Triggered by:** ${{ github.event_name }}
+  #         workflow-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  release:
+    name: Publish Release
+    needs: [build-macos, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: success() # Only run if all build jobs succeeded
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history for tags
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: XGENIA-macOS-universal
+          path: artifacts/macos
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: XGENIA-Linux-x64
+          path: artifacts/linux
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: XGENIA-Windows-x64
+          path: artifacts/windows
+
+      - name: Determine release type
+        id: release-info
+        run: |
+          # Determine release type from workflow input or tag push
+          if [ "${{ github.event_name }}" == "push" ] && [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            RELEASE_TYPE="official"
+            echo "Release type: Official (triggered by tag push)"
+          elif [ -n "${{ inputs.release_type }}" ]; then
+            RELEASE_TYPE="${{ inputs.release_type }}"
+            echo "Release type: $RELEASE_TYPE (from workflow input)"
+          else
+            RELEASE_TYPE="nightly"
+            echo "Release type: Nightly (default)"
+          fi
+
+          echo "release_type=$RELEASE_TYPE" >> $GITHUB_OUTPUT
+
+          if [ "$RELEASE_TYPE" == "official" ]; then
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "release_suffix=" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "release_suffix= | Nightly build ${{ github.run_number }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Read version from package.json
+        id: package-version
+        run: |
+          VERSION=$(node -p "require('./packages/xgenia-editor/package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Read version: $VERSION"
+
+      - name: Determine tag name
+        id: tag-info
+        run: |
+          # If triggered by tag push, use the tag that was pushed
+          if [ "${{ github.event_name }}" == "push" ] && [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            TAG_NAME="${{ github.ref_name }}"
+            echo "Using pushed tag: $TAG_NAME"
+          else
+            TAG_NAME="v${{ steps.package-version.outputs.version }}"
+            # For nightly builds, append build number if not official
+            if [ "${{ steps.release-info.outputs.release_type }}" == "nightly" ]; then
+              TAG_NAME="${TAG_NAME}-nightly-${{ github.run_number }}"
+            fi
+            echo "Generated tag: $TAG_NAME"
+          fi
+
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+
+      - name: List all artifacts
+        run: |
+          echo "=== macOS Artifacts ==="
+          find artifacts/macos -type f || echo "No macOS artifacts found"
+          echo ""
+          echo "=== Linux Artifacts ==="
+          find artifacts/linux -type f || echo "No Linux artifacts found"
+          echo ""
+          echo "=== Windows Artifacts ==="
+          find artifacts/windows -type f || echo "No Windows artifacts found"
+
+      - name: Generate release body
+        id: release-body
+        run: |
+          VERSION="${{ steps.package-version.outputs.version }}"
+          SHA="${{ github.sha }}"
+          BRANCH="${{ github.ref_name }}"
+          RUN_NUMBER="${{ github.run_number }}"
+          EVENT_NAME="${{ github.event_name }}"
+          RELEASE_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+          if [ "${{ steps.release-info.outputs.release_type }}" == "official" ]; then
+            cat > release_body.txt << EOF
+            ## XGENIA v${VERSION} - Official Release
+            
+            🎉 **Official Release** - This is a stable release of XGENIA.
+            
+            **Release Information:**
+            - Version: ${VERSION}
+            - Release Date: ${RELEASE_DATE}
+            - Commit: ${SHA}
+            - Branch: ${BRANCH}
+            
+            **Included Platforms:**
+            - macOS (Universal)
+            - Linux (x64)
+            - Windows (x64)
+            
+            **Installation:**
+            Download the installer for your platform from the assets below.
+            
+            **Changelog:**
+            See the commit history for detailed changes.
+            EOF
+          else
+            cat > release_body.txt << EOF
+            ## XGENIA v${VERSION} - Nightly Build
+            
+            ⚠️ **Nightly Build** - This is an automated nightly build for testing purposes.
+            
+            **Build Information:**
+            - Version: ${VERSION}
+            - Commit: ${SHA}
+            - Branch: ${BRANCH}
+            - Workflow Run: ${RUN_NUMBER}
+            - Triggered by: ${EVENT_NAME}
+            
+            **Included Platforms:**
+            - macOS (Universal)
+            - Linux (x64)
+            - Windows (x64)
+            
+            **Note:** This is a pre-release build. Use at your own risk.
+            EOF
+          fi
+
+          # Output the body for verification
+          cat release_body.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag-info.outputs.tag_name }}
+          name: XGENIA v${{ steps.package-version.outputs.version }}${{ steps.release-info.outputs.release_suffix }}
+          body_path: release_body.txt
+          prerelease: ${{ steps.release-info.outputs.is_prerelease == 'true' }}
+          files: |
+            artifacts/macos/**
+            artifacts/linux/**
+            artifacts/windows/**
+          draft: false
+          generate_release_notes: ${{ steps.release-info.outputs.release_type == 'official' }}

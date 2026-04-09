@@ -1,0 +1,47 @@
+{
+  "name": "Counter",
+  "file": "counter.js",
+  "relativePath": "std-library/counter.js",
+  "inputs": {
+    "code": "{\n    increase: {\n      group: 'Actions',\n      displayName: 'Increase Count',\n      valueChangedToTrue: function () {\n        if (this._internal.limitsEnabled && this._internal.currentValue >= this._internal.limitsMax) {\n          return;\n        }\n\n        this._internal.currentValue++;\n        this.flagOutputDirty('currentCount');\n        this.sendSignalOnOutput('countChanged');\n      }\n    },\n    decrease: {\n      group: 'Actions',\n      displayName: 'Decrease Count',\n      valueChangedToTrue: function () {\n        if (this._internal.limitsEnabled && this._internal.currentValue <= this._internal.limitsMin) {\n          return;\n        }\n\n        this._internal.currentValue--;\n        this.flagOutputDirty('currentCount');\n        this.sendSignalOnOutput('countChanged');\n      }\n    },\n    reset: {\n      group: 'Actions',\n      displayName: 'Reset To Start',\n      valueChangedToTrue: function () {\n        if (this.currentValue === 0) {\n          return;\n        }\n        this._internal.currentValue = this._internal.startValue;\n        this.flagOutputDirty('currentCount');\n        this.sendSignalOnOutput('countChanged');\n      }\n    },\n    startValue: {\n      type: 'number',\n      displayName: 'Start Value',\n      default: 0,\n      set: function (value) {\n        this._internal.startValue = Number(value);\n\n        if (this._internal.startValueSet === false) {\n          this._internal.startValueSet = true;\n          this._internal.currentValue = this._internal.startValue;\n          this.flagOutputDirty('currentCount');\n          this.sendSignalOnOutput('countChanged');\n        }\n      }\n    },\n    limitsMin: {\n      type: {\n        name: 'number'\n      },\n      displayName: 'Min Value',\n      group: 'Limits',\n      default: 0,\n      set: function (value) {\n        this._internal.limitsMin = Number(value);\n      }\n    },\n    limitsMax: {\n      type: {\n        name: 'number'\n      },\n      displayName: 'Max Value',\n      group: 'Limits',\n      default: 0,\n      set: function (value) {\n        this._internal.limitsMax = Number(value);\n      }\n    },\n    limitsEnabled: {\n      type: {\n        name: 'boolean'\n      },\n      displayName: 'Limits Enabled',\n      group: 'Limits',\n      default: false,\n      set: function (value) {\n        this._internal.limitsEnabled = value ? true : false;\n      }\n    }\n  }",
+    "startLine": 19
+  },
+  "outputs": {
+    "code": "{\n    currentCount: {\n      displayName: 'Current Count',\n      type: 'number',\n      getter: function () {\n        return this._internal.currentValue;\n      }\n    },\n    countChanged: {\n      displayName: 'Count Changed',\n      type: 'signal'\n    }\n  }",
+    "startLine": 107
+  },
+  "inputFormatHints": {
+    "limitsMin": {
+      "displayName": "Min Value",
+      "default": "0",
+      "format_hint": "Integer number"
+    },
+    "limitsMax": {
+      "displayName": "Max Value",
+      "default": "0",
+      "format_hint": "Integer number"
+    },
+    "limitsEnabled": {
+      "displayName": "Limits Enabled",
+      "default": "false"
+    }
+  },
+  "outputFormatHints": {
+    "currentCount": {
+      "type": "number",
+      "displayName": "Current Count"
+    },
+    "countChanged": {
+      "type": "signal",
+      "displayName": "Count Changed"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'Counter',\n  docs: 'https://docsapp.xgenia.com/nodes/math/counter',\n  category: 'Math',\n  initialize: function () {\n    this._internal.currentValue = 0;\n    this._internal.startValue = 0;\n    this._internal.startValueSet = false;\n\n    this._internal.limitsEnabled = false;\n    this._internal.limitsMin = 0;\n    this._internal.limitsMax = 0;\n  },\n  getInspectInfo() {\n    return 'Count: ' + this._internal.currentValue;\n  },\n  inputs: {\n    increase: {\n      group: 'Actions',\n      displayName: 'Increase Count',\n      valueChangedToTrue: function () {\n        if (this._internal.limitsEnabled && this._internal.currentValue >= this._internal.limitsMax) {\n          return;\n        }\n\n        this._internal.currentValue++;\n        this.flagOutputDirty('currentCount');\n        this.sendSignalOnOutput('countChanged');\n      }\n    },\n    decrease: {\n      group: 'Actions',\n      displayName: 'Decrease Count',\n      valueChangedToTrue: function () {\n        if (this._internal.limitsEnabled && this._internal.currentValue <= this._internal.limitsMin) {\n          return;\n        }\n\n        this._internal.currentValue--;\n        this.flagOutputDirty('currentCount');\n        this.sendSignalOnOutput('countChanged');\n      }\n    },\n    reset: {\n      group: 'Actions',\n      displayName: 'Reset To Start',\n      valueChangedToTrue: function () {\n        if (this.currentValue === 0) {\n          return;\n        }\n        this._internal.currentValue = this._internal.startValue;\n        this.flagOutputDirty('currentCount');\n        this.sendSignalOnOutput('countChanged');\n      }\n    },\n    startValue: {\n      type: 'number',\n      displayName: 'Start Value',\n      default: 0,\n      set: function (value) {\n        this._internal.startValue = Number(value);\n\n        if (this._internal.startValueSet === false) {\n          this._internal.startValueSet = true;\n          this._internal.currentValue = this._internal.startValue;\n          this.flagOutputDirty('currentCount');\n          this.sendSignalOnOutput('countChanged');\n        }\n      }\n    },\n    limitsMin: {\n      type: {\n        name: 'number'\n      },\n      displayName: 'Min Value',\n      group: 'Limits',\n      default: 0,\n      set: function (value) {\n        this._internal.limitsMin = Number(value);\n      }\n    },\n    limitsMax: {\n      type: {\n        name: 'number'\n      },\n      displayName: 'Max Value',\n      group: 'Limits',\n      default: 0,\n      set: function (value) {\n        this._internal.limitsMax = Number(value);\n      }\n    },\n    limitsEnabled: {\n      type: {\n        name: 'boolean'\n      },\n      displayName: 'Limits Enabled',\n      group: 'Limits',\n      default: false,\n      set: function (value) {\n        this._internal.limitsEnabled = value ? true : false;\n      }\n    }\n  },\n  outputs: {\n    currentCount: {\n      displayName: 'Current Count',\n      type: 'number',\n      getter: function () {\n        return this._internal.currentValue;\n      }\n    },\n    countChanged: {\n      displayName: 'Count Changed',\n      type: 'signal'\n    }\n  }\n",
+  "category": "Math",
+  "docs": "https://docsapp.xgenia.com/nodes/math/counter",
+  "color": null,
+  "lineCount": 125,
+  "byteSize": 3132
+}
