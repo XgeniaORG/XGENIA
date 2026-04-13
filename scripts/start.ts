@@ -69,7 +69,7 @@ process.on('SIGINT', () => {
 
 // Step 1: Start Cloud Runtime immediately
 cloudRuntimeProcess = attachStdio(
-  exec('npx lerna exec --scope @xgenia/cloud-runtime -- npm run start', processOptions),
+  exec('npm run start -w @xgenia/cloud-runtime', processOptions),
   {
     prefix: 'Cloud',
     color: ConsoleColor.FgBlue
@@ -87,10 +87,11 @@ console.log('> MCP servers compiled successfully');
 // Step 1.5: Kill port 3001 if in use (MCP Proxy port) and start MCP Proxy
 killPort(3001);
 console.log('> Starting MCP Proxy...');
-mcpProxyProcess = attachStdio(exec('npx lerna exec --scope @xgenia/runtime -- npm run mcp-proxy', processOptions), {
+mcpProxyProcess = attachStdio(exec('npm run mcp-proxy -w @xgenia/runtime', processOptions), {
   prefix: 'MCPProxy',
   color: ConsoleColor.FgYellow
 });
+
 mcpProxyProcess.on('exit', (code) => {
   if (code !== 0) {
     console.error(`MCP Proxy exited with code ${code}`);
@@ -101,13 +102,12 @@ mcpProxyProcess.on('exit', (code) => {
 // Step 2: Build Viewer
 console.log('> Starting Viewer build...');
 const viewerBuildProcess = attachStdio(
-  exec('npx lerna exec --scope @xgenia/xgenia-viewer-react -- npm run build', processOptions),
+  exec('npm run build -w @xgenia/xgenia-viewer-react', processOptions),
   {
     prefix: 'ViewerBuild',
     color: ConsoleColor.FgMagenta
   }
 );
-
 viewerBuildProcess.on('exit', (code) => {
   if (code === 0 || code === null || code === undefined) {
     console.log('✅ Viewer build completed successfully. Starting Editor and DeepSearch...');
@@ -116,7 +116,7 @@ viewerBuildProcess.on('exit', (code) => {
     killPort(3051);
 
     // Step 4: Start Editor
-    editorProcess = attachStdio(exec('npx lerna exec --scope xgenia-editor -- npm run start', processOptions), {
+    editorProcess = attachStdio(exec('npm run start -w xgenia-editor', processOptions), {
       prefix: 'Editor',
       color: ConsoleColor.FgCyan
     });

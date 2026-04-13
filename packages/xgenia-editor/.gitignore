@@ -1,6 +1,5 @@
 # === Generated Files ===
 dist/
-/build/
 output/
 
 # === Bundle & Map Files ===
@@ -29,3 +28,5 @@ node_modules/
 # === OS-Specific Files ===
 .DS_Store
 Thumbs.db
+# === Certificates ===
+*.p12
