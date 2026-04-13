@@ -9,25 +9,24 @@ export interface AIMcpTool {
 export interface AIMcpConfig {
   mcpServers: Record<string, any>;
 }
-const instance = {
-  getServers: (): AIMcpServerInfo[] => [],
-  getTools: (): AIMcpTool[] => [],
-  connect: async () => {},
-  disconnect: async () => {},
-  on: () => {},
-  off: () => {},
-  initialize: async () => {},
-  getRawConfig: (): AIMcpConfig | null => null,
-  setRawConfig: (_config: AIMcpConfig) => {},
-  addServer: (_name: string, _config: any) => {},
-  removeServer: (_name: string) => {},
-  reconnectServer: (_name: string) => {},
-  onServersChanged: (_callback: () => void) => () => {},
-  dispose: () => {},
-  getConfigPath: () => '',
-};
 export class AIMcpService {
-  static getInstance() {
-    return instance;
+  private static _instance: AIMcpService = new AIMcpService();
+  static getInstance(): AIMcpService {
+    return AIMcpService._instance;
   }
+  getServers(): AIMcpServerInfo[] { return []; }
+  getTools(): AIMcpTool[] { return []; }
+  async connect() {}
+  async disconnect() {}
+  on() {}
+  off() {}
+  async initialize() {}
+  getRawConfig(): AIMcpConfig | null { return null; }
+  async setRawConfig(_config: AIMcpConfig) {}
+  async addServer(_name: string, _config: any) {}
+  async removeServer(_name: string) {}
+  async reconnectServer(_name: string) {}
+  onServersChanged(_callback: () => void): () => void { return () => {}; }
+  dispose() {}
+  getConfigPath(): string { return ''; }
 }
