@@ -10,7 +10,7 @@ module.exports = async function (params) {
   const appleIdPassword = process.env.appleIdPassword ?? process.env.APPLE_APP_SPECIFIC_PASSWORD;
   const appleTeamId = process.env.appleTeamId ?? process.env.APPLE_TEAM_ID;
 
-  consloe.log(appId, appleIdPassword, appleTeamId)
+  console.log(appId, appleIdPassword, appleTeamId)
 
   // Check for required environment variables
   if (!appleId || !appleIdPassword) {
