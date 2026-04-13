@@ -13,6 +13,8 @@ output/
 # === SVGs ===
 *.svg
 src/**/*.svg
+# Allow icon asset SVGs
+!src/assets/icons/**/*.svg
 
 # === Ignore auto-generated bundle files in src
 src/**/*.bundle.js

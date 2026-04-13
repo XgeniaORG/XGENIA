@@ -779,7 +779,7 @@ export class NodeGraphEditorNode {
       // ═══════════════════════════════════════════════
       // 6. ICON (drawn inside clipped area)
       // ═══════════════════════════════════════════════
-      if (this.icon) {
+      if (this.icon && this.icon.complete && this.icon.naturalWidth > 0) {
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         const hSpacing = 10;
@@ -794,7 +794,7 @@ export class NodeGraphEditorNode {
           this.iconSize
         );
 
-        if (this.rotatingIcon) {
+        if (this.rotatingIcon && this.rotatingIcon.complete && this.rotatingIcon.naturalWidth > 0) {
           ctx.save();
           ctx.translate(
             x + hSpacing + width - hSpacing - dragAreaW - 16 - offset + this.iconSize / 2,
