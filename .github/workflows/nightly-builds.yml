@@ -24,7 +24,9 @@ jobs:
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            git submodule update --init private
+            # Register the submodule in git's config from .gitmodules
+            git submodule init private 2>/dev/null || true
+            git submodule update --init --recursive private 2>/dev/null || echo "Private submodule not available, building with stubs"
           else
             echo "Private submodule PAT not available, building with stubs"
           fi
@@ -76,7 +78,8 @@ jobs:
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            git submodule update --init private
+            git submodule init private 2>/dev/null || true
+            git submodule update --init --recursive private 2>/dev/null || echo "Private submodule not available, building with stubs"
           else
             echo "Private submodule PAT not available, building with stubs"
           fi
@@ -130,7 +133,8 @@ jobs:
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            git submodule update --init private
+            git submodule init private 2>/dev/null || true
+            git submodule update --init --recursive private 2>/dev/null || echo "Private submodule not available, building with stubs"
           else
             echo "Private submodule PAT not available, building with stubs"
           fi

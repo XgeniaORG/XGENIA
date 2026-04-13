@@ -192,8 +192,8 @@ merged_code.txt
 !*.nodeequals.js
 MarkPrivate/*
 
-# Private proprietary code (separate git repo)
-private/
+# Private proprietary code (tracked as a git submodule)
+# Do not gitignore — submodules are managed by git directly
 
 # Debug exports (may contain proprietary data)
 xgenia-debug-export-*.json
