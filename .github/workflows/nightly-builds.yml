@@ -1,7 +1,13 @@
 name: Nightly Multi-Platform Build
 
 on:
-  workflow_dispatch:
+  # push:
+       # branches: ['develop']
+  # pull_request:
+  #   branches: ['release/v1.0.0']
+  # schedule:
+  #   - cron: '0 0 * * *' # Runs every day at midnight UTC
+  workflow_dispatch: # Allows manual triggering
   workflow_call:
 
 jobs:
@@ -12,9 +18,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: 'recursive'
-          token: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
+
+      - name: Init private submodule
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.PRIVATE_SUBMODULE_PAT }}@github.com/".insteadOf "https://github.com/"
+          git submodule update --init --recursive
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -55,9 +63,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: 'recursive'
-          token: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
+
+      - name: Init private submodule
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.PRIVATE_SUBMODULE_PAT }}@github.com/".insteadOf "https://github.com/"
+          git submodule update --init --recursive
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -100,9 +110,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: 'recursive'
-          token: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
+
+      - name: Init private submodule
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.PRIVATE_SUBMODULE_PAT }}@github.com/".insteadOf "https://github.com/"
+          git submodule update --init --recursive
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -130,63 +142,3 @@ jobs:
           name: XGENIA-Windows-x64
           path: publish
           retention-days: 7
-
-  release:
-    name: Create Draft Release
-    needs: [build-macos, build-linux, build-windows]
-    runs-on: ubuntu-latest
-    if: success()
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Get version from package.json
-        id: package-version
-        run: |
-          VERSION=$(node -p "require('./packages/xgenia-editor/package.json').version")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Read version: $VERSION"
-
-      - name: Download macOS Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: XGENIA-macOS-universal
-          path: release-assets/macos
-
-      - name: Download Linux Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: XGENIA-Linux-x64
-          path: release-assets/linux
-
-      - name: Download Windows Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: XGENIA-Windows-x64
-          path: release-assets/windows
-
-      - name: Prepare assets for release
-        run: |
-          mkdir release-dist
-          find release-assets -type f \( -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.exe" -o -name "latest*.yml" -o -name "latest*.json" \) -exec cp -v {} release-dist/ \;
-          echo "--- Assets collected for release ---"
-          ls -R release-dist
-
-      - name: Create GitHub Draft Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: XGENIA-V${{ steps.package-version.outputs.version }}-nightly-${{ github.run_number }}
-          name: XGENIA V${{ steps.package-version.outputs.version }} (Nightly Build #${{ github.run_number }})
-          draft: true
-          prerelease: true
-          files: release-dist/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
