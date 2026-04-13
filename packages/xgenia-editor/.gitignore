@@ -28,5 +28,3 @@ node_modules/
 # === OS-Specific Files ===
 .DS_Store
 Thumbs.db
-# === Certificates ===
-*.p12

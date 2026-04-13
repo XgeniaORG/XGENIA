@@ -26,12 +26,14 @@
         "ai-service:install": "cd ../xgenia-ai-service && npm install"
     },
     "build": {
-        "appId": "com.xgenia.editor",
+        "appId": "com.xgenia.nb",
         "afterSign": "./build/macos-notarize.js",
         "publish": {
-            "provider": "generic"
+            "provider": "generic",
+            "url": "https://pcrghrjikkcmelflwiys.supabase.co/functions/v1/xgenia-releases"
         },
         "mac": {
+            "identity": "Hypomo LTD (3FA7J87642)",
             "hardenedRuntime": true,
             "notarize": false,
             "entitlements": "./build/entitlements.mac.plist",
@@ -45,7 +47,7 @@
             "target": "nsis"
         },
         "nsis": {
-            "guid": "XGENIA.editor"
+            "guid": "XGENIA.net.XGENIA"
         },
         "linux": {
             "target": "deb"
