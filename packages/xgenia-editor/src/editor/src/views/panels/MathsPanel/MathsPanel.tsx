@@ -20,10 +20,10 @@ import { supabase } from '../../../supabaseInit';
 // The XRGS endpoint is fixed — users only need to provide their API key
 // generated from the RGS dashboard (API Keys page).
 
-const XRGS_URL = import.meta.env.VITE_XRGS_URL || 'https://usubzwydrjelmjfkkrhi.supabase.co/functions/v1';
+const XRGS_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/functions/v1';
 // Supabase anon key — required by verify_jwt on edge functions.
 // This is NOT a secret; it's the publishable key used to pass gateway auth.
-const XRGS_ANON_KEY = import.meta.env.VITE_XRGS_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzdWJ6d3lkcmplbG1qZmtrcmhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4ODA3NDcsImV4cCI6MjA4NzQ1Njc0N30.Hewc7WlLZuufC0trhCKKKc4AhLXk7jy7qG3irBQPykY';
+const XRGS_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzdWJ6d3lkcmplbG1qZmtrcmhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4ODA3NDcsImV4cCI6MjA4NzQ1Njc0N30.Hewc7WlLZuufC0trhCKKKc4AhLXk7jy7qG3irBQPykY';
 
 /** Build headers for maths-deployer requests */
 function rgsHeaders(apiKey: string): Record<string, string> {
