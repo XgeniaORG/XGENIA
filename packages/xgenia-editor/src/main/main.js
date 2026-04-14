@@ -1586,11 +1586,10 @@ process.env.xgeniaArgs = JSON.stringify(args);
 for (var i = 0; i < args.length; i++) {
   if (args[i].indexOf('--api=') === 0) {
     process.env.apiEndpoint = args[i].split('=')[1];
-    // AUTO-UPDATE DISABLED
-    // } else if (args[i].indexOf('--autoupdate=') === 0) {
-    //   process.env.autoUpdate = args[i].split('=')[1];
-    // } else if (args[i].indexOf('--lessons=') === 0) {
-    process.env.lessons = path.resolve(args[i].split('=')[1]);
+    } else if (args[i].indexOf('--autoupdate=') === 0) {
+      process.env.autoUpdate = args[i].split('=')[1];
+    } else if (args[i].indexOf('--lessons=') === 0) {
+      process.env.lessons = path.resolve(args[i].split('=')[1]);
   } else if (args[i].indexOf('--feed=') === 0) {
     process.env.feed = path.resolve(args[i].split('=')[1]);
   } else if (args[i].indexOf('--library=') === 0) {

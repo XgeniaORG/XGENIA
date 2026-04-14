@@ -29,11 +29,12 @@
         "appId": "com.xgenia.nb",
         "afterSign": "./build/macos-notarize.js",
         "publish": {
-            "provider": "generic",
-            "url": "https://pcrghrjikkcmelflwiys.supabase.co/functions/v1/xgenia-releases"
+            "provider":"github",
+            "owner": "XgeniaORG",
+            "repo":"XGENIA"
         },
         "mac": {
-            "identity": "Hypomo LTD (3FA7J87642)",
+            "target": ["dmg", "zip"],
             "hardenedRuntime": true,
             "notarize": false,
             "entitlements": "./build/entitlements.mac.plist",

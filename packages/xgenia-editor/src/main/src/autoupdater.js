@@ -20,13 +20,6 @@ function setupAutoUpdate(window) {
   //Set autodownload to false (prevents the update from being downloaded automatically)
   autoUpdater.autoDownload = false;
 
-  // Configure update URL for dev mode (from package.json build.publish.url)
-  // In dev mode, electron-updater needs explicit configuration
-  const updateUrl = 'https://pcrghrjikkcmelflwiys.supabase.co/functions/v1/xgenia-releases';
-  autoUpdater.setFeedURL({
-    provider: 'generic',
-    url: updateUrl
-  });
 
   let progressBar;
   const createProgressBar = () => {
@@ -127,29 +120,29 @@ function setupAutoUpdate(window) {
       });
   });
 
-  // ipcMain.on('autoUpdatePopupClosed', (event, restartNow) => {
-  //   if (restartNow) {
-  //     autoUpdater.quitAndInstall();
-  //   }
-  // });
+  ipcMain.on('autoUpdatePopupClosed', (event, restartNow) => {
+    if (restartNow) {
+      autoUpdater.quitAndInstall(false, true);
+    }
+  });
 
-  // autoUpdater.addListener("error", (error) => {
-  //   console.log('Auto update error', error);
-  // });
+  autoUpdater.addListener("error", (error) => {
+    console.log('Auto update error', error);
+  });
 
-  // autoUpdater.addListener('update-not-available', () => {
-  //   setTimeout(() => {
-  //     _checkForUpdates();
-  //   }, 60 * 1000);
-  // });
+  autoUpdater.addListener('update-not-available', () => {
+    setTimeout(() => {
+      _checkForUpdates();
+    }, 12 * 60 * 60 * 1000); // Check every 12 hours
+  });
 
-  // autoUpdater.addListener('error', (event) => {
-  //   // There was an error while trying to update, try again
-  //   console.log('Error while auto updating, trying again in a while...');
-  //   setTimeout(() => {
-  //     _checkForUpdates();
-  //   }, 60 * 1000);
-  // });
+  autoUpdater.addListener('error', (event) => {
+    // There was an error while trying to update, try again
+    console.log('Error while auto updating, trying again in a while...');
+    setTimeout(() => {
+      _checkForUpdates();
+    }, 12 * 60 * 60 * 1000); // Check every 12 hours
+  });
 }
 
 module.exports = {
