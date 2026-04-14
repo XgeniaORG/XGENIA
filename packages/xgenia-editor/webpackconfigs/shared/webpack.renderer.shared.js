@@ -92,7 +92,7 @@ module.exports = merge(
         patterns: [
           {
             from: path.resolve(editorPath, 'src/assets'),
-            to: path.resolve(editorPath, 'dist/assets'),
+            to: path.resolve(editorPath, 'dist/src/assets'),
             globOptions: {
               ignore: ['**/.*']
             }
