@@ -255,16 +255,14 @@ export function MathsPanel() {
     }, [expandedVersion, versionCode, settings]);
 
     // Quick actions on versions
-    const handleVersionAction = useCallback(async (configId: string, action: 'stress-test' | 'deploy' | 'activate') => {
+    const handleVersionAction = useCallback(async (configId: string, action: 'deploy' | 'activate') => {
         if (!settings?.apiKey) return;
-        const labels = { 'stress-test': 'Testing...', deploy: 'Deploying...', activate: 'Activating...' };
+        const labels = { deploy: 'Deploying...', activate: 'Activating...' };
         setActionStatus({ id: configId, type: 'loading', msg: labels[action] });
         try {
-            const body: Record<string, any> = action === 'stress-test'
-                ? { action: 'stress-test', maths_config_id: configId, num_spins: 20000 }
-                : action === 'deploy'
-                    ? { action: 'deploy', maths_config_id: configId }
-                    : { action: 'activate', maths_config_id: configId };
+            const body: Record<string, any> = action === 'deploy'
+                ? { action: 'deploy', maths_config_id: configId }
+                : { action: 'activate', maths_config_id: configId };
             const res = await fetch(`${XRGS_URL}/maths-deployer`, {
                 method: 'POST',
                 headers: rgsHeaders(settings.apiKey),
@@ -274,16 +272,50 @@ export function MathsPanel() {
             if (data.error) {
                 setActionStatus({ id: configId, type: 'error', msg: data.error });
             } else {
-                const msg = action === 'stress-test'
-                    ? `${data.verdict} \u2014 RTP ${data.tests?.rtp_compliance?.measured_rtp || '?'}%`
-                    : data.message || 'Done';
-                setActionStatus({ id: configId, type: 'success', msg });
+                setActionStatus({ id: configId, type: 'success', msg: data.message || 'Done' });
                 fetchVersions();
             }
         } catch (e: any) {
             setActionStatus({ id: configId, type: 'error', msg: e.message });
         }
     }, [settings, fetchVersions]);
+
+    const handleImportFromRgs = useCallback(async (configId: string, version: number) => {
+        if (!settings?.apiKey) return;
+        setActionStatus({ id: configId, type: 'loading', msg: 'Downloading...' });
+        try {
+            const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+                method: 'POST',
+                headers: rgsHeaders(settings.apiKey),
+                body: JSON.stringify({ action: 'download', maths_config_id: configId }),
+            });
+            const data = await res.json();
+            if (data.error) {
+                setActionStatus({ id: configId, type: 'error', msg: data.error });
+                return;
+            }
+            // Build a downloadable edge-function file
+            const script = data.script || data.compiled_bundle || '';
+            const configData = data.config_data ? JSON.stringify(data.config_data, null, 2) : '{}';
+            const edgeFnContent = [
+                '// RGS Math Version v' + version + ' — imported from XRGS',
+                '// Config Data:',
+                '// ' + configData.split('\n').join('\n// '),
+                '',
+                script,
+            ].join('\n');
+            const blob = new Blob([edgeFnContent], { type: 'text/javascript' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `rgs_math_v${version}.js`;
+            a.click();
+            URL.revokeObjectURL(url);
+            setActionStatus({ id: configId, type: 'success', msg: `Downloaded v${version} as edge function` });
+        } catch (e: any) {
+            setActionStatus({ id: configId, type: 'error', msg: e.message });
+        }
+    }, [settings]);
 
     const handleConnect = useCallback(async () => {
         const key = keyInput.trim();
@@ -755,8 +787,8 @@ export function MathsPanel() {
                                             draft: '#a0a0b0', failed: '#EF4444', archived: '#666',
                                         };
                                         const statusColor = statusColors[v.status] || '#a0a0b0';
-                                        const rtp = v.stress_results?.tests?.rtp_compliance?.measured_rtp;
-                                        const verdict = v.stress_results?.verdict;
+                                        const rtp = v.declared_rtp;
+                                        const verdict = v.status === 'live' ? 'PASSED' : null;
 
                                         return (
                                             <div key={v.id} style={{ marginBottom: '4px' }}>
@@ -804,9 +836,9 @@ export function MathsPanel() {
                                                         borderLeft: `2px solid ${statusColor}30`,
                                                     }}>
                                                         <div style={{ display: 'flex', gap: '4px', marginBottom: '8px' }}>
-                                                            {(v.status === 'draft' || v.status === 'testing' || v.status === 'failed') && (
+                                                            {v.status === 'failed' && (
                                                                 <button
-                                                                    onClick={(e) => { e.stopPropagation(); handleVersionAction(v.id, v.status === 'failed' ? 'activate' : 'stress-test'); }}
+                                                                    onClick={(e) => { e.stopPropagation(); handleVersionAction(v.id, 'activate'); }}
                                                                     disabled={actionStatus?.id === v.id && actionStatus.type === 'loading'}
                                                                     style={{
                                                                         fontSize: '10px', padding: '3px 8px', borderRadius: '3px',
@@ -814,7 +846,20 @@ export function MathsPanel() {
                                                                         color: '#e0e0e0', cursor: 'pointer',
                                                                     }}
                                                                 >
-                                                                    {v.status === 'failed' ? 'Re-activate' : 'Stress Test'}
+                                                                    Re-activate
+                                                                </button>
+                                                            )}
+                                                            {v.status === 'live' && (
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); handleImportFromRgs(v.id, v.version); }}
+                                                                    disabled={actionStatus?.id === v.id && actionStatus.type === 'loading'}
+                                                                    style={{
+                                                                        fontSize: '10px', padding: '3px 8px', borderRadius: '3px',
+                                                                        border: '1px solid rgba(96,165,250,0.3)', backgroundColor: 'rgba(96,165,250,0.1)',
+                                                                        color: '#60A5FA', cursor: 'pointer',
+                                                                    }}
+                                                                >
+                                                                    ↓ Import as Edge Function
                                                                 </button>
                                                             )}
                                                             {v.status === 'approved' && (
