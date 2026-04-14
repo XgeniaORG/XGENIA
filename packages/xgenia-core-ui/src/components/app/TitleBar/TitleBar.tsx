@@ -51,7 +51,9 @@ export function TitleBar({
     <div className={classNames([css['Root'], css[`is-variant-${variant}`]])}>
 
       {isWindows && (
-        <Logo size={LogoSize.Medium} />
+        <div className={css['LogoWrapper']}>
+          <Logo size={LogoSize.Medium} />
+        </div>
       )}
 
 
