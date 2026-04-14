@@ -3,7 +3,7 @@ import React from 'react';
 
 import { UnsafeStyleProps } from '@xgenia-core-ui/types/global';
 
-import xgeniaLogo from './xgenia-logo.jpg';
+import { ReactComponent as XgeniaLogo } from './xgenia-logo.svg';
 import css from './Logo.module.scss';
 
 export enum LogoVariant {
@@ -50,7 +50,7 @@ export function Logo({
       onClick={onClick}
       style={UNSAFE_style}
     >
-      <img src={xgeniaLogo} alt="XGENIA" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+      <XgeniaLogo style={{ width: '100%', height: '100%' }} />
     </div>
   );
 }

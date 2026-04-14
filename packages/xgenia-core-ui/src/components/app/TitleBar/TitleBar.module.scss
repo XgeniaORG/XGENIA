@@ -16,7 +16,7 @@
   position: relative;
 
   // Logo positioning (Windows only – rendered conditionally via isWindows)
-  >div:first-child {
+  &.is-windows > div:first-child {
     -webkit-app-region: no-drag;
     position: absolute !important;
     left: 8px !important;

@@ -48,7 +48,7 @@ export function TitleBar({
   onCloseClicked
 }: TitleBarProps) {
   return (
-    <div className={classNames([css['Root'], css[`is-variant-${variant}`]])}>
+    <div className={classNames([css['Root'], css[`is-variant-${variant}`], isWindows && css['is-windows']])}>
 
       {isWindows && (
         <Logo size={LogoSize.Medium} />
