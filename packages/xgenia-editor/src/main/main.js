@@ -1400,6 +1400,9 @@ function launchApp() {
 
       console.log('[Main Process] About to call createWindow()...');
       createWindow();
+      if (process.platform === 'darwin') {
+        app.dock.setIcon(path.join(appPath, 'src/assets/images/icon.png'));
+      }
       console.log('[Main Process] createWindow() call completed');
 
       setupViewerIpc();

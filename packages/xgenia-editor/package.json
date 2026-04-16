@@ -34,6 +34,7 @@
             "repo":"XGENIA"
         },
         "mac": {
+            "icon": "./build/icons/1024x1024.png",
             "target": ["dmg", "zip"],
             "hardenedRuntime": true,
             "notarize": false,
