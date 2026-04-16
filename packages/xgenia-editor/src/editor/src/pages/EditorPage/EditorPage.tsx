@@ -187,7 +187,7 @@ export function EditorPage({ route }: EditorPageProps) {
         // Listen for errors from ToolsModel
         const toolsModelErrorListener = (errorMessage: string) => {
             console.error(`[EditorPage] ToolsModelEvent.Error received: ${errorMessage}`);
-            ToastLayer.showError(`Tools Error: ${errorMessage}`, 5000);
+            // ToastLayer.showError(`Tools Error: ${errorMessage}`, 5000);
         };
         ToolsModel.instance.on(ToolsModelEvent.Error, toolsModelErrorListener, eventGroup);
         console.log('[EditorPage] ToolsModelEvent.Error listener registered.');

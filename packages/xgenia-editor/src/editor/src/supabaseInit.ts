@@ -19,12 +19,12 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 });
 
 // Verify client initialization
-console.log('[SupabaseInit] Client initialized:', {
-  hasClient: !!supabase,
-  hasAuth: !!supabase.auth,
-  url: supabaseUrl,
-  storageAvailable: typeof window !== 'undefined' && !!window.localStorage
-});
+// console.log('[SupabaseInit] Client initialized:', {
+//   hasClient: !!supabase,
+//   hasAuth: !!supabase.auth,
+//   url: supabaseUrl,
+//   storageAvailable: typeof window !== 'undefined' && !!window.localStorage
+// });
 
 // Helper function to get current user
 export const getCurrentUser = () => {
