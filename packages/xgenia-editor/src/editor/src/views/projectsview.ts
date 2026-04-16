@@ -54,6 +54,7 @@ export class ProjectsView extends View {
   projectFilter: TSFixme;
   private userProfile: any = null;
   private currentUser: any = null;
+  private authSubscription: any = null;
 
   constructor({ from }: { from: string }) {
     super();
@@ -69,29 +70,49 @@ export class ProjectsView extends View {
 
   private async initializeUserData() {
     try {
-      // Get current user from Supabase
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      if (userError || !user) {
-        console.warn('No authenticated user found');
-        // Hide sidebar user info when not authenticated
+      // Quickly load from session cache to avoid UI delay
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (session?.user) {
+        this.currentUser = session.user;
+        this.updateSidebarUserInfo();
+        const $userSection = this.$('.sidebar-user');
+        if ($userSection && $userSection.length) {
+          $userSection.show();
+        }
+        // Asynchronously fetch extra subscription data
+        this.fetchExtendedUserProfile(session.user.id);
+      } else {
         const $userSection = this.$('.sidebar-user');
         if ($userSection && $userSection.length) {
           $userSection.hide();
         }
-        return;
       }
 
-      this.currentUser = user;
-
-      // Get user profile with subscription info
-      this.userProfile = await getUserProfile(user.id);
-
-      // Update the sidebar with real user data
-      this.updateSidebarUserInfo();
-      // Ensure sidebar user area is visible when authenticated
-      const $userSection = this.$('.sidebar-user');
-      if ($userSection && $userSection.length) {
-        $userSection.show();
+      // Hook up an auth subscription to react instantly to any state changes in the app
+      if (!this.authSubscription) {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+          if (newSession?.user) {
+            const isNewUser = !this.currentUser || this.currentUser.id !== newSession.user.id;
+            this.currentUser = newSession.user;
+            this.updateSidebarUserInfo();
+            const $userSection = this.$('.sidebar-user');
+            if ($userSection && $userSection.length) {
+              $userSection.show();
+            }
+            if (isNewUser) {
+              this.fetchExtendedUserProfile(newSession.user.id);
+            }
+          } else {
+            this.currentUser = null;
+            this.userProfile = null;
+            const $userSection = this.$('.sidebar-user');
+            if ($userSection && $userSection.length) {
+              $userSection.hide();
+            }
+          }
+        });
+        this.authSubscription = subscription;
       }
     } catch (error: any) {
       console.error('Error initializing user data:', error);
@@ -103,6 +124,15 @@ export class ProjectsView extends View {
           $userSection.show();
         }
       }
+    }
+  }
+
+  private async fetchExtendedUserProfile(userId: string) {
+    try {
+      this.userProfile = await getUserProfile(userId);
+      this.updateSidebarUserInfo();
+    } catch (error) {
+      console.error('Failed to grab extended user profile:', error);
     }
   }
 
@@ -169,6 +199,11 @@ export class ProjectsView extends View {
 
     this.lessonTemplatesModel.off(this);
     this.lessonProjectsModel.off(this);
+
+    if (this.authSubscription) {
+      this.authSubscription.unsubscribe();
+      this.authSubscription = null;
+    }
   }
 
   render() {
@@ -208,8 +243,8 @@ export class ProjectsView extends View {
     // this.$('#projects-header').css({ top: this.topBarHeight + 'px' });
     this.$('#search').on('keyup', this.onProjectsSearchChanged.bind(this));
 
-    // Initialize user data after render
-    setTimeout(() => this.initializeUserData(), 100);
+    // Initialize user data immediately after render
+    this.initializeUserData();
 
     return this.el;
   }
@@ -958,7 +993,7 @@ export class ProjectsView extends View {
                   console.log('[ProjectsView] Project created successfully:', project.name);
 
                   ToastLayer.hideActivity(activityId);
-                  
+
                   if (!project) {
                     console.error('[ProjectsView] newProject callback received falsy project');
                     ToastLayer.showError('Could not create new project.');
