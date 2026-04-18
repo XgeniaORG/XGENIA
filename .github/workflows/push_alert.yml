@@ -15,5 +15,5 @@ jobs:
       - name: Send Webhook Alert
         run: |
           curl -X POST -H 'Content-type: application/json' \
-          --data '{"text": "🚨 HIGH ALERT: User @${{ github.actor }} just pushed directly to the main branch! 🚨\nCommit URL: ${{ github.event.compare }}"}' \
+          --data '{"type":"message","attachments":[{"contentType":"application/vnd.microsoft.card.adaptive","contentUrl":null,"content":{"$schema":"http://adaptivecards.io/schemas/adaptive-card.json","type":"AdaptiveCard","version":"1.4","body":[{"type":"TextBlock","text":"🚨 HIGH ALERT: User @${{ github.actor }} just pushed directly to the main branch! 🚨\nCommit URL: ${{ github.event.compare }}","wrap":true}]}}]}' \
           "${{ secrets.ALERT_WEBHOOK_URL }}"
