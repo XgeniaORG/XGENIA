@@ -16,4 +16,4 @@ jobs:
         run: |
           curl -X POST -H 'Content-type: application/json' \
           --data '{"text": "🚨 HIGH ALERT: User @${{ github.actor }} just pushed directly to the main branch! 🚨\nCommit URL: ${{ github.event.compare }}"}' \
-          ${{ secrets.ALERT_WEBHOOK_URL }}
+          "${{ secrets.ALERT_WEBHOOK_URL }}"
