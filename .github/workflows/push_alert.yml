@@ -1,0 +1,19 @@
+name: GitHub Alert Workflow
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    if: >
+      !contains(github.event.head_commit.message, '(#')
+
+    steps:
+      - name: Send Webhook Alert
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+          --data '{"text": "🚨 HIGH ALERT: User @${{ github.actor }} just pushed directly to the main branch! 🚨\nCommit URL: ${{ github.event.compare }}"}' \
+          ${{ secrets.ALERT_WEBHOOK_URL }}
