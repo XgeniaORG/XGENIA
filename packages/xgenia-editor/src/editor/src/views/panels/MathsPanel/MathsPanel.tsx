@@ -419,40 +419,84 @@ export function MathsPanel() {
                 return;
             }
 
-            // 2. Call the full pipeline endpoint
-            setPipelineStep('Uploading → Testing → Approving → Deploying...');
-            const res = await fetch(`${XRGS_URL}/maths-deployer`, {
-                method: 'POST',
-                headers: rgsHeaders(settings.apiKey),
-                body: JSON.stringify({
-                    action: 'upload-test-deploy',
-                    game_id: selectedGame,
-                    maths_mode: 'script',
-                    script: result.script,
-                    config_data: result.configData,
-                    declared_rtp: game?.default_rtp || '96.00',
-                    num_spins: simCount,
-                }),
-            });
-
-            const data = await res.json();
-            if (data.error || !data.success) {
-                // Show which step failed
-                const failedStep = data.steps?.find((s: any) => s.status === 'failed');
-                const errorMsg = failedStep
-                    ? `${failedStep.step} failed: ${failedStep.error}`
-                    : (data.error || 'Pipeline failed');
-                setUploadStatus({ type: 'error', message: errorMsg });
-            } else {
-                const sim = data.simulation || {};
-                const rtpStr = sim.rtp_percent || '';
-                const hitStr = sim.hit_rate != null ? `${(sim.hit_rate * 100).toFixed(1)}%` : '';
-                const maxStr = sim.max_win != null ? `${sim.max_win}×` : '';
-                setUploadStatus({
-                    type: 'success',
-                    message: `v${data.version} deployed live! RTP ${rtpStr} · Hit ${hitStr} · Max ${maxStr}`,
+            // 2. Sequential pipeline: upload → activate → stress-test → approve → deploy
+            const callAction = async (payload: any) => {
+                const r = await fetch(`${XRGS_URL}/maths-deployer`, {
+                    method: 'POST',
+                    headers: rgsHeaders(settings.apiKey),
+                    body: JSON.stringify(payload),
                 });
+                return r.json();
+            };
+
+            // Step 1: Upload
+            setPipelineStep('Uploading maths...');
+            const uploadData = await callAction({
+                action: 'upload',
+                game_id: selectedGame,
+                maths_mode: 'script',
+                script: result.script,
+                config_data: result.configData,
+                declared_rtp: game?.default_rtp || '96.00',
+            });
+            if (uploadData.error) {
+                setUploadStatus({ type: 'error', message: `Upload failed: ${uploadData.error}` });
+                setUploading(false);
+                setPipelineStep(null);
+                return;
             }
+            const mathsConfigId = uploadData.maths_config_id;
+            const version = uploadData.version;
+
+            // Step 2: Activate (draft → testing)
+            setPipelineStep('Activating for testing...');
+            const activateData = await callAction({ action: 'activate', maths_config_id: mathsConfigId });
+            if (activateData.error) {
+                setUploadStatus({ type: 'error', message: `Activate failed: ${activateData.error}` });
+                setUploading(false);
+                setPipelineStep(null);
+                return;
+            }
+
+            // Step 3: Stress Test
+            setPipelineStep(`Running stress test (${(simCount / 1000).toFixed(0)}k spins)...`);
+            const stressData = await callAction({ action: 'stress-test', maths_config_id: mathsConfigId, num_spins: simCount });
+            if (stressData.error) {
+                setUploadStatus({ type: 'error', message: `Stress test failed: ${stressData.error}` });
+                setUploading(false);
+                setPipelineStep(null);
+                return;
+            }
+
+            // Step 4: Approve (testing → approved)
+            setPipelineStep('Approving...');
+            const approveData = await callAction({ action: 'approve', maths_config_id: mathsConfigId });
+            if (approveData.error) {
+                setUploadStatus({ type: 'error', message: `Approve failed: ${approveData.error}` });
+                setUploading(false);
+                setPipelineStep(null);
+                return;
+            }
+
+            // Step 5: Deploy (approved → live)
+            setPipelineStep('Deploying to live...');
+            const deployData = await callAction({ action: 'deploy', maths_config_id: mathsConfigId });
+            if (deployData.error) {
+                setUploadStatus({ type: 'error', message: `Deploy failed: ${deployData.error}` });
+                setUploading(false);
+                setPipelineStep(null);
+                return;
+            }
+
+            // Success — extract simulation metrics
+            const rtpComp = stressData.tests?.rtp_compliance || {};
+            const rtpStr = rtpComp.measured_rtp ? `${(rtpComp.measured_rtp * 100).toFixed(2)}%` : '';
+            const hitStr = rtpComp.hit_rate != null ? `${(rtpComp.hit_rate * 100).toFixed(1)}%` : '';
+            const maxStr = (rtpComp.max_win || rtpComp.max_multiplier) != null ? `${rtpComp.max_win || rtpComp.max_multiplier}×` : '';
+            setUploadStatus({
+                type: 'success',
+                message: `v${version} deployed live! RTP ${rtpStr} · Hit ${hitStr} · Max ${maxStr}`,
+            });
         } catch (e: any) {
             setUploadStatus({ type: 'error', message: e.message || 'Pipeline failed' });
         }
