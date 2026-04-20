@@ -8,7 +8,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawn, execSync } from 'child_process';
+import { spawn, execSync, ChildProcess } from 'child_process';
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const PRIVATE_DIR = path.join(ROOT_DIR, 'private');
@@ -16,6 +16,59 @@ const PRO_NODES_DIR = path.join(PRIVATE_DIR, 'xgenia-pro-nodes');
 const AI_SERVICE_DIR = path.join(PRIVATE_DIR, 'xgenia-ai-service');
 const MODELS_DIR = path.join(PRIVATE_DIR, 'xgenia-models');
 const IMAGE_EDITOR_APP_DIR = path.join(PRIVATE_DIR, 'xgenia-image-editor-app');
+const backgroundProcesses: ChildProcess[] = [];
+
+/**
+ * Kill process on a specific port
+ */
+function killPort(port: number) {
+    try {
+        const result = execSync(`lsof -ti tcp:${port}`);
+        if (result.length > 0) {
+            const pids = result.toString().trim().split('\n');
+            logWarning(`Port ${port} is in use. Killing processes: ${pids.join(', ')}...`);
+            for (const pid of pids) {
+                try { execSync(`kill -9 ${pid}`); } catch { }
+            }
+        }
+    } catch (err) {
+        // Port is free or lsof failed
+    }
+}
+
+/**
+ * Cleanup function to kill all background processes
+ */
+function cleanup() {
+    if (backgroundProcesses.length === 0) return;
+    
+    log('Cleaning up background processes...');
+    for (const proc of backgroundProcesses) {
+        if (proc.pid) {
+            try {
+                // Kill the entire process group
+                process.kill(-proc.pid, 'SIGTERM');
+            } catch (e) {
+                // Process might already be dead
+            }
+        }
+    }
+}
+
+// Handle signals for cleanup
+process.on('SIGINT', () => {
+    cleanup();
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    cleanup();
+    process.exit(0);
+});
+
+process.on('exit', () => {
+    cleanup();
+});
 
 function log(message: string) {
     console.log(`\x1b[36m[XGENIA Setup]\x1b[0m ${message}`);
@@ -148,6 +201,7 @@ function startAIService(): void {
     }
 
     log('Starting AI Service in background (port 3847)...');
+    killPort(3847);
 
     // Start AI service in background
     const aiProcess = spawn('npm', ['run', 'dev'], {
@@ -157,7 +211,7 @@ function startAIService(): void {
         shell: true
     });
 
-    aiProcess.unref(); // Allow parent to exit independently
+    backgroundProcesses.push(aiProcess);
 
     logSuccess('AI Service starting in background (PID: ' + aiProcess.pid + ')');
 }
@@ -183,6 +237,7 @@ function startImageEditorApp(): void {
     }
 
     log('Starting Image Editor App on http://localhost:3002 ...');
+    killPort(3002);
 
     const imageEditorProcess = spawn('npm', ['run', 'dev'], {
         cwd: IMAGE_EDITOR_APP_DIR,
@@ -191,7 +246,7 @@ function startImageEditorApp(): void {
         shell: true
     });
 
-    imageEditorProcess.unref(); // Allow parent to exit independently
+    backgroundProcesses.push(imageEditorProcess);
 
     logSuccess('Image Editor App starting in background on port 3002 (PID: ' + imageEditorProcess.pid + ')');
 }
@@ -219,6 +274,7 @@ function startAiApp(): void {
     }
 
     log('Starting AI App on http://localhost:3010 ...');
+    killPort(3010);
 
     const aiAppProcess = spawn('npm', ['run', 'dev'], {
         cwd: AI_APP_DIR,
@@ -227,7 +283,7 @@ function startAiApp(): void {
         shell: true
     });
 
-    aiAppProcess.unref(); // Allow parent to exit independently
+    backgroundProcesses.push(aiAppProcess);
 
     logSuccess('AI App starting in background on port 3010 (PID: ' + aiAppProcess.pid + ')');
 }
@@ -274,6 +330,7 @@ async function main() {
     });
 
     startScript.on('exit', (code) => {
+        cleanup();
         process.exit(code || 0);
     });
 }
