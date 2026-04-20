@@ -698,13 +698,18 @@ function launchApp() {
         console.warn('[Main Process] Failed to install memprof handlers:', e && e.message ? e.message : e);
       }
 
-      // Strip frame-ancestors from responses so the Vercel-hosted chat panel
-      // can be iframed from Electron's file:// (or custom) scheme.
+      // Strip frame-ancestors and X-Frame-Options from responses so the
+      // Vercel-hosted chat panel can be iframed from Electron's file://
+      // (or custom) scheme.
       // The wildcard '*' in frame-ancestors only covers network schemes,
       // so Electron's non-network origin gets blocked without this.
+      // X-Frame-Options must also be removed because Windows Electron
+      // enforces it more strictly than macOS/Linux, causing the chat
+      // iframe to fail with SAMEORIGIN or DENY on Windows.
       win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
         const headers = details.responseHeaders;
         if (headers) {
+          // Strip CSP frame-ancestors directives
           const cspKeys = Object.keys(headers).filter(
             k => k.toLowerCase() === 'content-security-policy' || k.toLowerCase() === 'content-security-policy-report-only'
           );
@@ -712,6 +717,13 @@ function launchApp() {
             headers[key] = headers[key].map(val =>
               val.replace(/frame-ancestors\s+[^;]+(;|$)/gi, '')
             );
+          }
+          // Strip X-Frame-Options headers (blocks iframe on Windows file://)
+          const xfoKeys = Object.keys(headers).filter(
+            k => k.toLowerCase() === 'x-frame-options'
+          );
+          for (const key of xfoKeys) {
+            delete headers[key];
           }
         }
         callback({ responseHeaders: headers });

@@ -563,7 +563,7 @@ export function MathsPanel() {
                                             <option value="" style={{ background: '#1a1a2e' }}>Select a game…</option>
                                             {games.map((g: any) => (
                                                 <option key={g.id} value={g.id} style={{ background: '#1a1a2e' }}>
-                                                    {g.name} ({g.status})
+                                                    {g.name}
                                                 </option>
                                             ))}
                                         </select>
@@ -586,17 +586,6 @@ export function MathsPanel() {
                                                 flexWrap: 'wrap' as const,
                                                 gap: '8px',
                                             }}>
-                                                <span style={{
-                                                    padding: '2px 8px',
-                                                    borderRadius: '3px',
-                                                    backgroundColor: g.status === 'active' ? 'rgba(103, 222, 146, 0.15)' :
-                                                        g.status === 'draft' ? 'rgba(255, 193, 7, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-                                                    color: g.status === 'active' ? '#67DE92' :
-                                                        g.status === 'draft' ? '#FFC107' : '#a0a0b0',
-                                                    fontWeight: 600,
-                                                }}>
-                                                    {g.status}
-                                                </span>
                                                 <span>{g.reel_rows}×{g.reel_cols}</span>
                                                 <span>RTP {(parseFloat(g.default_rtp) * 100).toFixed(1)}%</span>
                                                 <span>{g.volatility}</span>

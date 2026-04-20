@@ -206,7 +206,7 @@ export function ChatPanelIframe() {
                                 border: 'none', background: '#1a1a1a',
                             }}
                             allow="clipboard-read; clipboard-write"
-                            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+                            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-storage-access-by-user-activation allow-downloads"
                         />
                     );
                 })()}
