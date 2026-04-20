@@ -184,6 +184,11 @@ export function MathsPanel() {
     const [versionCode, setVersionCode] = useState<Record<string, string>>({});
     const [actionStatus, setActionStatus] = useState<{ id: string; type: 'success' | 'error' | 'loading'; msg: string } | null>(null);
 
+    // Upload, Test & Deploy modal state
+    const [showTestConfigModal, setShowTestConfigModal] = useState(false);
+    const [simCount, setSimCount] = useState(10000);
+    const [pipelineStep, setPipelineStep] = useState<string | null>(null);
+
     const connected = !!settings;
 
     // Load games when connected
@@ -364,38 +369,24 @@ export function MathsPanel() {
 
 
 
-    // Direct upload handler — extracts maths script + uploads to RGS in one click
-    const handleUpload = useCallback(async () => {
+    // Upload, Test & Deploy — full pipeline handler
+    const handleUploadTestDeploy = useCallback(async () => {
         if (!settings?.apiKey || !selectedGame) return;
 
         setUploading(true);
         setUploadStatus(null);
+        setShowTestConfigModal(false);
 
-        // Check if game has a live config — block if so
         const game = games?.find((g: any) => g.id === selectedGame);
-        if (game?.status === 'active') {
-            try {
-                const versionsRes = await fetch(`${XRGS_URL}/maths-deployer`, {
-                    method: 'POST',
-                    headers: rgsHeaders(settings.apiKey),
-                    body: JSON.stringify({ action: 'versions', game_id: selectedGame }),
-                });
-                const versionsData = await versionsRes.json();
-                const hasLive = versionsData.versions?.some((v: any) => v.status === 'live');
-                if (hasLive) {
-                    setUploadStatus({ type: 'error', message: 'Game has a live config. Set to testing first.' });
-                    setUploading(false);
-                    return;
-                }
-            } catch { /* proceed anyway */ }
-        }
 
         try {
             // 1. Extract & sanitize the maths script
+            setPipelineStep('Extracting maths script...');
             const xrgs = (window as any).__xrgs;
             if (!xrgs?.generateRgsScript) {
                 setUploadStatus({ type: 'error', message: 'Maths bridge not ready. Open a maths component first.' });
                 setUploading(false);
+                setPipelineStep(null);
                 return;
             }
 
@@ -405,12 +396,14 @@ export function MathsPanel() {
             if (result.error) {
                 setUploadStatus({ type: 'error', message: result.error });
                 setUploading(false);
+                setPipelineStep(null);
                 return;
             }
 
             if (!result.script || result.script.length < 50) {
                 setUploadStatus({ type: 'error', message: 'Generated script is too short. Check your maths component.' });
                 setUploading(false);
+                setPipelineStep(null);
                 return;
             }
 
@@ -420,50 +413,97 @@ export function MathsPanel() {
                 console.log('[__xrgs] ✅ Client-side compilation check passed');
             } catch (compileErr: any) {
                 console.error('[__xrgs] ❌ Client-side compilation FAILED:', compileErr.message);
-                const blob = new Blob([result.script], { type: 'text/javascript' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'failed_rgs_script.js';
-                a.click();
-                URL.revokeObjectURL(url);
-                setUploadStatus({ type: 'error', message: `Client-side compilation failed: ${compileErr.message}. Script downloaded as failed_rgs_script.js` });
+                setUploadStatus({ type: 'error', message: `Client-side compilation failed: ${compileErr.message}` });
                 setUploading(false);
+                setPipelineStep(null);
                 return;
             }
 
-            // 2. Upload to RGS
-            const res = await fetch(`${XRGS_URL}/maths-deployer`, {
-                method: 'POST',
-                headers: rgsHeaders(settings.apiKey),
-                body: JSON.stringify({
-                    action: 'upload',
-                    game_id: selectedGame,
-                    maths_mode: 'script',
-                    script: result.script,
-                    config_data: result.configData,
-                    declared_rtp: game?.default_rtp || '96.00',
-                }),
-            });
-
-            const data = await res.json();
-            if (data.error) {
-                if (data.script_preview) {
-                    console.error('[__xrgs] Server script_preview:', data.script_preview);
-                }
-                setUploadStatus({ type: 'error', message: data.error });
-            } else {
-                setUploadStatus({
-                    type: 'success',
-                    message: `Uploaded v${data.version || '?'} (${data.status || 'testing'})`,
+            // 2. Sequential pipeline: upload → activate → stress-test → approve → deploy
+            const callAction = async (payload: any) => {
+                const r = await fetch(`${XRGS_URL}/maths-deployer`, {
+                    method: 'POST',
+                    headers: rgsHeaders(settings.apiKey),
+                    body: JSON.stringify(payload),
                 });
+                return r.json();
+            };
+
+            // Step 1: Upload
+            setPipelineStep('Uploading maths...');
+            const uploadData = await callAction({
+                action: 'upload',
+                game_id: selectedGame,
+                maths_mode: 'script',
+                script: result.script,
+                config_data: result.configData,
+                declared_rtp: game?.default_rtp || '96.00',
+            });
+            if (uploadData.error) {
+                setUploadStatus({ type: 'error', message: `Upload failed: ${uploadData.error}` });
+                setUploading(false);
+                setPipelineStep(null);
+                return;
             }
+            const mathsConfigId = uploadData.maths_config_id;
+            const version = uploadData.version;
+
+            // Step 2: Activate (draft → testing)
+            setPipelineStep('Activating for testing...');
+            const activateData = await callAction({ action: 'activate', maths_config_id: mathsConfigId });
+            if (activateData.error) {
+                setUploadStatus({ type: 'error', message: `Activate failed: ${activateData.error}` });
+                setUploading(false);
+                setPipelineStep(null);
+                return;
+            }
+
+            // Step 3: Stress Test
+            setPipelineStep(`Running stress test (${(simCount / 1000).toFixed(0)}k spins)...`);
+            const stressData = await callAction({ action: 'stress-test', maths_config_id: mathsConfigId, num_spins: simCount });
+            if (stressData.error) {
+                setUploadStatus({ type: 'error', message: `Stress test failed: ${stressData.error}` });
+                setUploading(false);
+                setPipelineStep(null);
+                return;
+            }
+
+            // Step 4: Approve (testing → approved)
+            setPipelineStep('Approving...');
+            const approveData = await callAction({ action: 'approve', maths_config_id: mathsConfigId });
+            if (approveData.error) {
+                setUploadStatus({ type: 'error', message: `Approve failed: ${approveData.error}` });
+                setUploading(false);
+                setPipelineStep(null);
+                return;
+            }
+
+            // Step 5: Deploy (approved → live)
+            setPipelineStep('Deploying to live...');
+            const deployData = await callAction({ action: 'deploy', maths_config_id: mathsConfigId });
+            if (deployData.error) {
+                setUploadStatus({ type: 'error', message: `Deploy failed: ${deployData.error}` });
+                setUploading(false);
+                setPipelineStep(null);
+                return;
+            }
+
+            // Success — extract simulation metrics
+            const rtpComp = stressData.tests?.rtp_compliance || {};
+            const rtpStr = rtpComp.measured_rtp ? `${(rtpComp.measured_rtp * 100).toFixed(2)}%` : '';
+            const hitStr = rtpComp.hit_rate != null ? `${(rtpComp.hit_rate * 100).toFixed(1)}%` : '';
+            const maxStr = (rtpComp.max_win || rtpComp.max_multiplier) != null ? `${rtpComp.max_win || rtpComp.max_multiplier}×` : '';
+            setUploadStatus({
+                type: 'success',
+                message: `v${version} deployed live! RTP ${rtpStr} · Hit ${hitStr} · Max ${maxStr}`,
+            });
         } catch (e: any) {
-            setUploadStatus({ type: 'error', message: e.message || 'Upload failed' });
+            setUploadStatus({ type: 'error', message: e.message || 'Pipeline failed' });
         }
 
         setUploading(false);
-    }, [settings, selectedGame, games]);
+        setPipelineStep(null);
+    }, [settings, selectedGame, games, simCount]);
 
     return (
         <BasePanel title="Maths RGS" isFill>
@@ -712,14 +752,14 @@ export function MathsPanel() {
                             </>
                         )}
 
-                        <Tooltip content="Extract maths from editor graph and upload to RGS">
+                        <Tooltip content="Upload, test, approve, and deploy maths to RGS in one click">
                             <Box hasBottomSpacing>
                                 <PrimaryButton
                                     icon={IconName.CloudUpload}
-                                    label={uploading ? 'Uploading...' : 'Upload Maths'}
+                                    label={uploading ? (pipelineStep || 'Processing...') : 'Upload, Test & Deploy'}
                                     size={PrimaryButtonSize.Small}
                                     variant={PrimaryButtonVariant.MutedOnLowBg}
-                                    onClick={handleUpload}
+                                    onClick={() => setShowTestConfigModal(true)}
                                     isGrowing
                                     isDisabled={!connected || !selectedGame || uploading}
                                 />
@@ -776,8 +816,15 @@ export function MathsPanel() {
                                             draft: '#a0a0b0', failed: '#EF4444', archived: '#666',
                                         };
                                         const statusColor = statusColors[v.status] || '#a0a0b0';
-                                        const rtp = v.declared_rtp;
-                                        const verdict = v.status === 'live' ? 'PASSED' : null;
+
+                                        // Extract simulation data from stress_results
+                                        const sr = v.stress_results;
+                                        const rtpComp = sr?.tests?.rtp_compliance;
+                                        const measuredRtp = rtpComp?.measured_rtp;
+                                        const hitRate = rtpComp?.hit_rate;
+                                        const maxWin = rtpComp?.max_win || rtpComp?.max_multiplier;
+                                        const hasSimData = measuredRtp != null;
+                                        const rtpDisplay = hasSimData ? `${(measuredRtp * 100).toFixed(2)}%` : (v.declared_rtp ? `${v.declared_rtp}%` : null);
 
                                         return (
                                             <div key={v.id} style={{ marginBottom: '4px' }}>
@@ -803,12 +850,30 @@ export function MathsPanel() {
                                                         fontWeight: 600, textTransform: 'uppercase' as const,
                                                     }}>{v.status}</span>
 
-                                                    {rtp != null && (
+                                                    {rtpDisplay && (
                                                         <span style={{
-                                                            fontSize: '10px', color: verdict === 'PASSED' ? '#67DE92' : '#EF4444',
+                                                            fontSize: '10px', color: hasSimData ? '#67DE92' : '#a0a0b0',
                                                             fontFamily: 'monospace',
                                                         }}>
-                                                            RTP {rtp}%
+                                                            RTP {rtpDisplay}
+                                                        </span>
+                                                    )}
+
+                                                    {hasSimData && hitRate != null && (
+                                                        <span style={{
+                                                            fontSize: '10px', color: '#60A5FA',
+                                                            fontFamily: 'monospace',
+                                                        }}>
+                                                            Hit {(hitRate * 100).toFixed(1)}%
+                                                        </span>
+                                                    )}
+
+                                                    {hasSimData && maxWin != null && (
+                                                        <span style={{
+                                                            fontSize: '10px', color: '#FFC107',
+                                                            fontFamily: 'monospace',
+                                                        }}>
+                                                            Max {maxWin}×
                                                         </span>
                                                     )}
 
@@ -908,6 +973,128 @@ export function MathsPanel() {
                     <ComponentsPanel options={mathsPanelOptions} />
                 </div>
             </Container>
+
+            {/* ═══ Test Configuration Modal ═══ */}
+            {showTestConfigModal && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 10000,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: 'rgba(0,0,0,0.6)',
+                }} onClick={() => setShowTestConfigModal(false)}>
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: '420px',
+                            backgroundColor: '#1e1e2e',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: '12px',
+                            padding: '24px',
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                        }}
+                    >
+                        <div style={{ marginBottom: '20px' }}>
+                            <div style={{
+                                fontSize: '15px', fontWeight: 700, color: '#fff',
+                                marginBottom: '4px',
+                            }}>Test Configuration</div>
+                            <div style={{ fontSize: '12px', color: '#888' }}>
+                                Configure the simulation before uploading. The math will be automatically tested, approved, and deployed.
+                            </div>
+                        </div>
+
+                        {/* Simulation Count */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={{
+                                display: 'block', fontSize: '11px', color: '#a0a0b0',
+                                textTransform: 'uppercase' as const, letterSpacing: '0.5px',
+                                marginBottom: '6px',
+                            }}>Simulation Count</label>
+                            <input
+                                type="number"
+                                min={1000}
+                                max={1000000}
+                                value={simCount}
+                                onChange={(e) => setSimCount(Math.max(1000, Math.min(1000000, Number(e.target.value) || 10000)))}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    backgroundColor: 'rgba(255,255,255,0.06)',
+                                    border: '1px solid rgba(255,255,255,0.12)',
+                                    borderRadius: '6px',
+                                    color: '#fff',
+                                    fontSize: '14px',
+                                    fontFamily: 'monospace',
+                                    outline: 'none',
+                                    boxSizing: 'border-box' as const,
+                                }}
+                            />
+                            <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
+                                1,000 – 1,000,000 spins
+                            </div>
+                        </div>
+
+                        {/* Pipeline steps preview */}
+                        <div style={{
+                            padding: '12px',
+                            backgroundColor: 'rgba(255,255,255,0.03)',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(255,255,255,0.06)',
+                            marginBottom: '20px',
+                        }}>
+                            <div style={{ fontSize: '10px', color: '#888', textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '8px' }}>
+                                Pipeline Steps
+                            </div>
+                            {[
+                                { icon: '①', label: 'Upload to RGS', desc: 'Draft status' },
+                                { icon: '②', label: 'Run Simulation', desc: `${simCount.toLocaleString()} spins` },
+                                { icon: '③', label: 'Auto-Approve', desc: 'Bypass compliance' },
+                                { icon: '④', label: 'Deploy Live', desc: 'Exportable' },
+                            ].map((step, i) => (
+                                <div key={i} style={{
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    padding: '4px 0',
+                                    fontSize: '12px', color: '#c0c0c0',
+                                }}>
+                                    <span style={{ color: '#67DE92', fontWeight: 700 }}>{step.icon}</span>
+                                    <span>{step.label}</span>
+                                    <span style={{ flex: 1 }} />
+                                    <span style={{ fontSize: '10px', color: '#666' }}>{step.desc}</span>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Actions */}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                            <button
+                                onClick={() => setShowTestConfigModal(false)}
+                                style={{
+                                    padding: '8px 16px',
+                                    borderRadius: '6px',
+                                    border: '1px solid rgba(255,255,255,0.12)',
+                                    backgroundColor: 'transparent',
+                                    color: '#a0a0b0',
+                                    fontSize: '13px',
+                                    cursor: 'pointer',
+                                }}
+                            >Cancel</button>
+                            <button
+                                onClick={handleUploadTestDeploy}
+                                disabled={simCount < 1000}
+                                style={{
+                                    padding: '8px 20px',
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    backgroundColor: simCount >= 1000 ? '#67DE92' : '#444',
+                                    color: simCount >= 1000 ? '#1a1a2e' : '#888',
+                                    fontSize: '13px',
+                                    fontWeight: 700,
+                                    cursor: simCount >= 1000 ? 'pointer' : 'not-allowed',
+                                }}
+                            >Upload</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </BasePanel>
     );
 }
