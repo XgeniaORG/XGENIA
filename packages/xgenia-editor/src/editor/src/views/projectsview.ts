@@ -913,28 +913,6 @@ export class ProjectsView extends View {
     this.$('#start-pane-feed-item-big-image').css('background-image', '').html('');
   }
 
-  /** Show the choice overlay when "New project" is clicked */
-  onNewProjectButtonClicked() {
-    this.$('#new-project-choice-overlay').addClass('visible');
-  }
-
-  /** User chose "Start with AI" from the choice overlay */
-  onChoiceAIClicked() {
-    this.$('#new-project-choice-overlay').removeClass('visible');
-    this.onCreateWithAIClicked();
-  }
-
-  /** User chose "Start from template" from the choice overlay */
-  onChoiceTemplateClicked() {
-    this.$('#new-project-choice-overlay').removeClass('visible');
-    this.onCreateNewProjectClicked();
-  }
-
-  /** User cancelled the choice overlay */
-  onChoiceCancelClicked() {
-    this.$('#new-project-choice-overlay').removeClass('visible');
-  }
-
   onCreateNewProjectClicked() {
     this.$('.projects-create-new-project').show();
     //enable scrolling on the entire parent pane so the templates can be scrolled
@@ -944,91 +922,6 @@ export class ProjectsView extends View {
     this.$('.projects-list').hide();
   }
 
-  /** Mount the AI Wizard React component for onboarding / project creation */
-  async onCreateWithAIClicked() {
-    const wizardRoot = this.$('#ai-wizard-root').get(0) as HTMLDivElement | undefined;
-    if (!wizardRoot) {
-      console.error('[ProjectsView] #ai-wizard-root not found');
-      return;
-    }
-
-    // Show the wizard container
-    wizardRoot.style.display = 'block';
-
-    try {
-      const React = (await import('react')).default;
-      const { createRoot } = await import('react-dom/client');
-      const { AIWizard } = await import('@xgenia-ai/ChatPanel/AIWizard');
-
-      const root = createRoot(wizardRoot);
-
-      const unmount = () => {
-        root.unmount();
-        wizardRoot.style.display = 'none';
-      };
-
-      root.render(
-        React.createElement(AIWizard, {
-          showClose: true,
-          onCancel: unmount,
-          onComplete: async (projectPath: string, projectName: string, initialPrompt: string, images?: any[]) => {
-            unmount();
-
-            const activityId = 'ai-wizard-create';
-            ToastLayer.showActivity('Creating project…', activityId);
-
-            console.log('[ProjectsView] AI Wizard onComplete:', { projectPath, projectName, promptLength: initialPrompt?.length, imageCount: images?.length ?? 0 });
-
-            try {
-              await this.projectsModel.newProject(
-                (project) => {
-                  ToastLayer.hideActivity(activityId);
-
-                  if (!project) {
-                    console.error('[ProjectsView] newProject callback received falsy project');
-                    ToastLayer.showError('Could not create new project.');
-                    return;
-                  }
-
-                  console.log('[ProjectsView] Project created successfully:', project.name);
-
-                  ToastLayer.hideActivity(activityId);
-
-                  if (!project) {
-                    console.error('[ProjectsView] newProject callback received falsy project');
-                    ToastLayer.showError('Could not create new project.');
-                    return;
-                  }
-
-                  tracker.track('Create New Project', {
-                    templateLabel: 'AI Wizard',
-                    templateUrl: '',
-                  });
-
-                  this.notifyListeners('projectLoaded', project);
-
-                  tracker.track('Create New Project', {
-                    templateLabel: 'AI Wizard',
-                    templateUrl: '',
-                  });
-
-                  this.notifyListeners('projectLoaded', project);
-                },
-                { name: projectName, path: projectPath }
-              );
-            } catch (err: any) {
-              ToastLayer.hideActivity(activityId);
-              ToastLayer.showError('Could not create project.');
-              console.error('[ProjectsView] AI Wizard project creation failed:', err);
-            }
-          },
-        })
-      );
-    } catch (err: any) {
-      console.error('[ProjectsView] Failed to mount AI Wizard:', err);
-      wizardRoot.style.display = 'none';
-    }
-  }
 
   onBackToProjectsListClicked() {
     this.$('.projects-create-new-project').hide();
