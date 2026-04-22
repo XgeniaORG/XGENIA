@@ -485,6 +485,30 @@ export class EditorBridge {
                 console.log('[EditorBridge] Creating node from JSON:', nodeJSON);
                 const node = NodeGraphNode.fromJSON(nodeJSON);
 
+                // FIX (2026-04-21 R37): Force-initialize static ports from the type definition.
+                // For certain node types (notably the Logic family: And, Or, Not, Xor) the ports
+                // exposed by `node.getPorts()` / `node.ports` come back empty immediately after
+                // fromJSON. The subsequent port existence check in create_connection then fails
+                // every attempt with "port 'a' does not exist". Pulling the type.ports up front
+                // and calling node.addPort for each missing port closes the gap.
+                try {
+                    const typeName = node.type?.name || node.typename || nodeType;
+                    const type = (NodeLibrary.instance as any)?.getNodeTypeWithName?.(typeName);
+                    const typePorts = Array.isArray(type?.ports) ? type.ports : [];
+                    const currentPorts = (typeof node.getPorts === 'function' ? node.getPorts() : node.ports) || [];
+                    if (typePorts.length > 0 && currentPorts.length < typePorts.length && typeof node.addPort === 'function') {
+                        const have = new Set(currentPorts.map((p: any) => `${p.plug}:${p.name}`));
+                        for (const p of typePorts) {
+                            const key = `${p.plug}:${p.name}`;
+                            if (!have.has(key)) {
+                                try { node.addPort({ name: p.name, plug: p.plug, type: p.type }); } catch { /* some nodes reject duplicates silently */ }
+                            }
+                        }
+                    }
+                } catch (initErr: any) {
+                    console.warn('[EditorBridge] Port hydration from type definition failed (non-fatal):', initErr?.message);
+                }
+
                 // FIX: Always set label when an explicit label/name is provided.
                 // CRITICAL: Do NOT gate on !node.label — the getter falls back to
                 // type.labelForNode(this) which returns text content for Text nodes
@@ -823,6 +847,72 @@ export class EditorBridge {
                 return pm.createComponent(name, path, type);
             }
             throw new Error('Component creation not available');
+        });
+
+        // FIX (2026-04-21 R36): component.delete bridge endpoint.
+        // Previously the iframe-side create_component tool attempted `ProjectModel.instance.deleteComponent`
+        // directly, which doesn't exist in iframe context — every forceRecreate silently no-opped, and the
+        // "Component already exists" error still fired because the ghost component remained. This handler
+        // tries the real editor-side deletion methods with undo support and reports what actually happened.
+        h('component.delete', ([nameOrFullName]: [string]) => {
+            const pm = ProjectModel.instance as any;
+            if (!pm) throw new Error('ProjectModel not available');
+
+            const allComponents = pm.getComponents?.() || [];
+            const stripPath = (s: string) => (s || '').replace(/^\/+|\/+$/g, '').split('/').pop() || '';
+            const wanted = nameOrFullName;
+            const wantedStripped = stripPath(wanted);
+
+            const matches = allComponents.filter((c: any) => {
+                const cn = c?.name || c?.fullName || '';
+                return cn === wanted || stripPath(cn) === wantedStripped || stripPath(cn).toLowerCase() === wantedStripped.toLowerCase();
+            });
+
+            if (matches.length === 0) {
+                return { success: false, error: `No component matches "${nameOrFullName}"`, deletedCount: 0 };
+            }
+
+            const undoGroup = new UndoActionGroup({ label: `delete component ${nameOrFullName}` });
+            const deleted: string[] = [];
+            const failed: { name: string; error: string }[] = [];
+
+            for (const comp of matches) {
+                const compName = comp?.name || comp?.fullName || 'unknown';
+                // If the component being deleted is currently active, clear the AI lock and cache first
+                // so downstream state doesn't hold a dangling reference.
+                if (this.cachedActiveComponent?.id === comp?.id) {
+                    this.clearAiLock();
+                    this.cachedActiveComponent = null;
+                }
+                try {
+                    if (typeof pm.removeComponent === 'function') {
+                        pm.removeComponent(comp, { undo: undoGroup });
+                        deleted.push(compName);
+                    } else if (typeof pm.deleteComponent === 'function') {
+                        pm.deleteComponent(comp, { undo: undoGroup });
+                        deleted.push(compName);
+                    } else if (typeof comp.delete === 'function') {
+                        comp.delete();
+                        deleted.push(compName);
+                    } else {
+                        failed.push({ name: compName, error: 'No supported deletion method on ProjectModel or Component' });
+                    }
+                } catch (e: any) {
+                    failed.push({ name: compName, error: e?.message || String(e) });
+                }
+            }
+
+            if (deleted.length > 0) {
+                UndoQueue.instance.push(undoGroup);
+                this.pushEvent('componentDeleted', { names: deleted });
+            }
+
+            return {
+                success: failed.length === 0 && deleted.length > 0,
+                deletedCount: deleted.length,
+                deleted,
+                failed: failed.length > 0 ? failed : undefined
+            };
         });
 
         h('component.createWithTemplate', ([name, templateJSON]: [string, any]) => {
@@ -1574,6 +1664,24 @@ ${autoReturnCode}
                 } catch { /* getPorts() not available on this node */ }
                 if (!rawPorts.length) {
                     rawPorts = node.ports || [];
+                }
+                // FIX (2026-04-21 R37): If the live node reports no ports, fall back to
+                // the NodeLibrary type definition. Freshly-created logic nodes (And/Or/…)
+                // sometimes finish creation before their port list is populated — the
+                // iframe-side existence check then sees an empty `ports` array on the
+                // serialized payload and rejects every connection as "port does not exist".
+                // Reading the authoritative type.ports here ensures the serialized node
+                // always carries its full static port surface.
+                if (!rawPorts.length) {
+                    try {
+                        const typeName = node.type?.name || node.typename;
+                        if (typeName) {
+                            const type = (NodeLibrary.instance as any)?.getNodeTypeWithName?.(typeName);
+                            if (type?.ports && Array.isArray(type.ports)) {
+                                rawPorts = type.ports;
+                            }
+                        }
+                    } catch { /* NodeLibrary not available in this context */ }
                 }
                 return rawPorts.map((p: any) => ({
                     name: p.name,

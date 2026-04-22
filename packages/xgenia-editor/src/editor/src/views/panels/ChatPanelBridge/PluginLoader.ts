@@ -81,9 +81,10 @@ export class PluginLoader {
             ? await this.probeLocalServer(LOCAL_IMAGE_EDITOR_URL)
             : false;
 
-        const localAiChatReachable = isDev
-            ? await this.probeLocalServer(LOCAL_AI_CHAT_URL)
-            : false;
+        // FIX (2026-04-20): Always load AI chat from Vercel — never from localhost.
+        // The local dev server was masking cache issues and deploy-vs-local drift;
+        // forcing Vercel guarantees the iframe matches what's deployed.
+        const localAiChatReachable = false;
 
         if (isDev) {
             console.log(
