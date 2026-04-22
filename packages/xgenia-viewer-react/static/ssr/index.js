@@ -158,9 +158,29 @@ async function buildPage(path) {
       const output1 = ReactDOMServer.renderToString(ViewerComponent);
       log('result:', output1);
 
-      const result = htmlData.replace('<div id="root"></div>', `<div id="root">${output1}</div>`);
+      let result = htmlData.replace('<div id="root"></div>', `<div id="root">${output1}</div>`);
 
-      // TODO: Inject XGENIA.SEO.meta
+      // Inject XGENIA.SEO.meta
+      if (globalThis.XGENIA && globalThis.XGENIA.SEO) {
+        let seoTags = '';
+        if (globalThis.XGENIA.SEO.title) {
+          seoTags += `<title>${globalThis.XGENIA.SEO.title}</title>\n`;
+        }
+        const meta = globalThis.XGENIA.SEO.meta || {};
+        for (const [key, value] of Object.entries(meta)) {
+          // In SSR context, some components might set 'property' vs 'name', 
+          // but we standardize on 'name' as per the typical usage, or add 'property' too.
+          seoTags += `<meta name="${key}" property="${key}" content="${value}">\n`;
+        }
+        
+        if (seoTags) {
+          if (result.includes('</head>')) {
+            result = result.replace('</head>', `${seoTags}</head>`);
+          } else {
+            result = seoTags + result;
+          }
+        }
+      }
 
       resolve(result);
     });
