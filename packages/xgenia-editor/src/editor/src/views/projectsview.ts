@@ -913,6 +913,124 @@ export class ProjectsView extends View {
     this.$('#start-pane-feed-item-big-image').css('background-image', '').html('');
   }
 
+  /** Show the choice overlay when "New project" is clicked */
+  onNewProjectButtonClicked() {
+    this.$('#new-project-choice-overlay').addClass('visible');
+  }
+
+  /** User chose "Start with AI" from the choice overlay */
+  onChoiceAIClicked() {
+    this.$('#new-project-choice-overlay').removeClass('visible');
+    this.onCreateWithAIClicked();
+  }
+
+  /** User chose "Start from template" from the choice overlay */
+  onChoiceTemplateClicked() {
+    this.$('#new-project-choice-overlay').removeClass('visible');
+    this.onCreateNewProjectClicked();
+  }
+
+  /** User cancelled the choice overlay */
+  onChoiceCancelClicked() {
+    this.$('#new-project-choice-overlay').removeClass('visible');
+  }
+
+  /** Mount the AI Wizard React component for onboarding / project creation */
+  async onCreateWithAIClicked() {
+    const wizardRoot = this.$('#ai-wizard-root').get(0) as HTMLDivElement | undefined;
+    if (!wizardRoot) {
+      console.error('[ProjectsView] #ai-wizard-root not found');
+      return;
+    }
+
+    // Show the wizard container
+    wizardRoot.style.display = 'block';
+
+    try {
+      const React = (await import('react')).default;
+      const { createRoot } = await import('react-dom/client');
+      const { AIWizard } = await import('@xgenia-ai/ChatPanel/AIWizard');
+
+      const root = createRoot(wizardRoot);
+
+      const unmount = () => {
+        root.unmount();
+        wizardRoot.style.display = 'none';
+      };
+
+      root.render(
+        React.createElement(AIWizard, {
+          showClose: true,
+          onCancel: unmount,
+          onComplete: async (projectPath: string, projectName: string, initialPrompt: string, images?: any[]) => {
+            unmount();
+
+            const activityId = 'ai-wizard-create';
+            ToastLayer.showActivity('Creating project…', activityId);
+
+            console.log('[ProjectsView] AI Wizard onComplete:', { projectPath, projectName, promptLength: initialPrompt?.length, imageCount: images?.length ?? 0 });
+
+            // Store the prompt so EditorBridge can forward it to the ChatPanel
+            if (initialPrompt) {
+              (window as any).__xgenia_pendingAIPrompt = {
+                prompt: initialPrompt,
+                images: images || [],
+                timestamp: Date.now()
+              };
+            }
+
+            try {
+              await this.projectsModel.newProject(
+                (project) => {
+                  ToastLayer.hideActivity(activityId);
+
+                  if (!project) {
+                    console.error('[ProjectsView] newProject callback received falsy project');
+                    ToastLayer.showError('Could not create new project.');
+                    // Clear pending prompt on failure
+                    delete (window as any).__xgenia_pendingAIPrompt;
+                    return;
+                  }
+
+                  console.log('[ProjectsView] Project created successfully:', project.name);
+
+                  tracker.track('Create New Project', {
+                    templateLabel: 'AI Wizard',
+                    templateUrl: '',
+                  });
+
+                  this.notifyListeners('projectLoaded', project);
+
+                  // Auto-switch to ChatPanel after project loads so the prompt is picked up
+                  if (initialPrompt) {
+                    setTimeout(() => {
+                      try {
+                        SidebarModel.instance?.switch?.(ChatPanelIframe_ID);
+                        console.log('[ProjectsView] Auto-switched to ChatPanel for AI prompt');
+                      } catch (e: any) {
+                        console.warn('[ProjectsView] Could not auto-switch to ChatPanel:', e);
+                      }
+                    }, 500);
+                  }
+                },
+                { name: projectName, path: projectPath }
+              );
+            } catch (err: any) {
+              ToastLayer.hideActivity(activityId);
+              ToastLayer.showError('Could not create project.');
+              console.error('[ProjectsView] AI Wizard project creation failed:', err);
+              // Clear pending prompt on failure
+              delete (window as any).__xgenia_pendingAIPrompt;
+            }
+          },
+        })
+      );
+    } catch (err: any) {
+      console.error('[ProjectsView] Failed to mount AI Wizard:', err);
+      wizardRoot.style.display = 'none';
+    }
+  }
+
   onCreateNewProjectClicked() {
     this.$('.projects-create-new-project').show();
     //enable scrolling on the entire parent pane so the templates can be scrolled

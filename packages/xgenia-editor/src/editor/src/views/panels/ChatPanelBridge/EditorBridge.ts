@@ -266,6 +266,22 @@ export class EditorBridge {
                 } else {
                     console.warn('[EditorBridge] No active component cached yet during initial state push');
                 }
+
+                // Check for a pending AI prompt from project creation (set by ProjectsView)
+                const pendingPrompt = (window as any).__xgenia_pendingAIPrompt;
+                if (pendingPrompt?.prompt) {
+                    console.log('[EditorBridge] Found pending AI prompt, will forward to ChatPanel');
+                    // Clear immediately to prevent re-delivery
+                    delete (window as any).__xgenia_pendingAIPrompt;
+                    // Delay slightly to let the plugin fully initialize its message handlers
+                    setTimeout(() => {
+                        this.pushEvent('startAIPrompt', {
+                            prompt: pendingPrompt.prompt,
+                            images: pendingPrompt.images || [],
+                        });
+                        console.log('[EditorBridge] Pushed startAIPrompt event to ChatPanel');
+                    }, 1000);
+                }
             }
         } catch (e: any) {
             console.warn('[EditorBridge] Could not push initial state:', e);
