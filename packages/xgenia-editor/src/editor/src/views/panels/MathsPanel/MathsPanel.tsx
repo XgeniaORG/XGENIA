@@ -294,21 +294,24 @@ export function MathsPanel() {
                 headers: rgsHeaders(settings.apiKey),
                 body: JSON.stringify({ action: 'download', maths_config_id: configId }),
             });
-            const data = await res.json();
-            if (data.error) {
-                setActionStatus({ id: configId, type: 'error', msg: data.error });
-                return;
+            // The download endpoint may return raw JS source code (not JSON),
+            // so read as text first, then try JSON only for error detection.
+            const text = await res.text();
+            let script = text;
+            try {
+                const parsed = JSON.parse(text);
+                if (parsed.error) {
+                    setActionStatus({ id: configId, type: 'error', msg: parsed.error });
+                    return;
+                }
+                // If it parsed as JSON, extract script from the JSON payload
+                script = parsed.script || parsed.compiled_bundle || text;
+            } catch {
+                // Not JSON — the response IS the raw script, which is expected
             }
+
             // Build a downloadable edge-function file
-            const script = data.script || data.compiled_bundle || '';
-            const configData = data.config_data ? JSON.stringify(data.config_data, null, 2) : '{}';
-            const edgeFnContent = [
-                '// RGS Math Version v' + version + ' — imported from XRGS',
-                '// Config Data:',
-                '// ' + configData.split('\n').join('\n// '),
-                '',
-                script,
-            ].join('\n');
+            const edgeFnContent = script;
             const blob = new Blob([edgeFnContent], { type: 'text/javascript' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
