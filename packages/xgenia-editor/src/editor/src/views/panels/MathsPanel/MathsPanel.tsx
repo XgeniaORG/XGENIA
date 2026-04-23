@@ -15,6 +15,11 @@ import { BasePanel } from '@xgenia-core-ui/components/sidebar/BasePanel';
 import { ComponentsPanel } from '../componentspanel';
 import { supabase } from '../../../supabaseInit';
 
+import { ComponentModel } from '@xgenia-models/componentmodel';
+import { NodeGraphModel } from '@xgenia-models/nodegraphmodel';
+import { ProjectModel } from '@xgenia-models/projectmodel';
+import { guid } from '@xgenia-utils/utils';
+
 
 // ─── RGS Connection ─────────────────────────────────────────
 // The XRGS endpoint is fixed — users only need to provide their API key
@@ -287,7 +292,7 @@ export function MathsPanel() {
 
     const handleImportFromRgs = useCallback(async (configId: string, version: number) => {
         if (!settings?.apiKey) return;
-        setActionStatus({ id: configId, type: 'loading', msg: 'Downloading...' });
+        setActionStatus({ id: configId, type: 'loading', msg: 'Importing...' });
         try {
             const res = await fetch(`${XRGS_URL}/maths-deployer`, {
                 method: 'POST',
@@ -310,20 +315,56 @@ export function MathsPanel() {
                 // Not JSON — the response IS the raw script, which is expected
             }
 
-            // Build a downloadable edge-function file
-            const edgeFnContent = script;
-            const blob = new Blob([edgeFnContent], { type: 'text/javascript' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `rgs_math_v${version}.js`;
-            a.click();
-            URL.revokeObjectURL(url);
-            setActionStatus({ id: configId, type: 'success', msg: `Downloaded v${version} as edge function` });
+            // Find the game name for the component label
+            const game = games?.find((g: any) => g.id === selectedGame);
+            const gameName = game?.name || 'RGS';
+            const componentName = `/#__maths__/${gameName} RGS v${version}`;
+
+            // Check if component already exists
+            if (ProjectModel.instance.getComponentWithName(componentName)) {
+                setActionStatus({ id: configId, type: 'error', msg: `Component "${gameName} RGS v${version}" already exists` });
+                return;
+            }
+
+            // Create a maths component with a JavaScriptFunction node containing the imported script
+            const jsFnNodeId = guid();
+            const nodeGraph = NodeGraphModel.fromJSON({
+                roots: [
+                    {
+                        id: jsFnNodeId,
+                        type: 'JavaScriptFunction',
+                        typename: 'JavaScriptFunction',
+                        label: `RGS Math v${version}`,
+                        x: 200,
+                        y: 200,
+                        parameters: {
+                            functionScript: script,
+                        },
+                        dynamicports: [
+                            { name: 'in-ctx', plug: 'input', type: '*', displayName: 'ctx' },
+                            { name: 'out-data', plug: 'output', type: '*', displayName: 'data' },
+                            { name: 'out-state', plug: 'output', type: '*', displayName: 'state' },
+                        ],
+                    },
+                ],
+                connections: [],
+            });
+
+            const component = new ComponentModel({
+                name: componentName,
+                id: guid(),
+                graph: nodeGraph,
+            });
+
+            ProjectModel.instance.addComponent(component, {
+                label: `Import RGS Maths v${version}`,
+            });
+
+            setActionStatus({ id: configId, type: 'success', msg: `Imported v${version} as maths component` });
         } catch (e: any) {
             setActionStatus({ id: configId, type: 'error', msg: e.message });
         }
-    }, [settings]);
+    }, [settings, games, selectedGame]);
 
     const handleConnect = useCallback(async () => {
         const key = keyInput.trim();
@@ -917,7 +958,7 @@ export function MathsPanel() {
                                                                         color: '#60A5FA', cursor: 'pointer',
                                                                     }}
                                                                 >
-                                                                    ↓ Import as Edge Function
+                                                                    ↓ Import as Component
                                                                 </button>
                                                             )}
                                                             {v.status === 'approved' && (
