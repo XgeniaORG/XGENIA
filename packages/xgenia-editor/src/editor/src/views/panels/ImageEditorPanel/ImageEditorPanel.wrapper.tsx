@@ -35,8 +35,10 @@ export function ImageEditorPanel() {
 
                 const url = loader.getPluginUrl(PLUGIN_ID);
                 if (url) {
-                    setPluginUrl(url);
-                    setStatus('loading');
+                    setPluginUrl((prevUrl) => {
+                        if (prevUrl !== url) setStatus('loading');
+                        return url;
+                    });
                 } else {
                     setStatus('not-entitled');
                 }
@@ -54,8 +56,10 @@ export function ImageEditorPanel() {
             setTier(e.tier);
             const url = e.plugins.find(p => p.id === PLUGIN_ID)?.url;
             if (url) {
-                setPluginUrl(url);
-                setStatus('loading');
+                setPluginUrl((prevUrl) => {
+                    if (prevUrl !== url) setStatus('loading');
+                    return url;
+                });
             } else {
                 setStatus('not-entitled');
             }
@@ -82,7 +86,10 @@ export function ImageEditorPanel() {
         PluginLoader.instance.refresh().then((e) => {
             const url = e.plugins.find(p => p.id === PLUGIN_ID)?.url;
             if (url) {
-                setPluginUrl(url);
+                setPluginUrl((prevUrl) => {
+                    if (prevUrl !== url) setStatus('loading');
+                    return url;
+                });
             } else {
                 setStatus('not-entitled');
             }
@@ -145,7 +152,7 @@ export function ImageEditorPanel() {
             display: 'flex',
             flexDirection: 'column'
         }}>
-            {status === 'loading' && (
+            {status === 'loading' && !pluginUrl && (
                 <div style={{
                     ...shellStyle,
                     position: 'absolute',
