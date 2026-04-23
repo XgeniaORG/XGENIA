@@ -490,7 +490,7 @@ export function MathsPanel() {
 
             // Success — extract simulation metrics
             const rtpComp = stressData.tests?.rtp_compliance || {};
-            const rtpStr = rtpComp.measured_rtp ? `${(rtpComp.measured_rtp * 100).toFixed(2)}%` : '';
+            const rtpStr = rtpComp.measured_rtp ? `${rtpComp.measured_rtp.toFixed(2)}%` : '';
             const hitStr = rtpComp.hit_rate != null ? `${(rtpComp.hit_rate * 100).toFixed(1)}%` : '';
             const maxStr = (rtpComp.max_win || rtpComp.max_multiplier) != null ? `${rtpComp.max_win || rtpComp.max_multiplier}×` : '';
             setUploadStatus({
@@ -824,7 +824,8 @@ export function MathsPanel() {
                                         const hitRate = rtpComp?.hit_rate;
                                         const maxWin = rtpComp?.max_win || rtpComp?.max_multiplier;
                                         const hasSimData = measuredRtp != null;
-                                        const rtpDisplay = hasSimData ? `${(measuredRtp * 100).toFixed(2)}%` : (v.declared_rtp ? `${v.declared_rtp}%` : null);
+                                        const declaredRtpNorm = v.declared_rtp ? (parseFloat(v.declared_rtp) > 1 ? parseFloat(v.declared_rtp) : parseFloat(v.declared_rtp) * 100) : null;
+                                        const rtpDisplay = hasSimData ? `${measuredRtp.toFixed(2)}%` : (declaredRtpNorm != null ? `${declaredRtpNorm.toFixed(2)}%` : null);
 
                                         return (
                                             <div key={v.id} style={{ marginBottom: '4px' }}>
