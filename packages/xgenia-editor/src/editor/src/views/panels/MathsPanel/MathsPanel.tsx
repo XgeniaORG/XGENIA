@@ -15,6 +15,11 @@ import { BasePanel } from '@xgenia-core-ui/components/sidebar/BasePanel';
 import { ComponentsPanel } from '../componentspanel';
 import { supabase } from '../../../supabaseInit';
 
+import { ComponentModel } from '@xgenia-models/componentmodel';
+import { NodeGraphModel } from '@xgenia-models/nodegraphmodel';
+import { ProjectModel } from '@xgenia-models/projectmodel';
+import { guid } from '@xgenia-utils/utils';
+
 
 // ─── RGS Connection ─────────────────────────────────────────
 // The XRGS endpoint is fixed — users only need to provide their API key
@@ -287,40 +292,131 @@ export function MathsPanel() {
 
     const handleImportFromRgs = useCallback(async (configId: string, version: number) => {
         if (!settings?.apiKey) return;
-        setActionStatus({ id: configId, type: 'loading', msg: 'Downloading...' });
+        setActionStatus({ id: configId, type: 'loading', msg: 'Importing remote component...' });
         try {
-            const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+            // Verify the evaluate endpoint works first
+            const testRes = await fetch(`${XRGS_URL}/maths-deployer`, {
                 method: 'POST',
                 headers: rgsHeaders(settings.apiKey),
-                body: JSON.stringify({ action: 'download', maths_config_id: configId }),
+                body: JSON.stringify({ action: 'evaluate', maths_config_id: configId, ctx: { bet: 100, round: 1 } }),
             });
-            const data = await res.json();
-            if (data.error) {
-                setActionStatus({ id: configId, type: 'error', msg: data.error });
+            const testData = await testRes.json();
+            if (testData.error) {
+                setActionStatus({ id: configId, type: 'error', msg: `RGS evaluate check failed: ${testData.error}` });
                 return;
             }
-            // Build a downloadable edge-function file
-            const script = data.script || data.compiled_bundle || '';
-            const configData = data.config_data ? JSON.stringify(data.config_data, null, 2) : '{}';
-            const edgeFnContent = [
-                '// RGS Math Version v' + version + ' — imported from XRGS',
-                '// Config Data:',
-                '// ' + configData.split('\n').join('\n// '),
-                '',
-                script,
-            ].join('\n');
-            const blob = new Blob([edgeFnContent], { type: 'text/javascript' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `rgs_math_v${version}.js`;
-            a.click();
-            URL.revokeObjectURL(url);
-            setActionStatus({ id: configId, type: 'success', msg: `Downloaded v${version} as edge function` });
+
+            // Find the game name for the component label
+            const game = games?.find((g: any) => g.id === selectedGame);
+            const gameName = game?.name || 'RGS';
+            const componentName = `/#__maths__/${gameName} RGS v${version} (Remote)`;
+
+            // Check if component already exists
+            if (ProjectModel.instance.getComponentWithName(componentName)) {
+                setActionStatus({ id: configId, type: 'error', msg: `Component "${gameName} RGS v${version} (Remote)" already exists` });
+                return;
+            }
+
+            // Build the proxy script that calls XRGS evaluate endpoint remotely
+            const proxyScript = `// ☁ RGS Remote Maths Proxy — ${gameName} v${version}
+// This component executes math REMOTELY on the XRGS platform.
+// The source code runs server-side — only results are returned.
+// Do not edit this script — changes won't affect the deployed math.
+
+const XRGS_URL = '${XRGS_URL}';
+const MATHS_CONFIG_ID = '${configId}';
+const XRGS_ANON_KEY = '${XRGS_ANON_KEY}';
+const GAME_NAME = '${gameName.replace(/'/g, "\\'")}';
+const VERSION = ${version};
+
+// Internal state persisted between rounds
+var _roundState = {};
+var _roundCount = 0;
+
+async function evaluateRemote(bet) {
+  var settings = null;
+  try { settings = JSON.parse(localStorage.getItem('xgenia_rgs_settings') || '{}'); } catch(e) {}
+  var apiKey = settings && settings.apiKey;
+  if (!apiKey) throw new Error('Not connected to XRGS — open Maths RGS panel and connect first');
+
+  _roundCount++;
+  var res = await fetch(XRGS_URL + '/maths-deployer', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Operator-Key': apiKey,
+      'apikey': XRGS_ANON_KEY,
+      'Authorization': 'Bearer ' + XRGS_ANON_KEY,
+    },
+    body: JSON.stringify({
+      action: 'evaluate',
+      maths_config_id: MATHS_CONFIG_ID,
+      ctx: {
+        bet: bet || 100,
+        state: _roundState,
+        round: _roundCount,
+      }
+    }),
+  });
+
+  var data = await res.json();
+  if (data.error) throw new Error('RGS Error: ' + data.error);
+
+  // Persist state for next round (bonus continuations etc.)
+  _roundState = (data.result && data.result.state) || {};
+
+  return data.result || data;
+}
+
+// Entry point — called by the editor runtime
+var inputBet = Inputs.bet || 100;
+return evaluateRemote(inputBet);`;
+
+            // Create the proxy component with a JavaScriptFunction node
+            const jsFnNodeId = guid();
+            const nodeGraph = NodeGraphModel.fromJSON({
+                roots: [
+                    {
+                        id: jsFnNodeId,
+                        type: 'JavaScriptFunction',
+                        typename: 'JavaScriptFunction',
+                        label: `☁ RGS v${version} (${gameName})`,
+                        x: 200,
+                        y: 200,
+                        parameters: {
+                            functionScript: proxyScript,
+                            _rgsRemote: true,
+                            _rgsConfigId: configId,
+                            _rgsGameId: selectedGame,
+                            _rgsVersion: version,
+                            _rgsGameName: gameName,
+                        },
+                        dynamicports: [
+                            { name: 'in-bet', plug: 'input', type: 'number', displayName: 'bet' },
+                            { name: 'out-win', plug: 'output', type: 'number', displayName: 'win' },
+                            { name: 'out-data', plug: 'output', type: '*', displayName: 'data' },
+                            { name: 'out-state', plug: 'output', type: '*', displayName: 'state' },
+                        ],
+                    },
+                ],
+                connections: [],
+            });
+
+            const component = new ComponentModel({
+                name: componentName,
+                id: guid(),
+                graph: nodeGraph,
+            });
+
+            ProjectModel.instance.addComponent(component, {
+                label: `Import Remote RGS Maths v${version}`,
+            });
+
+            setActionStatus({ id: configId, type: 'success', msg: `☁ Imported v${version} as remote component` });
         } catch (e: any) {
             setActionStatus({ id: configId, type: 'error', msg: e.message });
         }
-    }, [settings]);
+    }, [settings, games, selectedGame]);
 
     const handleConnect = useCallback(async () => {
         const key = keyInput.trim();
@@ -490,7 +586,7 @@ export function MathsPanel() {
 
             // Success — extract simulation metrics
             const rtpComp = stressData.tests?.rtp_compliance || {};
-            const rtpStr = rtpComp.measured_rtp ? `${(rtpComp.measured_rtp * 100).toFixed(2)}%` : '';
+            const rtpStr = rtpComp.measured_rtp ? `${rtpComp.measured_rtp.toFixed(2)}%` : '';
             const hitStr = rtpComp.hit_rate != null ? `${(rtpComp.hit_rate * 100).toFixed(1)}%` : '';
             const maxStr = (rtpComp.max_win || rtpComp.max_multiplier) != null ? `${rtpComp.max_win || rtpComp.max_multiplier}×` : '';
             setUploadStatus({
@@ -824,7 +920,8 @@ export function MathsPanel() {
                                         const hitRate = rtpComp?.hit_rate;
                                         const maxWin = rtpComp?.max_win || rtpComp?.max_multiplier;
                                         const hasSimData = measuredRtp != null;
-                                        const rtpDisplay = hasSimData ? `${(measuredRtp * 100).toFixed(2)}%` : (v.declared_rtp ? `${v.declared_rtp}%` : null);
+                                        const declaredRtpNorm = v.declared_rtp ? (parseFloat(v.declared_rtp) > 1 ? parseFloat(v.declared_rtp) : parseFloat(v.declared_rtp) * 100) : null;
+                                        const rtpDisplay = hasSimData ? `${measuredRtp.toFixed(2)}%` : (declaredRtpNorm != null ? `${declaredRtpNorm.toFixed(2)}%` : null);
 
                                         return (
                                             <div key={v.id} style={{ marginBottom: '4px' }}>
@@ -913,7 +1010,7 @@ export function MathsPanel() {
                                                                         color: '#60A5FA', cursor: 'pointer',
                                                                     }}
                                                                 >
-                                                                    ↓ Import as Edge Function
+                                                                    ☁ Import Remote
                                                                 </button>
                                                             )}
                                                             {v.status === 'approved' && (
