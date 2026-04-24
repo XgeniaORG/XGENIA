@@ -1,0 +1,59 @@
+name: GitHub Alert Workflow
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    env:
+      # Pass context to env vars to prevent script injection and safely handle quotes/newlines
+      COMMIT_MSG: ${{ github.event.head_commit.message }}
+      COMMIT_URL: ${{ github.event.compare }}
+      ACTOR: ${{ github.actor }}
+      REF_NAME: ${{ github.ref_name }}
+      WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+    steps:
+      - name: Send Webhook Alert
+        run: |
+          # Check if the commit message contains a PR number format (e.g., #123)
+          if [[ "$COMMIT_MSG" != *"#"* ]]; then
+            # Direct Push Alert
+            TEXT="⚠️ **WARNING** ⚠️\n[@${ACTOR}](https://github.com/${ACTOR}) just pushed directly to the ${REF_NAME} branch!\n\n⬆️ **Commit Details** ⬆️\nTitle: ${COMMIT_MSG}\nURL: ${COMMIT_URL}"
+          else
+            # Merged PR Alert - Extract PR number from the commit message
+            PR_NUM=$(echo "$COMMIT_MSG" | grep -oP '#\d+' | head -1)
+            TEXT="ℹ️ **INFO** ℹ️\n[@${ACTOR}](https://github.com/${ACTOR}) merged pull request ${PR_NUM} to the ${REF_NAME} branch.\n\n⬆️ **Commit Details** ⬆️\nTitle: ${COMMIT_MSG}\nURL: ${COMMIT_URL}"
+          fi
+
+          # Safely construct the JSON payload using jq
+          PAYLOAD=$(jq -n \
+            --arg text "$TEXT" \
+            '{
+              "type": "message",
+              "attachments": [
+                {
+                  "contentType": "application/vnd.microsoft.card.adaptive",
+                  "contentUrl": null,
+                  "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": [
+                      {
+                        "type": "TextBlock",
+                        "text": $text,
+                        "wrap": true
+                      }
+                    ]
+                  }
+                }
+              ]
+            }')
+
+          # Send the webhook
+          curl -X POST -H 'Content-type: application/json' \
+          --data "$PAYLOAD" \
+          "$WEBHOOK_URL"
