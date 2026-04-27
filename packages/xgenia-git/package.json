@@ -1,0 +1,16 @@
+{
+  "name": "@xgenia/git",
+  "version": "2.7.0",
+  "main": "src/index.ts",
+  "description": "",
+  "author": "XGENIA <contact@xgenia.io>",
+  "homepage": "https://xgenia.io",
+  "dependencies": {
+    "copy-webpack-plugin": "12.0.2",
+    "desktop-trampoline": "https://github.com/desktop/desktop-trampoline/archive/refs/tags/v0.9.8.tar.gz",
+    "double-ended-queue": "^2.1.0-0",
+    "dugite": "^2.7.1",
+    "passport": "0.7.0",
+    "split2": "^4.1.0"
+  }
+}

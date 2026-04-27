@@ -1,0 +1,32 @@
+{
+  "name": "NewModel",
+  "file": "newmodelnode.js",
+  "relativePath": "std-library/data/newmodelnode.js",
+  "inputs": {
+    "code": "{\n      new: {\n        displayName: 'Do',\n        group: 'Actions',\n        valueChangedToTrue: function () {\n          this.scheduleNew();\n        }\n      }\n    }",
+    "startLine": 11
+  },
+  "outputs": {
+    "code": "{\n      created: {\n        type: 'signal',\n        displayName: 'Done',\n        group: 'Events'\n      }\n    }",
+    "startLine": 20
+  },
+  "inputFormatHints": {
+    "new": {
+      "displayName": "Do"
+    }
+  },
+  "outputFormatHints": {
+    "created": {
+      "type": "signal",
+      "displayName": "Done"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "",
+  "category": null,
+  "docs": "https://docsapp.xgenia.com/nodes/data/object/create-new-object",
+  "color": null,
+  "lineCount": 52,
+  "byteSize": 1264
+}

@@ -1,0 +1,33 @@
+{
+  "name": "net.xgenia.visual.columns",
+  "file": "columns.js",
+  "relativePath": "visual/columns.js",
+  "inputs": {
+    "code": "{\n    layoutString: {\n      group: 'Layout Settings',\n      displayName: 'Layout String',\n      type: 'string',\n      default: '1 2 1',\n      set(value) {\n        this.props.layoutString = value;\n\n        if (typeof value !== 'string') {\n          this.context.editorConnection.sendWarning(\n            this.nodeScope.componentOwner.name,\n            this.id,\n            'layout-type-warning',\n            {\n              message: 'Layout String needs to be a string.'\n            }\n          );\n        } else {\n          this.context.editorConnection.clearWarning(\n            this.nodeScope.componentOwner.name,\n            this.id,\n            'layout-type-warning'\n          );\n        }\n\n        this.forceUpdate();\n      }\n    },\n    testId: {\n      index: 100009,\n      displayName: 'Test ID Attribute',\n      group: 'Advanced HTML',\n      type: 'string',\n      set(value) {\n        this.props.attrs[\"data-testid\"] = value;\n        this.forceUpdate();\n      }\n    }\n  }",
+    "startLine": 50
+  },
+  "outputs": {
+    "code": "{\n    nodeReference: {\n      displayName: 'Node Reference',\n      group: 'General',\n      type: 'node',\n      getter: function() {\n        return this;\n      }\n    }\n  }",
+    "startLine": 39
+  },
+  "inputFormatHints": {
+    "testId": {
+      "type": "string",
+      "displayName": "Test ID Attribute"
+    }
+  },
+  "outputFormatHints": {
+    "nodeReference": {
+      "type": "node",
+      "displayName": "Node Reference"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'net.xgenia.visual.columns',\n  displayName: 'Columns',\n  docs: 'https://docsapp.xgenia.com/nodes/basic-elements/columns',\n  allowChildren: true,\n  xgeniaNodeAsProp: true,\n  connectionPanel: {\n    groupPriority: [\n      'General',\n      'Style',\n      'Actions',\n      'Events',\n      'States',\n      'Mounted',\n      'Label',\n      'Label Text Style',\n      'Hover Events',\n      'Pointer Events',\n      'Focus Events'\n    ]\n  },\n\n  initialize() {    this.props.attrs = {",
+  "category": null,
+  "docs": "https://docsapp.xgenia.com/nodes/basic-elements/columns",
+  "color": null,
+  "lineCount": 158,
+  "byteSize": 3499
+}

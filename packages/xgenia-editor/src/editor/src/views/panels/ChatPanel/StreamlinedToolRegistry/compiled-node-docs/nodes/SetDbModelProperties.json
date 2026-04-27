@@ -1,0 +1,32 @@
+{
+  "name": "SetDbModelProperties",
+  "file": "setdbmodelpropertiesnode.js",
+  "relativePath": "std-library/data/setdbmodelpropertiesnode.js",
+  "inputs": {
+    "code": "{\n      store: {\n        displayName: 'Do',\n        group: 'Actions',\n        valueChangedToTrue: function () {\n          if (this._internal.storeType === undefined || this._internal.storeType === 'cloud') this.scheduleSave();\n          else this.scheduleStore();\n        }\n      },\n      storeProperties: {\n        displayName: 'Properties to  store',\n        group: 'General',\n        type: {\n          name: 'enum',\n          enums: [\n            { label: 'Only specified', value: 'specified' },\n            { label: 'All', value: 'all' }\n          ]\n        },\n        default: 'specified',\n        set: function (value) {\n          this._internal.storeProperties = value;\n        }\n      },\n      storeType: {\n        displayName: 'Store to',\n        group: 'General',\n        type: {\n          name: 'enum',\n          enums: [\n            { label: 'Cloud and local', value: 'cloud' },\n            { label: 'Local only', value: 'local' }\n          ]\n        },\n        default: 'cloud',\n        set: function (value) {\n          this._internal.storeType = value;\n        }\n      }\n    }",
+    "startLine": 19
+  },
+  "outputs": {
+    "code": "{\n      stored: {\n        type: 'signal',\n        displayName: 'Success',\n        group: 'Events'\n      }\n    }",
+    "startLine": 59
+  },
+  "inputFormatHints": {
+    "store": {
+      "displayName": "Do"
+    }
+  },
+  "outputFormatHints": {
+    "stored": {
+      "type": "signal",
+      "displayName": "Success"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "",
+  "category": null,
+  "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/set-record-properties",
+  "color": null,
+  "lineCount": 127,
+  "byteSize": 3908
+}

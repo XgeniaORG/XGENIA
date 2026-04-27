@@ -1,0 +1,42 @@
+{
+  "name": "True Random Number Generator",
+  "file": "trng.js",
+  "relativePath": "maths/trng.js",
+  "inputs": {
+    "code": "{\n    Do: {\n      type: 'signal',\n      displayName: 'Do',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this.generateRandomValue();\n      }\n    }\n  }",
+    "startLine": 48
+  },
+  "outputs": {
+    "code": "{\n    value: {\n      displayName: 'Generated Value',\n      type: 'number',\n      getter: function () {\n        return this._internal.lastGeneratedValue;\n      }\n    },\n    Done: {\n      displayName: 'Done',\n      type: 'signal'\n    }\n  }",
+    "startLine": 58
+  },
+  "inputFormatHints": {
+    "Do": {
+      "type": "signal",
+      "displayName": "Do"
+    }
+  },
+  "outputFormatHints": {
+    "value": {
+      "type": "number",
+      "displayName": "Generated Value"
+    },
+    "Done": {
+      "type": "signal",
+      "displayName": "Done"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "validateNumberInput",
+      "code": "function validateNumberInput(value, defaultValue = 0) {\n  const num = Number(value);\n  if (isNaN(num)) {\n    throw new Error('Input must be a valid number');\n  }\n  if (num > MAX_VALUE) {\n    throw new Error(`Input cannot exceed ${MAX_VALUE}`);\n  }\n  if (num < MIN_VALUE) {\n    throw new Error(`Input cannot be less than ${MIN_VALUE}`);\n  }\n  return num;\n}"
+    }
+  ],
+  "fullDefinition": "\n  name: 'True Random Number Generator',\n  docs: 'https://docsapp.xgenia.com/nodes/math/trng',\n  category: 'Math',\n  color: 'data',\n  searchTags: ['random', 'generator', 'trng', 'true', 'number'],\n  initialize: function () {\n    // Fixed range [0, 1e12]\n    this._internal.lastGeneratedValue = null;\n    this._internal.inspectData = null;\n    this._internal.lastError = null;\n  },\n  getInspectInfo() {\n    if (this._internal.lastError) {\n      return { type: 'text', value: `Error: ${this._internal.lastError}` ",
+  "category": "Math",
+  "docs": "https://docsapp.xgenia.com/nodes/math/trng",
+  "color": "data",
+  "lineCount": 139,
+  "byteSize": 3982
+}

@@ -1,0 +1,51 @@
+.Root {
+  height: 100%;
+  width: 100%; // fill side panel width
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgba(16,20,30,0.98) 0%, rgba(22,28,45,0.98) 100%);
+}
+
+.TabOverride {
+  padding: 6px 10px;
+}
+
+.ShadowWrapper {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  box-shadow: inset -1px 0 0 rgba(255,255,255,0.06);
+}
+
+.Shadow {
+  height: 40px;
+  border-radius: 100%;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -40px;
+  box-shadow: 0 0 30px 5px rgba(16,20,30,0.8), 0 0 40px 0 rgba(16,20,30,0.6),
+    0 0 20px 0 rgba(16,20,30,0.4);
+  z-index: 10;
+  opacity: 0.8;
+}
+
+.Blocker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: -10px;
+  background: linear-gradient(180deg, rgba(16,20,30,0.95) 0%, rgba(22,28,45,0.95) 100%);
+  pointer-events: none;
+  opacity: 0;
+  z-index: 1;
+  transition: opacity 0.15s ease;
+
+  &.is-visible {
+    opacity: 0.7;
+    pointer-events: all;
+  }
+}

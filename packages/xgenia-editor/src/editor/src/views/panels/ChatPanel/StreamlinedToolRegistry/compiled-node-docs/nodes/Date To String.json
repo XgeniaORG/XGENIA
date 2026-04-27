@@ -1,0 +1,40 @@
+{
+  "name": "Date To String",
+  "file": "datetostring.js",
+  "relativePath": "std-library/datetostring.js",
+  "inputs": {
+    "code": "{\n    formatString: {\n      displayName: 'Format',\n      type: 'string',\n      default: '{year}-{month}-{date}',\n      set: function (value) {\n        if (this._internal.formatString === value) return;\n        this._internal.formatString = value;\n\n        if (this._internal.currentInput !== undefined) {\n          this._format();\n          this.flagOutputDirty('currentValue');\n        }\n      }\n    },\n    input: {\n      type: { name: 'date' },\n      displayName: 'Date',\n      set: function (value) {\n        const _value = typeof value === 'string' ? new Date(value) : value;\n        if (this._internal.currentInput === _value) return;\n\n        this._internal.currentInput = _value;\n        this._format();\n      }\n    }\n  }",
+    "startLine": 10
+  },
+  "outputs": {
+    "code": "{\n    currentValue: {\n      type: 'string',\n      displayName: 'Date String',\n      group: 'Value',\n      getter: function () {\n        return this._internal.dateString;\n      }\n    },\n    inputChanged: {\n      type: 'signal',\n      displayName: 'Date Changed',\n      group: 'Signals'\n    },\n    onError: {\n      type: 'signal',\n      displayName: 'Invalid Date',\n      group: 'Signals'\n    }\n  }",
+    "startLine": 37
+  },
+  "inputFormatHints": {
+    "input": {
+      "displayName": "Date"
+    }
+  },
+  "outputFormatHints": {
+    "currentValue": {
+      "type": "string",
+      "displayName": "Date String"
+    },
+    "inputChanged": {
+      "type": "signal",
+      "displayName": "Date Changed"
+    },
+    "onError": {
+      "type": "signal",
+      "displayName": "Invalid Date"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'Date To String',\n  docs: 'https://docsapp.xgenia.com/nodes/utilities/date-to-string',\n  category: 'Utilities',\n  initialize: function () {\n    this._internal.formatString = '{year}-{month}-{date}';\n  },\n  inputs: {\n    formatString: {\n      displayName: 'Format',\n      type: 'string',\n      default: '{year}-{month}-{date}',\n      set: function (value) {\n        if (this._internal.formatString === value) return;\n        this._internal.formatString = value;\n\n        if (this._internal.currentInput !== undefined) {\n          this._format();\n          this.flagOutputDirty('currentValue');\n        }\n      }\n    },\n    input: {\n      type: { name: 'date' },\n      displayName: 'Date',\n      set: function (value) {\n        const _value = typeof value === 'string' ? new Date(value) : value;\n        if (this._internal.currentInput === _value) return;\n\n        this._internal.currentInput = _value;\n        this._format();\n      }\n    }\n  },\n  outputs: {\n    currentValue: {\n      type: 'string',\n      displayName: 'Date String',\n      group: 'Value',\n      getter: function () {\n        return this._internal.dateString;\n      }\n    },\n    inputChanged: {\n      type: 'signal',\n      displayName: 'Date Changed',\n      group: 'Signals'\n    },\n    onError: {\n      type: 'signal',\n      displayName: 'Invalid Date',\n      group: 'Signals'\n    }\n  },\n  methods: {\n    _format() {\n      try {\n        const t = this._internal.currentInput;\n        const format = this._internal.formatString;\n        const date = ('0' + t.getDate()).slice(-2);\n        const month = ('0' + (t.getMonth() + 1)).slice(-2);\n        const monthShort = new Intl.DateTimeFormat('en-US', { month: 'short' ",
+  "category": "Utilities",
+  "docs": "https://docsapp.xgenia.com/nodes/utilities/date-to-string",
+  "color": null,
+  "lineCount": 96,
+  "byteSize": 2771
+}

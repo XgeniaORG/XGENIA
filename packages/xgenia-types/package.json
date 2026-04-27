@@ -1,0 +1,8 @@
+{
+  "name": "@xgenia/types",
+  "version": "2.7.0",
+  "main": "src/index.d.ts",
+  "description": "",
+  "author": "XGENIA <contact@xgenia.io>",
+  "homepage": "https://xgenia.io"
+}

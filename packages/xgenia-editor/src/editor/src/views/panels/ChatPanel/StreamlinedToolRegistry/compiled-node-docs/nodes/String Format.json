@@ -1,0 +1,41 @@
+{
+  "name": "String Format",
+  "file": "stringformat.js",
+  "relativePath": "std-library/stringformat.js",
+  "inputs": {
+    "code": "{\n    format: {\n      type: { name: 'string', multiline: true },\n      displayName: 'Format',\n      set(value) {\n        if (this._internal.format === value) return;\n\n        this._internal.format = value;\n        this._internal.resultDirty = true;\n        this.scheduleFormat();\n      }\n    }\n  }",
+    "startLine": 17
+  },
+  "outputs": {
+    "code": "{\n    formatted: {\n      type: 'string',\n      displayName: 'Formatted',\n      get() {\n        return this.formatValue();\n      }\n    }\n  }",
+    "startLine": 30
+  },
+  "inputFormatHints": {
+    "format": {
+      "displayName": "Format"
+    }
+  },
+  "outputFormatHints": {
+    "formatted": {
+      "type": "string",
+      "displayName": "Formatted"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "userInputSetter",
+      "code": "function userInputSetter(name, value) {\n  /* jshint validthis:true */\n  if (this._internal.inputValues[name] === value) return;\n\n  this._internal.inputValues[name] = value;\n  this._internal.resultDirty = true;\n  this.scheduleFormat();\n}"
+    },
+    {
+      "name": "updatePorts",
+      "code": "function updatePorts(id, format, editorConnection) {\n  var inputs = format.match(/\\{[A-Za-z0-9_]*\\}/g) || [];\n  var portsNames = inputs.map(function (def) {\n    return def.replace('{', '').replace('}', '');\n  });\n\n  var ports = portsNames\n    //get unique names\n    .filter(function (value, index, self) {\n      return self.indexOf(value) === index;\n    })\n    //and map names to ports\n    .map(function (name) {\n      return {\n        name: name,\n        type: 'string',\n        plug: 'input'\n      };\n    });\n\n  editorConnection.sendDynamicPorts(id, ports);\n}"
+    }
+  ],
+  "fullDefinition": "\n  name: 'String Format',\n  docs: 'https://docsapp.xgenia.com/nodes/string-manipulation/string-format',\n  category: 'String Manipulation',\n  usePortAsLabel: 'format',\n  portLabelTruncationMode: 'length',\n  initialize() {\n    const internal = this._internal;\n    internal.format = '';\n    internal.cachedResult = '';\n    internal.resultDirty = false;\n    internal.inputValues = {",
+  "category": "String Manipulation",
+  "docs": "https://docsapp.xgenia.com/nodes/string-manipulation/string-format",
+  "color": null,
+  "lineCount": 138,
+  "byteSize": 3515
+}

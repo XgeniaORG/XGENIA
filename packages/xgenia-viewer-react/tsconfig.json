@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "jsx": "react-jsx", // Use modern JSX transform
+    "lib": ["ES2019", "DOM", "DOM.Iterable", "ESNext"],
+    "target": "es5",
+    "noImplicitAny": false,
+    "esModuleInterop": true,
+    "allowJs": true,
+    "allowSyntheticDefaultImports": true,
+    "sourceMap": true,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
+    "typeRoots": ["./src/typings", "./node_modules/@types"],
+    "noEmit": false,
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*", "typings/**/*"],
+  "exclude": ["static", "tests", "webpack-configs", "**/*.stories.tsx"],
+  "files": ["src/typings/global.d.ts"]
+}

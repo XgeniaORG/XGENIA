@@ -1,0 +1,25 @@
+{
+  "name": "net.xgenia.visual.icon",
+  "file": "icon.js",
+  "relativePath": "visual/icon.js",
+  "inputs": null,
+  "outputs": {
+    "code": "{\n    nodeReference: {\n      displayName: 'Node Reference',\n      group: 'General',\n      type: 'node',\n      getter: function() {\n        return this;\n      }\n    }\n  }",
+    "startLine": 27
+  },
+  "inputFormatHints": {},
+  "outputFormatHints": {
+    "nodeReference": {
+      "type": "node",
+      "displayName": "Node Reference"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'net.xgenia.visual.icon',\n  displayName: 'Icon',\n  docs: 'https://docsapp.xgenia.com/nodes/basic-elements/icon',\n  allowChildren: false,\n  xgeniaNodeAsProp: true,\n  connectionPanel: {\n    groupPriority: [\n      'General',\n      'Style',\n      'Actions',\n      'Events',\n      'States',\n      'Mounted',\n      'Hover Events',\n      'Pointer Events',\n      'Focus Events'\n    ]\n  },\n  getReactComponent() {\n    return Icon;\n  },\n  outputs: {\n    nodeReference: {\n      displayName: 'Node Reference',\n      group: 'General',\n      type: 'node',\n      getter: function() {\n        return this;\n      }\n    }\n  }\n",
+  "category": null,
+  "docs": "https://docsapp.xgenia.com/nodes/basic-elements/icon",
+  "color": null,
+  "lineCount": 56,
+  "byteSize": 1392
+}

@@ -1,0 +1,32 @@
+{
+  "name": "Timestamp",
+  "file": "timestamp.js",
+  "relativePath": "std-library/timestamp.js",
+  "inputs": {
+    "code": "{\n    input: {\n      type: '*',\n      displayName: 'Input',\n      set(value) {\n        // Get high-resolution timestamp in microseconds using performance-now package\n        // This provides monotonic timing based on process.hrtime with sub-millisecond precision\n        this._internal.lastTimestamp = Math.round(now() * 1000);\n        this.flagOutputDirty('timestamp');\n      }\n    }\n  }",
+    "startLine": 15
+  },
+  "outputs": {
+    "code": "{\n    timestamp: {\n      type: 'number',\n      displayName: 'Timestamp (μs)',\n      get() {\n        return this._internal.lastTimestamp;\n      }\n    }\n  }",
+    "startLine": 27
+  },
+  "inputFormatHints": {
+    "input": {
+      "displayName": "Input"
+    }
+  },
+  "outputFormatHints": {
+    "timestamp": {
+      "type": "number",
+      "displayName": "Timestamp (μs)"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'Timestamp',\n  docs: 'https://docsapp.xgenia.com/nodes/utilities/timestamp',\n  category: 'Utilities',\n  initialize() {\n    this._internal.lastTimestamp = 0;\n  },\n  getInspectInfo() {\n    return this._internal.lastTimestamp.toString();\n  },\n  inputs: {\n    input: {\n      type: '*',\n      displayName: 'Input',\n      set(value) {\n        // Get high-resolution timestamp in microseconds using performance-now package\n        // This provides monotonic timing based on process.hrtime with sub-millisecond precision\n        this._internal.lastTimestamp = Math.round(now() * 1000);\n        this.flagOutputDirty('timestamp');\n      }\n    }\n  },\n  outputs: {\n    timestamp: {\n      type: 'number',\n      displayName: 'Timestamp (μs)',\n      get() {\n        return this._internal.lastTimestamp;\n      }\n    }\n  }\n",
+  "category": "Utilities",
+  "docs": "https://docsapp.xgenia.com/nodes/utilities/timestamp",
+  "color": null,
+  "lineCount": 41,
+  "byteSize": 935
+}

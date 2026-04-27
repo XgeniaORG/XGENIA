@@ -1,0 +1,49 @@
+{
+  "name": "Variable2",
+  "file": "variablenode2.js",
+  "relativePath": "std-library/data/variablenode2.js",
+  "inputs": {
+    "code": "{\n    name: {\n      type: {\n        name: 'string',\n        identifierOf: 'VariableName',\n        identifierDisplayName: 'Variable names'\n      },\n      displayName: 'Name',\n      group: 'General',\n      set: function (value) {\n        if (this.isInputConnected('fetch') === false) this.setVariableName(value);\n        else {\n          this._internal.name = value; // Wait to fetch data\n          this.flagOutputDirty('name');\n        }\n      }\n    },\n    fetch: {\n      displayName: 'Fetch',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this.setVariableName(this._internal.name);\n      }\n    },\n    value: {\n      type: '*',\n      displayName: 'Value',\n      group: 'General',\n      set: function (value) {\n        this._internal.value = value;\n        this.scheduleStore();\n      }\n    }\n  }",
+    "startLine": 66
+  },
+  "outputs": {
+    "code": "{\n    name: {\n      type: 'string',\n      displayName: 'Name',\n      group: 'General',\n      getter: function () {\n        return this._internal.name;\n      }\n    },\n    changed: {\n      type: 'signal',\n      displayName: 'Changed',\n      group: 'Events'\n    },\n    fetched: {\n      type: 'signal',\n      displayName: 'Fetched',\n      group: 'Events'\n    },\n    value: {\n      type: '*',\n      displayName: 'Value',\n      group: 'General',\n      getter: function () {\n        var internal = this._internal;\n        if (!internal.name) return;\n\n        return internal.variablesModel.get(internal.name);\n      }\n    }\n  }",
+    "startLine": 35
+  },
+  "inputFormatHints": {
+    "fetch": {
+      "displayName": "Fetch"
+    },
+    "value": {
+      "displayName": "Value"
+    }
+  },
+  "outputFormatHints": {
+    "name": {
+      "type": "string",
+      "displayName": "Name"
+    },
+    "changed": {
+      "type": "signal",
+      "displayName": "Changed"
+    },
+    "fetched": {
+      "type": "signal",
+      "displayName": "Fetched"
+    },
+    "value": {
+      "displayName": "Value"
+    }
+  },
+  "prototypeExtensions": {
+    "code": "{\n    scheduleStore: function () {\n      if (this.hasScheduledStore) return;\n      this.hasScheduledStore = true;\n\n      var internal = this._internal;\n      this.scheduleAfterInputsHaveUpdated(function () {\n        this.hasScheduledStore = false;\n\n        internal.variablesModel.set(internal.name, internal.value);\n      });\n    },\n    setVariableName: function (name) {\n      this._internal.name = name;\n      this.flagOutputDirty('name');\n      this.flagOutputDirty('value');\n      this.sendSignalOnOutput('fetched');\n    },\n    _onNodeDeleted: function () {\n      Node.prototype._onNodeDeleted.call(this);\n      this._internal.variablesModel.off('change', this._internal.onModelChangedCallback);\n    }\n  }",
+    "startLine": 100
+  },
+  "helpers": [],
+  "fullDefinition": "",
+  "category": "Data",
+  "docs": "https://docsapp.xgenia.com/nodes/data/variable/variable-node",
+  "color": "data",
+  "lineCount": 128,
+  "byteSize": 3228
+}

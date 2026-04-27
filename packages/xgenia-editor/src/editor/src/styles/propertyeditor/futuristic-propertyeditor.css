@@ -1,0 +1,123 @@
+/* Play-Inspired Clean Property Editor Styles */
+/* All backgrounds transparent so glass blur shows through */
+/* No borders — card sections with gaps */
+
+/* ─── Property Group Cards ─── */
+.property-group {
+  margin: 4px 6px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: none;
+  transition: background 0.15s ease;
+}
+
+.property-group:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Gaps between cards replace hairline dividers */
+.property-group+.property-group {
+  margin-top: 4px;
+  border-top: none;
+}
+
+.property-group-label {
+  background: transparent;
+  height: 12px !important;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.property-group-label label {
+  color: rgba(255, 255, 255, 0.4) !important;
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  line-height: 40px !important;
+  margin-left: 6px !important;
+}
+
+.property-group .properties {
+  padding: 4px 4px 6px;
+}
+
+/* ─── Input Styling ─── */
+.sidebar-panel-dark-input {
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.sidebar-panel-dark-input:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.sidebar-panel-dark-input:focus-within {
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 0 1px rgba(103, 222, 146, 0.4);
+}
+
+/* ─── Property Label ─── */
+.property-label {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* ─── Button Styling ─── */
+.property-codeeditor-button {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.property-codeeditor-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+/* ─── Tab Styling ─── */
+.property-tab-group {
+  margin: 6px 6px;
+  border-radius: 6px;
+  background: transparent;
+  overflow: visible;
+  border: none;
+}
+
+.property-tab {
+  background: transparent;
+  border-radius: 6px;
+  margin: 0 2px;
+  padding: 4px 10px;
+  border: none;
+  transition: all 0.15s ease;
+}
+
+.property-tab.selected {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.property-tab:hover:not(.selected) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ─── Popout Group ─── */
+.property-popout-group {
+  margin: 3px 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.property-popout-group:hover {
+  background: rgba(255, 255, 255, 0.05);
+}

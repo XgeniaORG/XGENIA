@@ -1,0 +1,126 @@
+/* CommandPalette.module.scss */
+
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5); /* Original background color */
+  display: flex;
+  justify-content: center;
+  align-items: flex-start; /* Align palette to the top */
+  padding-top: 15vh; /* Add some padding from the top */
+  z-index: 1000; /* Original z-index */
+}
+
+.palette {
+  background-color: var(--background-color-level-2, #282c34); /* Fallback: Dark gray */
+  color: var(--text-color-level-1, #abb2bf); /* Fallback: Light gray */
+  border-radius: 8px;
+  width: 600px;
+  max-width: 90%;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* Prevent content spill */
+}
+
+.input {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 1rem;
+  border: none;
+  border-bottom: 1px solid var(--divider-color, #3c4048); /* Fallback: Medium gray */
+  background-color: transparent; /* Match palette background */
+  color: inherit; /* Inherit text color */
+  box-sizing: border-box;
+}
+
+.input:focus {
+  outline: none;
+  border-bottom-color: var(--focus-color, #61afef); /* Fallback: Blue */
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 400px; /* Limit height and allow scrolling */
+  overflow-y: auto;
+}
+
+.listItem {
+  padding: 12px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--divider-color, #3c4048);
+  transition: background-color 0.1s ease;
+}
+
+.listItem:last-child {
+  border-bottom: none;
+}
+
+.listItem:hover {
+  background-color: var(--hover-color, #3c4048); /* Fallback: Medium gray */
+}
+
+.listItem.active {
+  background-color: var(--active-color, #61afef); /* Fallback: Blue */
+  color: var(--active-text-color, #ffffff); /* Fallback: White */
+}
+
+.itemContent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.itemName {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.toolBadge {
+  background-color: var(--accent-color, #98c379);
+  color: var(--badge-text-color, #1d1f20);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.itemMeta {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-color-level-3, #5c6370);
+}
+
+.listItem.active .itemMeta {
+  color: var(--active-meta-color, rgba(255, 255, 255, 0.7));
+}
+
+.category {
+  font-weight: 500;
+  color: var(--category-color, #e06c75);
+}
+
+.listItem.active .category {
+  color: var(--active-category-color, rgba(255, 255, 255, 0.9));
+}
+
+.description {
+  flex: 1;
+  opacity: 0.8;
+}
+
+.noResults {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-color-level-3, #5c6370); /* Fallback: Dim gray */
+} 

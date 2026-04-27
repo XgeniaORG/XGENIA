@@ -1,0 +1,46 @@
+{
+  "name": "True Random Number Array Generator",
+  "file": "trng-array.js",
+  "relativePath": "maths/trng-array.js",
+  "inputs": {
+    "code": "{\n    // No min/max inputs; fixed range is used during generation\n    size: {\n      type: 'number',\n      displayName: 'Size',\n      group: 'Array',\n      default: 1,\n      set: function (value) {\n        try {\n          this._internal.size = validateSizeInput(value, 1);\n          this._internal.lastError = null;\n        } catch (error) {\n          this._internal.lastError = error.message;\n          console.error('TRNG Array Node - Size error:', error.message);\n        }\n      }\n    },\n    Do: {\n      type: 'signal',\n      displayName: 'Do',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this.generateRandomArray();\n      }\n    }\n  }",
+    "startLine": 64
+  },
+  "outputs": {
+    "code": "{\n    array: {\n      displayName: 'Generated Array',\n      type: 'array',\n      getter: function () {\n        return this._internal.lastGeneratedArray;\n      }\n    },\n    Done: {\n      displayName: 'Done',\n      type: 'signal'\n    }\n  }",
+    "startLine": 90
+  },
+  "inputFormatHints": {
+    "Do": {
+      "type": "signal",
+      "displayName": "Do"
+    }
+  },
+  "outputFormatHints": {
+    "array": {
+      "type": "array",
+      "displayName": "Generated Array"
+    },
+    "Done": {
+      "type": "signal",
+      "displayName": "Done"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "validateNumberInput",
+      "code": "function validateNumberInput(value, defaultValue = 0) {\n  const num = Number(value);\n  if (isNaN(num)) {\n    throw new Error('Input must be a valid number');\n  }\n  if (num > MAX_VALUE) {\n    throw new Error(`Input cannot exceed ${MAX_VALUE}`);\n  }\n  if (num < MIN_VALUE) {\n    throw new Error(`Input cannot be less than ${MIN_VALUE}`);\n  }\n  return num;\n}"
+    },
+    {
+      "name": "validateSizeInput",
+      "code": "function validateSizeInput(value, defaultValue = 1) {\n  const num = Number(value);\n  if (isNaN(num)) {\n    throw new Error('Size must be a valid number');\n  }\n  if (num < 1) {\n    throw new Error('Size must be at least 1');\n  }\n  if (num > MAX_SIZE) {\n    throw new Error(`Size cannot exceed ${MAX_SIZE}`);\n  }\n  return Math.floor(num);\n}"
+    }
+  ],
+  "fullDefinition": "\n  name: 'True Random Number Array Generator',\n  docs: 'https://docsapp.xgenia.com/nodes/math/trng-array',\n  category: 'Math',\n  color: 'data',\n  searchTags: ['random', 'generator', 'trng', 'true', 'number', 'array', 'multiple'],\n  initialize: function () {\n    // Fixed range [0, 1e12]\n    this._internal.size = 1;\n    this._internal.lastGeneratedArray = [];\n    this._internal.inspectData = null;\n    this._internal.lastError = null;\n  },\n  getInspectInfo() {\n    if (this._internal.lastError) {\n      return { type: 'text', value: `Error: ${this._internal.lastError}` ",
+  "category": "Math",
+  "docs": "https://docsapp.xgenia.com/nodes/math/trng-array",
+  "color": "data",
+  "lineCount": 179,
+  "byteSize": 5247
+}

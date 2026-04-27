@@ -1,0 +1,22 @@
+{
+  "name": "net.xgenia.SetParentComponentObjectProperties",
+  "file": "setparentcomponentobjectproperties.js",
+  "relativePath": "std-library/componentutils/setparentcomponentobjectproperties.js",
+  "inputs": null,
+  "outputs": null,
+  "inputFormatHints": {},
+  "outputFormatHints": {},
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "getParentComponent",
+      "code": "function getParentComponent(component) {\n      let parent;\n      if (component.getRoots().length > 0) {\n        //visual\n        const root = component.getRoots()[0];\n\n        if (root.getVisualParentNode) {\n          //regular visual node\n          if (root.getVisualParentNode()) {\n            parent = root.getVisualParentNode().nodeScope.componentOwner;\n          }\n        } else if (root.parentNodeScope) {\n          //component instance node\n          parent = component.parentNodeScope.componentOwner;\n        }\n      } else if (component.parentNodeScope) {\n        parent = component.parentNodeScope.componentOwner;\n      }\n\n      //check that a parent exists and that the component is different\n      if (parent && parent.nodeScope && parent.nodeScope.componentOwner !== component) {\n        //check if parent has a Component State node\n        if (parent.nodeScope.getNodesWithType('net.xgenia.ComponentObject').length > 0) {\n          return parent;\n        }\n\n        //if not, continue searching up the tree\n        return getParentComponent(parent);\n      }\n    }"
+    }
+  ],
+  "fullDefinition": "",
+  "category": null,
+  "docs": "https://docsapp.xgenia.com/nodes/component-utilities/set-parent-component-object-properties",
+  "color": null,
+  "lineCount": 52,
+  "byteSize": 1757
+}

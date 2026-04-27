@@ -1,0 +1,17 @@
+{
+  "name": "Color",
+  "file": "color.js",
+  "relativePath": "std-library/variables/color.js",
+  "inputs": null,
+  "outputs": null,
+  "inputFormatHints": {},
+  "outputFormatHints": {},
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "",
+  "category": null,
+  "docs": "https://docsapp.xgenia.com/nodes/data/color",
+  "color": null,
+  "lineCount": 21,
+  "byteSize": 435
+}

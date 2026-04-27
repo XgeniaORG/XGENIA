@@ -1,0 +1,50 @@
+.Root {
+  border-top: 1px solid var(--theme-color-bg-1);
+}
+
+.ReasoningStepsContainer {
+  margin-top: 16px;
+  padding-left: 28px; // Align with content, assuming user icon area is roughly 18px + spacing
+}
+
+.ReasoningStepItem {
+  padding: 8px;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  background-color: #f9f9f9;
+  margin-bottom: 8px;
+}
+
+.StepHeader {
+  font-size: 0.9em;
+  color: #333;
+  margin-bottom: 4px;
+
+  strong {
+    font-weight: 600;
+  }
+}
+
+.StepContentPre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  background-color: #fff;
+  border: 1px solid #ddd;
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.StepContentText {
+  font-size: 0.9em;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.StepReasoning {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed #ddd;
+}

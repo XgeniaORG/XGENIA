@@ -1,0 +1,44 @@
+@use '@scss-variables/animation';
+@use '@scss-placeholders/util';
+
+.Root {
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-position: center center;
+  padding: 20px;
+  position: relative;
+  background: linear-gradient(180deg, rgba(16,20,30,0.98) 0%, rgba(22,28,45,0.98) 100%);
+
+  &:before {
+    @extend %overlay;
+    content: '';
+    background: linear-gradient(180deg, rgba(16,20,30,0.9) 0%, rgba(22,28,45,0.9) 100%);
+    opacity: 0;
+  }
+
+  &:hover:before {
+    opacity: 0.2;
+  }
+}
+
+.Supertitle,
+.Title {
+  display: block;
+  color: var(--theme-color-fg-highlight);
+  width: 50%;
+  position: relative;
+  z-index: 1;
+}
+
+.Supertitle {
+  font-size: 16px;
+}
+
+.Title {
+  font-weight: 700;
+  font-size: 18px;
+}

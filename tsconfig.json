@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "jsx": "react",
+    "lib": ["ES2019", "DOM", "DOM.Iterable", "ESNext"],
+    "target": "ES2019",
+    "noImplicitAny": false,
+    "esModuleInterop": true,
+    "sourceMap": true,
+    "module": "CommonJS",
+    "types": ["node", "electron"],
+    "skipLibCheck": true,
+    "typeRoots": ["./node_modules/@types"],
+    "maxNodeModuleJsDepth": 5,
+    "baseUrl": ".",
+    "paths": {
+      "@xgenia/image-editor": ["private/xgenia-image-editor/src/index.ts"],
+      "@xgenia/image-editor/*": ["private/xgenia-image-editor/src/*"]
+    }
+  },
+  "exclude": ["deps/parse-dashboard", "node_modules"]
+}

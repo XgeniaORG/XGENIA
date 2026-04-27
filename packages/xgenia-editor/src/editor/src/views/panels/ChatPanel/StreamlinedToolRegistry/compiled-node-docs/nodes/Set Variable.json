@@ -1,0 +1,40 @@
+{
+  "name": "Set Variable",
+  "file": "setvariablenode.js",
+  "relativePath": "std-library/data/setvariablenode.js",
+  "inputs": {
+    "code": "{\n    name: {\n      type: {\n        name: 'string',\n        identifierOf: 'VariableName',\n        identifierDisplayName: 'Variable names'\n      },\n      displayName: 'Name',\n      group: 'General',\n      set: function (value) {\n        this._internal.name = value;\n      }\n    },\n    setWith: {\n      type: {\n        name: 'enum',\n        enums: [\n          { label: 'String', value: 'string' },\n          { label: 'Boolean', value: 'boolean' },\n          { label: 'Number', value: 'number' },\n          { label: 'Empty string', value: 'emptyString' },\n          { label: 'Date', value: 'date' },\n          { label: 'Object', value: 'object' },\n          { label: 'Array', value: 'array' },\n          { label: 'Any', value: '*' }\n        ],\n        allowEditOnly: true\n      },\n      displayName: 'Set as',\n      default: '*',\n      group: 'General',\n      set: function (value) {\n        this._internal.setWith = value;\n      }\n    },\n    do: {\n      displayName: 'Do',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this.scheduleStore();\n      }\n    }\n  }",
+    "startLine": 30
+  },
+  "outputs": {
+    "code": "{\n    done: {\n      type: 'signal',\n      displayName: 'Done',\n      group: 'Events'\n    }\n  }",
+    "startLine": 23
+  },
+  "inputFormatHints": {
+    "name": {
+      "displayName": "Name"
+    },
+    "do": {
+      "displayName": "Do"
+    }
+  },
+  "outputFormatHints": {
+    "done": {
+      "type": "signal",
+      "displayName": "Done"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "_updatePorts",
+      "code": "function _updatePorts() {\n        var ports = [];\n\n        if (node.parameters.setWith === 'emptyString') {\n          // No ports needed\n        } else {\n          ports.push({\n            type: node.parameters.setWith !== undefined ? node.parameters.setWith : '*',\n            plug: 'input',\n            group: 'General',\n            name: 'value',\n            displayName: 'Value'\n          });\n        }\n\n        context.editorConnection.sendDynamicPorts(node.id, ports);\n      }"
+    }
+  ],
+  "fullDefinition": "\n  name: 'Set Variable',\n  docs: 'https://docsapp.xgenia.com/nodes/data/variable/set-variable',\n  category: 'Data',\n  usePortAsLabel: 'name',\n  color: 'data',\n  initialize: function () {\n    const internal = this._internal;\n    internal.variablesModel = Model.get('--ndl--global-variables');\n  },\n  getInspectInfo() {\n    if (this._internal.name) {\n      return this._internal.variablesModel.get(this._internal.name);\n    }\n\n    return '[No value set]';\n  },\n  outputs: {\n    done: {\n      type: 'signal',\n      displayName: 'Done',\n      group: 'Events'\n    }\n  },\n  inputs: {\n    name: {\n      type: {\n        name: 'string',\n        identifierOf: 'VariableName',\n        identifierDisplayName: 'Variable names'\n      },\n      displayName: 'Name',\n      group: 'General',\n      set: function (value) {\n        this._internal.name = value;\n      }\n    },\n    setWith: {\n      type: {\n        name: 'enum',\n        enums: [\n          { label: 'String', value: 'string' },\n          { label: 'Boolean', value: 'boolean' },\n          { label: 'Number', value: 'number' },\n          { label: 'Empty string', value: 'emptyString' },\n          { label: 'Date', value: 'date' },\n          { label: 'Object', value: 'object' },\n          { label: 'Array', value: 'array' },\n          { label: 'Any', value: '*' }\n        ],\n        allowEditOnly: true\n      },\n      displayName: 'Set as',\n      default: '*',\n      group: 'General',\n      set: function (value) {\n        this._internal.setWith = value;\n      }\n    },\n    do: {\n      displayName: 'Do',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this.scheduleStore();\n      }\n    }\n  },\n  methods: {\n    setValue: function (value) {\n      this._internal.value = value;\n    },\n    scheduleStore: function () {\n      if (this.hasScheduledStore) return;\n      this.hasScheduledStore = true;\n\n      const internal = this._internal;\n      this.scheduleAfterInputsHaveUpdated(function () {\n        this.hasScheduledStore = false;\n\n        let value = internal.setWith === 'emptyString' ? '' : internal.value;\n\n        // Can set arrays with \"id\" or array\n        if (internal.setWith === 'object' && typeof value === 'string') value = Model.get(value);\n\n        // Can set arrays with \"id\" or array\n        if (internal.setWith === 'array' && typeof value === 'string') value = Collection.get(value);\n\n        if (internal.setWith === 'boolean') value = !!value;\n\n        // use forceChange to always trigger Variable nodes to send the value on\n        // their output, even if it's the same value twice\n        internal.variablesModel.set(internal.name, value, {\n          forceChange: true\n        ",
+  "category": "Data",
+  "docs": "https://docsapp.xgenia.com/nodes/data/variable/set-variable",
+  "color": "data",
+  "lineCount": 151,
+  "byteSize": 4015
+}

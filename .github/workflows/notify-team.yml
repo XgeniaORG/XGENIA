@@ -1,0 +1,49 @@
+name: CI + Notify Team
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: macos-latest #This only builds the macos app and notifies the team on action dispatch
+    steps:
+      - name: Checkoout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build MacOS Universal App
+        env:
+          TARGET_PLATFORM: 'darwin-universal'
+          DISABLE_SIGNING: true
+        run: npm run build:editor -- --skip-git
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: XGENIA-macOS-universal
+          path: publish
+
+  notify:
+    name: Notify Teams
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Teams notification
+        uses: ./.github/actions/teams-notification
+        with:
+          webhook-url: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          msg-title: 'CI run – ${{ github.repository }}'
+          msg-text: |
+            Build status: ${{ job.status }}
+            Commit: ${{ github.sha }}
+          status: ${{ job.status }}
+          workflow-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

@@ -1,0 +1,231 @@
+// NodeLibrary - Clean, organized node picker
+$scroll-bar-width: 4px;
+$category-color: var(--category-color, #8B9AAF);
+
+.Root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: rgba(16, 20, 30, 0.98);
+}
+
+// Search section
+.SearchContainer {
+  padding: 12px 12px 8px;
+  flex-shrink: 0;
+
+  :global(.text-input) {
+    background: rgba(30, 40, 60, 0.6) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 8px !important;
+
+    &:hover,
+    &:focus-within {
+      border-color: rgba(103, 222, 146, 0.3) !important;
+      background: rgba(35, 45, 65, 0.7) !important;
+    }
+
+    input {
+      color: rgba(255, 255, 255, 0.9) !important;
+      font-size: 13px !important;
+
+      &::placeholder {
+        color: rgba(255, 255, 255, 0.4) !important;
+      }
+    }
+  }
+}
+
+.SearchMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  padding: 0 2px;
+}
+
+.NodeCount {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.ExpandControls {
+  display: flex;
+  gap: 2px;
+}
+
+.ExpandBtn {
+  background: transparent;
+  border: none;
+  padding: 4px 6px;
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.7);
+  }
+}
+
+// Content area
+.Content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  &::-webkit-scrollbar {
+    width: $scroll-bar-width;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 2px;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.25);
+    }
+  }
+}
+
+.CategoriesList {
+  padding: 4px 8px 16px;
+}
+
+// Category styling
+.Category {
+  margin-bottom: 2px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid transparent;
+  transition: border-color 0.15s ease, background 0.15s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.04);
+  }
+}
+
+.CategoryHeader {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  &.is-expanded {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  }
+}
+
+.CategoryIcon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba($category-color, 0.15);
+  color: $category-color;
+  margin-right: 10px;
+  flex-shrink: 0;
+
+  svg {
+    opacity: 0.9;
+  }
+}
+
+.CategoryInfo {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.CategoryName {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.CategoryCount {
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 6px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.CategoryArrow {
+  color: rgba(255, 255, 255, 0.3);
+  transition: transform 0.2s ease;
+  margin-left: 8px;
+
+  &.is-rotated {
+    transform: rotate(180deg);
+  }
+}
+
+// Category content
+.CategoryContent {
+  padding: 4px 8px 8px;
+}
+
+.SubCategory {
+  &:not(:last-child) {
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  }
+}
+
+.SubCategoryName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.4);
+  padding: 4px 8px 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.SubCategoryIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.NodeList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+// Other actions (comment, etc)
+.OtherActions {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}

@@ -1,0 +1,34 @@
+{
+  "name": "net.xgenia.externallink",
+  "file": "externallink.js",
+  "relativePath": "std-library/externallink.js",
+  "inputs": {
+    "code": "{\n    link: {\n      type: 'string',\n      displayName: 'Link'\n    },\n    openInNewTab: {\n      type: 'boolean',\n      displayName: 'Open In New Tab',\n      default: true\n    },\n    do: {\n      type: 'signal',\n      displayName: 'Do',\n      valueChangedToTrue() {\n        const openInNewTab = this.getInputValue('openInNewTab');\n        const params = openInNewTab ? 'noopener,noreferrer' : '';\n        const target = openInNewTab === true || openInNewTab === undefined ? '_blank' : '_self';\n\n        window.open(this.getInputValue('link'), target, params);\n      }\n    }\n  }",
+    "startLine": 9
+  },
+  "outputs": null,
+  "inputFormatHints": {
+    "link": {
+      "type": "string",
+      "displayName": "Link"
+    },
+    "openInNewTab": {
+      "type": "boolean",
+      "displayName": "Open In New Tab",
+      "default": "true"
+    },
+    "do": {
+      "type": "signal",
+      "displayName": "Do"
+    }
+  },
+  "outputFormatHints": {},
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'net.xgenia.externallink',\n  displayNodeName: 'External Link',\n  docs: 'https://docsapp.xgenia.com/nodes/navigation/external-link',\n  category: 'Navigation',\n  nodeDoubleClickAction: {\n    focusPort: 'link'\n  },\n  inputs: {\n    link: {\n      type: 'string',\n      displayName: 'Link'\n    },\n    openInNewTab: {\n      type: 'boolean',\n      displayName: 'Open In New Tab',\n      default: true\n    },\n    do: {\n      type: 'signal',\n      displayName: 'Do',\n      valueChangedToTrue() {\n        const openInNewTab = this.getInputValue('openInNewTab');\n        const params = openInNewTab ? 'noopener,noreferrer' : '';\n        const target = openInNewTab === true || openInNewTab === undefined ? '_blank' : '_self';\n\n        window.open(this.getInputValue('link'), target, params);\n      }\n    }\n  }\n",
+  "category": "Navigation",
+  "docs": "https://docsapp.xgenia.com/nodes/navigation/external-link",
+  "color": null,
+  "lineCount": 36,
+  "byteSize": 881
+}

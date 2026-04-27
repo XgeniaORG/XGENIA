@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@xgenia-core-ui/*": ["./src/*"],
+      "@xgenia-hooks/*": ["../xgenia-editor/src/editor/src/hooks/*"],
+      "@xgenia-utils/*": ["../xgenia-editor/src/editor/src/utils/*"],
+      "@xgenia-models/*": ["../xgenia-editor/src/editor/src/models/*"],
+      "@xgenia-constants/*": ["../xgenia-editor/src/editor/src/constants/*"],
+      "@xgenia-contexts/*": ["../xgenia-editor/src/editor/src/contexts/*"],
+      "@xgenia-types/*": ["../xgenia-editor/src/editor/src/types/*"]
+    }
+  }
+}

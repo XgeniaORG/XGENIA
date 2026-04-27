@@ -1,0 +1,207 @@
+.Root {
+  container-name: editortopbar;
+  height: 36px;
+  background-color: var(--theme-color-bg-2);
+  border-bottom: 2px solid var(--theme-color-bg-1);
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+}
+
+.LeftSide,
+.RightSide {
+  display: flex;
+  align-items: stretch;
+
+  // please use these general selectors with great caution
+  >div {
+    display: flex;
+    align-items: center;
+  }
+}
+
+.LeftSide {
+  flex-grow: 1;
+}
+
+.is-padded-s {
+  padding: 0 4px;
+}
+
+.is-padded {
+  padding: 0 8px;
+}
+
+.is-padded-l {
+  padding: 0 16px;
+}
+
+// Removed dividers between sections
+
+// Removed dividers between sections
+
+.UrlBarWrapper {
+  flex-grow: 1;
+  min-width: 200px;
+  max-width: 600px;
+  margin-right: -1px;
+}
+
+.UrlBarTextInput {
+  width: 100%;
+
+  svg {
+    cursor: pointer;
+
+    &:hover {
+      path {
+        fill: var(--theme-color-fg-highlight);
+      }
+    }
+  }
+}
+
+// Custom styles for the routes dropdown to handle long URLs better
+:global(.MenuDialog) {
+  .Root.is-width-large {
+    width: 500px;
+    max-width: 80vw;
+  }
+
+  .Item .Label {
+    word-break: break-all;
+    white-space: normal;
+    line-height: 1.4;
+  }
+}
+
+.TooltipPositioner {
+  height: 32px;
+  padding-bottom: 1px;
+  display: flex !important;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.TopbarSelect {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+
+  * {
+    color: var(--theme-color-fg-default);
+    fill: var(--theme-color-fg-default);
+  }
+
+  &:hover * {
+    color: var(--theme-color-fg-highlight);
+    fill: var(--theme-color-fg-highlight);
+  }
+}
+
+.ZoomSelect {
+  padding-right: 4px;
+  padding-left: 8px;
+}
+
+.DesignPreviewModeButton {
+  cursor: pointer;
+  pointer-events: all;
+}
+
+.ModeToggleIcon {
+  display: flex;
+  align-items: center;
+
+  :global(button) {
+    path {
+      transition: fill var(--speed-turbo) var(--easing-base);
+    }
+  }
+
+  &.isDesignMode {
+    :global(button) {
+      path {
+        fill: #34D399 !important;
+      }
+
+      &:hover {
+        path {
+          fill: #34D399 !important;
+        }
+      }
+    }
+  }
+
+  &.isPreviewMode {
+    :global(button) {
+      path {
+        fill: #67DE92 !important;
+      }
+
+      &:hover {
+        path {
+          fill: #67DE92 !important;
+        }
+      }
+    }
+  }
+}
+
+.DeployButton {
+  .Root.is-small & {
+    padding: 0 4px 0 8px;
+    min-width: 0;
+  }
+}
+
+/* Segmented toggle for right panel tabs (AI Chat / Properties) */
+.PanelSegmented {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 1px;
+  margin: 0 6px;
+}
+
+.PanelSegmentedBtn {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: none;
+  background: transparent;
+  white-space: nowrap;
+  line-height: 18px;
+
+  &:hover {
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  &.isActive {
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.9);
+  }
+}
+
+.CustomSizeInput {
+  input {
+    background: rgba(255, 255, 255, 0.05) !important;
+    border-radius: 4px !important;
+    padding: 4px 6px !important;
+    font-size: 11px !important;
+    height: 24px !important;
+    text-align: center;
+    
+    &::-webkit-inner-spin-button,
+    &::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+  }
+}

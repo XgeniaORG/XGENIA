@@ -1,0 +1,44 @@
+{
+  "name": "Static Data",
+  "file": "staticdata.js",
+  "relativePath": "std-library/data/staticdata.js",
+  "inputs": {
+    "code": "{\n    type: {\n      type: {\n        name: 'enum',\n        enums: [\n          { label: 'CSV', value: 'csv' },\n          { label: 'JSON', value: 'json' }\n        ],\n        allowEditOnly: true\n      },\n      displayName: 'Type',\n      group: 'General',\n      default: 'csv',\n      set: function (value) {\n        this._internal.type = value;\n      }\n    },\n    csv: {\n      type: { name: 'string', codeeditor: 'text', allowEditOnly: true },\n      displayName: 'CSV',\n      group: 'General',\n      set: function (value) {\n        this._internal.csv = value;\n        this.scheduleParseData();\n      }\n    },\n    json: {\n      type: { name: 'string', codeeditor: 'json', allowEditOnly: true },\n      displayName: 'JSON',\n      group: 'General',\n      set: function (value) {\n        this._internal.json = value;\n        this.scheduleParseData();\n      }\n    }\n  }",
+    "startLine": 113
+  },
+  "outputs": {
+    "code": "{\n    items: {\n      type: 'array',\n      displayName: 'Items',\n      group: 'General',\n      getter: function () {\n        return this._internal.collection;\n      }\n    },\n    count: {\n      type: 'number',\n      displayName: 'Count',\n      group: 'General',\n      get() {\n        return this._internal.collection ? this._internal.collection.size() : 0;\n      }\n    }\n  }",
+    "startLine": 149
+  },
+  "inputFormatHints": {
+    "csv": {
+      "displayName": "CSV"
+    },
+    "json": {
+      "displayName": "JSON"
+    }
+  },
+  "outputFormatHints": {
+    "items": {
+      "type": "array",
+      "displayName": "Items"
+    },
+    "count": {
+      "type": "number",
+      "displayName": "Count"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "CSVToArray",
+      "code": "function CSVToArray(strData, strDelimiter) {\n  // Check to see if the delimiter is defined. If not,\n  // then default to comma.\n  strDelimiter = strDelimiter || ',';\n\n  // Create a regular expression to parse the CSV values.\n  var objPattern = new RegExp(\n    // Delimiters.\n    '(\\\\' +\n      strDelimiter +\n      '|\\\\r?\\\\n|\\\\r|^)' +\n      // Quoted fields.\n      '(?:\"([^\"]*(?:\"\"[^\"]*)*)\"|' +\n      // Standard fields.\n      '([^\"\\\\' +\n      strDelimiter +\n      '\\\\r\\\\n]*))',\n    'gi'\n  );\n\n  // Create an array to hold our data. Give the array\n  // a default empty first row.\n  var arrData = [[]];\n\n  // Create an array to hold our individual pattern\n  // matching groups.\n  var arrMatches = null;\n\n  var prevLastIndex;\n\n  // Keep looping over the regular expression matches\n  // until we can no longer find a match.\n  while ((arrMatches = objPattern.exec(strData)) && prevLastIndex !== objPattern.lastIndex) {\n    prevLastIndex = objPattern.lastIndex;\n\n    // Get the delimiter that was found.\n    var strMatchedDelimiter = arrMatches[1];\n\n    // Check to see if the given delimiter has a length\n    // (is not the start of string) and if it matches\n    // field delimiter. If id does not, then we know\n    // that this delimiter is a row delimiter.\n    if (strMatchedDelimiter.length && strMatchedDelimiter !== strDelimiter) {\n      // Since we have reached a new row of data,\n      // add an empty row to our data array.\n      arrData.push([]);\n    }\n\n    var strMatchedValue;\n\n    // Now that we have our delimiter out of the way,\n    // let's check to see which kind of value we\n    // captured (quoted or unquoted).\n    if (arrMatches[2]) {\n      // We found a quoted value. When we capture\n      // this value, unescape any double quotes.\n      strMatchedValue = arrMatches[2].replace(new RegExp('\"\"', 'g'), '\"');\n    } else {\n      // We found a non-quoted value.\n      strMatchedValue = arrMatches[3];\n    }\n\n    // Now that we have our value string, let's add\n    // it to the data array.\n    arrData[arrData.length - 1].push(strMatchedValue);\n  }\n\n  // Return the parsed data.\n  return arrData;\n}"
+    }
+  ],
+  "fullDefinition": "",
+  "category": "Data",
+  "docs": "https://docsapp.xgenia.com/nodes/data/array/static-array",
+  "color": "data",
+  "lineCount": 230,
+  "byteSize": 6074
+}

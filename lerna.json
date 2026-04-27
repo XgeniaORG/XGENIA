@@ -1,0 +1,13 @@
+{
+  "packages": [
+    "packages/*",
+    "MainModules/*"
+  ],
+  "version": "2.7.0",
+  "npmClient": "npm",
+  "command": {
+    "version": {
+      "conventionalCommits": true
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "name": "Modulo",
+  "file": "modulo.js",
+  "relativePath": "maths/modulo.js",
+  "inputs": {
+    "code": "{\n    Do: {\n      type: 'signal',\n      displayName: 'Do',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this.calculate();\n      }\n    },\n    firstNumber: {\n      type: 'number',\n      displayName: 'First Number',\n      group: 'Numbers',\n      default: 0,\n      set: function (value) {\n        try {\n          this._internal.firstNumber = validateNumberInput(value, 0);\n          this._internal.lastError = null;\n        } catch (error) {\n          this._internal.lastError = error.message;\n          console.error('Modulo Node - First Number error:', error.message);\n        }\n      }\n    },\n    secondNumber: {\n      type: 'number',\n      displayName: 'Second Number',\n      group: 'Numbers',\n      default: 0,\n      set: function (value) {\n        try {\n          this._internal.secondNumber = validateNumberInput(value, 0);\n          this._internal.lastError = null;\n        } catch (error) {\n          this._internal.lastError = error.message;\n          console.error('Modulo Node - Second Number error:', error.message);\n        }\n      }\n    }\n  }",
+    "startLine": 41
+  },
+  "outputs": {
+    "code": "{\n    result: {\n      displayName: 'Result',\n      type: 'number',\n      getter: function () {\n        return this._internal.result;\n      }\n    },\n    Done: {\n      displayName: 'Done',\n      type: 'signal'\n    }\n  }",
+    "startLine": 81
+  },
+  "inputFormatHints": {
+    "Do": {
+      "type": "signal",
+      "displayName": "Do"
+    }
+  },
+  "outputFormatHints": {
+    "result": {
+      "type": "number",
+      "displayName": "Result"
+    },
+    "Done": {
+      "type": "signal",
+      "displayName": "Done"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "validateNumberInput",
+      "code": "function validateNumberInput(value, defaultValue = 0) {\n  const num = Number(value);\n  if (isNaN(num)) {\n    throw new Error('Input must be a valid number');\n  }\n  if (num > MAX_VALUE) {\n    throw new Error(`Input cannot exceed ${MAX_VALUE}`);\n  }\n  if (num < MIN_VALUE) {\n    throw new Error(`Input cannot be less than ${MIN_VALUE}`);\n  }\n  return num;\n}"
+    }
+  ],
+  "fullDefinition": "\n  name: 'Modulo',\n  docs: 'https://docsapp.xgenia.com/nodes/math/modulo',\n  category: 'Math',\n  color: 'data',\n  searchTags: ['modulo', 'remainder', 'mod', 'math', 'number'],\n  initialize: function () {\n    this._internal.firstNumber = 0;\n    this._internal.secondNumber = 1;\n    this._internal.result = 0;\n    this._internal.lastError = null;\n  },\n  getInspectInfo() {\n    if (this._internal.lastError) {\n      return { type: 'text', value: `Error: ${this._internal.lastError}` ",
+  "category": "Math",
+  "docs": "https://docsapp.xgenia.com/nodes/math/modulo",
+  "color": "data",
+  "lineCount": 129,
+  "byteSize": 3418
+}

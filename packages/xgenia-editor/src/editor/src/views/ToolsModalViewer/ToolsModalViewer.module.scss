@@ -1,0 +1,93 @@
+.toolsModal {
+  width: 90vw !important;
+  height: 85vh !important;
+  max-width: 1400px !important;
+  max-height: 900px !important;
+}
+
+.toolContainer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--background-color-level-1, #1e2025);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.toolIframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background-color: white;
+  border-radius: 8px;
+}
+
+.loadingContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  color: var(--text-color-level-2, #9da5b4);
+}
+
+.loadingContainer p {
+  margin-top: 16px;
+  font-size: 14px;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--divider-color, #3c4048);
+  border-top: 3px solid var(--focus-color, #61afef);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.errorContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  padding: 32px;
+  text-align: center;
+  color: var(--text-color-level-2, #9da5b4);
+}
+
+.errorContainer h3 {
+  color: var(--error-color, #e06c75);
+  margin-bottom: 12px;
+  font-size: 18px;
+}
+
+.errorContainer p {
+  margin-bottom: 24px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.retryButton {
+  padding: 8px 16px;
+  background-color: var(--primary-color, #61afef);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s ease;
+}
+
+.retryButton:hover {
+  background-color: var(--primary-color-hover, #4fa3e8);
+}
+
+.retryButton:active {
+  background-color: var(--primary-color-active, #3d96dc);
+} 

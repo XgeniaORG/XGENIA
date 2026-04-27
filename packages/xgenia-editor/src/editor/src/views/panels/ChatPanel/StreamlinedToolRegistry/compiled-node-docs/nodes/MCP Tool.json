@@ -1,0 +1,59 @@
+{
+  "name": "MCP Tool",
+  "file": "mcp-tool-node.js",
+  "relativePath": "std-library/mcp/mcp-tool-node.js",
+  "inputs": {
+    "code": "{\n      trigger: {\n        type: { name: 'signal' },\n        displayName: 'Execute',\n        description: 'Trigger to execute the MCP tool',\n        valueChangedToTrue: function () {\n          this.execute();\n        }\n      }\n    }",
+    "startLine": 10
+  },
+  "outputs": {
+    "code": "{\n      result: {\n        type: { name: '*' },\n        displayName: 'Result',\n        description: 'Result from the MCP tool execution'\n      },\n      success: {\n        type: { name: 'boolean' },\n        displayName: 'Success',\n        description: 'Whether the tool execution was successful'\n      },\n      error: {\n        type: { name: 'string' },\n        displayName: 'Error',\n        description: 'Error message if execution failed'\n      },\n      // Signal outputs for data flow animations\n      executed: {\n        type: { name: 'signal' },\n        displayName: 'Executed',\n        description: 'Triggered when MCP tool execution completes'\n      },\n      successSignal: {\n        type: { name: 'signal' },\n        displayName: 'Success Signal',\n        description: 'Triggered when MCP tool execution succeeds'\n      },\n      errorSignal: {\n        type: { name: 'signal' },\n        displayName: 'Error Signal',\n        description: 'Triggered when MCP tool execution fails'\n      }\n    }",
+    "startLine": 20
+  },
+  "inputFormatHints": {
+    "trigger": {
+      "displayName": "Execute"
+    }
+  },
+  "outputFormatHints": {
+    "result": {
+      "displayName": "Result"
+    },
+    "success": {
+      "displayName": "Success"
+    },
+    "error": {
+      "displayName": "Error"
+    },
+    "executed": {
+      "displayName": "Executed"
+    },
+    "successSignal": {
+      "displayName": "Success Signal"
+    },
+    "errorSignal": {
+      "displayName": "Error Signal"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "_managePortsForNode",
+      "code": "function _managePortsForNode(node) {\n      function _updatePorts() {\n        // Add debouncing to prevent rapid successive calls\n        if (node._portUpdateTimeout) {\n          clearTimeout(node._portUpdateTimeout);\n        }\n\n        node._portUpdateTimeout = setTimeout(() => {\n          _doUpdatePorts();\n          delete node._portUpdateTimeout;\n        }, 50); // 50ms debounce\n      }\n\n      function _doUpdatePorts() {\n        var ports = [];\n\n        const parameters = node.parameters;\n        const inputSchema = parameters.inputSchema;\n\n        console.log(`[MCP Tool Node] Updating ports for tool: ${parameters.toolName}`);\n        console.log(`[MCP Tool Node] Input schema:`, inputSchema);\n\n        // Check if schema changed to clear cached input values\n        if (node._internal) {\n          const lastSchema = node._internal.lastInputSchema;\n          const currentSchemaStr = JSON.stringify(inputSchema);\n\n          if (lastSchema && lastSchema !== currentSchemaStr) {\n            console.log(`[MCP Tool Node] Schema changed, clearing input values`);\n            node._internal.inputValues = {};\n          }\n\n          node._internal.lastInputSchema = currentSchemaStr;\n        }\n\n        // Generate input ports from schema properties\n        if (inputSchema && inputSchema.properties) {\n          const properties = inputSchema.properties;\n          const required = inputSchema.required || [];\n\n          // JSON Schema type mapping to node input types\n          const typeMap = {\n            string: 'string',\n            number: 'number',\n            integer: 'number',\n            boolean: 'boolean',\n            array: 'array',\n            object: 'object'\n          };\n\n          console.log(`[MCP Tool Node] Generating input ports for properties:`, Object.keys(properties));\n\n          for (const [propName, propSchema] of Object.entries(properties)) {\n            const inputType = typeMap[propSchema.type] || '*';\n            const isRequired = required.includes(propName);\n\n            console.log(\n              `[MCP Tool Node] Adding input port: ${propName} (${propSchema.type} -> ${inputType}, required: ${isRequired})`\n            );\n\n            ports.push({\n              type: {\n                name: inputType\n              },\n              plug: 'input',\n              group: 'Parameters',\n              name: 'param-' + propName,\n              displayName: propName + (isRequired ? ' *' : ''),\n              description: propSchema.description || `Parameter: ${propName}`\n            });\n          }\n\n          console.log(`[MCP Tool Node] Generated ${Object.keys(properties).length} input ports`);\n        } else {\n          console.log(`[MCP Tool Node] No schema properties found for tool: ${parameters.toolName}`);\n        }\n\n        context.editorConnection.sendDynamicPorts(node.id, ports);\n      }\n\n      _updatePorts();\n\n      // Cleanup timeout when node is destroyed\n      if (node.on && typeof node.on === 'function') {\n        node.on('destroy', function () {\n          if (node._portUpdateTimeout) {\n            clearTimeout(node._portUpdateTimeout);\n            delete node._portUpdateTimeout;\n          }\n        });\n      }\n\n      // Update ports when parameters change\n      node.on('parameterUpdated', function (event) {\n        if (event.name === 'inputSchema' || event.name === 'toolName') {\n          console.log(`[MCP Tool Node] Parameter ${event.name} updated, refreshing ports`);\n          _updatePorts();\n        }\n      });\n    }"
+    },
+    {
+      "name": "_updatePorts",
+      "code": "function _updatePorts() {\n        // Add debouncing to prevent rapid successive calls\n        if (node._portUpdateTimeout) {\n          clearTimeout(node._portUpdateTimeout);\n        }\n\n        node._portUpdateTimeout = setTimeout(() => {\n          _doUpdatePorts();\n          delete node._portUpdateTimeout;\n        }, 50); // 50ms debounce\n      }"
+    },
+    {
+      "name": "_doUpdatePorts",
+      "code": "function _doUpdatePorts() {\n        var ports = [];\n\n        const parameters = node.parameters;\n        const inputSchema = parameters.inputSchema;\n\n        console.log(`[MCP Tool Node] Updating ports for tool: ${parameters.toolName}`);\n        console.log(`[MCP Tool Node] Input schema:`, inputSchema);\n\n        // Check if schema changed to clear cached input values\n        if (node._internal) {\n          const lastSchema = node._internal.lastInputSchema;\n          const currentSchemaStr = JSON.stringify(inputSchema);\n\n          if (lastSchema && lastSchema !== currentSchemaStr) {\n            console.log(`[MCP Tool Node] Schema changed, clearing input values`);\n            node._internal.inputValues = {};\n          }\n\n          node._internal.lastInputSchema = currentSchemaStr;\n        }\n\n        // Generate input ports from schema properties\n        if (inputSchema && inputSchema.properties) {\n          const properties = inputSchema.properties;\n          const required = inputSchema.required || [];\n\n          // JSON Schema type mapping to node input types\n          const typeMap = {\n            string: 'string',\n            number: 'number',\n            integer: 'number',\n            boolean: 'boolean',\n            array: 'array',\n            object: 'object'\n          };\n\n          console.log(`[MCP Tool Node] Generating input ports for properties:`, Object.keys(properties));\n\n          for (const [propName, propSchema] of Object.entries(properties)) {\n            const inputType = typeMap[propSchema.type] || '*';\n            const isRequired = required.includes(propName);\n\n            console.log(\n              `[MCP Tool Node] Adding input port: ${propName} (${propSchema.type} -> ${inputType}, required: ${isRequired})`\n            );\n\n            ports.push({\n              type: {\n                name: inputType\n              },\n              plug: 'input',\n              group: 'Parameters',\n              name: 'param-' + propName,\n              displayName: propName + (isRequired ? ' *' : ''),\n              description: propSchema.description || `Parameter: ${propName}`\n            });\n          }\n\n          console.log(`[MCP Tool Node] Generated ${Object.keys(properties).length} input ports`);\n        } else {\n          console.log(`[MCP Tool Node] No schema properties found for tool: ${parameters.toolName}`);\n        }\n\n        context.editorConnection.sendDynamicPorts(node.id, ports);\n      }"
+    }
+  ],
+  "fullDefinition": "}, panelParameters, this._internal.inputValues);\n\n          console.log('[MCP Tool Node] Panel parameters:', panelParameters);\n          console.log('[MCP Tool Node] Connected input values:', this._internal.inputValues);\n          console.log('[MCP Tool Node] Final merged parameters:', toolParameters);\n\n          console.log('[MCP Tool Node] Executing tool:', { serverName, toolName, toolParameters ",
+  "category": "MCP",
+  "docs": "https://docsapp.xgenia.com/nodes/mcp/mcp-tool",
+  "color": "mcp",
+  "lineCount": 415,
+  "byteSize": 14301
+}

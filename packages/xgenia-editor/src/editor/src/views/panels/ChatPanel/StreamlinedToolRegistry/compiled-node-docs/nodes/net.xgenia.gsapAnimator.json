@@ -1,0 +1,45 @@
+{
+  "name": "net.xgenia.gsapAnimator",
+  "file": "gsap-animator.js",
+  "relativePath": "std-library/gsap-animator.js",
+  "inputs": null,
+  "outputs": {
+    "code": "{\n    onStart: { group: 'Events', type: 'signal', displayName: 'On Start' },\n    onUpdate: { group: 'Events', type: 'signal', displayName: 'On Update' },\n    onComplete: { group: 'Events', type: 'signal', displayName: 'On Complete' },\n    isPlaying: { group: 'State', type: 'boolean', getter(){ return !!this._internal.state.isPlaying; } },\n    isPaused: { group: 'State', type: 'boolean', getter(){ return !!this._internal.state.isPaused; } },\n    progress: { group: 'State', type: 'number', getter(){ return this._tween ? this._tween.progress() : this._internal.state.progress || 0; } },\n    duration: { group: 'State', type: 'number', getter(){ return this._tween ? this._tween.duration?.() : this._internal.state.duration || 0; } },\n  }",
+    "startLine": 214
+  },
+  "inputFormatHints": {},
+  "outputFormatHints": {
+    "onStart": {
+      "type": "signal",
+      "displayName": "On Start"
+    },
+    "onUpdate": {
+      "type": "signal",
+      "displayName": "On Update"
+    },
+    "onComplete": {
+      "type": "signal",
+      "displayName": "On Complete"
+    },
+    "isPlaying": {
+      "type": "boolean"
+    },
+    "isPaused": {
+      "type": "boolean"
+    },
+    "progress": {
+      "type": "number"
+    },
+    "duration": {
+      "type": "number"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'net.xgenia.gsapAnimator',\n  displayName: 'GSAP Animator',\n  shortDesc: 'Animate one or many targets (max 6) with GSAP with deterministic controls.',\n  category: 'Animation',\n  usePortAsLabel: 'animationName',\n  connectionPanel: {\n    groupPriority: [\n      'General',\n      'Targets',\n      'Properties',\n      'Properties | Target',\n      'Timeline',\n      'Stagger',\n      'Path',\n      'Easing',\n      'Control',\n      'Events',\n      'State'\n    ]\n  },\n  nodeDoubleClickAction: { focusPort: 'animationName' },\n  initialize: function() {\n    this._internal = this._internal || {",
+  "category": "Animation",
+  "docs": null,
+  "color": null,
+  "lineCount": 614,
+  "byteSize": 35319
+}

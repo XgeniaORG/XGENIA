@@ -1,0 +1,24 @@
+{
+  "name": "@xgenia/mcp",
+  "version": "2.7.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "description": "MCP (Model Context Protocol) service for XGENIA",
+  "author": "XGENIA <contact@xgenia.io>",
+  "homepage": "https://xgenia.io",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rimraf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/inspector": "^0.15.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "keytar": "^7.9.0"
+  },
+  "devDependencies": {
+    "@types/electron": "^1.4.38",
+    "@types/keytar": "^4.4.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "Histogram Chart",
+  "file": "histogram-chart.js",
+  "relativePath": "visual/histogram-chart.js",
+  "inputs": {
+    "code": "{\n    Do: {\n      type: 'signal',\n      displayName: 'Do',\n      group: 'Actions',\n      valueChangedToTrue() {\n        this.scheduleAfterInputsHaveUpdated(() => {\n          this.wantsToBeMounted = !this.wantsToBeMounted;\n          const parent = this.getVisualParentNode();\n          if (parent) {\n            parent.cachedChildren = undefined;\n            parent.forceUpdate();\n          } else {\n            this.forceUpdate();\n          }\n        });\n      }\n    }\n  }",
+    "startLine": 31
+  },
+  "outputs": null,
+  "inputFormatHints": {},
+  "outputFormatHints": {},
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'Histogram Chart',\n  docs: 'https://docsapp.xgenia.com/nodes/visual/histogram-chart',\n  mountedInput: false,\n  connectionPanel: {\n    groupPriority: [\n      'General',\n      'Data',\n      'Chart Settings',\n      'Style',\n      'Actions',\n      'Events',\n      'Mounted',\n      'Margin and padding',\n      'Pointer Events',\n      'Hover Events'\n    ]\n  },\n  getReactComponent() {\n    return HistogramChart;\n  },\n  xgeniaNodeAsProp: true,\n  allowChildren: false,\n  initialize() {\n    this.wantsToBeMounted = false;\n  },\n  inputs: {\n    Do: {\n      type: 'signal',\n      displayName: 'Do',\n      group: 'Actions',\n      valueChangedToTrue() {\n        this.scheduleAfterInputsHaveUpdated(() => {\n          this.wantsToBeMounted = !this.wantsToBeMounted;\n          const parent = this.getVisualParentNode();\n          if (parent) {\n            parent.cachedChildren = undefined;\n            parent.forceUpdate();\n          } else {\n            this.forceUpdate();\n          }\n        ",
+  "category": null,
+  "docs": "https://docsapp.xgenia.com/nodes/visual/histogram-chart",
+  "color": null,
+  "lineCount": 136,
+  "byteSize": 3317
+}
