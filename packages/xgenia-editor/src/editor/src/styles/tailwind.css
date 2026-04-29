@@ -1,0 +1,17 @@
+/* Tailwind CSS imports */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles can be added below */
+@layer components {
+    /* Add your custom component styles here */
+}
+
+@layer utilities {
+    /* Add your custom utility styles here */
+}
+
+body {
+    background-color: black;
+}

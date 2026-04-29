@@ -1,0 +1,46 @@
+{
+  "name": "ISAAC Random Number Array Generator",
+  "file": "isaac-rng-array.js",
+  "relativePath": "maths/isaac-rng-array.js",
+  "inputs": {
+    "code": "{\n    mode: {\n      type: {\n        name: 'enum',\n        enums: [\n          { value: 'local', label: 'Local' },\n          { value: 'xgenia', label: 'XGENIA RGS' }\n        ]\n      },\n      displayName: 'Mode',\n      group: 'Configuration',\n      default: 'local',\n      set: function (value) {\n        this._internal.mode = value || 'local';\n      }\n    },\n    size: {\n      type: 'number',\n      displayName: 'Size',\n      group: 'Array',\n      default: 1,\n      set: function (value) {\n        try {\n          this._internal.size = validateSizeInput(value, 1);\n          this._internal.lastError = null;\n        } catch (error) {\n          this._internal.lastError = error.message;\n          console.error('ISAAC RNG Array Node - Size error:', error.message);\n        }\n      }\n    },\n    seed: {\n      type: 'number',\n      displayName: 'Seed',\n      group: 'Configuration',\n      default: null,\n      set: function (value) {\n        try {\n          if (value === null || value === undefined || value === '') {\n            this._internal.seed = null;\n          } else {\n            this._internal.seed = validateNumberInput(value);\n          }\n          this._internal.isaac = null;\n          this._internal.lastError = null;\n        } catch (error) {\n          this._internal.lastError = error.message;\n          console.error('ISAAC RNG Array Node - Seed error:', error.message);\n        }\n      }\n    },\n    nonce: {\n      type: 'number',\n      displayName: 'Nonce',\n      group: 'Configuration',\n      default: null,\n      set: function (value) {\n        try {\n          if (value === null || value === undefined || value === '') {\n            this._internal.nonce = null;\n          } else {\n            this._internal.nonce = validateNumberInput(value);\n          }\n          this._internal.isaac = null;\n          this._internal.lastError = null;\n        } catch (error) {\n          this._internal.lastError = error.message;\n          console.error('ISAAC RNG Array Node - Nonce error:', error.message);\n        }\n      }\n    },\n    Do: {\n      type: 'signal',\n      displayName: 'Do',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this.generateRandomArray();\n      }\n    }\n  }",
+    "startLine": 372
+  },
+  "outputs": {
+    "code": "{\n    array: {\n      displayName: 'Generated Array',\n      type: 'array',\n      getter: function () {\n        return this._internal.lastGeneratedArray;\n      }\n    },\n    Done: {\n      displayName: 'Done',\n      type: 'signal'\n    }\n  }",
+    "startLine": 452
+  },
+  "inputFormatHints": {
+    "Do": {
+      "type": "signal",
+      "displayName": "Do"
+    }
+  },
+  "outputFormatHints": {
+    "array": {
+      "type": "array",
+      "displayName": "Generated Array"
+    },
+    "Done": {
+      "type": "signal",
+      "displayName": "Done"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "validateNumberInput",
+      "code": "function validateNumberInput(value, defaultValue = 0) {\n  const num = Number(value);\n  if (isNaN(num)) {\n    throw new Error('Input must be a valid number');\n  }\n  if (num > MAX_VALUE) {\n    throw new Error(`Input cannot exceed ${MAX_VALUE}`);\n  }\n  if (num < MIN_VALUE) {\n    throw new Error(`Input cannot be less than ${MIN_VALUE}`);\n  }\n  return num;\n}"
+    },
+    {
+      "name": "validateSizeInput",
+      "code": "function validateSizeInput(value, defaultValue = 1) {\n  const num = Number(value);\n  if (isNaN(num) || !Number.isInteger(num)) {\n    throw new Error('Size must be a valid integer');\n  }\n  if (num < 1) {\n    throw new Error('Size must be at least 1');\n  }\n  if (num > MAX_SIZE) {\n    throw new Error(`Size cannot exceed ${MAX_SIZE}`);\n  }\n  return num;\n}"
+    }
+  ],
+  "fullDefinition": "\n  name: 'ISAAC Random Number Array Generator',\n  docs: 'https://docsapp.xgenia.com/nodes/math/isaac-rng-array',\n  category: 'Math',\n  color: 'data',\n  searchTags: ['random', 'generator', 'isaac', 'cryptographic', 'secure', 'number', 'array', 'multiple'],\n  initialize: function () {\n    this._internal.size = 1;\n    this._internal.seed = null;\n    this._internal.nonce = null;\n    this._internal.isaac = null;\n    this._internal.lastGeneratedArray = [];\n    this._internal.inspectData = null;\n    this._internal.lastError = null;\n    this._internal.mode = 'local';\n  },\n  getInspectInfo() {\n    if (this._internal.lastError) {\n      return { type: 'text', value: `Error: ${this._internal.lastError}` ",
+  "category": "Math",
+  "docs": "https://docsapp.xgenia.com/nodes/math/isaac-rng-array",
+  "color": "data",
+  "lineCount": 579,
+  "byteSize": 15683
+}

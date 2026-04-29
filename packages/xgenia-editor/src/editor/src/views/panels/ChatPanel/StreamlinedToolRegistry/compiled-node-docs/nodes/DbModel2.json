@@ -1,0 +1,65 @@
+{
+  "name": "DbModel2",
+  "file": "dbmodelnode2.js",
+  "relativePath": "std-library/data/dbmodelnode2.js",
+  "inputs": {
+    "code": "{\n    idSource: {\n      type: {\n        name: 'enum',\n        enums: [\n          { label: 'Specify explicitly', value: 'explicit' },\n          { label: 'From repeater', value: 'foreach' }\n        ],\n        allowEditOnly: true\n      },\n      default: 'explicit',\n      displayName: 'Id Source',\n      group: 'General',\n      set: function (value) {\n        if (value === 'foreach') {\n          this.scheduleAfterInputsHaveUpdated(() => {\n            // Find closest nodescope that have a _forEachModel\n            var component = this.nodeScope.componentOwner;\n            while (component !== undefined && component._forEachModel === undefined && component.parentNodeScope) {\n              component = component.parentNodeScope.componentOwner;\n            }\n            this.setModel(component !== undefined ? component._forEachModel : undefined);\n          });\n        }\n      }\n    },\n    modelId: {\n      type: { name: 'string', allowConnectionsOnly: true },\n      displayName: 'Id',\n      group: 'General',\n      set: function (value) {\n        if (value instanceof Model) {\n          // Can be passed as model as well\n          value = value.getId();\n        } else if (typeof value === 'object') {\n          // If this is an js object, dereference it\n          value = Model.create(value).getId();\n        }\n\n        this._internal.modelId = value; // Wait to fetch data\n        if (this.isInputConnected('fetch') === false) {\n          this.setModelID(value);\n        } else {\n          this.flagOutputDirty('id');\n        }\n      }\n    },\n    fetch: {\n      displayName: 'Fetch',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this.scheduleFetch();\n      }\n    }\n  }",
+    "startLine": 81
+  },
+  "outputs": {
+    "code": "{\n    id: {\n      type: 'string',\n      displayName: 'Id',\n      group: 'General',\n      getter: function () {\n        return this._internal.model ? this._internal.model.getId() : this._internal.modelId;\n      }\n    },\n    fetched: {\n      type: 'signal',\n      displayName: 'Fetched',\n      group: 'Events'\n    },\n    changed: {\n      type: 'signal',\n      displayName: 'Changed',\n      group: 'Events'\n    },\n    failure: {\n      type: 'signal',\n      displayName: 'Failure',\n      group: 'Events'\n    },\n    error: {\n      type: 'string',\n      displayName: 'Error',\n      group: 'Error',\n      getter: function () {\n        return this._internal.error;\n      }\n    }\n  }",
+    "startLine": 48
+  },
+  "inputFormatHints": {
+    "fetch": {
+      "displayName": "Fetch"
+    }
+  },
+  "outputFormatHints": {
+    "id": {
+      "type": "string",
+      "displayName": "Id"
+    },
+    "fetched": {
+      "type": "signal",
+      "displayName": "Fetched"
+    },
+    "changed": {
+      "type": "signal",
+      "displayName": "Changed"
+    },
+    "failure": {
+      "type": "signal",
+      "displayName": "Failure"
+    },
+    "error": {
+      "type": "string",
+      "displayName": "Error"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "userOutputGetter",
+      "code": "function userOutputGetter(name) {\n  /* jshint validthis:true */\n  return this._internal.model ? this._internal.model.get(name, { resolve: true }) : undefined;\n}"
+    },
+    {
+      "name": "userInputSetter",
+      "code": "function userInputSetter(name, value) {\n  //console.log('dbmodel setter:',name,value)\n  /* jshint validthis:true */\n  this._internal.inputValues[name] = value;\n}"
+    },
+    {
+      "name": "updatePorts",
+      "code": "function updatePorts(nodeId, parameters, editorConnection, graphModel) {\n  var ports = [];\n\n  const dbCollections = graphModel.getMetaData('dbCollections');\n  const systemCollections = graphModel.getMetaData('systemCollections');\n\n  const _systemClasses = [\n    { label: 'User', value: '_User' },\n    { label: 'Role', value: '_Role' }\n  ];\n  ports.push({\n    name: 'collectionName',\n    displayName: 'Class',\n    group: 'General',\n    type: {\n      name: 'enum',\n      enums: _systemClasses.concat(\n        dbCollections !== undefined\n          ? dbCollections.map((c) => {\n              return { value: c.name, label: c.name };\n            })\n          : []\n      ),\n      allowEditOnly: true\n    },\n    plug: 'input'\n  });\n\n  if (parameters.collectionName && dbCollections) {\n    // Fetch ports from collection keys\n    var c = dbCollections.find((c) => c.name === parameters.collectionName);\n    if (c === undefined && systemCollections) c = systemCollections.find((c) => c.name === parameters.collectionName);\n    if (c && c.schema && c.schema.properties) {\n      var props = c.schema.properties;\n      for (var key in props) {\n        var p = props[key];\n        if (ports.find((_p) => _p.name === key)) continue;\n\n        if (p.type !== 'Relation') {\n          // Other schema type ports\n          const _typeMap = {\n            String: 'string',\n            Boolean: 'boolean',\n            Number: 'number',\n            Date: 'date'\n          };\n\n          ports.push({\n            type: {\n              name: _typeMap[p.type] ? _typeMap[p.type] : '*'\n            },\n            plug: 'output',\n            group: 'Properties',\n            name: 'prop-' + key,\n            displayName: key\n          });\n\n          ports.push({\n            type: 'signal',\n            plug: 'output',\n            group: 'Changed Events',\n            displayName: key + ' Changed',\n            name: 'changed-' + key\n          });\n        }\n      }\n    }\n  }\n\n  editorConnection.sendDynamicPorts(nodeId, ports);\n}"
+    },
+    {
+      "name": "_managePortsForNode",
+      "code": "function _managePortsForNode(node) {\n      updatePorts(node.id, node.parameters, context.editorConnection, graphModel);\n\n      node.on('parameterUpdated', function () {\n        updatePorts(node.id, node.parameters, context.editorConnection, graphModel);\n      });\n\n      graphModel.on('metadataChanged.dbCollections', function () {\n        CloudStore.invalidateCollections();\n        updatePorts(node.id, node.parameters, context.editorConnection, graphModel);\n      });\n\n      graphModel.on('metadataChanged.systemCollections', function () {\n        CloudStore.invalidateCollections();\n        updatePorts(node.id, node.parameters, context.editorConnection, graphModel);\n      });\n    }"
+    }
+  ],
+  "fullDefinition": "\n  name: 'DbModel2',\n  docs: 'https://docsapp.xgenia.com/nodes/data/cloud-data/record',\n  displayNodeName: 'Record',\n  shortDesc: 'Database model',\n  category: 'Cloud Services',\n  usePortAsLabel: 'collectionName',\n  color: 'data',\n  dynamicports: [\n    {\n      name: 'conditionalports/extended',\n      condition: 'idSource = explicit OR idSource NOT SET',\n      inputs: ['modelId']\n    }\n  ],\n  initialize: function () {\n    const internal = this._internal;\n    internal.inputValues = {",
+  "category": "Cloud Services",
+  "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/record",
+  "color": "data",
+  "lineCount": 409,
+  "byteSize": 12038
+}

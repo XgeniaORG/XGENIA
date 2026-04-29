@@ -1,0 +1,74 @@
+.Root {
+    /* Flow-based: sits in the flex row beside EditorDocument so it pushes content left */
+    position: relative;
+    flex-shrink: 0;
+    width: 320px;
+    margin-top: 46px;
+    margin-right: 8px;
+    margin-bottom: 8px;
+    z-index: 10;
+
+    display: flex;
+    flex-direction: column;
+
+    /* Play-style material glass */
+    background: rgba(22, 22, 24, 0.62);
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    border-radius: 12px;
+
+    border: none;
+    box-shadow:
+        0 0 0 0.5px rgba(255, 255, 255, 0.08),
+        0 8px 40px rgba(0, 0, 0, 0.45),
+        0 2px 12px rgba(0, 0, 0, 0.3);
+
+    animation: slideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow: hidden;
+}
+
+
+.PanelHeader {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 6px 8px 4px;
+    min-height: 32px;
+    border-bottom: 0.5px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Play-style gradient edge on left side */
+.Root::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 1px;
+    background: linear-gradient(to bottom,
+            rgba(255, 255, 255, 0.12) 0%,
+            rgba(255, 255, 255, 0.04) 50%,
+            rgba(255, 255, 255, 0.12) 100%);
+    z-index: 1;
+    border-radius: 12px 0 0 12px;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.PanelContent {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+    border-radius: 12px;
+}

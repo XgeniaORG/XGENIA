@@ -1,0 +1,226 @@
+name: Nightly Multi-Platform Build
+
+on:
+  # push:
+       # branches: ['develop']
+  # pull_request:
+  #   branches: ['release/v1.0.0']
+  # schedule:
+  #   - cron: '0 0 * * *' # Runs every day at midnight UTC
+  workflow_dispatch: # Allows manual triggering
+  workflow_call:
+
+jobs:
+  build-macos:
+    name: Build macOS (Universal)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Init private submodule (optional)
+        continue-on-error: true
+        run: |
+          if [ -n "$PRIVATE_PAT" ]; then
+            git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
+            git submodule update --init private
+          else
+            echo "Private submodule PAT not available, building with stubs"
+          fi
+        env:
+          PRIVATE_PAT: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build macOS x64
+        env:
+          TARGET_PLATFORM: 'darwin-x64'
+          DISABLE_SIGNING: false
+          CSC_CONTENT: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          echo "$CSC_CONTENT" | base64 --decode > packages/xgenia-editor/certificate.p12
+          export CSC_LINK="./certificate.p12"
+          npm run build:editor -- --skip-git
+
+      - name: Packing DMG file
+        run: npm run build:editor:pack
+
+      - name: Upload macOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: XGENIA-macOS-universal
+          path: publish
+          retention-days: 7
+
+  build-linux:
+    name: Build Linux (x64)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Init private submodule (optional)
+        continue-on-error: true
+        run: |
+          if [ -n "$PRIVATE_PAT" ]; then
+            git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
+            git submodule update --init private
+          else
+            echo "Private submodule PAT not available, building with stubs"
+          fi
+        env:
+          PRIVATE_PAT: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+          libarchive-tools \
+          libfuse2 \
+          fakeroot \
+          dpkg \
+          rpm
+
+      - name: Build Linux App (AppImage, deb)
+        env:
+          TARGET_PLATFORM: 'linux-x64'
+          DISABLE_SIGNING: true
+        run: npm run build:editor -- --skip-git
+
+      - name: Packing AppImage and Deb File
+        run: npm run build:editor:pack
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: XGENIA-Linux-x64
+          path: publish
+          retention-days: 7
+
+  build-windows:
+    name: Build Windows (x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Init private submodule (optional)
+        continue-on-error: true
+        shell: bash
+        run: |
+          if [ -n "$PRIVATE_PAT" ]; then
+            git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
+            git submodule update --init private
+          else
+            echo "Private submodule PAT not available, building with stubs"
+          fi
+        env:
+          PRIVATE_PAT: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build MCP package
+        run: npx lerna exec --scope @xgenia/mcp -- npm run build
+
+      - name: Build Windows App (NSIS)
+        env:
+          TARGET_PLATFORM: 'win32-x64'
+          DISABLE_SIGNING: true
+        run: npm run build:editor -- --skip-git
+
+      - name: Packing NSIS Installer
+        run: npm run build:editor:pack
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: XGENIA-Windows-x64
+          path: publish
+          retention-days: 7
+
+  release:
+    name: Create Draft Release
+    needs: [build-macos, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: success()
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Get version from package.json
+        id: package-version
+        run: |
+          VERSION=$(node -p "require('./packages/xgenia-editor/package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Read version: $VERSION"
+
+      - name: Download macOS Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: XGENIA-macOS-universal
+          path: release-assets/macos
+
+      - name: Download Linux Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: XGENIA-Linux-x64
+          path: release-assets/linux
+
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: XGENIA-Windows-x64
+          path: release-assets/windows
+
+      - name: Prepare assets for release
+        run: |
+          mkdir release-dist
+          # Collect all installers and metadata files from all download paths
+          find release-assets -type f \( -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.exe" -o -name "latest*.yml" -o -name "latest*.json" \) -exec cp -v {} release-dist/ \;
+          echo "--- Assets collected for release ---"
+          ls -R release-dist
+
+      - name: Create GitHub Draft Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: XGENIA-V${{ steps.package-version.outputs.version }}-nightly-${{ github.run_number }}
+          name: XGENIA V${{ steps.package-version.outputs.version }} (Nightly Build #${{ github.run_number }})
+          draft: true
+          prerelease: true
+          files: release-dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,48 @@
+{
+  "name": "net.xgenia.ParentComponentObject",
+  "file": "parentcomponentobject.js",
+  "relativePath": "std-library/componentutils/parentcomponentobject.js",
+  "inputs": {
+    "code": "{\n    properties: {\n      type: {\n        name: 'stringlist',\n        allowEditOnly: true\n      },\n      displayName: 'Properties',\n      group: 'Properties',\n      set(value) {}\n    },\n    fetch: {\n      displayName: 'Fetch',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this.setModelId(this._internal.modelId);\n      }\n    }\n  }",
+    "startLine": 78
+  },
+  "outputs": {
+    "code": "{\n    changed: {\n      type: 'signal',\n      displayName: 'Changed',\n      group: 'Events'\n    },\n    fetched: {\n      type: 'signal',\n      displayName: 'Fetched',\n      group: 'Events'\n    }\n  }",
+    "startLine": 96
+  },
+  "inputFormatHints": {
+    "properties": {
+      "displayName": "Properties"
+    },
+    "fetch": {
+      "displayName": "Fetch"
+    }
+  },
+  "outputFormatHints": {
+    "changed": {
+      "type": "signal",
+      "displayName": "Changed"
+    },
+    "fetched": {
+      "type": "signal",
+      "displayName": "Fetched"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "getParentComponent",
+      "code": "function getParentComponent(component) {\n        let parent;\n        if (component.getRoots().length > 0) {\n          //visual\n          const root = component.getRoots()[0];\n\n          if (root.getVisualParentNode) {\n            //regular visual node\n            if (root.getVisualParentNode()) {\n              parent = root.getVisualParentNode().nodeScope.componentOwner;\n            }\n          } else if (root.parentNodeScope) {\n            //component instance node\n            parent = component.parentNodeScope.componentOwner;\n          }\n        } else if (component.parentNodeScope) {\n          parent = component.parentNodeScope.componentOwner;\n        }\n\n        //check that a parent exists and that the component is different\n        if (parent && parent.nodeScope && parent.nodeScope.componentOwner !== component) {\n          //check if parent has a Component State node\n          if (parent.nodeScope.getNodesWithType('net.xgenia.ComponentObject').length > 0) {\n            return parent;\n          }\n\n          //if not, continue searching up the tree\n          return getParentComponent(parent);\n        }\n      }"
+    },
+    {
+      "name": "updatePorts",
+      "code": "function updatePorts(nodeId, parameters, editorConnection) {\n  const ports = [];\n\n  // Add value outputs\n  var properties = parameters.properties && parameters.properties.split(',');\n  for (var i in properties) {\n    var p = properties[i];\n\n    ports.push({\n      type: {\n        name: '*', //parameters['type-' + p] || 'string',\n        allowConnectionsOnly: true\n      },\n      plug: 'input/output',\n      group: 'Properties',\n      name: 'value-' + p,\n      displayName: p\n    });\n\n    ports.push({\n      type: 'signal',\n      plug: 'output',\n      group: 'Changed Events',\n      displayName: p + ' Changed',\n      name: 'changed-' + p\n    });\n  }\n\n  editorConnection.sendDynamicPorts(nodeId, ports, {\n    detectRenamed: {\n      plug: 'input/output'\n    }\n  });\n}"
+    }
+  ],
+  "fullDefinition": "\n  name: 'net.xgenia.ParentComponentObject',\n  displayNodeName: 'Parent Component Object',\n  category: 'Component Utilities',\n  color: 'component',\n  docs: 'https://docsapp.xgenia.com/nodes/component-utilities/parent-component-object',\n  initialize() {\n    this._internal.inputValues = {",
+  "category": "Component Utilities",
+  "docs": "https://docsapp.xgenia.com/nodes/component-utilities/parent-component-object",
+  "color": "component",
+  "lineCount": 297,
+  "byteSize": 8882
+}

@@ -1,0 +1,15 @@
+:root {
+  /* New App Color Palette */
+  --app-color-green: #66FF4C;
+  --app-color-blue: #2860EB;
+  --app-color-red: #FF4747;
+  --app-color-orange: #F68A02;
+  --app-color-purple: #EC5BE0;
+
+  /* Base Colors */
+  --app-color-dark-bg: #1D2125;
+  --app-color-text: #FFFFFF;
+
+  /* Define fallback/default accent if needed */
+  --app-color-default-accent: var(--app-color-blue); /* Defaulting to blue */
+} 

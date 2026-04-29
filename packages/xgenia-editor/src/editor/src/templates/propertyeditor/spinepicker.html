@@ -1,0 +1,21 @@
+<div class="content-picker">
+  <!-- Item template -->
+  <div data-template="item" style="min-height:56px; position:relative;display: flex;align-items:center" class="content-picker-list-item">
+    <div class="content-picker-item" style="flex-grow:1; display: flex; flex-direction: column;">
+      <div style="font-weight: 500;" data-text="name"></div>
+      <div style="font-size: 11px; color: #888; margin-top: 2px;">
+        <span data-text="extension"></span>
+        <span data-text="fileSize" style="margin-left: 8px;"></span>
+      </div>
+    </div>
+    <div style="width:50px; height:50px; margin-right:10px;display: flex; align-items: center;justify-content: center; background: #f0f0f0; border-radius: 6px;" class="spine-picker-icon-bg">
+      <span style="font-size: 24px;" data-text="spineIcon"></span>
+    </div>
+  </div>
+
+  <label class="content-picker-header-label">Choose spine file</label>
+
+  <!-- library -->
+  <div class="spineItems content-picker-items">
+  </div>
+</div>

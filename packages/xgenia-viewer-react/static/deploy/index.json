@@ -1,0 +1,16 @@
+[
+  { "url": "index.html", "injectHTML": true },
+  { "url": "index.js", "injectExport": true },
+  { "url": "xgenia-app.png" },
+  { "url": "load_terminator.js" },
+  { "url": "xgenia.deploy.js" },
+  { "url": "xgenia.deploy.js.map" },
+  { "url": "xgenia.128.js" },
+  { "url": "xgenia_modules/material-icons/index.js" },
+  { "url": "xgenia.162.js" },
+  { "url": "xgenia.195.js" },
+  { "url": "xgenia.323.js" },
+  { "url": "react.production.min.js" },
+  { "url": "react-dom.production.min.js" },
+  { "url": "ndl_assets/xgenia-loader-logo.png" }
+]

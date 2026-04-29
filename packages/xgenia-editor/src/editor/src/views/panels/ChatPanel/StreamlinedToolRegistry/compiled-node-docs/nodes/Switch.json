@@ -1,0 +1,52 @@
+{
+  "name": "Switch",
+  "file": "switch.js",
+  "relativePath": "std-library/switch.js",
+  "inputs": {
+    "code": "{\n    on: {\n      displayName: 'On',\n      group: 'Change State',\n      valueChangedToTrue() {\n        if (this._internal.state === true) {\n          return;\n        }\n        this._internal.state = true;\n        this.flagOutputDirty('state');\n        this.emitSignals();\n      }\n    },\n    off: {\n      displayName: 'Off',\n      group: 'Change State',\n      valueChangedToTrue() {\n        if (this._internal.state === false) {\n          return;\n        }\n        this._internal.state = false;\n        this.flagOutputDirty('state');\n        this.emitSignals();\n      }\n    },\n    flip: {\n      displayName: 'Flip',\n      group: 'Change State',\n      valueChangedToTrue() {\n        this._internal.state = !this._internal.state;\n        this.flagOutputDirty('state');\n        this.emitSignals();\n      }\n    },\n    onFromStart: {\n      type: 'boolean',\n      displayName: 'State',\n      group: 'General',\n      default: false,\n      set(value) {\n        this._internal.state = !!value;\n        this.flagOutputDirty('state');\n        this.emitSignals();\n      }\n    }\n  }",
+    "startLine": 14
+  },
+  "outputs": {
+    "code": "{\n    state: {\n      type: 'boolean',\n      displayName: 'Current State',\n      getter() {\n        return this._internal.state;\n      }\n    },\n    switched: {\n      displayName: 'Switched',\n      type: 'signal',\n      group: 'Signals'\n    },\n    switchedToOn: {\n      displayName: 'Switched To On',\n      type: 'signal',\n      group: 'Signals'\n    },\n    switchedToOff: {\n      displayName: 'Switched To Off',\n      type: 'signal',\n      group: 'Signals'\n    }\n  }",
+    "startLine": 60
+  },
+  "inputFormatHints": {
+    "flip": {
+      "displayName": "Flip"
+    },
+    "onFromStart": {
+      "type": "boolean",
+      "displayName": "State",
+      "default": "false"
+    }
+  },
+  "outputFormatHints": {
+    "state": {
+      "type": "boolean",
+      "displayName": "Current State"
+    },
+    "switched": {
+      "type": "signal",
+      "displayName": "Switched"
+    },
+    "switchedToOn": {
+      "type": "signal",
+      "displayName": "Switched To On"
+    },
+    "switchedToOff": {
+      "type": "signal",
+      "displayName": "Switched To Off"
+    }
+  },
+  "prototypeExtensions": {
+    "code": "{\n    emitSignals() {\n      if (this._internal.state === true) {\n        this.sendSignalOnOutput('switchedToOn');\n      } else {\n        this.sendSignalOnOutput('switchedToOff');\n      }\n      this.sendSignalOnOutput('switched');\n    }\n  }",
+    "startLine": 84
+  },
+  "helpers": [],
+  "fullDefinition": "\n  name: 'Switch',\n  docs: 'https://docsapp.xgenia.com/nodes/logic/switch',\n  category: 'Logic',\n  initialize() {\n    this._internal.state = false;\n    this._internal.initialized = false;\n  },\n  getInspectInfo() {\n    return this._internal.state;\n  },\n  inputs: {\n    on: {\n      displayName: 'On',\n      group: 'Change State',\n      valueChangedToTrue() {\n        if (this._internal.state === true) {\n          return;\n        }\n        this._internal.state = true;\n        this.flagOutputDirty('state');\n        this.emitSignals();\n      }\n    },\n    off: {\n      displayName: 'Off',\n      group: 'Change State',\n      valueChangedToTrue() {\n        if (this._internal.state === false) {\n          return;\n        }\n        this._internal.state = false;\n        this.flagOutputDirty('state');\n        this.emitSignals();\n      }\n    },\n    flip: {\n      displayName: 'Flip',\n      group: 'Change State',\n      valueChangedToTrue() {\n        this._internal.state = !this._internal.state;\n        this.flagOutputDirty('state');\n        this.emitSignals();\n      }\n    },\n    onFromStart: {\n      type: 'boolean',\n      displayName: 'State',\n      group: 'General',\n      default: false,\n      set(value) {\n        this._internal.state = !!value;\n        this.flagOutputDirty('state');\n        this.emitSignals();\n      }\n    }\n  },\n  outputs: {\n    state: {\n      type: 'boolean',\n      displayName: 'Current State',\n      getter() {\n        return this._internal.state;\n      }\n    },\n    switched: {\n      displayName: 'Switched',\n      type: 'signal',\n      group: 'Signals'\n    },\n    switchedToOn: {\n      displayName: 'Switched To On',\n      type: 'signal',\n      group: 'Signals'\n    },\n    switchedToOff: {\n      displayName: 'Switched To Off',\n      type: 'signal',\n      group: 'Signals'\n    }\n  },\n  prototypeExtensions: {\n    emitSignals() {\n      if (this._internal.state === true) {\n        this.sendSignalOnOutput('switchedToOn');\n      } else {\n        this.sendSignalOnOutput('switchedToOff');\n      }\n      this.sendSignalOnOutput('switched');\n    }\n  }\n",
+  "category": "Logic",
+  "docs": "https://docsapp.xgenia.com/nodes/logic/switch",
+  "color": null,
+  "lineCount": 99,
+  "byteSize": 2144
+}

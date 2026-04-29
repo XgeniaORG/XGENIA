@@ -1,0 +1,51 @@
+{
+  "name": "Model2",
+  "file": "modelnode2.js",
+  "relativePath": "std-library/data/modelnode2.js",
+  "inputs": {
+    "code": "{\n    idSource: {\n      type: {\n        name: 'enum',\n        enums: [\n          { label: 'Specify explicitly', value: 'explicit' },\n          { label: 'From repeater', value: 'foreach' }\n        ],\n        allowEditOnly: true\n      },\n      default: 'explicit',\n      displayName: 'Get Id from',\n      group: 'General',\n      set: function (value) {\n        if (value === 'foreach') {\n          this.scheduleAfterInputsHaveUpdated(() => {\n            // Find closest nodescope that have a _forEachModel\n            var component = this.nodeScope.componentOwner;\n            while (component !== undefined && component._forEachModel === undefined && component.parentNodeScope) {\n              component = component.parentNodeScope.componentOwner;\n            }\n            this.setModel(component !== undefined ? component._forEachModel : undefined);\n          });\n        }\n      }\n    },\n    modelId: {\n      type: {\n        name: 'string',\n        identifierOf: 'ModelName',\n        identifierDisplayName: 'Object Ids'\n      },\n      displayName: 'Id',\n      group: 'General',\n      set: function (value) {\n        if (value instanceof Model) value = value.getId();\n        // Can be passed as model as well\n        else if (typeof value === 'object') value = Model.create(value).getId(); // If this is an js object, dereference it\n\n        this._internal.modelId = value; // Wait to fetch data\n        if (this.isInputConnected('fetch') === false) this.setModelID(value);\n        else {\n          this.flagOutputDirty('id');\n        }\n      }\n    },\n    properties: {\n      type: { name: 'stringlist', allowEditOnly: true },\n      displayName: 'Properties',\n      group: 'Properties',\n      set: function (value) {}\n    },\n    fetch: {\n      displayName: 'Fetch',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this.scheduleSetModel();\n      }\n    }\n  }",
+    "startLine": 76
+  },
+  "outputs": {
+    "code": "{\n    id: {\n      type: 'string',\n      displayName: 'Id',\n      group: 'General',\n      getter: function () {\n        // Defensive check: ensure model exists and has getId method\n        if (this._internal.model && typeof this._internal.model.getId === 'function') {\n          return this._internal.model.getId();\n        } else if (this._internal.modelId) {\n          return this._internal.modelId;\n        } else {\n          console.warn('[ModelNode2] getId called but model is invalid or missing getId method:', this._internal.model);\n          return undefined;\n        }\n      }\n    },\n    changed: {\n      type: 'signal',\n      displayName: 'Changed',\n      group: 'Events'\n    },\n    fetched: {\n      type: 'signal',\n      displayName: 'Fetched',\n      group: 'Events'\n    }\n  }",
+    "startLine": 48
+  },
+  "inputFormatHints": {
+    "properties": {
+      "displayName": "Properties"
+    },
+    "fetch": {
+      "displayName": "Fetch"
+    }
+  },
+  "outputFormatHints": {
+    "changed": {
+      "type": "signal",
+      "displayName": "Changed"
+    },
+    "fetched": {
+      "type": "signal",
+      "displayName": "Fetched"
+    }
+  },
+  "prototypeExtensions": {
+    "code": "{\n    scheduleStore: function () {\n      if (this.hasScheduledStore) return;\n      this.hasScheduledStore = true;\n\n      var internal = this._internal;\n      this.scheduleAfterInputsHaveUpdated(() => {\n        this.hasScheduledStore = false;\n        if (!internal.model) return;\n\n        for (var i in internal.dirtyValues) {\n          internal.model.set(i, internal.inputValues[i], { resolve: true });\n        }\n        internal.dirtyValues = {}; // Reset dirty values\n      });\n    },\n    scheduleSetModel: function () {\n      if (this.hasScheduledSetModel) return;\n      this.hasScheduledSetModel = true;\n\n      var internal = this._internal;\n      this.scheduleAfterInputsHaveUpdated(() => {\n        this.hasScheduledSetModel = false;\n        this.setModelID(this._internal.modelId);\n      });\n    },\n    setModelID: function (id) {\n      var model = (this.nodeScope.modelScope || Model).get(id);\n      this.setModel(model);\n      this.sendSignalOnOutput('fetched');\n    },\n    setModel: function (model) {\n      console.log('[ModelNode2] setModel() called with:', model);\n      console.log('[ModelNode2] setModel() - model type:', typeof model);\n      console.log('[ModelNode2] setModel() - model constructor:', model ? model.constructor.name : 'NO_MODEL');\n      console.log('[ModelNode2] setModel() - model is Model instance:', model ? Model.instanceOf(model) : false);\n      console.log('[ModelNode2] setModel() - model has getId:', model && typeof model.getId === 'function');\n      \n      // Check if this is coming from ForEach\n      if (this._forEachModel) {\n        console.log('[ModelNode2] setModel() - _forEachModel exists:', this._forEachModel);\n        console.log('[ModelNode2] setModel() - _forEachModel type:', typeof this._forEachModel);\n        console.log('[ModelNode2] setModel() - _forEachModel constructor:', this._forEachModel ? this._forEachModel.constructor.name : 'NO_FOREACH_MODEL');\n        console.log('[ModelNode2] setModel() - _forEachModel is Model instance:', this._forEachModel ? Model.instanceOf(this._forEachModel) : false);\n        console.log('[ModelNode2] setModel() - _forEachModel has getId:', this._forEachModel && typeof this._forEachModel.getId === 'function');\n      }\n      \n      if (this._internal.model === model) return;\n\n      if (this._internal.model) {\n        // Remove old listener if existing\n        this._internal.model.off('change', this._internal.onModelChangedCallback);\n      }\n\n      this._internal.model = model;\n      this.flagOutputDirty('id');\n\n      // In set idSource, we are calling setModel with undefined\n      if (model) {\n        // Defensive check: ensure model has the required methods\n        if (typeof model.on === 'function') {\n          model.on('change', this._internal.onModelChangedCallback);\n        } else {\n          console.warn('[ModelNode2] setModel called with model missing on method:', model);\n        }\n\n        // We have a new model, mark all outputs as dirty\n        if (model.data) {\n          for (var key in model.data) {\n            if (this.hasOutput('prop-' + key)) this.flagOutputDirty('prop-' + key);\n          }\n        }\n      }\n    },\n    _onNodeDeleted: function () {\n      Node.prototype._onNodeDeleted.call(this);\n      // Defensive check: ensure model exists and has off method before calling it\n      if (this._internal.model && typeof this._internal.model.off === 'function') {\n        this._internal.model.off('change', this._internal.onModelChangedCallback);\n      }\n    },\n    registerOutputIfNeeded: function (name) {\n      if (this.hasOutput(name)) {\n        return;\n      }\n\n      if (name.startsWith('prop-'))\n        this.registerOutput(name, {\n          getter: userOutputGetter.bind(this, name.substring('prop-'.length))\n        });\n    },\n    registerInputIfNeeded: function (name) {\n      var _this = this;\n\n      if (this.hasInput(name)) {\n        return;\n      }\n\n      if (name.startsWith('prop-'))\n        this.registerInput(name, {\n          set: userInputSetter.bind(this, name.substring('prop-'.length))\n        });\n    }\n  }",
+    "startLine": 136
+  },
+  "helpers": [
+    {
+      "name": "userOutputGetter",
+      "code": "function userOutputGetter(name) {\n  /* jshint validthis:true */\n  // Defensive check: ensure model exists and has get method\n  if (this._internal.model && typeof this._internal.model.get === 'function') {\n    return this._internal.model.get(name, { resolve: true });\n  } else {\n    return undefined;\n  }\n}"
+    },
+    {
+      "name": "userInputSetter",
+      "code": "function userInputSetter(name) {\n  /* jshint validthis:true */\n  return function (value) {\n    // Defensive check: ensure model exists and has set method\n    if (this._internal.model && typeof this._internal.model.set === 'function') {\n      this._internal.model.set(name, value, { resolve: true });\n    } else {\n      console.warn('[ModelNode2] userInputSetter called but model is invalid or missing set method:', this._internal.model);\n    }\n  };\n}"
+    }
+  ],
+  "fullDefinition": "",
+  "category": "Data",
+  "docs": "https://docsapp.xgenia.com/nodes/data/object/object-node",
+  "color": "data",
+  "lineCount": 264,
+  "byteSize": 8936
+}

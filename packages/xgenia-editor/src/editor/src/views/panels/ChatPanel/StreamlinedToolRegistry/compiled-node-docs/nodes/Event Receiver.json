@@ -1,0 +1,50 @@
+{
+  "name": "Event Receiver",
+  "file": "eventreceiver.js",
+  "relativePath": "std-library/eventreceiver.js",
+  "inputs": {
+    "code": "{\n    enabled: {\n      displayName: 'Enabled',\n      type: 'boolean',\n      default: true,\n      set: function (value) {\n        this._internal._isEnabled = value ? true : false;\n      }\n    },\n    consume: {\n      displayName: 'Consume',\n      type: {\n        name: 'enum',\n        enums: [\n          { label: 'Never', value: 'never' },\n          { label: 'Always', value: 'always' }\n        ]\n      },\n      default: 'never',\n      set: function (value) {\n        this._internal.consume = value;\n      }\n    },\n    channelName: {\n      type: { name: 'string', identifierOf: 'EventChannelName' },\n      displayName: 'Channel',\n      set: function (value) {\n        if (this._internal.onEventReceivedCallback) {\n          //remove old listener\n          this.context.eventSenderEmitter.removeListener(\n            this._internal.channelName,\n            this._internal.onEventReceivedCallback\n          );\n          this._internal.onEventReceivedCallback = null;\n        }\n\n        this._internal.channelName = value;\n        this.registerListenersForChannel(value);\n      }\n    }\n  }",
+    "startLine": 20
+  },
+  "outputs": {
+    "code": "{\n    eventReceived: {\n      displayName: 'Received',\n      type: 'signal'\n    }\n  }",
+    "startLine": 61
+  },
+  "inputFormatHints": {
+    "enabled": {
+      "type": "boolean",
+      "displayName": "Enabled",
+      "default": "true"
+    }
+  },
+  "outputFormatHints": {
+    "eventReceived": {
+      "type": "signal",
+      "displayName": "Received"
+    }
+  },
+  "prototypeExtensions": {
+    "code": "{\n    registerOutputIfNeeded: function (name) {\n      if (this.hasOutput(name)) {\n        return;\n      }\n\n      var self = this;\n\n      this._internal.outputNames.push(name);\n      this.registerOutput(name, {\n        getter: function () {\n          return self._internal.outputValues[name];\n        }\n      });\n    },\n    handleEvent: function (eventData) {\n      if (this._internal._isEnabled === false) {\n        return;\n      }\n      this.sendSignalOnOutput('eventReceived');\n\n      for (var name in eventData) {\n        if (this.hasOutput(name)) {\n          this._internal.outputValues[name] = eventData[name];\n          this.flagOutputDirty(name);\n        }\n      }\n\n      return this._internal.consume === 'always';\n    },\n    onEventReceived: function (eventData) {\n      this.handleEvent(eventData);\n    },\n    _onNodeDeleted: function () {\n      Node.prototype._onNodeDeleted.call(this);\n      if (this._internal.onEventReceivedCallback) {\n        var eventEmitter = this.context.eventSenderEmitter;\n        eventEmitter.removeListener(this._internal.channelName, this._internal.onEventReceivedCallback);\n      }\n    },\n    registerListenersForChannel: function (channelName) {\n      var eventEmitter = this.context.eventSenderEmitter;\n      this._internal.onEventReceivedCallback = this.onEventReceived.bind(this);\n      eventEmitter.on(channelName, this._internal.onEventReceivedCallback);\n\n      var self = this;\n      this.context.eventEmitter.once('applicationDataReloaded', function () {\n        if (self._internal.onEventReceivedCallback) {\n          eventEmitter.removeListener(channelName, self._internal.onEventReceivedCallback);\n        }\n      });\n    },\n    getChannelName: function () {\n      return this._internal.channelName;\n    }\n  }",
+    "startLine": 67
+  },
+  "helpers": [
+    {
+      "name": "onEventReceiver",
+      "code": "function onEventReceiver(node) {\n      var channelName = node.parameters.channelName;\n\n      function _collectPayloadPorts() {\n        var eventSenders = graphModel.getNodesWithType('Event Sender');\n        var matching = eventSenders.filter((node) => node.parameters.channelName === channelName);\n\n        var portKeys = {};\n        matching.forEach((node) => {\n          const ports = node.parameters.payload ? node.parameters.payload.split(',') : [];\n          for (let key of ports) {\n            portKeys[key] = true;\n          }\n        });\n\n        var ports = [];\n        for (var key in portKeys) {\n          ports.push({\n            name: key,\n            type: '*',\n            plug: 'output',\n            displayName: key\n          });\n        }\n\n        context.editorConnection.sendDynamicPorts(node.id, ports, {\n          detectRenamed: {\n            plug: 'output'\n          }\n        });\n      }\n\n      _collectPayloadPorts();\n      node.on('parameterUpdated', function (event) {\n        if (event.name === 'channelName') {\n          channelName = event.value;\n          _collectPayloadPorts();\n        }\n      });\n\n      // Track all event senders and update ports when they change\n      function _trackEventSender(node) {\n        //_collectPayloadPorts();\n\n        node.on('inputPortAdded', function (event) {\n          _collectPayloadPorts();\n        });\n\n        node.on('inputPortRemoved', function (event) {\n          _collectPayloadPorts();\n        });\n\n        node.on('parameterUpdated', function (event) {\n          if (event.name === 'channelName') {\n            _collectPayloadPorts();\n          }\n        });\n      }\n\n      graphModel.getNodesWithType('Event Sender').forEach(_trackEventSender);\n\n      graphModel.on('nodeAdded.Event Sender', _trackEventSender);\n\n      graphModel.on('nodeRemoved.Event Sender', (node) => {\n        _collectPayloadPorts();\n      });\n    }"
+    },
+    {
+      "name": "_collectPayloadPorts",
+      "code": "function _collectPayloadPorts() {\n        var eventSenders = graphModel.getNodesWithType('Event Sender');\n        var matching = eventSenders.filter((node) => node.parameters.channelName === channelName);\n\n        var portKeys = {};\n        matching.forEach((node) => {\n          const ports = node.parameters.payload ? node.parameters.payload.split(',') : [];\n          for (let key of ports) {\n            portKeys[key] = true;\n          }\n        });\n\n        var ports = [];\n        for (var key in portKeys) {\n          ports.push({\n            name: key,\n            type: '*',\n            plug: 'output',\n            displayName: key\n          });\n        }\n\n        context.editorConnection.sendDynamicPorts(node.id, ports, {\n          detectRenamed: {\n            plug: 'output'\n          }\n        });\n      }"
+    },
+    {
+      "name": "_trackEventSender",
+      "code": "function _trackEventSender(node) {\n        //_collectPayloadPorts();\n\n        node.on('inputPortAdded', function (event) {\n          _collectPayloadPorts();\n        });\n\n        node.on('inputPortRemoved', function (event) {\n          _collectPayloadPorts();\n        });\n\n        node.on('parameterUpdated', function (event) {\n          if (event.name === 'channelName') {\n            _collectPayloadPorts();\n          }\n        });\n      }"
+    }
+  ],
+  "fullDefinition": "\n  name: 'Event Receiver',\n  docs: 'https://docsapp.xgenia.com/nodes/events/receive-event',\n  displayNodeName: 'Receive Event',\n  category: 'Events',\n  usePortAsLabel: 'channelName',\n  color: 'component',\n  initialize: function () {\n    var internal = this._internal;\n    internal.outputValues = {",
+  "category": "Events",
+  "docs": "https://docsapp.xgenia.com/nodes/events/receive-event",
+  "color": "component",
+  "lineCount": 214,
+  "byteSize": 6047
+}

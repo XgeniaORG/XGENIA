@@ -1,0 +1,28 @@
+{
+  "name": "Value Changed",
+  "file": "valuechanged.js",
+  "relativePath": "std-library/valuechanged.js",
+  "inputs": {
+    "code": "{\n    value: {\n      type: '*',\n      displayName: 'Input',\n      set: function (value) {\n        if (this._internal.lastValue === value) {\n          return;\n        }\n\n        this._internal.changeCount++;\n        this.sendSignalOnOutput('valueChanged');\n        this._internal.lastValue = value;\n      }\n    }\n  }",
+    "startLine": 17
+  },
+  "outputs": {
+    "code": "{\n    valueChanged: {\n      type: 'signal',\n      displayName: 'Value Changed'\n    }\n  }",
+    "startLine": 32
+  },
+  "inputFormatHints": {},
+  "outputFormatHints": {
+    "valueChanged": {
+      "type": "signal",
+      "displayName": "Value Changed"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'Value Changed',\n  docs: 'https://docsapp.xgenia.com/nodes/logic/value-changed',\n  category: 'Logic',\n  initialize: function () {\n    this._internal.lastValue = undefined;\n    this._internal.changeCount = 0;\n  },\n  getInspectInfo() {\n    if (this._internal.changeCount) {\n      return 'Triggered ' + this._internal.changeCount + (this._internal.changeCount === 1 ? ' time' : ' times');\n    }\n    return 'Not triggered';\n  },\n  inputs: {\n    value: {\n      type: '*',\n      displayName: 'Input',\n      set: function (value) {\n        if (this._internal.lastValue === value) {\n          return;\n        }\n\n        this._internal.changeCount++;\n        this.sendSignalOnOutput('valueChanged');\n        this._internal.lastValue = value;\n      }\n    }\n  },\n  outputs: {\n    valueChanged: {\n      type: 'signal',\n      displayName: 'Value Changed'\n    }\n  }\n",
+  "category": "Logic",
+  "docs": "https://docsapp.xgenia.com/nodes/logic/value-changed",
+  "color": null,
+  "lineCount": 43,
+  "byteSize": 953
+}

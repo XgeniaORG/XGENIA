@@ -1,0 +1,33 @@
+// NodePickerOtherItem - Clean action item (Comment, etc)
+.Root {
+  margin: 4px 0;
+  border-radius: 6px;
+  transition: all 0.12s ease;
+  background: transparent;
+  border: 1px solid transparent;
+  
+  &:hover,
+  &.Root--is-highlighted {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+}
+
+.Header {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  cursor: pointer;
+  gap: 10px;
+  
+  // Icon styling
+  > svg,
+  > img,
+  > div:first-child:has(svg) {
+    width: 22px;
+    height: 22px;
+    color: #8B9AAF;
+    opacity: 0.7;
+    flex-shrink: 0;
+  }
+}

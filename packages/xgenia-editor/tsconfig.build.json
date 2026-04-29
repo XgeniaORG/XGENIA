@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "moduleResolution": "node",
+    "skipLibCheck": true,
+    "maxNodeModuleJsDepth": 5,
+    "typeRoots": [
+      "./node_modules/@types"
+    ],
+    "incremental": true,
+    "tsBuildInfoFile": "./tsconfig.build.tsbuildinfo",
+    "resolveJsonModule": true
+  }
+}

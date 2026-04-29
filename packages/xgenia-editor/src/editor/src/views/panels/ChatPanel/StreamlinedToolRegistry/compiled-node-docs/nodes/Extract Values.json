@@ -1,0 +1,63 @@
+{
+  "name": "Extract Values",
+  "file": "extractvaluesnode.js",
+  "relativePath": "std-library/data/extractvaluesnode.js",
+  "inputs": {
+    "code": "{\n    Do: {\n      type: 'signal',\n      displayName: 'Do',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this.calculate();\n      }\n    },\n    array: {\n      type: 'array',\n      displayName: 'Array',\n      group: 'Input',\n      default: [],\n      set: function (value) {\n        try {\n          this._internal.inputArray = validateArrayInput(value || []);\n          this._internal.lastError = null;\n        } catch (error) {\n          this._internal.lastError = error.message;\n          this._internal.inputArray = [];\n          this._internal.result = [];\n          this.flagOutputDirty('result');\n          console.error('Extract Values Node - Array input error:', error.message);\n        }\n      }\n    },\n    keyPath: {\n      type: 'string',\n      displayName: 'Key Path',\n      group: 'Extract Options',\n      default: '',\n      set: function (value) {\n        this._internal.keyPath = value || '';\n      }\n    }\n  }",
+    "startLine": 128
+  },
+  "outputs": {
+    "code": "{\n    result: {\n      displayName: 'Extracted Array',\n      type: 'array',\n      getter: function () {\n        return this._internal.result;\n      }\n    },\n    Done: {\n      displayName: 'Done',\n      type: 'signal'\n    }\n  }",
+    "startLine": 165
+  },
+  "inputFormatHints": {
+    "Do": {
+      "type": "signal",
+      "displayName": "Do"
+    },
+    "keyPath": {
+      "type": "string",
+      "displayName": "Key Path",
+      "default": "''"
+    }
+  },
+  "outputFormatHints": {
+    "result": {
+      "type": "array",
+      "displayName": "Extracted Array"
+    },
+    "Done": {
+      "type": "signal",
+      "displayName": "Done"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "validateArrayInput",
+      "code": "function validateArrayInput(array) {\n  if (!Array.isArray(array)) {\n    throw new Error('Input must be an array');\n  }\n  if (array.length === 0) {\n    throw new Error('Array cannot be empty');\n  }\n  if (array.length > MAX_ARRAY_LENGTH) {\n    throw new Error(`Array cannot contain more than ${MAX_ARRAY_LENGTH} elements`);\n  }\n\n  return array;\n}"
+    },
+    {
+      "name": "getValueFromPath",
+      "code": "function getValueFromPath(obj, path) {\n  if (!path || path.trim() === '') {\n    return obj;\n  }\n\n  const keys = path.split(',').map((key) => key.trim());\n  let value = obj;\n\n  for (const key of keys) {\n    if (value === null || value === undefined) {\n      return undefined;\n    }\n    value = value[key];\n  }\n\n  return value;\n}"
+    },
+    {
+      "name": "detectArrayType",
+      "code": "function detectArrayType(array) {\n  if (array.length === 0) return 'unknown';\n\n  const firstElement = array[0];\n\n  if (typeof firstElement === 'number') {\n    return 'number';\n  } else if (typeof firstElement === 'string') {\n    return 'string';\n  } else if (typeof firstElement === 'object' && firstElement !== null) {\n    return 'object';\n  }\n\n  return 'unknown';\n}"
+    },
+    {
+      "name": "generateUniqueId",
+      "code": "function generateUniqueId() {\n  return Math.random().toString(36).substr(2, 9) + Date.now().toString(36);\n}"
+    },
+    {
+      "name": "extractValues",
+      "code": "function extractValues(array, keyPath = '') {\n  if (array.length === 0) {\n    return [];\n  }\n\n  const arrayType = detectArrayType(array);\n\n  if (arrayType !== 'object') {\n    throw new Error('Input array must contain objects to extract values from');\n  }\n\n  if (!keyPath || keyPath.trim() === '') {\n    throw new Error('Key path is required to extract values from objects');\n  }\n\n  const extractedValues = [];\n\n  for (let i = 0; i < array.length; i++) {\n    const item = array[i];\n    const extractedValue = getValueFromPath(item, keyPath);\n\n    if (extractedValue === undefined) {\n      throw new Error(`Key path \"${keyPath}\" not found in object at index ${i}`);\n    }\n\n    // Add the extracted value with a unique ID\n    extractedValues.push({\n      value: extractedValue,\n      _extractId: generateUniqueId(),\n      _originalIndex: i\n    });\n  }\n\n  return extractedValues.map((item) => item.value);\n}"
+    }
+  ],
+  "fullDefinition": "\n  name: 'Extract Values',\n  docs: 'https://docsapp.xgenia.com/nodes/data/array/extract-values',\n  category: 'Data',\n  color: 'data',\n  searchTags: ['extract', 'values', 'convert', 'array', 'object', 'key', 'path', 'data'],\n  initialize: function () {\n    this._internal.inputArray = [];\n    this._internal.keyPath = '';\n    this._internal.result = [];\n    this._internal.lastError = null;\n  },\n  getInspectInfo() {\n    if (this._internal.lastError) {\n      return { type: 'text', value: `Error: ${this._internal.lastError}` ",
+  "category": "Data",
+  "docs": "https://docsapp.xgenia.com/nodes/data/array/extract-values",
+  "color": "data",
+  "lineCount": 202,
+  "byteSize": 4959
+}

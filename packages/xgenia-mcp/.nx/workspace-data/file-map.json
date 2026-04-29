@@ -1,0 +1,43 @@
+{
+  "version": "6.0",
+  "nxVersion": "20.8.3",
+  "pathMappings": {},
+  "nxJsonPlugins": [],
+  "fileMap": {
+    "projectFileMap": {},
+    "nonProjectFiles": [
+      {
+        "file": "package.json",
+        "hash": "9303814503120393633"
+      },
+      {
+        "file": "src/index.d.ts",
+        "hash": "3111619249914767970"
+      },
+      {
+        "file": "src/index.ts",
+        "hash": "8074838242363138021"
+      },
+      {
+        "file": "src/lib/constants.ts",
+        "hash": "2620028289903766609"
+      },
+      {
+        "file": "src/mcp-service.ts",
+        "hash": "8157558769073368849"
+      },
+      {
+        "file": "src/utils/config-utils.ts",
+        "hash": "10701974114974191845"
+      },
+      {
+        "file": "src/utils/configuration-types.ts",
+        "hash": "2272790157225783895"
+      },
+      {
+        "file": "tsconfig.json",
+        "hash": "13514379571684036755"
+      }
+    ]
+  }
+}

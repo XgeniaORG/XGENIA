@@ -1,0 +1,32 @@
+# === Generated Files ===
+dist/
+output/
+
+# === Bundle & Map Files ===
+# Matches anywhere, including nested folders
+*.bundle.js
+*.bundle.js.map
+*.worker.js
+*.worker.js.map
+*.map
+
+# === SVGs ===
+*.svg
+src/**/*.svg
+# Allow icon asset SVGs
+!src/assets/icons/**/*.svg
+
+# === Ignore auto-generated bundle files in src
+src/**/*.bundle.js
+src/**/*.bundle.js.map
+
+# === Node.js Dependencies ===
+node_modules/
+
+# === IDE Settings ===
+.idea/
+.vscode/
+
+# === OS-Specific Files ===
+.DS_Store
+Thumbs.db

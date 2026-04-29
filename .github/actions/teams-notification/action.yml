@@ -1,0 +1,32 @@
+name: 'Send teams new build notification'
+description: 'Send messages to Teams channel via webhook using Adaptive Card'
+
+inputs:
+  webhook-url:
+    required: true
+    description: 'Incoming webhook URL for Teams channel'
+  msg-title:
+    required: true
+    description: 'Title of the message being sent'
+  msg-text:
+    required: true
+    description: 'The main text of the body being sent'
+  workflow-url:
+    required: false
+    description: 'URL link to the GitHub workflow run'
+  status:
+    required: false
+    description: 'Status for context (optional)'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Build Adaptive Card payload
+      id: build_payload
+      shell: bash
+      run: |
+        bash "${{ github.action_path }}/send_teams.sh" \
+        "${{ inputs.msg-title }}" \
+        "${{ inputs.msg-text }}" \
+        "${{ inputs.workflow-url }}" \
+        "${{ inputs.webhook-url }}"

@@ -1,0 +1,148 @@
+.widgetContainer {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--theme-color-bg-default);
+}
+
+.featurebaseContainer {
+  flex: 1;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  
+  // Ensure FeatureBase widget matches XGENIA theme
+  :global(.featurebase-widget) {
+    background-color: var(--theme-color-bg-default) !important;
+    color: var(--theme-color-fg-default) !important;
+    border: none !important;
+    border-radius: 0 !important;
+    font-family: var(--theme-font-family-default) !important;
+  }
+  
+  // Style FeatureBase form elements to match XGENIA
+  :global(.featurebase-widget input),
+  :global(.featurebase-widget textarea),
+  :global(.featurebase-widget select) {
+    background-color: var(--theme-color-bg-primary) !important;
+    color: var(--theme-color-fg-default) !important;
+    border: 1px solid var(--theme-color-border-default) !important;
+    border-radius: var(--theme-border-radius-default) !important;
+    padding: var(--theme-spacing-sm) !important;
+    font-family: var(--theme-font-family-default) !important;
+    
+    &:focus {
+      border-color: var(--theme-color-border-highlight) !important;
+      outline: none !important;
+      box-shadow: 0 0 0 2px var(--theme-color-border-highlight-alpha) !important;
+    }
+  }
+  
+  // Style FeatureBase buttons to match XGENIA
+  :global(.featurebase-widget button) {
+    background-color: var(--theme-color-bg-highlight) !important;
+    color: var(--theme-color-fg-contrast) !important;
+    border: none !important;
+    border-radius: var(--theme-border-radius-default) !important;
+    padding: var(--theme-spacing-sm) var(--theme-spacing-md) !important;
+    font-family: var(--theme-font-family-default) !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    transition: background-color 0.2s ease !important;
+    
+    &:hover {
+      background-color: var(--theme-color-bg-highlight-hover) !important;
+    }
+    
+    &:disabled {
+      background-color: var(--theme-color-bg-muted) !important;
+      color: var(--theme-color-fg-muted) !important;
+      cursor: not-allowed !important;
+    }
+  }
+  
+  // Style FeatureBase headings and text
+  :global(.featurebase-widget h1),
+  :global(.featurebase-widget h2),
+  :global(.featurebase-widget h3),
+  :global(.featurebase-widget h4),
+  :global(.featurebase-widget h5),
+  :global(.featurebase-widget h6) {
+    color: var(--theme-color-fg-default) !important;
+    font-family: var(--theme-font-family-default) !important;
+  }
+  
+  :global(.featurebase-widget p),
+  :global(.featurebase-widget span),
+  :global(.featurebase-widget div) {
+    color: var(--theme-color-fg-default) !important;
+    font-family: var(--theme-font-family-default) !important;
+  }
+  
+  // Custom scrollbar to match XGENIA
+  :global(.featurebase-widget) {
+    scrollbar-width: thin;
+    scrollbar-color: var(--theme-color-scrollbar-thumb) var(--theme-color-scrollbar-track);
+    
+    &::-webkit-scrollbar {
+      width: 8px;
+    }
+    
+    &::-webkit-scrollbar-track {
+      background: var(--theme-color-scrollbar-track);
+    }
+    
+    &::-webkit-scrollbar-thumb {
+      background: var(--theme-color-scrollbar-thumb);
+      border-radius: 4px;
+      
+      &:hover {
+        background: var(--theme-color-scrollbar-thumb-hover);
+      }
+    }
+  }
+  
+  // Style vote buttons and interaction elements
+  :global(.featurebase-widget .vote-button),
+  :global(.featurebase-widget .upvote),
+  :global(.featurebase-widget .downvote) {
+    background-color: transparent !important;
+    color: var(--theme-color-fg-muted) !important;
+    border: 1px solid var(--theme-color-border-default) !important;
+    border-radius: var(--theme-border-radius-default) !important;
+    
+    &:hover {
+      background-color: var(--theme-color-bg-primary) !important;
+      color: var(--theme-color-fg-default) !important;
+    }
+    
+    &.active,
+    &.voted {
+      background-color: var(--theme-color-bg-highlight) !important;
+      color: var(--theme-color-fg-contrast) !important;
+      border-color: var(--theme-color-bg-highlight) !important;
+    }
+  }
+}
+
+.loadingContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--theme-spacing-md);
+  height: 200px;
+  text-align: center;
+}
+
+.errorContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--theme-spacing-sm);
+  height: 200px;
+  text-align: center;
+  padding: var(--theme-spacing-lg);
+} 

@@ -1,0 +1,15 @@
+import { StoryFn, Meta } from '@storybook/react';
+import React from 'react';
+
+import { Circle } from './Circle';
+
+export default {
+  title: 'CATEGORY_HERE/Circle',
+  component: Circle,
+  argTypes: {}
+} asMeta<typeof Circle>;
+
+const Template: ComponentStory<typeof Circle> = (args) => <Circle {...args} />;
+
+export const Common = Template.bind({});
+Common.args = {};

@@ -1,0 +1,64 @@
+{
+  "name": "Sort Collection",
+  "file": "sortcollectionnode.js",
+  "relativePath": "std-library/data/sortcollectionnode.js",
+  "inputs": {
+    "code": "{\n    Do: {\n      type: 'signal',\n      displayName: 'Do',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this.calculate();\n      }\n    },\n    array: {\n      type: 'array',\n      displayName: 'Array',\n      group: 'Input',\n      default: [],\n      set: function (value) {\n        try {\n          this._internal.inputArray = validateArrayInput(value || []);\n          this._internal.lastError = null;\n        } catch (error) {\n          this._internal.lastError = error.message;\n          this._internal.inputArray = [];\n          this._internal.collection = null;\n          this.flagOutputDirty('result');\n          console.error('Sort Collection Node - Array input error:', error.message);\n        }\n      }\n    },\n    keyPath: {\n      type: 'string',\n      displayName: 'Key Path',\n      group: 'Object Options',\n      default: '',\n      set: function (value) {\n        this._internal.keyPath = value || '';\n      }\n    },\n    ascending: {\n      type: 'boolean',\n      displayName: 'Ascending',\n      group: 'Sort Options',\n      default: true,\n      set: function (value) {\n        this._internal.ascending = value !== false; // Default to true if undefined/null\n      }\n    }\n  }",
+    "startLine": 155
+  },
+  "outputs": {
+    "code": "{\n    result: {\n      displayName: 'Sorted Array',\n      type: 'array',\n      getter: function () {\n        return this._internal.collection;\n      }\n    },\n    Done: {\n      displayName: 'Done',\n      type: 'signal'\n    }\n  }",
+    "startLine": 201
+  },
+  "inputFormatHints": {
+    "Do": {
+      "type": "signal",
+      "displayName": "Do"
+    },
+    "keyPath": {
+      "type": "string",
+      "displayName": "Key Path",
+      "default": "''"
+    },
+    "ascending": {
+      "type": "boolean",
+      "displayName": "Ascending",
+      "default": "true"
+    }
+  },
+  "outputFormatHints": {
+    "result": {
+      "type": "array",
+      "displayName": "Sorted Array"
+    },
+    "Done": {
+      "type": "signal",
+      "displayName": "Done"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "validateArrayInput",
+      "code": "function validateArrayInput(array) {\n  if (!Array.isArray(array)) {\n    throw new Error('Input must be an array');\n  }\n  if (array.length === 0) {\n    throw new Error('Array cannot be empty');\n  }\n  if (array.length > MAX_ARRAY_LENGTH) {\n    throw new Error(`Array cannot contain more than ${MAX_ARRAY_LENGTH} elements`);\n  }\n\n  return array;\n}"
+    },
+    {
+      "name": "getValueFromPath",
+      "code": "function getValueFromPath(obj, path) {\n  if (!path || path.trim() === '') {\n    return obj;\n  }\n\n  const keys = path.split(',').map((key) => key.trim());\n  let value = obj;\n\n  for (const key of keys) {\n    if (value === null || value === undefined) {\n      return undefined;\n    }\n    value = value[key];\n  }\n\n  return value;\n}"
+    },
+    {
+      "name": "detectArrayType",
+      "code": "function detectArrayType(array) {\n  if (array.length === 0) return 'unknown';\n\n  const firstElement = array[0];\n\n  if (typeof firstElement === 'number') {\n    return 'number';\n  } else if (typeof firstElement === 'string') {\n    return 'string';\n  } else if (typeof firstElement === 'object' && firstElement !== null) {\n    return 'object';\n  }\n\n  return 'unknown';\n}"
+    },
+    {
+      "name": "calculateSort",
+      "code": "function calculateSort(array, keyPath = '', ascending = true) {\n  if (array.length === 0) {\n    return [];\n  }\n\n  const arrayType = detectArrayType(array);\n\n  if (arrayType === 'object' && (!keyPath || keyPath.trim() === '')) {\n    throw new Error('Key path is required for arrays containing objects');\n  }\n\n  let itemsToSort = array.map((item, index) => ({\n    originalValue: item,\n    sortValue: item,\n    originalIndex: index\n  }));\n\n  if (arrayType === 'object') {\n    itemsToSort = itemsToSort.map((item, index) => {\n      const value = getValueFromPath(item.originalValue, keyPath);\n      if (value === undefined) {\n        throw new Error(`Key path \"${keyPath}\" not found in object at index ${index}`);\n      }\n      return {\n        ...item,\n        sortValue: value\n      };\n    });\n  }\n\n  // Filter out items with null/undefined sort values\n  const validItems = itemsToSort.filter((item) => item.sortValue !== null && item.sortValue !== undefined);\n\n  if (validItems.length === 0) {\n    return [];\n  }\n\n  // Determine sort function based on data type\n  const firstSortValue = validItems[0].sortValue;\n  let compareFn;\n\n  if (typeof firstSortValue === 'number') {\n    compareFn = (a, b) => {\n      const diff = a.sortValue - b.sortValue;\n      return ascending ? diff : -diff;\n    };\n  } else if (typeof firstSortValue === 'string') {\n    compareFn = (a, b) => {\n      const comparison = a.sortValue.localeCompare(b.sortValue);\n      return ascending ? comparison : -comparison;\n    };\n  } else {\n    throw new Error(\n      'Unsupported data type for sorting. Array must contain numbers, strings, or objects with numeric/string values.'\n    );\n  }\n\n  // Sort the items\n  validItems.sort(compareFn);\n\n  // Return the sorted array\n  return validItems.map((item) => item.originalValue);\n}"
+    }
+  ],
+  "fullDefinition": "\n  name: 'Sort Collection',\n  docs: 'https://docsapp.xgenia.com/nodes/data/array/array-sort',\n  category: 'Data',\n  color: 'data',\n  searchTags: ['sort', 'order', 'arrange', 'ascending', 'descending', 'collection', 'array', 'list', 'object'],\n  initialize: function () {\n    this._internal.inputArray = [];\n    this._internal.keyPath = '';\n    this._internal.ascending = true;\n    this._internal.collection = null;\n    this._internal.lastError = null;\n  },\n  getInspectInfo() {\n    if (this._internal.lastError) {\n      return { type: 'text', value: `Error: ${this._internal.lastError}` ",
+  "category": "Data",
+  "docs": "https://docsapp.xgenia.com/nodes/data/array/array-sort",
+  "color": "data",
+  "lineCount": 243,
+  "byteSize": 6265
+}

@@ -1,0 +1,25 @@
+{
+  "name": "Circle",
+  "file": "circle.js",
+  "relativePath": "visual/circle.js",
+  "inputs": null,
+  "outputs": {
+    "code": "{\n    nodeReference: {\n      displayName: 'Node Reference',\n      group: 'General',\n      type: 'node',\n      getter: function() {\n        return this;\n      }\n    }\n  }",
+    "startLine": 28
+  },
+  "inputFormatHints": {},
+  "outputFormatHints": {
+    "nodeReference": {
+      "type": "node",
+      "displayName": "Node Reference"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [],
+  "fullDefinition": "\n  name: 'Circle',\n  docs: 'https://docsapp.xgenia.com/nodes/basic-elements/circle',\n  connectionPanel: {\n    groupPriority: [\n      'General',\n      'Fill',\n      'Stroke',\n      'Dimensions',\n      'Style',\n      'Actions',\n      'Events',\n      'Mounted',\n      'Margin and padding',\n      'Pointer Events',\n      'Hover Events'\n    ]\n  },\n  getReactComponent() {\n    return Circle;\n  },\n  xgeniaNodeAsProp: true,\n  allowChildren: false,\n  outputs: {\n    nodeReference: {\n      displayName: 'Node Reference',\n      group: 'General',\n      type: 'node',\n      getter: function() {\n        return this;\n      }\n    }\n  },\n  defaultCss: {\n    flexShrink: 0,\n    position: 'relative',\n    display: 'flex'\n  },\n  inputProps: {\n    size: {\n      displayName: 'Size',\n      default: '100',\n      group: 'Dimension',\n      type: {\n        name: 'number'\n      },\n      index: 10,\n      allowVisualStates: true\n    },\n    fillEnabled: {\n      group: 'Fill',\n      displayName: 'Fill',\n      default: true,\n      type: 'boolean',\n      index: 20,\n      allowVisualStates: true\n    },\n    fillColor: {\n      group: 'Fill',\n      displayName: 'Fill Color',\n      default: 'red',\n      type: 'color',\n      index: 21,\n      allowVisualStates: true\n    },\n    strokeEnabled: {\n      index: 23,\n      group: 'Stroke',\n      default: false,\n      displayName: 'Stroke',\n      type: 'boolean',\n      allowVisualStates: true\n    },\n    strokeWidth: {\n      index: 24,\n      group: 'Stroke',\n      displayName: 'Stroke Width',\n      default: 10,\n      type: {\n        name: 'number'\n      },\n      allowVisualStates: true\n    },\n    strokeColor: {\n      index: 25,\n      group: 'Stroke',\n      displayName: 'Stroke Color',\n      type: 'color',\n      default: 'black',\n      allowVisualStates: true\n    },\n    strokeLineCap: {\n      index: 26,\n      group: 'Stroke',\n      displayName: 'Line Cap',\n      type: {\n        name: 'enum',\n        enums: [\n          { label: 'Butt', value: 'butt' },\n          { label: 'Round', value: 'round' }\n        ]\n      },\n      default: 'butt',\n      allowVisualStates: true\n    },\n    startAngle: {\n      displayName: 'Start Angle',\n      type: 'number',\n      default: 0,\n      group: 'Style',\n      index: 198,\n      allowVisualStates: true\n    },\n    endAngle: {\n      displayName: 'End Angle',\n      type: 'number',\n      default: 360,\n      group: 'Style',\n      index: 199,\n      allowVisualStates: true\n    }\n  }\n",
+  "category": null,
+  "docs": "https://docsapp.xgenia.com/nodes/basic-elements/circle",
+  "color": null,
+  "lineCount": 136,
+  "byteSize": 3022
+}

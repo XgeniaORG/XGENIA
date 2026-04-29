@@ -1,0 +1,81 @@
+{
+  "name": "net.xgenia.user.User",
+  "file": "user.js",
+  "relativePath": "std-library/user/user.js",
+  "inputs": {
+    "code": "{\n    fetch: {\n      displayName: 'Fetch',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this.scheduleFetch();\n      }\n    }\n  }",
+    "startLine": 128
+  },
+  "outputs": {
+    "code": "{\n    id: {\n      type: 'string',\n      displayName: 'Id',\n      group: 'General',\n      getter: function () {\n        return this._internal.model !== undefined ? this._internal.model.getId() : undefined;\n      }\n    },\n    fetched: {\n      type: 'signal',\n      displayName: 'Fetched',\n      group: 'Events'\n    },\n    changed: {\n      type: 'signal',\n      displayName: 'Changed',\n      group: 'Events'\n    },\n    failure: {\n      type: 'signal',\n      displayName: 'Failure',\n      group: 'Events'\n    },\n    error: {\n      type: 'string',\n      displayName: 'Error',\n      group: 'Error',\n      getter: function () {\n        return this._internal.error;\n      }\n    },\n    username: {\n      type: 'string',\n      displayName: 'Username',\n      group: 'General',\n      getter: function () {\n        return this._internal.model !== undefined ? this._internal.model.get('username') : undefined;\n      }\n    },\n    email: {\n      type: 'string',\n      displayName: 'Email',\n      group: 'General',\n      getter: function () {\n        return this._internal.model !== undefined ? this._internal.model.get('email') : undefined;\n      }\n    },\n    authenticated: {\n      type: 'boolean',\n      displayName: 'Authenticated',\n      group: 'General',\n      getter: function () {\n        return this._internal.model !== undefined;\n      }\n    }\n    /*    loggedIn:{\n            type:'signal',\n            displayName:'Logged In',\n            group:'Events'\n        },\n        loggedOut:{\n            type:'signal',\n            displayName:'Logged Out',\n            group:'Events'\n        },\n        sessionLost:{\n            type:'signal',\n            displayName:'Session Lost',\n            group:'Events'\n        },         */\n  }",
+    "startLine": 56
+  },
+  "inputFormatHints": {
+    "fetch": {
+      "displayName": "Fetch"
+    }
+  },
+  "outputFormatHints": {
+    "id": {
+      "type": "string",
+      "displayName": "Id"
+    },
+    "fetched": {
+      "type": "signal",
+      "displayName": "Fetched"
+    },
+    "changed": {
+      "type": "signal",
+      "displayName": "Changed"
+    },
+    "failure": {
+      "type": "signal",
+      "displayName": "Failure"
+    },
+    "error": {
+      "type": "string",
+      "displayName": "Error"
+    },
+    "username": {
+      "type": "string",
+      "displayName": "Username"
+    },
+    "email": {
+      "type": "string",
+      "displayName": "Email"
+    },
+    "authenticated": {
+      "type": "boolean",
+      "displayName": "Authenticated"
+    },
+    "loggedIn": {
+      "type": "signal",
+      "displayName": "Logged In"
+    },
+    "loggedOut": {
+      "type": "signal",
+      "displayName": "Logged Out"
+    },
+    "sessionLost": {
+      "type": "signal",
+      "displayName": "Session Lost"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "updatePorts",
+      "code": "function updatePorts(nodeId, parameters, editorConnection, systemCollections) {\n  var ports = [];\n\n  if (systemCollections) {\n    // Fetch ports from collection keys\n    var c = systemCollections.find((c) => c.name === '_User');\n    if (c && c.schema && c.schema.properties) {\n      var props = c.schema.properties;\n      const _ignoreKeys = ['authData', 'password', 'username', 'email'];\n      for (var key in props) {\n        if (_ignoreKeys.indexOf(key) !== -1) continue;\n\n        var p = props[key];\n        if (ports.find((_p) => _p.name === key)) continue;\n\n        if (p.type === 'Relation') {\n        } else {\n          // Other schema type ports\n          const _typeMap = {\n            String: 'string',\n            Boolean: 'boolean',\n            Number: 'number',\n            Date: 'date'\n          };\n\n          ports.push({\n            type: {\n              name: _typeMap[p.type] ? _typeMap[p.type] : '*'\n            },\n            plug: 'output',\n            group: 'Properties',\n            name: 'prop-' + key,\n            displayName: key\n          });\n\n          ports.push({\n            type: 'signal',\n            plug: 'output',\n            group: 'Changed Events',\n            displayName: key + ' Changed',\n            name: 'changed-' + key\n          });\n        }\n      }\n    }\n  }\n\n  if (typeof _xgenia_cloud_runtime_version === 'undefined') {\n    // On the client we have some extra outputs\n    ports.push({\n      plug: 'output',\n      name: 'loggedIn',\n      type: 'signal',\n      displayName: 'Logged In',\n      group: 'Events'\n    });\n\n    ports.push({\n      plug: 'output',\n      name: 'loggedOut',\n      type: 'signal',\n      displayName: 'Logged Out',\n      group: 'Events'\n    });\n\n    ports.push({\n      plug: 'output',\n      name: 'sessionLost',\n      type: 'signal',\n      displayName: 'Session Lost',\n      group: 'Events'\n    });\n  }\n\n  editorConnection.sendDynamicPorts(nodeId, ports);\n}"
+    },
+    {
+      "name": "_managePortsForNode",
+      "code": "function _managePortsForNode(node) {\n      updatePorts(node.id, node.parameters, context.editorConnection, graphModel.getMetaData('systemCollections'));\n\n      node.on('parameterUpdated', function (event) {\n        updatePorts(node.id, node.parameters, context.editorConnection, graphModel.getMetaData('systemCollections'));\n      });\n\n      graphModel.on('metadataChanged.systemCollections', function (data) {\n        updatePorts(node.id, node.parameters, context.editorConnection, data);\n      });\n    }"
+    }
+  ],
+  "fullDefinition": "\n            String: 'string',\n            Boolean: 'boolean',\n            Number: 'number',\n            Date: 'date'\n          ",
+  "category": "Cloud Services",
+  "docs": "https://docsapp.xgenia.com/nodes/data/user/user-node",
+  "color": "data",
+  "lineCount": 339,
+  "byteSize": 9584
+}

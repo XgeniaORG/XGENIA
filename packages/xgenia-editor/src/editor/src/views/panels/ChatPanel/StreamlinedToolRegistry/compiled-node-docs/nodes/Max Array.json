@@ -1,0 +1,58 @@
+{
+  "name": "Max Array",
+  "file": "maxArray.js",
+  "relativePath": "maths/maxArray.js",
+  "inputs": {
+    "code": "{\n    Do: {\n      type: 'signal',\n      displayName: 'Do',\n      group: 'Actions',\n      valueChangedToTrue: function () {\n        this.calculate();\n      }\n    },\n    array: {\n      type: 'array',\n      displayName: 'Array',\n      group: 'Input',\n      default: [],\n      set: function (value) {\n        try {\n          this._internal.inputArray = validateArrayInput(value || []);\n          this._internal.lastError = null;\n        } catch (error) {\n          this._internal.lastError = error.message;\n          this._internal.inputArray = [];\n          this._internal.result = 0;\n          this.flagOutputDirty('result');\n          console.error('Max Node - Array input error:', error.message);\n        }\n      }\n    },\n    keyPath: {\n      type: 'string',\n      displayName: 'Key Path',\n      group: 'Object Options',\n      default: '',\n      set: function (value) {\n        this._internal.keyPath = value || '';\n      }\n    }\n  }",
+    "startLine": 118
+  },
+  "outputs": {
+    "code": "{\n    result: {\n      displayName: 'Maximum',\n      type: '*',\n      getter: function () {\n        return this._internal.result;\n      }\n    },\n    Done: {\n      displayName: 'Done',\n      type: 'signal'\n    }\n  }",
+    "startLine": 155
+  },
+  "inputFormatHints": {
+    "Do": {
+      "type": "signal",
+      "displayName": "Do"
+    },
+    "keyPath": {
+      "type": "string",
+      "displayName": "Key Path",
+      "default": "''"
+    }
+  },
+  "outputFormatHints": {
+    "result": {
+      "displayName": "Maximum"
+    },
+    "Done": {
+      "type": "signal",
+      "displayName": "Done"
+    }
+  },
+  "prototypeExtensions": null,
+  "helpers": [
+    {
+      "name": "validateArrayInput",
+      "code": "function validateArrayInput(array) {\n  if (!Array.isArray(array)) {\n    throw new Error('Input must be an array');\n  }\n  if (array.length === 0) {\n    throw new Error('Array cannot be empty');\n  }\n  if (array.length > MAX_ARRAY_LENGTH) {\n    throw new Error(`Array cannot contain more than ${MAX_ARRAY_LENGTH} elements`);\n  }\n\n  return array;\n}"
+    },
+    {
+      "name": "getValueFromPath",
+      "code": "function getValueFromPath(obj, path) {\n  if (!path || path.trim() === '') {\n    return obj;\n  }\n\n  const keys = path.split(',').map((key) => key.trim());\n  let value = obj;\n\n  for (const key of keys) {\n    if (value === null || value === undefined) {\n      return undefined;\n    }\n    value = value[key];\n  }\n\n  return value;\n}"
+    },
+    {
+      "name": "detectArrayType",
+      "code": "function detectArrayType(array) {\n  if (array.length === 0) return 'unknown';\n\n  const firstElement = array[0];\n\n  if (typeof firstElement === 'number') {\n    return 'number';\n  } else if (typeof firstElement === 'string') {\n    return 'string';\n  } else if (typeof firstElement === 'object' && firstElement !== null) {\n    return 'object';\n  }\n\n  return 'unknown';\n}"
+    },
+    {
+      "name": "calculateMax",
+      "code": "function calculateMax(array, keyPath = '') {\n  if (array.length === 0) {\n    return 0;\n  }\n\n  const arrayType = detectArrayType(array);\n\n  if (arrayType === 'object' && (!keyPath || keyPath.trim() === '')) {\n    throw new Error('Key path is required for arrays containing objects');\n  }\n\n  let values = array;\n\n  if (arrayType === 'object') {\n    values = array.map((item, index) => {\n      const value = getValueFromPath(item, keyPath);\n      if (value === undefined) {\n        throw new Error(`Key path \"${keyPath}\" not found in object at index ${index}`);\n      }\n      return value;\n    });\n  }\n\n  // Filter out null/undefined values\n  const validValues = values.filter((v) => v !== null && v !== undefined);\n\n  if (validValues.length === 0) {\n    return 0;\n  }\n\n  if (arrayType === 'number' || (arrayType === 'object' && typeof validValues[0] === 'number')) {\n    return Math.max(...validValues);\n  } else if (arrayType === 'string' || (arrayType === 'object' && typeof validValues[0] === 'string')) {\n    return validValues.sort()[validValues.length - 1]; // Alphabetical sort, last element is maximum\n  } else {\n    throw new Error(\n      'Unsupported data type. Array must contain numbers, strings, or objects with numeric/string values.'\n    );\n  }\n}"
+    }
+  ],
+  "fullDefinition": "\n  name: 'Max Array',\n  docs: 'https://docsapp.xgenia.com/nodes/math/max',\n  category: 'Math',\n  color: 'data',\n  searchTags: ['max', 'maximum', 'largest', 'math', 'number', 'string', 'array', 'list', 'object'],\n  initialize: function () {\n    this._internal.inputArray = [];\n    this._internal.keyPath = '';\n    this._internal.result = 0;\n    this._internal.lastError = null;\n  },\n  getInspectInfo() {\n    if (this._internal.lastError) {\n      return { type: 'text', value: `Error: ${this._internal.lastError}` ",
+  "category": "Math",
+  "docs": "https://docsapp.xgenia.com/nodes/math/max",
+  "color": "data",
+  "lineCount": 192,
+  "byteSize": 4997
+}
