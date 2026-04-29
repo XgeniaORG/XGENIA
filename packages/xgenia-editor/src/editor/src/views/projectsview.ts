@@ -961,19 +961,20 @@ export class ProjectsView extends View {
         React.createElement(AIWizard, {
           showClose: true,
           onCancel: unmount,
-          onComplete: async (projectPath: string, projectName: string, initialPrompt: string, images?: any[]) => {
+          onComplete: async (projectPath: string, projectName: string, initialPrompt: string, images?: any[], selectedModel?: string) => {
             unmount();
 
             const activityId = 'ai-wizard-create';
             ToastLayer.showActivity('Creating project…', activityId);
 
-            console.log('[ProjectsView] AI Wizard onComplete:', { projectPath, projectName, promptLength: initialPrompt?.length, imageCount: images?.length ?? 0 });
+            console.log('[ProjectsView] AI Wizard onComplete:', { projectPath, projectName, promptLength: initialPrompt?.length, imageCount: images?.length ?? 0, selectedModel });
 
             // Store the prompt so EditorBridge can forward it to the ChatPanel
             if (initialPrompt) {
               (window as any).__xgenia_pendingAIPrompt = {
                 prompt: initialPrompt,
                 images: images || [],
+                selectedModel: selectedModel,
                 timestamp: Date.now()
               };
             }

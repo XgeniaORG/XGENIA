@@ -274,11 +274,12 @@ export class EditorBridge {
                     delete (window as any).__xgenia_pendingAIPrompt;
                     // Delay slightly to let the plugin fully initialize its message handlers
                     setTimeout(() => {
-                        this.pushEvent('startAIPrompt', {
+                        this.pushEvent('initialPrompt', {
                             prompt: pendingPrompt.prompt,
                             images: pendingPrompt.images || [],
+                            selectedModel: pendingPrompt.selectedModel,
                         });
-                        console.log('[EditorBridge] Pushed startAIPrompt event to ChatPanel');
+                        console.log('[EditorBridge] Pushed initialPrompt event to ChatPanel');
                     }, 1000);
                 }
             }
