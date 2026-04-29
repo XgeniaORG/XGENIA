@@ -2,7 +2,7 @@
 
 > [!WARNING]
 > **NOTICE REGARDING PREVIOUS VERSIONS**
-> Builds prior to v1.1 (including the v1.0 prototype) are deprecated due to build misconfigurations and licensing conflicts. They are strictly unsupported. This repository (v1.1+) is the only official source for the project.
+> Builds prior to v2.0.0 (including the v1.3.0 prototype) are deprecated due to build and packaging issues. They are strictly unsupported. This repository (v2.0.0+) is the only official source for the project.
 
 XGENIA is a low-code platform where designers and developers build custom applications and experiences. Designed as a visual programming environment, it aims to expedite your development process. It promotes the swift and efficient creation of applications, requiring minimal coding knowledge.
 
