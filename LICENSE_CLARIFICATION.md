@@ -13,7 +13,6 @@ Specifically:
   `private/xgenia-pro-nodes/LICENSE`)
 - Files under `private/xgenia-ai/` are proprietary
 - Files under `private/xgenia-agent-nodes/` are proprietary
-- Files under `MarkPrivate/` are private development files
 
 These files are expressly excluded from the GPL-3.0 license that covers the
 XGENIA Editor core.

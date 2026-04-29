@@ -39,21 +39,11 @@ We welcome contributions! Please read our [Contributing Guide](./CONTRIBUTING.md
 - [Feature Request](https://github.com/XgeniaORG/XGENIA/issues/new?template=feature_request.yml) — suggest a new feature
 - [Security Policy](./.github/SECURITY.md) — how to report vulnerabilities responsibly
 
-## License & Attribution
+## License
 
-This repository contains the Open Source (GPL-3.0) core of XGENIA, based on the
-[Noodl Editor](https://github.com/noodlapp/noodl) by Future Platforms AB.
-
-| Component | License | Details |
-|-----------|---------|---------|
-| XGENIA Editor | GPL-3.0 | [LICENSES/GPL-3.0.txt](./LICENSES/GPL-3.0.txt) |
-| Runtime & Viewers | MIT | See `packages/*/LICENSE` |
-| Pro Nodes & AI | Proprietary | [LICENSES/XGENIA-PROPRIETARY.md](./LICENSES/XGENIA-PROPRIETARY.md) |
+This repository contains the Open Source (GPL-3.0) core of XGENIA.
 
 Applications built **with** XGENIA use the MIT-licensed runtime — your deployed
 apps are **not** subject to GPL-3.0 copyleft.
 
-**Full details:**
-- [Noodl upstream attribution](./LICENSES/NOODL-ORIGINAL.md)
-- [Third-party open source notices](./LICENSES/THIRD-PARTY-NOTICES.md)
-- [License clarification (prior versions)](./LICENSE_CLARIFICATION.md)
+
