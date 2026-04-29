@@ -11,7 +11,7 @@ Documentation for how to use XGENIA can be found here
 [XGENIA Documentation](https://docsapp.xgenia.com/)
 
 ## Download releases
-Pre-built binaries can be [downloaded from Github]((https://github.com/XgeniaORG/XGENIA/Releases))
+Pre-built binaries can be [downloaded from Github] ((https://github.com/XgeniaORG/XGENIA/Releases))
 
 ## Building from source test
 
