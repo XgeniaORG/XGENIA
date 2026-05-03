@@ -1000,14 +1000,26 @@ export class ComponentsPanelView extends View {
       forRuntimeType: this.getRuntimeType()
     });
 
-    let items: PopupMenuItem[] = templates.map((t) => ({
-      icon: IconName.Plus,
-      label: t.label,
-      onClick: () => {
-        this.onAddComponentWithTemplateClicked(Object.assign(scope, { template: t }), el);
-        evt.stopPropagation();
-      }
-    }));
+    let items: PopupMenuItem[] = [];
+    if (this.getRuntimeType() === 'maths') {
+      items.push({
+        icon: IconName.CloudData,
+        label: 'Upload to RGS',
+        onClick: () => {
+          document.dispatchEvent(new CustomEvent('upload-maths-component', { detail: { component: scope.comp } }));
+          evt.stopPropagation();
+        }
+      });
+    } else {
+      items = templates.map((t) => ({
+        icon: IconName.Plus,
+        label: t.label,
+        onClick: () => {
+          this.onAddComponentWithTemplateClicked(Object.assign(scope, { template: t }), el);
+          evt.stopPropagation();
+        }
+      }));
+    }
 
     items.push({ type: 'divider' });
 
