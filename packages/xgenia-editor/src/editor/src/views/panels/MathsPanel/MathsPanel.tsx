@@ -170,7 +170,65 @@ const mathsPanelOptions = {
     componentTitle: 'Maths Components'
 };
 
+interface PortInfo { name: string; type: string }
 
+function extractPorts(config_data: any, script: string): { inputPorts: PortInfo[], outputPorts: PortInfo[] } {
+    const defaultInputs: PortInfo[] = [{ name: 'bet', type: 'number' }]
+    const defaultOutputs: PortInfo[] = [{ name: 'win', type: 'number' }]
+
+    // 1. Prefer explicit _portManifest from config_data
+    if (config_data?._portManifest) {
+        const manifest = config_data._portManifest
+        return {
+            inputPorts: manifest.inputs?.length > 0 ? manifest.inputs : defaultInputs,
+            outputPorts: manifest.outputs?.length > 0 ? manifest.outputs : defaultOutputs,
+        }
+    }
+
+    // 2. Fallback: parse the compiled script to extract ports
+    if (script) {
+        const extractedInputs: PortInfo[] = []
+        const extractedOutputs: PortInfo[] = []
+
+        // Extract inputs from config.<name> references in function input objects
+        const configRefRegex = /config\.(\w+)/g
+        const seenInputs = new Set<string>()
+        let m
+        while ((m = configRefRegex.exec(script)) !== null) {
+            const name = m[1]
+            if (['bet', 'balance', 'state', 'round', '_portManifest', '_var_'].some(skip => name.startsWith(skip))) continue
+            if (seenInputs.has(name)) continue
+            seenInputs.add(name)
+            const isSignal = /signal|do|trigger/i.test(name)
+            extractedInputs.push({ name, type: isSignal ? 'signal' : 'number' })
+        }
+
+        // Extract outputs from inner function return statements like `return { result: ... }`
+        const returnRegex = /return\s*\{([^}]+)\}/g
+        const seenOutputs = new Set<string>()
+        while ((m = returnRegex.exec(script)) !== null) {
+            const body = m[1]
+            const keyRegex = /(\w+)\s*:/g
+            let km
+            while ((km = keyRegex.exec(body)) !== null) {
+                const name = km[1]
+                if (['win', 'data', 'state', 'round', 'features'].includes(name)) continue
+                if (seenOutputs.has(name)) continue
+                seenOutputs.add(name)
+                extractedOutputs.push({ name, type: 'number' })
+            }
+        }
+
+        if (extractedInputs.length > 0 || extractedOutputs.length > 0) {
+            return {
+                inputPorts: extractedInputs.length > 0 ? extractedInputs : defaultInputs,
+                outputPorts: extractedOutputs.length > 0 ? extractedOutputs : defaultOutputs,
+            }
+        }
+    }
+
+    return { inputPorts: defaultInputs, outputPorts: defaultOutputs }
+}
 
 export function MathsPanel() {
     const [settings, setSettings] = useState(getRgsSettings());
@@ -195,6 +253,7 @@ export function MathsPanel() {
     const [simCount, setSimCount] = useState(1000);
     const [simBetPort, setSimBetPort] = useState('bet');
     const [simWinPort, setSimWinPort] = useState('win');
+    const [simAvailablePorts, setSimAvailablePorts] = useState<{ inputPorts: PortInfo[], outputPorts: PortInfo[] } | null>(null);
     const [pipelineStep, setPipelineStep] = useState<string | null>(null);
 
     const connected = !!settings;
@@ -267,23 +326,10 @@ export function MathsPanel() {
         });
     }, [expandedVersion, versionCode, settings]);
 
-
     const handleImportFromRgs = useCallback(async (configId: string, version: number) => {
         if (!settings?.apiKey) return;
         setActionStatus({ id: configId, type: 'loading', msg: 'Importing remote component...' });
         try {
-            // Verify the evaluate endpoint works first
-            const testRes = await fetch(`${XRGS_URL}/maths-deployer`, {
-                method: 'POST',
-                headers: rgsHeaders(settings.apiKey),
-                body: JSON.stringify({ action: 'evaluate', maths_config_id: configId, ctx: { bet: 100, round: 1 } }),
-            });
-            const testData = await testRes.json();
-            if (testData.error) {
-                setActionStatus({ id: configId, type: 'error', msg: `RGS evaluate check failed: ${testData.error}` });
-                return;
-            }
-
             // Find the game name for the component label
             const game = games?.find((g: any) => g.id === selectedGame);
             const gameName = game?.name || 'RGS';
@@ -294,6 +340,36 @@ export function MathsPanel() {
                 setActionStatus({ id: configId, type: 'error', msg: `Component "${gameName} RGS v${version} (Remote)" already exists` });
                 return;
             }
+
+            // Fetch config data to extract ports and check validity
+            const configRes = await fetch(`${XRGS_URL}/maths-deployer`, {
+                method: 'POST',
+                headers: rgsHeaders(settings.apiKey),
+                body: JSON.stringify({ action: 'get-config', maths_config_id: configId }),
+            });
+            const configData = await configRes.json();
+            if (configData.error) {
+                setActionStatus({ id: configId, type: 'error', msg: `RGS fetch config failed: ${configData.error}` });
+                return;
+            }
+
+            const { inputPorts, outputPorts } = extractPorts(configData.config_data, configData.script);
+
+            // Create dynamicports array
+            const dynamicports = [
+                ...inputPorts.map(p => ({
+                    name: `in-${p.name}`,
+                    plug: 'input' as const,
+                    type: p.type === 'signal' ? 'signal' : 'number',
+                    displayName: p.name
+                })),
+                ...outputPorts.map(p => ({
+                    name: `out-${p.name}`,
+                    plug: 'output' as const,
+                    type: 'number',
+                    displayName: p.name
+                }))
+            ];
 
             // Build the proxy script that calls XRGS evaluate endpoint remotely
             const proxyScript = `// ☁ RGS Remote Maths Proxy — ${gameName} v${version}
@@ -311,13 +387,22 @@ const VERSION = ${version};
 var _roundState = {};
 var _roundCount = 0;
 
-async function evaluateRemote(bet) {
+async function evaluateRemote(collectedInputs) {
   var settings = null;
   try { settings = JSON.parse(localStorage.getItem('xgenia_rgs_settings') || '{}'); } catch(e) {}
   var apiKey = settings && settings.apiKey;
   if (!apiKey) throw new Error('Not connected to XRGS — open Maths RGS panel and connect first');
 
   _roundCount++;
+
+  var bet = collectedInputs.bet || 100;
+  var configOverrides = {};
+  for (var k in collectedInputs) {
+    if (k !== 'bet') {
+      configOverrides[k] = collectedInputs[k];
+    }
+  }
+
   var res = await fetch(XRGS_URL + '/maths-deployer', {
     method: 'POST',
     headers: {
@@ -330,7 +415,8 @@ async function evaluateRemote(bet) {
       action: 'evaluate',
       maths_config_id: MATHS_CONFIG_ID,
       ctx: {
-        bet: bet || 100,
+        bet: bet,
+        config: configOverrides,
         state: _roundState,
         round: _roundCount,
       }
@@ -343,12 +429,14 @@ async function evaluateRemote(bet) {
   // Persist state for next round (bonus continuations etc.)
   _roundState = (data.result && data.result.state) || {};
 
-  return data.result || data;
+  var resultData = data.result && data.result.data ? data.result.data : data.result;
+  return resultData || data;
 }
 
 // Entry point — called by the editor runtime
-var inputBet = Inputs.bet || 100;
-return evaluateRemote(inputBet);`;
+var collectedInputs = {};
+${inputPorts.map(p => `collectedInputs['${p.name}'] = typeof Inputs['${p.name}'] !== 'undefined' ? Inputs['${p.name}'] : Inputs['in-${p.name}'];`).join('\n')}
+return evaluateRemote(collectedInputs);`;
 
             // Create the proxy component with a JavaScriptFunction node
             const jsFnNodeId = guid();
@@ -369,12 +457,7 @@ return evaluateRemote(inputBet);`;
                             _rgsVersion: version,
                             _rgsGameName: gameName,
                         },
-                        dynamicports: [
-                            { name: 'in-bet', plug: 'input', type: 'number', displayName: 'bet' },
-                            { name: 'out-win', plug: 'output', type: 'number', displayName: 'win' },
-                            { name: 'out-data', plug: 'output', type: '*', displayName: 'data' },
-                            { name: 'out-state', plug: 'output', type: '*', displayName: 'state' },
-                        ],
+                        dynamicports: dynamicports,
                     },
                 ],
                 connections: [],
@@ -973,10 +1056,28 @@ return evaluateRemote(inputBet);`;
                                                             {v.status === 'testing' && (
                                                                 <>
                                                                     <button
-                                                                        onClick={(e) => { 
+                                                                        onClick={async (e) => { 
                                                                             e.stopPropagation(); 
-                                                                            setActiveSimVersionId(v.id);
-                                                                            setShowTestConfigModal(true);
+                                                                            if (!settings?.apiKey) return;
+                                                                            setActionStatus({ id: v.id, type: 'loading', msg: 'Fetching configuration...' });
+                                                                            try {
+                                                                                const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+                                                                                    method: 'POST',
+                                                                                    headers: rgsHeaders(settings.apiKey),
+                                                                                    body: JSON.stringify({ action: 'get-config', maths_config_id: v.id }),
+                                                                                });
+                                                                                const configData = await res.json();
+                                                                                if (configData.error) throw new Error(configData.error);
+                                                                                const { inputPorts, outputPorts } = extractPorts(configData.config_data, configData.script);
+                                                                                setSimAvailablePorts({ inputPorts, outputPorts });
+                                                                                if (inputPorts.length > 0) setSimBetPort(inputPorts[0].name);
+                                                                                if (outputPorts.length > 0) setSimWinPort(outputPorts[0].name);
+                                                                                setActiveSimVersionId(v.id);
+                                                                                setShowTestConfigModal(true);
+                                                                                setActionStatus(null);
+                                                                            } catch (err: any) {
+                                                                                setActionStatus({ id: v.id, type: 'error', msg: `Failed to load config: ${err.message}` });
+                                                                            }
                                                                         }}
                                                                         disabled={actionStatus?.id === v.id && actionStatus.type === 'loading'}
                                                                         style={{
@@ -1103,29 +1204,61 @@ return evaluateRemote(inputBet);`;
                         <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
                             <div style={{ flex: 1 }}>
                                 <label style={{ display: 'block', fontSize: '11px', color: '#a0a0b0', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>Bet Input Port</label>
-                                <input
-                                    type="text"
-                                    value={simBetPort}
-                                    onChange={(e) => setSimBetPort(e.target.value)}
-                                    style={{
-                                        width: '100%', padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.06)',
-                                        border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff',
-                                        fontSize: '14px', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box'
-                                    }}
-                                />
+                                {simAvailablePorts ? (
+                                    <select
+                                        value={simBetPort}
+                                        onChange={(e) => setSimBetPort(e.target.value)}
+                                        style={{
+                                            width: '100%', padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.06)',
+                                            border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff',
+                                            fontSize: '14px', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box'
+                                        }}
+                                    >
+                                        {simAvailablePorts.inputPorts.map(p => (
+                                            <option key={p.name} value={p.name} style={{ color: '#000' }}>{p.name} ({p.type})</option>
+                                        ))}
+                                    </select>
+                                ) : (
+                                    <input
+                                        type="text"
+                                        value={simBetPort}
+                                        onChange={(e) => setSimBetPort(e.target.value)}
+                                        style={{
+                                            width: '100%', padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.06)',
+                                            border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff',
+                                            fontSize: '14px', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box'
+                                        }}
+                                    />
+                                )}
                             </div>
                             <div style={{ flex: 1 }}>
                                 <label style={{ display: 'block', fontSize: '11px', color: '#a0a0b0', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>Win Output Port</label>
-                                <input
-                                    type="text"
-                                    value={simWinPort}
-                                    onChange={(e) => setSimWinPort(e.target.value)}
-                                    style={{
-                                        width: '100%', padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.06)',
-                                        border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff',
-                                        fontSize: '14px', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box'
-                                    }}
-                                />
+                                {simAvailablePorts ? (
+                                    <select
+                                        value={simWinPort}
+                                        onChange={(e) => setSimWinPort(e.target.value)}
+                                        style={{
+                                            width: '100%', padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.06)',
+                                            border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff',
+                                            fontSize: '14px', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box'
+                                        }}
+                                    >
+                                        {simAvailablePorts.outputPorts.map(p => (
+                                            <option key={p.name} value={p.name} style={{ color: '#000' }}>{p.name} ({p.type})</option>
+                                        ))}
+                                    </select>
+                                ) : (
+                                    <input
+                                        type="text"
+                                        value={simWinPort}
+                                        onChange={(e) => setSimWinPort(e.target.value)}
+                                        style={{
+                                            width: '100%', padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.06)',
+                                            border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff',
+                                            fontSize: '14px', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box'
+                                        }}
+                                    />
+                                )}
                             </div>
                         </div>
 
