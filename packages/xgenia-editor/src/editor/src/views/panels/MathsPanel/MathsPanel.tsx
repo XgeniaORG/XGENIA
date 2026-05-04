@@ -170,7 +170,67 @@ const mathsPanelOptions = {
     componentTitle: 'Maths Components'
 };
 
+interface PortInfo { name: string; type: string }
+type InputMode = 'rng' | 'fixed' | 'trigger' | 'off'
+interface InputConfig { mode: InputMode; value: number; rngMin?: number; rngMax?: number }
 
+function extractPorts(config_data: any, script: string): { inputPorts: PortInfo[], outputPorts: PortInfo[] } {
+    const defaultInputs: PortInfo[] = [{ name: 'bet', type: 'number' }]
+    const defaultOutputs: PortInfo[] = [{ name: 'win', type: 'number' }]
+
+    // 1. Prefer explicit _portManifest from config_data
+    if (config_data?._portManifest) {
+        const manifest = config_data._portManifest
+        return {
+            inputPorts: manifest.inputs?.length > 0 ? manifest.inputs : defaultInputs,
+            outputPorts: manifest.outputs?.length > 0 ? manifest.outputs : defaultOutputs,
+        }
+    }
+
+    // 2. Fallback: parse the compiled script to extract ports
+    if (script) {
+        const extractedInputs: PortInfo[] = []
+        const extractedOutputs: PortInfo[] = []
+
+        // Extract inputs from config.<name> references in function input objects
+        const configRefRegex = /config\.(\w+)/g
+        const seenInputs = new Set<string>()
+        let m
+        while ((m = configRefRegex.exec(script)) !== null) {
+            const name = m[1]
+            if (['bet', 'balance', 'state', 'round', '_portManifest', '_var_'].some(skip => name.startsWith(skip))) continue
+            if (seenInputs.has(name)) continue
+            seenInputs.add(name)
+            const isSignal = /signal|do|trigger/i.test(name)
+            extractedInputs.push({ name, type: isSignal ? 'signal' : 'number' })
+        }
+
+        // Extract outputs from inner function return statements like `return { result: ... }`
+        const returnRegex = /return\s*\{([^}]+)\}/g
+        const seenOutputs = new Set<string>()
+        while ((m = returnRegex.exec(script)) !== null) {
+            const body = m[1]
+            const keyRegex = /(\w+)\s*:/g
+            let km
+            while ((km = keyRegex.exec(body)) !== null) {
+                const name = km[1]
+                if (['win', 'data', 'state', 'round', 'features'].includes(name)) continue
+                if (seenOutputs.has(name)) continue
+                seenOutputs.add(name)
+                extractedOutputs.push({ name, type: 'number' })
+            }
+        }
+
+        if (extractedInputs.length > 0 || extractedOutputs.length > 0) {
+            return {
+                inputPorts: extractedInputs.length > 0 ? extractedInputs : defaultInputs,
+                outputPorts: extractedOutputs.length > 0 ? extractedOutputs : defaultOutputs,
+            }
+        }
+    }
+
+    return { inputPorts: defaultInputs, outputPorts: defaultOutputs }
+}
 
 export function MathsPanel() {
     const [settings, setSettings] = useState(getRgsSettings());
@@ -189,10 +249,22 @@ export function MathsPanel() {
     const [versionCode, setVersionCode] = useState<Record<string, string>>({});
     const [actionStatus, setActionStatus] = useState<{ id: string; type: 'success' | 'error' | 'loading'; msg: string } | null>(null);
 
-    // Upload, Test & Deploy modal state
+    // Simulation config modal state
     const [showTestConfigModal, setShowTestConfigModal] = useState(false);
+    const [activeSimVersionId, setActiveSimVersionId] = useState<string | null>(null);
     const [simCount, setSimCount] = useState(10000);
+    const [simBetPort, setSimBetPort] = useState('bet');
+    const [simWinPort, setSimWinPort] = useState('win');
+    const [simAvailablePorts, setSimAvailablePorts] = useState<{ inputPorts: PortInfo[], outputPorts: PortInfo[] } | null>(null);
+    const [simInputConfig, setSimInputConfig] = useState<Record<string, InputConfig>>({});
     const [pipelineStep, setPipelineStep] = useState<string | null>(null);
+
+    const updateSimInputConfig = (portName: string, field: Partial<InputConfig>) => {
+        setSimInputConfig(prev => ({
+            ...prev,
+            [portName]: { ...(prev[portName] || { mode: 'rng', value: 0, rngMin: 1, rngMax: 100 }), ...field }
+        }));
+    };
 
     const connected = !!settings;
 
@@ -264,48 +336,10 @@ export function MathsPanel() {
         });
     }, [expandedVersion, versionCode, settings]);
 
-    // Quick actions on versions
-    const handleVersionAction = useCallback(async (configId: string, action: 'deploy' | 'activate') => {
-        if (!settings?.apiKey) return;
-        const labels = { deploy: 'Deploying...', activate: 'Activating...' };
-        setActionStatus({ id: configId, type: 'loading', msg: labels[action] });
-        try {
-            const body: Record<string, any> = action === 'deploy'
-                ? { action: 'deploy', maths_config_id: configId }
-                : { action: 'activate', maths_config_id: configId };
-            const res = await fetch(`${XRGS_URL}/maths-deployer`, {
-                method: 'POST',
-                headers: rgsHeaders(settings.apiKey),
-                body: JSON.stringify(body),
-            });
-            const data = await res.json();
-            if (data.error) {
-                setActionStatus({ id: configId, type: 'error', msg: data.error });
-            } else {
-                setActionStatus({ id: configId, type: 'success', msg: data.message || 'Done' });
-                fetchVersions();
-            }
-        } catch (e: any) {
-            setActionStatus({ id: configId, type: 'error', msg: e.message });
-        }
-    }, [settings, fetchVersions]);
-
     const handleImportFromRgs = useCallback(async (configId: string, version: number) => {
         if (!settings?.apiKey) return;
         setActionStatus({ id: configId, type: 'loading', msg: 'Importing remote component...' });
         try {
-            // Verify the evaluate endpoint works first
-            const testRes = await fetch(`${XRGS_URL}/maths-deployer`, {
-                method: 'POST',
-                headers: rgsHeaders(settings.apiKey),
-                body: JSON.stringify({ action: 'evaluate', maths_config_id: configId, ctx: { bet: 100, round: 1 } }),
-            });
-            const testData = await testRes.json();
-            if (testData.error) {
-                setActionStatus({ id: configId, type: 'error', msg: `RGS evaluate check failed: ${testData.error}` });
-                return;
-            }
-
             // Find the game name for the component label
             const game = games?.find((g: any) => g.id === selectedGame);
             const gameName = game?.name || 'RGS';
@@ -316,6 +350,36 @@ export function MathsPanel() {
                 setActionStatus({ id: configId, type: 'error', msg: `Component "${gameName} RGS v${version} (Remote)" already exists` });
                 return;
             }
+
+            // Fetch config data to extract ports and check validity
+            const configRes = await fetch(`${XRGS_URL}/maths-deployer`, {
+                method: 'POST',
+                headers: rgsHeaders(settings.apiKey),
+                body: JSON.stringify({ action: 'get-config', maths_config_id: configId }),
+            });
+            const configData = await configRes.json();
+            if (configData.error) {
+                setActionStatus({ id: configId, type: 'error', msg: `RGS fetch config failed: ${configData.error}` });
+                return;
+            }
+
+            const { inputPorts, outputPorts } = extractPorts(configData.config_data, configData.script);
+
+            // Create dynamicports array
+            const dynamicports = [
+                ...inputPorts.map(p => ({
+                    name: `in-${p.name}`,
+                    plug: 'input' as const,
+                    type: p.type === 'signal' ? 'signal' : 'number',
+                    displayName: p.name
+                })),
+                ...outputPorts.map(p => ({
+                    name: `out-${p.name}`,
+                    plug: 'output' as const,
+                    type: 'number',
+                    displayName: p.name
+                }))
+            ];
 
             // Build the proxy script that calls XRGS evaluate endpoint remotely
             const proxyScript = `// ☁ RGS Remote Maths Proxy — ${gameName} v${version}
@@ -333,13 +397,22 @@ const VERSION = ${version};
 var _roundState = {};
 var _roundCount = 0;
 
-async function evaluateRemote(bet) {
+async function evaluateRemote(collectedInputs) {
   var settings = null;
   try { settings = JSON.parse(localStorage.getItem('xgenia_rgs_settings') || '{}'); } catch(e) {}
   var apiKey = settings && settings.apiKey;
   if (!apiKey) throw new Error('Not connected to XRGS — open Maths RGS panel and connect first');
 
   _roundCount++;
+
+  var bet = collectedInputs.bet || 100;
+  var configOverrides = {};
+  for (var k in collectedInputs) {
+    if (k !== 'bet') {
+      configOverrides[k] = collectedInputs[k];
+    }
+  }
+
   var res = await fetch(XRGS_URL + '/maths-deployer', {
     method: 'POST',
     headers: {
@@ -352,7 +425,8 @@ async function evaluateRemote(bet) {
       action: 'evaluate',
       maths_config_id: MATHS_CONFIG_ID,
       ctx: {
-        bet: bet || 100,
+        bet: bet,
+        config: configOverrides,
         state: _roundState,
         round: _roundCount,
       }
@@ -365,12 +439,14 @@ async function evaluateRemote(bet) {
   // Persist state for next round (bonus continuations etc.)
   _roundState = (data.result && data.result.state) || {};
 
-  return data.result || data;
+  var resultData = data.result && data.result.data ? data.result.data : data.result;
+  return resultData || data;
 }
 
 // Entry point — called by the editor runtime
-var inputBet = Inputs.bet || 100;
-return evaluateRemote(inputBet);`;
+var collectedInputs = {};
+${inputPorts.map(p => `collectedInputs['${p.name}'] = typeof Inputs['${p.name}'] !== 'undefined' ? Inputs['${p.name}'] : Inputs['in-${p.name}'];`).join('\n')}
+return evaluateRemote(collectedInputs);`;
 
             // Create the proxy component with a JavaScriptFunction node
             const jsFnNodeId = guid();
@@ -391,12 +467,7 @@ return evaluateRemote(inputBet);`;
                             _rgsVersion: version,
                             _rgsGameName: gameName,
                         },
-                        dynamicports: [
-                            { name: 'in-bet', plug: 'input', type: 'number', displayName: 'bet' },
-                            { name: 'out-win', plug: 'output', type: 'number', displayName: 'win' },
-                            { name: 'out-data', plug: 'output', type: '*', displayName: 'data' },
-                            { name: 'out-state', plug: 'output', type: '*', displayName: 'state' },
-                        ],
+                        dynamicports: dynamicports,
                     },
                 ],
                 connections: [],
@@ -463,32 +534,30 @@ return evaluateRemote(inputBet);`;
         }));
     }, [selectedGame]);
 
-
-
-    // Upload, Test & Deploy — full pipeline handler
-    const handleUploadTestDeploy = useCallback(async () => {
-        if (!settings?.apiKey || !selectedGame) return;
+    const handleUploadMathsComponent = useCallback(async (comp: any) => {
+        if (!settings?.apiKey) {
+            setUploadStatus({ type: 'error', message: 'Not connected to XRGS.' });
+            return;
+        }
+        if (!selectedGame) {
+            setUploadStatus({ type: 'error', message: 'No game selected.' });
+            return;
+        }
 
         setUploading(true);
         setUploadStatus(null);
-        setShowTestConfigModal(false);
-
-        const game = games?.find((g: any) => g.id === selectedGame);
-
+        setPipelineStep('Exporting component...');
         try {
-            // 1. Extract & sanitize the maths script
-            setPipelineStep('Extracting maths script...');
+            const game = games?.find((g: any) => g.id === selectedGame);
             const xrgs = (window as any).__xrgs;
             if (!xrgs?.generateRgsScript) {
-                setUploadStatus({ type: 'error', message: 'Maths bridge not ready. Open a maths component first.' });
+                setUploadStatus({ type: 'error', message: 'Maths bridge not ready.' });
                 setUploading(false);
                 setPipelineStep(null);
                 return;
             }
 
-            const result = xrgs.generateRgsScript();
-            (window as any).__xrgsLastScript = result.script;
-            console.log('[__xrgs] Script saved to window.__xrgsLastScript, length:', result.script?.length);
+            const result = xrgs.generateRgsScript(comp.name);
             if (result.error) {
                 setUploadStatus({ type: 'error', message: result.error });
                 setUploading(false);
@@ -497,109 +566,125 @@ return evaluateRemote(inputBet);`;
             }
 
             if (!result.script || result.script.length < 50) {
-                setUploadStatus({ type: 'error', message: 'Generated script is too short. Check your maths component.' });
-                setUploading(false);
-                setPipelineStep(null);
-                return;
+                setUploadStatus({ type: 'error', message: 'Generated script is too short.' });
+                setUploading(false); setPipelineStep(null); return;
             }
 
-            // Client-side compilation check
             try {
                 new Function('ctx', result.script);
-                console.log('[__xrgs] ✅ Client-side compilation check passed');
             } catch (compileErr: any) {
-                console.error('[__xrgs] ❌ Client-side compilation FAILED:', compileErr.message);
                 setUploadStatus({ type: 'error', message: `Client-side compilation failed: ${compileErr.message}` });
-                setUploading(false);
-                setPipelineStep(null);
-                return;
+                setUploading(false); setPipelineStep(null); return;
             }
 
-            // 2. Sequential pipeline: upload → activate → stress-test → approve → deploy
-            const callAction = async (payload: any) => {
-                const r = await fetch(`${XRGS_URL}/maths-deployer`, {
-                    method: 'POST',
-                    headers: rgsHeaders(settings.apiKey),
-                    body: JSON.stringify(payload),
-                });
-                return r.json();
-            };
-
-            // Step 1: Upload
             setPipelineStep('Uploading maths...');
-            const uploadData = await callAction({
-                action: 'upload',
-                game_id: selectedGame,
-                maths_mode: 'script',
-                script: result.script,
-                config_data: result.configData,
-                declared_rtp: game?.default_rtp || '96.00',
+            const r = await fetch(`${XRGS_URL}/maths-deployer`, {
+                method: 'POST',
+                headers: rgsHeaders(settings.apiKey),
+                body: JSON.stringify({
+                    action: 'upload',
+                    game_id: selectedGame,
+                    maths_mode: 'script',
+                    script: result.script,
+                    config_data: result.configData,
+                    declared_rtp: game?.default_rtp || '96.00',
+                }),
             });
+            const uploadData = await r.json();
             if (uploadData.error) {
                 setUploadStatus({ type: 'error', message: `Upload failed: ${uploadData.error}` });
-                setUploading(false);
-                setPipelineStep(null);
-                return;
+            } else {
+                setUploadStatus({ type: 'success', message: `v${uploadData.version} uploaded as draft!` });
+                fetchVersions();
             }
-            const mathsConfigId = uploadData.maths_config_id;
-            const version = uploadData.version;
-
-            // Step 2: Activate (draft → testing)
-            setPipelineStep('Activating for testing...');
-            const activateData = await callAction({ action: 'activate', maths_config_id: mathsConfigId });
-            if (activateData.error) {
-                setUploadStatus({ type: 'error', message: `Activate failed: ${activateData.error}` });
-                setUploading(false);
-                setPipelineStep(null);
-                return;
-            }
-
-            // Step 3: Stress Test
-            setPipelineStep(`Running stress test (${(simCount / 1000).toFixed(0)}k spins)...`);
-            const stressData = await callAction({ action: 'stress-test', maths_config_id: mathsConfigId, num_spins: simCount });
-            if (stressData.error) {
-                setUploadStatus({ type: 'error', message: `Stress test failed: ${stressData.error}` });
-                setUploading(false);
-                setPipelineStep(null);
-                return;
-            }
-
-            // Step 4: Approve (testing → approved)
-            setPipelineStep('Approving...');
-            const approveData = await callAction({ action: 'approve', maths_config_id: mathsConfigId });
-            if (approveData.error) {
-                setUploadStatus({ type: 'error', message: `Approve failed: ${approveData.error}` });
-                setUploading(false);
-                setPipelineStep(null);
-                return;
-            }
-
-            // Step 5: Deploy (approved → live)
-            setPipelineStep('Deploying to live...');
-            const deployData = await callAction({ action: 'deploy', maths_config_id: mathsConfigId });
-            if (deployData.error) {
-                setUploadStatus({ type: 'error', message: `Deploy failed: ${deployData.error}` });
-                setUploading(false);
-                setPipelineStep(null);
-                return;
-            }
-
-            // Success — extract simulation metrics
-            const rtpComp = stressData.tests?.rtp_compliance || {};
-            const rtpStr = rtpComp.measured_rtp ? `${rtpComp.measured_rtp.toFixed(2)}%` : '';
-            const hitStr = rtpComp.hit_rate != null ? `${(rtpComp.hit_rate * 100).toFixed(1)}%` : '';
-            const maxStr = (rtpComp.max_win || rtpComp.max_multiplier) != null ? `${rtpComp.max_win || rtpComp.max_multiplier}×` : '';
-            setUploadStatus({
-                type: 'success',
-                message: `v${version} deployed live! RTP ${rtpStr} · Hit ${hitStr} · Max ${maxStr}`,
-            });
         } catch (e: any) {
-            setUploadStatus({ type: 'error', message: e.message || 'Pipeline failed' });
+            setUploadStatus({ type: 'error', message: e.message || 'Upload failed' });
         }
-
         setUploading(false);
         setPipelineStep(null);
-    }, [settings, selectedGame, games, simCount]);
+    }, [settings, selectedGame, games, fetchVersions]);
+
+    useEffect(() => {
+        const handler = (e: any) => handleUploadMathsComponent(e.detail.component);
+        document.addEventListener('upload-maths-component', handler);
+        return () => document.removeEventListener('upload-maths-component', handler);
+    }, [handleUploadMathsComponent]);
+
+    const handleSimulationRun = async () => {
+        if (!settings?.apiKey || !activeSimVersionId) return;
+        setActionStatus({ id: activeSimVersionId, type: 'loading', msg: `Running simulation (${simCount} spins)...` });
+        setShowTestConfigModal(false);
+
+        try {
+            // Build input_overrides from per-port config
+            const inputOverrides: Record<string, any> = {};
+            if (simAvailablePorts) {
+                for (const port of simAvailablePorts.inputPorts) {
+                    const isSignal = port.type === 'signal' || port.type === 'boolean';
+                    const cfg = simInputConfig[port.name] || { mode: isSignal ? 'trigger' : 'rng', value: 0, rngMin: 1, rngMax: 100 };
+                    if (cfg.mode === 'trigger') inputOverrides[port.name] = true;
+                    else if (cfg.mode === 'off') inputOverrides[port.name] = false;
+                    else if (cfg.mode === 'fixed') inputOverrides[port.name] = cfg.value;
+                    // 'rng' mode: no override — server uses its own RNG
+                }
+            }
+
+            const res = await fetch(`${XRGS_URL}/batch-spin`, {
+                method: 'POST',
+                headers: rgsHeaders(settings.apiKey),
+                body: JSON.stringify({
+                    maths_config_id: activeSimVersionId,
+                    spins: simCount,
+                    bet_input_port: simBetPort,
+                    win_output_port: simWinPort,
+                    input_overrides: inputOverrides,
+                    source: 'xgenia',
+                }),
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+
+            const rtpStr = data.rtp ? `${(data.rtp * 100).toFixed(2)}%` : '';
+            const hitStr = data.hit_rate != null ? `${(data.hit_rate * 100).toFixed(1)}%` : '';
+            setActionStatus({ id: activeSimVersionId, type: 'success', msg: `Simulated: RTP ${rtpStr} · Hit ${hitStr}` });
+        } catch (e: any) {
+            setActionStatus({ id: activeSimVersionId, type: 'error', msg: `Simulation failed: ${e.message}` });
+        }
+    };
+
+    const handleVersionAction = async (id: string, action: string) => {
+        if (!settings?.apiKey) return;
+        setActionStatus({ id, type: 'loading', msg: `${action}ing...` });
+
+        try {
+            // For approve, we must silently run the stress-test Gauntlet first to compile the bundle
+            if (action === 'approve') {
+                setActionStatus({ id, type: 'loading', msg: 'Running compliance checks...' });
+                const stRes = await fetch(`${XRGS_URL}/maths-deployer`, {
+                    method: 'POST',
+                    headers: rgsHeaders(settings.apiKey),
+                    body: JSON.stringify({ action: 'stress-test', maths_config_id: id }),
+                });
+                const stData = await stRes.json();
+                if (stData.error) throw new Error(stData.error);
+                setActionStatus({ id, type: 'loading', msg: 'Approving...' });
+            }
+
+            const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+                method: 'POST',
+                headers: rgsHeaders(settings.apiKey),
+                body: JSON.stringify({ action, maths_config_id: id }),
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+
+            setActionStatus({ id, type: 'success', msg: data.message || `Action ${action} complete` });
+            fetchVersions();
+        } catch (e: any) {
+            setActionStatus({ id, type: 'error', msg: e.message || 'Action failed' });
+        }
+    };
+
 
     return (
         <BasePanel title="Maths RGS" isFill>
@@ -848,20 +933,13 @@ return evaluateRemote(inputBet);`;
                             </>
                         )}
 
-                        <Tooltip content="Upload, test, approve, and deploy maths to RGS in one click">
+                        {uploading && (
                             <Box hasBottomSpacing>
-                                <PrimaryButton
-                                    icon={IconName.CloudUpload}
-                                    label={uploading ? (pipelineStep || 'Processing...') : 'Upload, Test & Deploy'}
-                                    size={PrimaryButtonSize.Small}
-                                    variant={PrimaryButtonVariant.MutedOnLowBg}
-                                    onClick={() => setShowTestConfigModal(true)}
-                                    isGrowing
-                                    isDisabled={!connected || !selectedGame || uploading}
-                                />
+                                <div style={{ fontSize: '11px', color: '#67DE92', padding: '8px 12px', backgroundColor: 'rgba(103, 222, 146, 0.1)', borderRadius: '6px' }}>
+                                    {pipelineStep || 'Processing...'}
+                                </div>
                             </Box>
-                        </Tooltip>
-
+                        )}
                         {/* Upload status feedback */}
                         {uploadStatus && (
                             <Box hasBottomSpacing>
@@ -986,8 +1064,8 @@ return evaluateRemote(inputBet);`;
                                                         padding: '8px', marginLeft: '4px',
                                                         borderLeft: `2px solid ${statusColor}30`,
                                                     }}>
-                                                        <div style={{ display: 'flex', gap: '4px', marginBottom: '8px' }}>
-                                                            {v.status === 'failed' && (
+                                                        <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                                                            {(v.status === 'draft' || v.status === 'failed') && (
                                                                 <button
                                                                     onClick={(e) => { e.stopPropagation(); handleVersionAction(v.id, 'activate'); }}
                                                                     disabled={actionStatus?.id === v.id && actionStatus.type === 'loading'}
@@ -997,21 +1075,56 @@ return evaluateRemote(inputBet);`;
                                                                         color: '#e0e0e0', cursor: 'pointer',
                                                                     }}
                                                                 >
-                                                                    Re-activate
+                                                                    {v.status === 'failed' ? 'Re-activate' : 'Activate for Testing'}
                                                                 </button>
                                                             )}
-                                                            {v.status === 'live' && (
-                                                                <button
-                                                                    onClick={(e) => { e.stopPropagation(); handleImportFromRgs(v.id, v.version); }}
-                                                                    disabled={actionStatus?.id === v.id && actionStatus.type === 'loading'}
-                                                                    style={{
-                                                                        fontSize: '10px', padding: '3px 8px', borderRadius: '3px',
-                                                                        border: '1px solid rgba(96,165,250,0.3)', backgroundColor: 'rgba(96,165,250,0.1)',
-                                                                        color: '#60A5FA', cursor: 'pointer',
-                                                                    }}
-                                                                >
-                                                                    ☁ Import Remote
-                                                                </button>
+                                                            {v.status === 'testing' && (
+                                                                <>
+                                                                    <button
+                                                                        onClick={async (e) => { 
+                                                                            e.stopPropagation(); 
+                                                                            if (!settings?.apiKey) return;
+                                                                            setActionStatus({ id: v.id, type: 'loading', msg: 'Fetching configuration...' });
+                                                                            try {
+                                                                                const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+                                                                                    method: 'POST',
+                                                                                    headers: rgsHeaders(settings.apiKey),
+                                                                                    body: JSON.stringify({ action: 'get-config', maths_config_id: v.id }),
+                                                                                });
+                                                                                const configData = await res.json();
+                                                                                if (configData.error) throw new Error(configData.error);
+                                                                                const { inputPorts, outputPorts } = extractPorts(configData.config_data, configData.script);
+                                                                                setSimAvailablePorts({ inputPorts, outputPorts });
+                                                                                if (inputPorts.length > 0) setSimBetPort(inputPorts[0].name);
+                                                                                if (outputPorts.length > 0) setSimWinPort(outputPorts[0].name);
+                                                                                setActiveSimVersionId(v.id);
+                                                                                setShowTestConfigModal(true);
+                                                                                setActionStatus(null);
+                                                                            } catch (err: any) {
+                                                                                setActionStatus({ id: v.id, type: 'error', msg: `Failed to load config: ${err.message}` });
+                                                                            }
+                                                                        }}
+                                                                        disabled={actionStatus?.id === v.id && actionStatus.type === 'loading'}
+                                                                        style={{
+                                                                            fontSize: '10px', padding: '3px 8px', borderRadius: '3px',
+                                                                            border: '1px solid rgba(96,165,250,0.3)', backgroundColor: 'rgba(96,165,250,0.1)',
+                                                                            color: '#60A5FA', cursor: 'pointer',
+                                                                        }}
+                                                                    >
+                                                                        Simulation Test
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={(e) => { e.stopPropagation(); handleVersionAction(v.id, 'approve'); }}
+                                                                        disabled={actionStatus?.id === v.id && actionStatus.type === 'loading'}
+                                                                        style={{
+                                                                            fontSize: '10px', padding: '3px 8px', borderRadius: '3px',
+                                                                            border: '1px solid rgba(255,193,7,0.3)', backgroundColor: 'rgba(255,193,7,0.1)',
+                                                                            color: '#FFC107', cursor: 'pointer',
+                                                                        }}
+                                                                    >
+                                                                        Approve for Production
+                                                                    </button>
+                                                                </>
                                                             )}
                                                             {v.status === 'approved' && (
                                                                 <button
@@ -1023,7 +1136,20 @@ return evaluateRemote(inputBet);`;
                                                                         color: '#67DE92', cursor: 'pointer',
                                                                     }}
                                                                 >
-                                                                    Deploy Live
+                                                                    Launch Live
+                                                                </button>
+                                                            )}
+                                                            {v.status === 'live' && (
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); handleImportFromRgs(v.id, v.version); }}
+                                                                    disabled={actionStatus?.id === v.id && actionStatus.type === 'loading'}
+                                                                    style={{
+                                                                        fontSize: '10px', padding: '3px 8px', borderRadius: '3px',
+                                                                        border: '1px solid rgba(160,160,176,0.3)', backgroundColor: 'rgba(160,160,176,0.1)',
+                                                                        color: '#a0a0b0', cursor: 'pointer',
+                                                                    }}
+                                                                >
+                                                                    ☁ Import Remote
                                                                 </button>
                                                             )}
                                                         </div>
@@ -1081,7 +1207,7 @@ return evaluateRemote(inputBet);`;
                     <div
                         onClick={(e) => e.stopPropagation()}
                         style={{
-                            width: '420px',
+                            width: '520px', maxHeight: '85vh', overflowY: 'auto',
                             backgroundColor: '#1e1e2e',
                             border: '1px solid rgba(255,255,255,0.12)',
                             borderRadius: '12px',
@@ -1090,17 +1216,168 @@ return evaluateRemote(inputBet);`;
                         }}
                     >
                         <div style={{ marginBottom: '20px' }}>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>Test Configuration</div>
+                            <div style={{ fontSize: '12px', color: '#888' }}>Configure the simulation parameters for batch-spin execution.</div>
+                        </div>
+
+                        {/* ── Define Inputs ── */}
+                        {simAvailablePorts && simAvailablePorts.inputPorts.length > 0 && (
                             <div style={{
-                                fontSize: '15px', fontWeight: 700, color: '#fff',
-                                marginBottom: '4px',
-                            }}>Test Configuration</div>
-                            <div style={{ fontSize: '12px', color: '#888' }}>
-                                Configure the simulation before uploading. The math will be automatically tested, approved, and deployed.
+                                marginBottom: '20px', padding: '16px',
+                                backgroundColor: 'rgba(255,255,255,0.03)',
+                                border: '1px solid rgba(255,255,255,0.08)',
+                                borderRadius: '8px',
+                            }}>
+                                <div style={{
+                                    fontSize: '11px', color: '#a0a0b0', textTransform: 'uppercase' as const,
+                                    letterSpacing: '0.5px', marginBottom: '12px', fontWeight: 600,
+                                }}>Input Port Configuration</div>
+                                {simAvailablePorts.inputPorts.map(port => {
+                                    const isSignal = port.type === 'signal' || port.type === 'boolean';
+                                    const cfg = simInputConfig[port.name] || {
+                                        mode: isSignal ? 'trigger' : 'rng',
+                                        value: 0, rngMin: 1, rngMax: 100,
+                                    };
+                                    return (
+                                        <div key={port.name} style={{
+                                            display: 'flex', alignItems: 'center', gap: '10px',
+                                            padding: '10px 0',
+                                            borderBottom: '1px solid rgba(255,255,255,0.05)',
+                                        }}>
+                                            {/* Port name & type */}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '120px' }}>
+                                                <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#60A5FA' }} />
+                                                <span style={{ fontSize: '13px', color: '#fff', fontWeight: 500 }}>{port.name}</span>
+                                                <span style={{
+                                                    fontSize: '10px', color: '#888', backgroundColor: 'rgba(255,255,255,0.08)',
+                                                    padding: '1px 6px', borderRadius: '3px',
+                                                }}>{port.type}</span>
+                                            </div>
+                                            {/* Mode + controls */}
+                                            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
+                                                <select
+                                                    value={cfg.mode}
+                                                    onChange={(e) => updateSimInputConfig(port.name, { mode: e.target.value as InputMode })}
+                                                    style={{
+                                                        padding: '5px 8px', backgroundColor: 'rgba(255,255,255,0.08)',
+                                                        border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px',
+                                                        color: '#fff', fontSize: '12px', outline: 'none',
+                                                    }}
+                                                >
+                                                    {!isSignal && <option value="rng" style={{ color: '#000' }}>RNG Value</option>}
+                                                    {!isSignal && <option value="fixed" style={{ color: '#000' }}>Fixed</option>}
+                                                    <option value="trigger" style={{ color: '#000' }}>Always trigger / true</option>
+                                                    <option value="off" style={{ color: '#000' }}>Off</option>
+                                                </select>
+                                                {cfg.mode === 'rng' && (
+                                                    <>
+                                                        <span style={{ fontSize: '10px', color: '#888' }}>Min</span>
+                                                        <input type="number" value={cfg.rngMin ?? 1}
+                                                            onChange={(e) => updateSimInputConfig(port.name, { rngMin: Number(e.target.value) || 0 })}
+                                                            style={{
+                                                                width: '60px', padding: '5px 6px', backgroundColor: 'rgba(255,255,255,0.08)',
+                                                                border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px',
+                                                                color: '#fff', fontSize: '12px', fontFamily: 'monospace', outline: 'none',
+                                                            }}
+                                                        />
+                                                        <span style={{ fontSize: '10px', color: '#888' }}>Max</span>
+                                                        <input type="number" value={cfg.rngMax ?? 100}
+                                                            onChange={(e) => updateSimInputConfig(port.name, { rngMax: Number(e.target.value) || 0 })}
+                                                            style={{
+                                                                width: '60px', padding: '5px 6px', backgroundColor: 'rgba(255,255,255,0.08)',
+                                                                border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px',
+                                                                color: '#fff', fontSize: '12px', fontFamily: 'monospace', outline: 'none',
+                                                            }}
+                                                        />
+                                                    </>
+                                                )}
+                                                {cfg.mode === 'fixed' && (
+                                                    <input type="number" value={cfg.value}
+                                                        onChange={(e) => updateSimInputConfig(port.name, { value: Number(e.target.value) || 0 })}
+                                                        style={{
+                                                            width: '80px', padding: '5px 6px', backgroundColor: 'rgba(255,255,255,0.08)',
+                                                            border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px',
+                                                            color: '#fff', fontSize: '12px', fontFamily: 'monospace', outline: 'none',
+                                                        }}
+                                                    />
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {/* ── RTP Port Mapping ── */}
+                        <div style={{
+                            marginBottom: '20px', padding: '16px',
+                            backgroundColor: 'rgba(255,255,255,0.03)',
+                            border: '1px solid rgba(255,255,255,0.08)',
+                            borderRadius: '8px',
+                        }}>
+                            <div style={{
+                                fontSize: '11px', color: '#a0a0b0', textTransform: 'uppercase' as const,
+                                letterSpacing: '0.5px', marginBottom: '4px', fontWeight: 600,
+                            }}>RTP</div>
+                            <div style={{ fontSize: '11px', color: '#666', marginBottom: '12px' }}>
+                                Map which port carries the bet amount and which carries the win amount for RTP calculation.
+                            </div>
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '4px' }}>Bet Input</label>
+                                    {simAvailablePorts ? (
+                                        <select value={simBetPort} onChange={(e) => setSimBetPort(e.target.value)}
+                                            style={{
+                                                width: '100%', padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.06)',
+                                                border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff',
+                                                fontSize: '13px', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box' as const,
+                                            }}
+                                        >
+                                            <option value="" style={{ color: '#000' }}>— Select input port —</option>
+                                            {simAvailablePorts.inputPorts.map(p => (
+                                                <option key={p.name} value={p.name} style={{ color: '#000' }}>{p.name} ({p.type})</option>
+                                            ))}
+                                        </select>
+                                    ) : (
+                                        <input type="text" value={simBetPort} onChange={(e) => setSimBetPort(e.target.value)}
+                                            style={{
+                                                width: '100%', padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.06)',
+                                                border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff',
+                                                fontSize: '13px', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box' as const,
+                                            }}
+                                        />
+                                    )}
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '4px' }}>Win Output</label>
+                                    {simAvailablePorts ? (
+                                        <select value={simWinPort} onChange={(e) => setSimWinPort(e.target.value)}
+                                            style={{
+                                                width: '100%', padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.06)',
+                                                border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff',
+                                                fontSize: '13px', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box' as const,
+                                            }}
+                                        >
+                                            <option value="" style={{ color: '#000' }}>— Select output port —</option>
+                                            {simAvailablePorts.outputPorts.map(p => (
+                                                <option key={p.name} value={p.name} style={{ color: '#000' }}>{p.name} ({p.type})</option>
+                                            ))}
+                                        </select>
+                                    ) : (
+                                        <input type="text" value={simWinPort} onChange={(e) => setSimWinPort(e.target.value)}
+                                            style={{
+                                                width: '100%', padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.06)',
+                                                border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff',
+                                                fontSize: '13px', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box' as const,
+                                            }}
+                                        />
+                                    )}
+                                </div>
                             </div>
                         </div>
 
                         {/* Simulation Count */}
-                        <div style={{ marginBottom: '16px' }}>
+                        <div style={{ marginBottom: '24px' }}>
                             <label style={{
                                 display: 'block', fontSize: '11px', color: '#a0a0b0',
                                 textTransform: 'uppercase' as const, letterSpacing: '0.5px',
@@ -1108,56 +1385,22 @@ return evaluateRemote(inputBet);`;
                             }}>Simulation Count</label>
                             <input
                                 type="number"
-                                min={1000}
+                                min={1}
                                 max={1000000}
                                 value={simCount}
-                                onChange={(e) => setSimCount(Math.max(1000, Math.min(1000000, Number(e.target.value) || 10000)))}
+                                onChange={(e) => setSimCount(Math.max(1, Math.min(1000000, Number(e.target.value) || 1)))}
                                 style={{
-                                    width: '100%',
-                                    padding: '10px 12px',
+                                    width: '100%', padding: '10px 12px',
                                     backgroundColor: 'rgba(255,255,255,0.06)',
                                     border: '1px solid rgba(255,255,255,0.12)',
-                                    borderRadius: '6px',
-                                    color: '#fff',
-                                    fontSize: '14px',
-                                    fontFamily: 'monospace',
-                                    outline: 'none',
-                                    boxSizing: 'border-box' as const,
+                                    borderRadius: '6px', color: '#fff',
+                                    fontSize: '14px', fontFamily: 'monospace',
+                                    outline: 'none', boxSizing: 'border-box' as const,
                                 }}
                             />
                             <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
-                                1,000 – 1,000,000 spins
+                                1 – 1,000,000 spins
                             </div>
-                        </div>
-
-                        {/* Pipeline steps preview */}
-                        <div style={{
-                            padding: '12px',
-                            backgroundColor: 'rgba(255,255,255,0.03)',
-                            borderRadius: '8px',
-                            border: '1px solid rgba(255,255,255,0.06)',
-                            marginBottom: '20px',
-                        }}>
-                            <div style={{ fontSize: '10px', color: '#888', textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '8px' }}>
-                                Pipeline Steps
-                            </div>
-                            {[
-                                { icon: '①', label: 'Upload to RGS', desc: 'Draft status' },
-                                { icon: '②', label: 'Run Simulation', desc: `${simCount.toLocaleString()} spins` },
-                                { icon: '③', label: 'Auto-Approve', desc: 'Bypass compliance' },
-                                { icon: '④', label: 'Deploy Live', desc: 'Exportable' },
-                            ].map((step, i) => (
-                                <div key={i} style={{
-                                    display: 'flex', alignItems: 'center', gap: '8px',
-                                    padding: '4px 0',
-                                    fontSize: '12px', color: '#c0c0c0',
-                                }}>
-                                    <span style={{ color: '#67DE92', fontWeight: 700 }}>{step.icon}</span>
-                                    <span>{step.label}</span>
-                                    <span style={{ flex: 1 }} />
-                                    <span style={{ fontSize: '10px', color: '#666' }}>{step.desc}</span>
-                                </div>
-                            ))}
                         </div>
 
                         {/* Actions */}
@@ -1165,29 +1408,24 @@ return evaluateRemote(inputBet);`;
                             <button
                                 onClick={() => setShowTestConfigModal(false)}
                                 style={{
-                                    padding: '8px 16px',
-                                    borderRadius: '6px',
+                                    padding: '8px 16px', borderRadius: '6px',
                                     border: '1px solid rgba(255,255,255,0.12)',
-                                    backgroundColor: 'transparent',
-                                    color: '#a0a0b0',
-                                    fontSize: '13px',
-                                    cursor: 'pointer',
+                                    backgroundColor: 'transparent', color: '#a0a0b0',
+                                    fontSize: '13px', cursor: 'pointer',
                                 }}
                             >Cancel</button>
                             <button
-                                onClick={handleUploadTestDeploy}
-                                disabled={simCount < 1000}
+                                onClick={handleSimulationRun}
+                                disabled={simCount < 1}
                                 style={{
-                                    padding: '8px 20px',
-                                    borderRadius: '6px',
+                                    padding: '8px 20px', borderRadius: '6px',
                                     border: 'none',
-                                    backgroundColor: simCount >= 1000 ? '#67DE92' : '#444',
-                                    color: simCount >= 1000 ? '#1a1a2e' : '#888',
-                                    fontSize: '13px',
-                                    fontWeight: 700,
-                                    cursor: simCount >= 1000 ? 'pointer' : 'not-allowed',
+                                    backgroundColor: simCount >= 1 ? '#67DE92' : '#444',
+                                    color: simCount >= 1 ? '#1a1a2e' : '#888',
+                                    fontSize: '13px', fontWeight: 700,
+                                    cursor: simCount >= 1 ? 'pointer' : 'not-allowed',
                                 }}
-                            >Upload</button>
+                            >Run Simulation</button>
                         </div>
                     </div>
                 </div>
