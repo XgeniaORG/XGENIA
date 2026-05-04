@@ -9,26 +9,25 @@
  */
 
 // GPL model imports (this file intentionally lives in GPL code)
-import { ProjectModel } from '@xgenia-models/projectmodel';
-import ThumbnailCache from '@xgenia-utils/thumbnailcache';
-import { NodeLibrary } from '@xgenia-models/nodelibrary';
-import { UndoQueue, UndoActionGroup } from '@xgenia-models/undo-queue-model';
-import { SidebarModel } from '@xgenia-models/sidebar';
 import { ComponentModel } from '@xgenia-models/componentmodel';
 import { NodeGraphModel, NodeGraphNode } from '@xgenia-models/nodegraphmodel';
-import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
+import { NodeLibrary } from '@xgenia-models/nodelibrary';
+import { ProjectModel } from '@xgenia-models/projectmodel';
+import { SidebarModel } from '@xgenia-models/sidebar';
+import { UndoActionGroup, UndoQueue } from '@xgenia-models/undo-queue-model';
 import { guid } from '@xgenia-utils/utils';
-import {
-    getProjectBaseStyleUrl,
-    setProjectBaseStyle,
-    clearProjectBaseStyle,
-    getProjectGlobalStylePrompt,
-    setProjectGlobalStylePrompt,
-    getProjectPalettes,
-    addProjectPalette
-} from '../ProjectStylesPanel/ProjectStylesPanel';
-import { supabase } from '../../../supabaseInit';
 import { platform } from '@xgenia/platform';
+import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
+import { supabase } from '../../../supabaseInit';
+import {
+    addProjectPalette,
+    clearProjectBaseStyle,
+    getProjectBaseStyleUrl,
+    getProjectGlobalStylePrompt,
+    getProjectPalettes,
+    setProjectBaseStyle,
+    setProjectGlobalStylePrompt
+} from '../ProjectStylesPanel/ProjectStylesPanel';
 
 interface PluginCommand {
     id: string;
@@ -265,6 +264,23 @@ export class EditorBridge {
                     });
                 } else {
                     console.warn('[EditorBridge] No active component cached yet during initial state push');
+                }
+
+                // Check for a pending AI prompt from project creation (set by ProjectsView)
+                const pendingPrompt = (window as any).__xgenia_pendingAIPrompt;
+                if (pendingPrompt?.prompt) {
+                    console.log('[EditorBridge] Found pending AI prompt, will forward to ChatPanel');
+                    // Clear immediately to prevent re-delivery
+                    delete (window as any).__xgenia_pendingAIPrompt;
+                    // Delay slightly to let the plugin fully initialize its message handlers
+                    setTimeout(() => {
+                        this.pushEvent('initialPrompt', {
+                            prompt: pendingPrompt.prompt,
+                            images: pendingPrompt.images || [],
+                            selectedModel: pendingPrompt.selectedModel,
+                        });
+                        console.log('[EditorBridge] Pushed initialPrompt event to ChatPanel');
+                    }, 1000);
                 }
             }
         } catch (e: any) {
