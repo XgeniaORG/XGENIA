@@ -10,7 +10,8 @@
     ],
     "paths": {
       "@xgenia-ai/*": [
-        "../../private/xgenia-ai/src/*"
+        "../../private/xgenia-ai/src/*",
+        "./src/stubs/xgenia-ai/*"
       ],
       "@xgenia-core-ui/*": [
         "../xgenia-core-ui/src/*"
@@ -44,10 +45,6 @@
       ],
       "@xgenia-editor-views/*": [
         "./src/editor/src/views/*"
-      ],
-      "@xgenia-ai/*": [
-        "../../private/xgenia-ai/src/*",
-        "./src/stubs/xgenia-ai/*"
       ],
       "@xgenia/image-editor": [
         "../../private/xgenia-image-editor/src/index.ts"

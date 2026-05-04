@@ -405,10 +405,10 @@ export class EditorBridge {
         });
 
 
-        h('html.translate', ([html]: [string]) => {
+        h('html.translate', ([html, options]: [string, { omitRootWrapper?: boolean }?]) => {
             try {
                 const { translateHtmlToXgeniaXml } = require('../../EditorTopbar/html-translator');
-                return translateHtmlToXgeniaXml(html);
+                return translateHtmlToXgeniaXml(html, options);
             } catch (err: any) {
                 console.error('[EditorBridge] html.translate failed:', err.message);
                 throw err;

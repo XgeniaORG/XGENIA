@@ -169,12 +169,30 @@ export class ComponentModel extends Model {
     }
 
     // The port maps now contains all connections to and from the component ports
-    // Now go through all ports and derive a type
+    // Now go through all ports and derive a type.
+    // FIX (2026-05-01): Fall back to the declared port type on the Component
+    // Inputs/Outputs node when connection-derived type is missing or wildcard.
+    // Previously a signal-typed Component Output with a *-typed source port
+    // would expose as `*` on the parent instance, silently degrading
+    // signal-to-signal connections to data edges.
+    function _declaredType(p) {
+      const declared = p.ports[0] && p.ports[0].type;
+      if (!declared) return undefined;
+      const name = typeof declared === 'string' ? declared : declared.name;
+      // Reject malformed type names like '*"' that have crept in via
+      // unvalidated portType strings.
+      return typeof name === 'string' && /^[a-zA-Z_*][a-zA-Z0-9_]*$/.test(name) ? name : undefined;
+    }
     const ports = [];
     for (var i in inputsMap) {
       var p = inputsMap[i];
 
       var type = _deriveType(p);
+      const typeName = type && (typeof type === 'string' ? type : type.name);
+      if (type == undefined || typeName === '*') {
+        const declared = _declaredType(p);
+        if (declared && declared !== '*') type = declared;
+      }
       if (type == undefined) type = '*';
 
       ports.push({
@@ -191,6 +209,11 @@ export class ComponentModel extends Model {
       var p = outputsMap[i];
 
       var type = _deriveType(p);
+      const typeName = type && (typeof type === 'string' ? type : type.name);
+      if (type == undefined || typeName === '*') {
+        const declared = _declaredType(p);
+        if (declared && declared !== '*') type = declared;
+      }
       if (type == undefined) type = '*';
 
       ports.push({
