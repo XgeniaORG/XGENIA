@@ -421,10 +421,10 @@ export class EditorBridge {
         });
 
 
-        h('html.translate', ([html]: [string]) => {
+        h('html.translate', ([html, options]: [string, { omitRootWrapper?: boolean }?]) => {
             try {
                 const { translateHtmlToXgeniaXml } = require('../../EditorTopbar/html-translator');
-                return translateHtmlToXgeniaXml(html);
+                return translateHtmlToXgeniaXml(html, options);
             } catch (err: any) {
                 console.error('[EditorBridge] html.translate failed:', err.message);
                 throw err;
@@ -520,6 +520,38 @@ export class EditorBridge {
                                 try { node.addPort({ name: p.name, plug: p.plug, type: p.type }); } catch { /* some nodes reject duplicates silently */ }
                             }
                         }
+                    }
+
+                    // FIX (2026-05-04): Hydrate PARAMETER DEFAULTS from the type's inputs schema.
+                    // Without this, hand-built pixi.ReelColumn / pixi.ReelCell nodes come out missing
+                    // animation params (spinSpeed, stopStyle, motionBlur, cellWidth, etc) — the
+                    // defaults are declared on type.inputs[key].default but fromJSON doesn't apply
+                    // them. The reel only animates correctly when a PixiReelController with
+                    // autoLayout cascades these values, which the AI doesn't always set up.
+                    // Apply any default that the node doesn't already have a value for.
+                    try {
+                        const inputs = type?.inputs;
+                        if (inputs && typeof inputs === 'object') {
+                            for (const paramName of Object.keys(inputs)) {
+                                const def = inputs[paramName];
+                                if (!def || def.default === undefined) continue;
+                                // Only set when the node doesn't already carry a value for this param
+                                const existing = (node as any).parameters?.[paramName];
+                                if (existing !== undefined && existing !== null) continue;
+                                try {
+                                    if (typeof (node as any).setParameter === 'function') {
+                                        (node as any).setParameter(paramName, def.default);
+                                    } else if ((node as any).parameters) {
+                                        (node as any).parameters[paramName] = def.default;
+                                    }
+                                } catch (perParamErr) {
+                                    // Some setters validate input strictly — skip on rejection
+                                    console.debug(`[EditorBridge] Default for ${typeName}.${paramName} rejected:`, (perParamErr as any)?.message);
+                                }
+                            }
+                        }
+                    } catch (paramHydrateErr: any) {
+                        console.warn('[EditorBridge] Parameter default hydration failed (non-fatal):', paramHydrateErr?.message);
                     }
                 } catch (initErr: any) {
                     console.warn('[EditorBridge] Port hydration from type definition failed (non-fatal):', initErr?.message);
