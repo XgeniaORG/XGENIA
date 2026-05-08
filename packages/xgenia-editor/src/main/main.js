@@ -38,6 +38,7 @@ const StorageApi = require('./src/StorageApi');
 const { getOAuthServer } = require('./src/oauth-callback-server');
 
 const { handleProjectMerge } = require('./src/merge-driver');
+const promptHistoryManager = require('./src/PromptHistoryManager');
 
 //fixes problem with reloading the viewer when it's
 //running in a separate browser window (file:// cross origin warning)
@@ -580,6 +581,13 @@ function launchApp() {
       return { message: "Handler for 'read-tools-project' is a placeholder." };
     });
     console.log("[Main Process] IPC handler for 'read-tools-project' registered (placeholder).");
+
+    // Prompt History Handlers
+    ipcMain.handle('history:savePrompt', (event, data) => promptHistoryManager.savePrompt(data));
+    ipcMain.handle('history:getHistory', () => promptHistoryManager.getPromptHistory());
+    ipcMain.handle('history:clearHistory', () => promptHistoryManager.clearPromptHistory());
+    ipcMain.handle('history:deletePrompt', (event, id) => promptHistoryManager.deletePrompt(id));
+    console.log("[Main Process] IPC handlers for Prompt History registered.");
 
     function projectGetSettings(callback) {
       makeEditorAPIRequest('projectGetSettings', undefined, callback);

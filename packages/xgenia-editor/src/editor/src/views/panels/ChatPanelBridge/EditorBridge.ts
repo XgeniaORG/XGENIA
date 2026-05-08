@@ -57,6 +57,8 @@ export class EditorBridge {
         window.addEventListener('message', this.handleMessage.bind(this));
         // Listen for active component changes from the NodeGraphEditor
         this.listenForComponentChanges();
+        // Listen for settings changes (API keys) to push to plugins
+        this.listenForSettingChanges();
     }
 
     /** Listen for NodeGraphEditor active component changes via EventDispatcher */
@@ -86,6 +88,25 @@ export class EditorBridge {
             );
         } catch (e: any) {
             console.warn('[EditorBridge] Could not listen for component changes:', e);
+        }
+    }
+
+    /** Listen for settings changes and push to plugin iframes */
+    private listenForSettingChanges() {
+        try {
+            const { EditorSettings } = require('../../../utils/editorsettings');
+            if (EditorSettings?.instance?.on) {
+                EditorSettings.instance.on('updated', ({ key }: any) => {
+                    if (key === 'fal.apiKey' || key === 'gemini.apiKey') {
+                        const value = EditorSettings.instance.get(key);
+                        console.log(`[EditorBridge] Setting updated: ${key}, pushing to plugins`);
+
+                        this.pushEvent('settingChanged', { key, value });
+                    }
+                }, this);
+            }
+        } catch (e: any) {
+            console.warn('[EditorBridge] Could not listen for setting changes:', e);
         }
     }
 
