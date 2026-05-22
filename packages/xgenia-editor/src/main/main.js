@@ -47,8 +47,10 @@ app.commandLine.appendSwitch('disable-site-isolation-trials');
 app.commandLine.appendSwitch('disable-gpu-process-crash-limit');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
-app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder');
-app.commandLine.appendSwitch('disable-features', 'VizDisplayCompositor');
+// NOTE: VaapiVideoDecoder removed — Linux-only, no effect on macOS
+// NOTE: VizDisplayCompositor disable removed — it is the ONLY rendering
+//       pipeline in Chromium 128+ (Electron 31.x). Disabling it caused
+//       multicolored static/noise artifacts across the entire app.
 // Preserve symlinks to avoid realpathSync "no access" errors on Windows
 // when resolving npm workspace symlinks/junctions in node_modules
 app.commandLine.appendSwitch('--preserve-symlinks');
