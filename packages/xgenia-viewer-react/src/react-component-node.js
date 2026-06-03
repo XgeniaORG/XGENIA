@@ -570,13 +570,21 @@ function createNodeFromReactComponent(def) {
         const styles = css.split(';').map(trim).filter((s) => s.length);
         style = {};
         for (const s of styles) {
-          const parts = s.split(':').map(trim);
+          // Split on the FIRST colon only. A naive s.split(':') breaks any
+          // declaration whose VALUE contains a colon — most importantly
+          // `background-image: url(https://...)`, `background: url(data:...)`,
+          // and gradient/transition values with embedded URLs — which used to
+          // be rejected as a "Syntax error", and (because one bad declaration
+          // aborts the whole block below) silently dropped ALL styles on the
+          // element. Splitting on the first colon preserves the value verbatim.
+          const colonIdx = s.indexOf(':');
+          const parts = colonIdx === -1 ? [s] : [trim(s.slice(0, colonIdx)), trim(s.slice(colonIdx + 1))];
           if (s.indexOf('\n') !== -1) errorMessage += 'Missing semicolon: ' + s.split('\n')[0];
-          else if (parts.length !== 2) errorMessage += 'Syntax error: ' + s;
+          else if (parts.length !== 2 || !parts[0] || !parts[1]) errorMessage += 'Syntax error: ' + s;
           else {
             const nameParts = parts[0].split('-');
             for (let i = 1; i < nameParts.length; i++) {
-              nameParts[i] = nameParts[i][0].toUpperCase() + nameParts[i].substring(1);
+              if (nameParts[i]) nameParts[i] = nameParts[i][0].toUpperCase() + nameParts[i].substring(1);
             }
             style[nameParts.join('')] = parts[1];
           }

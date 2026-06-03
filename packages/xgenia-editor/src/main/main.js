@@ -56,6 +56,9 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('--preserve-symlinks');
 app.commandLine.appendSwitch('--preserve-symlinks-main');
 
+// Enable Remote Debugging Protocol (CDP) for Playwright/MCP external agents
+app.commandLine.appendSwitch('remote-debugging-port', '9223');
+
 var args = process.argv || [];
 
 function launchApp() {
