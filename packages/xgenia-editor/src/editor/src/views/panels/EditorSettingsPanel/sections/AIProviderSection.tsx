@@ -1,8 +1,7 @@
 /**
  * AIProviderSection.tsx
  * 
- * Multi-provider AI configuration section
- * Supports OpenRouter and Custom endpoints with provider switching
+ * AI configuration section — OpenRouter only.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -80,8 +79,7 @@ const getVerifyButtonProps = (status: VerificationStatus) => {
 export function AIProviderSection() {
   const [selectedProvider, setSelectedProvider] = useState<AIProviderType>('openrouter');
   const [verificationStatuses, setVerificationStatuses] = useState<Record<AIProviderType, VerificationStatus>>({
-    openrouter: 'none',
-    custom: 'none'
+    openrouter: 'none'
   });
 
   // Load settings on mount and migrate legacy settings
@@ -95,8 +93,7 @@ export function AIProviderSection() {
     // Set initial verification statuses based on stored verification flags
     const settings = AIProviderSettingsManager.getSettings();
     const newStatuses: Record<AIProviderType, VerificationStatus> = {
-      openrouter: settings.providers.openrouter.verified ? 'success' : 'none',
-      custom: settings.providers.custom.verified ? 'success' : 'none'
+      openrouter: settings.providers.openrouter.verified ? 'success' : 'none'
     };
     setVerificationStatuses(newStatuses);
   }, []);
@@ -153,7 +150,7 @@ export function AIProviderSection() {
       <Box hasXSpacing hasBottomSpacing>
         <VStack hasSpacing={5}>
           <Text>
-            Configure your AI provider for chat and code generation features. Choose between OpenRouter or custom endpoints.
+            Configure OpenRouter for chat and code generation features.
           </Text>
 
           {/* Provider Selection */}
@@ -164,9 +161,7 @@ export function AIProviderSection() {
               value={selectedProvider}
               onChange={handleProviderChange}
             >
-              {/* Claude option removed */}
               <option value="openrouter">OpenRouter (Multiple Models)</option>
-              <option value="custom">Custom Endpoint</option>
             </select>
           </div>
 
@@ -178,16 +173,6 @@ export function AIProviderSection() {
               verificationStatus={verificationStatuses.openrouter}
               onVerify={() => verifyProvider('openrouter')}
               onVerificationChange={(status) => updateVerificationStatus('openrouter', status)}
-              onOpenDocs={handleOpenDocs}
-            />
-          )}
-
-          {/* Custom Provider Settings */}
-          {selectedProvider === 'custom' && (
-            <CustomProviderSettings
-              verificationStatus={verificationStatuses.custom}
-              onVerify={() => verifyProvider('custom')}
-              onVerificationChange={(status) => updateVerificationStatus('custom', status)}
               onOpenDocs={handleOpenDocs}
             />
           )}
@@ -301,121 +286,3 @@ function OpenRouterProviderSettings({ verificationStatus, onVerify, onVerificati
     </VStack>
   );
 }
-
-function CustomProviderSettings({ verificationStatus, onVerify, onVerificationChange, onOpenDocs }: ProviderSettingsProps) {
-  const [baseUrl, setBaseUrl] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('');
-  const [toolFormat, setToolFormat] = useState<'openai' | 'anthropic'>('openai');
-
-  useEffect(() => {
-    const settings = AIProviderSettingsManager.getProviderSettings('custom');
-    setBaseUrl(settings.baseUrl);
-    setApiKey(settings.apiKey || '');
-    setModel(settings.model || '');
-    setToolFormat(settings.toolFormat);
-  }, []);
-
-  const handleBaseUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newUrl = e.target.value;
-    setBaseUrl(newUrl);
-    onVerificationChange('none');
-    AIProviderSettingsManager.updateProviderSettings('custom', { baseUrl: newUrl });
-  };
-
-  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newKey = e.target.value;
-    setApiKey(newKey);
-    onVerificationChange('none');
-    AIProviderSettingsManager.updateProviderSettings('custom', { apiKey: newKey });
-  };
-
-  const handleModelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newModel = e.target.value;
-    setModel(newModel);
-    AIProviderSettingsManager.updateProviderSettings('custom', { model: newModel });
-  };
-
-  const handleToolFormatChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newFormat = e.target.value as 'openai' | 'anthropic';
-    setToolFormat(newFormat);
-    AIProviderSettingsManager.updateProviderSettings('custom', { toolFormat: newFormat });
-  };
-
-  const verifyProps = getVerifyButtonProps(verificationStatus);
-
-  return (
-    <VStack hasSpacing={3}>
-      <div>
-        <label style={labelStyle}>API Base URL</label>
-        <HStack hasSpacing={2}>
-          <input
-            type="text"
-            style={inputStyle}
-            value={baseUrl}
-            onChange={handleBaseUrlChange}
-            placeholder="https://your-api-endpoint.com/v1"
-          />
-          <PrimaryButton
-            {...verifyProps}
-            size={PrimaryButtonSize.Small}
-            onClick={onVerify}
-            isDisabled={verificationStatus === 'verifying' || !baseUrl || verifyProps.disabled}
-          />
-        </HStack>
-      </div>
-
-      <div>
-        <label style={labelStyle}>API Key (Optional)</label>
-        <input
-          type="password"
-          style={inputStyle}
-          value={apiKey}
-          onChange={handleApiKeyChange}
-          placeholder="Enter API key if required"
-        />
-      </div>
-
-      <div>
-        <label style={labelStyle}>Model Name</label>
-        <input
-          type="text"
-          style={inputStyle}
-          value={model}
-          onChange={handleModelChange}
-          placeholder="gpt-4, claude-3, etc."
-        />
-      </div>
-
-      <div>
-        <label style={labelStyle}>Tool Format</label>
-        <select style={selectStyle} value={toolFormat} onChange={handleToolFormatChange}>
-          <option value="openai">OpenAI Format (Most common)</option>
-          <option value="anthropic">Anthropic Format</option>
-        </select>
-      </div>
-
-      <div>
-        <label style={labelStyle}>
-          Custom Headers (JSON)
-          <Text style={{ fontSize: '11px', color: '#777', marginTop: '2px' }}>
-            Optional headers for authentication or routing
-          </Text>
-        </label>
-        <textarea
-          style={textareaStyle}
-          placeholder='{"Authorization": "Bearer token", "X-Custom": "value"}'
-          defaultValue={JSON.stringify(AIProviderSettingsManager.getProviderSettings('custom').customHeaders || {}, null, 2)}
-          onChange={(e) => {
-            try {
-              const headers = JSON.parse(e.target.value || '{}');
-              AIProviderSettingsManager.updateProviderSettings('custom', { customHeaders: headers });
-            } catch (error: any) {
-              console.warn('Invalid JSON in custom headers:', error);
-            }
-          }}
-        />
-      </div>
-    </VStack>
-  );
-} 
