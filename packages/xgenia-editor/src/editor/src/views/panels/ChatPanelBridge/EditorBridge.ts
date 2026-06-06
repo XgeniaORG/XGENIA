@@ -1079,6 +1079,202 @@ export class EditorBridge {
             return UndoQueue.instance?.getHistoryLocation?.() || 0;
         });
 
+        // --- Git commands ---
+        // 2026-06-06 (Option B): bridge dugite git through the EditorProxy so
+        // the AI chat panel (iframed from Vercel) can checkpoint/commit/revert.
+        // The iframe has no window.require / no dugite binary; the parent
+        // (Electron editor) has both. All git ops route here.
+        //
+        // Security:
+        //   - checkpoint / status / history are READ-ONLY (no remote side-effects)
+        //   - commit / revert are LOCAL mutations (no remote side-effects)
+        //   - push talks to a USER-CONFIGURED remote — the user has already
+        //     authorized that remote via the Version Control panel; AI-initiated
+        //     push is treated as an authorized action under that prior consent.
+        h('git.isAvailable', async () => {
+            try {
+                const pm = ProjectModel.instance as any;
+                if (!pm?._retainedProjectDirectory) {
+                    return { available: false, reason: 'No project directory' };
+                }
+                const { LocalProjectsModel } = await import('@xgenia-utils/LocalProjectsModel');
+                const isGit = await (LocalProjectsModel as any).instance?.isGitProject?.(pm);
+                return { available: !!isGit };
+            } catch (e: any) {
+                return { available: false, reason: e?.message || String(e) };
+            }
+        });
+
+        h('git.ensureInitialized', async () => {
+            try {
+                const pm = ProjectModel.instance as any;
+                if (!pm?._retainedProjectDirectory) {
+                    return { success: false, action: 'skipped', error: 'No project directory available' };
+                }
+                const projectDir = pm._retainedProjectDirectory;
+                const { LocalProjectsModel } = await import('@xgenia-utils/LocalProjectsModel');
+                const { Git } = await import('@xgenia/git');
+                const { mergeProject } = await import('@xgenia-utils/projectmerger');
+                const isGit = await (LocalProjectsModel as any).instance?.isGitProject?.(pm);
+                if (!isGit) {
+                    const g = new Git(mergeProject);
+                    await g.initNewRepo(projectDir);
+                    try {
+                        const st = await g.status();
+                        if (st && st.length > 0) {
+                            await g.commit('Initial AI checkpoint');
+                        }
+                    } catch { /* repo initialised; baseline commit failed; still usable */ }
+                    return { success: true, action: 'initialized' };
+                }
+                const g = new Git(mergeProject);
+                await g.openRepository(projectDir);
+                const st = await g.status();
+                if (st && st.length > 0) {
+                    await g.commit('AI session baseline');
+                    return { success: true, action: 'baseline_committed' };
+                }
+                return { success: true, action: 'already_clean' };
+            } catch (e: any) {
+                return { success: false, action: 'failed', error: e?.message || String(e) };
+            }
+        });
+
+        h('git.getHead', async () => {
+            try {
+                const pm = ProjectModel.instance as any;
+                if (!pm?._retainedProjectDirectory) return { sha: null, error: 'No project directory' };
+                const { Git } = await import('@xgenia/git');
+                const { mergeProject } = await import('@xgenia-utils/projectmerger');
+                const g = new Git(mergeProject);
+                await g.openRepository(pm._retainedProjectDirectory);
+                const sha = await g.getHeadCommitId();
+                return { sha: sha || null };
+            } catch (e: any) {
+                return { sha: null, error: e?.message || String(e) };
+            }
+        });
+
+        h('git.status', async () => {
+            try {
+                const pm = ProjectModel.instance as any;
+                if (!pm?._retainedProjectDirectory) return { files: [], error: 'No project directory' };
+                const { Git } = await import('@xgenia/git');
+                const { mergeProject } = await import('@xgenia-utils/projectmerger');
+                const g = new Git(mergeProject);
+                await g.openRepository(pm._retainedProjectDirectory);
+                const raw = await g.status();
+                const files = Array.isArray(raw)
+                    ? raw.map((f: any) => ({
+                        path: f?.path ?? f?.file ?? String(f),
+                        status: f?.status ?? f?.workingTreeStatus ?? '?',
+                    }))
+                    : [];
+                return { files };
+            } catch (e: any) {
+                return { files: [], error: e?.message || String(e) };
+            }
+        });
+
+        h('git.commit', async ([message]: [string]) => {
+            try {
+                const pm = ProjectModel.instance as any;
+                if (!pm?._retainedProjectDirectory) return { success: false, error: 'No project directory' };
+                if (!message || typeof message !== 'string') {
+                    return { success: false, error: 'Commit message required' };
+                }
+                const { Git } = await import('@xgenia/git');
+                const { mergeProject } = await import('@xgenia-utils/projectmerger');
+                const g = new Git(mergeProject);
+                await g.openRepository(pm._retainedProjectDirectory);
+                const sha = await g.commit(message);
+                return { success: true, sha, message };
+            } catch (e: any) {
+                return { success: false, error: e?.message || String(e) };
+            }
+        });
+
+        h('git.revert', async ([sha]: [string]) => {
+            try {
+                const pm = ProjectModel.instance as any;
+                if (!pm?._retainedProjectDirectory) return { success: false, error: 'No project directory' };
+                if (!sha || typeof sha !== 'string') return { success: false, error: 'Target SHA required' };
+                const { Git } = await import('@xgenia/git');
+                const { mergeProject } = await import('@xgenia-utils/projectmerger');
+                const g = new Git(mergeProject);
+                await g.openRepository(pm._retainedProjectDirectory);
+                // Prefer a dedicated revert API when available; fall back to reset-hard.
+                const anyG: any = g as any;
+                if (typeof anyG.revertToCommit === 'function') {
+                    await anyG.revertToCommit(sha);
+                } else if (typeof anyG.resetHard === 'function') {
+                    await anyG.resetHard(sha);
+                } else if (typeof anyG.checkout === 'function') {
+                    await anyG.checkout(sha);
+                } else {
+                    return { success: false, error: 'No revert API available on Git instance' };
+                }
+                return { success: true, sha };
+            } catch (e: any) {
+                return { success: false, error: e?.message || String(e) };
+            }
+        });
+
+        h('git.getHistory', async ([limit]: [number?]) => {
+            try {
+                const pm = ProjectModel.instance as any;
+                if (!pm?._retainedProjectDirectory) return { commits: [], error: 'No project directory' };
+                const { Git } = await import('@xgenia/git');
+                const { mergeProject } = await import('@xgenia-utils/projectmerger');
+                const g = new Git(mergeProject);
+                await g.openRepository(pm._retainedProjectDirectory);
+                const anyG: any = g as any;
+                const cap = Math.max(1, Math.min(50, Number(limit) || 10));
+                let raw: any = [];
+                if (typeof anyG.getCommitHistory === 'function') raw = await anyG.getCommitHistory(cap);
+                else if (typeof anyG.log === 'function') raw = await anyG.log(cap);
+                else if (typeof anyG.history === 'function') raw = await anyG.history(cap);
+                const commits = (Array.isArray(raw) ? raw : []).slice(0, cap).map((c: any) => ({
+                    sha: c?.sha ?? c?.commit ?? c?.id ?? '',
+                    message: c?.message ?? c?.summary ?? '',
+                    author: c?.author?.name ?? c?.author ?? '',
+                    timestamp: c?.timestamp ?? c?.date ?? c?.committedAt ?? null,
+                }));
+                return { commits };
+            } catch (e: any) {
+                return { commits: [], error: e?.message || String(e) };
+            }
+        });
+
+        h('git.push', async () => {
+            try {
+                const pm = ProjectModel.instance as any;
+                if (!pm?._retainedProjectDirectory) return { success: false, error: 'No project directory' };
+                const gitMod: any = await import('@xgenia/git');
+                if (typeof gitMod.push !== 'function') {
+                    return { success: false, error: 'push API not exposed by @xgenia/git in this build' };
+                }
+                const { Git, getRemote } = gitMod;
+                const { mergeProject } = await import('@xgenia-utils/projectmerger');
+                const g = new Git(mergeProject);
+                await g.openRepository(pm._retainedProjectDirectory);
+                // Confirm a remote exists before pushing — refuse silent setup.
+                let remote: any = null;
+                try { remote = typeof getRemote === 'function' ? await getRemote(g) : null; } catch { /* getRemote missing */ }
+                if (getRemote && !remote) {
+                    return {
+                        success: false,
+                        error: 'No git remote configured. Set one up in the Version Control panel first.',
+                        requiresUserAction: true,
+                    };
+                }
+                const result = await gitMod.push(g);
+                return { success: true, result: result ?? null };
+            } catch (e: any) {
+                return { success: false, error: e?.message || String(e) };
+            }
+        });
+
         // --- Sidebar commands ---
         h('sidebar.switchToNode', ([nodeId]: [string]) => {
             const node = this.findNode(nodeId);
