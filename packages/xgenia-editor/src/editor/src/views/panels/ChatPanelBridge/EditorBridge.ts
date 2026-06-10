@@ -139,7 +139,36 @@ export class EditorBridge {
     private safePostMessage(windowProxy: WindowProxy, message: any, origin: string) {
         try {
             windowProxy.postMessage(message, origin);
-        } catch (err) {
+        } catch (err: any) {
+            // 2026-06-10: a DataCloneError (command result contains a
+            // function / Proxy / circular graph object — not structured-
+            // clone-able) used to be misread as an origin mismatch: the
+            // fallback resent the SAME non-cloneable payload to '*', threw
+            // again, and the iframe's pending promise hung into a fake
+            // 30s timeout. Distinguish the two: on DataCloneError,
+            // JSON-sanitize the payload (drops functions/proxies, breaks
+            // cycles) and resend; if even that fails, send an error-shaped
+            // reply with the same id so the iframe REJECTS FAST instead of
+            // timing out.
+            if (err?.name === 'DataCloneError') {
+                try {
+                    const sanitized = JSON.parse(JSON.stringify(message, (_k, v) =>
+                        typeof v === 'function' ? undefined : v));
+                    sanitized._sanitized = true;
+                    windowProxy.postMessage(sanitized, origin);
+                    console.warn('[EditorBridge] Message contained non-cloneable values — sent JSON-sanitized copy (_sanitized: true)');
+                    return;
+                } catch (sanitizeErr: any) {
+                    try {
+                        windowProxy.postMessage({
+                            type: message?.type,
+                            id: message?.id,
+                            error: `Result not transferable across the bridge: ${sanitizeErr?.message || 'circular or non-serializable value'}`,
+                        }, origin);
+                        return;
+                    } catch { /* fall through to origin fallback below */ }
+                }
+            }
             console.warn(`[EditorBridge] Failed to postMessage with origin '${origin}', falling back to '*'`);
             try {
                 windowProxy.postMessage(message, '*');
