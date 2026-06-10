@@ -1230,15 +1230,25 @@ export class EditorBridge {
                 await g.openRepository(pm._retainedProjectDirectory);
                 const anyG: any = g as any;
                 const cap = Math.max(1, Math.min(50, Number(limit) || 10));
+                // 2026-06-10 (workflow wdym5rje7 #3): the previous probe list
+                // (getCommitHistory / log / history) contained ZERO methods
+                // that exist on the Git class — raw was unconditionally []
+                // and the handler returned {commits: []} with no error for
+                // every repository. The real method is getCommitsCurrentBranch
+                // (caps at 100 internally, takes no args; our slice keeps the
+                // bridge cap). Probes kept as fallbacks for future builds.
                 let raw: any = [];
-                if (typeof anyG.getCommitHistory === 'function') raw = await anyG.getCommitHistory(cap);
+                if (typeof anyG.getCommitsCurrentBranch === 'function') raw = await anyG.getCommitsCurrentBranch();
+                else if (typeof anyG.getCommitHistory === 'function') raw = await anyG.getCommitHistory(cap);
                 else if (typeof anyG.log === 'function') raw = await anyG.log(cap);
                 else if (typeof anyG.history === 'function') raw = await anyG.history(cap);
                 const commits = (Array.isArray(raw) ? raw : []).slice(0, cap).map((c: any) => ({
                     sha: c?.sha ?? c?.commit ?? c?.id ?? '',
+                    shortSha: c?.shortSha ?? (typeof c?.sha === 'string' ? c.sha.slice(0, 7) : ''),
                     message: c?.message ?? c?.summary ?? '',
                     author: c?.author?.name ?? c?.author ?? '',
-                    timestamp: c?.timestamp ?? c?.date ?? c?.committedAt ?? null,
+                    // Date → ISO keeps the payload structured-clone- and JSON-safe.
+                    timestamp: c?.date instanceof Date ? c.date.toISOString() : (c?.timestamp ?? c?.date ?? c?.committedAt ?? null),
                 }));
                 return { commits };
             } catch (e: any) {
@@ -1250,26 +1260,32 @@ export class EditorBridge {
             try {
                 const pm = ProjectModel.instance as any;
                 if (!pm?._retainedProjectDirectory) return { success: false, error: 'No project directory' };
-                const gitMod: any = await import('@xgenia/git');
-                if (typeof gitMod.push !== 'function') {
-                    return { success: false, error: 'push API not exposed by @xgenia/git in this build' };
-                }
-                const { Git, getRemote } = gitMod;
+                // 2026-06-10 (workflow wdym5rje7 #4): the previous handler
+                // called the MODULE-level getRemote(g) / push(g) with the
+                // Git INSTANCE where those functions expect a directory
+                // string — getRemote treated the instance as a filesystem
+                // path, the catch swallowed the throw, remote stayed null,
+                // and the handler returned "No git remote configured" for
+                // EVERY repository (including ones with remotes). git.push
+                // through the bridge has never worked. Use the INSTANCE
+                // methods (g.getRemoteName / g.push) which resolve the
+                // repo from the opened baseDir.
+                const { Git } = await import('@xgenia/git');
                 const { mergeProject } = await import('@xgenia-utils/projectmerger');
                 const g = new Git(mergeProject);
                 await g.openRepository(pm._retainedProjectDirectory);
                 // Confirm a remote exists before pushing — refuse silent setup.
-                let remote: any = null;
-                try { remote = typeof getRemote === 'function' ? await getRemote(g) : null; } catch { /* getRemote missing */ }
-                if (getRemote && !remote) {
+                let remoteName: string | undefined;
+                try { remoteName = await g.getRemoteName(); } catch { /* treat as no remote */ }
+                if (!remoteName) {
                     return {
                         success: false,
                         error: 'No git remote configured. Set one up in the Version Control panel first.',
                         requiresUserAction: true,
                     };
                 }
-                const result = await gitMod.push(g);
-                return { success: true, result: result ?? null };
+                const ok = await g.push();
+                return { success: !!ok };
             } catch (e: any) {
                 return { success: false, error: e?.message || String(e) };
             }
@@ -1286,22 +1302,36 @@ export class EditorBridge {
             const pm = ProjectModel.instance as any;
             const components = pm?.getComponents?.() || [];
             const comp = components.find((c: any) => c.name === componentName || c.fullName === componentName);
-            if (comp) {
-                // Prefer NodeGraphContextTmp.switchToComponent for full UI + model switch
-                // (same API used by ComponentsPanel and property editor clicks)
-                const NodeGraphContextTmp = (window as any).NodeGraphContextTmp;
-                if (NodeGraphContextTmp?.switchToComponent && typeof NodeGraphContextTmp.switchToComponent === 'function') {
-                    NodeGraphContextTmp.switchToComponent(comp, { pushHistory: true });
-                } else if (NodeGraphContextTmp?.nodeGraph?.switchToComponent && typeof NodeGraphContextTmp.nodeGraph.switchToComponent === 'function') {
-                    NodeGraphContextTmp.nodeGraph.switchToComponent(comp, { pushHistory: true });
-                } else if (typeof pm?.setActiveComponent === 'function') {
-                    // Fallback: model-only switch (no UI update)
-                    pm.setActiveComponent(comp);
-                }
-                this.cachedActiveComponent = comp;
-                // AI explicitly requested this component — lock it to prevent drift
-                this.setAiLock(comp);
+            // 2026-06-10 (workflow wdym5rje7 #5): previously a nonexistent
+            // component name SILENTLY no-op'd — the handler resolved with
+            // undefined, the AI's switch_component_safely read it as
+            // success, cachedActiveComponent + the AI lock stayed on the
+            // PREVIOUS component, and every subsequent mutation landed in
+            // the wrong graph. This is the bridge-side root of the
+            // wrong-component family of bugs (Cell duplication, orphan
+            // wires). Throw with the available list — PluginBridge
+            // surfaces the message via msg.error → pending.reject, and
+            // NodeGraphUtils already catches + logs it, so existing
+            // callers degrade to an explicit error instead of silence.
+            if (!comp) {
+                const available = components.slice(0, 30).map((c: any) => c.fullName || c.name).join(', ');
+                throw new Error(`component.switchTo: no component named "${componentName}". Available: ${available || '(none — is a project open?)'}`);
             }
+            // Prefer NodeGraphContextTmp.switchToComponent for full UI + model switch
+            // (same API used by ComponentsPanel and property editor clicks)
+            const NodeGraphContextTmp = (window as any).NodeGraphContextTmp;
+            if (NodeGraphContextTmp?.switchToComponent && typeof NodeGraphContextTmp.switchToComponent === 'function') {
+                NodeGraphContextTmp.switchToComponent(comp, { pushHistory: true });
+            } else if (NodeGraphContextTmp?.nodeGraph?.switchToComponent && typeof NodeGraphContextTmp.nodeGraph.switchToComponent === 'function') {
+                NodeGraphContextTmp.nodeGraph.switchToComponent(comp, { pushHistory: true });
+            } else if (typeof pm?.setActiveComponent === 'function') {
+                // Fallback: model-only switch (no UI update)
+                pm.setActiveComponent(comp);
+            }
+            this.cachedActiveComponent = comp;
+            // AI explicitly requested this component — lock it to prevent drift
+            this.setAiLock(comp);
+            return { success: true, name: comp.name, fullName: comp.fullName };
         });
 
         h('component.unlockContext', () => {
