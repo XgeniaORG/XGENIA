@@ -84,6 +84,9 @@ function registerNodes(xgeniaRuntime) {
     require('./src/nodes/maths/lessThanOrEqual'),
     require('./src/nodes/maths/lessThan'),
     require('./src/nodes/maths/equal'),
+    require('./src/nodes/maths/rtp-monitor'),
+    require('./src/nodes/maths/hit-frequency-monitor'),
+    require('./src/nodes/maths/volatility-monitor'),
 
     // Utils
     require('./src/nodes/std-library/condition'),
