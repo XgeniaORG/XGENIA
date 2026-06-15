@@ -279,31 +279,54 @@ export class FileSystemNode implements IFileSystem {
         });
     }
 
-    return new Promise((resolve, reject) => {
-      // Make sure the folder is empty
-      const isEmpty = this.isDirectoryEmpty(to);
-      if (!isEmpty) {
-        reject({ result: 'failure', message: 'Folder must be empty' });
-        return;
+    return new Promise(async (resolve, reject) => {
+      try {
+        // Make sure the folder is empty
+        const isEmpty = await this.isDirectoryEmpty(to);
+        if (!isEmpty) {
+          reject({ result: 'failure', message: 'Folder must be empty' });
+          return;
+        }
+
+        const isHttp = url.startsWith('http://') || url.startsWith('https://');
+
+        if (!isHttp) {
+          const buffer = await fs.promises.readFile(url);
+          unzipToFolder(to, buffer, function (r) {
+            if (r.result !== 'success') {
+              reject({ result: 'failure', message: 'Failed to extract' });
+              _this.removeDirRecursive(to);
+              return;
+            }
+
+            resolve();
+          });
+          return;
+        }
+
+        // Load zip file from URL
+        // @ts-ignore XMLHttpRequest
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.responseType = 'blob';
+        xhr.onload = function (_e) {
+          unzipToFolder(to, this.response, function (r) {
+            if (r.result !== 'success') {
+              reject({ result: 'failure', message: 'Failed to extract' });
+              _this.removeDirRecursive(to);
+              return;
+            }
+
+            resolve();
+          });
+        };
+        xhr.onerror = function () {
+          reject({ result: 'failure', message: 'Network error occurred while fetching zip' });
+        };
+        xhr.send();
+      } catch (err) {
+        reject({ result: 'failure', message: 'Failed to extract: ' + err });
       }
-
-      // Load zip file from URL
-      // @ts-ignore XMLHttpRequest
-      const xhr = new XMLHttpRequest();
-      xhr.open('GET', url, true);
-      xhr.responseType = 'blob';
-      xhr.onload = function (_e) {
-        unzipToFolder(to, this.response, function (r) {
-          if (r.result !== 'success') {
-            reject({ result: 'failure', message: 'Failed to extract' });
-            _this.removeDirRecursive(to);
-            return;
-          }
-
-          resolve();
-        });
-      };
-      xhr.send();
     });
   }
 

@@ -27,7 +27,8 @@ module.exports = {
             options: {
               compilerOptions: {
                 resolveJsonModule: true
-              }
+              },
+              transpileOnly: true
             }
           }
         ]

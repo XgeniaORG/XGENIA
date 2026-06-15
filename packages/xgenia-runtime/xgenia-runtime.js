@@ -120,6 +120,16 @@ function xgeniaRuntime(args) {
   args.platform = args.platform || {};
   xgeniaRuntime.instance = this;
 
+  // Single source of truth for runtime discovery. Without this, AI tools
+  // (read-viewer-port-value, discoverAndReadViewerPorts) have to guess where the
+  // runtime lives — see the BUG 72 comment in that file. Setting it here means
+  // every viewer entry (react, cloud, deploy) gets it for free.
+  if (typeof window !== 'undefined') {
+    window.XGENIA = window.XGENIA || {};
+    window.XGENIA._runtime = this;
+    window.XgeniaRuntime = xgeniaRuntime;
+  }
+
   this.type = args.type || 'browser';
   this.xgeniaModules = [];
   this.eventEmitter = new EventEmitter();

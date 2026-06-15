@@ -57,6 +57,8 @@ export class EditorBridge {
         window.addEventListener('message', this.handleMessage.bind(this));
         // Listen for active component changes from the NodeGraphEditor
         this.listenForComponentChanges();
+        // Listen for settings changes (API keys) to push to plugins
+        this.listenForSettingChanges();
     }
 
     /** Listen for NodeGraphEditor active component changes via EventDispatcher */
@@ -86,6 +88,25 @@ export class EditorBridge {
             );
         } catch (e: any) {
             console.warn('[EditorBridge] Could not listen for component changes:', e);
+        }
+    }
+
+    /** Listen for settings changes and push to plugin iframes */
+    private listenForSettingChanges() {
+        try {
+            const { EditorSettings } = require('../../../utils/editorsettings');
+            if (EditorSettings?.instance?.on) {
+                EditorSettings.instance.on('updated', ({ key }: any) => {
+                    if (key === 'fal.apiKey' || key === 'gemini.apiKey') {
+                        const value = EditorSettings.instance.get(key);
+                        console.log(`[EditorBridge] Setting updated: ${key}, pushing to plugins`);
+
+                        this.pushEvent('settingChanged', { key, value });
+                    }
+                }, this);
+            }
+        } catch (e: any) {
+            console.warn('[EditorBridge] Could not listen for setting changes:', e);
         }
     }
 
@@ -421,10 +442,10 @@ export class EditorBridge {
         });
 
 
-        h('html.translate', ([html]: [string]) => {
+        h('html.translate', ([html, options]: [string, { omitRootWrapper?: boolean }?]) => {
             try {
                 const { translateHtmlToXgeniaXml } = require('../../EditorTopbar/html-translator');
-                return translateHtmlToXgeniaXml(html);
+                return translateHtmlToXgeniaXml(html, options);
             } catch (err: any) {
                 console.error('[EditorBridge] html.translate failed:', err.message);
                 throw err;
@@ -479,6 +500,24 @@ export class EditorBridge {
                     throw new Error('Node type is required');
                 }
 
+                // 2026-05-23 (BUG 76 fix, bridge half): refuse to create a
+                // ComponentInstance whose target is the currently active
+                // component. That produces a graph where the component
+                // contains itself; every getPorts()/forEachNode pass on it
+                // then recurses forever and crashes the editor with a
+                // stack overflow. Trace 2026-05-23 13:25 hit this when an
+                // AI passed `componentName: "/#__maths__/WildDoomMaths"`
+                // as the node type while the active component WAS
+                // /#__maths__/WildDoomMaths.
+                if (typeof nodeType === 'string' && nodeType.startsWith('/')) {
+                    const activeName = (graph as any)?.name || (graph as any)?.path || (graph as any)?.fullName;
+                    if (activeName && nodeType === activeName) {
+                        const msg = `Refusing to create ComponentInstance of "${nodeType}" inside itself — would produce a circular component reference that crashes the editor with a stack overflow on the next port lookup.`;
+                        console.error('[EditorBridge] graph.createNode SELF-INSTANCE BLOCKED:', msg);
+                        throw new Error(msg);
+                    }
+                }
+
                 // Use the canonical NodeGraphNode.fromJSON() pattern
                 // This is how XGENIA itself creates nodes (see NodeGraphModel.fromJSON)
                 const nodeId = guid();
@@ -520,6 +559,38 @@ export class EditorBridge {
                                 try { node.addPort({ name: p.name, plug: p.plug, type: p.type }); } catch { /* some nodes reject duplicates silently */ }
                             }
                         }
+                    }
+
+                    // FIX (2026-05-04): Hydrate PARAMETER DEFAULTS from the type's inputs schema.
+                    // Without this, hand-built pixi.ReelColumn / pixi.ReelCell nodes come out missing
+                    // animation params (spinSpeed, stopStyle, motionBlur, cellWidth, etc) — the
+                    // defaults are declared on type.inputs[key].default but fromJSON doesn't apply
+                    // them. The reel only animates correctly when a PixiReelController with
+                    // autoLayout cascades these values, which the AI doesn't always set up.
+                    // Apply any default that the node doesn't already have a value for.
+                    try {
+                        const inputs = type?.inputs;
+                        if (inputs && typeof inputs === 'object') {
+                            for (const paramName of Object.keys(inputs)) {
+                                const def = inputs[paramName];
+                                if (!def || def.default === undefined) continue;
+                                // Only set when the node doesn't already carry a value for this param
+                                const existing = (node as any).parameters?.[paramName];
+                                if (existing !== undefined && existing !== null) continue;
+                                try {
+                                    if (typeof (node as any).setParameter === 'function') {
+                                        (node as any).setParameter(paramName, def.default);
+                                    } else if ((node as any).parameters) {
+                                        (node as any).parameters[paramName] = def.default;
+                                    }
+                                } catch (perParamErr) {
+                                    // Some setters validate input strictly — skip on rejection
+                                    console.debug(`[EditorBridge] Default for ${typeName}.${paramName} rejected:`, (perParamErr as any)?.message);
+                                }
+                            }
+                        }
+                    } catch (paramHydrateErr: any) {
+                        console.warn('[EditorBridge] Parameter default hydration failed (non-fatal):', paramHydrateErr?.message);
                     }
                 } catch (initErr: any) {
                     console.warn('[EditorBridge] Port hydration from type definition failed (non-fatal):', initErr?.message);
@@ -568,6 +639,199 @@ export class EditorBridge {
             console.log(`[EditorBridge] Deleted node: ${nodeId}`);
         });
 
+        // 2026-05-23 (BUG 65 fix): bridge had no reparent handler, so
+        // change_node_parent in bridge mode always fell through to the
+        // legacy `NodeGraphModel.attachNode` path which can't see bridge-
+        // proxied nodes — every call returned "Could not determine a valid
+        // NodeGraphModel to perform reparenting." (trace 2026-05-23 07:39
+        // tried 3× to move @ReelStage into @ReelArea, all failed). This
+        // handler does the work directly: detach from old parent (or roots),
+        // re-attach as a child of the new parent.
+        h('graph.reparent', ([nodeId, newParentId, index]: [string, string, number?]) => {
+            const graph = this.getActiveGraph();
+            if (!graph) throw new Error('No active graph');
+            const node = this.findNode(nodeId);
+            if (!node) throw new Error(`Node not found: ${nodeId}`);
+            const newParent = this.findNode(newParentId);
+            if (!newParent) throw new Error(`New parent not found: ${newParentId}`);
+            if (typeof newParent.addChild !== 'function') {
+                throw new Error(`Target parent (id=${newParentId}, type=${newParent.type?.name || newParent.typename}) is not a container — cannot accept children.`);
+            }
+            // 2026-05-25: defensive detach. The previous implementation only
+            // checked `node.parent` and called `oldParent.removeChild(node)`.
+            // When create_nodes_batch sets up parent-child via addChild but
+            // doesn't synchronize `node.parent` (or sets `node.parent` to a
+            // stale ref), the removeChild is a silent no-op and the node ends
+            // up in BOTH the old parent's children array AND the new parent
+            // — a true duplicate visible in get_app_xml under two roots.
+            // Trace 2026-05-25 22:39: AI created @Lost with parent:@WrongParent
+            // via batch, then change_node_parent to @RightParent — get_app_xml
+            // showed @Lost as child of both groups.
+            //
+            // Fix: regardless of what node.parent says, walk ALL nodes in the
+            // graph (via nodeMap), find any node that has this node in its
+            // children array, and remove it there. This guarantees the node
+            // exits ALL old containers before being added to the new one.
+            try {
+                const stalePathTried: string[] = [];
+                const declaredOldParent: any = (node as any).parent;
+                if (declaredOldParent && typeof declaredOldParent.removeChild === 'function') {
+                    try { declaredOldParent.removeChild(node); stalePathTried.push('declaredOldParent.removeChild'); }
+                    catch (e: any) { console.warn('[EditorBridge] removeChild from declared parent failed:', e?.message); }
+                }
+                // Defensive sweep: find any other parent still holding the node.
+                const graphModel: any = (graph as any).model || graph;
+                const nodeMap: any = graphModel?.nodeMap;
+                const allNodes: any[] = [];
+                if (nodeMap) {
+                    if (typeof nodeMap.values === 'function') {
+                        for (const n of nodeMap.values()) allNodes.push(n);
+                    } else if (typeof nodeMap === 'object') {
+                        for (const k of Object.keys(nodeMap)) allNodes.push(nodeMap[k]);
+                    }
+                }
+                if (Array.isArray(graphModel?.roots)) {
+                    for (const r of graphModel.roots) if (!allNodes.includes(r)) allNodes.push(r);
+                }
+                for (const candidate of allNodes) {
+                    if (!candidate || candidate === node) continue;
+                    const children = candidate.children;
+                    if (!Array.isArray(children) || children.length === 0) continue;
+                    if (!children.includes(node)) continue;
+                    if (typeof candidate.removeChild === 'function') {
+                        try {
+                            candidate.removeChild(node);
+                            stalePathTried.push(`sweep(${candidate.id || candidate.label})`);
+                        } catch (e: any) {
+                            console.warn(`[EditorBridge] sweep removeChild from ${candidate.id || candidate.label} failed:`, e?.message);
+                        }
+                    } else {
+                        // Last resort: splice out of the array directly.
+                        try {
+                            const idx = children.indexOf(node);
+                            if (idx >= 0) {
+                                children.splice(idx, 1);
+                                stalePathTried.push(`sweep-splice(${candidate.id || candidate.label})`);
+                            }
+                        } catch { /* defensive */ }
+                    }
+                }
+                // 2026-06-02 (R35): NodeGraphModel has addRoot() but NO
+                // removeRoot() method. The previous code checked `typeof ===
+                // 'function'` and silently skipped when absent — leaving the
+                // node BOTH in graph.roots AND inserted as a child of the
+                // new parent below. Every change_node_parent call on a
+                // root-level node produced a duplicate that get_app_xml
+                // surfaced as two nodes with the same label.
+                //
+                // Trace 1780349709 (the GTA reparent attempt) showed all 7
+                // reparented nodes ending up doubled, then the AI tried 8
+                // undos. The "verified: true" in the response was a lie —
+                // only addChild's lack-of-throw was checked, not the actual
+                // hierarchy.
+                //
+                // Fix: directly splice from graph.roots if the node is
+                // there. Try removeRoot first (in case a future model adds
+                // it), then fall through to the array splice.
+                let detachedFromRoots = false;
+                try {
+                    const graphModelForRoots: any = (graph as any).model || graph;
+                    if (typeof graphModelForRoots.removeRoot === 'function') {
+                        try {
+                            graphModelForRoots.removeRoot(node);
+                            stalePathTried.push('removeRoot');
+                            detachedFromRoots = true;
+                        } catch { /* fall through to splice */ }
+                    }
+                    if (!detachedFromRoots && Array.isArray(graphModelForRoots.roots)) {
+                        const rootIdx = graphModelForRoots.roots.indexOf(node);
+                        if (rootIdx >= 0) {
+                            graphModelForRoots.roots.splice(rootIdx, 1);
+                            stalePathTried.push(`roots-splice(idx=${rootIdx})`);
+                            detachedFromRoots = true;
+                        }
+                    }
+                    // Defensive: if roots stores by id rather than object, try a second pass
+                    if (!detachedFromRoots && Array.isArray(graphModelForRoots.roots)) {
+                        const rootIdById = graphModelForRoots.roots.findIndex((r: any) => r?.id === node.id);
+                        if (rootIdById >= 0) {
+                            graphModelForRoots.roots.splice(rootIdById, 1);
+                            stalePathTried.push(`roots-splice-by-id(idx=${rootIdById})`);
+                            detachedFromRoots = true;
+                        }
+                    }
+                } catch (rootDetachErr: any) {
+                    console.warn('[EditorBridge] root detach failed (non-fatal):', rootDetachErr?.message);
+                }
+                if (stalePathTried.length === 0) {
+                    console.warn(`[EditorBridge] reparent ${nodeId}: no detach path executed (node may already be free).`);
+                }
+            } catch (detachErr: any) {
+                console.warn('[EditorBridge] reparent detach phase non-fatal error:', detachErr?.message);
+            }
+            try {
+                if (typeof index === 'number' && index >= 0) {
+                    // Most NodeGraphModel implementations expose addChildAt; fall back to addChild.
+                    if (typeof (newParent as any).addChildAt === 'function') {
+                        (newParent as any).addChildAt(node, index);
+                    } else {
+                        newParent.addChild(node);
+                    }
+                } else {
+                    newParent.addChild(node);
+                }
+            } catch (e: any) {
+                throw new Error(`addChild on new parent failed: ${e?.message || e}`);
+            }
+            // Also update the node.parent backref if the framework didn't.
+            try { (node as any).parent = newParent; } catch { /* read-only in some models */ }
+
+            // 2026-06-02 (R35): real verification. The previous code returned
+            // { success: true } based on addChild not throwing. That missed
+            // the duplicate-root bug entirely. Walk the graph now and confirm:
+            //   (a) node is in newParent.children EXACTLY ONCE
+            //   (b) node is NOT in graph.roots
+            //   (c) no other parent's children array contains node
+            const verification = (() => {
+                try {
+                    const graphModelV: any = (graph as any).model || graph;
+                    const inNewParent = Array.isArray(newParent.children) && newParent.children.filter((c: any) => c === node || c?.id === node.id).length;
+                    const stillInRoots = Array.isArray(graphModelV.roots) && graphModelV.roots.some((r: any) => r === node || r?.id === node.id);
+                    const otherParents: string[] = [];
+                    const nodeMapV: any = graphModelV.nodeMap;
+                    const allV: any[] = [];
+                    if (nodeMapV?.values) for (const n of nodeMapV.values()) allV.push(n);
+                    else if (nodeMapV) for (const k of Object.keys(nodeMapV)) allV.push(nodeMapV[k]);
+                    for (const cand of allV) {
+                        if (!cand || cand === node || cand === newParent) continue;
+                        const children = cand.children;
+                        if (Array.isArray(children) && children.some((c: any) => c === node || c?.id === node.id)) {
+                            otherParents.push(cand.id || cand.label || 'unknown');
+                        }
+                    }
+                    return {
+                        ok: inNewParent === 1 && !stillInRoots && otherParents.length === 0,
+                        inNewParentCount: inNewParent,
+                        stillInRoots,
+                        otherParents,
+                    };
+                } catch (vErr: any) {
+                    return { ok: false, verificationError: vErr?.message };
+                }
+            })();
+
+            console.log(`[EditorBridge] Reparented ${nodeId} → ${newParentId}`, verification);
+            if (!verification.ok) {
+                // Don't silently lie about success. The AI needs to know.
+                throw new Error(
+                    `Reparent verification FAILED: ${JSON.stringify(verification)}. ` +
+                    `Node may now be duplicated in graph state. Use find_nodes_by_label to check, ` +
+                    `then delete the orphan copies before continuing.`
+                );
+            }
+            return { success: true, verified: true, verification };
+        });
+
         h('graph.getConnections', () => {
             const graph = this.getActiveGraph();
             if (!graph) return [];
@@ -595,6 +859,10 @@ export class EditorBridge {
                 toId: to,
                 toProperty: toPort
             };
+            // Pass through whatever the underlying model returns. Callers
+            // already detect success via post-create connection-existence
+            // checks (see safe_connection_workflow); changing the shape here
+            // would break those existing flows.
             return graph.addConnection?.(connection);
         });
 
@@ -609,11 +877,21 @@ export class EditorBridge {
             // Strategy 1: UUID match
             conn = connections.find((c: any) => c.id === connectionId);
 
-            // Strategy 2: Parse semantic format "fromId:fromProperty→toId:toProperty"
-            if (!conn && connectionId.includes('→')) {
-                const arrowIdx = connectionId.indexOf('→');
+            // Strategy 2: Parse semantic format "fromId:fromProperty→toId:toProperty".
+            // 2026-06-01 (xgenia-debug-export-1779795859929 fix): also accept the
+            // ASCII "->" arrow. The edit_js_function_node ghost-cleanup path uses
+            // `conn.id` first (line 1748), and many GPL-side connection.id strings
+            // are built with "->", so the previous "→"-only branch rejected them
+            // outright and we threw "Connection not found" for connections that
+            // genuinely existed. Trace 2026-05-26 11:44 had four SpinResult /
+            // WinAmount / SpecialReel / CashCollect ghost-removals all fall here.
+            const arrowIdx = connectionId.indexOf('→') >= 0
+                ? connectionId.indexOf('→')
+                : connectionId.indexOf('->');
+            const arrowLen = connectionId.includes('→') ? 1 : 2;
+            if (!conn && arrowIdx > 0) {
                 const fromPart = connectionId.substring(0, arrowIdx);
-                const toPart = connectionId.substring(arrowIdx + 1);
+                const toPart = connectionId.substring(arrowIdx + arrowLen);
                 const fColonIdx = fromPart.indexOf(':');
                 const tColonIdx = toPart.indexOf(':');
                 if (fColonIdx > 0 && tColonIdx > 0) {
@@ -629,7 +907,8 @@ export class EditorBridge {
             }
 
             // Fallback for corrupted connections (e.g., from old addConnection bug)
-            if (!conn && connectionId === 'undefined:undefined→undefined:undefined') {
+            if (!conn && (connectionId === 'undefined:undefined→undefined:undefined'
+                       || connectionId === 'undefined:undefined->undefined:undefined')) {
                 const corruptIdx = connections.findIndex((c: any) => !c || typeof c === 'string' || (!c.fromId && !c.id));
                 if (corruptIdx !== -1) {
                     conn = connections[corruptIdx];
@@ -656,7 +935,13 @@ export class EditorBridge {
         h('node.setParameter', ([nodeId, name, value]: [string, string, any]) => {
             const node = this.findNode(nodeId);
             if (!node) throw new Error(`Node not found: ${nodeId}`);
-            node.setParameter?.(name, value);
+            // 2026-05-29 (Round 9 Fix): return success boolean so the iframe
+            // caller can distinguish "setter accepted the value" from "setter
+            // was missing or rejected". Previously the handler returned
+            // undefined and the caller had no way to detect silent rejections.
+            if (typeof node.setParameter !== 'function') return false;
+            node.setParameter(name, value);
+            return true;
         });
 
         h('node.getParameter', ([nodeId, name]: [string, string]) => {
@@ -668,7 +953,15 @@ export class EditorBridge {
         h('node.setLabel', ([nodeId, label]: [string, string]) => {
             const node = this.findNode(nodeId);
             if (!node) throw new Error(`Node not found: ${nodeId}`);
-            node.label = label;
+            // 2026-05-29 (Round 9 Fix): same as setParameter — return true on
+            // successful assignment, false if the property setter was rejected.
+            try {
+                node.label = label;
+                // Re-read to verify the setter wasn't a no-op getter (computed property).
+                return node.label === label;
+            } catch {
+                return false;
+            }
         });
 
         h('node.findByLabel', ([label]: [string]) => {
@@ -1743,6 +2036,136 @@ ${autoReturnCode}
                 }
             }
         }
+
+        // FIX (2026-05-25): Pixi pro nodes (pixi.MatterPhysics, pixi.Camera2D,
+        // pixi.CollisionDetector, pixi.Graphics, pixi.Sprite, etc.) store
+        // input port values via setter -> this._internal.X. getParameters()
+        // typically does NOT enumerate those — only params explicitly tracked
+        // in the model's parameter list show up. Result: AI calls
+        // set_node_parameters({ enabled: true }) which succeeds (setter runs,
+        // _internal.enabled = true), but the bridge then serializes
+        // parameters: {} and tools like verify_logic_correctness see the node
+        // as if `enabled` were never set. Trace 2026-05-25: CHECK 23 falsely
+        // reported `visual_render_blank` on 3 MatterPhysics nodes whose
+        // enabled was actually true at runtime.
+        //
+        // Fix: for any node, walk its declared input ports and explicitly
+        // call getParameter(portName) for each one not already in params.
+        // This catches every port the node type declares, regardless of
+        // whether getParameters() exposes it.
+        //
+        // FIX (2026-05-25 — same trace, second issue): the editor model wraps
+        // some dimension params (width/height/fontSize/padding/margin) as
+        // {value, unit} objects for its property-editor UI. For HTML nodes
+        // this matches the model contract; for `type: number` ports (pixi
+        // dimensions, etc.) the wrap is internal storage that the runtime
+        // unwraps. When we surface the wrap to the AI side via getParameter,
+        // tools like verify_logic_correctness's malformed_dimension_param
+        // check trip on it as if the AI passed bad input. Unwrap here so the
+        // AI sees the same number the runtime sees.
+        const unwrapValueUnit = (val: any, portType: string): any => {
+            if (val && typeof val === 'object' && !Array.isArray(val) &&
+                val.value !== undefined && val.unit !== undefined) {
+                // Unwrap unconditionally when the {value, unit} shape is present.
+                // Trace 2026-05-25 showed pixi.Container.width has port type
+                // "dimension" (not "number") at runtime, so the original type
+                // whitelist missed it and CHECK 24 kept tripping. {value, unit}
+                // is editor-model internal storage; the runtime-effective value
+                // is ALWAYS the bare number (for numeric units like px) or a
+                // CSS string (for percent on HTML nodes). Prefer the bare
+                // number so downstream tools and checks see the same thing the
+                // runtime sees. We explicitly KEEP the wrap for object-typed
+                // ports (rare, never observed in practice) and for ports
+                // declared as 'object'/'array' where {value, unit} could be a
+                // genuine user value rather than dimension storage.
+                if (portType === 'object' || portType === 'array') return val;
+                const num = typeof val.value === 'number' ? val.value : parseFloat(String(val.value));
+                if (!isFinite(num)) return val; // garbage in → keep as-is
+                return num;
+            }
+            return val;
+        };
+        // 2026-05-25 (second iteration): only fetch via getParameter for
+        // ports DECLARED by this specific node type. Previously we walked
+        // `node.getPorts()` which returns the inherited port set including
+        // base-class pseudo-ports. On pixi.* nodes this exposed a magic
+        // `functionScript` getter that returned the ENTIRE node-type def as
+        // a 98KB string — bloated every export by 3MB+ and polluted
+        // inspect_node output. The compiled-node-docs search-index has the
+        // authoritative declared-input list per node type. Use it as the
+        // gate.
+        const ALLOWED_PORT_NAMES_BY_TYPE: Record<string, Set<string>> = (() => {
+            try {
+                const mod = require('../ChatPanel/StreamlinedToolRegistry/compiled-node-docs/search-index.json');
+                const nodes = mod?.nodes || {};
+                const map: Record<string, Set<string>> = {};
+                for (const [name, entry] of Object.entries<any>(nodes)) {
+                    const hints = entry?.inputFormatHints;
+                    if (hints && typeof hints === 'object') {
+                        map[name] = new Set(Object.keys(hints));
+                        map[name.trim()] = map[name];
+                    }
+                }
+                return map;
+            } catch {
+                return {};
+            }
+        })();
+        try {
+            let rawPorts: any[] = [];
+            if (typeof node.getPorts === 'function') {
+                rawPorts = node.getPorts() || [];
+            }
+            if (!rawPorts.length) {
+                rawPorts = node.ports || [];
+            }
+            if (!rawPorts.length) {
+                const typeName2 = node.type?.name || node.typename;
+                if (typeName2) {
+                    const type = (NodeLibrary.instance as any)?.getNodeTypeWithName?.(typeName2);
+                    if (type?.ports && Array.isArray(type.ports)) {
+                        rawPorts = type.ports;
+                    }
+                }
+            }
+            const typeName3 = node.type?.name || node.typename || '';
+            const allowedNames = ALLOWED_PORT_NAMES_BY_TYPE[typeName3]
+                || ALLOWED_PORT_NAMES_BY_TYPE[typeName3.trim()]
+                || null;
+            const isJSFunction = (typeName3 || '').toLowerCase() === 'javascriptfunction'
+                || (typeName3 || '').toLowerCase() === 'javascript2';
+            for (const p of rawPorts) {
+                if (!p?.name) continue;
+                // Skip output ports — those are computed, not stored.
+                if (p.plug === 'output') continue;
+                // Skip signal ports — they're triggers, not values.
+                const portTypeName = (p.type?.name || p.type || '').toString().toLowerCase();
+                if (portTypeName === 'signal') continue;
+                if (params[p.name] !== undefined && params[p.name] !== null) continue;
+                // GATE: only fetch ports the compiled-docs catalog declares
+                // for THIS node type. JS function nodes are excluded from the
+                // gate because their special params (functionScript /
+                // scriptInputs / scriptOutputs) are intentionally fetched by
+                // the earlier JS-specific block above.
+                if (!isJSFunction && allowedNames && !allowedNames.has(p.name)) continue;
+                try {
+                    const v = typeof node.getParameter === 'function' ? node.getParameter(p.name) : undefined;
+                    if (v !== undefined && v !== null) {
+                        params[p.name] = unwrapValueUnit(v, portTypeName);
+                    }
+                } catch { /* skip ports that error on read */ }
+            }
+            // Also unwrap any pre-existing params (from getParameters()) that
+            // arrived in {value,unit} form for number ports.
+            for (const p of rawPorts) {
+                if (!p?.name || p.plug === 'output') continue;
+                const portTypeName = (p.type?.name || p.type || '').toString().toLowerCase();
+                if (portTypeName === 'signal') continue;
+                if (params[p.name] !== undefined && params[p.name] !== null) {
+                    params[p.name] = unwrapValueUnit(params[p.name], portTypeName);
+                }
+            }
+        } catch { /* defensive: never let serializer throw */ }
 
         return params;
     }

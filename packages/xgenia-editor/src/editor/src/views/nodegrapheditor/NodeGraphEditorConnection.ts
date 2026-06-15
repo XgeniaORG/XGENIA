@@ -41,6 +41,18 @@ export class NodeGraphEditorConnection {
     this.ctx = ctx;
   }
 
+  // 2026-06-03 (cost-noise audit): saved project state with corrupted
+  // (undefined) sourceId/targetId causes this skip-warn to fire repeatedly
+  // on every editor render and component switch — flooding the console
+  // with identical warnings + 13-frame stack traces. Dedup per
+  // (fromId, toId) pair so each ghost connection is reported once per
+  // session, surfacing the project-level corruption signal without
+  // drowning real bugs. Reset via static method on editor reinit.
+  private static _loggedMissingConnections: Set<string> = new Set();
+  static resetMissingConnectionLog(): void {
+    NodeGraphEditorConnection._loggedMissingConnections.clear();
+  }
+
   static createFromModel(model: Connection, owner: NodeGraphEditor, ctx?: CanvasRenderingContext2D) {
     const con = new NodeGraphEditorConnection(model, ctx);
 
@@ -50,12 +62,17 @@ export class NodeGraphEditorConnection {
 
     // Safety check: only create connection if both nodes exist
     if (!con.fromNode || !con.toNode) {
-      console.warn('[NodeGraphEditorConnection] Skipping connection creation - missing nodes:', {
-        fromId: model.fromId,
-        toId: model.toId,
-        fromNodeFound: !!con.fromNode,
-        toNodeFound: !!con.toNode
-      });
+      const key = `${model.fromId || 'undef'}->${model.toId || 'undef'}`;
+      if (!NodeGraphEditorConnection._loggedMissingConnections.has(key)) {
+        NodeGraphEditorConnection._loggedMissingConnections.add(key);
+        console.warn('[NodeGraphEditorConnection] Skipping connection creation - missing nodes:', {
+          fromId: model.fromId,
+          toId: model.toId,
+          fromNodeFound: !!con.fromNode,
+          toNodeFound: !!con.toNode,
+          _note: 'Subsequent occurrences of this same (fromId,toId) pair will be silent this session. Reset via NodeGraphEditorConnection.resetMissingConnectionLog().'
+        });
+      }
       return null; // Return null instead of crashing
     }
 

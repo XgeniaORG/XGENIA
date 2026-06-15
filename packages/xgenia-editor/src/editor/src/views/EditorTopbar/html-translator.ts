@@ -267,7 +267,7 @@ function resolveFraction(value: string): string | undefined {
     return FRACTIONS[value];
 }
 
-function parseTailwindClasses(classes: string | any, customColors?: Record<string, string>, customFonts?: Record<string, string>, customShadows?: Record<string, string>): ParsedStyles {
+function parseTailwindClasses(classes: string | any, customColors?: Record<string, string>, customFonts?: Record<string, string>, customShadows?: Record<string, string>, customBackgroundImages?: Record<string, string>): ParsedStyles {
     const styles: ParsedStyles = {};
     if (typeof classes !== 'string') {
         if (classes && classes.baseVal) classes = classes.baseVal; // Handle SVGAnimatedString explicitly
@@ -342,17 +342,96 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         // grid-cols-N → convert to flexbox row wrap with N columns
         const gridColsMatch = rawCls.match(/^grid-cols-(\d+)$/);
         if (gridColsMatch) { styles._gridCols = parseInt(gridColsMatch[1]); styles._hasFlex = true; continue; }
+        // grid-rows-N → forward as styleCss so the renderer keeps row count if it honors grid
+        const gridRowsMatch = rawCls.match(/^grid-rows-(\d+)$/);
+        if (gridRowsMatch) {
+            styles.styleCss = (styles.styleCss || '') + `grid-template-rows: repeat(${gridRowsMatch[1]}, minmax(0, 1fr));`;
+            continue;
+        }
         // col-span-N → track how many grid columns this child spans
         const colSpanMatch = rawCls.match(/^col-span-(\d+)$/);
         if (colSpanMatch) { styles._colSpan = parseInt(colSpanMatch[1]); continue; }
+        // row-span-N → forward via styleCss
+        const rowSpanMatch = rawCls.match(/^row-span-(\d+)$/);
+        if (rowSpanMatch) {
+            styles.styleCss = (styles.styleCss || '') + `grid-row: span ${rowSpanMatch[1]} / span ${rowSpanMatch[1]};`;
+            continue;
+        }
+        // grid-flow-col / grid-flow-row → styleCss
+        const gridFlowMatch = rawCls.match(/^grid-flow-(col|row)(-dense)?$/);
+        if (gridFlowMatch) {
+            const dir = gridFlowMatch[1];
+            const dense = gridFlowMatch[2] ? ' dense' : '';
+            styles.styleCss = (styles.styleCss || '') + `grid-auto-flow: ${dir}${dense};`;
+            continue;
+        }
+        // auto-cols-fr / auto-rows-fr / auto-cols-min / auto-cols-max / auto-cols-auto → styleCss
+        const autoTrackMatch = rawCls.match(/^auto-(cols|rows)-(fr|min|max|auto)$/);
+        if (autoTrackMatch) {
+            const axis = autoTrackMatch[1];
+            const sizeMap: Record<string, string> = { 'fr': 'minmax(0, 1fr)', 'min': 'min-content', 'max': 'max-content', 'auto': 'auto' };
+            styles.styleCss = (styles.styleCss || '') + `grid-auto-${axis === 'cols' ? 'columns' : 'rows'}: ${sizeMap[autoTrackMatch[2]]};`;
+            continue;
+        }
         if (rawCls === 'flex-col' || rawCls === 'flex-column') { styles.flexDirection = 'column'; continue; }
+        if (rawCls === 'flex-col-reverse') { styles.flexDirection = 'column-reverse'; continue; }
         if (rawCls === 'flex-row') { styles.flexDirection = 'row'; continue; }
+        if (rawCls === 'flex-row-reverse') { styles.flexDirection = 'row-reverse'; continue; }
         if (rawCls === 'flex-wrap') { styles.flexWrap = 'wrap'; continue; }
+        if (rawCls === 'flex-wrap-reverse') { styles.flexWrap = 'wrap-reverse'; continue; }
+        if (rawCls === 'flex-nowrap') { styles.flexWrap = 'nowrap'; continue; }
         if (rawCls === 'flex-1') { styles.flexGrow = 1; styles.flexShrink = 1; continue; }
+        if (rawCls === 'flex-auto') { styles.flexGrow = 1; styles.flexShrink = 1; styles.styleCss = (styles.styleCss || '') + 'flex-basis: auto;'; continue; }
+        if (rawCls === 'flex-initial') { styles.flexGrow = 0; styles.flexShrink = 1; continue; }
         if (rawCls === 'flex-none') { styles.flexGrow = 0; styles.flexShrink = 0; continue; }
         if (rawCls === 'flex-grow' || rawCls === 'grow') { styles.flexGrow = 1; continue; }
+        if (rawCls === 'flex-grow-0' || rawCls === 'grow-0') { styles.flexGrow = 0; continue; }
+        if (rawCls === 'flex-shrink' || rawCls === 'shrink') { styles.flexShrink = 1; continue; }
         if (rawCls === 'flex-shrink-0' || rawCls === 'shrink-0') { styles.flexShrink = 0; continue; }
+        // basis-N → flex-basis
+        const basisMatch = rawCls.match(/^basis-(.+)$/);
+        if (basisMatch) {
+            const arb = basisMatch[1].match(/^\[(.+?)\]$/);
+            if (arb) { styles.styleCss = (styles.styleCss || '') + `flex-basis: ${arb[1]};`; continue; }
+            const frac = resolveFraction(basisMatch[1]);
+            if (frac) { styles.styleCss = (styles.styleCss || '') + `flex-basis: ${frac};`; continue; }
+            if (basisMatch[1] === 'full') { styles.styleCss = (styles.styleCss || '') + 'flex-basis: 100%;'; continue; }
+            if (basisMatch[1] === 'auto') { styles.styleCss = (styles.styleCss || '') + 'flex-basis: auto;'; continue; }
+            const v = resolveSpacing(basisMatch[1]);
+            if (v !== undefined) { styles.styleCss = (styles.styleCss || '') + `flex-basis: ${v}px;`; continue; }
+            continue;
+        }
         if (rawCls === 'inline-block' || rawCls === 'block' || rawCls === 'inline') continue;
+
+        // Visibility / display toggles
+        if (rawCls === 'hidden') {
+            styles.styleCss = (styles.styleCss || '') + 'display: none;';
+            continue;
+        }
+        if (rawCls === 'invisible') {
+            styles.styleCss = (styles.styleCss || '') + 'visibility: hidden;';
+            continue;
+        }
+        if (rawCls === 'visible') {
+            styles.styleCss = (styles.styleCss || '') + 'visibility: visible;';
+            continue;
+        }
+        // sr-only / not-sr-only — accessibility, hide visually but keep for screen readers.
+        // For visual rendering, treat sr-only like hidden so the content doesn't bleed in.
+        if (rawCls === 'sr-only') {
+            styles.styleCss = (styles.styleCss || '') + 'position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border-width: 0;';
+            continue;
+        }
+        if (rawCls === 'not-sr-only') continue;
+        // isolate / isolation — needed paired with backdrop-filter on parent
+        if (rawCls === 'isolate') {
+            styles.styleCss = (styles.styleCss || '') + 'isolation: isolate;';
+            continue;
+        }
+        if (rawCls === 'isolation-auto') {
+            styles.styleCss = (styles.styleCss || '') + 'isolation: auto;';
+            continue;
+        }
 
         // Justify
         if (rawCls === 'justify-center') { styles.justifyContent = 'center'; continue; }
@@ -374,6 +453,19 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         if (rawCls === 'place-items-end') { styles.alignItems = 'flex-end'; styles.justifyContent = 'flex-end'; continue; }
 
         // ─── Gap / Space ────────────────────
+        // gap-x-N / gap-y-N must come BEFORE the bare gap-N matcher so they win.
+        const gapXMatch = rawCls.match(/^gap-x-(.+)$/);
+        if (gapXMatch) {
+            const v = resolveSpacing(gapXMatch[1]);
+            if (v !== undefined) styles.styleCss = (styles.styleCss || '') + `column-gap: ${v}px;`;
+            continue;
+        }
+        const gapYMatch = rawCls.match(/^gap-y-(.+)$/);
+        if (gapYMatch) {
+            const v = resolveSpacing(gapYMatch[1]);
+            if (v !== undefined) styles.styleCss = (styles.styleCss || '') + `row-gap: ${v}px;`;
+            continue;
+        }
         const gapMatch = rawCls.match(/^gap-(.+)$/);
         if (gapMatch) {
             const v = resolveSpacing(gapMatch[1]);
@@ -431,6 +523,42 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
 
         // ─── Margin (used for spacing, mapped to padding/position context) ──
         // Also handle negative margins: -mt-8, -mb-4, etc.
+        // m-N (all 4 sides) and m-auto must be matched BEFORE the per-side handlers
+        // so they don't get partially eaten.
+        const mAllMatch = rawCls.match(/^-?m-(.+)$/);
+        if (mAllMatch && !rawCls.startsWith('mx-') && !rawCls.startsWith('my-') &&
+            !rawCls.startsWith('mt-') && !rawCls.startsWith('mb-') &&
+            !rawCls.startsWith('ml-') && !rawCls.startsWith('mr-') &&
+            !rawCls.startsWith('-mx-') && !rawCls.startsWith('-my-') &&
+            !rawCls.startsWith('-mt-') && !rawCls.startsWith('-mb-') &&
+            !rawCls.startsWith('-ml-') && !rawCls.startsWith('-mr-') &&
+            !rawCls.startsWith('mix-') && !rawCls.startsWith('min-') &&
+            !rawCls.startsWith('max-')) {
+            if (mAllMatch[1] === 'auto') {
+                styles.styleCss = (styles.styleCss || '') + 'margin: auto;';
+                continue;
+            }
+            const neg = rawCls.startsWith('-') ? -1 : 1;
+            const v = resolveSpacing(mAllMatch[1]);
+            if (v !== undefined) {
+                const px = v * neg;
+                styles.marginTop = px; styles.marginBottom = px;
+                styles.marginLeft = px; styles.marginRight = px;
+            }
+            continue;
+        }
+        // mx-N (horizontal) — analogous to my-N
+        const mxMatch = rawCls.match(/^-?mx-(.+)$/);
+        if (mxMatch) {
+            if (mxMatch[1] === 'auto') {
+                styles.styleCss = (styles.styleCss || '') + 'margin-left: auto; margin-right: auto;';
+                continue;
+            }
+            const neg = rawCls.startsWith('-') ? -1 : 1;
+            const v = resolveSpacing(mxMatch[1]);
+            if (v !== undefined) { styles.marginLeft = v * neg; styles.marginRight = v * neg; }
+            continue;
+        }
         const mtMatch = rawCls.match(/^-?mt-(.+)$/);
         if (mtMatch) {
             const neg = rawCls.startsWith('-') ? -1 : 1;
@@ -469,19 +597,80 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
 
         // ─── Width / Height ─────────────────
         if (rawCls === 'w-full') { styles.width = '100%'; continue; }
+        if (rawCls === 'w-screen') { styles.width = '100vw'; continue; }
+        if (rawCls === 'w-fit') { styles.width = 'fit-content'; continue; }
+        if (rawCls === 'w-min') { styles.width = 'min-content'; continue; }
+        if (rawCls === 'w-max') { styles.width = 'max-content'; continue; }
+        if (rawCls === 'w-auto') { styles.width = 'auto'; continue; }
         if (rawCls === 'h-full') { styles.height = '100%'; continue; }
         if (rawCls === 'h-screen') { styles.height = '100%'; continue; }
+        if (rawCls === 'h-fit') { styles.height = 'fit-content'; continue; }
+        if (rawCls === 'h-min') { styles.height = 'min-content'; continue; }
+        if (rawCls === 'h-max') { styles.height = 'max-content'; continue; }
+        if (rawCls === 'h-auto') { styles.height = 'auto'; continue; }
         if (rawCls === 'min-h-screen') { styles.minHeight = '100%'; continue; }
+        if (rawCls === 'min-h-full') { styles.minHeight = '100%'; continue; }
+        if (rawCls === 'min-h-0') { styles.minHeight = '0'; continue; }
+        if (rawCls === 'min-h-fit') { styles.minHeight = 'fit-content'; continue; }
         // Arbitrary min-h: min-h-[320px], min-h-[50vh], etc.
         const minHMatch = rawCls.match(/^min-h-\[(.+?)\]$/);
         if (minHMatch) { styles.minHeight = minHMatch[1]; continue; }
-        if (rawCls === 'max-w-xs') { styles.maxWidth = '320px'; continue; }
-        if (rawCls === 'max-w-sm') { styles.maxWidth = '384px'; continue; }
-        if (rawCls === 'max-w-md') { styles.maxWidth = '448px'; continue; }
-        if (rawCls === 'max-w-lg') { styles.maxWidth = '512px'; continue; }
-        if (rawCls === 'max-w-xl') { styles.maxWidth = '576px'; continue; }
-        if (rawCls === 'max-w-2xl') { styles.maxWidth = '672px'; continue; }
-        if (rawCls === 'max-w-full') { styles.maxWidth = '100%'; continue; }
+        // Spacing-scale min-h: min-h-12 → 48px
+        const minHSpacingMatch = rawCls.match(/^min-h-(\d+(?:\.\d+)?)$/);
+        if (minHSpacingMatch) {
+            const v = resolveSpacing(minHSpacingMatch[1]);
+            if (v !== undefined) styles.minHeight = `${v}px`;
+            continue;
+        }
+        // min-w
+        if (rawCls === 'min-w-screen') { styles.minWidth = '100vw'; continue; }
+        if (rawCls === 'min-w-full') { styles.minWidth = '100%'; continue; }
+        if (rawCls === 'min-w-0') { styles.minWidth = '0'; continue; }
+        if (rawCls === 'min-w-fit') { styles.minWidth = 'fit-content'; continue; }
+        if (rawCls === 'min-w-min') { styles.minWidth = 'min-content'; continue; }
+        if (rawCls === 'min-w-max') { styles.minWidth = 'max-content'; continue; }
+        const minWArbMatch = rawCls.match(/^min-w-\[(.+?)\]$/);
+        if (minWArbMatch) { styles.minWidth = minWArbMatch[1]; continue; }
+        const minWSpacingMatch = rawCls.match(/^min-w-(\d+(?:\.\d+)?)$/);
+        if (minWSpacingMatch) {
+            const v = resolveSpacing(minWSpacingMatch[1]);
+            if (v !== undefined) styles.minWidth = `${v}px`;
+            continue;
+        }
+        // max-h
+        if (rawCls === 'max-h-screen') { styles.maxHeight = '100vh'; continue; }
+        if (rawCls === 'max-h-full') { styles.maxHeight = '100%'; continue; }
+        if (rawCls === 'max-h-fit') { styles.maxHeight = 'fit-content'; continue; }
+        const maxHArbMatch = rawCls.match(/^max-h-\[(.+?)\]$/);
+        if (maxHArbMatch) { styles.maxHeight = maxHArbMatch[1]; continue; }
+        const maxHSpacingMatch = rawCls.match(/^max-h-(\d+(?:\.\d+)?)$/);
+        if (maxHSpacingMatch) {
+            const v = resolveSpacing(maxHSpacingMatch[1]);
+            if (v !== undefined) styles.maxHeight = `${v}px`;
+            continue;
+        }
+        // max-w (full set including 3xl..7xl, prose, none)
+        const MAX_W_MAP: Record<string, string> = {
+            'xs': '320px', 'sm': '384px', 'md': '448px', 'lg': '512px', 'xl': '576px',
+            '2xl': '672px', '3xl': '768px', '4xl': '896px', '5xl': '1024px',
+            '6xl': '1152px', '7xl': '1280px', 'prose': '65ch', 'none': 'none',
+            'full': '100%', 'screen': '100vw',
+        };
+        const maxWNamedMatch = rawCls.match(/^max-w-([\w]+)$/);
+        if (maxWNamedMatch && MAX_W_MAP[maxWNamedMatch[1]] !== undefined) {
+            styles.maxWidth = MAX_W_MAP[maxWNamedMatch[1]];
+            continue;
+        }
+        // max-w-screen-{sm,md,lg,xl,2xl}
+        const maxWScreenMatch = rawCls.match(/^max-w-screen-(sm|md|lg|xl|2xl)$/);
+        if (maxWScreenMatch) {
+            const screenMap: Record<string, string> = { 'sm': '640px', 'md': '768px', 'lg': '1024px', 'xl': '1280px', '2xl': '1536px' };
+            styles.maxWidth = screenMap[maxWScreenMatch[1]];
+            continue;
+        }
+        // max-w-[arbitrary]
+        const maxWArbMatch = rawCls.match(/^max-w-\[(.+?)\]$/);
+        if (maxWArbMatch) { styles.maxWidth = maxWArbMatch[1]; continue; }
 
         // w-N (spacing scale → px, fractions → %)
         const wMatch = rawCls.match(/^w-(.+)$/);
@@ -541,11 +730,67 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         if (rawCls === 'uppercase') { styles.textTransform = 'uppercase'; continue; }
         if (rawCls === 'lowercase') { styles.textTransform = 'lowercase'; continue; }
         if (rawCls === 'capitalize') { styles.textTransform = 'capitalize'; continue; }
+        if (rawCls === 'normal-case') { styles.textTransform = 'none'; continue; }
+
+        // Font style (italic)
+        if (rawCls === 'italic') { styles.fontStyle = 'italic'; continue; }
+        if (rawCls === 'not-italic') { styles.fontStyle = 'normal'; continue; }
+
+        // Text decoration
+        if (rawCls === 'underline') { styles.styleCss = (styles.styleCss || '') + 'text-decoration: underline;'; continue; }
+        if (rawCls === 'line-through') { styles.styleCss = (styles.styleCss || '') + 'text-decoration: line-through;'; continue; }
+        if (rawCls === 'overline') { styles.styleCss = (styles.styleCss || '') + 'text-decoration: overline;'; continue; }
+        if (rawCls === 'no-underline') { styles.styleCss = (styles.styleCss || '') + 'text-decoration: none;'; continue; }
+        // decoration-{thickness, style, color}
+        const decorThickMatch = rawCls.match(/^decoration-(\d+|auto|from-font)$/);
+        if (decorThickMatch) {
+            const v = decorThickMatch[1];
+            const css = /^\d+$/.test(v) ? `${v}px` : v;
+            styles.styleCss = (styles.styleCss || '') + `text-decoration-thickness: ${css};`;
+            continue;
+        }
+        if (/^decoration-(solid|dashed|dotted|double|wavy)$/.test(rawCls)) {
+            styles.styleCss = (styles.styleCss || '') + `text-decoration-style: ${rawCls.replace('decoration-', '')};`;
+            continue;
+        }
+        const decorColorMatch = rawCls.match(/^decoration-(.+)$/);
+        if (decorColorMatch) {
+            const arb = decorColorMatch[1].match(/^\[(.+?)\]$/);
+            if (arb) {
+                styles.styleCss = (styles.styleCss || '') + `text-decoration-color: ${arb[1]};`;
+                continue;
+            }
+            const c = resolveColor(decorColorMatch[1], customColors);
+            if (c) {
+                styles.styleCss = (styles.styleCss || '') + `text-decoration-color: ${c};`;
+                continue;
+            }
+        }
+
+        // Default font-family stacks (font-mono, font-sans, font-serif)
+        if (rawCls === 'font-mono') { styles.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'; continue; }
+        if (rawCls === 'font-sans') { styles.fontFamily = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'; continue; }
+        if (rawCls === 'font-serif') { styles.fontFamily = 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif'; continue; }
 
         // Text align
         if (rawCls === 'text-center') { styles.textAlign = 'center'; continue; }
         if (rawCls === 'text-left') { styles.textAlign = 'left'; continue; }
         if (rawCls === 'text-right') { styles.textAlign = 'right'; continue; }
+        if (rawCls === 'text-justify') { styles.textAlign = 'justify'; continue; }
+        if (rawCls === 'text-start') { styles.textAlign = 'start'; continue; }
+        if (rawCls === 'text-end') { styles.textAlign = 'end'; continue; }
+        // text-balance / text-pretty / text-wrap / text-ellipsis / text-clip
+        if (rawCls === 'text-balance') { styles.styleCss = (styles.styleCss || '') + 'text-wrap: balance;'; continue; }
+        if (rawCls === 'text-pretty') { styles.styleCss = (styles.styleCss || '') + 'text-wrap: pretty;'; continue; }
+        if (rawCls === 'text-wrap') { styles.styleCss = (styles.styleCss || '') + 'text-wrap: wrap;'; continue; }
+        if (rawCls === 'text-ellipsis') { styles.styleCss = (styles.styleCss || '') + 'text-overflow: ellipsis;'; continue; }
+        if (rawCls === 'text-clip') { styles.styleCss = (styles.styleCss || '') + 'text-overflow: clip;'; continue; }
+        // align-{baseline, top, middle, bottom, ...}
+        const alignVMatch = rawCls.match(/^align-(baseline|top|middle|bottom|text-top|text-bottom|sub|super)$/);
+        if (alignVMatch) {
+            styles.styleCss = (styles.styleCss || '') + `vertical-align: ${alignVMatch[1].replace('text-', 'text-')};`;
+            continue;
+        }
 
         // Tracking (letter spacing)
         if (rawCls === 'tracking-tight') { styles.letterSpacing = '-0.5'; continue; }
@@ -596,7 +841,7 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             if (c) { styles.color = c; continue; }
         }
 
-        // bg-COLOR
+        // bg-COLOR (and bg-* utilities for size/position/repeat/attachment)
         const bgColorMatch = rawCls.match(/^bg-(.+)$/);
         if (bgColorMatch) {
             const colorStr = bgColorMatch[1];
@@ -606,7 +851,54 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
                 continue;
             }
             if (colorStr.startsWith('gradient')) continue;
-            if (colorStr === 'cover' || colorStr === 'center') continue;
+            // background-size utilities
+            if (colorStr === 'cover') { styles.styleCss = (styles.styleCss || '') + 'background-size: cover;'; continue; }
+            if (colorStr === 'contain') { styles.styleCss = (styles.styleCss || '') + 'background-size: contain;'; continue; }
+            if (colorStr === 'auto') { styles.styleCss = (styles.styleCss || '') + 'background-size: auto;'; continue; }
+            // background-position utilities
+            const POS_MAP: Record<string, string> = {
+                'center': 'center', 'top': 'top', 'bottom': 'bottom',
+                'left': 'left', 'right': 'right',
+                'left-top': 'left top', 'left-bottom': 'left bottom',
+                'right-top': 'right top', 'right-bottom': 'right bottom',
+            };
+            if (POS_MAP[colorStr] !== undefined) {
+                styles.styleCss = (styles.styleCss || '') + `background-position: ${POS_MAP[colorStr]};`;
+                continue;
+            }
+            // background-repeat utilities
+            if (colorStr === 'no-repeat' || colorStr === 'repeat' ||
+                colorStr === 'repeat-x' || colorStr === 'repeat-y' ||
+                colorStr === 'repeat-round' || colorStr === 'repeat-space') {
+                styles.styleCss = (styles.styleCss || '') + `background-repeat: ${colorStr};`;
+                continue;
+            }
+            // background-attachment utilities
+            if (colorStr === 'fixed' || colorStr === 'local' || colorStr === 'scroll') {
+                styles.styleCss = (styles.styleCss || '') + `background-attachment: ${colorStr};`;
+                continue;
+            }
+            // background-clip / background-origin
+            if (colorStr === 'clip-text') { styles._hasBgClipText = true; continue; }
+            if (colorStr === 'clip-border' || colorStr === 'clip-padding' || colorStr === 'clip-content') {
+                styles.styleCss = (styles.styleCss || '') + `background-clip: ${colorStr.replace('clip-', '')}-box;`;
+                continue;
+            }
+            if (colorStr === 'origin-border' || colorStr === 'origin-padding' || colorStr === 'origin-content') {
+                styles.styleCss = (styles.styleCss || '') + `background-origin: ${colorStr.replace('origin-', '')}-box;`;
+                continue;
+            }
+            // bg-blend-{normal, multiply, screen, overlay, ...}
+            const bgBlendMatch = colorStr.match(/^blend-(.+)$/);
+            if (bgBlendMatch) {
+                styles.styleCss = (styles.styleCss || '') + `background-blend-mode: ${bgBlendMatch[1]};`;
+                continue;
+            }
+            // Custom theme.extend.backgroundImage key (e.g. bg-metallic-rim → conic-gradient(...))
+            if (customBackgroundImages && customBackgroundImages[colorStr]) {
+                styles.styleCss = (styles.styleCss || '') + `background-image: ${customBackgroundImages[colorStr]};`;
+                continue;
+            }
             // Handle arbitrary bracket values: bg-[#hex], bg-[rgb(...)], bg-[gradient-fn(...)]
             const arbBgColor = colorStr.match(/^\[(.+?)\]$/);
             if (arbBgColor) {
@@ -669,14 +961,50 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         const borderWMatch = rawCls.match(/^border-(\d+)$/);
         if (borderWMatch) { styles.borderWidth = parseInt(borderWMatch[1]); continue; }
 
-        // Per-side borders: border-t, border-b, border-l, border-r (with optional width)
+        // Per-side borders: border-t, border-b, border-l, border-r, border-x, border-y (with optional width)
         // XGENIA doesn't have per-side border width, so emit via styleCss
-        const borderSideMatch = rawCls.match(/^border-([tblr])(?:-(\d+))?$/);
+        const borderSideMatch = rawCls.match(/^border-([tblrxy])(?:-(\d+))?$/);
         if (borderSideMatch) {
-            const sideMap: Record<string, string> = { t: 'top', b: 'bottom', l: 'left', r: 'right' };
-            const side = sideMap[borderSideMatch[1]];
             const width = borderSideMatch[2] ? parseInt(borderSideMatch[2]) : 1;
-            styles.styleCss = (styles.styleCss || '') + `border-${side}-width: ${width}px; border-${side}-style: solid;`;
+            const axis = borderSideMatch[1];
+            if (axis === 'x') {
+                styles.styleCss = (styles.styleCss || '') + `border-left-width: ${width}px; border-left-style: solid; border-right-width: ${width}px; border-right-style: solid;`;
+            } else if (axis === 'y') {
+                styles.styleCss = (styles.styleCss || '') + `border-top-width: ${width}px; border-top-style: solid; border-bottom-width: ${width}px; border-bottom-style: solid;`;
+            } else {
+                const sideMap: Record<string, string> = { t: 'top', b: 'bottom', l: 'left', r: 'right' };
+                const side = sideMap[axis];
+                styles.styleCss = (styles.styleCss || '') + `border-${side}-width: ${width}px; border-${side}-style: solid;`;
+            }
+            continue;
+        }
+        // Border style utilities
+        if (rawCls === 'border-solid') { styles.styleCss = (styles.styleCss || '') + 'border-style: solid;'; continue; }
+        if (rawCls === 'border-dashed') { styles.styleCss = (styles.styleCss || '') + 'border-style: dashed;'; continue; }
+        if (rawCls === 'border-dotted') { styles.styleCss = (styles.styleCss || '') + 'border-style: dotted;'; continue; }
+        if (rawCls === 'border-double') { styles.styleCss = (styles.styleCss || '') + 'border-style: double;'; continue; }
+        if (rawCls === 'border-none') { styles.borderWidth = 0; continue; }
+        if (rawCls === 'border-hidden') { styles.styleCss = (styles.styleCss || '') + 'border-style: hidden;'; continue; }
+        // Divide utilities (border between siblings)
+        if (rawCls === 'divide-x') { styles.styleCss = (styles.styleCss || '') + '& > * + * { border-left-width: 1px; border-left-style: solid; }'; continue; }
+        if (rawCls === 'divide-y') { styles.styleCss = (styles.styleCss || '') + '& > * + * { border-top-width: 1px; border-top-style: solid; }'; continue; }
+        const divideXNMatch = rawCls.match(/^divide-x-(\d+)$/);
+        if (divideXNMatch) { styles.styleCss = (styles.styleCss || '') + `& > * + * { border-left-width: ${divideXNMatch[1]}px; border-left-style: solid; }`; continue; }
+        const divideYNMatch = rawCls.match(/^divide-y-(\d+)$/);
+        if (divideYNMatch) { styles.styleCss = (styles.styleCss || '') + `& > * + * { border-top-width: ${divideYNMatch[1]}px; border-top-style: solid; }`; continue; }
+        // divide-COLOR → border-color on divider edges
+        const divideColorMatch = rawCls.match(/^divide-(.+)$/);
+        if (divideColorMatch && !['x', 'y', 'solid', 'dashed', 'dotted', 'double', 'none'].includes(divideColorMatch[1]) && !/^[xy]-\d+$/.test(divideColorMatch[1])) {
+            const arb = divideColorMatch[1].match(/^\[(.+?)\]$/);
+            const c = arb ? arb[1] : resolveColor(divideColorMatch[1], customColors);
+            if (c) {
+                styles.styleCss = (styles.styleCss || '') + `& > * + * { border-color: ${c}; }`;
+                continue;
+            }
+        }
+        if (rawCls === 'divide-solid' || rawCls === 'divide-dashed' || rawCls === 'divide-dotted' || rawCls === 'divide-double' || rawCls === 'divide-none') {
+            const v = rawCls.replace('divide-', '');
+            styles.styleCss = (styles.styleCss || '') + `& > * + * { border-style: ${v}; }`;
             continue;
         }
 
@@ -706,6 +1034,56 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         if (rawCls === 'inset-0') {
             styles.top = '0'; styles.bottom = '0'; styles.left = '0'; styles.right = '0';
             continue;
+        }
+        // General inset-N (all four sides), inset-x-N (left+right), inset-y-N (top+bottom),
+        // and their negative counterparts.
+        const insetAllMatch = rawCls.match(/^-?inset-(.+)$/);
+        if (insetAllMatch && !rawCls.startsWith('inset-x') && !rawCls.startsWith('inset-y') && !rawCls.startsWith('-inset-x') && !rawCls.startsWith('-inset-y')) {
+            const neg = rawCls.startsWith('-') ? '-' : '';
+            const arb = insetAllMatch[1].match(/^\[(.+?)\]$/);
+            if (arb) {
+                const v = `${neg}${arb[1]}`;
+                styles.top = v; styles.bottom = v; styles.left = v; styles.right = v;
+                continue;
+            }
+            const v = resolveSpacing(insetAllMatch[1]);
+            if (v !== undefined) {
+                const px = `${neg}${v}px`;
+                styles.top = px; styles.bottom = px; styles.left = px; styles.right = px;
+                continue;
+            }
+        }
+        const insetXMatch = rawCls.match(/^-?inset-x-(.+)$/);
+        if (insetXMatch) {
+            const neg = rawCls.startsWith('-') ? '-' : '';
+            const arb = insetXMatch[1].match(/^\[(.+?)\]$/);
+            if (arb) {
+                const v = `${neg}${arb[1]}`;
+                styles.left = v; styles.right = v;
+                continue;
+            }
+            const v = resolveSpacing(insetXMatch[1]);
+            if (v !== undefined) {
+                const px = `${neg}${v}px`;
+                styles.left = px; styles.right = px;
+                continue;
+            }
+        }
+        const insetYMatch = rawCls.match(/^-?inset-y-(.+)$/);
+        if (insetYMatch) {
+            const neg = rawCls.startsWith('-') ? '-' : '';
+            const arb = insetYMatch[1].match(/^\[(.+?)\]$/);
+            if (arb) {
+                const v = `${neg}${arb[1]}`;
+                styles.top = v; styles.bottom = v;
+                continue;
+            }
+            const v = resolveSpacing(insetYMatch[1]);
+            if (v !== undefined) {
+                const px = `${neg}${v}px`;
+                styles.top = px; styles.bottom = px;
+                continue;
+            }
         }
         const posMatch = rawCls.match(/^(top|bottom|left|right)-(.+)$/);
         if (posMatch) {
@@ -1041,9 +1419,117 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             continue;
         }
 
+        // accent-COLOR / caret-COLOR
+        const accentMatch = rawCls.match(/^accent-(.+)$/);
+        if (accentMatch) {
+            const arb = accentMatch[1].match(/^\[(.+?)\]$/);
+            const c = arb ? arb[1] : resolveColor(accentMatch[1], customColors);
+            if (c) styles.styleCss = (styles.styleCss || '') + `accent-color: ${c};`;
+            continue;
+        }
+        const caretMatch = rawCls.match(/^caret-(.+)$/);
+        if (caretMatch) {
+            const arb = caretMatch[1].match(/^\[(.+?)\]$/);
+            const c = arb ? arb[1] : resolveColor(caretMatch[1], customColors);
+            if (c) styles.styleCss = (styles.styleCss || '') + `caret-color: ${c};`;
+            continue;
+        }
+        // outline utilities
+        if (rawCls === 'outline-none') { styles.styleCss = (styles.styleCss || '') + 'outline: none;'; continue; }
+        if (rawCls === 'outline') { styles.styleCss = (styles.styleCss || '') + 'outline-style: solid; outline-width: 1px;'; continue; }
+        if (rawCls === 'outline-dashed' || rawCls === 'outline-dotted' || rawCls === 'outline-double') {
+            styles.styleCss = (styles.styleCss || '') + `outline-style: ${rawCls.replace('outline-', '')};`;
+            continue;
+        }
+        const outlineWidthMatch = rawCls.match(/^outline-(\d+)$/);
+        if (outlineWidthMatch) {
+            styles.styleCss = (styles.styleCss || '') + `outline-width: ${outlineWidthMatch[1]}px; outline-style: solid;`;
+            continue;
+        }
+        const outlineOffsetMatch = rawCls.match(/^outline-offset-(\d+)$/);
+        if (outlineOffsetMatch) {
+            styles.styleCss = (styles.styleCss || '') + `outline-offset: ${outlineOffsetMatch[1]}px;`;
+            continue;
+        }
+        const outlineColorMatch = rawCls.match(/^outline-(.+)$/);
+        if (outlineColorMatch) {
+            const arb = outlineColorMatch[1].match(/^\[(.+?)\]$/);
+            const c = arb ? arb[1] : resolveColor(outlineColorMatch[1], customColors);
+            if (c) styles.styleCss = (styles.styleCss || '') + `outline-color: ${c};`;
+            continue;
+        }
+        // user-select / select-*
+        if (/^select-(none|text|all|auto)$/.test(rawCls)) {
+            styles.styleCss = (styles.styleCss || '') + `user-select: ${rawCls.replace('select-', '')};`;
+            continue;
+        }
+        // resize-* (button reset etc)
+        if (/^resize(-(none|y|x|both))?$/.test(rawCls)) {
+            const v = rawCls === 'resize' ? 'both' : rawCls.replace('resize-', '');
+            styles.styleCss = (styles.styleCss || '') + `resize: ${v};`;
+            continue;
+        }
+        if (rawCls === 'appearance-none') { styles.styleCss = (styles.styleCss || '') + 'appearance: none;'; continue; }
+        // cursor-* (not always desired but harmless)
+        const cursorMatch = rawCls.match(/^cursor-(.+)$/);
+        if (cursorMatch && !cursorMatch[1].startsWith('[')) {
+            styles.styleCss = (styles.styleCss || '') + `cursor: ${cursorMatch[1]};`;
+            continue;
+        }
+        // scroll-behavior
+        if (rawCls === 'scroll-smooth') { styles.styleCss = (styles.styleCss || '') + 'scroll-behavior: smooth;'; continue; }
+        if (rawCls === 'scroll-auto') { styles.styleCss = (styles.styleCss || '') + 'scroll-behavior: auto;'; continue; }
+        // will-change
+        const willChangeMatch = rawCls.match(/^will-change-(.+)$/);
+        if (willChangeMatch) {
+            styles.styleCss = (styles.styleCss || '') + `will-change: ${willChangeMatch[1]};`;
+            continue;
+        }
+        // place-content / place-self / content-* (align-content)
+        const placeContentMatch = rawCls.match(/^place-content-(start|end|center|between|around|evenly|baseline|stretch)$/);
+        if (placeContentMatch) {
+            const v = placeContentMatch[1];
+            const cssV = v === 'start' || v === 'end' ? `flex-${v}` : v === 'between' || v === 'around' || v === 'evenly' ? `space-${v}` : v;
+            styles.styleCss = (styles.styleCss || '') + `place-content: ${cssV};`;
+            continue;
+        }
+        const contentAlignMatch = rawCls.match(/^content-(start|end|center|between|around|evenly|baseline|stretch)$/);
+        if (contentAlignMatch) {
+            const v = contentAlignMatch[1];
+            const cssV = v === 'start' || v === 'end' ? `flex-${v}` : v === 'between' || v === 'around' || v === 'evenly' ? `space-${v}` : v;
+            styles.styleCss = (styles.styleCss || '') + `align-content: ${cssV};`;
+            continue;
+        }
+        const placeSelfMatch = rawCls.match(/^place-self-(auto|start|end|center|stretch)$/);
+        if (placeSelfMatch) {
+            const v = placeSelfMatch[1];
+            const cssV = v === 'start' || v === 'end' ? `flex-${v}` : v;
+            styles.styleCss = (styles.styleCss || '') + `place-self: ${cssV};`;
+            continue;
+        }
+        // justify-items / justify-self
+        const justifyItemsMatch = rawCls.match(/^justify-items-(start|end|center|stretch)$/);
+        if (justifyItemsMatch) {
+            styles.styleCss = (styles.styleCss || '') + `justify-items: ${justifyItemsMatch[1]};`;
+            continue;
+        }
+        const justifySelfMatch = rawCls.match(/^justify-self-(auto|start|end|center|stretch)$/);
+        if (justifySelfMatch) {
+            styles.styleCss = (styles.styleCss || '') + `justify-self: ${justifySelfMatch[1]};`;
+            continue;
+        }
+        // order-N / order-first / order-last / order-none
+        const orderMatch = rawCls.match(/^order-(\d+|first|last|none)$/);
+        if (orderMatch) {
+            const ORDER_MAP: Record<string, string> = { 'first': '-9999', 'last': '9999', 'none': '0' };
+            const v = ORDER_MAP[orderMatch[1]] !== undefined ? ORDER_MAP[orderMatch[1]] : orderMatch[1];
+            styles.styleCss = (styles.styleCss || '') + `order: ${v};`;
+            continue;
+        }
+
         // Skip misc utility classes
         if (rawCls === 'truncate' || rawCls === 'break-inside-avoid' ||
-            rawCls === 'no-scrollbar' || rawCls === 'group') continue;
+            rawCls === 'no-scrollbar' || rawCls === 'group' || rawCls === 'peer') continue;
 
         // font-FAMILY (custom Tailwind theme fonts like font-spooky, font-display)
         const fontFamilyMatch = rawCls.match(/^font-([\w-]+)$/);
@@ -1179,8 +1665,10 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
             // Keep 'px' suffix — XGENIA interprets bare numbers as %
             case 'width': styles.width = value.trim(); break;
             case 'height': styles.height = value.trim(); break;
+            case 'min-width': styles.minWidth = value.trim(); break;
             case 'min-height': styles.minHeight = value.trim(); break;
             case 'max-width': styles.maxWidth = value.trim(); break;
+            case 'max-height': styles.maxHeight = value.trim(); break;
 
             // ─── Padding (individual + shorthand) ─
             case 'padding-top': {
@@ -1261,8 +1749,12 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                 const urlMatch = value.match(/url\(['"]?(.+?)['"]?\)/);
                 if (urlMatch) {
                     styles.backgroundImage = urlMatch[1];
-                } else if (value.includes('radial-gradient') || value.includes('linear-gradient')) {
-                    // Gradient background-image (e.g. dot grid pattern) → forward as CSS
+                } else if (
+                    value.includes('radial-gradient') ||
+                    value.includes('linear-gradient') ||
+                    value.includes('conic-gradient')
+                ) {
+                    // Gradient background-image (e.g. dot grid pattern, conic wheel) → forward as CSS
                     styles.styleCss = (styles.styleCss || '') + `background-image: ${value};`;
                 }
                 break;
@@ -1273,7 +1765,11 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                 break;
             }
             case 'background': {
-                if (value.includes('linear-gradient') || value.includes('radial-gradient')) {
+                if (
+                    value.includes('linear-gradient') ||
+                    value.includes('radial-gradient') ||
+                    value.includes('conic-gradient')
+                ) {
                     styles.styleCss = (styles.styleCss || '') + `background: ${value};`;
                 } else if (value.includes('rgba') || value.includes('rgb')) {
                     // background: rgba(16, 22, 34, 0.4)
@@ -1448,6 +1944,150 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                 break;
             }
 
+            // ─── Visual effects / typography / layout forwarded to styleCss ───
+            // These were previously dropped by the default branch, leaving inline-styled
+            // effects invisible. Forward them as raw CSS so they render.
+            case 'box-shadow':
+            case 'text-shadow':
+            case 'clip-path':
+            case 'transform-origin':
+            case 'writing-mode':
+            case 'text-orientation':
+            case 'aspect-ratio':
+            case 'mix-blend-mode':
+            case 'background-clip':
+            case '-webkit-background-clip':
+            case '-webkit-text-fill-color':
+            case 'letter-spacing':
+            case 'line-height':
+            // Typography decoration / style
+            case 'text-decoration':
+            case 'text-decoration-color':
+            case 'text-decoration-style':
+            case 'text-decoration-thickness':
+            case 'text-decoration-line':
+            case 'text-overflow':
+            case 'vertical-align':
+            case 'text-wrap':
+            case 'text-indent':
+            case 'word-break':
+            case 'word-spacing':
+            case 'word-wrap':
+            case 'hyphens':
+            case 'text-justify':
+            // Borders (per-side / individual props)
+            case 'border-color':
+            case 'border-width':
+            case 'border-style':
+            case 'border-top':
+            case 'border-right':
+            case 'border-bottom':
+            case 'border-left':
+            case 'border-top-color':
+            case 'border-right-color':
+            case 'border-bottom-color':
+            case 'border-left-color':
+            case 'border-top-width':
+            case 'border-right-width':
+            case 'border-bottom-width':
+            case 'border-left-width':
+            case 'border-top-style':
+            case 'border-right-style':
+            case 'border-bottom-style':
+            case 'border-left-style':
+            // Outline
+            case 'outline':
+            case 'outline-color':
+            case 'outline-style':
+            case 'outline-width':
+            case 'outline-offset':
+            // Visibility / display extras (display itself is consumed above)
+            case 'visibility':
+            case 'isolation':
+            // Grid layout (placement + tracks)
+            case 'grid-template-rows':
+            case 'grid-template-areas':
+            case 'grid-row':
+            case 'grid-row-start':
+            case 'grid-row-end':
+            case 'grid-column':
+            case 'grid-column-start':
+            case 'grid-column-end':
+            case 'grid-area':
+            case 'grid-auto-flow':
+            case 'grid-auto-rows':
+            case 'grid-auto-columns':
+            case 'place-items':
+            case 'place-content':
+            case 'place-self':
+            case 'align-content':
+            case 'justify-items':
+            case 'justify-self':
+            case 'order':
+            // Newer aliases of `gap`
+            case 'column-gap':
+            case 'row-gap':
+            // Background extras
+            case 'background-position':
+            case 'background-repeat':
+            case 'background-attachment':
+            case 'background-origin':
+            case 'background-blend-mode':
+            // Interaction
+            case 'cursor':
+            case 'user-select':
+            case '-webkit-user-select':
+            case 'pointer-events':
+            case 'caret-color':
+            case 'accent-color':
+            case 'resize':
+            case 'appearance':
+            case '-webkit-appearance':
+            // Scroll
+            case 'scroll-behavior':
+            case 'scroll-snap-type':
+            case 'scroll-snap-align':
+            case 'overscroll-behavior':
+            // Animation / transition (generally won't render but preserve as-is)
+            case 'animation':
+            case 'animation-name':
+            case 'animation-duration':
+            case 'animation-delay':
+            case 'animation-iteration-count':
+            case 'animation-direction':
+            case 'animation-fill-mode':
+            case 'animation-play-state':
+            case 'animation-timing-function':
+            case 'transition':
+            case 'transition-property':
+            case 'transition-duration':
+            case 'transition-delay':
+            case 'transition-timing-function':
+            // Transform composition (transform itself has special handling above)
+            case 'transform-style':
+            case 'perspective':
+            case 'perspective-origin':
+            case 'backface-visibility':
+            // Tables / Lists / Print (rare but harmless)
+            case 'list-style':
+            case 'list-style-type':
+            case 'list-style-position':
+            case 'list-style-image':
+            case 'border-collapse':
+            case 'border-spacing':
+            case 'table-layout':
+            // Text writing direction
+            case 'direction':
+            case 'unicode-bidi':
+            // Will-change
+            case 'will-change':
+                styles.styleCss = (styles.styleCss || '') + `${key}: ${value};`;
+                break;
+
+            case 'font-style':
+                styles.fontStyle = value.trim();
+                break;
+
             // Default: unknown properties go to styleCss if they seem important
             default:
                 // Skip common layout no-ops
@@ -1547,6 +2187,38 @@ function extractCustomShadows(html: string): Record<string, string> {
 }
 
 /**
+ * Extract custom backgroundImage definitions from Tailwind config's
+ * theme.extend.backgroundImage. Used so `bg-X` for keys like `metallic-rim`
+ * (defined as conic-gradient(...)) resolve to the right inline CSS.
+ */
+function extractCustomBackgroundImages(html: string): Record<string, string> {
+    const result: Record<string, string> = {};
+    const configMatch = html.match(/tailwind\.config\s*=\s*\{[\s\S]*?\}\s*;?\s*<\/script>/);
+    if (!configMatch) return result;
+    const config = configMatch[0];
+    const sectionRegex = /backgroundImage\s*:\s*\{/g;
+    const sec = sectionRegex.exec(config);
+    if (!sec) return result;
+    // Brace-aware scan to find the matching `}` of the section, since values
+    // may contain quoted strings with parens and commas.
+    let i = sec.index + sec[0].length;
+    let depth = 1;
+    let body = '';
+    while (i < config.length && depth > 0) {
+        const ch = config[i++];
+        if (ch === '{') depth++;
+        else if (ch === '}') { depth--; if (depth === 0) break; }
+        body += ch;
+    }
+    const pairRegex = /["']?([\w-]+)["']?\s*:\s*(['"])((?:\\.|(?!\2)[\s\S])*?)\2/g;
+    let m: RegExpExecArray | null;
+    while ((m = pairRegex.exec(body)) !== null) {
+        result[m[1]] = m[3];
+    }
+    return result;
+}
+
+/**
  * Map Tailwind gradient direction shorthand to CSS linear-gradient direction.
  * e.g. 't' → 'to top', 'br' → 'to bottom right'
  */
@@ -1634,20 +2306,29 @@ function extractKeyframesRules(html: string): Map<string, string> {
 // ─── DOM → XGENIA XML ───────────────────────────────────────
 
 // Tags that should NOT generate a node (they are invisible structural HTML)
-const SKIP_TAGS = new Set(['head', 'script', 'style', 'meta', 'link', 'title', 'noscript', 'br', 'hr']);
+// Note: 'hr' was previously skipped; now rendered as a thin divider Group via the dedicated
+// <hr> handler in translateNode so AI-generated UIs get visible separators between sections.
+// <source> and <track> are skipped because they're metadata children of <picture>/<video>
+// — the actual renderable content is the <img> fallback inside <picture>.
+const SKIP_TAGS = new Set([
+    'head', 'script', 'style', 'meta', 'link', 'title', 'noscript', 'br',
+    'source', 'track', 'col', 'colgroup', 'option', 'param', 'wbr',
+]);
 
 // Tags that represent containers → <group>
 const CONTAINER_TAGS = new Set([
     'div', 'section', 'main', 'header', 'nav', 'footer', 'article', 'aside',
-    'form', 'fieldset', 'ul', 'ol', 'li', 'figure', 'figcaption', 'details',
-    'summary', 'dialog', 'a', 'label'
+    'form', 'fieldset', 'legend', 'ul', 'ol', 'li', 'dl', 'dt', 'dd',
+    'figure', 'figcaption', 'details', 'summary', 'dialog', 'a', 'label',
+    'menu', 'menuitem', 'pre', 'blockquote', 'address',
+    'picture', // <picture> — falls through to first <img> fallback child
 ]);
 
 // Tags that map to native XGENIA <button> node
 const BUTTON_TAGS = new Set(['button']);
 
 // Tags that represent text → <text>
-const TEXT_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'b', 'strong', 'em', 'i']);
+const TEXT_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'b', 'strong', 'em', 'i', 'kbd', 'code', 'mark', 'small', 'sub', 'sup', 'time', 'abbr', 'cite', 'q', 'samp', 'var']);
 
 // Tags that imply bold text
 const BOLD_TAGS = new Set(['b', 'strong']);
@@ -1876,13 +2557,15 @@ export function detectExternalDependencies(html: string): DetectedDependency[] {
 /**
  * Translate raw HTML to XGENIA XML.
  */
-export function translateHtmlToXgeniaXml(html: string): string {
+export function translateHtmlToXgeniaXml(html: string, options?: { omitRootWrapper?: boolean }): string {
     // Extract custom Tailwind colors
     const customColors = extractCustomColors(html);
     // Extract custom Tailwind font families
     const customFonts = extractCustomFonts(html);
     // Extract custom Tailwind box shadows
     const customShadows = extractCustomShadows(html);
+    // Extract custom Tailwind background images (gradient-radial, metallic-rim, etc.)
+    const customBackgroundImages = extractCustomBackgroundImages(html);
     // Extract CSS class styles
     const cssClassStyles = extractCssClassStyles(html);
 
@@ -1908,7 +2591,7 @@ export function translateHtmlToXgeniaXml(html: string): string {
 
     // ─── Extract body-level styles (bg color, text color, flex, etc.) ────
     const bodyClassName = body.getAttribute('class') || '';
-    const bodyStyles = parseTailwindClasses(bodyClassName, customColors, customFonts, customShadows);
+    const bodyStyles = parseTailwindClasses(bodyClassName, customColors, customFonts, customShadows, customBackgroundImages);
     const bodyInline = body.getAttribute('style') ? parseInlineStyle(body.getAttribute('style')!) : {};
     const mergedBodyStyles: ParsedStyles = { ...bodyStyles, ...bodyInline };
 
@@ -1974,7 +2657,7 @@ export function translateHtmlToXgeniaXml(html: string): string {
 
     // Translate body children
     const children = Array.from(body.childNodes)
-        .map(node => translateNode(node, 1, customColors, cssClassStyles, fontFamily, undefined, cssDefinitions, customFonts, customShadows))
+        .map(node => translateNode(node, 1, customColors, cssClassStyles, fontFamily, undefined, cssDefinitions, customFonts, customShadows, customBackgroundImages))
         .filter(Boolean);
 
     // Deduplicate: if consecutive children are identical (duplicated pages), keep only one
@@ -1986,7 +2669,8 @@ export function translateHtmlToXgeniaXml(html: string): string {
     }
 
     if (deduped.length === 0) {
-        return '<group nodeLabel="Root" width="100%" height="100%" />';
+        // Empty body — return a minimal wrapper unless caller wants no wrapper at all.
+        return options?.omitRootWrapper ? '' : '<group nodeLabel="Root" width="100%" height="100%" />';
     }
 
     // Emit CSS Definition nodes for collected CSS classes
@@ -1998,8 +2682,15 @@ export function translateHtmlToXgeniaXml(html: string): string {
         cssDefs.push(`<css-definition style="${escapedCss}" />`);
     });
 
-    // Root group wraps visual children; CSS defs are siblings outside
-    const rootXml = `<group ${rootAttrs.join(' ')}>\n${deduped.join('\n')}\n</group>`;
+    // Root group wraps visual children; CSS defs are siblings outside.
+    // omitRootWrapper: when the caller is inserting the result under an existing
+    // parent node (piecewise build), skip the outer Root group so we don't pile up
+    // @Root, @Root_2, @Root_3… ambiguous labels under the parent slot. The body's
+    // styles have already been lifted onto a child wrapper by the plugin's
+    // liftBodyStylesToRoot pass, so the children carry their own styling.
+    const rootXml = options?.omitRootWrapper
+        ? deduped.join('\n')
+        : `<group ${rootAttrs.join(' ')}>\n${deduped.join('\n')}\n</group>`;
     const fullXml = cssDefs.length > 0 ? rootXml + '\n' + cssDefs.join('\n') : rootXml;
 
     // ─── Post-process: deduplicate nodeLabels ───────────────────
@@ -2092,8 +2783,17 @@ function generateNodeLabel(el: HTMLElement, tag: string, textHint?: string): str
     const meaningfulClasses = classList.filter(c => {
         // Skip Tailwind/utility classes (short, generic patterns)
         if (c.length <= 2) return false;
-        if (/^(flex|grid|gap|p[xytblr]?|m[xytblr]?|w|h|bg|text|font|border|rounded|shadow|overflow|relative|absolute|hidden|block|inline|items|justify|self|col|row|space|min|max|leading|tracking|z|opacity|transition|cursor|hover|focus|active|disabled|sm|md|lg|xl|2xl)-/.test(c)) return false;
-        if (/^(flex|grid|hidden|block|inline|relative|absolute|static|fixed|sticky|rounded|border|shadow|overflow|container|transform|transition|outline|ring|inset|truncate|antialiased|subpixel|clearfix|float|clear|table|contents|visible|invisible|sr|collapse|isolate|object|aspect|columns|break|decoration|underline|overline|italic|uppercase|lowercase|capitalize|ordinal|lining|tabular|proportional|diagonal|stacked|oldstyle|normal|backdrop|resize|snap|touch|select|appearance|pointer|will|scroll|overscroll)$/.test(c)) return false;
+        // Strip a leading variant prefix so `dark:bg-X`, `md:flex`, `hover:opacity-50`, `lg:px-4`
+        // are filtered by the same rules as their plain counterparts.
+        const stripped = c.replace(/^(?:dark|hover|focus|active|disabled|group|sm|md|lg|xl|2xl|first|last|odd|even|peer|aria-[\w-]+|data-[\w-]+):/, '');
+        // Skip prefixed utilities: bg-, text-, border-, top-, right-, bottom-, left-, inset-, w-, h-, etc.
+        if (/^(flex|grid|gap|p[xytblr]?|m[xytblr]?|w|h|bg|text|font|border|rounded|shadow|overflow|relative|absolute|hidden|block|inline|items|justify|self|col|row|space|min|max|leading|tracking|z|opacity|transition|cursor|hover|focus|active|disabled|sm|md|lg|xl|2xl|top|right|bottom|left|inset|from|to|via|aspect|backdrop|divide|place|content|auto|order|basis|grow|shrink|float|clear|origin|rotate|scale|skew|translate|transform|filter|blur|brightness|contrast|grayscale|hue-rotate|invert|saturate|sepia|drop-shadow|backdrop-blur|backdrop-brightness|backdrop-contrast|backdrop-grayscale|backdrop-hue-rotate|backdrop-invert|backdrop-opacity|backdrop-saturate|backdrop-sepia|will-change|fill|stroke|caret|accent|outline|ring|ring-offset|tab|select|sr|cursor|resize|scroll|snap|touch|user|appearance|pointer|gradient)-/.test(stripped)) return false;
+        // Bare Tailwind utility names (no -)
+        if (/^(flex|grid|hidden|block|inline|relative|absolute|static|fixed|sticky|rounded|border|shadow|overflow|container|transform|transition|outline|ring|inset|truncate|antialiased|subpixel|clearfix|float|clear|table|contents|visible|invisible|sr|collapse|isolate|object|aspect|columns|break|decoration|underline|overline|italic|uppercase|lowercase|capitalize|ordinal|lining|tabular|proportional|diagonal|stacked|oldstyle|normal|backdrop|resize|snap|touch|select|appearance|pointer|will|scroll|overscroll|dark|group|peer|first|last|odd|even)$/.test(stripped)) return false;
+        // Skip arbitrary-value Tailwind classes like `top-[10px]`, `bg-[#392830]`, `w-[100vw]`
+        if (/-\[.+\]$/.test(stripped)) return false;
+        // Skip purely-numeric/fractional utilities: `1/4`, `2/3`, `100%` (these slip through if class name is a fragment)
+        if (/^\d+\/\d+$/.test(stripped)) return false;
         return true;
     });
 
@@ -2102,41 +2802,83 @@ function generateNodeLabel(el: HTMLElement, tag: string, textHint?: string): str
         return label.substring(0, MAX_LEN);
     }
 
+    // Helper: clean a label string to remove the concat-rot pattern seen in traces
+    // ("$12,450.00         person", "BET         $25", "⛏ 💎 7 💎 ⛏ 🪙 7 🪙 row").
+    // Collapse whitespace runs, strip emoji-only sequences, reject pure-symbol labels
+    // — these come from textContent aggregating multiple unrelated descendants.
+    const cleanLabel = (raw: string): string => {
+        if (!raw) return '';
+        // Collapse all whitespace (including non-breaking) to single spaces
+        let s = raw.replace(/[\s ]+/g, ' ').trim();
+        // Strip leading/trailing emoji clusters (emojis are bad anchor labels — ASCII
+        // refs are far easier for the AI to target via @ref).
+        const EMOJI_RUN = /^(?:[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{1F000}-\u{1F02F}\u{1F0A0}-\u{1F0FF}\u{1F100}-\u{1F1FF}\u{1F200}-\u{1F2FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F900}-\u{1F9FF}]\s*)+/u;
+        const TRAILING_EMOJI = /\s*(?:[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{1F000}-\u{1F02F}\u{1F0A0}-\u{1F0FF}\u{1F100}-\u{1F1FF}\u{1F200}-\u{1F2FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F900}-\u{1F9FF}]\s*)+$/u;
+        s = s.replace(EMOJI_RUN, '').replace(TRAILING_EMOJI, '').trim();
+        // If after stripping emojis nothing's left, the raw was emoji-only — reject.
+        if (!s) return '';
+        // Reject if the cleaned label is still mostly punctuation/symbols
+        const ALPHA_NUM = /[A-Za-z0-9]/;
+        if (!ALPHA_NUM.test(s)) return '';
+        return s.substring(0, 30).trim();
+    };
+
     // 5. Text content — use direct text to describe the element
     const effectiveText = textHint || (el.textContent || '').trim();
     if (effectiveText && effectiveText.length > 0) {
-        const truncated = effectiveText.substring(0, 30).replace(/\n/g, ' ').trim();
-        // Headings — use text directly (no "heading:" prefix)
-        if (/^h[1-6]$/.test(tag)) return truncated;
-        // Paragraphs — use text directly (no "text:" prefix)
-        if (tag === 'p') return truncated;
-        // Spans with text
-        if (tag === 'span') return truncated;
-        // Buttons
-        if (tag === 'button' || tag === 'a') return `${truncated} button`;
-        // Labels
-        if (tag === 'label') return truncated;
-        // Lists
-        if (tag === 'li') return truncated;
-        // Otherwise, use text directly for short content (no "tag:" prefix)
-        if (effectiveText.length <= 25) return truncated;
+        const cleaned = cleanLabel(effectiveText);
+        if (cleaned) {
+            // Headings — use text directly (no "heading:" prefix)
+            if (/^h[1-6]$/.test(tag)) return cleaned;
+            // Paragraphs — use text directly (no "text:" prefix)
+            if (tag === 'p') return cleaned;
+            // Spans with text
+            if (tag === 'span') return cleaned;
+            // Buttons
+            if (tag === 'button' || tag === 'a') return `${cleaned} button`;
+            // Labels
+            if (tag === 'label') return cleaned;
+            // Lists
+            if (tag === 'li') return cleaned;
+            // Otherwise, use text directly for short content (no "tag:" prefix)
+            if (cleaned.length <= 25) return cleaned;
+        }
     }
 
     // 6. Visual role detection — describe purpose from visual properties
     const style = el.getAttribute('style') || '';
     const childCount = el.children.length;
 
-    // Decorative elements (dots, dividers, spacers)
+    // Decorative elements (dots, dividers, spacers) — extract a color/shape
+    // descriptor so labels are distinguishable in the node tree instead of all
+    // being "decorative border 1/2/3" which is un-targetable.
     if (childCount === 0 && !effectiveText) {
         const hasBg = /background/.test(style);
         const hasBorder = /border/.test(style);
         const isCircle = /border-radius:\s*50%/.test(style) || /border-radius:\s*(100|999)/.test(style);
         const isShort = /height:\s*(1|2|3|4)px/.test(style);
 
-        if (isCircle && hasBg) return 'dot indicator';
-        if (isShort && hasBg) return 'divider';
-        if (hasBg && !hasBorder) return 'decorative block';
-        if (hasBg && hasBorder) return 'decorative border';
+        // Try to pull a dominant color from the style for a more useful label.
+        const pickColor = (): string | null => {
+            // Hex first
+            const hexMatch = style.match(/#([0-9a-fA-F]{3,8})\b/);
+            if (hexMatch) return `#${hexMatch[1]}`;
+            // rgb/rgba
+            const rgbMatch = style.match(/rgba?\(([^)]+)\)/);
+            if (rgbMatch) return `rgb`;
+            // common named colors
+            const named = style.match(/(?:background(?:-color)?|color)\s*:\s*([a-z]+)/);
+            if (named && /^(red|orange|yellow|green|teal|cyan|blue|indigo|violet|purple|pink|magenta|white|black|gray|grey|silver|gold|chrome|neon)$/i.test(named[1])) return named[1].toLowerCase();
+            return null;
+        };
+        const color = pickColor();
+        const colorPrefix = color ? `${color} ` : '';
+
+        if (isCircle && hasBg) return `${colorPrefix}dot`.trim();
+        if (isShort && hasBg) return `${colorPrefix}divider`.trim();
+        if (hasBg && !hasBorder) return `${colorPrefix}panel`.trim();
+        if (hasBg && hasBorder) return `${colorPrefix}bordered panel`.trim();
+        if (hasBorder) return `${colorPrefix}border`.trim();
         return 'spacer';
     }
 
@@ -2147,16 +2889,20 @@ function generateNodeLabel(el: HTMLElement, tag: string, textHint?: string): str
 
         // FIX (2026-03-10): Use children's text content to produce unique, descriptive labels.
         // "div container (2 items)" is useless for AI @ref targeting.
+        // FIX (2026-05-04): Run text through cleanLabel to strip emoji-only / symbol-only
+        // hints and collapse whitespace runs — produces clean ASCII-friendly @refs
+        // (e.g. "BET section" instead of "BET         $25 section").
         let childHint = '';
-        for (let i = 0; i < Math.min(el.children.length, 3); i++) {
+        for (let i = 0; i < Math.min(el.children.length, 5); i++) {
             const child = el.children[i];
-            const childText = (child.textContent || '').trim().substring(0, 20);
-            if (childText && childText.length > 1) {
-                childHint = childText;
+            const rawChildText = (child.textContent || '').trim();
+            const cleanedChild = cleanLabel(rawChildText);
+            if (cleanedChild && cleanedChild.length > 1) {
+                childHint = cleanedChild;
                 break;
             }
         }
-        // If no text found in children, try first child's aria-label or id
+        // If no usable text found in children, try first child's aria-label or id
         if (!childHint) {
             for (let i = 0; i < Math.min(el.children.length, 3); i++) {
                 const child = el.children[i] as HTMLElement;
@@ -2187,9 +2933,13 @@ function generateNodeLabel(el: HTMLElement, tag: string, textHint?: string): str
 
 /**
  * Short label for inline text nodes within containers.
+ * Collapses whitespace runs so "BET         $25" → "BET $25".
  */
 function generateTextLabel(text: string): string {
-    const truncated = text.substring(0, 30).replace(/\n/g, ' ').trim();
+    if (!text) return 'text';
+    // Collapse all whitespace runs (including multi-space indentation pattern)
+    const collapsed = text.replace(/[\s ]+/g, ' ').trim();
+    const truncated = collapsed.substring(0, 30).trim();
     return truncated || 'text';
 }
 
@@ -2203,7 +2953,8 @@ function translateNode(
     parentTextAlign?: string,
     cssDefinitions?: Map<string, string>,
     customFonts?: Record<string, string>,
-    customShadows?: Record<string, string>
+    customShadows?: Record<string, string>,
+    customBackgroundImages?: Record<string, string>
 ): string | null {
     const indent = '  '.repeat(depth);
 
@@ -2232,7 +2983,7 @@ function translateNode(
 
     // Parse styles: Tailwind classes + inline style + CSS class styles
     const className = el.getAttribute('class') || '';
-    const twStyles = parseTailwindClasses(className, customColors, customFonts, customShadows);
+    const twStyles = parseTailwindClasses(className, customColors, customFonts, customShadows, customBackgroundImages);
     const inlineStyles = el.getAttribute('style') ? parseInlineStyle(el.getAttribute('style')!) : {};
 
     // Merge CSS class styles — use CSS Definition nodes for complex CSS
@@ -2447,12 +3198,24 @@ function translateNode(
             'material-symbols-rounded': 'Material Symbols Rounded',
             'material-symbols-sharp': 'Material Symbols Sharp',
         };
-        // FontAwesome and Bootstrap Icons don't use ligatures — skip those
-        const SKIP_ICON_CLASSES = ['fa', 'fas', 'far', 'fab', 'fal', 'fad', 'bi', 'bi-icon'];
+        // FontAwesome, Bootstrap Icons, Lucide, Heroicons (font/class form) don't use
+        // ligatures and depend on their JS/CSS runtimes — skip cleanly so the user's UI
+        // shows nothing rather than a broken empty span. (Heroicons used as inline SVG
+        // still works via the <svg> path.)
+        const SKIP_ICON_CLASSES = [
+            'fa', 'fas', 'far', 'fab', 'fal', 'fad', 'fa-solid', 'fa-regular', 'fa-brands',
+            'bi', 'bi-icon',
+            'lucide', 'i-lucide',
+        ];
         const elClasses = (el.getAttribute('class') || '').split(/\s+/);
 
-        // Check for skippable icon fonts (FA, BI)
-        if (elClasses.some(c => SKIP_ICON_CLASSES.includes(c))) {
+        // data-lucide / data-feather / data-iconify hooks are JS-replaced — skip.
+        if (el.getAttribute('data-lucide') || el.getAttribute('data-feather') || el.getAttribute('data-iconify')) {
+            return null;
+        }
+
+        // Check for skippable icon fonts (FA, BI, Lucide class form)
+        if (elClasses.some(c => SKIP_ICON_CLASSES.includes(c) || c.startsWith('fa-') || c.startsWith('bi-') || c.startsWith('lucide-') || c.startsWith('hero-'))) {
             return null;
         }
 
@@ -2543,7 +3306,7 @@ function translateNode(
                 // For child spans inside headings, inherit parent fontSize if child doesn't specify
                 if (childTag === 'span') {
                     const childClassName = childEl.getAttribute('class') || '';
-                    const childStyles = parseTailwindClasses(childClassName, customColors, customFonts, customShadows);
+                    const childStyles = parseTailwindClasses(childClassName, customColors, customFonts, customShadows, customBackgroundImages);
                     if (!childStyles.fontSize && styles.fontSize) {
                         childStyles.fontSize = styles.fontSize;
                     }
@@ -2563,7 +3326,7 @@ function translateNode(
                     // If this span has child elements (e.g. nested gradient spans),
                     // process it via translateNode to preserve nested structure
                     if (childEl.children.length > 0) {
-                        const translated = translateNode(childEl, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows);
+                        const translated = translateNode(childEl, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
                         if (translated) children.push(translated);
                         continue;
                     }
@@ -2625,7 +3388,7 @@ function translateNode(
                         continue;
                     }
                 }
-                const translated = translateNode(child, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows);
+                const translated = translateNode(child, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
                 if (translated) children.push(translated);
             }
         }
@@ -2643,6 +3406,307 @@ function translateNode(
         if (text) {
             return createTextNode(el, tag, text, styles, indent);
         }
+    }
+
+    // ─── <input> → native textinput node (or visual approximation) ──
+    if (tag === 'input') {
+        const inputType = (el.getAttribute('type') || 'text').toLowerCase();
+        const placeholder = el.getAttribute('placeholder') || '';
+        const value = el.getAttribute('value') || '';
+        const display = value || placeholder || '';
+
+        // checkbox / radio → small bordered Group with optional checkmark Text
+        if (inputType === 'checkbox' || inputType === 'radio') {
+            const isChecked = el.hasAttribute('checked');
+            const sizePx = inputType === 'checkbox' ? 18 : 16;
+            const radius = inputType === 'radio' ? 999 : 4;
+            return `${indent}<group nodeLabel="${escapeXml(inputType)}" width="${sizePx}px" height="${sizePx}px" backgroundColor="${isChecked ? (styles.color || '#0df20d') : 'rgba(255,255,255,0.05)'}" borderRadius="${radius}" borderWidth="1" borderStyle="solid" borderColor="${styles.borderColor || 'rgba(255,255,255,0.3)'}" />`;
+        }
+
+        // range slider → track + filled portion + thumb
+        if (inputType === 'range') {
+            const min = parseFloat(el.getAttribute('min') || '0');
+            const max = parseFloat(el.getAttribute('max') || '100');
+            const cur = parseFloat(el.getAttribute('value') || String((min + max) / 2));
+            const pct = max > min ? Math.max(0, Math.min(100, ((cur - min) / (max - min)) * 100)) : 50;
+            const trackHeight = 6;
+            const thumbSize = 16;
+            const fillColor = styles.color || styles.backgroundColor || '#0df20d';
+            const sliderAttrs: string[] = [];
+            sliderAttrs.push(`nodeLabel="${escapeXml((el.getAttribute('aria-label') || 'slider'))}"`);
+            sliderAttrs.push(styles.width ? `width="${styles.width}"` : 'width="100%"');
+            sliderAttrs.push(`height="${thumbSize}px"`);
+            sliderAttrs.push('flexDirection="row"', 'alignItems="center"', 'position="relative"');
+            addPositionAttrs(styles, sliderAttrs);
+            return `${indent}<group ${sliderAttrs.join(' ')}>
+${indent}  <group nodeLabel="track" width="100%" height="${trackHeight}px" backgroundColor="rgba(255,255,255,0.15)" borderRadius="999" />
+${indent}  <group nodeLabel="fill" width="${pct.toFixed(1)}%" height="${trackHeight}px" backgroundColor="${fillColor}" borderRadius="999" position="absolute" top="${(thumbSize - trackHeight) / 2}px" left="0" />
+${indent}  <group nodeLabel="thumb" width="${thumbSize}px" height="${thumbSize}px" backgroundColor="${fillColor}" borderRadius="999" position="absolute" top="0" left="calc(${pct.toFixed(1)}% - ${thumbSize / 2}px)" styleCss="box-shadow: 0 2px 8px rgba(0,0,0,0.4);" />
+${indent}</group>`;
+        }
+
+        // text / email / password / number / search etc → text-input-like Group
+        const inputAttrs: string[] = [];
+        inputAttrs.push(`nodeLabel="${escapeXml(placeholder || value || 'input')}"`);
+        if (styles.width) inputAttrs.push(`width="${styles.width}"`); else inputAttrs.push('width="100%"');
+        if (styles.height) inputAttrs.push(`height="${styles.height}"`); else inputAttrs.push('height="40px"');
+        if (styles.backgroundColor) inputAttrs.push(`backgroundColor="${styles.backgroundColor}"`);
+        else inputAttrs.push('backgroundColor="rgba(255,255,255,0.05)"');
+        addBorderRadiusAttrs(styles, inputAttrs);
+        if (styles.borderWidth !== undefined) {
+            inputAttrs.push(`borderWidth="${styles.borderWidth}"`);
+            inputAttrs.push('borderStyle="solid"');
+        } else {
+            inputAttrs.push('borderWidth="1"');
+            inputAttrs.push('borderStyle="solid"');
+        }
+        if (styles.borderColor) inputAttrs.push(`borderColor="${styles.borderColor}"`);
+        else inputAttrs.push('borderColor="rgba(255,255,255,0.15)"');
+        addPositionAttrs(styles, inputAttrs);
+        inputAttrs.push('paddingLeft="12"', 'paddingRight="12"', 'paddingTop="8"', 'paddingBottom="8"');
+        inputAttrs.push('alignItems="center"');
+        if (styles.styleCss) inputAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+
+        // Inner display text (placeholder or value)
+        const textColor = display === placeholder ? 'rgba(255,255,255,0.5)' : (styles.color || '#FFFFFF');
+        const textXml = display
+            ? `${indent}  <text nodeLabel="${escapeXml(display.substring(0, 30))}" text="${escapeXml(display)}" color="${textColor}" fontSize="${styles.fontSize || 14}" sizeMode="contentSize" flexGrow="0" flexShrink="0" />`
+            : '';
+        return textXml
+            ? `${indent}<group ${inputAttrs.join(' ')}>\n${textXml}\n${indent}</group>`
+            : `${indent}<group ${inputAttrs.join(' ')} />`;
+    }
+
+    // ─── <textarea> → multi-line text-input-like Group ──
+    if (tag === 'textarea') {
+        const placeholder = el.getAttribute('placeholder') || '';
+        const text = (el.textContent || '').trim() || placeholder;
+        const taAttrs: string[] = [];
+        taAttrs.push(`nodeLabel="${escapeXml(placeholder || 'textarea')}"`);
+        if (styles.width) taAttrs.push(`width="${styles.width}"`); else taAttrs.push('width="100%"');
+        if (styles.height) taAttrs.push(`height="${styles.height}"`); else taAttrs.push('height="100px"');
+        if (styles.backgroundColor) taAttrs.push(`backgroundColor="${styles.backgroundColor}"`);
+        else taAttrs.push('backgroundColor="rgba(255,255,255,0.05)"');
+        addBorderRadiusAttrs(styles, taAttrs);
+        taAttrs.push('borderWidth="1"', 'borderStyle="solid"');
+        taAttrs.push(`borderColor="${styles.borderColor || 'rgba(255,255,255,0.15)'}"`);
+        addPositionAttrs(styles, taAttrs);
+        taAttrs.push('paddingLeft="12"', 'paddingRight="12"', 'paddingTop="8"', 'paddingBottom="8"');
+        if (styles.styleCss) taAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+        const innerTextColor = text === placeholder ? 'rgba(255,255,255,0.5)' : (styles.color || '#FFFFFF');
+        const innerXml = text
+            ? `${indent}  <text nodeLabel="${escapeXml(text.substring(0, 30))}" text="${escapeXml(text)}" color="${innerTextColor}" fontSize="${styles.fontSize || 14}" sizeMode="contentSize" flexGrow="0" flexShrink="0" />`
+            : '';
+        return innerXml
+            ? `${indent}<group ${taAttrs.join(' ')}>\n${innerXml}\n${indent}</group>`
+            : `${indent}<group ${taAttrs.join(' ')} />`;
+    }
+
+    // ─── <select> → render the currently-selected option as a styled dropdown-like Group ──
+    if (tag === 'select') {
+        const selectedOption = el.querySelector('option[selected]') || el.querySelector('option');
+        const selectedText = selectedOption ? (selectedOption.textContent || '').trim() : '';
+        const selAttrs: string[] = [];
+        selAttrs.push(`nodeLabel="${escapeXml(selectedText || 'select')}"`);
+        if (styles.width) selAttrs.push(`width="${styles.width}"`); else selAttrs.push('width="100%"');
+        if (styles.height) selAttrs.push(`height="${styles.height}"`); else selAttrs.push('height="40px"');
+        selAttrs.push(`backgroundColor="${styles.backgroundColor || 'rgba(255,255,255,0.05)'}"`);
+        addBorderRadiusAttrs(styles, selAttrs);
+        selAttrs.push('borderWidth="1"', 'borderStyle="solid"');
+        selAttrs.push(`borderColor="${styles.borderColor || 'rgba(255,255,255,0.15)'}"`);
+        addPositionAttrs(styles, selAttrs);
+        selAttrs.push('paddingLeft="12"', 'paddingRight="12"', 'paddingTop="8"', 'paddingBottom="8"');
+        selAttrs.push('flexDirection="row"', 'alignItems="center"', 'justifyContent="space-between"');
+        if (styles.styleCss) selAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+        const labelXml = selectedText
+            ? `${indent}  <text nodeLabel="${escapeXml(selectedText.substring(0, 30))}" text="${escapeXml(selectedText)}" color="${styles.color || '#FFFFFF'}" fontSize="${styles.fontSize || 14}" sizeMode="contentSize" flexGrow="0" flexShrink="0" />`
+            : '';
+        const chevronXml = `${indent}  <text nodeLabel="chevron" text="▾" color="rgba(255,255,255,0.6)" fontSize="14" sizeMode="contentSize" flexGrow="0" flexShrink="0" />`;
+        return `${indent}<group ${selAttrs.join(' ')}>\n${labelXml ? labelXml + '\n' : ''}${chevronXml}\n${indent}</group>`;
+    }
+
+    // ─── <table>, <thead>, <tbody>, <tfoot> → flex column Group of rows ──
+    if (tag === 'table' || tag === 'thead' || tag === 'tbody' || tag === 'tfoot') {
+        const tblAttrs: string[] = [];
+        tblAttrs.push(`nodeLabel="${escapeXml(generateNodeLabel(el, tag))}"`);
+        addPositionAttrs(styles, tblAttrs);
+        tblAttrs.push('flexDirection="column"');
+        if (styles.width) tblAttrs.push(`width="${styles.width}"`); else tblAttrs.push('width="100%"');
+        if (styles.gap !== undefined) tblAttrs.push(`gap="${styles.gap}"`);
+        if (styles.backgroundColor) tblAttrs.push(`backgroundColor="${styles.backgroundColor}"`);
+        addBorderRadiusAttrs(styles, tblAttrs);
+        if (styles.borderWidth) {
+            tblAttrs.push(`borderWidth="${styles.borderWidth}"`);
+            tblAttrs.push('borderStyle="solid"');
+        }
+        if (styles.borderColor) tblAttrs.push(`borderColor="${styles.borderColor}"`);
+        if (styles.styleCss) tblAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+
+        const tableChildren: string[] = [];
+        for (const child of Array.from(el.children) as HTMLElement[]) {
+            const t = child.tagName.toLowerCase();
+            if (t === 'thead' || t === 'tbody' || t === 'tfoot' || t === 'tr' || t === 'caption' || t === 'colgroup') {
+                const x = translateNode(child, depth + 1, customColors, cssClassStyles, fontFamily, parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
+                if (x) tableChildren.push(x);
+            }
+        }
+        return tableChildren.length === 0
+            ? `${indent}<group ${tblAttrs.join(' ')} />`
+            : `${indent}<group ${tblAttrs.join(' ')}>\n${tableChildren.join('\n')}\n${indent}</group>`;
+    }
+
+    // ─── <tr> → flex row Group of cells ──
+    if (tag === 'tr') {
+        const trAttrs: string[] = [];
+        trAttrs.push(`nodeLabel="${escapeXml(generateNodeLabel(el, tag))}"`);
+        addPositionAttrs(styles, trAttrs);
+        trAttrs.push('flexDirection="row"', 'width="100%"');
+        if (styles.gap !== undefined) trAttrs.push(`gap="${styles.gap}"`);
+        if (styles.backgroundColor) trAttrs.push(`backgroundColor="${styles.backgroundColor}"`);
+        if (styles.styleCss) trAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+
+        const trChildren: string[] = [];
+        for (const child of Array.from(el.children) as HTMLElement[]) {
+            const t = child.tagName.toLowerCase();
+            if (t === 'td' || t === 'th') {
+                const x = translateNode(child, depth + 1, customColors, cssClassStyles, fontFamily, parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
+                if (x) trChildren.push(x);
+            }
+        }
+        return trChildren.length === 0
+            ? `${indent}<group ${trAttrs.join(' ')} />`
+            : `${indent}<group ${trAttrs.join(' ')}>\n${trChildren.join('\n')}\n${indent}</group>`;
+    }
+
+    // ─── <td>, <th> → flex-1 cell that contains text or children ──
+    if (tag === 'td' || tag === 'th') {
+        const cellAttrs: string[] = [];
+        cellAttrs.push(`nodeLabel="${escapeXml(generateNodeLabel(el, tag))}"`);
+        addPositionAttrs(styles, cellAttrs);
+        // Default cells stretch to share the row equally
+        if (!styles.flexGrow) cellAttrs.push('flexGrow="1"');
+        if (!styles.flexShrink) cellAttrs.push('flexShrink="1"');
+        if (styles.width) cellAttrs.push(`width="${styles.width}"`);
+        if (styles.height) cellAttrs.push(`height="${styles.height}"`);
+        if (styles.backgroundColor) cellAttrs.push(`backgroundColor="${styles.backgroundColor}"`);
+        if (styles.paddingTop !== undefined) cellAttrs.push(`paddingTop="${styles.paddingTop}"`);
+        if (styles.paddingBottom !== undefined) cellAttrs.push(`paddingBottom="${styles.paddingBottom}"`);
+        if (styles.paddingLeft !== undefined) cellAttrs.push(`paddingLeft="${styles.paddingLeft}"`);
+        if (styles.paddingRight !== undefined) cellAttrs.push(`paddingRight="${styles.paddingRight}"`);
+        else cellAttrs.push('paddingLeft="8"', 'paddingRight="8"', 'paddingTop="6"', 'paddingBottom="6"');
+        if (styles.styleCss) cellAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+
+        // <th> defaults to bold
+        const cellTextStyles: ParsedStyles = { ...styles };
+        if (tag === 'th' && !cellTextStyles.fontWeight) cellTextStyles.fontWeight = 700;
+
+        const cellChildren: string[] = [];
+        const cellText = getDirectText(el);
+        if (cellText) {
+            cellChildren.push(createTextNode(el, 'span', cellText, cellTextStyles, indent + '  '));
+        }
+        for (const child of el.childNodes) {
+            if (child.nodeType !== Node.ELEMENT_NODE) continue;
+            const x = translateNode(child as Node, depth + 1, customColors, cssClassStyles, fontFamily, parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
+            if (x) cellChildren.push(x);
+        }
+        return cellChildren.length === 0
+            ? `${indent}<group ${cellAttrs.join(' ')} />`
+            : `${indent}<group ${cellAttrs.join(' ')}>\n${cellChildren.join('\n')}\n${indent}</group>`;
+    }
+
+    // ─── <progress>, <meter> → track + fill bar ──
+    if (tag === 'progress' || tag === 'meter') {
+        const value = parseFloat(el.getAttribute('value') || '0');
+        const max = parseFloat(el.getAttribute('max') || '1');
+        const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
+        const fillColor = styles.color || styles.backgroundColor || (tag === 'meter' ? '#22C55E' : '#0EA5E9');
+        const barAttrs: string[] = [];
+        barAttrs.push(`nodeLabel="${escapeXml(generateNodeLabel(el, tag))}"`);
+        barAttrs.push(styles.width ? `width="${styles.width}"` : 'width="100%"');
+        barAttrs.push(styles.height ? `height="${styles.height}"` : 'height="8px"');
+        barAttrs.push('backgroundColor="rgba(255,255,255,0.1)"');
+        barAttrs.push('borderRadius="999"', 'overflow="hidden"');
+        addPositionAttrs(styles, barAttrs);
+        if (styles.styleCss) barAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+        return `${indent}<group ${barAttrs.join(' ')}>
+${indent}  <group nodeLabel="fill" width="${pct.toFixed(1)}%" height="100%" backgroundColor="${fillColor}" borderRadius="999" />
+${indent}</group>`;
+    }
+
+    // ─── <hr> → 1px-tall divider Group spanning full width ──
+    if (tag === 'hr') {
+        const hrAttrs: string[] = [];
+        hrAttrs.push(`nodeLabel="${escapeXml(generateNodeLabel(el, tag) || 'divider')}"`);
+        hrAttrs.push('width="100%"', 'height="1px"');
+        hrAttrs.push(`backgroundColor="${styles.backgroundColor || styles.borderColor || 'rgba(255,255,255,0.15)'}"`);
+        addPositionAttrs(styles, hrAttrs);
+        if (styles.styleCss) hrAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+        return `${indent}<group ${hrAttrs.join(' ')} />`;
+    }
+
+    // ─── <details> / <summary> → collapsible disclosure (rendered open as a Group) ──
+    if (tag === 'details') {
+        const detailsAttrs: string[] = [];
+        detailsAttrs.push(`nodeLabel="${escapeXml(generateNodeLabel(el, tag))}"`);
+        if (styles.width) detailsAttrs.push(`width="${styles.width}"`); else detailsAttrs.push('width="100%"');
+        detailsAttrs.push('flexDirection="column"');
+        if (styles.gap !== undefined) detailsAttrs.push(`gap="${styles.gap}"`);
+        if (styles.backgroundColor) detailsAttrs.push(`backgroundColor="${styles.backgroundColor}"`);
+        addBorderRadiusAttrs(styles, detailsAttrs);
+        if (styles.borderWidth) {
+            detailsAttrs.push(`borderWidth="${styles.borderWidth}"`);
+            detailsAttrs.push('borderStyle="solid"');
+        }
+        if (styles.borderColor) detailsAttrs.push(`borderColor="${styles.borderColor}"`);
+        addPositionAttrs(styles, detailsAttrs);
+        if (styles.paddingTop !== undefined) detailsAttrs.push(`paddingTop="${styles.paddingTop}"`);
+        if (styles.paddingBottom !== undefined) detailsAttrs.push(`paddingBottom="${styles.paddingBottom}"`);
+        if (styles.paddingLeft !== undefined) detailsAttrs.push(`paddingLeft="${styles.paddingLeft}"`);
+        if (styles.paddingRight !== undefined) detailsAttrs.push(`paddingRight="${styles.paddingRight}"`);
+        if (styles.styleCss) detailsAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+
+        const detailsChildren: string[] = [];
+        for (const child of el.childNodes) {
+            if (child.nodeType !== Node.ELEMENT_NODE) continue;
+            const x = translateNode(child as Node, depth + 1, customColors, cssClassStyles, fontFamily, parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
+            if (x) detailsChildren.push(x);
+        }
+        return detailsChildren.length === 0
+            ? `${indent}<group ${detailsAttrs.join(' ')} />`
+            : `${indent}<group ${detailsAttrs.join(' ')}>\n${detailsChildren.join('\n')}\n${indent}</group>`;
+    }
+    if (tag === 'summary') {
+        // Summary acts like a heading row inside details — render as a clickable-looking
+        // row with a chevron and the inline text/children.
+        const sumAttrs: string[] = [];
+        sumAttrs.push(`nodeLabel="${escapeXml(generateNodeLabel(el, tag))}"`);
+        sumAttrs.push('width="100%"', 'flexDirection="row"', 'alignItems="center"', 'gap="6"');
+        if (styles.styleCss) sumAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+        const summaryText = (el.textContent || '').trim();
+        const chevron = `${indent}  <text nodeLabel="chevron" text="▾" color="rgba(255,255,255,0.6)" fontSize="12" sizeMode="contentSize" flexGrow="0" flexShrink="0" />`;
+        const labelXml = summaryText
+            ? `${indent}  <text nodeLabel="${escapeXml(summaryText.substring(0, 40))}" text="${escapeXml(summaryText)}" color="${styles.color || '#FFFFFF'}" fontSize="${styles.fontSize || 14}" fontWeight="${styles.fontWeight || 600}" sizeMode="contentSize" flexGrow="0" flexShrink="0" />`
+            : '';
+        return `${indent}<group ${sumAttrs.join(' ')}>\n${chevron}${labelXml ? '\n' + labelXml : ''}\n${indent}</group>`;
+    }
+
+    // ─── <video>, <audio> → placeholder Group with semantic label ──
+    if (tag === 'video' || tag === 'audio') {
+        const src = el.getAttribute('src') || '';
+        const placeholderText = tag === 'video' ? '▶ Video' : '🎵 Audio';
+        const mediaAttrs: string[] = [];
+        mediaAttrs.push(`nodeLabel="${escapeXml(src ? src.split('/').pop() || tag : tag)}"`);
+        mediaAttrs.push(styles.width ? `width="${styles.width}"` : 'width="100%"');
+        mediaAttrs.push(styles.height ? `height="${styles.height}"` : (tag === 'video' ? 'height="240px"' : 'height="40px"'));
+        mediaAttrs.push(`backgroundColor="${styles.backgroundColor || 'rgba(0,0,0,0.7)'}"`);
+        addBorderRadiusAttrs(styles, mediaAttrs);
+        addPositionAttrs(styles, mediaAttrs);
+        mediaAttrs.push('alignItems="center"', 'justifyContent="center"');
+        if (styles.styleCss) mediaAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+        return `${indent}<group ${mediaAttrs.join(' ')}>
+${indent}  <text nodeLabel="placeholder" text="${escapeXml(placeholderText)}" color="rgba(255,255,255,0.7)" fontSize="14" sizeMode="contentSize" flexGrow="0" flexShrink="0" />
+${indent}</group>`;
     }
 
     // ─── Button element → native <button> node ──────────────
@@ -2707,7 +3771,7 @@ function translateNode(
                     children.push(`${indent}  <text ${textAttrs.join(' ')} />`);
                 }
             } else {
-                const translated = translateNode(child, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows);
+                const translated = translateNode(child, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
                 if (translated) children.push(translated);
             }
         }
@@ -2866,6 +3930,18 @@ function getDirectText(el: HTMLElement): string {
 }
 
 function createTextNode(el: HTMLElement, tag: string, text: string, styles: ParsedStyles, indent: string): string {
+    // Monospace defaults for code/keyboard/sample typographic tags.
+    if (!styles.fontFamily && (tag === 'code' || tag === 'kbd' || tag === 'samp' || tag === 'var')) {
+        styles = { ...styles, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' };
+    }
+    // <mark> default: yellow highlight bg.
+    if (tag === 'mark' && !styles.backgroundColor) {
+        styles = { ...styles, backgroundColor: '#fef08a', color: styles.color || '#0f172a' };
+    }
+    // <small>: 80% size.
+    if (tag === 'small' && !styles.fontSize) {
+        styles = { ...styles, fontSize: 12 };
+    }
     // ─── Pill wrapper: Text nodes can't carry bg/border/padding ───
     // When a text element has container-level styles, wrap it in a Group
     // that carries those visual properties, with the Text as its child.

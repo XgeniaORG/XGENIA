@@ -585,6 +585,20 @@ export class NodeGraphNode extends Model {
   addChild(child: NodeGraphNode, args?) {
     const _this = this;
 
+    // 2026-06-01 (R34, debug-export-1780339306499): refuse to add a child
+    // that's already in this.children. Without this guard, calling addChild
+    // twice for the same node (e.g. a retry on stream interrupt, an event-
+    // listener mirror, or a buggy upstream tool) duplicates the JS object
+    // reference inside the children array — the editor then renders / counts
+    // it as two nodes that share state but have one identity. Audit
+    // confirmed all 8 known callers add NEWLY-CREATED nodes (undo path goes
+    // through removeNode() first), so the guard cannot break existing flows.
+    if (this.children.includes(child) ||
+        (child.id && this.children.some(c => c.id === child.id))) {
+      console.warn(`[NodeGraphNode] addChild rejected: child ${child.id ? child.id.substring(0, 8) + '…' : '?'} already in parent's children. Caller should removeNode() first if intent is re-attach.`);
+      return;
+    }
+
     this.children.push(child);
     child.parent = this;
 
@@ -619,6 +633,14 @@ export class NodeGraphNode extends Model {
   // Insert a child at a specific index
   insertChild(child: NodeGraphNode, index: number, args?) {
     const _this = this;
+
+    // 2026-06-01 (R34): same dedup guard as addChild — refuse if the child
+    // is already in this.children.
+    if (this.children.includes(child) ||
+        (child.id && this.children.some(c => c.id === child.id))) {
+      console.warn(`[NodeGraphNode] insertChild rejected: child ${child.id ? child.id.substring(0, 8) + '…' : '?'} already in parent's children.`);
+      return;
+    }
 
     this.children.splice(index, 0, child);
     child.parent = this;
