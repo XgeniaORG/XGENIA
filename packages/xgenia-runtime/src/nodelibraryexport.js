@@ -646,6 +646,10 @@ function generateNodeLibrary(nodeRegister) {
         {
           name: 'Slot Games (Legacy)',
           items: ['Generate Reel Strips', 'Slot Spin', 'Slot Simulation']
+        },
+        {
+          name: 'Provably Fair System',
+          items: ['Server Seed Generator', 'Calculate Roll', 'Verify Commitment']
         }
       ]
     },

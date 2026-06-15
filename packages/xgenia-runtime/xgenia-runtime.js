@@ -59,6 +59,9 @@ function registerNodes(xgeniaRuntime) {
     require('./src/nodes/std-library/variables/boolean'),
 
     // Math nodes
+    require('./src/nodes/maths/server-seed-generator'),
+    require('./src/nodes/maths/calculate-roll'),
+    require('./src/nodes/maths/verify-commitment'),
     require('./src/nodes/maths/trng'),
     require('./src/nodes/maths/trng-array'),
     require('./src/nodes/maths/isaac-rng'),
