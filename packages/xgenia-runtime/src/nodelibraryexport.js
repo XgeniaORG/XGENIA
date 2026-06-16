@@ -628,7 +628,6 @@ function generateNodeLibrary(nodeRegister) {
             'Check Wins',
             'Check Jackpot',
             'Symbol Frequency Tracker',
-            'Volatility Estimator',
             'Generate Symbol Weights',
             'Get Paytable',
             'Init Free Spins',
@@ -650,6 +649,19 @@ function generateNodeLibrary(nodeRegister) {
         {
           name: 'Provably Fair System',
           items: ['Server Seed Generator', 'Calculate Roll', 'Verify Commitment']
+        },
+        {
+          name: 'Simulations',
+          items: ['RTP Monitor', 'Hit Frequency Monitor', 'Volatility Monitor']
+        },
+        {
+          name: 'Keno Games',
+          items: [
+            'Calculate PF Array Draw',
+            'Check Keno Hits',
+            'Evaluate Keno Paytable',
+            'Auto Bet Strategy Evaluator'
+          ]
         }
       ]
     },
