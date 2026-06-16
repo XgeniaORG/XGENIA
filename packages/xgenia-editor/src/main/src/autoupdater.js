@@ -4,8 +4,6 @@ const { autoUpdater } = require('electron-updater');
 const ProgressBar = require('electron-progressbar');
 
 function setupAutoUpdate(window) {
-
-
   if (process.env.autoUpdate === 'no') return;
 
   if (process.platform === 'linux') {
@@ -20,13 +18,15 @@ function setupAutoUpdate(window) {
   //Set autodownload to false (prevents the update from being downloaded automatically)
   autoUpdater.autoDownload = false;
 
-
   let progressBar;
   const createProgressBar = () => {
     if (progressBar) return progressBar;
     progressBar = new ProgressBar({
-      text: 'Preparing data...',
-      detail: 'Wait...',
+      text: 'Downloading update...',
+      detail: 'Starting download...',
+      indeterminate: false,
+      maxValue: 100,
+      value: 0,
       abortOnError: true,
       closeOnComplete: false,
       browserWindow: {
@@ -84,7 +84,12 @@ function setupAutoUpdate(window) {
     if (!progressBar) {
       createProgressBar();
     }
-    progressBar.value = progressBarObj.percent;
+
+    const percent = Number(progressBarObj?.percent);
+    if (Number.isFinite(percent)) {
+      progressBar.value = Math.max(0, Math.min(100, percent));
+      progressBar.detail = `${percent.toFixed(1)}% downloaded (${progressBarObj.transferred}/${progressBarObj.total} bytes)`;
+    }
   });
 
   autoUpdater.on('error', (err) => {
@@ -126,22 +131,28 @@ function setupAutoUpdate(window) {
     }
   });
 
-  autoUpdater.addListener("error", (error) => {
+  autoUpdater.addListener('error', (error) => {
     console.log('Auto update error', error);
   });
 
   autoUpdater.addListener('update-not-available', () => {
-    setTimeout(() => {
-      _checkForUpdates();
-    }, 12 * 60 * 60 * 1000); // Check every 12 hours
+    setTimeout(
+      () => {
+        _checkForUpdates();
+      },
+      12 * 60 * 60 * 1000
+    ); // Check every 12 hours
   });
 
   autoUpdater.addListener('error', (event) => {
     // There was an error while trying to update, try again
     console.log('Error while auto updating, trying again in a while...');
-    setTimeout(() => {
-      _checkForUpdates();
-    }, 12 * 60 * 60 * 1000); // Check every 12 hours
+    setTimeout(
+      () => {
+        _checkForUpdates();
+      },
+      12 * 60 * 60 * 1000
+    ); // Check every 12 hours
   });
 }
 
