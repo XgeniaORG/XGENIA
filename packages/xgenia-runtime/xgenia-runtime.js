@@ -61,6 +61,10 @@ function registerNodes(xgeniaRuntime) {
     // Math nodes
     require('./src/nodes/maths/server-seed-generator'),
     require('./src/nodes/maths/calculate-roll'),
+    require('./src/nodes/maths/calculate-pf-array-draw'),
+    require('./src/nodes/maths/check-keno-hits'),
+    require('./src/nodes/maths/evaluate-keno-paytable'),
+    require('./src/nodes/maths/auto-bet-strategy-evaluator'),
     require('./src/nodes/maths/verify-commitment'),
     require('./src/nodes/maths/trng'),
     require('./src/nodes/maths/trng-array'),
@@ -84,6 +88,9 @@ function registerNodes(xgeniaRuntime) {
     require('./src/nodes/maths/lessThanOrEqual'),
     require('./src/nodes/maths/lessThan'),
     require('./src/nodes/maths/equal'),
+    require('./src/nodes/maths/rtp-monitor'),
+    require('./src/nodes/maths/hit-frequency-monitor'),
+    require('./src/nodes/maths/volatility-monitor'),
 
     // Utils
     require('./src/nodes/std-library/condition'),
