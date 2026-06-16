@@ -81,12 +81,13 @@ function setupAutoUpdate(window) {
   });
 
   autoUpdater.on('download-progress', (progressBarObj) => {
-    if (!progressBar) {
+    if (!progressBar || !progressBar.isInProgress()) {
+      progressBar = undefined;
       createProgressBar();
     }
 
     const percent = Number(progressBarObj?.percent);
-    if (Number.isFinite(percent)) {
+    if (Number.isFinite(percent) && progressBar && progressBar.isInProgress()) {
       progressBar.value = Math.max(0, Math.min(100, percent));
       progressBar.detail = `${percent.toFixed(1)}% downloaded (${progressBarObj.transferred}/${progressBarObj.total} bytes)`;
     }
