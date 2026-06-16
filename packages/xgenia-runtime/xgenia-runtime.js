@@ -61,6 +61,10 @@ function registerNodes(xgeniaRuntime) {
     // Math nodes
     require('./src/nodes/maths/server-seed-generator'),
     require('./src/nodes/maths/calculate-roll'),
+    require('./src/nodes/maths/calculate-pf-array-draw'),
+    require('./src/nodes/maths/check-keno-hits'),
+    require('./src/nodes/maths/evaluate-keno-paytable'),
+    require('./src/nodes/maths/auto-bet-strategy-evaluator'),
     require('./src/nodes/maths/verify-commitment'),
     require('./src/nodes/maths/trng'),
     require('./src/nodes/maths/trng-array'),
