@@ -1,6 +1,6 @@
 module.exports = {
   type: 'dist',
-  enableAutoUpdate: false,
+  enableAutoUpdate: true,
   Tracker: {
     trackExceptions: true
   },
