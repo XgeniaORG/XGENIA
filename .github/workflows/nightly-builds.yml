@@ -2,7 +2,7 @@ name: Nightly Multi-Platform Build
 
 on:
   # push:
-       # branches: ['develop']
+  # branches: ['develop']
   # pull_request:
   #   branches: ['release/v1.0.0']
   # schedule:
@@ -210,7 +210,7 @@ jobs:
         run: |
           mkdir release-dist
           # Collect all installers and metadata files from all download paths
-          find release-assets -type f \( -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.exe" -o -name "latest*.yml" -o -name "latest*.json" \) -exec cp -v {} release-dist/ \;
+          find release-assets -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.exe" -o -name "latest*.yml" -o -name "latest*.json" \) -exec cp -v {} release-dist/ \;
           echo "--- Assets collected for release ---"
           ls -R release-dist
 
