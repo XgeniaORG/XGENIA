@@ -1709,16 +1709,28 @@ export class EditorBridge {
 
         h('fs.remove', ([filePath]: [string]) => {
             const fs = require('fs');
-            if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
+            const path = require('path');
+            // Resolve relative paths against the project dir (same bug class as fs.readDirDetailed) — a raw
+            // relative path here would unlink from the editor's OWN bundle dir, a real footgun.
+            const projectDir = ProjectModel.instance?._retainedProjectDirectory;
+            const isAbsolute = filePath.startsWith('/') || filePath.includes(':');
+            if (!isAbsolute && !projectDir) return false;
+            const fullPath = isAbsolute ? filePath : path.join(projectDir, filePath);
+            if (fs.existsSync(fullPath)) {
+                fs.unlinkSync(fullPath);
             }
             return true;
         });
 
         h('fs.readDir', ([dirPath]: [string]) => {
             const fs = require('fs');
-            if (!fs.existsSync(dirPath)) return [];
-            return fs.readdirSync(dirPath);
+            const path = require('path');
+            const projectDir = ProjectModel.instance?._retainedProjectDirectory;
+            const isAbsolute = dirPath.startsWith('/') || dirPath.includes(':');
+            if (!isAbsolute && !projectDir) return [];
+            const fullPath = isAbsolute ? dirPath : path.join(projectDir, dirPath);
+            if (!fs.existsSync(fullPath)) return [];
+            return fs.readdirSync(fullPath);
         });
 
         h('fs.readJson', async ([filePath]: [string]) => {
@@ -1758,15 +1770,32 @@ export class EditorBridge {
 
         h('fs.stat', ([filePath]: [string]) => {
             const fs = require('fs');
-            if (!fs.existsSync(filePath)) return null;
-            const stat = fs.statSync(filePath);
+            const path = require('path');
+            const projectDir = ProjectModel.instance?._retainedProjectDirectory;
+            const isAbsolute = filePath.startsWith('/') || filePath.includes(':');
+            if (!isAbsolute && !projectDir) return null;
+            const fullPath = isAbsolute ? filePath : path.join(projectDir, filePath);
+            if (!fs.existsSync(fullPath)) return null;
+            const stat = fs.statSync(fullPath);
             return { size: stat.size, modified: stat.mtime.toISOString(), isFile: stat.isFile(), isDirectory: stat.isDirectory() };
         });
 
         h('fs.readDirDetailed', ([dirPath]: [string]) => {
             const fs = require('fs');
-            if (!fs.existsSync(dirPath)) return [];
-            const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+            const path = require('path');
+            // BUG (trace 1781972390362): a relative dirPath like 'assets' was passed straight to
+            // fs.readdirSync, so it resolved against the EDITOR's process CWD — its own bundle dir, which
+            // ships packages/xgenia-editor/assets/{cherry.png, videos/LogoIntroXGENIA.mp4}. The ChatPanel's
+            // list-project-assets walks 'assets' via this bridge, so it read the editor's TEMPLATE SEED as
+            // the project's inventory: reported 2 phantom assets (cherry + the XGENIA intro), MISSED all the
+            // real ones, and the AI regenerated symbols it already had. Resolve relative paths against the
+            // loaded project directory, exactly like fs.readFile / fs.exists / fs.mkdir already do.
+            const projectDir = ProjectModel.instance?._retainedProjectDirectory;
+            const isAbsolute = dirPath.startsWith('/') || dirPath.includes(':');
+            if (!isAbsolute && !projectDir) return [];
+            const fullPath = isAbsolute ? dirPath : path.join(projectDir, dirPath);
+            if (!fs.existsSync(fullPath)) return [];
+            const entries = fs.readdirSync(fullPath, { withFileTypes: true });
             return entries
                 .filter((e: any) => !e.name.startsWith('.'))
                 .map((e: any) => ({
