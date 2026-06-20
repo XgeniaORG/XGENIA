@@ -6,8 +6,14 @@ import * as path from 'path';
 
 import { CloudService } from '@xgenia-models/CloudServices';
 import { ProjectModel } from '@xgenia-models/projectmodel';
+import { projectFromDirectory } from '@xgenia-models/projectmodel.editor';
 import { createEditorCompilation } from '@xgenia-utils/compilation/compilation.editor';
 import * as Exporter from '@xgenia-utils/exporter';
+import { compileProject } from '@xgenia-utils/compile';
+import { saveProject } from '@xgenia-utils/compile/duplicateProject';
+import { generateFunctionArtifact } from '@xgenia-utils/rgs/generateFunctionArtifact';
+import { deployEdgeFunction } from '@xgenia-utils/rgs/deployEdgeFunction';
+import { getRgsSettings, getSelectedGame } from '@xgenia-utils/rgs/rgsClient';
 
 import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
 import { Select } from '@xgenia-core-ui/components/inputs/Select';
@@ -17,7 +23,7 @@ import { TextType } from '@xgenia-core-ui/components/typography/Text/Text';
 import { TextInput } from '@xgenia-core-ui/components/inputs/TextInput';
 
 import { ToastLayer } from '../../../ToastLayer/ToastLayer';
-import { NO_ENVIRONMENT_VALUE } from '../../DeployPopup.constants';
+import { NO_ENVIRONMENT_VALUE, RGS_ENVIRONMENT_VALUE } from '../../DeployPopup.constants';
 import { useEnvironmentsAsOptions } from '../../DeployPopup.hooks';
 import { useAuth } from '../../../../context/AuthContext';
 import { ConnectionStore, ServiceName } from '../../../../services/ConnectionStore';
@@ -1051,6 +1057,85 @@ export function XgeniaDeployTab() {
     }
   }
 
+  // Deploy logic to XGENIA RGS and only the UI to Vercel (decoupled).
+  async function deployToRgsAndVercel(activityId: string) {
+    const rgs = getRgsSettings();
+    const game = getSelectedGame();
+    if (!rgs?.apiKey) {
+      ToastLayer.hideActivity(activityId);
+      ToastLayer.showError('Not connected to XGENIA RGS. Connect in the Maths RGS panel first.');
+      return;
+    }
+    if (!game?.id) {
+      ToastLayer.hideActivity(activityId);
+      ToastLayer.showError('No target game selected. Choose a game in the Maths RGS panel first.');
+      return;
+    }
+
+    // 1. Compile — produces the __<name>__ copy with cloud components + aggregators.
+    ToastLayer.showActivity('Compiling project...', activityId);
+    const { dir: compiledDir } = await compileProject(ProjectModel.instance);
+    const copy: any = await new Promise((resolve, reject) => {
+      projectFromDirectory(
+        compiledDir,
+        (p?: any) => (p ? resolve(p) : reject(new Error('Failed to load compiled project'))),
+        { showUpgradeModal: false }
+      );
+    });
+
+    // 2. Deploy each logic component as a per-game RGS edge function.
+    ToastLayer.showActivity('Deploying logic to XGENIA RGS...', activityId);
+    const urlByComponent: Record<string, string> = {};
+    for (const comp of copy.components) {
+      if (!String(comp.name).startsWith('/#__cloud__/__Component_')) continue;
+      const artifact = generateFunctionArtifact(comp, copy);
+      const { url } = await deployEdgeFunction(rgs.apiKey, game.id, artifact);
+      urlByComponent[comp.name] = url;
+    }
+
+    // 3. Point each Aggregator node at its deployed function URL.
+    for (const comp of copy.components) {
+      for (const node of comp.graph.roots) {
+        if (node.typename !== 'Aggregator') continue;
+        const target = node.parameters?.targetComponent;
+        const url = target ? urlByComponent[target] : undefined;
+        if (url) node.parameters.url = url;
+      }
+    }
+    await saveProject(copy, compiledDir);
+
+    // 4. Vercel-deploy the COPY — UI only (build excludes /#__cloud__/ components).
+    const tempDir = filesystem.join(os.tmpdir(), `xgenia-deploy-${Date.now()}`);
+    await filesystem.makeDirectory(tempDir);
+    try {
+      ToastLayer.showActivity('Building UI bundle...', activityId);
+      const compilation = createEditorCompilation(copy).addProjectBuildScripts();
+      await compilation.deployToFolder(tempDir, { environment: undefined });
+
+      const files = await collectProjectFiles(tempDir);
+      if (files.length === 0) throw new Error('No files were generated during deployment');
+
+      ToastLayer.showActivity('Preparing repository...', activityId);
+      const repositoryName = `${domainName.trim()}-${Date.now()}`;
+      const { repoOwner, repoName: actualRepoName } = await uploadToGitHub(files, repositoryName, isPrivate);
+
+      ToastLayer.showActivity('Deploying to Vercel...', activityId);
+      const { deploymentId, aliasUrl } = await deployToVercel(repoOwner, actualRepoName, domainName.trim());
+
+      ToastLayer.hideActivity(activityId);
+      const userFriendlyDomain = `${domainName.trim()}.vercel.app`;
+      ToastLayer.showSuccess(`Deployed UI to Vercel and logic to XGENIA RGS!\nLive URL: ${userFriendlyDomain}`);
+      setSuccessMessage(`Deployed to Vercel + XGENIA RGS. Live URL: ${userFriendlyDomain}`);
+      saveDeployedDomain(domainName.trim(), deploymentId, aliasUrl);
+      if (showDeployedDomains) await fetchDeployedDomains();
+
+      try { filesystem.removeDirRecursive(tempDir); } catch (e) { /* ignore */ }
+    } catch (err) {
+      try { filesystem.removeDirRecursive(tempDir); } catch (e) { /* ignore */ }
+      throw err;
+    }
+  }
+
   async function onDeployToVercelClicked() {
     if (!domainName.trim()) {
       ToastLayer.showError('Please enter a domain name');
@@ -1074,6 +1159,16 @@ export function XgeniaDeployTab() {
       if (!isDomainAvailableEarly) {
         ToastLayer.hideActivity(activityId);
         setDomainError('Domain name is already in use on Vercel. Please choose a different name.');
+        return;
+      }
+
+      // ── XGENIA RGS path ──────────────────────────────────────────────
+      // Compile → deploy each logic component as a per-game RGS edge function →
+      // point each Aggregator node at its deployed URL → Vercel-deploy ONLY the
+      // UI (visual components + Aggregators). Logic and UI become decoupled,
+      // talking over HTTPS REST.
+      if (environmentId === RGS_ENVIRONMENT_VALUE) {
+        await deployToRgsAndVercel(activityId);
         return;
       }
 
@@ -1192,7 +1287,7 @@ export function XgeniaDeployTab() {
           </Text>
         )}
 
-        {Boolean(cloudService.backend.items?.length) && (
+        {environmentOptions.length > 1 && (
           <Select
             options={environmentOptions}
             onChange={(value: string) => setEnvironmentId(value)}

@@ -22,9 +22,13 @@ import { Label } from '@xgenia-core-ui/components/typography/Label';
 import { TextType } from '@xgenia-core-ui/components/typography/Text';
 import { useTrackBounds } from '@xgenia-core-ui/hooks/useTrackBounds';
 
+import { ProjectModel } from '@xgenia-models/projectmodel';
+
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import { CreateNewNodePanel } from '../createnewnodepanel';
 import { DeployPopup } from '../DeployPopup/DeployPopup';
+import { ToastLayer } from '../ToastLayer/ToastLayer';
+import { compileProject } from '../../utils/compile';
 import { FigmaImportDialog } from './FigmaImportDialog';
 import { TitleBar } from '../documents/EditorDocument/titlebar';
 import { NodeGraphEditor } from '../nodegrapheditor';
@@ -82,6 +86,8 @@ export function EditorTopbar({
   const screenSizeTrigger = useRef<HTMLDivElement>(null);
   const previewLayoutTrigger = useRef<HTMLDivElement>(null);
   const [isDeployVisible, setIsDeployVisible] = useState(false);
+  const compileButtonRef = useRef<HTMLDivElement>(null);
+  const [isCompiling, setIsCompiling] = useState(false);
   const [isFigmaDialogVisible, setIsFigmaDialogVisible] = useState(false);
   const figmaButtonRef = useRef<HTMLDivElement>(null);
   const [isWarningsDialogVisible, setIsWarningsDialogVisible] = useState(false);
@@ -112,6 +118,33 @@ export function EditorTopbar({
     );
     return () => { EventDispatcher.instance.off(eventGroup); };
   }, []);
+
+  const handleCompile = async () => {
+    if (isCompiling) return;
+    const project = ProjectModel.instance;
+    if (!project) {
+      ToastLayer.showError('No project is open to compile.');
+      return;
+    }
+    const activityId = 'compile';
+    setIsCompiling(true);
+    ToastLayer.showActivity('Compiling project…', activityId);
+    try {
+      const result = await compileProject(project);
+      ToastLayer.hideActivity(activityId);
+      ToastLayer.showSuccess(
+        `Compiled to ${result.name} (${result.componentsCreated} logic component${
+          result.componentsCreated === 1 ? '' : 's'
+        }).`
+      );
+    } catch (e: any) {
+      ToastLayer.hideActivity(activityId);
+      ToastLayer.showError('Compile failed: ' + (e?.message || String(e)));
+      console.error('[Compile] failed', e);
+    } finally {
+      setIsCompiling(false);
+    }
+  };
 
   const zoomLevelOptions = [
     {
@@ -722,6 +755,37 @@ export function EditorTopbar({
             >
               <TopbarImport size={14} color="currentColor" />
               Import
+            </button>
+          </Tooltip>
+        </span>
+
+        <span ref={compileButtonRef} style={{ margin: '0 4px', position: 'relative' }}>
+          <Tooltip content="Compile: copy the project and extract logic into deployable cloud components">
+            <button
+              onClick={handleCompile}
+              disabled={isCompiling}
+              style={{
+                background: '#FBBF24',
+                borderRadius: '6px',
+                boxShadow: 'none',
+                border: 'none',
+                transition: 'all 0.15s ease',
+                position: 'relative',
+                zIndex: 1,
+                color: '#000000',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '3px 9px',
+                fontWeight: 600,
+                fontSize: '11px',
+                letterSpacing: 0.2,
+                cursor: isCompiling ? 'wait' : 'pointer',
+                opacity: isCompiling ? 0.6 : 1
+              }}
+            >
+              <Icon icon={IconName.CloudFunction} UNSAFE_style={{ color: '#000000' }} size={IconSize.Tiny} />
+              {isCompiling ? 'Compiling…' : 'Compile'}
             </button>
           </Tooltip>
         </span>

@@ -783,7 +783,7 @@ function generateNodeLibrary(nodeRegister) {
       subCategories: [
         {
           name: '',
-          items: ['xgenia.cloud.request', 'xgenia.cloud.response']
+          items: ['xgenia.cloud.request', 'xgenia.cloud.response', 'Aggregator']
         },
         {
           name: 'Cloud Data',

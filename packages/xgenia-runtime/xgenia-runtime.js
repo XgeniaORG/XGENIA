@@ -28,6 +28,9 @@ function registerNodes(xgeniaRuntime) {
     // Data
     require('./src/nodes/std-library/data/restnode'),
 
+    // Aggregator (Compile feature)
+    require('./src/nodes/std-library/data/aggregatornode'),
+
     // Slot Games moved to private module (@xgenia/pro-nodes)
 
     // Custom code

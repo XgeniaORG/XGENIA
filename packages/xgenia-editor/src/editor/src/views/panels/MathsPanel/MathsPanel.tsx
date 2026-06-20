@@ -22,47 +22,19 @@ import { guid } from '@xgenia-utils/utils';
 
 
 // ─── RGS Connection ─────────────────────────────────────────
-// The XRGS endpoint is fixed — users only need to provide their API key
-// generated from the RGS dashboard (API Keys page).
-
-const XRGS_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/functions/v1';
-// Supabase anon key — required by verify_jwt on edge functions.
-// This is NOT a secret; it's the publishable key used to pass gateway auth.
-const XRGS_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzdWJ6d3lkcmplbG1qZmtrcmhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4ODA3NDcsImV4cCI6MjA4NzQ1Njc0N30.Hewc7WlLZuufC0trhCKKKc4AhLXk7jy7qG3irBQPykY';
-
-/** Build headers for maths-deployer requests */
-function rgsHeaders(apiKey: string): Record<string, string> {
-    return {
-        'Content-Type': 'application/json',
-        'X-Operator-Key': apiKey,
-        'apikey': XRGS_ANON_KEY,
-        'Authorization': `Bearer ${XRGS_ANON_KEY}`,
-    };
-}
-
-interface RgsSettings {
-    apiKey: string;
-}
-
-function getRgsSettings(): RgsSettings | null {
-    try {
-        const settings = localStorage.getItem('xgenia_rgs_settings');
-        if (settings) {
-            const parsed = JSON.parse(settings);
-            if (parsed.apiKey) return parsed;
-        }
-    } catch { }
-    return null;
-}
-
-function saveRgsSettings(settings: RgsSettings | string): void {
-    const s = typeof settings === 'string' ? { apiKey: settings, rgsUrl: XRGS_URL } : { ...settings, rgsUrl: XRGS_URL };
-    localStorage.setItem('xgenia_rgs_settings', JSON.stringify(s));
-}
-
-function clearRgsSettings(): void {
-    localStorage.removeItem('xgenia_rgs_settings');
-}
+// Shared XGENIA RGS settings/helpers live in utils/rgs/rgsClient so the Deploy
+// flow can reuse them. `setSelectedGame` (persist) is aliased to avoid a clash
+// with this component's local React state setter of the same name.
+import {
+    XRGS_URL,
+    XRGS_ANON_KEY,
+    rgsHeaders,
+    getRgsSettings,
+    saveRgsSettings,
+    clearRgsSettings,
+    setSelectedGame as persistSelectedGame,
+    RgsSettings
+} from '@xgenia-utils/rgs/rgsClient';
 
 // Expose for other panels / AI tools
 (window as any).__xrgs = {
@@ -337,7 +309,7 @@ async function evaluateRemote(bet) {
   var settings = null;
   try { settings = JSON.parse(localStorage.getItem('xgenia_rgs_settings') || '{}'); } catch(e) {}
   var apiKey = settings && settings.apiKey;
-  if (!apiKey) throw new Error('Not connected to XRGS — open Maths RGS panel and connect first');
+  if (!apiKey) throw new Error('Not connected to XGENIA RGS — open Maths RGS panel and connect first');
 
   _roundCount++;
   var res = await fetch(XRGS_URL + '/maths-deployer', {
@@ -625,7 +597,7 @@ return evaluateRemote(inputBet);`;
                                     backgroundColor: connected ? '#67DE92' : '#666',
                                 }} />
                                 <span style={{ fontSize: '13px', color: '#e0e0e0' }}>
-                                    {connected ? 'Connected to XRGS' : 'Not connected'}
+                                    {connected ? 'Connected to XGENIA RGS' : 'Not connected'}
                                 </span>
                             </div>
                         </Box>
@@ -676,12 +648,17 @@ return evaluateRemote(inputBet);`;
                                             backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '6px',
                                             border: '1px solid rgba(255,255,255,0.08)',
                                         }}>
-                                            No games found. Create a game in the XRGS Dashboard first.
+                                            No games found. Create a game in the XGENIA RGS Dashboard first.
                                         </div>
                                     ) : (
                                         <select
                                             value={selectedGame || ''}
-                                            onChange={(e) => setSelectedGame(e.target.value || null)}
+                                            onChange={(e) => {
+                                                const id = e.target.value || null;
+                                                setSelectedGame(id);
+                                                const g = id && games ? games.find((x: any) => x.id === id) : null;
+                                                persistSelectedGame(g ? { id: g.id, slug: g.slug, name: g.name } : null);
+                                            }}
                                             style={{
                                                 width: '100%',
                                                 padding: '8px 12px',
@@ -786,58 +763,12 @@ return evaluateRemote(inputBet);`;
                                                 isDisabled={validating}
                                             />
                                         </Box>
-                                        <div style={{ textAlign: 'center', fontSize: '11px', color: '#666', margin: '4px 0' }}>or</div>
-                                        <Box hasBottomSpacing>
-                                            <PrimaryButton
-                                                icon={IconName.Plus}
-                                                label={generatingKey ? 'Generating...' : 'Generate New Key'}
-                                                size={PrimaryButtonSize.Small}
-                                                variant={PrimaryButtonVariant.MutedOnLowBg}
-                                                onClick={async () => {
-                                                    setGeneratingKey(true);
-                                                    setError(null);
-                                                    try {
-                                                        // Get user email from editor's Supabase session
-                                                        const { data: { user } } = await supabase.auth.getUser();
-                                                        const email = user?.email;
-                                                        if (!email) {
-                                                            setError('Not logged in — sign in to XGENIA first');
-                                                            setGeneratingKey(false);
-                                                            return;
-                                                        }
-                                                        const res = await fetch(`${XRGS_URL}/maths-deployer`, {
-                                                            method: 'POST',
-                                                            headers: { 'Content-Type': 'application/json' },
-                                                            body: JSON.stringify({ action: 'generate-key', email }),
-                                                        });
-                                                        const data = await res.json();
-                                                        if (!res.ok || !data.api_key) {
-                                                            setError(data.error || 'Failed to generate key');
-                                                            setGeneratingKey(false);
-                                                            return;
-                                                        }
-                                                        // Auto-fill and connect
-                                                        setKeyInput(data.api_key);
-                                                        const s: RgsSettings = { apiKey: data.api_key };
-                                                        saveRgsSettings(s);
-                                                        setSettings(s);
-                                                        setShowInput(false);
-                                                    } catch (e: any) {
-                                                        setError(e.message || 'Network error');
-                                                    } finally {
-                                                        setGeneratingKey(false);
-                                                    }
-                                                }}
-                                                isGrowing
-                                                isDisabled={generatingKey}
-                                            />
-                                        </Box>
                                     </>
                                 ) : (
                                     <Box hasBottomSpacing>
                                         <PrimaryButton
                                             icon={IconName.CloudData}
-                                            label="Connect to XRGS"
+                                            label="Connect to XGENIA RGS"
                                             size={PrimaryButtonSize.Small}
                                             variant={PrimaryButtonVariant.MutedOnLowBg}
                                             onClick={() => setShowInput(true)}
@@ -847,20 +778,6 @@ return evaluateRemote(inputBet);`;
                                 )}
                             </>
                         )}
-
-                        <Tooltip content="Upload, test, approve, and deploy maths to RGS in one click">
-                            <Box hasBottomSpacing>
-                                <PrimaryButton
-                                    icon={IconName.CloudUpload}
-                                    label={uploading ? (pipelineStep || 'Processing...') : 'Upload, Test & Deploy'}
-                                    size={PrimaryButtonSize.Small}
-                                    variant={PrimaryButtonVariant.MutedOnLowBg}
-                                    onClick={() => setShowTestConfigModal(true)}
-                                    isGrowing
-                                    isDisabled={!connected || !selectedGame || uploading}
-                                />
-                            </Box>
-                        </Tooltip>
 
                         {/* Upload status feedback */}
                         {uploadStatus && (
@@ -1065,10 +982,6 @@ return evaluateRemote(inputBet);`;
                 </Box>
                 </div>
 
-                {/* Maths Components — locked to __maths__ sheet */}
-                <div style={{ flex: '1', overflow: 'hidden' }}>
-                    <ComponentsPanel options={mathsPanelOptions} />
-                </div>
             </Container>
 
             {/* ═══ Test Configuration Modal ═══ */}
