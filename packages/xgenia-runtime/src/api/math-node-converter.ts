@@ -742,8 +742,17 @@ export class MathNodeConverter {
     // Merge default values with node parameters
     const mergedDefaults = { ...config.defaultValues, ...node.parameters };
 
+    // Scalar-arithmetic nodes take plain numbers. The runtime nodes coerce their
+    // inputs via Number() (validateNumberInput), so the generated logic must too —
+    // otherwise a UI text field feeding "5" makes Addition do "5"+"3" = "53".
+    // Array / RNG / formula nodes are excluded (their inputs aren't plain numbers).
+    const numericScalarNodes = new Set<string>([
+      'Addition', 'Subtraction', 'Multiplication', 'Division', 'Modulo',
+      'Min', 'Max', 'Round', 'Floor', 'Ceil', 'Less Than Or Equal', 'Equal'
+    ]);
+
     // Generate input parameter mapping
-    const inputMapping = this.generateInputMapping(config.inputPorts, mergedDefaults);
+    const inputMapping = this.generateInputMapping(config.inputPorts, mergedDefaults, numericScalarNodes.has(nodeType));
 
     // Generate the core calculation logic
     const calculationLogic = MathCalculationGenerator.generateCalculationLogic(nodeType);
@@ -772,12 +781,17 @@ export class MathNodeConverter {
   /**
    * Generate input parameter mapping
    */
-  private generateInputMapping(inputPorts: string[], defaultValues: Record<string, any>): string {
+  private generateInputMapping(
+    inputPorts: string[],
+    defaultValues: Record<string, any>,
+    coerceNumeric = false
+  ): string {
     return inputPorts
       .map((port) => {
         const sanitizedPort = this.sanitizeParameterName(port);
         const defaultValue = this.formatDefaultValue(defaultValues[port]);
-        return `const ${port} = inputs.${sanitizedPort} !== undefined ? inputs.${sanitizedPort} : ${defaultValue};`;
+        const read = coerceNumeric ? `Number(inputs.${sanitizedPort})` : `inputs.${sanitizedPort}`;
+        return `const ${port} = inputs.${sanitizedPort} !== undefined ? ${read} : ${defaultValue};`;
       })
       .join('\n      ');
   }

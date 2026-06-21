@@ -10,6 +10,10 @@ const webpack = require('webpack');
 const editorPath = path.resolve(__dirname, '../../');
 const rootPath = path.resolve(__dirname, '../../../../');
 
+// Load local-only secrets (git-ignored .env.local) so they can be injected at
+// build time. Lives in the shared config so it applies to every mode (dev, prod, test).
+require('dotenv').config({ path: path.resolve(editorPath, '.env.local') });
+
 module.exports = merge(
   sharedCore,
   merge(shared, {
@@ -107,7 +111,12 @@ module.exports = merge(
       // Inject the real platform at build time so it survives the
       // process/browser polyfill (which sets process.platform to undefined).
       new webpack.DefinePlugin({
-        'process.platform': JSON.stringify(process.platform)
+        'process.platform': JSON.stringify(process.platform),
+        // Default-connected service tokens (from .env.local — git-ignored, never committed).
+        // Applies to all modes (dev + production). NOTE: these are bundled into the
+        // renderer in plaintext, so a distributed prod build ships the tokens to users.
+        'process.env.XGENIA_VERCEL_TOKEN': JSON.stringify(process.env.XGENIA_VERCEL_TOKEN || ''),
+        'process.env.XGENIA_GITHUB_TOKEN': JSON.stringify(process.env.XGENIA_GITHUB_TOKEN || '')
       })
     ]
   })

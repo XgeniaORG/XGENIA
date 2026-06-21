@@ -17,8 +17,17 @@
 //                      `is<Y>: false`) on the payload, so the same URL can
 //                      dispatch different operations purely by payload contents.
 //
+// And dynamic OUTPUTS, declared through one more stringlist parameter:
+//   * `outputs`     -> one `out-<field>` output port per field of the JSON
+//                      response. After the POST resolves, each response field is
+//                      emitted on its port and flows back into the UI component
+//                      that originally displayed that value (the reverse of the
+//                      input aggregation).
+//
 // Example payload (calculator with Addition / Subtraction):
 //   { "firstNumber": 1, "secondNumber": 2, "isAddition": true, "isSubtraction": false }
+// Example response -> outputs:
+//   { "result": 3 }   ->   out-result = 3
 //
 // Phase 1: the request URL is a dummy localhost value supplied at compile time.
 
@@ -57,6 +66,7 @@ const AggregatorNode = {
   searchTags: ['aggregate', 'aggregator', 'compile', 'payload', 'post', 'edge function'],
   initialize: function () {
     this._internal.dataValues = {};
+    this._internal.outputValues = {};
     this._internal.url = DEFAULT_URL;
   },
   getInspectInfo: function () {
@@ -86,6 +96,14 @@ const AggregatorNode = {
       group: 'Configuration',
       set: function (value) {
         this._internal.triggers = value;
+      }
+    },
+    outputs: {
+      type: { name: 'stringlist', allowEditOnly: true },
+      displayName: 'Outputs',
+      group: 'Configuration',
+      set: function (value) {
+        this._internal.outputs = value;
       }
     }
   },
@@ -118,6 +136,36 @@ const AggregatorNode = {
         });
       }
     },
+    getOutputValue: function (field) {
+      return this._internal.outputValues ? this._internal.outputValues[field] : undefined;
+    },
+    // Materialise an out-<field> output port on demand. Called by the framework
+    // when a connection from this port is bound (mirrors the REST node).
+    registerOutputIfNeeded: function (name) {
+      if (this.hasOutput(name)) return;
+      if (name.indexOf('out-') === 0) {
+        this.registerOutput(name, {
+          getter: this.getOutputValue.bind(this, name.substring('out-'.length))
+        });
+      }
+    },
+    // Take the JSON response body and push each field onto its out-<field>
+    // output port, so the values flow back into the connected UI components.
+    applyOutputs: function (body) {
+      if (!body || typeof body !== 'object') return;
+      this._internal.outputValues = this._internal.outputValues || {};
+      const fields = {};
+      splitList(this._internal.outputs).forEach(function (f) {
+        fields[f] = true;
+      });
+      // Also surface any extra fields the response happens to carry.
+      for (const k in body) fields[k] = true;
+      for (const field in fields) {
+        this._internal.outputValues[field] = body[field];
+        this.registerOutputIfNeeded('out-' + field);
+        if (this.hasOutput('out-' + field)) this.flagOutputDirty('out-' + field);
+      }
+    },
     doSend: function () {
       const payload = {};
       const data = this._internal.dataValues || {};
@@ -138,8 +186,18 @@ const AggregatorNode = {
         body: JSON.stringify(payload)
       })
         .then(function (response) {
-          _this._internal.inspectData = { status: response.status, payload: payload };
-          _this.sendSignalOnOutput(response.ok ? 'success' : 'failure');
+          return response
+            .json()
+            .catch(function () {
+              return {};
+            })
+            .then(function (body) {
+              _this._internal.lastResponse = body;
+              _this._internal.inspectData = { status: response.status, payload: payload, response: body };
+              // Map response fields -> output ports -> connected UI components.
+              _this.applyOutputs(body);
+              _this.sendSignalOnOutput(response.ok ? 'success' : 'failure');
+            });
         })
         .catch(function (e) {
           console.log('Aggregator: failed to POST to', url, e);
@@ -172,6 +230,16 @@ function buildPorts(parameters) {
     });
   });
 
+  splitList(parameters.outputs).forEach(function (field) {
+    ports.push({
+      type: { name: '*', allowConnectionsOnly: true },
+      plug: 'output',
+      group: 'Outputs',
+      name: 'out-' + field,
+      displayName: humanize(field)
+    });
+  });
+
   return ports;
 }
 
@@ -188,7 +256,7 @@ module.exports = {
     function manage(node) {
       context.editorConnection.sendDynamicPorts(node.id, buildPorts(node.parameters));
       node.on('parameterUpdated', function (event) {
-        if (event.name === 'dataInputs' || event.name === 'triggers') {
+        if (event.name === 'dataInputs' || event.name === 'triggers' || event.name === 'outputs') {
           context.editorConnection.sendDynamicPorts(node.id, buildPorts(node.parameters));
         }
       });

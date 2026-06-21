@@ -11,6 +11,7 @@ import { createEditorCompilation } from '@xgenia-utils/compilation/compilation.e
 import * as Exporter from '@xgenia-utils/exporter';
 import { compileProject } from '@xgenia-utils/compile';
 import { saveProject } from '@xgenia-utils/compile/duplicateProject';
+import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import { generateFunctionArtifact } from '@xgenia-utils/rgs/generateFunctionArtifact';
 import { deployEdgeFunction } from '@xgenia-utils/rgs/deployEdgeFunction';
 import { getRgsSettings, getSelectedGame } from '@xgenia-utils/rgs/rgsClient';
@@ -35,6 +36,76 @@ const GITHUB_API_BASE = 'https://api.github.com';
 // Tokens are dynamically loaded from ConnectionStore (OAuth-based)
 // No more hardcoded tokens!
 
+/**
+ * Perform an HTTPS request via Node's `https` module instead of the Chromium
+ * renderer's `fetch`. The editor window runs with nodeIntegration enabled
+ * (see main.js webPreferences), so Node APIs are available in the renderer.
+ *
+ * WHY THIS EXISTS: deployments call third-party APIs (GitHub, Vercel) directly
+ * from the renderer. The renderer's `fetch` can reject with "Failed to fetch" —
+ * a network-LAYER failure (not an HTTP status error) that happens when the
+ * renderer's network path is blocked: a system proxy/PAC script, VPN, corporate
+ * firewall, or DNS interception. Node uses the OS network stack directly (the
+ * same path as curl), which sidesteps all of those. It also lets us set a
+ * User-Agent header, which the GitHub API REQUIRES and a browser `fetch` refuses
+ * to let us override.
+ *
+ * Returns a minimal fetch-Response-like object so existing `.ok` / `.status` /
+ * `.statusText` / `.json()` / `.text()` call sites keep working unchanged.
+ */
+function nodeHttpsRequest(
+  url: string,
+  options: { method?: string; headers?: Record<string, string>; body?: string } = {}
+): Promise<{ ok: boolean; status: number; statusText: string; json: () => Promise<any>; text: () => Promise<string> }> {
+  // Use Electron's injected Node require (window.require) rather than a bare
+  // require() — this bypasses webpack, which otherwise maps 'https' to the
+  // 'https-browserify' polyfill (resolve.fallback) that runs over XHR and would
+  // re-introduce the very renderer-network failure we're avoiding. nodeIntegration
+  // is enabled for the editor window, so window.require is the real Node require.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const https = (window as any).require('https');
+  return new Promise((resolve, reject) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    const req = https.request(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port || 443,
+        path: parsed.pathname + parsed.search,
+        method: options.method || 'GET',
+        headers: {
+          // GitHub rejects requests without a User-Agent (HTTP 403).
+          'User-Agent': 'XGENIA-Editor',
+          ...(options.headers || {}),
+        },
+      },
+      (res: any) => {
+        res.setEncoding('utf8');
+        let bodyText = '';
+        res.on('data', (chunk: string) => { bodyText += chunk; });
+        res.on('end', () => {
+          const status = res.statusCode || 0;
+          resolve({
+            ok: status >= 200 && status < 300,
+            status,
+            statusText: res.statusMessage || '',
+            text: async () => bodyText,
+            json: async () => (bodyText ? JSON.parse(bodyText) : {}),
+          });
+        });
+      }
+    );
+    req.on('error', reject);
+    if (options.body) req.write(options.body);
+    req.end();
+  });
+}
+
 // Import Vercel SDK - we'll create a simple wrapper for now since we can't install packages during runtime
 // This would typically be: import { Vercel } from '@vercel/sdk';
 // For now, we'll use a wrapper that provides the same interface
@@ -48,13 +119,14 @@ class VercelSDKWrapper {
 
   private async request(endpoint: string, options: RequestInit = {}) {
     const url = `${this.baseUrl}${endpoint}`;
-    const response = await fetch(url, {
-      ...options,
+    const response = await nodeHttpsRequest(url, {
+      method: (options.method as string) || 'GET',
       headers: {
         'Authorization': `Bearer ${this.bearerToken}`,
         'Content-Type': 'application/json',
-        ...options.headers,
+        ...(options.headers as Record<string, string> | undefined),
       },
+      body: options.body as string | undefined,
     });
 
     if (!response.ok) {
@@ -534,7 +606,7 @@ export function XgeniaDeployTab() {
     };
 
     // Create repository
-    const createRepoResponse = await fetch(`${GITHUB_API_BASE}/user/repos`, {
+    const createRepoResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/user/repos`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -554,7 +626,7 @@ export function XgeniaDeployTab() {
     const repoOwner = repoData.owner.login;
 
     // Get the latest commit SHA
-    const commitResponse = await fetch(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/commits/main`, {
+    const commitResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/commits/main`, {
       headers
     });
 
@@ -571,7 +643,7 @@ export function XgeniaDeployTab() {
     for (const file of files) {
       if (file.encoding === 'base64') {
         // Create a blob for binary content
-        const blobResponse = await fetch(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/blobs`, {
+        const blobResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/blobs`, {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -592,7 +664,7 @@ export function XgeniaDeployTab() {
     }
 
     // Create tree with prepared items
-    const treeResponse = await fetch(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/trees`, {
+    const treeResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/trees`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -610,7 +682,7 @@ export function XgeniaDeployTab() {
     const treeSha = treeData.sha;
 
     // Create commit
-    const newCommitResponse = await fetch(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/commits`, {
+    const newCommitResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/commits`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -629,7 +701,7 @@ export function XgeniaDeployTab() {
     const newCommitSha = newCommitData.sha;
 
     // Update main branch
-    const updateRefResponse = await fetch(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/refs/heads/main`, {
+    const updateRefResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/refs/heads/main`, {
       method: 'PATCH',
       headers,
       body: JSON.stringify({
@@ -1058,6 +1130,26 @@ export function XgeniaDeployTab() {
   }
 
   // Deploy logic to XGENIA RGS and only the UI to Vercel (decoupled).
+  // Remove the compiled "__<name>__" copy that Compile produced: drop it from
+  // the projects list AND delete its files from disk, so repeated deploys don't
+  // pile up __<name>__-1, __<name>__-2, … next to the original project.
+  function cleanupCompiledCopy(compiledDir: string) {
+    if (!compiledDir) return;
+    try {
+      const entry = LocalProjectsModel.instance
+        .getProjects()
+        .find((p) => p.retainedProjectDirectory === compiledDir);
+      if (entry) LocalProjectsModel.instance.removeProject(entry.id);
+    } catch (e) {
+      console.warn('Failed to unregister compiled project copy:', e);
+    }
+    try {
+      filesystem.removeDirRecursive(compiledDir);
+    } catch (e) {
+      console.warn('Failed to delete compiled project copy from disk:', e);
+    }
+  }
+
   async function deployToRgsAndVercel(activityId: string) {
     const rgs = getRgsSettings();
     const game = getSelectedGame();
@@ -1109,13 +1201,18 @@ export function XgeniaDeployTab() {
     await filesystem.makeDirectory(tempDir);
     try {
       ToastLayer.showActivity('Building UI bundle...', activityId);
-      const compilation = createEditorCompilation(copy).addProjectBuildScripts();
+      // Logic components were already deployed to RGS above, so skip the built-in
+      // Supabase/Parse cloud-function pass — otherwise it errors with "No cloud
+      // service to deploy cloud functions to" since this build has no environment.
+      const compilation = createEditorCompilation(copy, { skipBuiltinCloudFunctionDeploy: true }).addProjectBuildScripts();
       await compilation.deployToFolder(tempDir, { environment: undefined });
 
       const files = await collectProjectFiles(tempDir);
       if (files.length === 0) throw new Error('No files were generated during deployment');
 
-      ToastLayer.showActivity('Preparing repository...', activityId);
+      // GitHub upload — hide the bottom-right toast so no GitHub-related
+      // notification shows. Compile / RGS / build / Vercel messages stay intact.
+      ToastLayer.hideActivity(activityId);
       const repositoryName = `${domainName.trim()}-${Date.now()}`;
       const { repoOwner, repoName: actualRepoName } = await uploadToGitHub(files, repositoryName, isPrivate);
 
@@ -1130,8 +1227,12 @@ export function XgeniaDeployTab() {
       if (showDeployedDomains) await fetchDeployedDomains();
 
       try { filesystem.removeDirRecursive(tempDir); } catch (e) { /* ignore */ }
+      // Deploy is fully done (compiled → GitHub → Vercel): drop the compiled copy.
+      cleanupCompiledCopy(compiledDir);
     } catch (err) {
       try { filesystem.removeDirRecursive(tempDir); } catch (e) { /* ignore */ }
+      // Don't let failed attempts leave __<name>__ copies behind either.
+      cleanupCompiledCopy(compiledDir);
       throw err;
     }
   }
@@ -1210,8 +1311,9 @@ export function XgeniaDeployTab() {
           throw new Error('No files were generated during deployment');
         }
 
-        // Step 2: Preparing repository
-        ToastLayer.showActivity('Step 2/4: Preparing repository...', activityId);
+        // GitHub upload — hide the bottom-right toast so no GitHub-related
+        // notification shows. Compile and Vercel messages stay intact.
+        ToastLayer.hideActivity(activityId);
         const timestamp = Date.now();
         const repositoryName = `${domainName.trim()}-${timestamp}`;
         const { repoOwner, repoName: actualRepoName } = await uploadToGitHub(files, repositoryName, isPrivate);
@@ -1266,6 +1368,9 @@ export function XgeniaDeployTab() {
         <Text hasBottomSpacing textType={TextType.DefaultContrast}>
           Deploy your project to Vercel
         </Text>
+
+        {/* Connect GitHub + Vercel — both are required to publish the UI. */}
+        <ConnectedServicesPanel filterFor="deploy" compact />
 
         <TextInput
           label="Domain Name"

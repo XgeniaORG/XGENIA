@@ -92,16 +92,23 @@ export function captureBoundary(comp: any, logicRoots: any[]): Boundary {
         entry.targets.push({ logicTargetId: c.toId, logicPort: c.toProperty });
       }
     } else if (fromLogic && !toLogic) {
-      // logic output -> UI input (response value). Phase 1: declared but the
-      // return path back into the UI is not re-wired (aggregator POSTs only).
+      // logic output -> UI input: a value the edge function returns and the UI
+      // displays. Key by the UI DESTINATION (toId|toProperty), not the logic
+      // source, so that multiple operations writing to the same display (e.g.
+      // Addition.result and Subtraction.result both feeding the Result text)
+      // collapse into ONE response field (e.g. "result"). Remember the UI
+      // target so the aggregator can wire the response value back into the UI.
       const sourceNode = graph.findNodeWithId(c.fromId);
-      if (!sourceNode) return;
-      const identity = c.fromId + '|' + c.fromProperty;
-      const base = camelCase(safeLabel(sourceNode) + ' ' + c.fromProperty);
-      const field = assignUnique(base, identity, outRegistry);
-      if (!outMap.has(field)) {
-        outMap.set(field, { field, logicSourceId: c.fromId, logicProperty: c.fromProperty });
+      const targetNode = graph.findNodeWithId(c.toId);
+      if (!sourceNode || !targetNode) return;
+      const identity = c.toId + '|' + c.toProperty;
+      const field = assignUnique(deriveFieldName(targetNode), identity, outRegistry);
+      let entry = outMap.get(field);
+      if (!entry) {
+        entry = { field, sources: [], targets: [{ uiTargetId: c.toId, uiPort: c.toProperty }] };
+        outMap.set(field, entry);
       }
+      entry.sources.push({ logicSourceId: c.fromId, logicProperty: c.fromProperty });
     }
   });
 
@@ -324,15 +331,17 @@ export function buildCloudComponent(
     })
   );
   boundary.outputs.forEach((o) => {
-    const fromId = idMap[o.logicSourceId];
-    if (fromId) {
-      graph.addConnection({
-        fromId,
-        fromProperty: o.logicProperty,
-        toId: responseNode.id,
-        toProperty: 'pm-' + o.field
-      });
-    }
+    o.sources.forEach((s) => {
+      const fromId = idMap[s.logicSourceId];
+      if (fromId) {
+        graph.addConnection({
+          fromId,
+          fromProperty: s.logicProperty,
+          toId: responseNode.id,
+          toProperty: 'pm-' + o.field
+        });
+      }
+    });
   });
 
   // Recursively inline embedded logic-component instances.

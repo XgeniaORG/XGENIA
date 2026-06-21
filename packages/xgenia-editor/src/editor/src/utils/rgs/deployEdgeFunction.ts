@@ -34,7 +34,17 @@ export async function deployEdgeFunction(
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error((data && data.error) || `RGS deploy failed (HTTP ${res.status})`);
+    const serverError = (data && data.error) || '';
+    // A stale RGS backend — one deployed before the `deploy-edge-function`
+    // action existed — rejects this request with "Invalid action. Use: …".
+    // Surface an actionable message instead of dumping the raw action list.
+    if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes('deploy-edge-function')) {
+      throw new Error(
+        'XGENIA RGS backend is out of date — it does not support edge-function deploys yet. ' +
+          'Redeploy the `maths-deployer` function (and apply the game_edge_functions migration) to the RGS project, then try again.'
+      );
+    }
+    throw new Error(serverError || `RGS deploy failed (HTTP ${res.status})`);
   }
   if (!data || !data.url) {
     throw new Error('RGS deploy did not return a function URL');

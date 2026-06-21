@@ -75,14 +75,35 @@ function isLogicComponentInstance(node: any): boolean {
 // component: logic-component instances, primitive logic nodes and custom nodes —
 // but not visual nodes, page-structure/navigation nodes, or component gateways.
 export function collectLogicRoots(comp: any): any[] {
+  // Node ids that participate in at least one connection in this component.
+  const connectedIds = new Set<string>();
+  comp.graph.connections.forEach((c: any) => {
+    connectedIds.add(c.fromId);
+    connectedIds.add(c.toId);
+  });
+  const isConnected = (root: any): boolean => {
+    let hit = false;
+    root.forEach((n: any) => {
+      if (connectedIds.has(n.id)) hit = true;
+    });
+    return hit;
+  };
+
   return comp.graph.roots.filter((root: any) => {
     const type = root.type;
     if (!type) return false;
-    if (isComponentInstance(root)) return isLogicComponentInstance(root);
-    if (isVisualType(type)) return false;
-    if (type.haveComponentPorts) return false; // Component Inputs / Outputs
-    if (type.category && NON_LOGIC_CATEGORIES.has(type.category)) return false;
-    return true;
+    let isLogic: boolean;
+    if (isComponentInstance(root)) isLogic = isLogicComponentInstance(root);
+    else if (isVisualType(type)) isLogic = false;
+    else if (type.haveComponentPorts) isLogic = false; // Component Inputs / Outputs
+    else if (type.category && NON_LOGIC_CATEGORIES.has(type.category)) isLogic = false;
+    else isLogic = true;
+    if (!isLogic) return false;
+    // Skip logic roots wired to nothing (e.g. an unused logic-component instance
+    // left on the page). Extracting them only adds dead nodes to the cloud
+    // component that compute on default 0 inputs — and a dead Division would even
+    // throw "Division by zero" and break the whole function.
+    return isConnected(root);
   });
 }
 
@@ -140,9 +161,9 @@ export interface BoundaryTrigger {
 }
 
 export interface BoundaryOutput {
-  field: string; // camelCase response field
-  logicSourceId: string; // logic node id producing the value
-  logicProperty: string; // logic output port
+  field: string; // camelCase response field (named after the UI destination)
+  sources: { logicSourceId: string; logicProperty: string }[]; // logic outputs producing it
+  targets: { uiTargetId: string; uiPort: string }[]; // UI inputs that display the value
 }
 
 export interface Boundary {

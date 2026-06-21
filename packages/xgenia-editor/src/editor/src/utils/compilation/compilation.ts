@@ -32,6 +32,13 @@ export interface IFeedbackProvider {
 
 export type CompilationOptions = {
   cloneProject?: boolean;
+  /**
+   * Skip the built-in cloud-function deploy pass (Supabase/Parse). Set this when
+   * the caller deploys the `/#__cloud__/` logic components elsewhere — e.g. the
+   * XGENIA RGS deploy path sends them to RGS itself, so running this pass would
+   * only raise a spurious "No cloud service to deploy cloud functions to" error.
+   */
+  skipBuiltinCloudFunctionDeploy?: boolean;
 };
 
 /**
@@ -73,7 +80,9 @@ export class Compilation {
     if (!project) throw 'ProjectModel is not defined';
 
     // Add our build scripts
-    this.addBuildScript(deployCloudFunctionBuildScript);
+    if (!options.skipBuiltinCloudFunctionDeploy) {
+      this.addBuildScript(deployCloudFunctionBuildScript);
+    }
     this.addBuildScript(SitemapBuildScript);
   }
 

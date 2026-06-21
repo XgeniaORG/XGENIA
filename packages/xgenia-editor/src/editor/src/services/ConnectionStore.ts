@@ -85,6 +85,56 @@ export const SERVICE_METADATA: Record<ServiceName, {
     },
 };
 
+/**
+ * Services that are treated as connected by default ("connected in the
+ * background") without the user running the OAuth flow. The publish/deploy UI
+ * hides their connection cards. An explicit stored connection (if the user ever
+ * connects manually) always takes precedence over the default.
+ */
+export const DEFAULT_CONNECTED_SERVICES: ServiceName[] = ['vercel', 'github'];
+
+/**
+ * Resolve the access token for a default-connected service. Two sources, in order:
+ *   1. window.__XGENIA_DEFAULT_TOKENS__ — runtime override (e.g. a shared team token).
+ *   2. Build-time tokens from .env.local, injected via webpack DefinePlugin
+ *      (XGENIA_VERCEL_TOKEN / XGENIA_GITHUB_TOKEN). These are git-ignored and never
+ *      committed.
+ *
+ * When none is present the service is still reported as connected (so the UI never
+ * nags) but with an empty token.
+ *
+ * SECURITY NOTE: build-time tokens are bundled into the renderer in plaintext, so
+ * this is appropriate for local/internal use. For a distributed app, hold tokens in
+ * the main process or a backend proxy instead of the renderer bundle.
+ */
+const BUILD_TIME_DEFAULT_TOKENS: Partial<Record<ServiceName, string>> = {
+    vercel: process.env.XGENIA_VERCEL_TOKEN,
+    github: process.env.XGENIA_GITHUB_TOKEN,
+};
+
+function getInjectedDefaultToken(service: ServiceName): string {
+    // 1. Runtime override takes precedence.
+    try {
+        const injected = (globalThis as any).__XGENIA_DEFAULT_TOKENS__;
+        const token = injected?.[service];
+        if (typeof token === 'string' && token) return token;
+    } catch {
+        // ignore
+    }
+
+    // 2. Build-time token from .env.local.
+    return BUILD_TIME_DEFAULT_TOKENS[service] || '';
+}
+
+/** Build a synthetic "connected by default" connection for a background service. */
+function buildDefaultConnection(service: ServiceName): ServiceConnection {
+    return {
+        service,
+        accessToken: getInjectedDefaultToken(service),
+        connectedAt: 0, // 0 marks an auto/default connection (no real OAuth handshake)
+    };
+}
+
 // ─── Encryption Helpers ───────────────────────────────────────────────
 
 async function getOrCreateEncryptionKey(): Promise<CryptoKey> {
@@ -302,7 +352,13 @@ export class ConnectionStore {
     async getConnection(service: ServiceName): Promise<ServiceConnection | null> {
         await this.initialize();
         const conn = this.cache.get(service);
-        if (!conn) return null;
+        if (!conn) {
+            // Auto-connect default services in the background (no OAuth required).
+            if (DEFAULT_CONNECTED_SERVICES.includes(service)) {
+                return buildDefaultConnection(service);
+            }
+            return null;
+        }
 
         // Check expiry
         if (conn.expiresAt && conn.expiresAt < Date.now()) {
@@ -339,7 +395,11 @@ export class ConnectionStore {
         await this.initialize();
         const services: ServiceName[] = ['vercel', 'github', 'supabase', 'fal', 'openrouter'];
         return services.map(service => {
-            const conn = this.cache.get(service);
+            // Fall back to the default-connected state for background services.
+            const conn = this.cache.get(service)
+                ?? (DEFAULT_CONNECTED_SERVICES.includes(service)
+                    ? buildDefaultConnection(service)
+                    : undefined);
             const expired = conn?.expiresAt ? conn.expiresAt < Date.now() : false;
             return {
                 service,
