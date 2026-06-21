@@ -50,6 +50,21 @@ function NodeContext(args) {
   this._outputHistory = {};
   this._signalHistory = {};
 
+  // ── Ordered event timeline (Path B ground-truth for the AI) ──────────────
+  // _outputHistory above is a SNAPSHOT (latest value per output.id). It cannot
+  // answer "what fired, in what order, with what values?" — the question the AI
+  // needs to verify a game actually works. _eventTimeline is the ORDERED record:
+  // a bounded ring of every signal-fire and data-write in true execution order,
+  // each stamped with a monotonic sequence number. Always-on, cheap, and wrapped
+  // so it can never throw into the running graph. See connectionSentValue /
+  // connectionSentSignal below for the record sites, and resetEventTimeline /
+  // getEventTimeline for the read API the observe_timeline tool calls.
+  this._eventTimeline = [];
+  this._eventSeq = 0;
+  this._eventTimelineMax = 4000; // bounded ring; oldest events drop past this
+  this._eventTimelineDropped = 0; // count of events evicted by the ring cap
+  this._eventTimelineEnabled = true;
+
   this.warningTypes = {}; //default is to send all warning types
 
   this.bundleFetchesInFlight = new Map();
@@ -466,7 +481,134 @@ NodeContext.prototype._formatConnectionValue = function (value) {
   return value;
 };
 
+// Format a runtime value for the timeline: keep it small, JSON-safe, and never
+// throw. Primitives pass through (strings truncated); objects become a compact
+// label or a bounded shallow stringify. Mirrors the spirit of
+// _formatConnectionValue but is tuned for read-back by the AI tool.
+NodeContext.prototype._formatTimelineValue = function (value) {
+  try {
+    if (value === null) return null;
+    const t = typeof value;
+    if (t === 'undefined') return undefined;
+    if (t === 'boolean') return value;
+    if (t === 'number') return Number.isFinite(value) ? value : String(value); // NaN/Infinity → string
+    if (t === 'string') return value.length > 200 ? value.slice(0, 200) + '…(' + value.length + ' chars)' : value;
+    if (t === 'function') return '<function>';
+    if (t === 'object') {
+      if (value.constructor && value.constructor.name === 'Node') return '<Node ' + (value.name || value.id || '?') + '>';
+      if (typeof window !== 'undefined' && value instanceof HTMLElement) return '<DOM ' + value.tagName + '>';
+      if (Array.isArray(value)) {
+        try {
+          const s = JSON.stringify(value);
+          if (s && s.length <= 200) return JSON.parse(s);
+        } catch (e) {}
+        return '<array len=' + value.length + '>';
+      }
+      try {
+        const s = JSON.stringify(value);
+        if (s && s.length <= 200) return JSON.parse(s);
+        return '<object ' + (s ? s.length + 'b' : 'unserializable') + '>';
+      } catch (e) {
+        return '<object>';
+      }
+    }
+    return String(value);
+  } catch (e) {
+    return '<unserializable>';
+  }
+};
+
+// Record one ordered timeline event. Called at the TOP of connectionSentValue /
+// connectionSentSignal — BEFORE the debug-inspector gate — so the timeline
+// captures every fire regardless of whether a debug connection is live. Cheap
+// (a few reads + one push) and fully wrapped: a failure here must never disturb
+// the running graph.
+NodeContext.prototype._recordTimelineEvent = function (output, kind, value) {
+  if (this._eventTimelineEnabled === false) return;
+  try {
+    const owner = output && output.owner;
+    const targets = [];
+    if (output && output.connections && output.connections.forEach) {
+      output.connections.forEach((c) => {
+        if (c && c.node) targets.push({ nodeId: c.node.id, nodeName: c.node.name, port: c.inputPortName });
+      });
+    }
+    const evt = {
+      seq: this._eventSeq++,
+      t: this.getCurrentTime(),
+      frame: this.frameNumber,
+      kind: kind, // 'signal' | 'value'
+      nodeId: owner ? owner.id : undefined,
+      nodeName: owner ? owner.name : undefined,
+      nodeType: owner ? (owner.model && owner.model.type) || owner.type : undefined,
+      port: output ? output.name : undefined,
+      targetCount: targets.length,
+      targets: targets
+    };
+    if (kind !== 'signal') {
+      evt.value = this._formatTimelineValue(value);
+    }
+    this._eventTimeline.push(evt);
+
+    // Bounded ring: drop oldest in one amortized splice when we exceed the cap.
+    const max = this._eventTimelineMax || 4000;
+    if (this._eventTimeline.length > max) {
+      const dropCount = this._eventTimeline.length - max;
+      this._eventTimeline.splice(0, dropCount);
+      this._eventTimelineDropped += dropCount;
+    }
+  } catch (e) {
+    // Swallow: the timeline must never break a running game.
+  }
+};
+
+// Clear the timeline (the observe_timeline tool calls this before driving an
+// interaction so the read captures only that interaction's events). Returns the
+// sequence number the next event will get, so a caller can also do a sinceSeq read.
+NodeContext.prototype.resetEventTimeline = function () {
+  this._eventTimeline = [];
+  this._eventTimelineDropped = 0;
+  return this._eventSeq;
+};
+
+// Read the timeline. opts: { sinceSeq, limit, nodeId, kind }. Returns a plain,
+// JSON-safe object (events are already JSON-safe via _formatTimelineValue).
+NodeContext.prototype.getEventTimeline = function (opts) {
+  opts = opts || {};
+  let events = this._eventTimeline || [];
+  if (typeof opts.sinceSeq === 'number') {
+    events = events.filter((e) => e.seq >= opts.sinceSeq);
+  }
+  if (opts.nodeId) {
+    events = events.filter((e) => e.nodeId === opts.nodeId || (e.targets && e.targets.some((tg) => tg.nodeId === opts.nodeId)));
+  }
+  if (opts.kind === 'signal' || opts.kind === 'value') {
+    events = events.filter((e) => e.kind === opts.kind);
+  }
+  const total = events.length;
+  if (typeof opts.limit === 'number' && opts.limit >= 0 && events.length > opts.limit) {
+    events = events.slice(events.length - opts.limit); // keep the most recent `limit`
+  }
+  return {
+    enabled: this._eventTimelineEnabled !== false,
+    nextSeq: this._eventSeq,
+    droppedFromRing: this._eventTimelineDropped || 0,
+    bufferSize: (this._eventTimeline || []).length,
+    bufferCap: this._eventTimelineMax || 4000,
+    returnedCount: events.length,
+    matchedCount: total,
+    events: events
+  };
+};
+
 NodeContext.prototype.connectionSentValue = function (output, value) {
+  // Ordered ground-truth record (Path B). Skip the synthetic '[Signal] …' value
+  // that connectionSentSignal routes through here — that fire is already recorded
+  // as a 'signal' event, so recording it again as a 'value' would double-count.
+  if (!(typeof value === 'string' && value.indexOf('[Signal]') === 0)) {
+    this._recordTimelineEvent(output, 'value', value);
+  }
+
   if (!this.editorConnection || !this.editorConnection.isConnected() || !this.debugInspectorsEnabled) {
     return;
   }
@@ -503,6 +645,10 @@ NodeContext.prototype.connectionSentValue = function (output, value) {
 };
 
 NodeContext.prototype.connectionSentSignal = function (output) {
+  // Ordered ground-truth record (Path B): a signal fire, recorded before the
+  // debug gate so it's captured whether or not a debug connection is live.
+  this._recordTimelineEvent(output, 'signal');
+
   const id = output.id;
   if (!this._signalHistory.hasOwnProperty(id)) {
     this._signalHistory[id] = {
