@@ -5,6 +5,8 @@
  * Uses DOMParser for parsing and pattern-based Tailwind class resolution.
  */
 
+import { isCleanClass, structuralRole } from './node-label';
+
 // ─── Tailwind Scales ────────────────────────────────────────
 
 const SPACING: Record<string, number> = {
@@ -2797,9 +2799,12 @@ function generateNodeLabel(el: HTMLElement, tag: string, textHint?: string): str
         return true;
     });
 
-    if (meaningfulClasses.length > 0) {
-        const label = meaningfulClasses.slice(0, 2).join(' ').replace(/[-_]+/g, ' ');
-        return label.substring(0, MAX_LEN);
+    // ONE clean semantic class only. Joining multiple classes produced garble
+    // like "sailing JUNGLE PIRATES sa section"; verbose/underscore-laden classes
+    // are skipped (fall through to a structural role below).
+    const cleanClass = meaningfulClasses.find(isCleanClass);
+    if (cleanClass) {
+        return cleanClass.replace(/[-_]+/g, ' ').substring(0, MAX_LEN);
     }
 
     // Helper: clean a label string to remove the concat-rot pattern seen in traces
@@ -2840,8 +2845,11 @@ function generateNodeLabel(el: HTMLElement, tag: string, textHint?: string): str
             if (tag === 'label') return cleaned;
             // Lists
             if (tag === 'li') return cleaned;
-            // Otherwise, use text directly for short content (no "tag:" prefix)
-            if (cleaned.length <= 25) return cleaned;
+            // Generic element: use its text as a label ONLY if it is a LEAF. A
+            // container's textContent aggregates ALL descendants into concat-rot
+            // like "remove 10 add" (the −/10/+ bet row) — never a real name. A
+            // container falls through to a structural role below.
+            if (cleaned.length <= 25 && el.children.length === 0) return cleaned;
         }
     }
 
@@ -2882,49 +2890,18 @@ function generateNodeLabel(el: HTMLElement, tag: string, textHint?: string): str
         return 'spacer';
     }
 
-    // Layout containers — peek at children for descriptive names
+    // Layout containers — a SAFE structural role from the element's OWN semantics
+    // (tag + layout), NEVER child content. Peeking at children's text aggregated
+    // into garble like "remove 10 add" / "BET row" that the AI can't navigate. An
+    // explicit id/aria/data-label above already short-circuited this; to get a
+    // semantic name, declare data-label. The dedup pass makes repeats unique
+    // (Row, Row 2).
     if (childCount > 0) {
-        const isRow = /flex-direction:\s*row/.test(style) || /display:\s*flex/.test(style);
-        const isGrid = /display:\s*grid/.test(style);
-
-        // FIX (2026-03-10): Use children's text content to produce unique, descriptive labels.
-        // "div container (2 items)" is useless for AI @ref targeting.
-        // FIX (2026-05-04): Run text through cleanLabel to strip emoji-only / symbol-only
-        // hints and collapse whitespace runs — produces clean ASCII-friendly @refs
-        // (e.g. "BET section" instead of "BET         $25 section").
-        let childHint = '';
-        for (let i = 0; i < Math.min(el.children.length, 5); i++) {
-            const child = el.children[i];
-            const rawChildText = (child.textContent || '').trim();
-            const cleanedChild = cleanLabel(rawChildText);
-            if (cleanedChild && cleanedChild.length > 1) {
-                childHint = cleanedChild;
-                break;
-            }
-        }
-        // If no usable text found in children, try first child's aria-label or id
-        if (!childHint) {
-            for (let i = 0; i < Math.min(el.children.length, 3); i++) {
-                const child = el.children[i] as HTMLElement;
-                const childId = child.getAttribute?.('id') || child.getAttribute?.('aria-label') || '';
-                if (childId) {
-                    childHint = childId.replace(/[-_]+/g, ' ');
-                    break;
-                }
-            }
-        }
-
-        if (childHint) {
-            // Truncate and clean the hint
-            const hint = childHint.replace(/\n/g, ' ').trim().substring(0, 25);
-            if (isGrid) return `${hint} grid`;
-            if (isRow) return `${hint} row`;
-            return `${hint} section`;
-        }
-
-        if (isGrid) return `${tag} grid (${childCount} items)`;
-        if (isRow) return `${tag} row (${childCount} items)`;
-        return `${tag} container (${childCount} items)`;
+        const layout: 'row' | 'grid' | 'col' | 'none' =
+            /display:\s*grid/.test(style) ? 'grid'
+                : (/flex-direction:\s*row/.test(style) || /display:\s*flex/.test(style)) ? 'row'
+                    : 'none';
+        return structuralRole(tag, layout);
     }
 
     // Fallback — use tag name (rare)
