@@ -11,9 +11,12 @@
 // GPL model imports (this file intentionally lives in GPL code)
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import ThumbnailCache from '@xgenia-utils/thumbnailcache';
+import { isBloatPort, isTooLargeToSerialize } from './serialize-param-guard';
 import { NodeLibrary } from '@xgenia-models/nodelibrary';
 import { UndoQueue, UndoActionGroup } from '@xgenia-models/undo-queue-model';
 import { SidebarModel } from '@xgenia-models/sidebar';
+import { recordAssetProvenance, loadAssetMeta, migrateAssetMeta } from '../AssetPanel/assetMeta';
+import { reconcileGraphAssetRefs } from '../AssetPanel/assetGraphRefs';
 import { ComponentModel } from '@xgenia-models/componentmodel';
 import { NodeGraphModel, NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
@@ -1645,6 +1648,46 @@ export class EditorBridge {
             }
         });
 
+        // --- XRGS (maths/RGS) bridge ---
+        // The AI plugin runs in an iframe and cannot reach `window.__xrgs` (it lives on the editor
+        // window, defined at MathsPanel module load — eagerly imported by router.setup.ts). These
+        // passthroughs let the iframe reach the RGS API key, the maths compiler, and the shared
+        // test config (active game + settings). Without them the AI's RGS tools are dead in prod.
+        // Key + config use the `xgenia_rgs_settings` localStorage key directly (single source of
+        // truth, independent of whether the Maths panel is mounted); compile/list go through __xrgs.
+        const XRGS_DEFAULT_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/functions/v1';
+        const readRgs = (): any => {
+            try { return JSON.parse(localStorage.getItem('xgenia_rgs_settings') || '{}'); } catch { return {}; }
+        };
+        const writeRgs = (patch: Record<string, any>): void => {
+            try { localStorage.setItem('xgenia_rgs_settings', JSON.stringify({ ...readRgs(), ...patch })); } catch { /* ignore */ }
+        };
+        h('xrgs.getSettings', () => {
+            const s = readRgs();
+            return s.apiKey ? { apiKey: s.apiKey, url: s.rgsUrl || XRGS_DEFAULT_URL } : null;
+        });
+        h('xrgs.getActiveGame', () => readRgs().activeGame ?? null);
+        h('xrgs.setActiveGame', ([game]: [any]) => { writeRgs({ activeGame: game ?? null }); return true; });
+        h('xrgs.getTestSettings', () => readRgs().testSettings ?? null);
+        h('xrgs.setTestSettings', ([s]: [any]) => {
+            const next = { ...(readRgs().testSettings || {}), ...(s || {}) };
+            writeRgs({ testSettings: next });
+            return next;
+        });
+        h('xrgs.generateScript', ([componentName]: [string?]) => {
+            try {
+                const xrgs = (window as any).__xrgs;
+                return xrgs?.generateRgsScript
+                    ? xrgs.generateRgsScript(componentName)
+                    : { error: 'Maths bridge not available — open the Maths panel once to initialise it.' };
+            } catch (e: any) {
+                return { error: e?.message || 'generateScript failed' };
+            }
+        });
+        h('xrgs.getMathsComponents', () => {
+            try { return (window as any).__xrgs?.getMathsComponents?.() ?? []; } catch { return []; }
+        });
+
         // --- Filesystem commands ---
         h('fs.readFile', async ([filePath, encoding]: [string, string?]) => {
             const fs = require('fs');
@@ -1766,6 +1809,39 @@ export class EditorBridge {
             const buffer = Buffer.from(base64Data, 'base64');
             fs.writeFileSync(filePath, buffer);
             return true;
+        });
+
+        // Record AI provenance (prompt/model/params) for a saved asset, keyed by its
+        // project-relative path ('assets/...'). The AI calls this right after saving a
+        // generated image so the asset carries "what the AI did" (shown in the Inspector).
+        h('assetMeta.set', async ([assetPath, entry]: [string, { ai?: any; tags?: string[]; favorite?: boolean }]) => {
+            if (!assetPath || !entry) return false;
+            try {
+                if (entry.ai) await recordAssetProvenance(assetPath, entry.ai);
+                return true;
+            } catch (e) {
+                console.warn('[EditorBridge] assetMeta.set failed:', e);
+                return false;
+            }
+        });
+
+        // Migrate asset metadata (tags/provenance) when the AI renames/moves an asset,
+        // so it isn't orphaned. Prefix-aware (a folder move carries its inner files).
+        h('assetMeta.migrate', async ([oldPath, newPath]: [string, string]) => {
+            if (!oldPath || !newPath) return false;
+            try {
+                await loadAssetMeta();
+                migrateAssetMeta(oldPath, newPath);
+                try {
+                    reconcileGraphAssetRefs(oldPath, newPath);
+                } catch {
+                    /* graph reconciliation is best-effort */
+                }
+                return true;
+            } catch (e) {
+                console.warn('[EditorBridge] assetMeta.migrate failed:', e);
+                return false;
+            }
         });
 
         h('fs.stat', ([filePath]: [string]) => {
@@ -2332,32 +2408,11 @@ ${autoReturnCode}
             }
             return val;
         };
-        // 2026-05-25 (second iteration): only fetch via getParameter for
-        // ports DECLARED by this specific node type. Previously we walked
-        // `node.getPorts()` which returns the inherited port set including
-        // base-class pseudo-ports. On pixi.* nodes this exposed a magic
-        // `functionScript` getter that returned the ENTIRE node-type def as
-        // a 98KB string — bloated every export by 3MB+ and polluted
-        // inspect_node output. The compiled-node-docs search-index has the
-        // authoritative declared-input list per node type. Use it as the
-        // gate.
-        const ALLOWED_PORT_NAMES_BY_TYPE: Record<string, Set<string>> = (() => {
-            try {
-                const mod = require('../ChatPanel/StreamlinedToolRegistry/compiled-node-docs/search-index.json');
-                const nodes = mod?.nodes || {};
-                const map: Record<string, Set<string>> = {};
-                for (const [name, entry] of Object.entries<any>(nodes)) {
-                    const hints = entry?.inputFormatHints;
-                    if (hints && typeof hints === 'object') {
-                        map[name] = new Set(Object.keys(hints));
-                        map[name.trim()] = map[name];
-                    }
-                }
-                return map;
-            } catch {
-                return {};
-            }
-        })();
+        // 2026-06-22: serialize every declared input port, skipping only the known
+        // bloat pseudo-port (see isBloatPort) + a size backstop. The earlier
+        // inputFormatHints allowlist (2026-05-25) over-corrected the pixi
+        // functionScript bloat by also dropping PRIMARY params (Text.text,
+        // button.label) — trace 1782150899325.
         try {
             let rawPorts: any[] = [];
             if (typeof node.getPorts === 'function') {
@@ -2376,9 +2431,6 @@ ${autoReturnCode}
                 }
             }
             const typeName3 = node.type?.name || node.typename || '';
-            const allowedNames = ALLOWED_PORT_NAMES_BY_TYPE[typeName3]
-                || ALLOWED_PORT_NAMES_BY_TYPE[typeName3.trim()]
-                || null;
             const isJSFunction = (typeName3 || '').toLowerCase() === 'javascriptfunction'
                 || (typeName3 || '').toLowerCase() === 'javascript2';
             for (const p of rawPorts) {
@@ -2389,15 +2441,18 @@ ${autoReturnCode}
                 const portTypeName = (p.type?.name || p.type || '').toString().toLowerCase();
                 if (portTypeName === 'signal') continue;
                 if (params[p.name] !== undefined && params[p.name] !== null) continue;
-                // GATE: only fetch ports the compiled-docs catalog declares
-                // for THIS node type. JS function nodes are excluded from the
-                // gate because their special params (functionScript /
-                // scriptInputs / scriptOutputs) are intentionally fetched by
-                // the earlier JS-specific block above.
-                if (!isJSFunction && allowedNames && !allowedNames.has(p.name)) continue;
+                // GATE: serialize EVERY declared input port except the known bloat
+                // pseudo-port (functionScript on pixi.* returns the whole ~98KB
+                // node-type def). The previous allowlist (compiled-docs
+                // inputFormatHints) was partial and dropped PRIMARY params like
+                // Text.text and button.label — so inspect_node, verify_logic_correctness
+                // and the debug export saw empty content and a button with params:[]
+                // (trace 1782150899325, the phantom "empty text"). A size backstop
+                // catches any other pathologically-large value.
+                if (isBloatPort(p.name, isJSFunction)) continue;
                 try {
                     const v = typeof node.getParameter === 'function' ? node.getParameter(p.name) : undefined;
-                    if (v !== undefined && v !== null) {
+                    if (v !== undefined && v !== null && !isTooLargeToSerialize(v)) {
                         params[p.name] = unwrapValueUnit(v, portTypeName);
                     }
                 } catch { /* skip ports that error on read */ }
