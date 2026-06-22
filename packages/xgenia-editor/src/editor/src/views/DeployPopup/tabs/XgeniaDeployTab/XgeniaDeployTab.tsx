@@ -13,7 +13,7 @@ import { compileProject } from '@xgenia-utils/compile';
 import { saveProject } from '@xgenia-utils/compile/duplicateProject';
 import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import { generateFunctionArtifact } from '@xgenia-utils/rgs/generateFunctionArtifact';
-import { deployEdgeFunction } from '@xgenia-utils/rgs/deployEdgeFunction';
+import { createEdgeDeployment, deployEdgeFunction } from '@xgenia-utils/rgs/deployEdgeFunction';
 import { getRgsSettings, getSelectedGame } from '@xgenia-utils/rgs/rgsClient';
 
 import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
@@ -1175,13 +1175,16 @@ export function XgeniaDeployTab() {
       );
     });
 
-    // 2. Deploy each logic component as a per-game RGS edge function.
+    // 2. Open a versioned deployment, then deploy each logic component into it
+    //    as a per-game RGS edge function. Every Publish becomes a new version,
+    //    so the game keeps full deploy history.
     ToastLayer.showActivity('Deploying logic to XGENIA RGS...', activityId);
+    const { deploymentId } = await createEdgeDeployment(rgs.apiKey, game.id, copy.name);
     const urlByComponent: Record<string, string> = {};
     for (const comp of copy.components) {
       if (!String(comp.name).startsWith('/#__cloud__/__Component_')) continue;
       const artifact = generateFunctionArtifact(comp, copy);
-      const { url } = await deployEdgeFunction(rgs.apiKey, game.id, artifact);
+      const { url } = await deployEdgeFunction(rgs.apiKey, game.id, deploymentId, artifact);
       urlByComponent[comp.name] = url;
     }
 
@@ -1212,7 +1215,8 @@ export function XgeniaDeployTab() {
 
       // GitHub upload — hide the bottom-right toast so no GitHub-related
       // notification shows. Compile / RGS / build / Vercel messages stay intact.
-      ToastLayer.hideActivity(activityId);
+      // ToastLayer.hideActivity(activityId);
+      ToastLayer.showActivity('Preparing compiled project for deployment...', activityId);
       const repositoryName = `${domainName.trim()}-${Date.now()}`;
       const { repoOwner, repoName: actualRepoName } = await uploadToGitHub(files, repositoryName, isPrivate);
 

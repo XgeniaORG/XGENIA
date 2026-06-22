@@ -283,35 +283,35 @@ export const ConnectedServicesPanel: React.FC<ConnectedServicesPanelProps> = ({
 
     // ─── Deploy Readiness ───────────────────────────────────────────────
 
-    const vercelStatus = getStatus('vercel');
-    const githubStatus = getStatus('github');
-    const deployReady = vercelStatus?.connected && githubStatus?.connected;
+    // const vercelStatus = getStatus('vercel');
+    // const githubStatus = getStatus('github');
+    // const deployReady = vercelStatus?.connected && githubStatus?.connected;
 
-    return (
-        <div className={styles.connectedServicesPanel}>
-            {filteredServices.length > 0 && (
-                <h4 className={styles.sectionHeader}>Connected Services</h4>
-            )}
+    // return (
+    //     <div className={styles.connectedServicesPanel}>
+    //         {filteredServices.length > 0 && (
+    //             <h4 className={styles.sectionHeader}>Connected Services</h4>
+    //         )}
 
-            {filteredServices.map(renderServiceCard)}
+    //         {filteredServices.map(renderServiceCard)}
 
-            {/* Deploy readiness indicator */}
-            {filterFor === 'deploy' && (
-                <div
-                    className={`${styles.readinessBanner} ${deployReady ? styles.ready : styles.notReady
-                        }`}
-                >
-                    <HugeiconsIcon
-                        icon={deployReady ? CheckmarkCircle02Icon : AlertCircleIcon}
-                        size={16}
-                    />
-                    {deployReady
-                        ? 'Ready to deploy'
-                        : 'Connect Vercel and GitHub to enable deployment'}
-                </div>
-            )}
-        </div>
-    );
+    //         {/* Deploy readiness indicator */}
+    //         {filterFor === 'deploy' && (
+    //             <div
+    //                 className={`${styles.readinessBanner} ${deployReady ? styles.ready : styles.notReady
+    //                     }`}
+    //             >
+    //                 <HugeiconsIcon
+    //                     icon={deployReady ? CheckmarkCircle02Icon : AlertCircleIcon}
+    //                     size={16}
+    //                 />
+    //                 {deployReady
+    //                     ? 'Ready to deploy'
+    //                     : 'Connect Vercel and GitHub to enable deployment'}
+    //             </div>
+    //         )}
+    //     </div>
+    // );
 };
 
 export default ConnectedServicesPanel;
