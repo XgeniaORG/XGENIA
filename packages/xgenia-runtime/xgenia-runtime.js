@@ -69,6 +69,8 @@ function registerNodes(xgeniaRuntime) {
     require('./src/nodes/maths/evaluate-keno-paytable'),
     require('./src/nodes/maths/auto-bet-strategy-evaluator'),
     require('./src/nodes/maths/verify-commitment'),
+    require('./src/nodes/maths/verify-fairness'),
+    require('./src/nodes/maths/validate-outcome'),
     require('./src/nodes/maths/trng'),
     require('./src/nodes/maths/trng-array'),
     require('./src/nodes/maths/isaac-rng'),

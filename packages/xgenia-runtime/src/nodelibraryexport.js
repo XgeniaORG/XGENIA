@@ -651,6 +651,10 @@ function generateNodeLibrary(nodeRegister) {
           items: ['Server Seed Generator', 'Calculate Roll', 'Verify Commitment']
         },
         {
+          name: 'Betslip Actions',
+          items: ['Verify Fairness', 'Validate Outcome']
+        },
+        {
           name: 'Simulations',
           items: ['RTP Monitor', 'Hit Frequency Monitor', 'Volatility Monitor']
         },
