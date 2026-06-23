@@ -1510,6 +1510,87 @@ ${originalComponentStructure}
       }
     }
 
+    // --- xgenia.cloud.response mapping (compiled cloud components) ---
+    // Cloud components built by the editor's "Compile" feature use an
+    // xgenia.cloud.response node (params -> pm-<field> input ports) instead of a
+    // "Component Outputs" node. Without this the script would fall back to
+    // _lastNodeResult — i.e. whichever node happens to sort last — which is wrong
+    // (and is 0 when that node is an unconnected/dead one). Build the response
+    // object from the response node's connections instead.
+    const responseNode = this.component.graph.roots.find(
+      (n) => n.typename === 'xgenia.cloud.response'
+    );
+    if (responseNode && !componentOutputsNode) {
+      // Resolve a source connection (through Variable2 passthroughs) to its
+      // result expression, or null if the source isn't a generated node.
+      const resolveSourceExpr = (conn: any): string | null => {
+        let resolvedFromId = conn.fromId;
+        let resolvedFromProperty = conn.fromProperty;
+        let hops = 0;
+        while (!outputVariableMap.has(resolvedFromId) && hops < 10) {
+          const srcNode = this.nodes.get(resolvedFromId);
+          if (!srcNode || (srcNode.typename !== '/#__cloud__/Variable2' && srcNode.typename !== 'Variable2')) break;
+          const upstreamConn = this.connections.find((c) => c.toId === resolvedFromId && c.toProperty === 'value');
+          if (!upstreamConn) break;
+          resolvedFromId = upstreamConn.fromId;
+          resolvedFromProperty = upstreamConn.fromProperty;
+          hops++;
+        }
+        if (!outputVariableMap.has(resolvedFromId)) return null;
+        const sourceNode = this.nodes.get(resolvedFromId);
+        let fromProp = resolvedFromProperty;
+        if (sourceNode?.typename === 'JavaScriptFunction' && fromProp.startsWith('out-')) {
+          fromProp = fromProp.substring(4);
+        }
+        return this.safePropertyAccess(outputVariableMap.get(resolvedFromId)!, fromProp);
+      };
+
+      // Find the operation flag (e.g. "isAddition") that gates a source node:
+      // the request node feeds pm-is<X> into one of the source node's signal
+      // inputs (e.g. Addition.Do). The Aggregator sets exactly one such flag per
+      // request, so we use it to pick the right source when several feed the same
+      // response field.
+      const findGatingFlag = (sourceNodeId: string): string | null => {
+        const gate = this.connections.find(
+          (c) =>
+            c.toId === sourceNodeId &&
+            this.nodes.get(c.fromId)?.typename === 'xgenia.cloud.request' &&
+            c.fromProperty.startsWith('pm-is')
+        );
+        return gate ? gate.fromProperty.replace('pm-', '') : null;
+      };
+
+      const responseConns = this.connections.filter(
+        (c) => c.toId === responseNode.id && c.toProperty.startsWith('pm-')
+      );
+      const byParam = new Map<string, any[]>();
+      for (const conn of responseConns) {
+        const param = conn.toProperty.replace('pm-', '');
+        if (!byParam.has(param)) byParam.set(param, []);
+        byParam.get(param)!.push(conn);
+      }
+
+      const mappings: string[] = [];
+      for (const [param, conns] of byParam) {
+        // Default to the last source; wrap earlier sources in a flag conditional
+        // so e.g. result = isAddition ? add : (isSubtraction ? sub : sub).
+        let expr = resolveSourceExpr(conns[conns.length - 1]);
+        for (let i = conns.length - 1; i >= 0; i--) {
+          const e = resolveSourceExpr(conns[i]);
+          if (e == null) continue;
+          const flag = findGatingFlag(conns[i].fromId);
+          expr = flag ? `(${this.safePropertyAccess('config', flag)} ? ${e} : ${expr})` : e;
+        }
+        if (expr != null) {
+          const safeName = /[^a-zA-Z0-9_]/.test(param) ? `"${param}"` : param;
+          mappings.push(`${safeName}: ${expr}`);
+        }
+      }
+      if (mappings.length > 0) {
+        invocationCode += `const _componentOutputs = { ${mappings.join(', ')} };\n    `;
+      }
+    }
+
     return invocationCode;
   }
 

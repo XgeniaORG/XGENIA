@@ -15,29 +15,30 @@ import {
     ConnectionStatus,
     SERVICE_METADATA,
     ServiceName,
+    DEFAULT_CONNECTED_SERVICES,
 } from '../../../services/ConnectionStore';
 import { OAuthFlowManager } from '../../../services/OAuthFlowManager';
 
 // @ts-ignore
-import CloudUploadIcon from '@hugeicons/core-free-icons/rounded/CloudUpload';
+import CloudUploadIcon from '@hugeicons/core-free-icons/CloudUploadIcon';
 // @ts-ignore
-import GithubIcon from '@hugeicons/core-free-icons/rounded/Github';
+import GithubIcon from '@hugeicons/core-free-icons/GithubIcon';
 // @ts-ignore
-import DatabaseIcon from '@hugeicons/core-free-icons/rounded/Database';
+import DatabaseIcon from '@hugeicons/core-free-icons/DatabaseIcon';
 // @ts-ignore
-import ArtificialIntelligence04Icon from '@hugeicons/core-free-icons/rounded/ArtificialIntelligence04';
+import ArtificialIntelligence04Icon from '@hugeicons/core-free-icons/ArtificialIntelligence04Icon';
 // @ts-ignore
-import ArtificialIntelligence06Icon from '@hugeicons/core-free-icons/rounded/ArtificialIntelligence06';
+import ArtificialIntelligence06Icon from '@hugeicons/core-free-icons/ArtificialIntelligence06Icon';
 // @ts-ignore
-import CheckmarkCircle02Icon from '@hugeicons/core-free-icons/rounded/CheckmarkCircle02';
+import CheckmarkCircle02Icon from '@hugeicons/core-free-icons/CheckmarkCircle02Icon';
 // @ts-ignore
-import LinkBrokenIcon from '@hugeicons/core-free-icons/rounded/LinkBroken01';
+import LinkBrokenIcon from '@hugeicons/core-free-icons/Unlink01Icon';
 // @ts-ignore
-import Tick02Icon from '@hugeicons/core-free-icons/rounded/Tick02';
+import Tick02Icon from '@hugeicons/core-free-icons/Tick02Icon';
 // @ts-ignore
-import AlertCircleIcon from '@hugeicons/core-free-icons/rounded/AlertCircle';
+import AlertCircleIcon from '@hugeicons/core-free-icons/AlertCircleIcon';
 // @ts-ignore
-import Key01Icon from '@hugeicons/core-free-icons/rounded/Key01';
+import Key01Icon from '@hugeicons/core-free-icons/Key01Icon';
 
 import { HugeiconsIcon } from '@hugeicons/react';
 
@@ -106,11 +107,14 @@ export const ConnectedServicesPanel: React.FC<ConnectedServicesPanelProps> = ({
         return () => unsub();
     }, []);
 
-    // Filter services if needed
+    // Filter services if needed.
+    // Default-connected services (Vercel, GitHub) are connected in the background,
+    // so their cards are hidden from the panel.
     const services: ServiceName[] = ['vercel', 'github', 'supabase', 'fal', 'openrouter'];
+    const visibleServices = services.filter(s => !DEFAULT_CONNECTED_SERVICES.includes(s));
     const filteredServices = filterFor
-        ? services.filter(s => SERVICE_METADATA[s]?.requiredFor.includes(filterFor))
-        : services;
+        ? visibleServices.filter(s => SERVICE_METADATA[s]?.requiredFor.includes(filterFor))
+        : visibleServices;
 
     // ─── Handlers ───────────────────────────────────────────────────────
 
@@ -279,33 +283,35 @@ export const ConnectedServicesPanel: React.FC<ConnectedServicesPanelProps> = ({
 
     // ─── Deploy Readiness ───────────────────────────────────────────────
 
-    const vercelStatus = getStatus('vercel');
-    const githubStatus = getStatus('github');
-    const deployReady = vercelStatus?.connected && githubStatus?.connected;
+    // const vercelStatus = getStatus('vercel');
+    // const githubStatus = getStatus('github');
+    // const deployReady = vercelStatus?.connected && githubStatus?.connected;
 
-    return (
-        <div className={styles.connectedServicesPanel}>
-            <h4 className={styles.sectionHeader}>Connected Services</h4>
+    // return (
+    //     <div className={styles.connectedServicesPanel}>
+    //         {filteredServices.length > 0 && (
+    //             <h4 className={styles.sectionHeader}>Connected Services</h4>
+    //         )}
 
-            {filteredServices.map(renderServiceCard)}
+    //         {filteredServices.map(renderServiceCard)}
 
-            {/* Deploy readiness indicator */}
-            {filterFor === 'deploy' && (
-                <div
-                    className={`${styles.readinessBanner} ${deployReady ? styles.ready : styles.notReady
-                        }`}
-                >
-                    <HugeiconsIcon
-                        icon={deployReady ? CheckmarkCircle02Icon : AlertCircleIcon}
-                        size={16}
-                    />
-                    {deployReady
-                        ? 'Ready to deploy'
-                        : 'Connect Vercel and GitHub to enable deployment'}
-                </div>
-            )}
-        </div>
-    );
+    //         {/* Deploy readiness indicator */}
+    //         {filterFor === 'deploy' && (
+    //             <div
+    //                 className={`${styles.readinessBanner} ${deployReady ? styles.ready : styles.notReady
+    //                     }`}
+    //             >
+    //                 <HugeiconsIcon
+    //                     icon={deployReady ? CheckmarkCircle02Icon : AlertCircleIcon}
+    //                     size={16}
+    //                 />
+    //                 {deployReady
+    //                     ? 'Ready to deploy'
+    //                     : 'Connect Vercel and GitHub to enable deployment'}
+    //             </div>
+    //         )}
+    //     </div>
+    // );
 };
 
 export default ConnectedServicesPanel;

@@ -15,54 +15,20 @@ import { BasePanel } from '@xgenia-core-ui/components/sidebar/BasePanel';
 import { ComponentsPanel } from '../componentspanel';
 import { supabase } from '../../../supabaseInit';
 
-import { ComponentModel } from '@xgenia-models/componentmodel';
-import { NodeGraphModel } from '@xgenia-models/nodegraphmodel';
-import { ProjectModel } from '@xgenia-models/projectmodel';
-import { guid } from '@xgenia-utils/utils';
-
 
 // ─── RGS Connection ─────────────────────────────────────────
-// The XRGS endpoint is fixed — users only need to provide their API key
-// generated from the RGS dashboard (API Keys page).
-
-const XRGS_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/functions/v1';
-// Supabase anon key — required by verify_jwt on edge functions.
-// This is NOT a secret; it's the publishable key used to pass gateway auth.
-const XRGS_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzdWJ6d3lkcmplbG1qZmtrcmhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4ODA3NDcsImV4cCI6MjA4NzQ1Njc0N30.Hewc7WlLZuufC0trhCKKKc4AhLXk7jy7qG3irBQPykY';
-
-/** Build headers for maths-deployer requests */
-function rgsHeaders(apiKey: string): Record<string, string> {
-    return {
-        'Content-Type': 'application/json',
-        'X-Operator-Key': apiKey,
-        'apikey': XRGS_ANON_KEY,
-        'Authorization': `Bearer ${XRGS_ANON_KEY}`,
-    };
-}
-
-interface RgsSettings {
-    apiKey: string;
-}
-
-function getRgsSettings(): RgsSettings | null {
-    try {
-        const settings = localStorage.getItem('xgenia_rgs_settings');
-        if (settings) {
-            const parsed = JSON.parse(settings);
-            if (parsed.apiKey) return parsed;
-        }
-    } catch { }
-    return null;
-}
-
-function saveRgsSettings(settings: RgsSettings | string): void {
-    const s = typeof settings === 'string' ? { apiKey: settings, rgsUrl: XRGS_URL } : { ...settings, rgsUrl: XRGS_URL };
-    localStorage.setItem('xgenia_rgs_settings', JSON.stringify(s));
-}
-
-function clearRgsSettings(): void {
-    localStorage.removeItem('xgenia_rgs_settings');
-}
+// Shared XGENIA RGS settings/helpers live in utils/rgs/rgsClient so the Deploy
+// flow can reuse them. `setSelectedGame` (persist) is aliased to avoid a clash
+// with this component's local React state setter of the same name.
+import {
+    XRGS_URL,
+    rgsHeaders,
+    getRgsSettings,
+    saveRgsSettings,
+    clearRgsSettings,
+    setSelectedGame as persistSelectedGame,
+    RgsSettings
+} from '@xgenia-utils/rgs/rgsClient';
 
 // Expose for other panels / AI tools
 (window as any).__xrgs = {
@@ -183,11 +149,10 @@ export function MathsPanel() {
     const [uploading, setUploading] = useState(false);
     const [uploadStatus, setUploadStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
     const [generatingKey, setGeneratingKey] = useState(false);
+    // "Server Versions" now lists deployed-edge-function versions (matches the
+    // studio Versions tab), not maths_configs.
     const [versions, setVersions] = useState<any[] | null>(null);
     const [versionsLoading, setVersionsLoading] = useState(false);
-    const [expandedVersion, setExpandedVersion] = useState<string | null>(null);
-    const [versionCode, setVersionCode] = useState<Record<string, string>>({});
-    const [actionStatus, setActionStatus] = useState<{ id: string; type: 'success' | 'error' | 'loading'; msg: string } | null>(null);
 
     // Upload, Test & Deploy modal state
     const [showTestConfigModal, setShowTestConfigModal] = useState(false);
@@ -229,10 +194,10 @@ export function MathsPanel() {
             const res = await fetch(`${XRGS_URL}/maths-deployer`, {
                 method: 'POST',
                 headers: rgsHeaders(settings.apiKey),
-                body: JSON.stringify({ action: 'versions', game_id: selectedGame }),
+                body: JSON.stringify({ action: 'list-edge-deployments', game_id: selectedGame }),
             });
             const data = await res.json();
-            setVersions(data.versions || []);
+            setVersions(data.deployments || []);
         } catch { setVersions([]); }
         setVersionsLoading(false);
     }, [settings, selectedGame]);
@@ -243,180 +208,6 @@ export function MathsPanel() {
     useEffect(() => {
         if (uploadStatus?.type === 'success') fetchVersions();
     }, [uploadStatus, fetchVersions]);
-
-    // Fetch code for expanded version
-    useEffect(() => {
-        if (!expandedVersion || versionCode[expandedVersion] || !settings?.apiKey) return;
-        fetch(`${XRGS_URL}/maths-deployer`, {
-            method: 'POST',
-            headers: rgsHeaders(settings.apiKey),
-            body: JSON.stringify({ action: 'download', maths_config_id: expandedVersion }),
-        }).then(async (res) => {
-            const ct = res.headers.get('Content-Type') || '';
-            const text = await res.text();
-            let formatted = text;
-            if (!ct.includes('javascript')) {
-                try { formatted = JSON.stringify(JSON.parse(text), null, 2); } catch { /* use raw */ }
-            }
-            setVersionCode(prev => ({ ...prev, [expandedVersion]: formatted }));
-        }).catch(() => {
-            setVersionCode(prev => ({ ...prev, [expandedVersion]: '// Failed to load code' }));
-        });
-    }, [expandedVersion, versionCode, settings]);
-
-    // Quick actions on versions
-    const handleVersionAction = useCallback(async (configId: string, action: 'deploy' | 'activate') => {
-        if (!settings?.apiKey) return;
-        const labels = { deploy: 'Deploying...', activate: 'Activating...' };
-        setActionStatus({ id: configId, type: 'loading', msg: labels[action] });
-        try {
-            const body: Record<string, any> = action === 'deploy'
-                ? { action: 'deploy', maths_config_id: configId }
-                : { action: 'activate', maths_config_id: configId };
-            const res = await fetch(`${XRGS_URL}/maths-deployer`, {
-                method: 'POST',
-                headers: rgsHeaders(settings.apiKey),
-                body: JSON.stringify(body),
-            });
-            const data = await res.json();
-            if (data.error) {
-                setActionStatus({ id: configId, type: 'error', msg: data.error });
-            } else {
-                setActionStatus({ id: configId, type: 'success', msg: data.message || 'Done' });
-                fetchVersions();
-            }
-        } catch (e: any) {
-            setActionStatus({ id: configId, type: 'error', msg: e.message });
-        }
-    }, [settings, fetchVersions]);
-
-    const handleImportFromRgs = useCallback(async (configId: string, version: number) => {
-        if (!settings?.apiKey) return;
-        setActionStatus({ id: configId, type: 'loading', msg: 'Importing remote component...' });
-        try {
-            // Verify the evaluate endpoint works first
-            const testRes = await fetch(`${XRGS_URL}/maths-deployer`, {
-                method: 'POST',
-                headers: rgsHeaders(settings.apiKey),
-                body: JSON.stringify({ action: 'evaluate', maths_config_id: configId, ctx: { bet: 100, round: 1 } }),
-            });
-            const testData = await testRes.json();
-            if (testData.error) {
-                setActionStatus({ id: configId, type: 'error', msg: `RGS evaluate check failed: ${testData.error}` });
-                return;
-            }
-
-            // Find the game name for the component label
-            const game = games?.find((g: any) => g.id === selectedGame);
-            const gameName = game?.name || 'RGS';
-            const componentName = `/#__maths__/${gameName} RGS v${version} (Remote)`;
-
-            // Check if component already exists
-            if (ProjectModel.instance.getComponentWithName(componentName)) {
-                setActionStatus({ id: configId, type: 'error', msg: `Component "${gameName} RGS v${version} (Remote)" already exists` });
-                return;
-            }
-
-            // Build the proxy script that calls XRGS evaluate endpoint remotely
-            const proxyScript = `// ☁ RGS Remote Maths Proxy — ${gameName} v${version}
-// This component executes math REMOTELY on the XRGS platform.
-// The source code runs server-side — only results are returned.
-// Do not edit this script — changes won't affect the deployed math.
-
-const XRGS_URL = '${XRGS_URL}';
-const MATHS_CONFIG_ID = '${configId}';
-const XRGS_ANON_KEY = '${XRGS_ANON_KEY}';
-const GAME_NAME = '${gameName.replace(/'/g, "\\'")}';
-const VERSION = ${version};
-
-// Internal state persisted between rounds
-var _roundState = {};
-var _roundCount = 0;
-
-async function evaluateRemote(bet) {
-  var settings = null;
-  try { settings = JSON.parse(localStorage.getItem('xgenia_rgs_settings') || '{}'); } catch(e) {}
-  var apiKey = settings && settings.apiKey;
-  if (!apiKey) throw new Error('Not connected to XRGS — open Maths RGS panel and connect first');
-
-  _roundCount++;
-  var res = await fetch(XRGS_URL + '/maths-deployer', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Operator-Key': apiKey,
-      'apikey': XRGS_ANON_KEY,
-      'Authorization': 'Bearer ' + XRGS_ANON_KEY,
-    },
-    body: JSON.stringify({
-      action: 'evaluate',
-      maths_config_id: MATHS_CONFIG_ID,
-      ctx: {
-        bet: bet || 100,
-        state: _roundState,
-        round: _roundCount,
-      }
-    }),
-  });
-
-  var data = await res.json();
-  if (data.error) throw new Error('RGS Error: ' + data.error);
-
-  // Persist state for next round (bonus continuations etc.)
-  _roundState = (data.result && data.result.state) || {};
-
-  return data.result || data;
-}
-
-// Entry point — called by the editor runtime
-var inputBet = Inputs.bet || 100;
-return evaluateRemote(inputBet);`;
-
-            // Create the proxy component with a JavaScriptFunction node
-            const jsFnNodeId = guid();
-            const nodeGraph = NodeGraphModel.fromJSON({
-                roots: [
-                    {
-                        id: jsFnNodeId,
-                        type: 'JavaScriptFunction',
-                        typename: 'JavaScriptFunction',
-                        label: `☁ RGS v${version} (${gameName})`,
-                        x: 200,
-                        y: 200,
-                        parameters: {
-                            functionScript: proxyScript,
-                            _rgsRemote: true,
-                            _rgsConfigId: configId,
-                            _rgsGameId: selectedGame,
-                            _rgsVersion: version,
-                            _rgsGameName: gameName,
-                        },
-                        dynamicports: [
-                            { name: 'in-bet', plug: 'input', type: 'number', displayName: 'bet' },
-                            { name: 'out-win', plug: 'output', type: 'number', displayName: 'win' },
-                            { name: 'out-data', plug: 'output', type: '*', displayName: 'data' },
-                            { name: 'out-state', plug: 'output', type: '*', displayName: 'state' },
-                        ],
-                    },
-                ],
-                connections: [],
-            });
-
-            const component = new ComponentModel({
-                name: componentName,
-                id: guid(),
-                graph: nodeGraph,
-            });
-
-            ProjectModel.instance.addComponent(component, {
-                label: `Import Remote RGS Maths v${version}`,
-            });
-
-            setActionStatus({ id: configId, type: 'success', msg: `☁ Imported v${version} as remote component` });
-        } catch (e: any) {
-            setActionStatus({ id: configId, type: 'error', msg: e.message });
-        }
-    }, [settings, games, selectedGame]);
 
     const handleConnect = useCallback(async () => {
         const key = keyInput.trim();
@@ -625,7 +416,7 @@ return evaluateRemote(inputBet);`;
                                     backgroundColor: connected ? '#67DE92' : '#666',
                                 }} />
                                 <span style={{ fontSize: '13px', color: '#e0e0e0' }}>
-                                    {connected ? 'Connected to XRGS' : 'Not connected'}
+                                    {connected ? 'Connected to XGENIA RGS' : 'Not connected'}
                                 </span>
                             </div>
                         </Box>
@@ -676,12 +467,17 @@ return evaluateRemote(inputBet);`;
                                             backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '6px',
                                             border: '1px solid rgba(255,255,255,0.08)',
                                         }}>
-                                            No games found. Create a game in the XRGS Dashboard first.
+                                            No games found. Create a game in the XGENIA RGS Dashboard first.
                                         </div>
                                     ) : (
                                         <select
                                             value={selectedGame || ''}
-                                            onChange={(e) => setSelectedGame(e.target.value || null)}
+                                            onChange={(e) => {
+                                                const id = e.target.value || null;
+                                                setSelectedGame(id);
+                                                const g = id && games ? games.find((x: any) => x.id === id) : null;
+                                                persistSelectedGame(g ? { id: g.id, slug: g.slug, name: g.name } : null);
+                                            }}
                                             style={{
                                                 width: '100%',
                                                 padding: '8px 12px',
@@ -786,58 +582,12 @@ return evaluateRemote(inputBet);`;
                                                 isDisabled={validating}
                                             />
                                         </Box>
-                                        <div style={{ textAlign: 'center', fontSize: '11px', color: '#666', margin: '4px 0' }}>or</div>
-                                        <Box hasBottomSpacing>
-                                            <PrimaryButton
-                                                icon={IconName.Plus}
-                                                label={generatingKey ? 'Generating...' : 'Generate New Key'}
-                                                size={PrimaryButtonSize.Small}
-                                                variant={PrimaryButtonVariant.MutedOnLowBg}
-                                                onClick={async () => {
-                                                    setGeneratingKey(true);
-                                                    setError(null);
-                                                    try {
-                                                        // Get user email from editor's Supabase session
-                                                        const { data: { user } } = await supabase.auth.getUser();
-                                                        const email = user?.email;
-                                                        if (!email) {
-                                                            setError('Not logged in — sign in to XGENIA first');
-                                                            setGeneratingKey(false);
-                                                            return;
-                                                        }
-                                                        const res = await fetch(`${XRGS_URL}/maths-deployer`, {
-                                                            method: 'POST',
-                                                            headers: { 'Content-Type': 'application/json' },
-                                                            body: JSON.stringify({ action: 'generate-key', email }),
-                                                        });
-                                                        const data = await res.json();
-                                                        if (!res.ok || !data.api_key) {
-                                                            setError(data.error || 'Failed to generate key');
-                                                            setGeneratingKey(false);
-                                                            return;
-                                                        }
-                                                        // Auto-fill and connect
-                                                        setKeyInput(data.api_key);
-                                                        const s: RgsSettings = { apiKey: data.api_key };
-                                                        saveRgsSettings(s);
-                                                        setSettings(s);
-                                                        setShowInput(false);
-                                                    } catch (e: any) {
-                                                        setError(e.message || 'Network error');
-                                                    } finally {
-                                                        setGeneratingKey(false);
-                                                    }
-                                                }}
-                                                isGrowing
-                                                isDisabled={generatingKey}
-                                            />
-                                        </Box>
                                     </>
                                 ) : (
                                     <Box hasBottomSpacing>
                                         <PrimaryButton
                                             icon={IconName.CloudData}
-                                            label="Connect to XRGS"
+                                            label="Connect to XGENIA RGS"
                                             size={PrimaryButtonSize.Small}
                                             variant={PrimaryButtonVariant.MutedOnLowBg}
                                             onClick={() => setShowInput(true)}
@@ -847,20 +597,6 @@ return evaluateRemote(inputBet);`;
                                 )}
                             </>
                         )}
-
-                        <Tooltip content="Upload, test, approve, and deploy maths to RGS in one click">
-                            <Box hasBottomSpacing>
-                                <PrimaryButton
-                                    icon={IconName.CloudUpload}
-                                    label={uploading ? (pipelineStep || 'Processing...') : 'Upload, Test & Deploy'}
-                                    size={PrimaryButtonSize.Small}
-                                    variant={PrimaryButtonVariant.MutedOnLowBg}
-                                    onClick={() => setShowTestConfigModal(true)}
-                                    isGrowing
-                                    isDisabled={!connected || !selectedGame || uploading}
-                                />
-                            </Box>
-                        </Tooltip>
 
                         {/* Upload status feedback */}
                         {uploadStatus && (
@@ -901,160 +637,36 @@ return evaluateRemote(inputBet);`;
 
                                     {versions && versions.length === 0 && !versionsLoading && (
                                         <div style={{ fontSize: '11px', color: '#666', padding: '8px 0' }}>
-                                            No maths uploaded yet.
+                                            No edge functions deployed yet.
                                         </div>
                                     )}
 
                                     {versions && versions.map((v: any) => {
-                                        const isExpanded = expandedVersion === v.id;
-                                        const statusColors: Record<string, string> = {
-                                            live: '#67DE92', approved: '#67DE92', testing: '#FFC107',
-                                            draft: '#a0a0b0', failed: '#EF4444', archived: '#666',
-                                        };
-                                        const statusColor = statusColors[v.status] || '#a0a0b0';
-
-                                        // Extract simulation data from stress_results
-                                        const sr = v.stress_results;
-                                        const rtpComp = sr?.tests?.rtp_compliance;
-                                        const measuredRtp = rtpComp?.measured_rtp;
-                                        const hitRate = rtpComp?.hit_rate;
-                                        const maxWin = rtpComp?.max_win || rtpComp?.max_multiplier;
-                                        const hasSimData = measuredRtp != null;
-                                        const declaredRtpNorm = v.declared_rtp ? (parseFloat(v.declared_rtp) > 1 ? parseFloat(v.declared_rtp) : parseFloat(v.declared_rtp) * 100) : null;
-                                        const rtpDisplay = hasSimData ? `${measuredRtp.toFixed(2)}%` : (declaredRtpNorm != null ? `${declaredRtpNorm.toFixed(2)}%` : null);
-
+                                        const count = v.functions?.length || 0;
                                         return (
-                                            <div key={v.id} style={{ marginBottom: '4px' }}>
-                                                <div
-                                                    onClick={() => setExpandedVersion(isExpanded ? null : v.id)}
-                                                    style={{
-                                                        display: 'flex', alignItems: 'center', gap: '6px',
-                                                        padding: '6px 8px', borderRadius: '4px', cursor: 'pointer',
-                                                        backgroundColor: isExpanded ? 'rgba(255,255,255,0.06)' : 'transparent',
-                                                        transition: 'background-color 0.15s',
-                                                    }}
-                                                    onMouseEnter={e => { if (!isExpanded) (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(255,255,255,0.04)'; }}
-                                                    onMouseLeave={e => { if (!isExpanded) (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'; }}
-                                                >
-                                                    <span style={{
-                                                        fontSize: '11px', fontWeight: 700, fontFamily: 'monospace',
-                                                        color: '#e0e0e0', minWidth: '24px',
-                                                    }}>v{v.version}</span>
+                                            <div key={v.id} style={{
+                                                display: 'flex', alignItems: 'center', gap: '8px',
+                                                padding: '6px 8px', borderRadius: '4px', marginBottom: '4px',
+                                                backgroundColor: 'rgba(255,255,255,0.03)',
+                                            }}>
+                                                <span style={{
+                                                    fontSize: '11px', fontWeight: 700, fontFamily: 'monospace',
+                                                    color: '#e0e0e0', minWidth: '24px',
+                                                }}>v{v.version}</span>
 
-                                                    <span style={{
-                                                        fontSize: '10px', padding: '1px 6px', borderRadius: '3px',
-                                                        backgroundColor: `${statusColor}20`, color: statusColor,
-                                                        fontWeight: 600, textTransform: 'uppercase' as const,
-                                                    }}>{v.status}</span>
+                                                <span style={{
+                                                    fontSize: '11px', color: '#c0c0c0',
+                                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
+                                                }}>{v.name}</span>
 
-                                                    {rtpDisplay && (
-                                                        <span style={{
-                                                            fontSize: '10px', color: hasSimData ? '#67DE92' : '#a0a0b0',
-                                                            fontFamily: 'monospace',
-                                                        }}>
-                                                            RTP {rtpDisplay}
-                                                        </span>
-                                                    )}
+                                                <span style={{ flex: 1 }} />
 
-                                                    {hasSimData && hitRate != null && (
-                                                        <span style={{
-                                                            fontSize: '10px', color: '#60A5FA',
-                                                            fontFamily: 'monospace',
-                                                        }}>
-                                                            Hit {(hitRate * 100).toFixed(1)}%
-                                                        </span>
-                                                    )}
-
-                                                    {hasSimData && maxWin != null && (
-                                                        <span style={{
-                                                            fontSize: '10px', color: '#FFC107',
-                                                            fontFamily: 'monospace',
-                                                        }}>
-                                                            Max {maxWin}×
-                                                        </span>
-                                                    )}
-
-                                                    <span style={{ flex: 1 }} />
-                                                    <span style={{ fontSize: '10px', color: '#555' }}>
-                                                        {new Date(v.created_at).toLocaleDateString()}
-                                                    </span>
-                                                    <span style={{ fontSize: '10px', color: '#555' }}>{isExpanded ? '\u25BE' : '\u25B8'}</span>
-                                                </div>
-
-                                                {isExpanded && (
-                                                    <div style={{
-                                                        padding: '8px', marginLeft: '4px',
-                                                        borderLeft: `2px solid ${statusColor}30`,
-                                                    }}>
-                                                        <div style={{ display: 'flex', gap: '4px', marginBottom: '8px' }}>
-                                                            {v.status === 'failed' && (
-                                                                <button
-                                                                    onClick={(e) => { e.stopPropagation(); handleVersionAction(v.id, 'activate'); }}
-                                                                    disabled={actionStatus?.id === v.id && actionStatus.type === 'loading'}
-                                                                    style={{
-                                                                        fontSize: '10px', padding: '3px 8px', borderRadius: '3px',
-                                                                        border: '1px solid rgba(255,255,255,0.15)', backgroundColor: 'rgba(255,255,255,0.05)',
-                                                                        color: '#e0e0e0', cursor: 'pointer',
-                                                                    }}
-                                                                >
-                                                                    Re-activate
-                                                                </button>
-                                                            )}
-                                                            {v.status === 'live' && (
-                                                                <button
-                                                                    onClick={(e) => { e.stopPropagation(); handleImportFromRgs(v.id, v.version); }}
-                                                                    disabled={actionStatus?.id === v.id && actionStatus.type === 'loading'}
-                                                                    style={{
-                                                                        fontSize: '10px', padding: '3px 8px', borderRadius: '3px',
-                                                                        border: '1px solid rgba(96,165,250,0.3)', backgroundColor: 'rgba(96,165,250,0.1)',
-                                                                        color: '#60A5FA', cursor: 'pointer',
-                                                                    }}
-                                                                >
-                                                                    ☁ Import Remote
-                                                                </button>
-                                                            )}
-                                                            {v.status === 'approved' && (
-                                                                <button
-                                                                    onClick={(e) => { e.stopPropagation(); handleVersionAction(v.id, 'deploy'); }}
-                                                                    disabled={actionStatus?.id === v.id && actionStatus.type === 'loading'}
-                                                                    style={{
-                                                                        fontSize: '10px', padding: '3px 8px', borderRadius: '3px',
-                                                                        border: '1px solid rgba(103,222,146,0.3)', backgroundColor: 'rgba(103,222,146,0.1)',
-                                                                        color: '#67DE92', cursor: 'pointer',
-                                                                    }}
-                                                                >
-                                                                    Deploy Live
-                                                                </button>
-                                                            )}
-                                                        </div>
-
-                                                        {actionStatus?.id === v.id && (
-                                                            <div style={{
-                                                                fontSize: '10px', padding: '4px 8px', borderRadius: '3px', marginBottom: '6px',
-                                                                backgroundColor: actionStatus.type === 'success' ? 'rgba(103,222,146,0.1)'
-                                                                    : actionStatus.type === 'error' ? 'rgba(239,68,68,0.1)'
-                                                                    : 'rgba(255,255,255,0.05)',
-                                                                color: actionStatus.type === 'success' ? '#67DE92'
-                                                                    : actionStatus.type === 'error' ? '#EF4444' : '#a0a0b0',
-                                                            }}>
-                                                                {actionStatus.msg}
-                                                            </div>
-                                                        )}
-
-                                                        <div style={{ fontSize: '10px', color: '#666', marginBottom: '4px' }}>
-                                                            {v.maths_mode === 'config' ? 'Config Mode' : 'Script Mode'}
-                                                        </div>
-                                                        <pre style={{
-                                                            fontSize: '10px', fontFamily: 'monospace', color: '#c0c0c0',
-                                                            backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: '4px',
-                                                            padding: '8px', maxHeight: '200px', overflow: 'auto',
-                                                            whiteSpace: 'pre-wrap', wordBreak: 'break-all' as const,
-                                                            margin: 0,
-                                                        }}>
-                                                            {versionCode[v.id] || 'Loading code\u2026'}
-                                                        </pre>
-                                                    </div>
-                                                )}
+                                                <span style={{ fontSize: '10px', color: '#a0a0b0', fontFamily: 'monospace' }}>
+                                                    {count} component{count === 1 ? '' : 's'}
+                                                </span>
+                                                <span style={{ fontSize: '10px', color: '#555' }}>
+                                                    {new Date(v.created_at).toLocaleDateString()}
+                                                </span>
                                             </div>
                                         );
                                     })}
@@ -1065,10 +677,6 @@ return evaluateRemote(inputBet);`;
                 </Box>
                 </div>
 
-                {/* Maths Components — locked to __maths__ sheet */}
-                <div style={{ flex: '1', overflow: 'hidden' }}>
-                    <ComponentsPanel options={mathsPanelOptions} />
-                </div>
             </Container>
 
             {/* ═══ Test Configuration Modal ═══ */}

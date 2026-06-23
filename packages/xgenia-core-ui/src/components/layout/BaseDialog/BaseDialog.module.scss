@@ -9,6 +9,18 @@
   right: 0;
   bottom: 0;
 
+  // A Select dropdown is a transient popover and must always stack above the
+  // dialog it lives in. Both the dialog and the dropdown render into the same
+  // portal as sibling full-screen overlays with no z-index, so paint order is
+  // decided by DOM order alone. Because React runs a child's effects before its
+  // parent's, a Select that mounts in the SAME commit as its parent dialog
+  // (e.g. the default-active tab of the Deploy popup) appends its portal node
+  // BEFORE the parent's — leaving the parent overlay on top and swallowing the
+  // dropdown's clicks. Lift Select-variant dialogs to make this deterministic.
+  &.is-variant-select {
+    z-index: 1;
+  }
+
   &.is-hidden {
     visibility: hidden;
     pointer-events: none;

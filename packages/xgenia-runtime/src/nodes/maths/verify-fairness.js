@@ -5,15 +5,15 @@ try {
   crypto = null;
 }
 
-const CalculatePFArrayDrawNode = {
-  name: 'Calculate PF Array Draw',
-  docs: 'https://docsapp.xgenia.com/nodes/math/calculate-pf-array-draw',
+const VerifyFairnessNode = {
+  name: 'Verify Fairness',
+  docs: 'https://docsapp.xgenia.com/nodes/math/verify-fairness',
   category: 'Math',
   color: 'data',
-  description: 'Calculates an array of provably fair drawn numbers based on client seed, server seed, and nonce.',
-  searchTags: ['calculate', 'draw', 'array', 'provably', 'fair', 'seed', 'keno', 'random'],
+  description: 'Verifies that a bet outcome was predetermined before placement and not altered during gameplay.',
+  searchTags: ['verify', 'fairness', 'provably', 'fair', 'seed', 'nonce', 'hash', 'hmac', 'betslip'],
   initialize: function () {
-    this._internal.result = [];
+    this._internal.isFair = false;
   },
   inputs: {
     'Do': {
@@ -21,75 +21,75 @@ const CalculatePFArrayDrawNode = {
       displayName: 'Do',
       group: 'Actions',
       valueChangedToTrue: function () {
-        this.calculate();
+        this.verify();
       }
     },
-    'client seed': { type: 'string', defaultValue: '' },
-    'server seed': { type: 'string', defaultValue: '' },
-    'nonce': { type: 'number', defaultValue: 0 },
-    'draw count': { type: 'number', defaultValue: 10 },
-    'pool size': { type: 'number', defaultValue: 40 }
+    'serverSeed': {
+      type: 'string',
+      defaultValue: '',
+      displayName: 'Server Seed'
+    },
+    'clientSeed': {
+      type: 'string',
+      defaultValue: '',
+      displayName: 'Client Seed'
+    },
+    'nonce': {
+      type: 'number',
+      defaultValue: 0,
+      displayName: 'Nonce'
+    },
+    'expectedHash': {
+      type: 'string',
+      defaultValue: '',
+      displayName: 'Expected Hash'
+    }
   },
   outputs: {
-    'result': {
-      type: 'array',
+    'isFair': {
+      type: 'boolean',
+      displayName: 'isFair',
       getter: function () {
-        return this._internal.result;
+        return this._internal.isFair;
       }
     },
-    'Done': { type: 'signal', displayName: 'Done' }
+    'Done': {
+      type: 'signal',
+      displayName: 'Done'
+    }
   },
   methods: {
-    calculate: function () {
+    verify: function () {
       try {
-        const clientSeed = this.getInputValue('client seed') || '';
-        const serverSeed = this.getInputValue('server seed') || '';
+        const serverSeed = this.getInputValue('serverSeed') || '';
+        const clientSeed = this.getInputValue('clientSeed') || '';
         const nonce = this.getInputValue('nonce') || 0;
-        let drawCount = this.getInputValue('draw count');
-        let poolSize = this.getInputValue('pool size');
+        const expectedHash = this.getInputValue('expectedHash') || '';
 
-        if (drawCount === undefined) drawCount = 10;
-        if (poolSize === undefined) poolSize = 40;
-        if (drawCount > poolSize) drawCount = poolSize;
+        // 1. Combine the seeds and the nonce
+        const payload = `${serverSeed}:${clientSeed}:${nonce}`;
 
-        const combinedString = `${serverSeed}-${clientSeed}-${nonce}`;
-
-        let hash = '';
+        let generatedHash = '';
         if (crypto && crypto.createHash) {
-          hash = crypto.createHash('sha256').update(combinedString).digest('hex');
+          // 2. Create a SHA-256 hash of the combined string (matches Calculate Roll)
+          generatedHash = crypto.createHash('sha256').update(payload).digest('hex');
         } else {
-          hash = this._pureSha256(combinedString);
+          // Pure JS SHA-256 fallback for browser
+          generatedHash = this._pureSha256(payload);
         }
 
-        const hexSubset = hash.substring(0, 8);
-        const seedDecimal = parseInt(hexSubset, 16);
-        
-        let a = seedDecimal;
-        const nextFloat = function() {
-          var t = a += 0x6D2B79F5;
-          t = Math.imul(t ^ t >>> 15, t | 1);
-          t ^= t + Math.imul(t ^ t >>> 7, t | 61);
-          return ((t ^ t >>> 14) >>> 0) / 4294967296;
-        };
+        // 3. Check if our manually generated hash matches the casino's hash
+        const isFair = generatedHash === expectedHash;
 
-        const pool = [];
-        for (let i = 1; i <= poolSize; i++) {
-          pool.push(i);
-        }
+        console.log(`Generated Hash: ${generatedHash}`);
+        console.log(`Fair: ${isFair}`);
 
-        const drawn = [];
-        for (let i = 0; i < drawCount; i++) {
-          const randIndex = Math.floor(nextFloat() * pool.length);
-          const selected = pool.splice(randIndex, 1)[0];
-          drawn.push(selected);
-        }
+        this._internal.isFair = isFair;
 
-        this._internal.result = drawn;
-
-        this.flagOutputDirty('result');
+        this.flagOutputDirty('isFair');
         this.sendSignalOnOutput('Done');
       } catch (error) {
-        console.error('Calculate PF Array Draw error:', error);
+        console.error('Verify Fairness error:', error);
       }
     },
     _pureSha256: function (s) {
@@ -97,9 +97,9 @@ const CalculatePFArrayDrawNode = {
       var hexcase = 0;
 
       function safe_add(x, y) {
-        var lsw = (x & 0xFFFF) + (y & 0xFFFF);
+        var lsw = (x & 0xffff) + (y & 0xffff);
         var msw = (x >> 16) + (y >> 16) + (lsw >> 16);
-        return (msw << 16) | (lsw & 0xFFFF);
+        return (msw << 16) | (lsw & 0xffff);
       }
 
       function S(X, n) { return (X >>> n) | (X << (32 - n)); }
@@ -158,4 +158,4 @@ const CalculatePFArrayDrawNode = {
   }
 };
 
-module.exports = CalculatePFArrayDrawNode;
+module.exports = VerifyFairnessNode;
