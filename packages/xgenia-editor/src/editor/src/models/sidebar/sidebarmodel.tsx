@@ -339,6 +339,17 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
   }
 
   /**
+   * Show an arbitrary component in the right-hand property panel (the same region
+   * node properties use). For non-node inspectors, e.g. the Asset inspector.
+   */
+  public showRightPanel(id: string, component: () => React.ReactElement) {
+    this.rightPanelId = id;
+    this.rightPanelComponent = component;
+    this.panels[id] = component;
+    this.notifyListeners(SidebarModelEvent.rightPanelChanged, this.rightPanelId, this.rightPanelComponent);
+  }
+
+  /**
    * Used by "doubleClick"
    *
    * @param command

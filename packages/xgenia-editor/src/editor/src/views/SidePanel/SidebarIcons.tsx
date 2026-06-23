@@ -57,6 +57,8 @@ import PinIcon from '@hugeicons/core-free-icons/PinIcon';
 import PinOffIcon from '@hugeicons/core-free-icons/PinOffIcon';
 // @ts-ignore
 import CalculatorIcon from '@hugeicons/core-free-icons/CalculatorIcon';
+// @ts-ignore
+import FolderLibraryIcon from '@hugeicons/core-free-icons/FolderLibraryIcon';
 
 interface IconProps {
     size?: number;
@@ -94,6 +96,7 @@ export const SideFeedback = makeIcon(Comment01Icon, 'SideFeedback');
 export const SideImageEditor = makeIcon(Image01Icon, 'SideImageEditor');
 export const SideMemoryPanel = makeIcon(Brain01Icon, 'SideMemoryPanel');
 export const SideMaths = makeIcon(CalculatorIcon, 'SideMaths');
+export const SideAssets = makeIcon(FolderLibraryIcon, 'SideAssets');
 export const SideAddNode = makeIcon(Add01Icon, 'SideAddNode');
 export const SideLogout = makeIcon(Logout01Icon, 'SideLogout');
 export const TopbarImport = makeIcon(Download04Icon, 'TopbarImport');

@@ -1,73 +1,60 @@
-import React, { useMemo } from 'react';
+import React, { useRef } from 'react';
 
 import { Box } from '@xgenia-core-ui/components/layout/Box';
 import { ActivityIndicator } from '@xgenia-core-ui/components/common/ActivityIndicator';
 
 import { AssetItem } from './AssetItem';
-import { Asset, ViewMode, SortBy } from './types';
+import { Asset, ViewMode } from './types';
+import { ClickModifiers } from './useAssetSelection';
 
 import styles from './AssetPanel.module.scss';
 
 interface AssetGridProps {
+  /** Already in final canonical order (search/score THEN folders-first+sortBy). Rendered verbatim. */
   assets: Asset[];
   isLoading: boolean;
   error: string | null;
-  currentPath: string;
   onPathChange: (path: string) => void;
   searchQuery?: string;
   viewMode: ViewMode;
-  sortBy: SortBy;
-  sortAscending: boolean;
-  onDelete?: (asset: Asset) => void;
+  isSelected: (path: string) => boolean;
+  onItemClick: (path: string, e: ClickModifiers) => void;
+  onClearSelection: () => void;
+  onRequestDelete: () => void;
+  onDuplicate: () => void;
+  onReveal?: (path: string) => void;
+  onRequestMove?: (path: string) => void;
+  tileSize: number;
+  editingPath: string | null;
+  onStartRename: (path: string) => void;
+  onCommitRename: (path: string, newName: string) => void;
+  onCancelRename: () => void;
+  onKeyDown: (e: React.KeyboardEvent) => void;
 }
 
 export function AssetGrid({
   assets,
   isLoading,
   error,
-  currentPath,
   onPathChange,
   searchQuery = '',
   viewMode,
-  sortBy,
-  sortAscending,
-  onDelete
+  isSelected,
+  onItemClick,
+  onClearSelection,
+  onRequestDelete,
+  onDuplicate,
+  onReveal,
+  onRequestMove,
+  tileSize,
+  editingPath,
+  onStartRename,
+  onCommitRename,
+  onCancelRename,
+  onKeyDown
 }: AssetGridProps) {
-  // Sort and filter assets
-  const sortedAssets = useMemo(() => {
-    const sorted = [...assets].sort((a, b) => {
-      let comparison = 0;
+  const containerRef = useRef<HTMLDivElement>(null);
 
-      // Always sort folders first
-      if (a.type === 'folder' && b.type !== 'folder') return -1;
-      if (a.type !== 'folder' && b.type === 'folder') return 1;
-
-      switch (sortBy) {
-        case 'name':
-          comparison = a.name.localeCompare(b.name);
-          break;
-        case 'date':
-          const aDate = a.lastModified?.getTime() || 0;
-          const bDate = b.lastModified?.getTime() || 0;
-          comparison = aDate - bDate;
-          break;
-        case 'size':
-          const aSize = a.size || 0;
-          const bSize = b.size || 0;
-          comparison = aSize - bSize;
-          break;
-        case 'type':
-          comparison = a.type.localeCompare(b.type);
-          break;
-        default:
-          comparison = 0;
-      }
-
-      return sortAscending ? comparison : -comparison;
-    });
-
-    return sorted;
-  }, [assets, sortBy, sortAscending]);
   if (isLoading) {
     return (
       <Box UNSAFE_className="asset-grid__loading">
@@ -96,6 +83,13 @@ export function AssetGrid({
     );
   }
 
+  // Clicking empty space (the container itself, not a tile) clears the selection.
+  const handleContainerClick = (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) {
+      onClearSelection();
+    }
+  };
+
   return (
     <Box UNSAFE_className={`${styles['asset-grid']} ${styles[`asset-grid--${viewMode}`]}`}>
       {viewMode === 'list' && (
@@ -107,15 +101,32 @@ export function AssetGrid({
           <div className={styles['asset-grid__list-header-type']}>Type</div>
         </div>
       )}
-      <div className={`${styles['asset-grid__container']} ${styles[`asset-grid__container--${viewMode}`]}`}>
-        {sortedAssets.map((asset) => (
+      <div
+        ref={containerRef}
+        tabIndex={0}
+        className={`${styles['asset-grid__container']} ${styles[`asset-grid__container--${viewMode}`]}`}
+        style={{ outline: 'none', ['--asset-tile' as any]: `${tileSize}px` }}
+        onClick={handleContainerClick}
+        onMouseDown={() => containerRef.current?.focus()}
+        onKeyDown={onKeyDown}
+      >
+        {assets.map((asset) => (
           <AssetItem
             key={asset.path}
             asset={asset}
+            isSelected={isSelected(asset.path)}
+            onItemClick={onItemClick}
             onFolderClick={asset.type === 'folder' ? onPathChange : undefined}
+            onRequestDelete={onRequestDelete}
+            onDuplicate={onDuplicate}
+            onReveal={onReveal}
+            onRequestMove={onRequestMove}
+            isEditing={editingPath === asset.path}
+            onStartRename={onStartRename}
+            onCommitRename={onCommitRename}
+            onCancelRename={onCancelRename}
             searchQuery={searchQuery}
             viewMode={viewMode}
-            onDelete={onDelete}
           />
         ))}
       </div>

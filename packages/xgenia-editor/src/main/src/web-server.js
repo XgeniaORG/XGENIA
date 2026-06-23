@@ -902,6 +902,35 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
       return;
     }
 
+    // Serve a live uid→path asset manifest built from the project's .xgenia-assets.json so
+    // the canvas runtime can resolve `uid://<id>` references (mirrors the static manifest
+    // bundled into deployed exports).
+    if (requestPath.endsWith('assets-manifest.json')) {
+      projectGetInfo((info) => {
+        const map = {};
+        try {
+          if (info && info.projectDirectory) {
+            const metaPath = info.projectDirectory + '/.xgenia-assets.json';
+            if (fs.existsSync(metaPath)) {
+              const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+              for (const p in meta) {
+                const uid = meta[p] && meta[p].uid;
+                if (uid) map[uid] = p;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[WebServer] assets-manifest build failed:', e);
+        }
+        response.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        });
+        response.end(JSON.stringify(map));
+      });
+      return;
+    }
+
     //by this point it must be a static file in either the viewer folder or the project
     //check if it's a viewer file
     const viewerFilePath = appPath + '/src/external/viewer/' + requestPath;

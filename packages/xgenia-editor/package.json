@@ -29,13 +29,16 @@
         "appId": "com.xgenia.nb",
         "afterSign": "./build/macos-notarize.js",
         "publish": {
-            "provider":"github",
+            "provider": "github",
             "owner": "XgeniaORG",
-            "repo":"XGENIA"
+            "repo": "XGENIA"
         },
         "mac": {
             "icon": "./build/icons/1024x1024.png",
-            "target": ["dmg", "zip"],
+            "target": [
+                "dmg",
+                "zip"
+            ],
             "hardenedRuntime": true,
             "notarize": false,
             "entitlements": "./build/entitlements.mac.plist",

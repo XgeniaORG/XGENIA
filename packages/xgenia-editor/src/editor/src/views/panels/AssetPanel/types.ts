@@ -6,6 +6,11 @@ export interface Asset {
   lastModified?: Date;
   thumbnail?: string;
   extension?: string;
+  /** Reserved seam for a future stable-id reference layer (drag-into-graph). */
+  uuid?: string;
+  /** Enriched from the asset metadata store (assetMeta.ts) for display/filtering. */
+  tags?: string[];
+  favorite?: boolean;
 }
 
 export interface AssetFolder {

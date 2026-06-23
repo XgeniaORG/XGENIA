@@ -13,7 +13,7 @@ import { TopbarPinned, TopbarUnpinned } from '../SidePanel/SidebarIcons';
 import css from './RightPropertyPanel.module.scss';
 
 /** Panel IDs that render on the right side */
-export const RIGHT_SIDE_PANEL_IDS = new Set(['PropertyEditor', 'PortEditor']);
+export const RIGHT_SIDE_PANEL_IDS = new Set(['PropertyEditor', 'PortEditor', 'AssetInspector']);
 
 export function isRightSidePanel(panelId: string): boolean {
     return RIGHT_SIDE_PANEL_IDS.has(panelId);

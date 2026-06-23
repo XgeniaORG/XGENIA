@@ -39,6 +39,7 @@ import {
   SideImageEditor,
   SideMemoryPanel,
   SideMaths,
+  SideAssets,
   SideAddNode,
   SideLogout
 } from './SidebarIcons';
@@ -65,7 +66,8 @@ const iconMap: Record<string, React.ElementType> = {
   'feedback-panel': SideFeedback,
   'image-editor': SideImageEditor,
   'memory-panel': SideMemoryPanel,
-  'maths-panel': SideMaths
+  'maths-panel': SideMaths,
+  'assets': SideAssets
 };
 
 export function SidePanel() {

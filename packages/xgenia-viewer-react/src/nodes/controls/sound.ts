@@ -59,7 +59,15 @@ interface NodeDefinition {
 
 // Helper to resolve URLs correctly in both editor and exported builds
 function resolveAssetUrl(_url: string): string {
-  const url = String(_url || '');
+  let url = String(_url || '');
+
+  // `uid://<id>` stable refs resolve via the asset manifest BEFORE the '://' early-return.
+  if (url.indexOf('uid://') === 0) {
+    const manifest = ((globalThis as any).XGENIA && (globalThis as any).XGENIA.assetsManifest) || null;
+    const mapped = manifest && manifest[url.slice(6)];
+    if (mapped) url = String(mapped);
+    else return url;
+  }
 
   // Absolute or data/blob URLs are returned as is
   if (!url || url.includes('://') || url.startsWith('data:') || url.startsWith('blob:')) {

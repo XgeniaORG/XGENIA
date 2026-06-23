@@ -835,6 +835,92 @@ export class ProjectModel extends Model {
     });
   }
 
+  /**
+   * List asset files under the project's `assets/` folder only.
+   *
+   * Unlike listFilesInProjectDirectory (which walks the ENTIRE project tree,
+   * descending into node_modules/.git/dist), this roots the walk at
+   * `<projectDir>/assets`, caps recursion depth, and skips heavy/hidden dirs —
+   * so it is fast and its file set matches what the AI's list_project_assets
+   * tool reports. The callback ALWAYS fires (no project / no assets/ → []).
+   */
+  listProjectAssets(callback: (files: TSFixme[]) => void, opts?: { types?: string[] }) {
+    const root = this._retainedProjectDirectory;
+    if (root === undefined) {
+      callback([]);
+      return;
+    }
+
+    const assetsRoot = filesystem.join(root, 'assets');
+    let assetsExists = false;
+    try {
+      assetsExists = filesystem.exists(assetsRoot);
+    } catch {
+      assetsExists = false;
+    }
+    if (!assetsExists) {
+      callback([]);
+      return;
+    }
+
+    this._listAssetsBounded(assetsRoot, callback, { types: opts?.types, maxDepth: 6 }, 0);
+  }
+
+  _listAssetsBounded(
+    dirEntry: string,
+    callback: (files: TSFixme[]) => void,
+    args: { types?: string[]; maxDepth: number },
+    depth: number
+  ) {
+    const _this = this;
+    const SKIP_DIRS = ['node_modules', '.git', '.vscode', '.idea', 'dist', 'build', 'xgenia'];
+    let files: TSFixme[] = [];
+
+    filesystem
+      .listDirectory(dirEntry)
+      .then((results) => {
+        let dirs = 0;
+        for (const i in results) {
+          const fileEntry = results[i];
+
+          if (fileEntry.isDirectory) {
+            const name = fileEntry.name;
+            // Bound the walk: never descend into heavy/hidden dirs, and cap depth
+            // (also guards symlink cycles, since listDirectory lstats each entry).
+            if (name.startsWith('.') || SKIP_DIRS.indexOf(name) !== -1) continue;
+
+            // Surface the directory itself so empty/new folders are visible (the
+            // consumer distinguishes dirs via isDirectory).
+            files.push(fileEntry);
+
+            if (depth >= args.maxDepth) continue;
+
+            dirs++;
+            _this._listAssetsBounded(
+              fileEntry.fullPath,
+              function (directoryFiles) {
+                if (directoryFiles) files = files.concat(directoryFiles);
+                dirs--;
+                if (dirs === 0) callback(files);
+              },
+              args,
+              depth + 1
+            );
+          } else {
+            const parts = fileEntry.name.split('.');
+            if (
+              args.types === undefined ||
+              args.types.indexOf(parts[parts.length - 1].toLowerCase()) !== -1
+            ) {
+              files.push(fileEntry);
+            }
+          }
+        }
+        if (dirs === 0) callback(files);
+      })
+      .catch(() => callback(files));
+  }
+
   listModules(callback: (modules: ProjectModuleManifest[]) => void) {
     if (!this._retainedProjectDirectory) {
       console.error(

@@ -4837,149 +4837,6 @@
         }
       }
     },
-    "pixi.MatterPhysics": {
-      "name": "pixi.MatterPhysics",
-      "file": "PixiMatterPhysicsNode.js",
-      "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiMatterPhysicsNode.js",
-      "category": "Pixi|Physics",
-      "docs": "https://brm.io/matter-js/",
-      "lineCount": 423,
-      "byteSize": 17772,
-      "inputFormatHints": {
-        "target": {
-          "displayName": "Target Node",
-          "type": "node",
-          "group": "Target"
-        },
-        "enabled": {
-          "displayName": "Enabled",
-          "type": "boolean",
-          "group": "General"
-        },
-        "shape": {
-          "displayName": "Shape",
-          "type": "enum",
-          "group": "Body"
-        },
-        "width": {
-          "displayName": "Width (rect)",
-          "type": "number",
-          "group": "Body"
-        },
-        "height": {
-          "displayName": "Height (rect)",
-          "type": "number",
-          "group": "Body"
-        },
-        "radius": {
-          "displayName": "Radius (circle)",
-          "type": "number",
-          "group": "Body"
-        },
-        "isStatic": {
-          "displayName": "Static Body",
-          "type": "boolean",
-          "group": "Physics"
-        },
-        "density": {
-          "displayName": "Density",
-          "type": "number",
-          "group": "Physics"
-        },
-        "friction": {
-          "displayName": "Friction",
-          "type": "number",
-          "group": "Physics"
-        },
-        "restitution": {
-          "displayName": "Bounciness",
-          "type": "number",
-          "group": "Physics"
-        },
-        "frictionAir": {
-          "displayName": "Air Drag",
-          "type": "number",
-          "group": "Physics"
-        },
-        "sleepAllowed": {
-          "displayName": "Allow Sleep",
-          "type": "boolean",
-          "group": "Physics"
-        },
-        "collisionCategory": {
-          "displayName": "Collision Category",
-          "type": "number",
-          "group": "Collision"
-        },
-        "collisionMask": {
-          "displayName": "Collision Mask",
-          "type": "number",
-          "group": "Collision"
-        },
-        "gravityX": {
-          "displayName": "Gravity X",
-          "type": "number",
-          "group": "World"
-        },
-        "gravityY": {
-          "displayName": "Gravity Y",
-          "type": "number",
-          "group": "World"
-        },
-        "rebuildBody": {
-          "displayName": "Rebuild Body",
-          "type": "signal",
-          "group": "Control"
-        },
-        "resetPositionFromTarget": {
-          "displayName": "Reset From Target",
-          "type": "signal",
-          "group": "Control"
-        },
-        "debug": {
-          "displayName": "Debug Draw",
-          "type": "boolean",
-          "group": "Debug"
-        }
-      },
-      "outputFormatHints": {
-        "nodeReference": {
-          "displayName": "Node Reference",
-          "type": "node",
-          "group": "General"
-        },
-        "x": {
-          "displayName": "X",
-          "type": "number",
-          "group": "State"
-        },
-        "y": {
-          "displayName": "Y",
-          "type": "number",
-          "group": "State"
-        },
-        "angle": {
-          "displayName": "Angle (rad)",
-          "type": "number",
-          "group": "State"
-        },
-        "onCollisionStart": {
-          "displayName": "On Collision Start",
-          "type": "signal",
-          "group": "Signals"
-        },
-        "onCollisionActive": {
-          "displayName": "On Collision Active",
-          "type": "signal",
-          "group": "Signals"
-        },
-        "onCollisionEnd": {
-          "displayName": "On Collision End",
-          "type": "signal",
-          "group": "Signals"
-        }
-      }
-    },
     "pixi.MeshRope": {
       "name": "pixi.MeshRope",
       "file": "PixiMeshRope.js",
@@ -9759,17 +9616,17 @@
           "group": "Results"
         },
         "standardDeviation": {
-          "displayName": "Standard Deviation (\u03c3)",
+          "displayName": "Standard Deviation (σ)",
           "type": "number",
           "group": "Results"
         },
         "mean": {
-          "displayName": "Mean (\u03bc)",
+          "displayName": "Mean (μ)",
           "type": "number",
           "group": "Results"
         },
         "variance": {
-          "displayName": "Variance (\u03c3\u00b2)",
+          "displayName": "Variance (σ²)",
           "type": "number",
           "group": "Results"
         },
@@ -13867,7 +13724,7 @@
       },
       "outputFormatHints": {
         "timestamp": {
-          "displayName": "Timestamp (\u03bcs)",
+          "displayName": "Timestamp (μs)",
           "type": "number"
         }
       }
@@ -15234,9 +15091,6 @@
     "Pixi|Text": [
       "pixi.HTMLText"
     ],
-    "Pixi|Physics": [
-      "pixi.MatterPhysics"
-    ],
     "Pixi|UI": [
       "pixi.NineSlicePlane"
     ],
@@ -16588,10 +16442,6 @@
         "direction": "input"
       },
       {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
-      },
-      {
         "node": "pixi.UIScaler",
         "direction": "input"
       },
@@ -17760,10 +17610,6 @@
         "direction": "input"
       },
       {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
-      },
-      {
         "node": "Filter Collection",
         "direction": "input"
       },
@@ -18812,10 +18658,6 @@
         "direction": "input"
       },
       {
-        "node": "pixi.MatterPhysics",
-        "direction": "output"
-      },
-      {
         "node": "pixi.MeshRope",
         "direction": "input"
       },
@@ -18884,10 +18726,6 @@
       {
         "node": "pixi.HTMLText",
         "direction": "input"
-      },
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "output"
       },
       {
         "node": "pixi.MeshRope",
@@ -20408,10 +20246,6 @@
         "direction": "output"
       },
       {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
-      },
-      {
         "node": "pixi.NineSlicePlane",
         "direction": "input"
       },
@@ -20460,10 +20294,6 @@
       {
         "node": "pixi.Graphics",
         "direction": "output"
-      },
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
       },
       {
         "node": "pixi.NineSlicePlane",
@@ -20731,10 +20561,6 @@
       },
       {
         "node": "pixi.HTMLText",
-        "direction": "output"
-      },
-      {
-        "node": "pixi.MatterPhysics",
         "direction": "output"
       },
       {
@@ -21264,10 +21090,6 @@
       {
         "node": "pixi.GSAPPhysics",
         "direction": "input"
-      },
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "output"
       }
     ],
     "velocity": [
@@ -21297,10 +21119,6 @@
     "friction": [
       {
         "node": "pixi.GSAPPhysics",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.MatterPhysics",
         "direction": "input"
       }
     ],
@@ -21446,108 +21264,6 @@
       {
         "node": "pixi.HTMLText",
         "direction": "input"
-      }
-    ],
-    "shape": [
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
-      }
-    ],
-    "radius": [
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
-      }
-    ],
-    "isStatic": [
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
-      }
-    ],
-    "density": [
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
-      }
-    ],
-    "restitution": [
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
-      }
-    ],
-    "frictionAir": [
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
-      }
-    ],
-    "sleepAllowed": [
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
-      }
-    ],
-    "collisionCategory": [
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
-      }
-    ],
-    "collisionMask": [
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
-      }
-    ],
-    "gravityX": [
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
-      }
-    ],
-    "gravityY": [
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
-      }
-    ],
-    "rebuildBody": [
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
-      }
-    ],
-    "resetPositionFromTarget": [
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
-      }
-    ],
-    "debug": [
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "input"
-      }
-    ],
-    "onCollisionStart": [
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "output"
-      }
-    ],
-    "onCollisionActive": [
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "output"
-      }
-    ],
-    "onCollisionEnd": [
-      {
-        "node": "pixi.MatterPhysics",
-        "direction": "output"
       }
     ],
     "texture": [

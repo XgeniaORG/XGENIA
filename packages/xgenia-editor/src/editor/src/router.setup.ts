@@ -57,6 +57,7 @@ import { VersionControlPanel } from './views/panels/VersionControlPanel/VersionC
 import { ImageEditorPanel } from './views/panels/ImageEditorPanel';
 import { ProjectStylesPanel } from './views/panels/ProjectStylesPanel/ProjectStylesPanel';
 import { MathsPanel, MathsPanel_ID } from './views/panels/MathsPanel';
+import { AssetPanel } from './views/panels/AssetPanel';
 
 
 
@@ -243,6 +244,19 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     order: 23,
     icon: IconName.Component,
     panel: NodeReferencesPanel
+  });
+
+  // Asset browser (experimental). Hidden by default; enable via
+  // Editor settings → Experimental panels → "Enable Assets".
+  SidebarModel.instance.register({
+    experimental: true,
+    id: 'assets',
+    name: 'Assets',
+    description:
+      'Asset browser (experimental): browse, search, sort and preview project assets. Drag-into-graph, rename and stable asset IDs are still in progress.',
+    order: 22,
+    icon: IconName.FolderClosed,
+    panel: AssetPanel
   });
 
   SidebarModel.instance.register({

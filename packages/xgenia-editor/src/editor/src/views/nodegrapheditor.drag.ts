@@ -5,7 +5,23 @@ import { isComponentModel_CloudRuntime } from '@xgenia-utils/NodeGraph';
 
 import { IVector2, NodeGraphEditor } from './nodegrapheditor';
 import { ComponentsPanelFolder } from './panels/componentspanel/ComponentsPanelFolder';
+import { getOrAssignUid } from './panels/AssetPanel/assetMeta';
 import PopupLayer from './popuplayer';
+
+/** When enabled (localStorage 'xgenia.stableAssetIds' === 'true'), dropped assets store a
+ *  `uid://<id>` stable reference instead of a raw path, so renames/moves never orphan the
+ *  reference. Off by default; the runtime resolves uid:// via the asset manifest. */
+function stableAssetRef(path: string): string {
+  try {
+    if ((globalThis as any).localStorage?.getItem('xgenia.stableAssetIds') === 'true') {
+      const uid = getOrAssignUid(path);
+      if (uid) return `uid://${uid}`;
+    }
+  } catch {
+    /* fall back to the raw path */
+  }
+  return path;
+}
 
 // TODO: Write a full typings around this
 export interface DragItem {
@@ -14,6 +30,9 @@ export interface DragItem {
   label?: string;
   nodeType?: TSFixme;
   component?: ComponentModel;
+  /** For type === 'asset' (dragged from the Asset panel): project-relative path + kind. */
+  assetPath?: string;
+  assetType?: string;
 }
 
 function getDragItemComponent(dragItem: DragItem) {
@@ -95,6 +114,12 @@ export function canAcceptDrop(editor: NodeGraphEditor, dragItem: DragItem) {
     return status.creatable;
   }
 
+  // Asset dragged from the Asset panel — accept image assets (spawn/bind a Sprite).
+  if (dragItem.type === 'asset') {
+    PopupLayer.instance.setDragMessage();
+    return dragItem.assetType === 'image';
+  }
+
   return false;
 }
 
@@ -126,6 +151,36 @@ export function onDrop(editor: NodeGraphEditor, dragItem: DragItem, position: IV
 
       return true;
     }
+  }
+
+  // Asset dropped from the Asset panel.
+  if (dragItem.type === 'asset') {
+    const path = dragItem.assetPath;
+    if (!path) return false;
+
+    // Raw path, or a `uid://<id>` stable ref when stable-asset-ids is enabled.
+    const imageRef = stableAssetRef(path);
+
+    // Dropped onto a known image node → replace its image port.
+    const imagePortByType: Record<string, string> = {
+      'pixi.Sprite': 'image',
+      'pixi.NineSlicePlane': 'image'
+    };
+    const highlighted = editor.highlighted;
+    const portKey = highlighted ? imagePortByType[(highlighted.model.type as TSFixme)?.name] : undefined;
+    if (highlighted && portKey) {
+      highlighted.model.setParameter(portKey, imageRef, { undo: true });
+      return true;
+    }
+
+    // Otherwise spawn a new Sprite displaying the image.
+    const spriteType = NodeLibrary.instance.types.find((x) => x.name === 'pixi.Sprite');
+    if (!spriteType) {
+      console.error("Asset drop: 'pixi.Sprite' node type not found.");
+      return false;
+    }
+    editor.createNewNode(spriteType, position, { parameters: { image: imageRef } });
+    return true;
   }
 
   // Create the component
