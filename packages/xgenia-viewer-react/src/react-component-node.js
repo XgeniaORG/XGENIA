@@ -288,6 +288,17 @@ class XgeniaReactComponent extends React.Component {
     if (!props['data-xgenia-component']) {
       props['data-xgenia-component'] = xgeniaNode.name;
     }
+    // (2026-06-23, trace 1782197236224 issue #3) Emit the node LABEL too. Repo-wide,
+    // ~8 consumers read `data-xgenia-node-label` (inspector.js, webview-preload-viewer.js,
+    // get_full_webpage_html selector/grep) but NOTHING ever wrote it, so label/type
+    // lookups against the rendered HTML always failed and fell back to the UUID. Without
+    // this, the AI can't map a DOM node back to its @label.
+    if (!props['data-xgenia-node-label']) {
+      const nodeLabel = xgeniaNode.label
+        || (xgeniaNode.parameters && (xgeniaNode.parameters.nodeLabel || xgeniaNode.parameters.label))
+        || xgeniaNode.name;
+      if (nodeLabel) props['data-xgenia-node-label'] = nodeLabel;
+    }
 
     xgeniaNode.renderedAtFrame = xgeniaNode.context.frameNumber;
 

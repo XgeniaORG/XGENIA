@@ -766,8 +766,16 @@ export class EditorBridge {
             }
             try {
                 if (typeof index === 'number' && index >= 0) {
-                    // Most NodeGraphModel implementations expose addChildAt; fall back to addChild.
-                    if (typeof (newParent as any).addChildAt === 'function') {
+                    // (2026-06-23, trace 1782197236224 issue #16) NodeGraphNode's real
+                    // index-insert method is `insertChild(child, index)` — there is NO
+                    // `addChildAt`. The old probe checked for the non-existent addChildAt
+                    // and ALWAYS fell through to addChild (append), silently dropping the
+                    // index. That's why change_node_parent's position_index was a no-op
+                    // ("only gives end of list") and why reorder had no working bridge path.
+                    // Prefer insertChild; keep addChildAt for any alternate model that has it.
+                    if (typeof (newParent as any).insertChild === 'function') {
+                        (newParent as any).insertChild(node, index);
+                    } else if (typeof (newParent as any).addChildAt === 'function') {
                         (newParent as any).addChildAt(node, index);
                     } else {
                         newParent.addChild(node);
