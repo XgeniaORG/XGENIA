@@ -67,6 +67,49 @@
         }
       }
     },
+    "Calculate Roll": {
+      "name": "Calculate Roll",
+      "file": "calculate-roll.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/maths/calculate-roll.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/calculate-roll",
+      "lineCount": 292,
+      "byteSize": 7809,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "client seed": {
+          "type": "string"
+        },
+        "server seed": {
+          "type": "string"
+        },
+        "nonce": {
+          "type": "number"
+        },
+        "max range": {
+          "type": "number"
+        },
+        "min range": {
+          "type": "number"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "type": "number"
+        },
+        "combinedString hash": {
+          "type": "string"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
     "Ceil": {
       "name": "Ceil",
       "file": "ceil.js",
@@ -210,6 +253,42 @@
       "outputFormatHints": {
         "result": {
           "displayName": "Floor Value",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Hit Frequency Monitor": {
+      "name": "Hit Frequency Monitor",
+      "file": "hit-frequency-monitor.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/maths/hit-frequency-monitor.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/hit-frequency-monitor",
+      "lineCount": 114,
+      "byteSize": 3015,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "Reset": {
+          "displayName": "Reset",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "winAmount": {
+          "displayName": "Win Amount",
+          "type": "number",
+          "group": "Data"
+        }
+      },
+      "outputFormatHints": {
+        "Hit Frequency": {
+          "displayName": "Hit Frequency",
           "type": "number"
         },
         "Done": {
@@ -706,6 +785,81 @@
         }
       }
     },
+    "RTP Monitor": {
+      "name": "RTP Monitor",
+      "file": "rtp-monitor.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/maths/rtp-monitor.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/rtp-monitor",
+      "lineCount": 128,
+      "byteSize": 3314,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "Reset": {
+          "displayName": "Reset",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "betAmount": {
+          "displayName": "Bet Amount",
+          "type": "number",
+          "group": "Data"
+        },
+        "winAmount": {
+          "displayName": "Win Amount",
+          "type": "number",
+          "group": "Data"
+        }
+      },
+      "outputFormatHints": {
+        "RTP": {
+          "displayName": "RTP",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Server Seed Generator": {
+      "name": "Server Seed Generator",
+      "file": "server-seed-generator.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/maths/server-seed-generator.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/server-seed-generator",
+      "lineCount": 212,
+      "byteSize": 8535,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        }
+      },
+      "outputFormatHints": {
+        "server seed": {
+          "displayName": "Server Seed",
+          "type": "string"
+        },
+        "nonce": {
+          "displayName": "Nonce",
+          "type": "number"
+        },
+        "committedHash": {
+          "displayName": "Committed Hash",
+          "type": "string"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
     "Single Parameter Formula": {
       "name": "Single Parameter Formula",
       "file": "spf.js",
@@ -878,6 +1032,178 @@
         "Done": {
           "displayName": "Done",
           "type": "signal"
+        }
+      }
+    },
+    "Validate Outcome": {
+      "name": "Validate Outcome",
+      "file": "validate-outcome.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/maths/validate-outcome.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/validate-outcome",
+      "lineCount": 86,
+      "byteSize": 2328,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "fairHash": {
+          "displayName": "Fair Hash",
+          "type": "string"
+        },
+        "maxRange": {
+          "displayName": "Max Range",
+          "type": "number"
+        },
+        "minRange": {
+          "displayName": "Min Range",
+          "type": "number"
+        }
+      },
+      "outputFormatHints": {
+        "rollResult": {
+          "displayName": "Roll Result",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Verify Commitment": {
+      "name": "Verify Commitment",
+      "file": "verify-commitment.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/maths/verify-commitment.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/verify-commitment",
+      "lineCount": 139,
+      "byteSize": 5410,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "serverSeed": {
+          "displayName": "Server Seed",
+          "type": "string"
+        },
+        "committedHash": {
+          "displayName": "Committed Hash",
+          "type": "string"
+        }
+      },
+      "outputFormatHints": {
+        "Result": {
+          "displayName": "Result",
+          "type": "boolean"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Verify Fairness": {
+      "name": "Verify Fairness",
+      "file": "verify-fairness.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/maths/verify-fairness.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/verify-fairness",
+      "lineCount": 162,
+      "byteSize": 6252,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "serverSeed": {
+          "displayName": "Server Seed",
+          "type": "string"
+        },
+        "clientSeed": {
+          "displayName": "Client Seed",
+          "type": "string"
+        },
+        "nonce": {
+          "displayName": "Nonce",
+          "type": "number"
+        },
+        "expectedHash": {
+          "displayName": "Expected Hash",
+          "type": "string"
+        }
+      },
+      "outputFormatHints": {
+        "isFair": {
+          "displayName": "isFair",
+          "type": "boolean"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Volatility Monitor": {
+      "name": "Volatility Monitor",
+      "file": "volatility-monitor.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/maths/volatility-monitor.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/volatility-monitor",
+      "lineCount": 239,
+      "byteSize": 6617,
+      "inputFormatHints": {
+        "value": {
+          "displayName": "Value",
+          "type": "number",
+          "group": "Data"
+        },
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "Reset": {
+          "displayName": "Reset",
+          "type": "signal",
+          "group": "Actions"
+        }
+      },
+      "outputFormatHints": {
+        "Done": {
+          "displayName": "Done",
+          "type": "signal",
+          "group": "Events"
+        },
+        "volatilityResult": {
+          "displayName": "Volatility (%)",
+          "type": "number",
+          "group": "Results"
+        },
+        "standardDeviation": {
+          "displayName": "Standard Deviation (σ)",
+          "type": "number",
+          "group": "Results"
+        },
+        "mean": {
+          "displayName": "Mean (μ)",
+          "type": "number",
+          "group": "Results"
+        },
+        "variance": {
+          "displayName": "Variance (σ²)",
+          "type": "number",
+          "group": "Results"
+        },
+        "amplitude": {
+          "displayName": "Amplitude / Scaling Factor",
+          "type": "number",
+          "group": "Results"
         }
       }
     },
@@ -1298,6 +1624,38 @@
           "type": "signal"
         }
       }
+    },
+    "Aggregator": {
+      "name": "Aggregator",
+      "file": "aggregatornode.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/aggregatornode.js",
+      "category": "Cloud Functions",
+      "docs": "https://docsapp.xgenia.com/nodes/cloud-functions/aggregator",
+      "lineCount": 272,
+      "byteSize": 9505,
+      "inputFormatHints": {
+        "url": {
+          "displayName": "URL",
+          "type": "string",
+          "group": "General"
+        },
+        "dataInputs": {
+          "displayName": "Data Inputs",
+          "type": "stringlist",
+          "group": "Configuration"
+        },
+        "triggers": {
+          "displayName": "Triggers",
+          "type": "stringlist",
+          "group": "Configuration"
+        },
+        "outputs": {
+          "displayName": "Outputs",
+          "type": "stringlist",
+          "group": "Configuration"
+        }
+      },
+      "outputFormatHints": {}
     },
     "Cloud File": {
       "name": "Cloud File",
@@ -2498,65 +2856,23 @@
       "name": "Boolean",
       "file": "boolean.js",
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/variables/boolean.js",
-      "category": "Variables",
+      "category": null,
       "docs": "https://docsapp.xgenia.com/nodes/data/boolean",
       "lineCount": 20,
       "byteSize": 353,
-      "inputFormatHints": {
-        "value": {
-          "type": "boolean",
-          "displayName": "Value"
-        },
-        "saveValue": {
-          "type": "signal",
-          "displayName": "Set"
-        }
-      },
-      "outputFormatHints": {
-        "savedValue": {
-          "displayName": "Value"
-        },
-        "changed": {
-          "type": "signal",
-          "displayName": "Changed"
-        },
-        "stored": {
-          "type": "signal",
-          "displayName": "Stored"
-        }
-      }
+      "inputFormatHints": {},
+      "outputFormatHints": {}
     },
     "Number": {
       "name": "Number",
       "file": "number.js",
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/variables/number.js",
-      "category": "Variables",
+      "category": null,
       "docs": "https://docsapp.xgenia.com/nodes/data/number",
       "lineCount": 23,
       "byteSize": 398,
-      "inputFormatHints": {
-        "value": {
-          "type": "number",
-          "displayName": "Value"
-        },
-        "saveValue": {
-          "type": "signal",
-          "displayName": "Set"
-        }
-      },
-      "outputFormatHints": {
-        "savedValue": {
-          "displayName": "Value"
-        },
-        "changed": {
-          "type": "signal",
-          "displayName": "Changed"
-        },
-        "stored": {
-          "type": "signal",
-          "displayName": "Stored"
-        }
-      }
+      "inputFormatHints": {},
+      "outputFormatHints": {}
     },
     "String": {
       "name": "String",
@@ -4837,6 +5153,74 @@
         }
       }
     },
+    "pixi.KeyboardInput": {
+      "name": "pixi.KeyboardInput",
+      "file": "PixiKeyboardInput.js",
+      "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiKeyboardInput.js",
+      "category": "Pixi|Logic",
+      "docs": "https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/key/Key_Values",
+      "lineCount": 226,
+      "byteSize": 7304,
+      "inputFormatHints": {
+        "keys": {
+          "displayName": "Keys to Track",
+          "type": "string",
+          "group": "General"
+        },
+        "enabled": {
+          "displayName": "Enabled",
+          "type": "boolean",
+          "group": "General"
+        },
+        "ignoreRepeat": {
+          "displayName": "Ignore Auto-Repeat",
+          "type": "boolean",
+          "group": "General"
+        }
+      },
+      "outputFormatHints": {
+        "up": {
+          "displayName": "Up (W / ArrowUp)",
+          "type": "boolean",
+          "group": "Movement"
+        },
+        "down": {
+          "displayName": "Down (S / ArrowDown)",
+          "type": "boolean",
+          "group": "Movement"
+        },
+        "left": {
+          "displayName": "Left (A / ArrowLeft)",
+          "type": "boolean",
+          "group": "Movement"
+        },
+        "right": {
+          "displayName": "Right (D / ArrowRight)",
+          "type": "boolean",
+          "group": "Movement"
+        },
+        "space": {
+          "displayName": "Space",
+          "type": "boolean",
+          "group": "Movement"
+        },
+        "lastKeyPressed": {
+          "displayName": "Last Key Pressed",
+          "type": "string",
+          "group": "State"
+        },
+        "onKeyDown": {
+          "displayName": "On Key Down",
+          "type": "signal",
+          "group": "Signals"
+        },
+        "onKeyUp": {
+          "displayName": "On Key Up",
+          "type": "signal",
+          "group": "Signals"
+        }
+      }
+    },
     "pixi.MeshRope": {
       "name": "pixi.MeshRope",
       "file": "PixiMeshRope.js",
@@ -4972,6 +5356,84 @@
           "displayName": "Pointer Tap",
           "type": "signal",
           "group": "Events"
+        }
+      }
+    },
+    "pixi.MouseInput": {
+      "name": "pixi.MouseInput",
+      "file": "PixiMouseInput.js",
+      "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiMouseInput.js",
+      "category": "Pixi|Logic",
+      "docs": "https://developer.mozilla.org/en-US/docs/Web/API/MouseEvent",
+      "lineCount": 281,
+      "byteSize": 9796,
+      "inputFormatHints": {
+        "stageNodeReference": {
+          "displayName": "Stage Reference (optional)",
+          "type": "node",
+          "group": "General"
+        },
+        "enabled": {
+          "displayName": "Enabled",
+          "type": "boolean",
+          "group": "General"
+        },
+        "suppressContextMenu": {
+          "displayName": "Suppress Right-click Menu",
+          "type": "boolean",
+          "group": "General"
+        },
+        "moveThrottleMs": {
+          "displayName": "Move Throttle (ms)",
+          "type": "number",
+          "group": "Performance"
+        }
+      },
+      "outputFormatHints": {
+        "x": {
+          "displayName": "X (canvas-relative if stage set, else page)",
+          "type": "number",
+          "group": "Position"
+        },
+        "y": {
+          "displayName": "Y (canvas-relative if stage set, else page)",
+          "type": "number",
+          "group": "Position"
+        },
+        "clientX": {
+          "displayName": "Client X (page)",
+          "type": "number",
+          "group": "Position"
+        },
+        "clientY": {
+          "displayName": "Client Y (page)",
+          "type": "number",
+          "group": "Position"
+        },
+        "isDown": {
+          "displayName": "Is Down",
+          "type": "boolean",
+          "group": "State"
+        },
+        "button": {
+          "displayName": "Button (0=left, 1=middle, 2=right, -1=none)",
+          "type": "number",
+          "group": "State"
+        },
+        "onDown": {
+          "displayName": "On Pointer Down",
+          "type": "signal",
+          "group": "Signals"
+        },
+        "onUp": {
+          "displayName": "On Pointer Up",
+          "type": "signal",
+          "group": "Signals"
+        },
+        "onMove": {
+          "displayName": "On Pointer Move",
+          "type": "signal",
+          "group": "Signals"
         }
       }
     },
@@ -5568,8 +6030,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelColumn.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-column",
-      "lineCount": 1600,
-      "byteSize": 66557,
+      "lineCount": 1640,
+      "byteSize": 69413,
       "inputFormatHints": {
         "visibleRows": {
           "displayName": "Visible Rows",
@@ -7357,14 +7819,43 @@
         }
       }
     },
+    "pixi.GameLoop": {
+      "name": "pixi.GameLoop",
+      "file": "PixiGameLoop.js",
+      "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/_quarantine/PixiGameLoop.js",
+      "category": "pixi-visual",
+      "docs": "https://docs.xgenia.com/nodes/pixi-gameloop",
+      "lineCount": 81,
+      "byteSize": 2224,
+      "inputFormatHints": {
+        "active": {
+          "displayName": "Active",
+          "type": "boolean"
+        }
+      },
+      "outputFormatHints": {
+        "onTick": {
+          "displayName": "Tick",
+          "type": "signal"
+        },
+        "deltaTime": {
+          "displayName": "Delta Time (ms)",
+          "type": "number"
+        },
+        "fps": {
+          "displayName": "FPS",
+          "type": "number"
+        }
+      }
+    },
     "PixiReelController": {
       "name": "PixiReelController",
       "file": "PixiReelController.js",
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 1656,
-      "byteSize": 75499,
+      "lineCount": 1730,
+      "byteSize": 80705,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
@@ -8074,8 +8565,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/cascade-the-reels.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/cascade-the-reels",
-      "lineCount": 216,
-      "byteSize": 7073,
+      "lineCount": 245,
+      "byteSize": 8382,
       "inputFormatHints": {
         "reels": {
           "displayName": "Reels",
@@ -8089,6 +8580,11 @@
         },
         "symbolWeights": {
           "displayName": "Symbol Weights (optional)",
+          "type": "array",
+          "group": "Parameters"
+        },
+        "Seeds": {
+          "displayName": "Seeds (optional, for provable fairness)",
           "type": "array",
           "group": "Parameters"
         },
@@ -8692,8 +9188,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/slot-main-engine.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/slot-main-engine",
-      "lineCount": 1744,
-      "byteSize": 51818,
+      "lineCount": 1765,
+      "byteSize": 53324,
       "inputFormatHints": {
         "onMount": {
           "displayName": "On Mount",
@@ -9643,8 +10139,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/weighted-reels.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/weighted-reels",
-      "lineCount": 748,
-      "byteSize": 24277,
+      "lineCount": 786,
+      "byteSize": 26382,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
@@ -10453,8 +10949,8 @@
       "relativePath": "controls/sound.ts",
       "category": "Utilities",
       "docs": "https://docsapp.xgenia.com/nodes/utilities/sound",
-      "lineCount": 430,
-      "byteSize": 11605,
+      "lineCount": 438,
+      "byteSize": 11955,
       "inputFormatHints": {
         "play": {
           "displayName": "Play",
@@ -14113,33 +14609,12 @@
       "name": "Color",
       "file": "color.js",
       "relativePath": "std-library/variables/color.js",
-      "category": "Variables",
+      "category": null,
       "docs": "https://docsapp.xgenia.com/nodes/data/color",
       "lineCount": 21,
       "byteSize": 435,
-      "inputFormatHints": {
-        "value": {
-          "type": "color",
-          "displayName": "Value"
-        },
-        "saveValue": {
-          "type": "signal",
-          "displayName": "Set"
-        }
-      },
-      "outputFormatHints": {
-        "savedValue": {
-          "displayName": "Value"
-        },
-        "changed": {
-          "type": "signal",
-          "displayName": "Changed"
-        },
-        "stored": {
-          "type": "signal",
-          "displayName": "Stored"
-        }
-      }
+      "inputFormatHints": {},
+      "outputFormatHints": {}
     },
     "Circle": {
       "name": "Circle",
@@ -14869,10 +15344,12 @@
     ],
     "Math": [
       "Addition",
+      "Calculate Roll",
       "Ceil",
       "Division",
       "Equal",
       "Floor",
+      "Hit Frequency Monitor",
       "ISAAC Random Number Array Generator",
       "ISAAC Random Number Generator",
       "Less Than",
@@ -14885,11 +15362,17 @@
       "Modulo",
       "Multiplication",
       "Round",
+      "RTP Monitor",
+      "Server Seed Generator",
       "Single Parameter Formula",
       "Subtraction",
       "Sum",
       "True Random Number Array Generator",
       "True Random Number Generator",
+      "Validate Outcome",
+      "Verify Commitment",
+      "Verify Fairness",
+      "Volatility Monitor",
       "Counter",
       "Calculate Free Spins States",
       "Cascade The Reels",
@@ -14940,6 +15423,9 @@
       "Timer",
       "Timestamp",
       "xgenia.Loader"
+    ],
+    "Cloud Functions": [
+      "Aggregator"
     ],
     "Cloud Services": [
       "Cloud File",
@@ -15083,7 +15569,9 @@
       "pixi.UIScaler"
     ],
     "Pixi|Logic": [
-      "pixi.CollisionDetector"
+      "pixi.CollisionDetector",
+      "pixi.KeyboardInput",
+      "pixi.MouseInput"
     ],
     "Pixi|Debug": [
       "pixi.DebugInfo"
@@ -15103,6 +15591,9 @@
     ],
     "Pixi|Assets": [
       "pixi.Spritesheet"
+    ],
+    "pixi-visual": [
+      "pixi.GameLoop"
     ],
     "Slot Games": [
       "PixiReelController",
@@ -15178,6 +15669,10 @@
         "direction": "input"
       },
       {
+        "node": "Calculate Roll",
+        "direction": "input"
+      },
+      {
         "node": "Ceil",
         "direction": "input"
       },
@@ -15191,6 +15686,10 @@
       },
       {
         "node": "Floor",
+        "direction": "input"
+      },
+      {
+        "node": "Hit Frequency Monitor",
         "direction": "input"
       },
       {
@@ -15242,6 +15741,14 @@
         "direction": "input"
       },
       {
+        "node": "RTP Monitor",
+        "direction": "input"
+      },
+      {
+        "node": "Server Seed Generator",
+        "direction": "input"
+      },
+      {
         "node": "Single Parameter Formula",
         "direction": "input"
       },
@@ -15259,6 +15766,22 @@
       },
       {
         "node": "True Random Number Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Validate Outcome",
+        "direction": "input"
+      },
+      {
+        "node": "Verify Commitment",
+        "direction": "input"
+      },
+      {
+        "node": "Verify Fairness",
+        "direction": "input"
+      },
+      {
+        "node": "Volatility Monitor",
         "direction": "input"
       },
       {
@@ -15408,11 +15931,23 @@
         "direction": "input"
       },
       {
+        "node": "Hit Frequency Monitor",
+        "direction": "input"
+      },
+      {
         "node": "Multiplication",
         "direction": "input"
       },
       {
+        "node": "RTP Monitor",
+        "direction": "input"
+      },
+      {
         "node": "Subtraction",
+        "direction": "input"
+      },
+      {
+        "node": "Volatility Monitor",
         "direction": "input"
       }
     ],
@@ -15503,6 +16038,10 @@
     "result": [
       {
         "node": "Addition",
+        "direction": "output"
+      },
+      {
+        "node": "Calculate Roll",
         "direction": "output"
       },
       {
@@ -15628,6 +16167,10 @@
         "direction": "output"
       },
       {
+        "node": "Calculate Roll",
+        "direction": "output"
+      },
+      {
         "node": "Ceil",
         "direction": "output"
       },
@@ -15641,6 +16184,10 @@
       },
       {
         "node": "Floor",
+        "direction": "output"
+      },
+      {
+        "node": "Hit Frequency Monitor",
         "direction": "output"
       },
       {
@@ -15692,6 +16239,14 @@
         "direction": "output"
       },
       {
+        "node": "RTP Monitor",
+        "direction": "output"
+      },
+      {
+        "node": "Server Seed Generator",
+        "direction": "output"
+      },
+      {
         "node": "Single Parameter Formula",
         "direction": "output"
       },
@@ -15709,6 +16264,22 @@
       },
       {
         "node": "True Random Number Generator",
+        "direction": "output"
+      },
+      {
+        "node": "Validate Outcome",
+        "direction": "output"
+      },
+      {
+        "node": "Verify Commitment",
+        "direction": "output"
+      },
+      {
+        "node": "Verify Fairness",
+        "direction": "output"
+      },
+      {
+        "node": "Volatility Monitor",
         "direction": "output"
       },
       {
@@ -15858,6 +16429,62 @@
         "direction": "output"
       }
     ],
+    "client seed": [
+      {
+        "node": "Calculate Roll",
+        "direction": "input"
+      }
+    ],
+    "server seed": [
+      {
+        "node": "Calculate Roll",
+        "direction": "input"
+      },
+      {
+        "node": "Server Seed Generator",
+        "direction": "output"
+      }
+    ],
+    "nonce": [
+      {
+        "node": "Calculate Roll",
+        "direction": "input"
+      },
+      {
+        "node": "ISAAC Random Number Array Generator",
+        "direction": "input"
+      },
+      {
+        "node": "ISAAC Random Number Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Server Seed Generator",
+        "direction": "output"
+      },
+      {
+        "node": "Verify Fairness",
+        "direction": "input"
+      }
+    ],
+    "max range": [
+      {
+        "node": "Calculate Roll",
+        "direction": "input"
+      }
+    ],
+    "min range": [
+      {
+        "node": "Calculate Roll",
+        "direction": "input"
+      }
+    ],
+    "combinedString hash": [
+      {
+        "node": "Calculate Roll",
+        "direction": "output"
+      }
+    ],
     "value": [
       {
         "node": "Ceil",
@@ -15878,6 +16505,10 @@
       {
         "node": "True Random Number Generator",
         "direction": "output"
+      },
+      {
+        "node": "Volatility Monitor",
+        "direction": "input"
       },
       {
         "node": "Inverter",
@@ -15942,18 +16573,6 @@
       {
         "node": "Value Changed",
         "direction": "input"
-      },
-      {
-        "node": "Boolean",
-        "direction": "input"
-      },
-      {
-        "node": "Number",
-        "direction": "input"
-      },
-      {
-        "node": "Color",
-        "direction": "input"
       }
     ],
     "trueCondition": [
@@ -16013,6 +16632,22 @@
       },
       {
         "node": "Or ",
+        "direction": "output"
+      }
+    ],
+    "winAmount": [
+      {
+        "node": "Hit Frequency Monitor",
+        "direction": "input"
+      },
+      {
+        "node": "RTP Monitor",
+        "direction": "input"
+      }
+    ],
+    "Hit Frequency": [
+      {
+        "node": "Hit Frequency Monitor",
         "direction": "output"
       }
     ],
@@ -16083,16 +16718,6 @@
       },
       {
         "node": "Slot Spin",
-        "direction": "input"
-      }
-    ],
-    "nonce": [
-      {
-        "node": "ISAAC Random Number Array Generator",
-        "direction": "input"
-      },
-      {
-        "node": "ISAAC Random Number Generator",
         "direction": "input"
       }
     ],
@@ -16350,10 +16975,180 @@
         "direction": "input"
       }
     ],
+    "betAmount": [
+      {
+        "node": "RTP Monitor",
+        "direction": "input"
+      },
+      {
+        "node": "Calculate Free Spins States",
+        "direction": "input"
+      },
+      {
+        "node": "Calculate Winnings",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Ways Calculate Winnings",
+        "direction": "input"
+      },
+      {
+        "node": "SlotMainEngine",
+        "direction": "input"
+      },
+      {
+        "node": "Slot Simulation",
+        "direction": "input"
+      },
+      {
+        "node": "Slot Spin",
+        "direction": "input"
+      },
+      {
+        "node": "Spin Calculate",
+        "direction": "input"
+      },
+      {
+        "node": "Spin Result",
+        "direction": "input"
+      }
+    ],
+    "RTP": [
+      {
+        "node": "RTP Monitor",
+        "direction": "output"
+      },
+      {
+        "node": "Slot Simulation",
+        "direction": "output"
+      },
+      {
+        "node": "Spin Result",
+        "direction": "output"
+      }
+    ],
+    "committedHash": [
+      {
+        "node": "Server Seed Generator",
+        "direction": "output"
+      },
+      {
+        "node": "Verify Commitment",
+        "direction": "input"
+      }
+    ],
     "parameterValue": [
       {
         "node": "Single Parameter Formula",
         "direction": "input"
+      }
+    ],
+    "fairHash": [
+      {
+        "node": "Validate Outcome",
+        "direction": "input"
+      }
+    ],
+    "maxRange": [
+      {
+        "node": "Validate Outcome",
+        "direction": "input"
+      }
+    ],
+    "minRange": [
+      {
+        "node": "Validate Outcome",
+        "direction": "input"
+      }
+    ],
+    "rollResult": [
+      {
+        "node": "Validate Outcome",
+        "direction": "output"
+      }
+    ],
+    "serverSeed": [
+      {
+        "node": "Verify Commitment",
+        "direction": "input"
+      },
+      {
+        "node": "Verify Fairness",
+        "direction": "input"
+      }
+    ],
+    "Result": [
+      {
+        "node": "Verify Commitment",
+        "direction": "output"
+      }
+    ],
+    "clientSeed": [
+      {
+        "node": "Verify Fairness",
+        "direction": "input"
+      }
+    ],
+    "expectedHash": [
+      {
+        "node": "Verify Fairness",
+        "direction": "input"
+      }
+    ],
+    "isFair": [
+      {
+        "node": "Verify Fairness",
+        "direction": "output"
+      }
+    ],
+    "volatilityResult": [
+      {
+        "node": "Volatility Monitor",
+        "direction": "output"
+      },
+      {
+        "node": "Volatility Estimator",
+        "direction": "output"
+      }
+    ],
+    "standardDeviation": [
+      {
+        "node": "Volatility Monitor",
+        "direction": "output"
+      },
+      {
+        "node": "Volatility Estimator",
+        "direction": "output"
+      }
+    ],
+    "mean": [
+      {
+        "node": "Volatility Monitor",
+        "direction": "output"
+      },
+      {
+        "node": "Volatility Estimator",
+        "direction": "output"
+      }
+    ],
+    "variance": [
+      {
+        "node": "Volatility Monitor",
+        "direction": "output"
+      },
+      {
+        "node": "Volatility Estimator",
+        "direction": "output"
+      }
+    ],
+    "amplitude": [
+      {
+        "node": "Volatility Monitor",
+        "direction": "output"
+      },
+      {
+        "node": "Volatility Estimator",
+        "direction": "output"
       }
     ],
     "a": [
@@ -17094,21 +17889,11 @@
         "direction": "output"
       }
     ],
-    "file": [
-      {
-        "node": "Cloud File",
-        "direction": "input"
-      },
-      {
-        "node": "Open File Picker",
-        "direction": "output"
-      },
-      {
-        "node": "Upload File",
-        "direction": "input"
-      }
-    ],
     "url": [
+      {
+        "node": "Aggregator",
+        "direction": "input"
+      },
       {
         "node": "Cloud File",
         "direction": "output"
@@ -17135,6 +17920,52 @@
       },
       {
         "node": "stake.RGSPlay",
+        "direction": "input"
+      }
+    ],
+    "dataInputs": [
+      {
+        "node": "Aggregator",
+        "direction": "input"
+      }
+    ],
+    "triggers": [
+      {
+        "node": "Aggregator",
+        "direction": "input"
+      }
+    ],
+    "outputs": [
+      {
+        "node": "Aggregator",
+        "direction": "input"
+      }
+    ],
+    "type": [
+      {
+        "node": "Aggregator",
+        "direction": "output"
+      },
+      {
+        "node": "Static Data",
+        "direction": "input"
+      },
+      {
+        "node": "Open File Picker",
+        "direction": "output"
+      }
+    ],
+    "file": [
+      {
+        "node": "Cloud File",
+        "direction": "input"
+      },
+      {
+        "node": "Open File Picker",
+        "direction": "output"
+      },
+      {
+        "node": "Upload File",
         "direction": "input"
       }
     ],
@@ -17580,18 +18411,6 @@
       {
         "node": "Variable2",
         "direction": "output"
-      },
-      {
-        "node": "Boolean",
-        "direction": "output"
-      },
-      {
-        "node": "Number",
-        "direction": "output"
-      },
-      {
-        "node": "Color",
-        "direction": "output"
       }
     ],
     "deleted": [
@@ -17607,6 +18426,14 @@
       },
       {
         "node": "pixi.CollisionDetector",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.KeyboardInput",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.MouseInput",
         "direction": "input"
       },
       {
@@ -17893,18 +18720,6 @@
       },
       {
         "node": "stringlist",
-        "direction": "output"
-      },
-      {
-        "node": "Boolean",
-        "direction": "output"
-      },
-      {
-        "node": "Number",
-        "direction": "output"
-      },
-      {
-        "node": "Color",
         "direction": "output"
       }
     ],
@@ -18662,6 +19477,10 @@
         "direction": "input"
       },
       {
+        "node": "pixi.MouseInput",
+        "direction": "output"
+      },
+      {
         "node": "pixi.NineSlicePlane",
         "direction": "input"
       },
@@ -18730,6 +19549,10 @@
       {
         "node": "pixi.MeshRope",
         "direction": "input"
+      },
+      {
+        "node": "pixi.MouseInput",
+        "direction": "output"
       },
       {
         "node": "pixi.NineSlicePlane",
@@ -21266,6 +22089,70 @@
         "direction": "input"
       }
     ],
+    "keys": [
+      {
+        "node": "pixi.KeyboardInput",
+        "direction": "input"
+      }
+    ],
+    "ignoreRepeat": [
+      {
+        "node": "pixi.KeyboardInput",
+        "direction": "input"
+      }
+    ],
+    "up": [
+      {
+        "node": "pixi.KeyboardInput",
+        "direction": "output"
+      }
+    ],
+    "down": [
+      {
+        "node": "pixi.KeyboardInput",
+        "direction": "output"
+      },
+      {
+        "node": "pixi.InputAction",
+        "direction": "output"
+      }
+    ],
+    "left": [
+      {
+        "node": "pixi.KeyboardInput",
+        "direction": "output"
+      }
+    ],
+    "right": [
+      {
+        "node": "pixi.KeyboardInput",
+        "direction": "output"
+      }
+    ],
+    "space": [
+      {
+        "node": "pixi.KeyboardInput",
+        "direction": "output"
+      }
+    ],
+    "lastKeyPressed": [
+      {
+        "node": "pixi.KeyboardInput",
+        "direction": "output"
+      }
+    ],
+    "onKeyDown": [
+      {
+        "node": "pixi.KeyboardInput",
+        "direction": "output"
+      }
+    ],
+    "onKeyUp": [
+      {
+        "node": "pixi.KeyboardInput",
+        "direction": "output"
+      }
+    ],
     "texture": [
       {
         "node": "pixi.MeshRope",
@@ -21280,6 +22167,70 @@
       {
         "node": "pixi.MeshRope",
         "direction": "input"
+      }
+    ],
+    "stageNodeReference": [
+      {
+        "node": "pixi.MouseInput",
+        "direction": "input"
+      }
+    ],
+    "suppressContextMenu": [
+      {
+        "node": "pixi.MouseInput",
+        "direction": "input"
+      }
+    ],
+    "moveThrottleMs": [
+      {
+        "node": "pixi.MouseInput",
+        "direction": "input"
+      }
+    ],
+    "clientX": [
+      {
+        "node": "pixi.MouseInput",
+        "direction": "output"
+      }
+    ],
+    "clientY": [
+      {
+        "node": "pixi.MouseInput",
+        "direction": "output"
+      }
+    ],
+    "isDown": [
+      {
+        "node": "pixi.MouseInput",
+        "direction": "output"
+      }
+    ],
+    "button": [
+      {
+        "node": "pixi.MouseInput",
+        "direction": "output"
+      }
+    ],
+    "onDown": [
+      {
+        "node": "pixi.MouseInput",
+        "direction": "output"
+      },
+      {
+        "node": "pixi.InputAction",
+        "direction": "output"
+      }
+    ],
+    "onUp": [
+      {
+        "node": "pixi.MouseInput",
+        "direction": "output"
+      }
+    ],
+    "onMove": [
+      {
+        "node": "pixi.MouseInput",
+        "direction": "output"
       }
     ],
     "image": [
@@ -22638,6 +23589,38 @@
         "direction": "output"
       }
     ],
+    "active": [
+      {
+        "node": "pixi.GameLoop",
+        "direction": "input"
+      },
+      {
+        "node": "stake.RoundActive",
+        "direction": "output"
+      },
+      {
+        "node": "logic.InputAction",
+        "direction": "output"
+      }
+    ],
+    "onTick": [
+      {
+        "node": "pixi.GameLoop",
+        "direction": "output"
+      }
+    ],
+    "deltaTime": [
+      {
+        "node": "pixi.GameLoop",
+        "direction": "output"
+      }
+    ],
+    "fps": [
+      {
+        "node": "pixi.GameLoop",
+        "direction": "output"
+      }
+    ],
     "reelStrips": [
       {
         "node": "PixiReelController",
@@ -23296,40 +24279,6 @@
         "direction": "output"
       }
     ],
-    "betAmount": [
-      {
-        "node": "Calculate Free Spins States",
-        "direction": "input"
-      },
-      {
-        "node": "Calculate Winnings",
-        "direction": "input"
-      },
-      {
-        "node": "Reel Ways Calculate Winnings",
-        "direction": "input"
-      },
-      {
-        "node": "SlotMainEngine",
-        "direction": "input"
-      },
-      {
-        "node": "Slot Simulation",
-        "direction": "input"
-      },
-      {
-        "node": "Slot Spin",
-        "direction": "input"
-      },
-      {
-        "node": "Spin Calculate",
-        "direction": "input"
-      },
-      {
-        "node": "Spin Result",
-        "direction": "input"
-      }
-    ],
     "capital": [
       {
         "node": "Calculate Free Spins States",
@@ -23583,6 +24532,16 @@
       },
       {
         "node": "Reel Strips Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Weighted Reels",
+        "direction": "input"
+      }
+    ],
+    "Seeds": [
+      {
+        "node": "Cascade The Reels",
         "direction": "input"
       },
       {
@@ -24194,16 +25153,6 @@
         "direction": "output"
       }
     ],
-    "RTP": [
-      {
-        "node": "Slot Simulation",
-        "direction": "output"
-      },
-      {
-        "node": "Spin Result",
-        "direction": "output"
-      }
-    ],
     "totalFreeSpinsWinnings": [
       {
         "node": "Slot Simulation",
@@ -24340,42 +25289,6 @@
       {
         "node": "Symbol Frequency Tracker",
         "direction": "output"
-      }
-    ],
-    "volatilityResult": [
-      {
-        "node": "Volatility Estimator",
-        "direction": "output"
-      }
-    ],
-    "standardDeviation": [
-      {
-        "node": "Volatility Estimator",
-        "direction": "output"
-      }
-    ],
-    "mean": [
-      {
-        "node": "Volatility Estimator",
-        "direction": "output"
-      }
-    ],
-    "variance": [
-      {
-        "node": "Volatility Estimator",
-        "direction": "output"
-      }
-    ],
-    "amplitude": [
-      {
-        "node": "Volatility Estimator",
-        "direction": "output"
-      }
-    ],
-    "Seeds": [
-      {
-        "node": "Weighted Reels",
-        "direction": "input"
       }
     ],
     "freeSpinSymbol": [
@@ -24639,16 +25552,6 @@
     "roundState": [
       {
         "node": "stake.RGSPlay",
-        "direction": "output"
-      }
-    ],
-    "active": [
-      {
-        "node": "stake.RoundActive",
-        "direction": "output"
-      },
-      {
-        "node": "logic.InputAction",
         "direction": "output"
       }
     ],
@@ -25282,12 +26185,6 @@
         "direction": "output"
       }
     ],
-    "down": [
-      {
-        "node": "pixi.InputAction",
-        "direction": "output"
-      }
-    ],
     "onPressed": [
       {
         "node": "pixi.InputAction",
@@ -25295,12 +26192,6 @@
       }
     ],
     "onReleased": [
-      {
-        "node": "pixi.InputAction",
-        "direction": "output"
-      }
-    ],
-    "onDown": [
       {
         "node": "pixi.InputAction",
         "direction": "output"
@@ -26480,16 +27371,6 @@
         "direction": "input"
       }
     ],
-    "type": [
-      {
-        "node": "Static Data",
-        "direction": "input"
-      },
-      {
-        "node": "Open File Picker",
-        "direction": "output"
-      }
-    ],
     "csv": [
       {
         "node": "Static Data",
@@ -27154,34 +28035,6 @@
       {
         "node": "xgenia.cloud.aggregate",
         "direction": "input"
-      }
-    ],
-    "saveValue": [
-      {
-        "node": "Boolean",
-        "direction": "input"
-      },
-      {
-        "node": "Number",
-        "direction": "input"
-      },
-      {
-        "node": "Color",
-        "direction": "input"
-      }
-    ],
-    "savedValue": [
-      {
-        "node": "Boolean",
-        "direction": "output"
-      },
-      {
-        "node": "Number",
-        "direction": "output"
-      },
-      {
-        "node": "Color",
-        "direction": "output"
       }
     ]
   }
