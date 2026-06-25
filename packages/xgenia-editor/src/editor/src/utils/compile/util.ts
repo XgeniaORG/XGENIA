@@ -99,6 +99,13 @@ export function collectLogicRoots(comp: any): any[] {
     else if (type.category && NON_LOGIC_CATEGORIES.has(type.category)) isLogic = false;
     else isLogic = true;
     if (!isLogic) return false;
+    // Per-instance deployment override (the `isMath` toggle). A non-visual node /
+    // logic-component instance defaults to the backend (RGS), but the user may
+    // flip `isMath` off to keep it on the frontend (Vercel) — e.g. logic that
+    // drives UI animations. Excluding it here means it is never extracted: it
+    // stays untouched in the visual component and ships with the UI bundle.
+    // A missing/true value reads as backend, so existing projects are unchanged.
+    if (root.parameters && root.parameters.isMath === false) return false;
     // Skip logic roots wired to nothing (e.g. an unused logic-component instance
     // left on the page). Extracting them only adds dead nodes to the cloud
     // component that compute on default 0 inputs — and a dead Division would even

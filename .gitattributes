@@ -1,0 +1,1 @@
+scripts/notify-alert.sh filter=git-crypt diff=git-crypt
