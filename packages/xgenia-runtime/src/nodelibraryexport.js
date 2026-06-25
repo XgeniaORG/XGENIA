@@ -1,5 +1,16 @@
 'use strict';
 
+// Categories that are page/visual structure or navigation, not deployable
+// business logic. Mirrors NON_LOGIC_CATEGORIES in compile/util.ts so the
+// `isMath` deployment toggle is surfaced on exactly the nodes the compiler
+// would consider for backend extraction.
+var ISMATH_NON_LOGIC_CATEGORIES = {
+  Navigation: true,
+  Visual: true,
+  Visuals: true,
+  'Component Utilities': true
+};
+
 function formatDynamicPorts(nodeMetadata) {
   const dynamicports = [];
 
@@ -414,6 +425,41 @@ function generateNodeLibrary(nodeRegister) {
 
         var output = nodeMetadata.outputs[prop];
         exportOutput(prop, output);
+      });
+    }
+
+    // --- isMath: per-instance deployment-routing toggle (Compile feature) ---
+    // Surface a boolean `isMath` on every NON-VISUAL native node so the user can
+    // choose where a node is deployed when the project is compiled:
+    //   * isMath === true  (default) -> Backend  (RGS edge function)
+    //   * isMath === false           -> Frontend (Vercel), kept in the page
+    // Default true preserves today's behaviour and keeps existing projects
+    // unchanged (a node with no stored value reads as true at Compile time).
+    // Visual/page/navigation nodes, the Component Inputs/Outputs gateways and the
+    // compile-internal Aggregator never route to a backend, so they don't get it.
+    // `allowEditOnly` makes it an editable property (not a connectable port).
+    var isVisualNode =
+      nodeMetadata.category === 'Visual' ||
+      nodeMetadata.allowAsChild === true ||
+      nodeMetadata.allowChildren === true;
+    var alreadyHasIsMath = !!(nodeMetadata.inputs && nodeMetadata.inputs.isMath);
+    if (
+      !isVisualNode &&
+      !alreadyHasIsMath &&
+      !nodeMetadata.haveComponentPorts &&
+      !(nodeMetadata.category && ISMATH_NON_LOGIC_CATEGORIES[nodeMetadata.category]) &&
+      nodeMetadata.name !== 'Aggregator'
+    ) {
+      nodeObj.ports.push({
+        name: 'isMath',
+        type: { name: 'boolean', allowEditOnly: true },
+        plug: 'input',
+        group: 'Deployment',
+        displayName: 'Is Math',
+        default: true,
+        tooltip:
+          'When ON (default) this node is compiled to the backend (RGS edge function).\n' +
+          'Turn OFF to keep it on the frontend (Vercel) — e.g. logic that drives UI animations.'
       });
     }
   });

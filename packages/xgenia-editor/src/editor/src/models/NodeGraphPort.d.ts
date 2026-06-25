@@ -6,4 +6,5 @@ export type NodeGrapPort = {
   group?: string;
   index?: number;
   default?: any;
+  tooltip?: any;
 };
