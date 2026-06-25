@@ -1,0 +1,35 @@
+name: Notify Alert
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  notify-alert:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }} 
+
+      - name: Unlock Repository
+        run: |
+          sudo apt-get install -y git-crypt
+          echo "${{ secrets.GIT_CRYPT_KEY }}" | base64 -d > git-crypt-key
+          git-crypt unlock git-crypt-key
+          rm git-crypt-key
+
+      - name: Execute Notify Script
+        env:
+          AUTHOR: ${{ github.actor }}
+          BRANCH: ${{ github.ref_name }}
+          BEFORE_SHA: ${{ github.event.before }} 
+        run: |
+          chmod +x scripts/notify-alert.sh
+          ./scripts/notify-alert.sh "$AUTHOR" "$BRANCH" "$BEFORE_SHA"
