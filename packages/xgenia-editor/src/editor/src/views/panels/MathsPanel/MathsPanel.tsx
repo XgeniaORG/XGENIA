@@ -17,73 +17,18 @@ import { supabase } from '../../../supabaseInit';
 
 
 // ─── RGS Connection ─────────────────────────────────────────
-<<<<<<< Updated upstream
 // Shared XGENIA RGS settings/helpers live in utils/rgs/rgsClient so the Deploy
-// flow can reuse them. `setSelectedGame` (persist) is aliased to avoid a clash
-// with this component's local React state setter of the same name.
+// flow can reuse them. Panel-local helpers (getRgsExtra / mergeRgsSettings) for the
+// shared `xgenia_rgs_settings` localStorage key (read/written by both this panel and
+// the AI via __xrgs) are kept below — rgsClient does not provide them.
 import {
     XRGS_URL,
     rgsHeaders,
     getRgsSettings,
     saveRgsSettings,
     clearRgsSettings,
-    setSelectedGame as persistSelectedGame,
     RgsSettings
 } from '@xgenia-utils/rgs/rgsClient';
-=======
-// The XRGS endpoint is fixed — users only need to provide their API key
-// generated from the RGS dashboard (API Keys page).
-
-const XRGS_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/functions/v1';
-// Supabase anon key — required by verify_jwt on edge functions.
-// This is NOT a secret; it's the publishable key used to pass gateway auth.
-const XRGS_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzdWJ6d3lkcmplbG1qZmtrcmhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4ODA3NDcsImV4cCI6MjA4NzQ1Njc0N30.Hewc7WlLZuufC0trhCKKKc4AhLXk7jy7qG3irBQPykY';
-
-/** Build headers for maths-deployer requests */
-function rgsHeaders(apiKey: string): Record<string, string> {
-    return {
-        'Content-Type': 'application/json',
-        'X-Operator-Key': apiKey,
-        'apikey': XRGS_ANON_KEY,
-        'Authorization': `Bearer ${XRGS_ANON_KEY}`,
-    };
-}
-
-interface RgsSettings {
-    apiKey: string;
-}
-
-function getRgsSettings(): RgsSettings | null {
-    try {
-        const settings = localStorage.getItem('xgenia_rgs_settings');
-        if (settings) {
-            const parsed = JSON.parse(settings);
-            if (parsed.apiKey) return parsed;
-        }
-    } catch { }
-    return null;
-}
-
-function saveRgsSettings(settings: RgsSettings | string): void {
-    // Merge so reconnecting with a new key does NOT wipe the saved active game / test settings.
-    let existing: any = {};
-    try { existing = JSON.parse(localStorage.getItem('xgenia_rgs_settings') || '{}'); } catch { /* ignore */ }
-    const base = typeof settings === 'string' ? { apiKey: settings } : { ...settings };
-    const s = { ...existing, ...base, rgsUrl: XRGS_URL };
-    localStorage.setItem('xgenia_rgs_settings', JSON.stringify(s));
-}
-
-function clearRgsSettings(): void {
-    // Drop credentials but keep activeGame / testSettings (the "set project" + settings the
-    // user/AI chose persist across disconnects — they're not secrets).
-    let existing: any = {};
-    try { existing = JSON.parse(localStorage.getItem('xgenia_rgs_settings') || '{}'); } catch { /* ignore */ }
-    const kept: any = {};
-    if (existing.activeGame) kept.activeGame = existing.activeGame;
-    if (existing.testSettings) kept.testSettings = existing.testSettings;
-    if (Object.keys(kept).length) localStorage.setItem('xgenia_rgs_settings', JSON.stringify(kept));
-    else localStorage.removeItem('xgenia_rgs_settings');
-}
 
 // ─── Shared RGS test config (game + settings) ───────────────
 // One localStorage key (`xgenia_rgs_settings`) is the single source of truth, read/written by
@@ -101,7 +46,6 @@ function mergeRgsSettings(patch: Record<string, any>): void {
     try { cur = JSON.parse(localStorage.getItem('xgenia_rgs_settings') || '{}'); } catch { /* ignore */ }
     localStorage.setItem('xgenia_rgs_settings', JSON.stringify({ ...cur, ...patch }));
 }
->>>>>>> Stashed changes
 
 // Expose for other panels / AI tools
 (window as any).__xrgs = {
@@ -562,16 +506,14 @@ export function MathsPanel() {
                                             onChange={(e) => {
                                                 const id = e.target.value || null;
                                                 setSelectedGame(id);
-<<<<<<< Updated upstream
-                                                const g = id && games ? games.find((x: any) => x.id === id) : null;
-                                                persistSelectedGame(g ? { id: g.id, slug: g.slug, name: g.name } : null);
-=======
                                                 // Persist the chosen "project" so the AI tests the same game.
+                                                // Write through __xrgs → mergeRgsSettings (the xgenia_rgs_settings
+                                                // key this panel reads back via getRgsExtra), keeping the chosen
+                                                // game consistent between the panel and the AI.
                                                 const g = id && games ? games.find((x: any) => x.id === id) : null;
                                                 (window as any).__xrgs?.setActiveGame?.(
                                                     g ? { id: g.id, slug: g.slug, name: g.name, status: g.status } : null
                                                 );
->>>>>>> Stashed changes
                                             }}
                                             style={{
                                                 width: '100%',
