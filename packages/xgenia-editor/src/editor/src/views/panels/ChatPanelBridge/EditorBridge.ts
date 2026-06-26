@@ -1401,13 +1401,35 @@ export class EditorBridge {
             const wanted = nameOrFullName;
             const wantedStripped = stripPath(wanted);
 
-            const matches = allComponents.filter((c: any) => {
+            // CLIFE-6: full-path/name match wins. Only fall back to basename when it is
+            // UNAMBIGUOUS — the old code matched by basename across ALL folders and deleted
+            // EVERY match in the loop, so deleting "Reels" silently destroyed both
+            // /Pages/Reels and /Components/Reels. Never auto-delete multiple components.
+            const exactMatches = allComponents.filter((c: any) => {
                 const cn = c?.name || c?.fullName || '';
-                return cn === wanted || stripPath(cn) === wantedStripped || stripPath(cn).toLowerCase() === wantedStripped.toLowerCase();
+                return cn === wanted;
             });
-
-            if (matches.length === 0) {
-                return { success: false, error: `No component matches "${nameOrFullName}"`, deletedCount: 0 };
+            let matches: any[];
+            if (exactMatches.length >= 1) {
+                matches = exactMatches;
+            } else {
+                const basenameMatches = allComponents.filter((c: any) => {
+                    const cn = c?.name || c?.fullName || '';
+                    return stripPath(cn) === wantedStripped || stripPath(cn).toLowerCase() === wantedStripped.toLowerCase();
+                });
+                if (basenameMatches.length === 0) {
+                    return { success: false, error: `No component matches "${nameOrFullName}"`, deletedCount: 0 };
+                }
+                if (basenameMatches.length > 1) {
+                    return {
+                        success: false,
+                        ambiguous: true,
+                        error: `"${nameOrFullName}" is ambiguous across ${basenameMatches.length} components — pass the full path to delete a specific one`,
+                        candidates: basenameMatches.map((c: any) => c?.name || c?.fullName || 'unknown'),
+                        deletedCount: 0,
+                    };
+                }
+                matches = basenameMatches;
             }
 
             const undoGroup = new UndoActionGroup({ label: `delete component ${nameOrFullName}` });
