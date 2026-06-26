@@ -1453,7 +1453,7 @@ export class EditorBridge {
             };
         });
 
-        h('component.createWithTemplate', ([name, templateJSON]: [string, any]) => {
+        h('component.createWithTemplate', ([name, templateJSON, switchTo]: [string, any, boolean?]) => {
             const pm = ProjectModel.instance as any;
             if (!pm) throw new Error('ProjectModel not available');
 
@@ -1471,15 +1471,30 @@ export class EditorBridge {
             UndoQueue.instance.push(undoGroup);
             pm.addComponent(newComponent, { undo: undoGroup });
 
-            // Cache, lock, and broadcast
-            this.cachedActiveComponent = newComponent;
-            this.setAiLock(newComponent);
-            this.pushEvent('componentSwitched', {
-                name: newComponent.name,
-                fullName: newComponent.fullName || newComponent.name,
-            });
+            // Only move the AI's active scope (cache + lock) onto the new component
+            // when the caller explicitly asked. A default create_component must NOT
+            // relocate the mutation target to the new empty component while the UI
+            // still shows the original one — that is silent wrong-component drift.
+            if (switchTo) {
+                this.cachedActiveComponent = newComponent;
+                this.setAiLock(newComponent);
+                this.pushEvent('componentSwitched', {
+                    name: newComponent.name,
+                    fullName: newComponent.fullName || newComponent.name,
+                });
+            }
 
-            return this.serializeComponent(newComponent);
+            // Return the REAL created structure (roots), not just a stripped serialization,
+            // so the tool can verify what was actually created instead of asserting its
+            // own local template. Mirrors project.getComponentsWithGraph.
+            const result: any = this.serializeComponent(newComponent);
+            const graph = newComponent.graph;
+            if (graph) {
+                const graphModel = graph.model || graph;
+                const roots = graphModel.roots || [];
+                result.graph = { roots: roots.map((n: any) => this.serializeNode(n)) };
+            }
+            return result;
         });
 
         // --- Manifest / inspection commands ---
