@@ -953,6 +953,26 @@ export class EditorBridge {
             return node.getParameter?.(name);
         });
 
+        // LAYOUT-3: batch-apply node positions (auto_organize_nodes / apply_graph_diff)
+        // THROUGH the editor's undo system so a single Undo reverts the whole reposition.
+        // The iframe previously set x/y on the bridge proxy directly — that moved the nodes
+        // but pushed an EMPTY undo group (the proxy is not the editor's UndoQueue, and the
+        // setParameter calls were not registered with any group), so Undo did nothing.
+        h('node.setPositionsUndoable', ([changes]: [Array<{ nodeId: string; x: number; y: number }>]) => {
+            if (!Array.isArray(changes) || changes.length === 0) return { applied: 0, total: 0 };
+            const group = new UndoActionGroup({ label: 'Auto-organize Nodes' });
+            let applied = 0;
+            for (const change of changes) {
+                const node = this.findNode(change.nodeId);
+                if (!node || typeof node.setParameter !== 'function') continue;
+                node.setParameter('x', change.x, { undo: group });
+                node.setParameter('y', change.y, { undo: group });
+                applied++;
+            }
+            if (applied > 0) UndoQueue.instance?.push?.(group);
+            return { applied, total: changes.length };
+        });
+
         h('node.setLabel', ([nodeId, label]: [string, string]) => {
             const node = this.findNode(nodeId);
             if (!node) throw new Error(`Node not found: ${nodeId}`);
