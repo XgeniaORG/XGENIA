@@ -1,12 +1,6 @@
 'use strict';
 
-function validateNumberInput(value, defaultValue = 0) {
-  const num = Number(value);
-  if (isNaN(num)) {
-    throw new Error('Input must be a valid number');
-  }
-  return num;
-}
+const { validateNumber } = require('./lib/validate-number');
 
 const HitFrequencyMonitorNode = {
   name: 'Hit Frequency Monitor',
@@ -58,7 +52,7 @@ const HitFrequencyMonitorNode = {
       default: 0,
       set: function (value) {
         try {
-          this._internal.winAmount = validateNumberInput(value, 0);
+          this._internal.winAmount = validateNumber(value);
           this._internal.lastError = null;
         } catch (error) {
           this._internal.lastError = error.message;

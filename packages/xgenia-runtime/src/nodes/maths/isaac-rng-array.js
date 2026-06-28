@@ -4,19 +4,7 @@ const MAX_VALUE = 1000000000000;
 const MIN_VALUE = 0;
 const MAX_SIZE = 10000;
 
-function validateNumberInput(value, defaultValue = 0) {
-  const num = Number(value);
-  if (isNaN(num)) {
-    throw new Error('Input must be a valid number');
-  }
-  if (num > MAX_VALUE) {
-    throw new Error(`Input cannot exceed ${MAX_VALUE}`);
-  }
-  if (num < MIN_VALUE) {
-    throw new Error(`Input cannot be less than ${MIN_VALUE}`);
-  }
-  return num;
-}
+const { validateBoundedNumber } = require('./lib/validate-number');
 
 function validateSizeInput(value, defaultValue = 1) {
   const num = Number(value);
@@ -410,7 +398,7 @@ const IsaacRNGArrayGeneratorNode = {
           if (value === null || value === undefined || value === '') {
             this._internal.seed = null;
           } else {
-            this._internal.seed = validateNumberInput(value);
+            this._internal.seed = validateBoundedNumber(value, 0);
           }
           this._internal.isaac = null;
           this._internal.lastError = null;
@@ -430,7 +418,7 @@ const IsaacRNGArrayGeneratorNode = {
           if (value === null || value === undefined || value === '') {
             this._internal.nonce = null;
           } else {
-            this._internal.nonce = validateNumberInput(value);
+            this._internal.nonce = validateBoundedNumber(value, 0);
           }
           this._internal.isaac = null;
           this._internal.lastError = null;
