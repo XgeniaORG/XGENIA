@@ -8,20 +8,6 @@ const MAX_VALUE = 1000000000000;
 const MIN_VALUE = -1000000000000;
 const MAX_ARRAY_LENGTH = 10000;
 
-function validateNumberInput(value, defaultValue = 0) {
-  const num = Number(value);
-  if (isNaN(num)) {
-    throw new Error('Input must be a valid number');
-  }
-  if (num > MAX_VALUE) {
-    throw new Error(`Input cannot exceed ${MAX_VALUE}`);
-  }
-  if (num < MIN_VALUE) {
-    throw new Error(`Input cannot be less than ${MIN_VALUE}`);
-  }
-  return num;
-}
-
 function validateArrayLength(length) {
   const len = Number(length);
   if (isNaN(len) || len < 0) {
