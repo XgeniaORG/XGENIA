@@ -55,6 +55,12 @@ function registerNodes(xgeniaRuntime) {
     // Cloud
     require('./src/nodes/std-library/data/cloudfilenode'),
     require('./src/nodes/std-library/data/dbconfig'),
+    require('./src/nodes/std-library/data/getplayeridbyname'),
+    require('./src/nodes/std-library/data/listgamesessions'),
+    require('./src/nodes/std-library/data/savegamesession'),
+    require('./src/nodes/std-library/data/loadgamesession'),
+    require('./src/nodes/std-library/convertInputsIntoRecord'),
+    require('./src/nodes/std-library/convertRecordIntoOutputs'),
 
     // Variables
     require('./src/nodes/std-library/variables/number'),
@@ -62,6 +68,7 @@ function registerNodes(xgeniaRuntime) {
     require('./src/nodes/std-library/variables/boolean'),
 
     // Math nodes
+    require('./src/nodes/maths/random-uuid-generator'),
     require('./src/nodes/maths/server-seed-generator'),
     require('./src/nodes/maths/calculate-roll'),
     require('./src/nodes/maths/verify-commitment'),

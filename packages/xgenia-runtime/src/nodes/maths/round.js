@@ -3,19 +3,7 @@
 const MAX_VALUE = 1000000000000;
 const MIN_VALUE = -1000000000000;
 
-function validateNumberInput(value, defaultValue = 0) {
-  const num = Number(value);
-  if (isNaN(num)) {
-    throw new Error('Input must be a valid number');
-  }
-  if (num > MAX_VALUE) {
-    throw new Error(`Input cannot exceed ${MAX_VALUE}`);
-  }
-  if (num < MIN_VALUE) {
-    throw new Error(`Input cannot be less than ${MIN_VALUE}`);
-  }
-  return num;
-}
+const { validateBoundedNumber } = require('./lib/validate-number');
 
 const RoundNode = {
   name: 'Round',
@@ -53,7 +41,7 @@ const RoundNode = {
       default: 0,
       set: function (value) {
         try {
-          this._internal.inputValue = validateNumberInput(value, 0);
+          this._internal.inputValue = validateBoundedNumber(value);
           this._internal.lastError = null;
         } catch (error) {
           this._internal.lastError = error.message;

@@ -1,5 +1,7 @@
 'use strict';
 
+const { hashToRange } = require('./lib/hash-to-range');
+
 const ValidateOutcomeNode = {
   name: 'Validate Outcome',
   docs: 'https://docsapp.xgenia.com/nodes/math/validate-outcome',
@@ -58,20 +60,8 @@ const ValidateOutcomeNode = {
         if (maxRange === undefined || maxRange === null) maxRange = 100;
         if (minRange === undefined || minRange === null) minRange = 0;
 
-        // Take the first 8 characters of the hex hash and convert to decimal
-        const hexSubset = fairHash.substring(0, 8);
-        let decimalValue = parseInt(hexSubset, 16);
-        if (isNaN(decimalValue)) {
-            decimalValue = 0;
-        }
-
-        // Apply modulo for the custom min/max range
-        const rangeSize = maxRange - minRange + 1;
-        const diceRoll = (decimalValue % rangeSize) + minRange;
-        
-        console.log(`Hash ${fairHash} translates to a dice roll of: ${diceRoll}`);
-        
-        this._internal.rollResult = diceRoll;
+        // Translate the fair hash into a roll within the requested range
+        this._internal.rollResult = hashToRange(fairHash, minRange, maxRange);
 
         this.flagOutputDirty('rollResult');
         this.sendSignalOnOutput('Done');
@@ -82,4 +72,6 @@ const ValidateOutcomeNode = {
   }
 };
 
-module.exports = ValidateOutcomeNode;
+module.exports = {
+  node: ValidateOutcomeNode
+};

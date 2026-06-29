@@ -3,19 +3,7 @@
 const MAX_VALUE = 1000000000000;
 const MIN_VALUE = 0;
 
-function validateNumberInput(value, defaultValue = 0) {
-  const num = Number(value);
-  if (isNaN(num)) {
-    throw new Error('Input must be a valid number');
-  }
-  if (num > MAX_VALUE) {
-    throw new Error(`Input cannot exceed ${MAX_VALUE}`);
-  }
-  if (num < MIN_VALUE) {
-    throw new Error(`Input cannot be less than ${MIN_VALUE}`);
-  }
-  return num;
-}
+const { validateBoundedNumber } = require('./lib/validate-number');
 
 /**
  * ISAAC (Indirection, Shift, Accumulate, Add, and Count) Random Number Generator
@@ -381,7 +369,7 @@ const IsaacRNGGeneratorNode = {
           if (value === null || value === undefined || value === '') {
             this._internal.seed = null;
           } else {
-            this._internal.seed = validateNumberInput(value);
+            this._internal.seed = validateBoundedNumber(value, 0);
           }
           // Reset ISAAC instance when seed changes
           this._internal.isaac = null;
@@ -402,7 +390,7 @@ const IsaacRNGGeneratorNode = {
           if (value === null || value === undefined || value === '') {
             this._internal.nonce = null;
           } else {
-            this._internal.nonce = validateNumberInput(value);
+            this._internal.nonce = validateBoundedNumber(value, 0);
           }
           // Reset ISAAC instance when nonce changes
           this._internal.isaac = null;

@@ -610,6 +610,10 @@ function generateNodeLibrary(nodeRegister) {
           ]
         },
         {
+          name: 'Data',
+          items: ['Convert Inputs into Record', 'Convert Record into Outputs']
+        },
+        {
           name: 'Animation',
           items: ['Animation']
         },
@@ -655,6 +659,10 @@ function generateNodeLibrary(nodeRegister) {
         {
           name: 'Formula',
           items: ['Single Parameter Formula']
+        },
+        {
+          name: 'Data',
+          items: ['Random UUID Generator']
         },
         {
           name: 'Generator',
@@ -788,7 +796,11 @@ function generateNodeLibrary(nodeRegister) {
             'Cloud File',
             'Upload File',
             'CloudFunction2',
-            'DbConfig'
+            'DbConfig',
+            'GetPlayerIdByName',
+            'ListGameSessions',
+            'SaveGameSession',
+            'LoadGameSession'
           ]
         },
         {
