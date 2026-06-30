@@ -598,6 +598,9 @@ function generateNodeLibrary(nodeRegister) {
             'stateManager',
             'arrayStateManager',
             'Convert Dict Keys to Ports',
+            'Convert Inputs into Record',
+            'Convert Record into Outputs',
+            'Convert to String',
             'Export to JSON file',
             'Import from JSON file',
             'Value Changed',
@@ -608,10 +611,6 @@ function generateNodeLibrary(nodeRegister) {
             'Drag',
             'net.xgenia.animatetovalue'
           ]
-        },
-        {
-          name: 'Data',
-          items: ['Convert Inputs into Record', 'Convert Record into Outputs']
         },
         {
           name: 'Animation',

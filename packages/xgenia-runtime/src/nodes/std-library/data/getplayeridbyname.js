@@ -1,5 +1,7 @@
 'use strict';
 
+const { resolveSupabaseConfig } = require('./rgs-config');
+
 // Get Player ID by Player Name
 // ----------------------------
 // Resolves a player_id from a player's display_name on the RGS platform. The
@@ -81,19 +83,9 @@ const GetPlayerIdByNameNode = {
   },
   methods: {
     getSupabaseConfig: function () {
-      let cloudServices = null;
-      if (this.context && this.context.graphModel && typeof this.context.graphModel.getMetaData === 'function') {
-        cloudServices = this.context.graphModel.getMetaData('cloudservices');
-      } else if (typeof window !== 'undefined' && window.XgeniaRuntime && window.XgeniaRuntime.instance) {
-        cloudServices = window.XgeniaRuntime.instance.getMetaData('cloudservices');
-      }
-
-      const supabaseConfig = cloudServices && cloudServices.supabase;
-      const url = supabaseConfig && supabaseConfig.url;
-      const anonKey =
-        supabaseConfig && (supabaseConfig.anonKey || supabaseConfig.apikey || supabaseConfig.accessToken);
-
-      return { url, anonKey };
+      // Prefer connected cloudservices metadata; fall back to the XGENIA RGS
+      // project so the node also works in the editor preview. See rgs-config.js.
+      return resolveSupabaseConfig(this);
     },
     fetchPlayerId: async function () {
       this._internal.lastError = null;

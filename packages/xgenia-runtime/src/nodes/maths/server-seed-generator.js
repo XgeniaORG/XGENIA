@@ -67,53 +67,21 @@ const ServerSeedGeneratorNode = {
     }
   },
   methods: {
-    generateServerSeed: async function () {
+    generateServerSeed: function () {
       try {
-        let seed = '';
-
-        // Attempt to get Supabase config
-        let cloudServices = null;
-        if (this.context && this.context.graphModel && typeof this.context.graphModel.getMetaData === 'function') {
-          cloudServices = this.context.graphModel.getMetaData('cloudservices');
-        } else if (typeof window !== 'undefined' && window.XgeniaRuntime && window.XgeniaRuntime.instance) {
-          cloudServices = window.XgeniaRuntime.instance.getMetaData('cloudservices');
-        }
-
-        const supabaseConfig = cloudServices && cloudServices.supabase;
-        const url = supabaseConfig && supabaseConfig.url;
-        const anonKey = supabaseConfig && (supabaseConfig.anonKey || supabaseConfig.apikey || supabaseConfig.accessToken);
-
-        if (url && anonKey) {
-          const response = await fetch(`${url}/functions/v1/provably-fair/generate-seed`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${anonKey}`
-            }
-          });
-
-          if (!response.ok) {
-            throw new Error(`RGS request failed: ${response.status} ${response.statusText}`);
-          }
-
-          const data = await response.json();
-          if (data.server_seed) {
-            seed = data.server_seed;
-          } else {
-            throw new Error('Invalid response from RGS: missing server_seed');
-          }
+        // Server seeds are generated locally only. No RGS / edge-function call:
+        // the provably-fair generate-seed endpoint requires Studio/operator auth
+        // the node doesn't carry, and local generation works everywhere
+        // (editor preview included).
+        let seed;
+        if (crypto && crypto.randomBytes) {
+          seed = crypto.randomBytes(32).toString('hex');
+        } else if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
+          const array = new Uint8Array(32);
+          window.crypto.getRandomValues(array);
+          seed = Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('');
         } else {
-          // Fallback if no supabase config is available
-          console.warn('Server Seed Generator: No Supabase config found, falling back to local generation.');
-          if (crypto && crypto.randomBytes) {
-            seed = crypto.randomBytes(32).toString('hex');
-          } else if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
-            const array = new Uint8Array(32);
-            window.crypto.getRandomValues(array);
-            seed = Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('');
-          } else {
-            seed = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
-          }
+          seed = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
         }
 
         // Generate the committed hash

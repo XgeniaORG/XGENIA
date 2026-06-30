@@ -16,6 +16,8 @@
 // Import collection node converter
 import { CollectionNodeConverter } from './collection-node-converter';
 import { MathNodeConverter } from './math-node-converter';
+// Import RGS extra (provably-fair / data / I-O) node converter
+import { RgsExtraNodeConverter } from './rgs-extra-node-converter';
 // Import signal passthrough node converter
 import { SignalPassthroughNodeConverter } from './signal-passthrough-node-converter';
 // Import slot game node converter
@@ -592,6 +594,8 @@ export class CloudFunctionConverter {
   private readonly signalPassthroughNodeConverter: SignalPassthroughNodeConverter;
   // Add collection node converter
   private readonly collectionNodeConverter: CollectionNodeConverter;
+  // Add RGS extra node converter (provably-fair / data / I-O nodes)
+  private readonly rgsExtraNodeConverter: RgsExtraNodeConverter;
 
   // Add project context for Cloud Logic components
   private readonly projectContext?: Project;
@@ -609,6 +613,7 @@ export class CloudFunctionConverter {
     this.stdLibraryNodeConverter = new StdLibraryNodeConverter();
     this.signalPassthroughNodeConverter = new SignalPassthroughNodeConverter();
     this.collectionNodeConverter = new CollectionNodeConverter();
+    this.rgsExtraNodeConverter = new RgsExtraNodeConverter();
 
     // Then assign function names (which depends on converters)
     this.nodeFunctionNames = this.assignUniqueFunctionNames();
@@ -933,6 +938,7 @@ ${functionSignature}
     const stdLibraryNodes = this.findAllStdLibraryNodes();
     const signalPassthroughNodes = this.findAllSignalPassthroughNodes();
     const collectionNodes = this.findAllCollectionNodes();
+    const extraNodes = this.findAllExtraNodes();
     const cloudLogicNodes = this.component.graph.roots.filter((node) => node.typename.startsWith('/#__cloud__/'));
     const mathsLogicNodes = this.component.graph.roots.filter((node) => node.typename.startsWith('/#__maths__/'));
     const allFunctionNodes = [
@@ -942,6 +948,7 @@ ${functionSignature}
       ...stdLibraryNodes,
       ...signalPassthroughNodes,
       ...collectionNodes,
+      ...extraNodes,
       ...cloudLogicNodes,
       ...mathsLogicNodes
     ];
@@ -970,6 +977,8 @@ ${functionSignature}
         baseName = `signal_${node.typename.toLowerCase().replace(/\s+/g, '_')}`;
       } else if (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename)) {
         baseName = `collection_${node.typename.toLowerCase().replace(/\s+/g, '_')}`;
+      } else if (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(node.typename)) {
+        baseName = `extra_${node.typename.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
       } else if (node.typename.startsWith('/#__cloud__/')) {
         const rawName = node.typename.replace('/#__cloud__/', '');
         baseName = `cloud_${this.sanitizeForIdentifier(rawName) || 'logic'}`;
@@ -1143,6 +1152,7 @@ ${originalComponentStructure}
     const stdLibraryNodes = this.findAllStdLibraryNodes();
     const signalPassthroughNodes = this.findAllSignalPassthroughNodes();
     const collectionNodes = this.findAllCollectionNodes();
+    const extraNodes = this.findAllExtraNodes();
     const mathsLogicNodes = this.component.graph.roots.filter((n) => n.typename.startsWith('/#__maths__/'));
 
     const allFunctionNodes = [
@@ -1152,14 +1162,21 @@ ${originalComponentStructure}
       ...stdLibraryNodes,
       ...signalPassthroughNodes,
       ...collectionNodes,
+      ...extraNodes,
       ...mathsLogicNodes,
       ...this.findAllNodesByType('Javascript2'),
       ...this.findAllNodesByType('stateManager')
     ];
     const sortedFunctionNodes = this.sortNodesByExecutionOrder(allFunctionNodes);
 
+    // Shared sandbox-safe helpers (sha256 / hashToRange / uuid) used by the
+    // provably-fair & data node functions — emitted once, before the node defs.
+    const extraPrelude = this.rgsExtraNodeConverter.hasAnyExtraNode(allFunctionNodes.map((n) => n.typename))
+      ? RgsExtraNodeConverter.helperPrelude()
+      : '';
+
     // Generate function definitions (same code generators as cloud)
-    const functionDefinitions = this.generateFunctionDefinitions(sortedFunctionNodes);
+    const functionDefinitions = extraPrelude + this.generateFunctionDefinitions(sortedFunctionNodes);
 
     // Generate invocations with RGS-specific wiring
     const functionInvocations = this.generateRgsFunctionInvocations(sortedFunctionNodes);
@@ -1409,6 +1426,19 @@ ${originalComponentStructure}
               // and input_overrides sent by the Play Tester UI.
               sourceValue = this.safePropertyAccess('config', portName);
             }
+          } else if (srcNode && srcNode.typename === 'xgenia.cloud.request') {
+            // Compiled cloud component: the request node feeds values via its
+            // pm-<field> output ports. The config key is the FIELD name
+            // (fromProperty minus the "pm-" prefix), NOT the destination port name
+            // (inputName/toProperty) — these differ whenever a node's input port
+            // name isn't the same as the aggregator data field (e.g. a "client
+            // seed" port fed by the "clientSeed" field, or an "input0" port fed by
+            // "firstNumber"). Using toProperty here would read a non-existent
+            // config key and silently feed undefined.
+            const field = conn.fromProperty.startsWith('pm-')
+              ? conn.fromProperty.substring(3)
+              : conn.fromProperty;
+            sourceValue = this.safePropertyAccess('config', field);
           } else {
             sourceValue = this.safePropertyAccess('config', inputName);
           }
@@ -1570,21 +1600,38 @@ ${originalComponentStructure}
         byParam.get(param)!.push(conn);
       }
 
+      const safeName = (param: string) => (/[^a-zA-Z0-9_]/.test(param) ? `"${param}"` : param);
       const mappings: string[] = [];
+      const emitted = new Set<string>();
       for (const [param, conns] of byParam) {
-        // Default to the last source; wrap earlier sources in a flag conditional
-        // so e.g. result = isAddition ? add : (isSubtraction ? sub : sub).
-        let expr = resolveSourceExpr(conns[conns.length - 1]);
+        // Fold the sources for this field into a flag-gated expression so e.g.
+        // result = isAddition ? add : (isSubtraction ? sub : ...). Each source is
+        // gated by its own trigger flag, falling back to the later sources.
+        let expr: string | null = null;
         for (let i = conns.length - 1; i >= 0; i--) {
           const e = resolveSourceExpr(conns[i]);
           if (e == null) continue;
           const flag = findGatingFlag(conns[i].fromId);
-          expr = flag ? `(${this.safePropertyAccess('config', flag)} ? ${e} : ${expr})` : e;
+          expr = flag && expr != null ? `(${this.safePropertyAccess('config', flag)} ? ${e} : ${expr})` : e;
         }
-        if (expr != null) {
-          const safeName = /[^a-zA-Z0-9_]/.test(param) ? `"${param}"` : param;
-          mappings.push(`${safeName}: ${expr}`);
-        }
+        // Safety net: NEVER drop a declared output. If no source resolved (e.g.
+        // the field is fed by an I-O node that can't run in the sandbox), emit
+        // null so the response still carries the field for the aggregator to map.
+        mappings.push(`${safeName(param)}: ${expr != null ? expr : 'null'}`);
+        emitted.add(param);
+      }
+      // Also surface any response param that was declared but had no resolvable
+      // connection, so the payload shape always matches the aggregator's outputs.
+      const declaredParams = (responseNode.parameters && responseNode.parameters.params
+        ? String(responseNode.parameters.params)
+        : '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      for (const param of declaredParams) {
+        if (emitted.has(param)) continue;
+        mappings.push(`${safeName(param)}: null`);
+        emitted.add(param);
       }
       if (mappings.length > 0) {
         invocationCode += `const _componentOutputs = { ${mappings.join(', ')} };\n    `;
@@ -1712,6 +1759,9 @@ ${originalComponentStructure}
         } else if (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename)) {
           const functionName = this.getFunctionName(node);
           return this.collectionNodeConverter.convertCollectionNode(node, functionName);
+        } else if (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(node.typename)) {
+          const functionName = this.getFunctionName(node);
+          return this.rgsExtraNodeConverter.generateNodeFunctionDefinition(node, functionName);
         } else if (node.typename.startsWith('/#__cloud__/')) {
           // Handle Cloud Logic component references
           const logicComponent = this.findCloudLogicComponent(node.typename);
@@ -1964,6 +2014,16 @@ ${originalComponentStructure}
       return [];
     }
     return this.component.graph.roots.filter((node) => this.mathNodeConverter.isMathNode(node.typename));
+  }
+
+  // Non-visual nodes not handled by any other converter (provably-fair / data /
+  // I-O). These are extracted to the backend by Compile, so the RGS script must
+  // generate functions for them — otherwise their outputs are dropped.
+  private findAllExtraNodes(): Node[] {
+    if (!this.rgsExtraNodeConverter) {
+      return [];
+    }
+    return this.component.graph.roots.filter((node) => this.rgsExtraNodeConverter.isExtraNode(node.typename));
   }
 
   /**
