@@ -151,16 +151,18 @@ const AggregatorNode = {
     },
     // Take the JSON response body and push each field onto its out-<field>
     // output port, so the values flow back into the connected UI components.
+    //
+    // IMPORTANT: only surface the fields the response ACTUALLY carries. The
+    // deployed edge function omits the outputs of operations that weren't
+    // triggered this request (their value is undefined, which JSON drops). If we
+    // flagged every DECLARED output dirty regardless, triggering one operation
+    // would push values into — and visibly "trigger" — UI bound to unrelated
+    // operations. So we iterate the response body's own keys only.
     applyOutputs: function (body) {
       if (!body || typeof body !== 'object') return;
       this._internal.outputValues = this._internal.outputValues || {};
-      const fields = {};
-      splitList(this._internal.outputs).forEach(function (f) {
-        fields[f] = true;
-      });
-      // Also surface any extra fields the response happens to carry.
-      for (const k in body) fields[k] = true;
-      for (const field in fields) {
+      for (const field in body) {
+        if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
         this._internal.outputValues[field] = body[field];
         this.registerOutputIfNeeded('out-' + field);
         if (this.hasOutput('out-' + field)) this.flagOutputDirty('out-' + field);

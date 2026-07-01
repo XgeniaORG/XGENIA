@@ -61,6 +61,7 @@ function registerNodes(xgeniaRuntime) {
     require('./src/nodes/std-library/data/loadgamesession'),
     require('./src/nodes/std-library/convertInputsIntoRecord'),
     require('./src/nodes/std-library/convertRecordIntoOutputs'),
+    require('./src/nodes/std-library/convertToString'),
 
     // Variables
     require('./src/nodes/std-library/variables/number'),

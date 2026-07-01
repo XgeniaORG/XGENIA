@@ -16,6 +16,8 @@
 // Import collection node converter
 import { CollectionNodeConverter } from './collection-node-converter';
 import { MathNodeConverter } from './math-node-converter';
+// Import RGS extra (provably-fair / data / I-O) node converter
+import { RgsExtraNodeConverter } from './rgs-extra-node-converter';
 // Import signal passthrough node converter
 import { SignalPassthroughNodeConverter } from './signal-passthrough-node-converter';
 // Import slot game node converter
@@ -592,6 +594,8 @@ export class CloudFunctionConverter {
   private readonly signalPassthroughNodeConverter: SignalPassthroughNodeConverter;
   // Add collection node converter
   private readonly collectionNodeConverter: CollectionNodeConverter;
+  // Add RGS extra node converter (provably-fair / data / I-O nodes)
+  private readonly rgsExtraNodeConverter: RgsExtraNodeConverter;
 
   // Add project context for Cloud Logic components
   private readonly projectContext?: Project;
@@ -609,6 +613,7 @@ export class CloudFunctionConverter {
     this.stdLibraryNodeConverter = new StdLibraryNodeConverter();
     this.signalPassthroughNodeConverter = new SignalPassthroughNodeConverter();
     this.collectionNodeConverter = new CollectionNodeConverter();
+    this.rgsExtraNodeConverter = new RgsExtraNodeConverter();
 
     // Then assign function names (which depends on converters)
     this.nodeFunctionNames = this.assignUniqueFunctionNames();
@@ -933,6 +938,7 @@ ${functionSignature}
     const stdLibraryNodes = this.findAllStdLibraryNodes();
     const signalPassthroughNodes = this.findAllSignalPassthroughNodes();
     const collectionNodes = this.findAllCollectionNodes();
+    const extraNodes = this.findAllExtraNodes();
     const cloudLogicNodes = this.component.graph.roots.filter((node) => node.typename.startsWith('/#__cloud__/'));
     const mathsLogicNodes = this.component.graph.roots.filter((node) => node.typename.startsWith('/#__maths__/'));
     const allFunctionNodes = [
@@ -942,6 +948,7 @@ ${functionSignature}
       ...stdLibraryNodes,
       ...signalPassthroughNodes,
       ...collectionNodes,
+      ...extraNodes,
       ...cloudLogicNodes,
       ...mathsLogicNodes
     ];
@@ -970,6 +977,8 @@ ${functionSignature}
         baseName = `signal_${node.typename.toLowerCase().replace(/\s+/g, '_')}`;
       } else if (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename)) {
         baseName = `collection_${node.typename.toLowerCase().replace(/\s+/g, '_')}`;
+      } else if (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(node.typename)) {
+        baseName = `extra_${node.typename.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
       } else if (node.typename.startsWith('/#__cloud__/')) {
         const rawName = node.typename.replace('/#__cloud__/', '');
         baseName = `cloud_${this.sanitizeForIdentifier(rawName) || 'logic'}`;
@@ -1143,6 +1152,7 @@ ${originalComponentStructure}
     const stdLibraryNodes = this.findAllStdLibraryNodes();
     const signalPassthroughNodes = this.findAllSignalPassthroughNodes();
     const collectionNodes = this.findAllCollectionNodes();
+    const extraNodes = this.findAllExtraNodes();
     const mathsLogicNodes = this.component.graph.roots.filter((n) => n.typename.startsWith('/#__maths__/'));
 
     const allFunctionNodes = [
@@ -1152,14 +1162,21 @@ ${originalComponentStructure}
       ...stdLibraryNodes,
       ...signalPassthroughNodes,
       ...collectionNodes,
+      ...extraNodes,
       ...mathsLogicNodes,
       ...this.findAllNodesByType('Javascript2'),
       ...this.findAllNodesByType('stateManager')
     ];
     const sortedFunctionNodes = this.sortNodesByExecutionOrder(allFunctionNodes);
 
+    // Shared sandbox-safe helpers (sha256 / hashToRange / uuid) used by the
+    // provably-fair & data node functions — emitted once, before the node defs.
+    const extraPrelude = this.rgsExtraNodeConverter.hasAnyExtraNode(allFunctionNodes.map((n) => n.typename))
+      ? RgsExtraNodeConverter.helperPrelude()
+      : '';
+
     // Generate function definitions (same code generators as cloud)
-    const functionDefinitions = this.generateFunctionDefinitions(sortedFunctionNodes);
+    const functionDefinitions = extraPrelude + this.generateFunctionDefinitions(sortedFunctionNodes);
 
     // Generate invocations with RGS-specific wiring
     const functionInvocations = this.generateRgsFunctionInvocations(sortedFunctionNodes);
@@ -1409,6 +1426,19 @@ ${originalComponentStructure}
               // and input_overrides sent by the Play Tester UI.
               sourceValue = this.safePropertyAccess('config', portName);
             }
+          } else if (srcNode && srcNode.typename === 'xgenia.cloud.request') {
+            // Compiled cloud component: the request node feeds values via its
+            // pm-<field> output ports. The config key is the FIELD name
+            // (fromProperty minus the "pm-" prefix), NOT the destination port name
+            // (inputName/toProperty) — these differ whenever a node's input port
+            // name isn't the same as the aggregator data field (e.g. a "client
+            // seed" port fed by the "clientSeed" field, or an "input0" port fed by
+            // "firstNumber"). Using toProperty here would read a non-existent
+            // config key and silently feed undefined.
+            const field = conn.fromProperty.startsWith('pm-')
+              ? conn.fromProperty.substring(3)
+              : conn.fromProperty;
+            sourceValue = this.safePropertyAccess('config', field);
           } else {
             sourceValue = this.safePropertyAccess('config', inputName);
           }
@@ -1520,6 +1550,9 @@ ${originalComponentStructure}
     const responseNode = this.component.graph.roots.find(
       (n) => n.typename === 'xgenia.cloud.response'
     );
+    const requestNode = this.component.graph.roots.find(
+      (n) => n.typename === 'xgenia.cloud.request'
+    );
     if (responseNode && !componentOutputsNode) {
       // Resolve a source connection (through Variable2 passthroughs) to its
       // result expression, or null if the source isn't a generated node.
@@ -1545,19 +1578,54 @@ ${originalComponentStructure}
         return this.safePropertyAccess(outputVariableMap.get(resolvedFromId)!, fromProp);
       };
 
-      // Find the operation flag (e.g. "isAddition") that gates a source node:
-      // the request node feeds pm-is<X> into one of the source node's signal
-      // inputs (e.g. Addition.Do). The Aggregator sets exactly one such flag per
-      // request, so we use it to pick the right source when several feed the same
-      // response field.
-      const findGatingFlag = (sourceNodeId: string): string | null => {
-        const gate = this.connections.find(
-          (c) =>
-            c.toId === sourceNodeId &&
-            this.nodes.get(c.fromId)?.typename === 'xgenia.cloud.request' &&
-            c.fromProperty.startsWith('pm-is')
-        );
-        return gate ? gate.fromProperty.replace('pm-', '') : null;
+      // Trigger isolation. The Aggregator fires ONE operation per request (sets
+      // exactly one `is<X>` flag true). In the editor graph a node only produces
+      // output when its `Do` signal fires — directly from a request `pm-is<X>`
+      // trigger, or transitively from an upstream node's `Done`. But the deployed
+      // script runs every node function unconditionally, so without gating EVERY
+      // output would come back on EVERY request and the aggregator would push
+      // values into UI bound to operations the user never triggered.
+      //
+      // So we compute, per source node, the set of request trigger flags whose
+      // signal chain reaches it, and gate that node's output on those flags:
+      //   field = (config.isX || config.isY) ? value : undefined
+      // (undefined is dropped by JSON.stringify, so non-triggered fields simply
+      // don't appear in the response). A node with no signal input at all is
+      // unconditional (e.g. a constant feeding the response directly).
+      //
+      // Signal edges are: a request `pm-is*` trigger, or an internal `Do`/`Done`
+      // connection (the universal trigger-in / signal-out ports for these nodes).
+      const isSignalEdge = (c: any): boolean =>
+        (!!requestNode && c.fromId === requestNode.id && typeof c.fromProperty === 'string' && c.fromProperty.startsWith('pm-is')) ||
+        c.toProperty === 'Do' ||
+        c.fromProperty === 'Done';
+
+      const sigMemo = new Map<string, Set<string> | null>();
+      // null  -> unconditional (no signal inputs); Set -> the trigger flags that
+      // reach this node (empty -> reachable from no trigger, i.e. never fires).
+      const triggersForNode = (nodeId: string, stack: Set<string>): Set<string> | null => {
+        if (sigMemo.has(nodeId)) return sigMemo.get(nodeId)!;
+        if (stack.has(nodeId)) return new Set<string>(); // cycle guard
+        stack.add(nodeId);
+        const sigConns = this.connections.filter((c) => c.toId === nodeId && isSignalEdge(c));
+        let res: Set<string> | null;
+        if (sigConns.length === 0) {
+          res = null;
+        } else {
+          res = new Set<string>();
+          for (const c of sigConns) {
+            if (requestNode && c.fromId === requestNode.id) {
+              res.add(String(c.fromProperty).replace(/^pm-/, ''));
+            } else {
+              const up = triggersForNode(c.fromId, stack);
+              if (up === null) { res = null; break; } // upstream always fires -> so does this
+              up.forEach((t) => (res as Set<string>).add(t));
+            }
+          }
+        }
+        stack.delete(nodeId);
+        sigMemo.set(nodeId, res);
+        return res;
       };
 
       const responseConns = this.connections.filter(
@@ -1570,21 +1638,31 @@ ${originalComponentStructure}
         byParam.get(param)!.push(conn);
       }
 
+      const safeName = (param: string) => (/[^a-zA-Z0-9_]/.test(param) ? `"${param}"` : param);
       const mappings: string[] = [];
       for (const [param, conns] of byParam) {
-        // Default to the last source; wrap earlier sources in a flag conditional
-        // so e.g. result = isAddition ? add : (isSubtraction ? sub : sub).
-        let expr = resolveSourceExpr(conns[conns.length - 1]);
+        // Fold the sources for this field into a chain of trigger-gated ternaries.
+        // Base is `undefined` so a field whose operation wasn't triggered is
+        // dropped from the response entirely (not pushed to the UI).
+        let expr = 'undefined';
         for (let i = conns.length - 1; i >= 0; i--) {
-          const e = resolveSourceExpr(conns[i]);
-          if (e == null) continue;
-          const flag = findGatingFlag(conns[i].fromId);
-          expr = flag ? `(${this.safePropertyAccess('config', flag)} ? ${e} : ${expr})` : e;
+          const resolved = resolveSourceExpr(conns[i]);
+          // A source we can't resolve (e.g. an I-O node that can't run in the
+          // sandbox) still keeps its field — as null — when its trigger fires,
+          // so the response shape matches the aggregator's declared outputs.
+          const valueExpr = resolved != null ? resolved : 'null';
+          const trigs = requestNode ? triggersForNode(conns[i].fromId, new Set<string>()) : null;
+          let gate: string | null;
+          if (trigs === null) {
+            gate = null; // unconditional — no signal gating on this source
+          } else if (trigs.size > 0) {
+            gate = Array.from(trigs).map((t) => this.safePropertyAccess('config', t)).join(' || ');
+          } else {
+            continue; // signal-gated but unreachable from any trigger — never fires
+          }
+          expr = gate ? `(${gate} ? ${valueExpr} : ${expr})` : valueExpr;
         }
-        if (expr != null) {
-          const safeName = /[^a-zA-Z0-9_]/.test(param) ? `"${param}"` : param;
-          mappings.push(`${safeName}: ${expr}`);
-        }
+        mappings.push(`${safeName(param)}: ${expr}`);
       }
       if (mappings.length > 0) {
         invocationCode += `const _componentOutputs = { ${mappings.join(', ')} };\n    `;
@@ -1712,6 +1790,9 @@ ${originalComponentStructure}
         } else if (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename)) {
           const functionName = this.getFunctionName(node);
           return this.collectionNodeConverter.convertCollectionNode(node, functionName);
+        } else if (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(node.typename)) {
+          const functionName = this.getFunctionName(node);
+          return this.rgsExtraNodeConverter.generateNodeFunctionDefinition(node, functionName);
         } else if (node.typename.startsWith('/#__cloud__/')) {
           // Handle Cloud Logic component references
           const logicComponent = this.findCloudLogicComponent(node.typename);
@@ -1964,6 +2045,16 @@ ${originalComponentStructure}
       return [];
     }
     return this.component.graph.roots.filter((node) => this.mathNodeConverter.isMathNode(node.typename));
+  }
+
+  // Non-visual nodes not handled by any other converter (provably-fair / data /
+  // I-O). These are extracted to the backend by Compile, so the RGS script must
+  // generate functions for them — otherwise their outputs are dropped.
+  private findAllExtraNodes(): Node[] {
+    if (!this.rgsExtraNodeConverter) {
+      return [];
+    }
+    return this.component.graph.roots.filter((node) => this.rgsExtraNodeConverter.isExtraNode(node.typename));
   }
 
   /**
