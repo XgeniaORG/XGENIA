@@ -99,6 +99,9 @@ const RandomUuidGeneratorNode = {
       } catch (error) {
         this._internal.lastError = error.message;
         console.error('Random UUID Generator error:', error.message);
+        // Still emit Done on error so the signal chain completes instead of
+        // deadlocking downstream consumers.
+        this.sendSignalOnOutput('Done');
       }
     }
   }

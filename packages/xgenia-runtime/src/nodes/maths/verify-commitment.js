@@ -59,6 +59,9 @@ const VerifyCommitmentNode = {
         this.sendSignalOnOutput('Done');
       } catch (error) {
         console.error('Verify Commitment error:', error);
+        // Still emit Done on error so the signal chain completes instead of
+        // deadlocking downstream consumers.
+        this.sendSignalOnOutput('Done');
       }
     }
   }

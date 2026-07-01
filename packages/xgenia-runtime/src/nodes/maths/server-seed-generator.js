@@ -109,6 +109,9 @@ const ServerSeedGeneratorNode = {
           error: error.message,
           timestamp: new Date().toISOString()
         };
+        // Still emit Done on error so the signal chain completes instead of
+        // deadlocking downstream consumers.
+        this.sendSignalOnOutput('Done');
       }
     }
   }

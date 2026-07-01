@@ -67,6 +67,9 @@ const ValidateOutcomeNode = {
         this.sendSignalOnOutput('Done');
       } catch (error) {
         console.error('Validate Outcome error:', error);
+        // Still emit Done on error so the signal chain completes instead of
+        // deadlocking downstream consumers.
+        this.sendSignalOnOutput('Done');
       }
     }
   }

@@ -209,6 +209,9 @@ const MathFormulaArrayGeneratorNode = {
             generatedItems.push(itemData);
           } catch (error) {
             this._internal.lastError = `Error at index ${x}: ${error.message}`;
+            // Emit Done before bailing so the signal chain doesn't deadlock
+            // when a single formula index fails.
+            this.sendSignalOnOutput('Done');
             return;
           }
         }
@@ -226,6 +229,9 @@ const MathFormulaArrayGeneratorNode = {
       } catch (error) {
         this._internal.lastError = error.message;
         console.error('Formula-Generated Array error:', error);
+        // Still emit Done on error so the signal chain completes instead of
+        // deadlocking downstream consumers.
+        this.sendSignalOnOutput('Done');
       }
     }
   }

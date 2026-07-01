@@ -147,6 +147,9 @@ const SingleParameterFormulaNode = {
         this._internal.result = null;
         this.flagOutputDirty('result');
         console.error('Single Parameter Formula error:', error);
+        // Still emit Done on error so the signal chain completes instead of
+        // deadlocking downstream consumers.
+        this.sendSignalOnOutput('Done');
       }
     }
   }

@@ -803,7 +803,11 @@ export class SlotGameCalculationGenerator {
             .replace(/\\babs\\b/g, 'Math.abs')
             .replace(/\\bfloor\\b/g, 'Math.floor')
             .replace(/\\bceil\\b/g, 'Math.ceil')
-            .replace(/\\bround\\b/g, 'Math.round');
+            .replace(/\\bround\\b/g, 'Math.round')
+            // mathjs (the editor) treats ^ as exponentiation, but raw JS eval
+            // treats ^ as bitwise XOR — so "2^x" silently gave the wrong number
+            // server-side. Convert ^ to ** (JS power) to match the editor.
+            .replace(/\\^/g, '**');
 
           // Replace variables with their values
           Object.keys(scope).forEach(key => {
@@ -889,7 +893,11 @@ export class SlotGameCalculationGenerator {
             .replace(/\\babs\\b/g, 'Math.abs')
             .replace(/\\bfloor\\b/g, 'Math.floor')
             .replace(/\\bceil\\b/g, 'Math.ceil')
-            .replace(/\\bround\\b/g, 'Math.round');
+            .replace(/\\bround\\b/g, 'Math.round')
+            // mathjs (the editor) treats ^ as exponentiation, but raw JS eval
+            // treats ^ as bitwise XOR — so "2^x" silently gave the wrong number
+            // server-side. Convert ^ to ** (JS power) to match the editor.
+            .replace(/\\^/g, '**');
 
           Object.keys(scope).forEach((key) => {
             const regex = new RegExp('\\\\b' + key + '\\\\b', 'g');
@@ -932,7 +940,7 @@ export class SlotGameCalculationGenerator {
 
       const totalWeight = finalWeights.reduce((a, b) => a + b, 0);
       if (!Number.isFinite(totalWeight) || totalWeight === 0) {
-        throw new Error('Total weight is zero. Check your formula or custom weights.');
+        throw new Error('Generate Symbol Weights: total weight is zero — every symbol would have 0 probability, so no reels/wins can be produced. Cause: weightFormula "' + formula + '" evaluates to 0 for all ' + N + ' symbols, OR all symbolWeight1..' + N + ' overrides are 0. Set a non-degenerate formula (e.g. "exp(-x / 15)") or non-zero custom weights.');
       }
 
       const normalizedBaseWeights = finalWeights.map((weight) => (weight / totalWeight) * 100);
@@ -1008,7 +1016,11 @@ export class SlotGameCalculationGenerator {
             .replace(/\\babs\\b/g, 'Math.abs')
             .replace(/\\bfloor\\b/g, 'Math.floor')
             .replace(/\\bceil\\b/g, 'Math.ceil')
-            .replace(/\\bround\\b/g, 'Math.round');
+            .replace(/\\bround\\b/g, 'Math.round')
+            // mathjs (the editor) treats ^ as exponentiation, but raw JS eval
+            // treats ^ as bitwise XOR — so "2^x" silently gave the wrong number
+            // server-side. Convert ^ to ** (JS power) to match the editor.
+            .replace(/\\^/g, '**');
           Object.keys(scope).forEach((k) => {
             const rx = new RegExp('\\\\b' + k + '\\\\b', 'g');
             processed = processed.replace(rx, String(scope[k]));

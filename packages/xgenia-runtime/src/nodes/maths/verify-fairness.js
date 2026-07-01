@@ -74,6 +74,9 @@ const VerifyFairnessNode = {
         this.sendSignalOnOutput('Done');
       } catch (error) {
         console.error('Verify Fairness error:', error);
+        // Still emit Done on error so the signal chain completes instead of
+        // deadlocking downstream consumers.
+        this.sendSignalOnOutput('Done');
       }
     }
   }
