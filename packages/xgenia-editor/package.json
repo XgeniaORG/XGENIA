@@ -7,9 +7,7 @@
     "version": "2.0.0",
     "main": "src/main/main.bundle.js",
     "scripts": {
-        "build": "npm run build:node-docs && npx ts-node -P ./tsconfig.build.json ./scripts/build.ts",
-        "build:node-docs": "node scripts/compile-node-source-docs.js",
-        "watch:node-docs": "nodemon --watch ../xgenia-runtime/src/nodes --exec npm run build:node-docs",
+        "build": "npx ts-node -P ./tsconfig.build.json ./scripts/build.ts",
         "build:renderer:dev": "npx webpack --config=webpackconfigs/webpack.renderer.production.js --mode=development && cp dist/bundles/src/editor/index.bundle.js src/editor/",
         "clean-bundles": "rm -f src/main/main.bundle.js src/editor/index.bundle.js",
         "rebuild-bundles": "npm run clean-bundles && npm run build:renderer:dev",
