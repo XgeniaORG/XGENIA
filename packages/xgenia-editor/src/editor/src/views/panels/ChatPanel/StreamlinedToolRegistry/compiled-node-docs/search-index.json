@@ -147,8 +147,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/division.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/division",
-      "lineCount": 134,
-      "byteSize": 3618,
+      "lineCount": 140,
+      "byteSize": 3956,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -303,8 +303,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/isaac-rng-array.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/isaac-rng-array",
-      "lineCount": 567,
-      "byteSize": 15405,
+      "lineCount": 574,
+      "byteSize": 16143,
       "inputFormatHints": {
         "mode": {
           "displayName": "Mode",
@@ -349,8 +349,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/isaac-rng.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/isaac-rng",
-      "lineCount": 540,
-      "byteSize": 14708,
+      "lineCount": 550,
+      "byteSize": 15708,
       "inputFormatHints": {
         "mode": {
           "displayName": "Mode",
@@ -674,8 +674,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/modulo.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/modulo",
-      "lineCount": 117,
-      "byteSize": 3128,
+      "lineCount": 123,
+      "byteSize": 3466,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -8591,8 +8591,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/RenderPaylinesPixi.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/render-paylines-pixi",
-      "lineCount": 438,
-      "byteSize": 17368,
+      "lineCount": 446,
+      "byteSize": 17941,
       "inputFormatHints": {
         "winningLinesDetails": {
           "displayName": "Winning Lines Details",
@@ -10439,8 +10439,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/weighted-reels.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/weighted-reels",
-      "lineCount": 796,
-      "byteSize": 26982,
+      "lineCount": 802,
+      "byteSize": 27525,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
@@ -11059,6 +11059,11 @@
           "displayName": "Test ID Attribute",
           "type": "string",
           "group": "Advanced HTML"
+        },
+        "enabled": {
+          "displayName": "Enabled",
+          "type": "boolean",
+          "group": "General"
         }
       },
       "outputFormatHints": {}
@@ -11091,6 +11096,11 @@
           "displayName": "Test ID Attribute",
           "type": "string",
           "group": "Advanced HTML"
+        },
+        "enabled": {
+          "displayName": "Enabled",
+          "type": "boolean",
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -11129,6 +11139,11 @@
           "displayName": "Test ID Attribute",
           "type": "string",
           "group": "Advanced HTML"
+        },
+        "enabled": {
+          "displayName": "Enabled",
+          "type": "boolean",
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -11162,6 +11177,11 @@
           "displayName": "Test ID Attribute",
           "type": "string",
           "group": "Advanced HTML"
+        },
+        "enabled": {
+          "displayName": "Enabled",
+          "type": "boolean",
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -11189,6 +11209,11 @@
         "value": {
           "displayName": "Value",
           "type": "string",
+          "group": "General"
+        },
+        "enabled": {
+          "displayName": "Enabled",
+          "type": "boolean",
           "group": "General"
         }
       },
@@ -11223,6 +11248,11 @@
           "displayName": "Test ID Attribute",
           "type": "string",
           "group": "Advanced HTML"
+        },
+        "enabled": {
+          "displayName": "Enabled",
+          "type": "boolean",
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -11316,6 +11346,11 @@
           "displayName": "Auto Play",
           "type": "boolean",
           "group": "Settings"
+        },
+        "enabled": {
+          "displayName": "Enabled",
+          "type": "boolean",
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -11413,6 +11448,11 @@
           "displayName": "Test ID Attribute",
           "type": "string",
           "group": "Advanced HTML"
+        },
+        "enabled": {
+          "displayName": "Enabled",
+          "type": "boolean",
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -18862,6 +18902,38 @@
       },
       {
         "node": "pixi.MouseInput",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.button",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.checkbox",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.radiobutton",
+        "direction": "input"
+      },
+      {
+        "node": "Radio Button Group",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.range",
+        "direction": "input"
+      },
+      {
+        "node": "Sound",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.textinput",
         "direction": "input"
       },
       {

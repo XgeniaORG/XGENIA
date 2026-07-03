@@ -98,14 +98,18 @@ const DivisionNode = {
   },
   methods: {
     calculate: function () {
+      // Every exit fires Done — a Do without a Done deadlocks any signal chain
+      // wired through this node (same class as the slot-maths reels-never-stop bug).
       try {
         if (this._internal.lastError) {
+          this.sendSignalOnOutput('Done');
           return;
         }
 
         // Check for division by zero
         if (this._internal.secondNumber === 0) {
           this._internal.lastError = 'Division by zero is not allowed';
+          this.sendSignalOnOutput('Done');
           return;
         }
 
@@ -114,6 +118,7 @@ const DivisionNode = {
         // Check if result exceeds limits or is not finite
         if (!isFinite(result) || result > MAX_VALUE || result < MIN_VALUE) {
           this._internal.lastError = `Result (${result}) exceeds allowed range (${MIN_VALUE} to ${MAX_VALUE})`;
+          this.sendSignalOnOutput('Done');
           return;
         }
 
@@ -123,6 +128,7 @@ const DivisionNode = {
       } catch (error) {
         this._internal.lastError = error.message;
         console.error('Division Node - Calculate error:', error.message);
+        this.sendSignalOnOutput('Done');
       }
     }
   }

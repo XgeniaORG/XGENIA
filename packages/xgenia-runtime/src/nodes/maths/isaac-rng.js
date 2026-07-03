@@ -479,20 +479,28 @@ const IsaacRNGGeneratorNode = {
     },
 
     _generateFromRGS: function () {
+      // FAILURE SEMANTICS (2026-07-03, decided): on ANY RGS failure, FALL BACK to the
+      // local ISAAC generator instead of silently stalling the signal chain (the old
+      // behavior — no Done — deadlocked the spin). The fallback value is still genuine
+      // ISAAC randomness; only server-side verifiability is lost, which is irrelevant in
+      // the editor PREVIEW (real-money play runs the RGS-compiled script server-side,
+      // never this node). The warn + inspectData make the degradation visible.
       const xrgs = typeof window !== 'undefined' && window.__xrgs;
       if (!xrgs) {
-        this._internal.lastError = 'RGS not connected. Open Maths Panel and enter your API key.';
-        this._internal.inspectData = { error: this._internal.lastError, mode: 'xgenia' };
-        console.error('ISAAC RNG Node:', this._internal.lastError);
+        this._internal.lastError = 'RGS not connected — fell back to LOCAL ISAAC for this value. Open Maths Panel and connect for server RNG.';
+        this._internal.inspectData = { error: this._internal.lastError, mode: 'xgenia', fallback: 'local-isaac' };
+        console.warn('ISAAC RNG Node:', this._internal.lastError);
+        this._generateLocal();
         return;
       }
 
       const apiKey = xrgs.getApiKey();
       const rgsUrl = xrgs.getUrl();
       if (!apiKey || !rgsUrl) {
-        this._internal.lastError = 'RGS API key not set. Open Maths Panel and connect.';
-        this._internal.inspectData = { error: this._internal.lastError, mode: 'xgenia' };
-        console.error('ISAAC RNG Node:', this._internal.lastError);
+        this._internal.lastError = 'RGS API key not set — fell back to LOCAL ISAAC for this value. Open Maths Panel and connect.';
+        this._internal.inspectData = { error: this._internal.lastError, mode: 'xgenia', fallback: 'local-isaac' };
+        console.warn('ISAAC RNG Node:', this._internal.lastError);
+        this._generateLocal();
         return;
       }
 
@@ -506,9 +514,10 @@ const IsaacRNGGeneratorNode = {
         .then(function (res) { return res.json(); })
         .then(function (data) {
           if (data.error) {
-            self._internal.lastError = 'RGS error: ' + data.error;
-            self._internal.inspectData = { error: self._internal.lastError, mode: 'xgenia' };
-            console.error('ISAAC RNG Node RGS error:', data.error);
+            self._internal.lastError = 'RGS error: ' + data.error + ' — fell back to LOCAL ISAAC for this value.';
+            self._internal.inspectData = { error: self._internal.lastError, mode: 'xgenia', fallback: 'local-isaac' };
+            console.warn('ISAAC RNG Node RGS error (falling back to local ISAAC):', data.error);
+            self._generateLocal();
             return;
           }
 
@@ -526,9 +535,10 @@ const IsaacRNGGeneratorNode = {
           self.sendSignalOnOutput('Done');
         })
         .catch(function (err) {
-          self._internal.lastError = 'RGS request failed: ' + err.message;
-          self._internal.inspectData = { error: self._internal.lastError, mode: 'xgenia' };
-          console.error('ISAAC RNG Node fetch error:', err);
+          self._internal.lastError = 'RGS request failed: ' + err.message + ' — fell back to LOCAL ISAAC for this value.';
+          self._internal.inspectData = { error: self._internal.lastError, mode: 'xgenia', fallback: 'local-isaac' };
+          console.warn('ISAAC RNG Node fetch error (falling back to local ISAAC):', err);
+          self._generateLocal();
         });
     }
   }

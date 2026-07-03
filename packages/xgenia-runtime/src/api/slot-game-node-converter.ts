@@ -53,7 +53,8 @@ export class SlotGameNodeRegistry {
         nodeType: 'Check Jackpot',
         inputPorts: ['reels', 'winningSymbol'],
         outputPorts: ['isWin', 'jackpotWinningPositions', 'winningSymbol'],
-        defaultValues: { winningSymbol: 1 },
+        // 2026-07-03: aligned to the editor node's default (check-jackpot.js: 0).
+        defaultValues: { winningSymbol: 0 },
         calculationMethod: 'checkJackpot',
         isStateful: false
       }
@@ -66,7 +67,9 @@ export class SlotGameNodeRegistry {
         outputPorts: ['spinWinnings', 'winningLinesDetails'],
         defaultValues: {
           wildSymbol: 9,
-          betAmount: 250,
+          // 2026-07-03: aligned to the editor node's default (calculate-winnings.js: 100).
+          // 250 here skewed RGS RTP vs the editor preview when betAmount was unwired.
+          betAmount: 100,
           winningLines: [],
           paylines: [],
           paytable: {}
@@ -288,7 +291,9 @@ export class SlotGameNodeRegistry {
         ],
         outputPorts: ['capital', 'totalBets', 'totalWinnings', 'totalWinningsFromFreeSpins', 'spinCount', 'hits'],
         defaultValues: {
-          betAmount: 0,
+          // 2026-07-03: aligned to the editor node's default (spin-calculate.js: 100).
+          // 0 here made totalBets 0 for unwired games → RGS RTP guard returned 0 forever.
+          betAmount: 100,
           capital: 0,
           totalBets: 0,
           spinWinnings: 0,
@@ -609,13 +614,33 @@ export class SlotGameCalculationGenerator {
       const numRows = reels[0].length;
       const numCols = reels.length;
 
-      // Default paylines if none provided
+      // Default paylines if none provided.
+      // 2026-07-03 (editor↔RGS divergence, user-approved alignment): the editor's
+      // Check Wins node defaults to TWENTY paylines (check-wins.js); this compiled
+      // default stopped at the first 5, so any payline slot with no customPaylines
+      // measured a materially LOWER RTP on the RGS than in the editor preview.
+      // This is the editor's exact 20-line list, verbatim.
       let paylines = customPaylines || [
         [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]],
         [[0, 1], [1, 1], [2, 1], [3, 1], [4, 1]],
         [[0, 2], [1, 2], [2, 2], [3, 2], [4, 2]],
         [[0, 0], [1, 1], [2, 2], [3, 1], [4, 0]],
-        [[0, 2], [1, 1], [2, 0], [3, 1], [4, 2]]
+        [[0, 2], [1, 1], [2, 0], [3, 1], [4, 2]],
+        [[0, 0], [1, 0], [2, 1], [3, 2], [4, 2]],
+        [[0, 2], [1, 2], [2, 1], [3, 0], [4, 0]],
+        [[0, 0], [1, 1], [2, 0], [3, 1], [4, 0]],
+        [[0, 2], [1, 1], [2, 2], [3, 1], [4, 2]],
+        [[0, 1], [1, 0], [2, 0], [3, 0], [4, 1]],
+        [[0, 1], [1, 2], [2, 2], [3, 2], [4, 1]],
+        [[0, 1], [1, 0], [2, 1], [3, 2], [4, 1]],
+        [[0, 1], [1, 2], [2, 1], [3, 0], [4, 1]],
+        [[0, 0], [1, 1], [2, 1], [3, 1], [4, 0]],
+        [[0, 2], [1, 1], [2, 1], [3, 1], [4, 2]],
+        [[0, 0], [1, 0], [2, 2], [3, 2], [4, 0]],
+        [[0, 2], [1, 2], [2, 0], [3, 0], [4, 2]],
+        [[0, 0], [1, 2], [2, 0], [3, 2], [4, 0]],
+        [[0, 2], [1, 0], [2, 2], [3, 0], [4, 2]],
+        [[0, 1], [1, 2], [2, 0], [3, 2], [4, 1]]
       ];
 
       for (const [lineIndex, lineValue] of paylines.entries()) {
@@ -804,6 +829,16 @@ export class SlotGameCalculationGenerator {
             .replace(/\\bfloor\\b/g, 'Math.floor')
             .replace(/\\bceil\\b/g, 'Math.ceil')
             .replace(/\\bround\\b/g, 'Math.round')
+            // 2026-07-03: cover the rest of the common mathjs functions — anything the
+            // editor's mathjs accepts but this list misses works in preview and CRASHES
+            // in the RGS. All of these exist on JS Math with identical semantics.
+            .replace(/\\bmin\\b/g, 'Math.min')
+            .replace(/\\bmax\\b/g, 'Math.max')
+            .replace(/\\bcbrt\\b/g, 'Math.cbrt')
+            .replace(/\\bsign\\b/g, 'Math.sign')
+            .replace(/\\btrunc\\b/g, 'Math.trunc')
+            .replace(/\\blog2\\b/g, 'Math.log2')
+            .replace(/\\blog10\\b/g, 'Math.log10')
             // mathjs (the editor) treats ^ as exponentiation, but raw JS eval
             // treats ^ as bitwise XOR — so "2^x" silently gave the wrong number
             // server-side. Convert ^ to ** (JS power) to match the editor.
@@ -894,6 +929,16 @@ export class SlotGameCalculationGenerator {
             .replace(/\\bfloor\\b/g, 'Math.floor')
             .replace(/\\bceil\\b/g, 'Math.ceil')
             .replace(/\\bround\\b/g, 'Math.round')
+            // 2026-07-03: cover the rest of the common mathjs functions — anything the
+            // editor's mathjs accepts but this list misses works in preview and CRASHES
+            // in the RGS. All of these exist on JS Math with identical semantics.
+            .replace(/\\bmin\\b/g, 'Math.min')
+            .replace(/\\bmax\\b/g, 'Math.max')
+            .replace(/\\bcbrt\\b/g, 'Math.cbrt')
+            .replace(/\\bsign\\b/g, 'Math.sign')
+            .replace(/\\btrunc\\b/g, 'Math.trunc')
+            .replace(/\\blog2\\b/g, 'Math.log2')
+            .replace(/\\blog10\\b/g, 'Math.log10')
             // mathjs (the editor) treats ^ as exponentiation, but raw JS eval
             // treats ^ as bitwise XOR — so "2^x" silently gave the wrong number
             // server-side. Convert ^ to ** (JS power) to match the editor.
@@ -1017,6 +1062,16 @@ export class SlotGameCalculationGenerator {
             .replace(/\\bfloor\\b/g, 'Math.floor')
             .replace(/\\bceil\\b/g, 'Math.ceil')
             .replace(/\\bround\\b/g, 'Math.round')
+            // 2026-07-03: cover the rest of the common mathjs functions — anything the
+            // editor's mathjs accepts but this list misses works in preview and CRASHES
+            // in the RGS. All of these exist on JS Math with identical semantics.
+            .replace(/\\bmin\\b/g, 'Math.min')
+            .replace(/\\bmax\\b/g, 'Math.max')
+            .replace(/\\bcbrt\\b/g, 'Math.cbrt')
+            .replace(/\\bsign\\b/g, 'Math.sign')
+            .replace(/\\btrunc\\b/g, 'Math.trunc')
+            .replace(/\\blog2\\b/g, 'Math.log2')
+            .replace(/\\blog10\\b/g, 'Math.log10')
             // mathjs (the editor) treats ^ as exponentiation, but raw JS eval
             // treats ^ as bitwise XOR — so "2^x" silently gave the wrong number
             // server-side. Convert ^ to ** (JS power) to match the editor.
@@ -1353,10 +1408,20 @@ export class SlotGameCalculationGenerator {
         for (let i = 1; i <= symbolWeights.length; i++) {
           baseReel.push(...Array(symbolWeightsRelativeToMin[i - 1]).fill(i));
         }
+        // PROVABLY FAIR (2026-07-03, mirrors the editor's 2026-06-23 fix in
+        // weighted-reels.js): seed each column's RNG from the server-provided seeds
+        // so dynamic-mode outcomes are reproducible/auditable from the seed. The
+        // unseeded Math.random() here made server outcomes non-reproducible — a
+        // provably-fair violation the editor side had already fixed. Falls back to
+        // Math.random() only when seeds aren't provided (one per column).
+        const _dynSeeds = Array.isArray(seeds) ? seeds : [];
+        const _haveDynSeeds = _dynSeeds.length >= columnSize;
         for (let col = 0; col < columnSize; col++) {
           const reel = [];
+          const colRng = _haveDynSeeds ? new SeededRandom(_dynSeeds[col]) : null;
           for (let row = 0; row < rowSize; row++) {
-            const idx = Math.floor(Math.random() * baseReel.length);
+            const rand = colRng ? colRng.nextFloat() : Math.random();
+            const idx = Math.floor(rand * baseReel.length);
             reel.push(baseReel[idx]);
           }
           reels.push(reel);
