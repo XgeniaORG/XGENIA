@@ -426,7 +426,9 @@ export function MathsPanel() {
     return (
         <BasePanel title="Maths RGS" isFill>
             <Container direction={ContainerDirection.Vertical} isFill>
-                <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
+                {/* RGS controls (connection, target game, server versions) — sized to content, capped so the
+                    components list below always has room. */}
+                <div style={{ flexShrink: 0, maxHeight: '50%', overflowY: 'auto', overflowX: 'hidden' }}>
                 <Box hasXSpacing hasYSpacing>
                     <VStack>
                         {/* Connection Status */}
@@ -712,6 +714,13 @@ export function MathsPanel() {
                         )}
                     </VStack>
                 </Box>
+                </div>
+
+                {/* Maths Components — the node-graph components for this project, locked to the
+                    __maths__ sheet (mirrors CloudFunctionsPanel's cloud-components list). Without this the
+                    panel only showed RGS "Server Versions" and no local components. */}
+                <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <ComponentsPanel options={mathsPanelOptions} />
                 </div>
 
             </Container>
