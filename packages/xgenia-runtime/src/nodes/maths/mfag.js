@@ -165,6 +165,9 @@ const MathFormulaArrayGeneratorNode = {
       try {
         if (this._internal.lastError) {
           console.error('Formula-Generated Array - Cannot generate due to error:', this._internal.lastError);
+          // Emit Done even when bailing on a prior error so the signal chain
+          // doesn't deadlock downstream consumers.
+          this.sendSignalOnOutput('Done');
           return;
         }
 

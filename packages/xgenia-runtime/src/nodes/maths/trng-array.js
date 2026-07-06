@@ -91,6 +91,7 @@ const TRNGArrayGeneratorNode = {
       try {
         if (this._internal.lastError) {
           console.error('TRNG Array Node - Cannot generate due to input error:', this._internal.lastError);
+          this.sendSignalOnOutput('Done');
           return;
         }
 
@@ -154,6 +155,7 @@ const TRNGArrayGeneratorNode = {
           error: error.message,
           timestamp: new Date().toISOString()
         };
+        this.sendSignalOnOutput('Done');
       }
     }
   }

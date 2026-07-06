@@ -176,6 +176,7 @@ const SumNode = {
     calculate: function () {
       try {
         if (this._internal.lastError) {
+          this.sendSignalOnOutput('Done');
           return;
         }
 
@@ -188,6 +189,7 @@ const SumNode = {
         this._internal.result = 0;
         this.flagOutputDirty('result');
         console.error('Sum Node - Calculate error:', error.message);
+        this.sendSignalOnOutput('Done');
       }
     }
   }

@@ -53,8 +53,8 @@ export class SlotGameNodeRegistry {
         nodeType: 'Check Jackpot',
         inputPorts: ['reels', 'winningSymbol'],
         outputPorts: ['isWin', 'jackpotWinningPositions', 'winningSymbol'],
-        // 2026-07-03: aligned to the editor node's default (check-jackpot.js: 0).
-        defaultValues: { winningSymbol: 0 },
+        // Editor port default (check-jackpot.js winningSymbol input port): 1.
+        defaultValues: { winningSymbol: 1 },
         calculationMethod: 'checkJackpot',
         isStateful: false
       }
@@ -154,7 +154,8 @@ export class SlotGameNodeRegistry {
           'totalBets',
           'totalFreeSpinsWon',
           'blockedReels',
-          'freeSpinsSymbol'
+          'freeSpinsSymbol',
+          'freeSpinsRewardFormula'
         ],
         outputPorts: [
           'capital',
@@ -173,7 +174,8 @@ export class SlotGameNodeRegistry {
           totalBets: 0,
           totalFreeSpinsWon: 0,
           blockedReels: '0,4',
-          freeSpinsSymbol: 10
+          freeSpinsSymbol: 10,
+          freeSpinsRewardFormula: 'x <= 1 ? 0 : (x * (x + 1)) / 2'
         },
         calculationMethod: 'calculateFreeSpinsStates',
         isStateful: false
@@ -287,7 +289,8 @@ export class SlotGameNodeRegistry {
           'spinCount',
           'hits',
           'jackpotWinnings',
-          'winningJackpot'
+          'winningJackpot',
+          'cascadingReelsEnabled'
         ],
         outputPorts: ['capital', 'totalBets', 'totalWinnings', 'totalWinningsFromFreeSpins', 'spinCount', 'hits'],
         defaultValues: {
@@ -303,7 +306,8 @@ export class SlotGameNodeRegistry {
           spinCount: 0,
           hits: 0,
           jackpotWinnings: 0,
-          winningJackpot: false
+          winningJackpot: false,
+          cascadingReelsEnabled: false
         },
         calculationMethod: 'spinCalculate',
         isStateful: false
@@ -530,13 +534,8 @@ export class SlotGameCalculationGenerator {
         throw new Error('Winning lines must be an array');
       }
 
-      const _betAmount = Number(betAmount) || 0;
-      if (_betAmount < 0.01) {
-        throw new Error('Bet amount cannot be less than 0.01');
-      }
-      if (_betAmount > 1000000) {
-        throw new Error('Bet amount cannot exceed 1000000');
-      }
+      // Match editor node (calculate-winnings.js betAmount setter): clamp to [1, 1000000], default 100, never throw
+      const _betAmount = Math.min(Math.max(Number(betAmount) || 100, 1), 1000000);
 
       if (!paytable || typeof paytable !== 'object') {
         throw new Error('Paytable must be a valid object');
@@ -652,6 +651,19 @@ export class SlotGameCalculationGenerator {
             if (row >= numRows || col >= numCols) continue;
             const symbol = reels[col][row];
             line.push(symbol);
+          }
+        }
+
+        // Skip lines where a free spins symbol interferes before a valid run can form
+        // (matches editor Check Wins node check-wins.js). console.info dropped to avoid
+        // nested template-literal escaping; logging does not affect RTP.
+        if (line.includes(wildSymbol) && line.includes(freeSpinsSymbol)) {
+          const freeSpinsIndex = line.indexOf(freeSpinsSymbol);
+          const winPossible = line
+            .slice(0, Math.min(freeSpinsIndex, minConsecutiveSymbols))
+            .some((sym, i) => sym === wildSymbol || (sym === line[0] && line[0] !== freeSpinsSymbol));
+          if (!winPossible) {
+            continue;
           }
         }
 
@@ -774,7 +786,7 @@ export class SlotGameCalculationGenerator {
       if (!Array.isArray(winningLines)) {
         throw new Error('Winning lines must be an array');
       }
-      const _bet = Number(betAmount) || 0;
+      const _bet = Number(betAmount) || 100;
       if (_bet <= 0) {
         throw new Error('Bet amount must be a positive number');
       }
@@ -839,6 +851,30 @@ export class SlotGameCalculationGenerator {
             .replace(/\\btrunc\\b/g, 'Math.trunc')
             .replace(/\\blog2\\b/g, 'Math.log2')
             .replace(/\\blog10\\b/g, 'Math.log10')
+            // 2026-07-05: remaining mathjs fns that map 1:1 onto JS Math (identical
+            // name + semantics). Word-boundary \\b keeps e.g. asin/atan2/sinh/log1p
+            // from being clobbered by the shorter sin/atan/tan/log rules above, and
+            // keeps longer variants (acosh vs acos vs cos) intact — order-independent.
+            .replace(/\\bacosh\\b/g, 'Math.acosh')
+            .replace(/\\basinh\\b/g, 'Math.asinh')
+            .replace(/\\batanh\\b/g, 'Math.atanh')
+            .replace(/\\batan2\\b/g, 'Math.atan2')
+            .replace(/\\basin\\b/g, 'Math.asin')
+            .replace(/\\bacos\\b/g, 'Math.acos')
+            .replace(/\\batan\\b/g, 'Math.atan')
+            .replace(/\\bsinh\\b/g, 'Math.sinh')
+            .replace(/\\bcosh\\b/g, 'Math.cosh')
+            .replace(/\\btanh\\b/g, 'Math.tanh')
+            .replace(/\\bhypot\\b/g, 'Math.hypot')
+            .replace(/\\bexpm1\\b/g, 'Math.expm1')
+            .replace(/\\blog1p\\b/g, 'Math.log1p')
+            // mathjs-only fns with no JS Math equivalent — shim to identical math.
+            // Arg-capturing ([^()]* = no nested parens, fine for the simple x-formulas
+            // these ports accept). Run before the ^->** rule below.
+            .replace(/\\bsquare\\s*\\(([^()]*)\\)/g, '(($1)**2)')
+            .replace(/\\bcube\\s*\\(([^()]*)\\)/g, '(($1)**3)')
+            .replace(/\\bnthRoot\\s*\\(([^(),]*),([^()]*)\\)/g, 'Math.pow($1, 1/($2))')
+            .replace(/\\bmod\\s*\\(([^(),]*),([^()]*)\\)/g, '(($1) % ($2))')
             // mathjs (the editor) treats ^ as exponentiation, but raw JS eval
             // treats ^ as bitwise XOR — so "2^x" silently gave the wrong number
             // server-side. Convert ^ to ** (JS power) to match the editor.
@@ -939,6 +975,30 @@ export class SlotGameCalculationGenerator {
             .replace(/\\btrunc\\b/g, 'Math.trunc')
             .replace(/\\blog2\\b/g, 'Math.log2')
             .replace(/\\blog10\\b/g, 'Math.log10')
+            // 2026-07-05: remaining mathjs fns that map 1:1 onto JS Math (identical
+            // name + semantics). Word-boundary \\b keeps e.g. asin/atan2/sinh/log1p
+            // from being clobbered by the shorter sin/atan/tan/log rules above, and
+            // keeps longer variants (acosh vs acos vs cos) intact — order-independent.
+            .replace(/\\bacosh\\b/g, 'Math.acosh')
+            .replace(/\\basinh\\b/g, 'Math.asinh')
+            .replace(/\\batanh\\b/g, 'Math.atanh')
+            .replace(/\\batan2\\b/g, 'Math.atan2')
+            .replace(/\\basin\\b/g, 'Math.asin')
+            .replace(/\\bacos\\b/g, 'Math.acos')
+            .replace(/\\batan\\b/g, 'Math.atan')
+            .replace(/\\bsinh\\b/g, 'Math.sinh')
+            .replace(/\\bcosh\\b/g, 'Math.cosh')
+            .replace(/\\btanh\\b/g, 'Math.tanh')
+            .replace(/\\bhypot\\b/g, 'Math.hypot')
+            .replace(/\\bexpm1\\b/g, 'Math.expm1')
+            .replace(/\\blog1p\\b/g, 'Math.log1p')
+            // mathjs-only fns with no JS Math equivalent — shim to identical math.
+            // Arg-capturing ([^()]* = no nested parens, fine for the simple x-formulas
+            // these ports accept). Run before the ^->** rule below.
+            .replace(/\\bsquare\\s*\\(([^()]*)\\)/g, '(($1)**2)')
+            .replace(/\\bcube\\s*\\(([^()]*)\\)/g, '(($1)**3)')
+            .replace(/\\bnthRoot\\s*\\(([^(),]*),([^()]*)\\)/g, 'Math.pow($1, 1/($2))')
+            .replace(/\\bmod\\s*\\(([^(),]*),([^()]*)\\)/g, '(($1) % ($2))')
             // mathjs (the editor) treats ^ as exponentiation, but raw JS eval
             // treats ^ as bitwise XOR — so "2^x" silently gave the wrong number
             // server-side. Convert ^ to ** (JS power) to match the editor.
@@ -1072,6 +1132,30 @@ export class SlotGameCalculationGenerator {
             .replace(/\\btrunc\\b/g, 'Math.trunc')
             .replace(/\\blog2\\b/g, 'Math.log2')
             .replace(/\\blog10\\b/g, 'Math.log10')
+            // 2026-07-05: remaining mathjs fns that map 1:1 onto JS Math (identical
+            // name + semantics). Word-boundary \\b keeps e.g. asin/atan2/sinh/log1p
+            // from being clobbered by the shorter sin/atan/tan/log rules above, and
+            // keeps longer variants (acosh vs acos vs cos) intact — order-independent.
+            .replace(/\\bacosh\\b/g, 'Math.acosh')
+            .replace(/\\basinh\\b/g, 'Math.asinh')
+            .replace(/\\batanh\\b/g, 'Math.atanh')
+            .replace(/\\batan2\\b/g, 'Math.atan2')
+            .replace(/\\basin\\b/g, 'Math.asin')
+            .replace(/\\bacos\\b/g, 'Math.acos')
+            .replace(/\\batan\\b/g, 'Math.atan')
+            .replace(/\\bsinh\\b/g, 'Math.sinh')
+            .replace(/\\bcosh\\b/g, 'Math.cosh')
+            .replace(/\\btanh\\b/g, 'Math.tanh')
+            .replace(/\\bhypot\\b/g, 'Math.hypot')
+            .replace(/\\bexpm1\\b/g, 'Math.expm1')
+            .replace(/\\blog1p\\b/g, 'Math.log1p')
+            // mathjs-only fns with no JS Math equivalent — shim to identical math.
+            // Arg-capturing ([^()]* = no nested parens, fine for the simple x-formulas
+            // these ports accept). Run before the ^->** rule below.
+            .replace(/\\bsquare\\s*\\(([^()]*)\\)/g, '(($1)**2)')
+            .replace(/\\bcube\\s*\\(([^()]*)\\)/g, '(($1)**3)')
+            .replace(/\\bnthRoot\\s*\\(([^(),]*),([^()]*)\\)/g, 'Math.pow($1, 1/($2))')
+            .replace(/\\bmod\\s*\\(([^(),]*),([^()]*)\\)/g, '(($1) % ($2))')
             // mathjs (the editor) treats ^ as exponentiation, but raw JS eval
             // treats ^ as bitwise XOR — so "2^x" silently gave the wrong number
             // server-side. Convert ^ to ** (JS power) to match the editor.
@@ -1154,16 +1238,52 @@ export class SlotGameCalculationGenerator {
         cumulativeValues = [];
       }
       
-      // Extract values from spinResults
+      // Extract values from spinResults (match editor node priority order)
       let newValues = [];
-      if (spinResults && typeof spinResults.totalPayout === 'number') {
-        newValues = [spinResults.totalPayout];
-      } else if (Array.isArray(spinResults.values)) {
-        newValues = spinResults.values.filter(v => typeof v === 'number');
+      const _spin = spinResults || {};
+      if (Array.isArray(_spin)) {
+        const _sumFromArray = (arr) => {
+          let sum = 0;
+          for (let i = 0; i < arr.length; i++) {
+            const entry = arr[i];
+            if (typeof entry === 'number' && Number.isFinite(entry)) sum += entry;
+            else if (Array.isArray(entry)) sum += _sumFromArray(entry);
+            else if (entry && typeof entry === 'object' && typeof entry.totalPayout === 'number' && Number.isFinite(entry.totalPayout)) sum += entry.totalPayout;
+          }
+          return sum;
+        };
+        const _total = _sumFromArray(_spin);
+        if (Number.isFinite(_total)) newValues = [_total];
+      } else if (Array.isArray(_spin.values)) {
+        newValues = _spin.values.filter(v => typeof v === 'number');
+      } else if (Array.isArray(_spin.RTPDataSeries)) {
+        newValues = _spin.RTPDataSeries.filter(v => typeof v === 'number');
+      } else if (Array.isArray(_spin.payoutSeries)) {
+        newValues = _spin.payoutSeries.filter(v => typeof v === 'number');
+      } else if (Array.isArray(_spin.totalPayouts)) {
+        newValues = _spin.totalPayouts.filter(v => typeof v === 'number');
+      } else if (Array.isArray(_spin.cascades)) {
+        let _total = 0;
+        const _cascades = _spin.cascades || [];
+        for (let i = 0; i < _cascades.length; i++) {
+          const c = _cascades[i];
+          if (typeof c === 'number' && Number.isFinite(c)) _total += c;
+          else if (c && typeof c === 'object' && typeof c.totalPayout === 'number' && Number.isFinite(c.totalPayout)) _total += c.totalPayout;
+          else if (Array.isArray(c)) {
+            for (let j = 0; j < c.length; j++) {
+              const e = c[j];
+              if (typeof e === 'number' && Number.isFinite(e)) _total += e;
+              else if (e && typeof e === 'object' && typeof e.totalPayout === 'number' && Number.isFinite(e.totalPayout)) _total += e.totalPayout;
+            }
+          }
+        }
+        newValues = Number.isFinite(_total) ? [_total] : [];
+      } else if (typeof _spin.totalPayout === 'number') {
+        newValues = [_spin.totalPayout];
       }
       
       // Add new values
-      cumulativeValues = [...cumulativeValues, ...newValues];
+      cumulativeValues = [...cumulativeValues, ...newValues.filter(v => typeof v === 'number' && Number.isFinite(v))];
       
       // Calculate volatility
       const n = cumulativeValues.length;
@@ -1178,7 +1298,7 @@ export class SlotGameCalculationGenerator {
         standardDeviation = Math.sqrt(variance);
       }
       
-      const volatilityResult = mean > 0 ? (standardDeviation / mean) * 100 : 0;
+      const volatilityResult = mean > 0 ? (standardDeviation / mean) * 100 : (standardDeviation > 0 ? 100 : 0);
       const amplitude = n > 0 ? (Math.max(...cumulativeValues) - Math.min(...cumulativeValues)) / Math.abs(mean || 1) : 0;
       
       // Return updated state
@@ -1336,13 +1456,21 @@ export class SlotGameCalculationGenerator {
       const _jackpotWinnings = Number(jackpotWinnings) || 0;
       const _winningJackpot = Boolean(winningJackpot);
 
-      // Apply bet cost and update totals
-      _capital -= _betAmount;
-      _totalBets += _betAmount;
+      // Determine if cascading is in progress (mirrors editor spin-calculate.js)
+      const _cascadingReelsEnabled = Boolean(cascadingReelsEnabled);
+      const _isCascadingInProgress = _cascadingReelsEnabled && _spinWinnings > 0;
+
+      // Apply bet cost and update totals only when not cascading and not a free spin
+      if (!_isCascadingInProgress && _currentFreeSpins === 0) {
+        _capital -= _betAmount;
+        _totalBets += _betAmount;
+      }
 
       if (_spinWinnings > 0) {
         _capital += _spinWinnings;
-        _hits += 1;
+        if (!_isCascadingInProgress) {
+          _hits += 1;
+        }
         _totalWinnings += _spinWinnings;
         if (_currentFreeSpins > 0) {
           _totalWinningsFromFreeSpins += _spinWinnings;
@@ -1355,7 +1483,9 @@ export class SlotGameCalculationGenerator {
         _totalWinnings += _jackpotWinnings;
       }
 
-      _spinCount += 1;
+      if (!_isCascadingInProgress) {
+        _spinCount += 1;
+      }
 
       // Map results to outputs (using different variable names to avoid conflicts)
       const resultCapital = _capital;
@@ -1558,9 +1688,47 @@ export class SlotGameCalculationGenerator {
         }
       }
 
+      // Free spins reward: per-count override wins, else evaluate the configurable
+      // freeSpinsRewardFormula (mirrors editor mathjs; ternary works natively in JS eval).
+      const _rewardFormula = String(freeSpinsRewardFormula || 'x <= 1 ? 0 : (x * (x + 1)) / 2');
+      const _evaluateRewardFormula = (formula, x) => {
+        let processedFormula = String(formula)
+          .replace(/\\bsin\\b/g, 'Math.sin')
+          .replace(/\\bcos\\b/g, 'Math.cos')
+          .replace(/\\btan\\b/g, 'Math.tan')
+          .replace(/\\blog2\\b/g, 'Math.log2')
+          .replace(/\\blog10\\b/g, 'Math.log10')
+          .replace(/\\blog\\b/g, 'Math.log')
+          .replace(/\\bexp\\b/g, 'Math.exp')
+          .replace(/\\bsqrt\\b/g, 'Math.sqrt')
+          .replace(/\\bcbrt\\b/g, 'Math.cbrt')
+          .replace(/\\bpow\\b/g, 'Math.pow')
+          .replace(/\\babs\\b/g, 'Math.abs')
+          .replace(/\\bfloor\\b/g, 'Math.floor')
+          .replace(/\\bceil\\b/g, 'Math.ceil')
+          .replace(/\\bround\\b/g, 'Math.round')
+          .replace(/\\bmin\\b/g, 'Math.min')
+          .replace(/\\bmax\\b/g, 'Math.max')
+          .replace(/\\bsign\\b/g, 'Math.sign')
+          .replace(/\\btrunc\\b/g, 'Math.trunc')
+          .replace(/\\bpi\\b/g, String(Math.PI))
+          .replace(/\\be\\b/g, String(Math.E))
+          .replace(/\\^/g, '**')
+          .replace(/\\bx\\b/g, '(' + x + ')');
+        const result = eval(processedFormula);
+        if (typeof result !== 'number' || isNaN(result) || !isFinite(result)) {
+          throw new Error('Free spins reward formula must evaluate to a finite number, got: ' + result);
+        }
+        return result;
+      };
+
       let won = 0;
-      if (freeSpinsSymbolCount >= 2) {
-        won = (freeSpinsSymbolCount * (freeSpinsSymbolCount + 1)) / 2;
+      const _rewardOverride = inputs['freeSpinsRewardCount' + freeSpinsSymbolCount];
+      const _rewardOverrideNum = Number(_rewardOverride);
+      if (_rewardOverride !== undefined && _rewardOverride !== null && _rewardOverride !== '' && Number.isFinite(_rewardOverrideNum)) {
+        won = _rewardOverrideNum;
+      } else {
+        won = _evaluateRewardFormula(_rewardFormula, freeSpinsSymbolCount);
       }
 
       const currentFreeSpinsWon = won;

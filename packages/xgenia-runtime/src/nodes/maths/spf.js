@@ -119,6 +119,8 @@ const SingleParameterFormulaNode = {
       try {
         if (this._internal.lastError) {
           console.error('Single Parameter Formula - Cannot calculate due to error:', this._internal.lastError);
+          // Still emit Done so the signal chain completes instead of deadlocking.
+          this.sendSignalOnOutput('Done');
           return;
         }
 

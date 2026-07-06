@@ -28,8 +28,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/addition.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/addition",
-      "lineCount": 128,
-      "byteSize": 3391,
+      "lineCount": 133,
+      "byteSize": 3686,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -116,8 +116,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/ceil.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/ceil",
-      "lineCount": 95,
-      "byteSize": 2340,
+      "lineCount": 98,
+      "byteSize": 2467,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -192,8 +192,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/equal.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/equal",
-      "lineCount": 139,
-      "byteSize": 3716,
+      "lineCount": 143,
+      "byteSize": 3968,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -236,8 +236,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/floor.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/floor",
-      "lineCount": 95,
-      "byteSize": 2350,
+      "lineCount": 98,
+      "byteSize": 2477,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -267,8 +267,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/hit-frequency-monitor.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/hit-frequency-monitor",
-      "lineCount": 108,
-      "byteSize": 2890,
+      "lineCount": 112,
+      "byteSize": 3142,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -390,8 +390,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/lessThan.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/less-than",
-      "lineCount": 138,
-      "byteSize": 3675,
+      "lineCount": 142,
+      "byteSize": 3927,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -434,8 +434,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/lessThanOrEqual.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/less-than-or-equal",
-      "lineCount": 138,
-      "byteSize": 3741,
+      "lineCount": 142,
+      "byteSize": 3993,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -478,8 +478,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/max.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/max",
-      "lineCount": 130,
-      "byteSize": 3505,
+      "lineCount": 133,
+      "byteSize": 3632,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -514,8 +514,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/maxArray.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/max",
-      "lineCount": 192,
-      "byteSize": 4997,
+      "lineCount": 194,
+      "byteSize": 5081,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -550,8 +550,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/mfag.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/mfag",
-      "lineCount": 243,
-      "byteSize": 7065,
+      "lineCount": 246,
+      "byteSize": 7238,
       "inputFormatHints": {
         "mathFormula": {
           "displayName": "Math Formula",
@@ -602,8 +602,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/min.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/min",
-      "lineCount": 130,
-      "byteSize": 3506,
+      "lineCount": 135,
+      "byteSize": 3801,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -638,8 +638,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/minArray.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/min",
-      "lineCount": 192,
-      "byteSize": 4978,
+      "lineCount": 194,
+      "byteSize": 5062,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -710,8 +710,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/multiplication.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/multiplication",
-      "lineCount": 147,
-      "byteSize": 3800,
+      "lineCount": 152,
+      "byteSize": 4095,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -786,8 +786,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/round.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/round",
-      "lineCount": 95,
-      "byteSize": 2355,
+      "lineCount": 100,
+      "byteSize": 2650,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -817,8 +817,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/rtp-monitor.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/rtp-monitor",
-      "lineCount": 122,
-      "byteSize": 3181,
+      "lineCount": 126,
+      "byteSize": 3433,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -892,8 +892,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/spf.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/spf",
-      "lineCount": 161,
-      "byteSize": 4692,
+      "lineCount": 163,
+      "byteSize": 4818,
       "inputFormatHints": {
         "mathFormula": {
           "displayName": "Math Formula",
@@ -929,8 +929,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/subtraction.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/subtraction",
-      "lineCount": 128,
-      "byteSize": 3428,
+      "lineCount": 133,
+      "byteSize": 3723,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -974,8 +974,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/sum.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/sum",
-      "lineCount": 199,
-      "byteSize": 5283,
+      "lineCount": 201,
+      "byteSize": 5367,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -1010,8 +1010,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/trng-array.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/trng-array",
-      "lineCount": 165,
-      "byteSize": 4890,
+      "lineCount": 167,
+      "byteSize": 4974,
       "inputFormatHints": {
         "size": {
           "displayName": "Size",
@@ -1041,8 +1041,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/trng.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/trng",
-      "lineCount": 125,
-      "byteSize": 3625,
+      "lineCount": 127,
+      "byteSize": 3709,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -1181,8 +1181,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/maths/volatility-monitor.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/volatility-monitor",
-      "lineCount": 233,
-      "byteSize": 6492,
+      "lineCount": 237,
+      "byteSize": 6744,
       "inputFormatHints": {
         "value": {
           "displayName": "Value",

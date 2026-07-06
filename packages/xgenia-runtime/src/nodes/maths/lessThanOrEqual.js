@@ -107,8 +107,11 @@ const LessThanOrEqualNode = {
   },
   methods: {
     calculate: function () {
+      // Every exit fires Done — a Do without a Done deadlocks any signal chain
+      // wired through this node (same class as the slot-maths reels-never-stop bug).
       try {
         if (this._internal.lastError) {
+          this.sendSignalOnOutput('Done');
           return;
         }
 
@@ -127,6 +130,7 @@ const LessThanOrEqualNode = {
       } catch (error) {
         this._internal.lastError = error.message;
         console.error('LessThanOrEqual Node - Calculate error:', error.message);
+        this.sendSignalOnOutput('Done');
       }
     }
   }

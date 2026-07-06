@@ -169,6 +169,7 @@ const MinNode = {
     calculate: function () {
       try {
         if (this._internal.lastError) {
+          this.sendSignalOnOutput('Done');
           return;
         }
 
@@ -181,6 +182,7 @@ const MinNode = {
         this._internal.result = 0;
         this.flagOutputDirty('result');
         console.error('Min Node - Calculate error:', error.message);
+        this.sendSignalOnOutput('Done');
       }
     }
   }
