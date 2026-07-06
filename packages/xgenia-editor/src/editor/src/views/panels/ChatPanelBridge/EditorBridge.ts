@@ -2147,7 +2147,12 @@ export class EditorBridge {
                         if (lastIdx >= 0) {
                             const trimmed = lines[lastIdx].trim();
                             const noAutoReturn = /^(return|if|for|while|try|class|function|switch|throw|const|let|var|async\s+function)\b/;
-                            if (!noAutoReturn.test(trimmed) && !trimmed.endsWith('{')) {
+                            // (trace 1783290828056) A closing-only line like `})();` or `})()` is the
+                            // TAIL of a multi-line expression — prepending return produces `return })();`,
+                            // a SyntaxError that kills the whole eval. Leave such code untouched
+                            // (callers that need the value must return it explicitly).
+                            const closingOnly = /^[)\]}\s;]*$/.test(trimmed);
+                            if (!noAutoReturn.test(trimmed) && !trimmed.endsWith('{') && !closingOnly) {
                                 const indent = lines[lastIdx].match(/^(\s*)/)?.[1] || '';
                                 lines[lastIdx] = `${indent}return ${trimmed}`;
                             }
