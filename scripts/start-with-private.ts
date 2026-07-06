@@ -9,6 +9,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn, execSync, ChildProcess } from 'child_process';
+import { getPidsOnPort, killPid } from './utils/ports';
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const PRIVATE_DIR = path.join(ROOT_DIR, 'private');
@@ -22,18 +23,10 @@ const backgroundProcesses: ChildProcess[] = [];
  * Kill process on a specific port
  */
 function killPort(port: number) {
-    try {
-        const result = execSync(`lsof -ti tcp:${port}`);
-        if (result.length > 0) {
-            const pids = result.toString().trim().split('\n');
-            logWarning(`Port ${port} is in use. Killing processes: ${pids.join(', ')}...`);
-            for (const pid of pids) {
-                try { execSync(`kill -9 ${pid}`); } catch { }
-            }
-        }
-    } catch (err) {
-        // Port is free or lsof failed
-    }
+    const pids = getPidsOnPort(port);
+    if (pids.length === 0) return;
+    logWarning(`Port ${port} is in use. Killing processes: ${pids.join(', ')}...`);
+    pids.forEach(killPid);
 }
 
 /**
@@ -46,8 +39,14 @@ function cleanup() {
     for (const proc of backgroundProcesses) {
         if (proc.pid) {
             try {
-                // Kill the entire process group
-                process.kill(-proc.pid, 'SIGTERM');
+                if (process.platform === 'win32') {
+                    // Negative-PID group kill is unsupported on Windows;
+                    // taskkill /T takes down the shell > npm > node tree.
+                    killPid(proc.pid);
+                } else {
+                    // Kill the entire process group
+                    process.kill(-proc.pid, 'SIGTERM');
+                }
             } catch (e) {
                 // Process might already be dead
             }
