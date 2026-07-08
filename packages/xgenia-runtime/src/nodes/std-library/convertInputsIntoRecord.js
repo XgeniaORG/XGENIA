@@ -110,23 +110,26 @@ const ConvertInputsIntoRecordNode = {
     },
 
     buildRecord: function () {
-      const internal = this._internal;
-      const numInputs = internal.numInputs || 0;
-      const record = {};
+      try {
+        const internal = this._internal;
+        const numInputs = internal.numInputs || 0;
+        const record = {};
 
-      for (let i = 0; i < numInputs; i++) {
-        const value = internal.inputValues['input' + i];
+        for (let i = 0; i < numInputs; i++) {
+          const value = internal.inputValues['input' + i];
 
-        // Skip ports that were never connected/set. null, false, 0 and '' are
-        // all valid values and are kept.
-        if (value === undefined) continue;
+          // Skip ports that were never connected/set. null, false, 0 and '' are
+          // all valid values and are kept.
+          if (value === undefined) continue;
 
-        record[this.keyForIndex(i)] = value;
+          record[this.keyForIndex(i)] = value;
+        }
+
+        internal.record = record;
+        this.flagOutputDirty('data');
+      } finally {
+        this.sendSignalOnOutput('Done');
       }
-
-      internal.record = record;
-      this.flagOutputDirty('data');
-      this.sendSignalOnOutput('Done');
     }
   }
 };

@@ -68,38 +68,9 @@ function registerNodes(xgeniaRuntime) {
     require('./src/nodes/std-library/variables/string'),
     require('./src/nodes/std-library/variables/boolean'),
 
-    // Math nodes
-    require('./src/nodes/maths/random-uuid-generator'),
-    require('./src/nodes/maths/server-seed-generator'),
-    require('./src/nodes/maths/calculate-roll'),
-    require('./src/nodes/maths/verify-commitment'),
-    require('./src/nodes/maths/verify-fairness'),
-    require('./src/nodes/maths/validate-outcome'),
-    require('./src/nodes/maths/trng'),
-    require('./src/nodes/maths/trng-array'),
-    require('./src/nodes/maths/isaac-rng'),
-    require('./src/nodes/maths/isaac-rng-array'),
-    require('./src/nodes/maths/mfag'),
-    require('./src/nodes/maths/spf'),
-    require('./src/nodes/maths/addition'),
-    require('./src/nodes/maths/subtraction'),
-    require('./src/nodes/maths/multiplication'),
-    require('./src/nodes/maths/division'),
-    require('./src/nodes/maths/modulo'),
-    require('./src/nodes/maths/min'),
-    require('./src/nodes/maths/max'),
-    require('./src/nodes/maths/minArray'),
-    require('./src/nodes/maths/maxArray'),
-    require('./src/nodes/maths/sum'),
-    require('./src/nodes/maths/round'),
-    require('./src/nodes/maths/floor'),
-    require('./src/nodes/maths/ceil'),
-    require('./src/nodes/maths/lessThanOrEqual'),
-    require('./src/nodes/maths/lessThan'),
-    require('./src/nodes/maths/equal'),
-    require('./src/nodes/maths/rtp-monitor'),
-    require('./src/nodes/maths/hit-frequency-monitor'),
-    require('./src/nodes/maths/volatility-monitor'),
+    // Math nodes moved to private module (@xgenia/pro-nodes/maths)
+    // - editor/viewer/deploy register them via the external module loader
+    // - the cloud runtime registers them directly (see xgenia-viewer-cloud)
 
     // Utils
     require('./src/nodes/std-library/condition'),
