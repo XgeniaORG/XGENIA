@@ -2152,7 +2152,20 @@ export class EditorBridge {
                             // a SyntaxError that kills the whole eval. Leave such code untouched
                             // (callers that need the value must return it explicitly).
                             const closingOnly = /^[)\]}\s;]*$/.test(trimmed);
-                            if (!noAutoReturn.test(trimmed) && !trimmed.endsWith('{') && !closingOnly) {
+                            // (trace 1783519124189 / 1783535424256) The auto-return is
+                            // LINE-based, so when the last statement is a MULTI-LINE
+                            // expression — `return JSON.stringify({\n  a: 1,\n  b: 2\n});`
+                            // — the last non-closing line is a PROPERTY still inside the
+                            // open `({`, and prepending `return` ("return b: 2") corrupts
+                            // the object literal (SyntaxError: Unexpected identifier). Only
+                            // auto-return when the last line is a COMPLETE top-level
+                            // statement: nothing before it may have an unclosed ( [ {.
+                            // Naive bracket count (can miscount inside strings/comments) but
+                            // FAILS SAFE — a false "continuation" just skips the convenience
+                            // return; it never corrupts valid code.
+                            const before = lines.slice(0, lastIdx).join('\n');
+                            const openDepth = (before.match(/[([{]/g) || []).length - (before.match(/[)\]}]/g) || []).length;
+                            if (openDepth <= 0 && !noAutoReturn.test(trimmed) && !trimmed.endsWith('{') && !closingOnly) {
                                 const indent = lines[lastIdx].match(/^(\s*)/)?.[1] || '';
                                 lines[lastIdx] = `${indent}return ${trimmed}`;
                             }
