@@ -36,6 +36,11 @@ const DesignToolImportServer = require('./src/design-tool-import-server');
 const jsonstorage = require('../shared/utils/jsonstorage');
 const StorageApi = require('./src/StorageApi');
 const { getOAuthServer } = require('./src/oauth-callback-server');
+const CrashTelemetry = require('./src/crash-telemetry');
+
+// (debug-export 1783408275898) Local-only minidump collection + crash-log.jsonl.
+// Must start before any window is created so Crashpad covers all renderers.
+CrashTelemetry.start();
 
 const { handleProjectMerge } = require('./src/merge-driver');
 
@@ -874,19 +879,31 @@ function launchApp() {
       });
 
       win.webContents.on('render-process-gone', (event, details) => {
-        if (details.reason === 'crashed') {
-          console.log('Editor window process crashed');
-          closeViewer();
+        // (debug-export 1783408275898) Persist reason/exitCode BEFORE any
+        // recovery. The 2026-07-07 crash left zero forensics: details was
+        // discarded, console.log is no-op'd in main, and no minidumps
+        // existed — the post-restart debug export had no crash evidence.
+        CrashTelemetry.record('editor-window', details);
 
-          dialog.showMessageBoxSync({
-            message: 'Oh No! XGENIA has crashed :( Click OK to restart',
-            type: 'error'
-          });
-
-          win.close();
-          win = null;
-          reopenWindow = true;
+        // Recover from EVERY unexpected renderer death, not just the literal
+        // 'crashed' — the old check left the user staring at a dead window
+        // with no dialog and no restart on 'oom', 'abnormal-exit',
+        // 'launch-failed' and 'integrity-failure'.
+        if (!CrashTelemetry.isFatal(details.reason)) {
+          return;
         }
+
+        closeViewer();
+
+        dialog.showMessageBoxSync({
+          message: 'Oh No! XGENIA has crashed :( Click OK to restart',
+          detail: `Renderer process gone (reason: ${details.reason}, exit code: ${details.exitCode}). A record was appended to ${CrashTelemetry.CRASH_LOG_FILENAME} in the app data folder.`,
+          type: 'error'
+        });
+
+        win.close();
+        win = null;
+        reopenWindow = true;
       });
 
       process.env.xgeniaURI && win.webContents.send('open-xgenia-uri', process.env.xgeniaURI);
