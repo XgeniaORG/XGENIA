@@ -185,12 +185,13 @@ const ExtractValuesNode = {
         this._internal.result = extractValues(this._internal.inputArray, this._internal.keyPath);
 
         this.flagOutputDirty('result');
-        this.sendSignalOnOutput('Done');
       } catch (error) {
         this._internal.lastError = error.message;
         this._internal.result = [];
         this.flagOutputDirty('result');
         console.error('Extract Values Node - Calculate error:', error.message);
+      } finally {
+        this.sendSignalOnOutput('Done');
       }
     }
   }

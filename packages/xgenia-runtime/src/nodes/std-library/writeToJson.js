@@ -224,7 +224,6 @@ const WriteToJsonNode = {
         this.flagOutputDirty('debugInfo');
 
         console.log('[WriteToJson] Sending Done signal...');
-        this.sendSignalOnOutput('Done');
         console.log('[WriteToJson] Done signal sent successfully!');
 
         this._internal.debugInfo += ' - Done signal sent!';
@@ -241,6 +240,8 @@ const WriteToJsonNode = {
         this.flagOutputDirty('debugInfo');
 
         console.log('[WriteToJson] Error handled, not sending Done signal');
+      } finally {
+        this.sendSignalOnOutput('Done');
       }
     }
   }

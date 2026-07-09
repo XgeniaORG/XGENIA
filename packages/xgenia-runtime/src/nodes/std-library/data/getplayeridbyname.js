@@ -142,11 +142,12 @@ const GetPlayerIdByNameNode = {
 
         this.flagOutputDirty('playerId');
         this.flagOutputDirty('isExistBefore');
-        this.sendSignalOnOutput('Done');
       } catch (error) {
         this._internal.lastError = error.message;
         this._internal.inspectData = { error: error.message };
         console.error('Get Player ID by Player Name error:', error);
+      } finally {
+        this.sendSignalOnOutput('Done');
       }
     }
   }

@@ -156,8 +156,11 @@ const ConvertRecordIntoOutputsNode = {
     },
 
     emitOutputs: function () {
-      this.syncOutputs();
-      this.sendSignalOnOutput('Done');
+      try {
+        this.syncOutputs();
+      } finally {
+        this.sendSignalOnOutput('Done');
+      }
     }
   }
 };
