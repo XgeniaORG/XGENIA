@@ -107,6 +107,8 @@ export class RgsExtraNodeConverter {
     ['ListGameSessions', { kind: 'stub', outputs: [{ name: 'sessions', type: 'array' }, { name: 'isEmpty', type: 'boolean' }] }],
     ['LoadGameSession', { kind: 'stub', outputs: [{ name: 'sessionData', type: '*' }, { name: 'isSuccessful', type: 'boolean' }] }],
     ['SaveGameSession', { kind: 'stub', outputs: [{ name: 'isSuccessful', type: 'boolean' }] }],
+    ['DepositBalance', { kind: 'stub', outputs: [{ name: 'isSuccessful', type: 'boolean' }] }],
+    ['WithdrawBalance', { kind: 'stub', outputs: [{ name: 'isSuccessful', type: 'boolean' }] }],
   ]);
 
   public isExtraNode(typename: string): boolean {

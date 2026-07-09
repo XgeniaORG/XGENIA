@@ -59,6 +59,8 @@ function registerNodes(xgeniaRuntime) {
     require('./src/nodes/std-library/data/listgamesessions'),
     require('./src/nodes/std-library/data/savegamesession'),
     require('./src/nodes/std-library/data/loadgamesession'),
+    require('./src/nodes/std-library/data/depositbalance'),
+    require('./src/nodes/std-library/data/withdrawbalance'),
     require('./src/nodes/std-library/convertInputsIntoRecord'),
     require('./src/nodes/std-library/convertRecordIntoOutputs'),
     require('./src/nodes/std-library/convertToString'),
