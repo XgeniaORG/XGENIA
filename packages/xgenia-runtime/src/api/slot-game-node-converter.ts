@@ -1479,38 +1479,14 @@ export class SlotGameCalculationGenerator {
       }
 
       // Free spins reward: per-count override wins, else evaluate the configurable
-      // freeSpinsRewardFormula (mirrors editor mathjs; ternary works natively in JS eval).
+      // freeSpinsRewardFormula via the ONE shared no-eval evaluator (formula-eval-emit).
+      // 2026-07-10 (trace 1783634013326): this was the FOURTH drifting copy, and it used
+      // eval() — which sanitizeForSandbox replaced with 0 in the uploaded bundle, so free
+      // spins rewards were silently zeroed in the certified RGS. The shared evaluator
+      // supports the ternary/comparisons this formula needs and emits no eval.
       const _rewardFormula = String(freeSpinsRewardFormula || 'x <= 1 ? 0 : (x * (x + 1)) / 2');
-      const _evaluateRewardFormula = (formula, x) => {
-        let processedFormula = String(formula)
-          .replace(/\\bsin\\b/g, 'Math.sin')
-          .replace(/\\bcos\\b/g, 'Math.cos')
-          .replace(/\\btan\\b/g, 'Math.tan')
-          .replace(/\\blog2\\b/g, 'Math.log2')
-          .replace(/\\blog10\\b/g, 'Math.log10')
-          .replace(/\\blog\\b/g, 'Math.log')
-          .replace(/\\bexp\\b/g, 'Math.exp')
-          .replace(/\\bsqrt\\b/g, 'Math.sqrt')
-          .replace(/\\bcbrt\\b/g, 'Math.cbrt')
-          .replace(/\\bpow\\b/g, 'Math.pow')
-          .replace(/\\babs\\b/g, 'Math.abs')
-          .replace(/\\bfloor\\b/g, 'Math.floor')
-          .replace(/\\bceil\\b/g, 'Math.ceil')
-          .replace(/\\bround\\b/g, 'Math.round')
-          .replace(/\\bmin\\b/g, 'Math.min')
-          .replace(/\\bmax\\b/g, 'Math.max')
-          .replace(/\\bsign\\b/g, 'Math.sign')
-          .replace(/\\btrunc\\b/g, 'Math.trunc')
-          .replace(/\\bpi\\b/g, String(Math.PI))
-          .replace(/\\be\\b/g, String(Math.E))
-          .replace(/\\^/g, '**')
-          .replace(/\\bx\\b/g, '(' + x + ')');
-        const result = eval(processedFormula);
-        if (typeof result !== 'number' || isNaN(result) || !isFinite(result)) {
-          throw new Error('Free spins reward formula must evaluate to a finite number, got: ' + result);
-        }
-        return result;
-      };
+      ${EVALUATE_FORMULA_JS}
+      const _evaluateRewardFormula = (formula, x) => evaluateFormula(formula, x);
 
       let won = 0;
       const _rewardOverride = inputs['freeSpinsRewardCount' + freeSpinsSymbolCount];

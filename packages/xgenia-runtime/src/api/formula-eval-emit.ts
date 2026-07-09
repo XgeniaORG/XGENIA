@@ -13,78 +13,197 @@
  * and formula-eval-parity.test.ts evals THIS string and asserts it matches real mathjs
  * across a battery of formulas. So editor↔RGS maths parity is locked in CI.
  *
+ * 2026-07-10 (trace 1783634013326) — NO MORE eval(). The previous version of this
+ * evaluator did `eval(processedFormula)` after regex-rewriting mathjs names to Math.*.
+ * But the RGS sandbox forbids eval, and sanitizeForSandbox (supabase-converter.ts)
+ * replaced `eval(processedFormula)` with `0` in the uploaded bundle — so EVERY weight
+ * and paytable formula evaluated to 0 in the certified RGS ("total weight is zero"
+ * crashes, 0% RTP) while the parity test kept passing against the pre-sanitize string.
+ * This version is a self-contained recursive-descent parser/evaluator: no eval, no
+ * new Function, nothing for the sanitizer to strip. sanitize-parity is locked in
+ * formula-eval-parity.test.ts (the emitted code must survive sanitizeForSandbox
+ * UNCHANGED in behavior).
+ *
+ * Grammar (a mathjs-compatible subset, superset of the old shim):
+ *   ternary:      cond ? a : b            (right-assoc; both branches evaluated eagerly —
+ *                                          formulas here are tiny + side-effect-free)
+ *   comparison:   < <= > >= == !=         (single, non-chained, like the formulas use)
+ *   add/sub:      + -
+ *   mul/div/mod:  * / %                   (% is JS remainder — same as the old eval)
+ *   power:        ^ and ** (right-assoc; binds tighter than unary minus, so -2^2 = -4
+ *                                          matching mathjs, where the old shim CRASHED)
+ *   unary:        - +
+ *   atoms:        numbers (incl. 2e3), parens, x, pi, e, fn(args)
+ *   functions:    the same set the old shim mapped (sin..log1p, square, cube, nthRoot,
+ *                 mod, fix→trunc) plus variadic min/max/hypot.
+ *
  * IMPORTANT: this is EMITTED code (a string baked into the generated bundle). Keep it
  * plain JS (no TS annotations) so it is valid in BOTH the Deno RGS runtime AND the Node
- * parity test that evals it. It may use only globals guaranteed everywhere: Math, eval,
- * String, Object, Error, RegExp, isNaN.
+ * parity test that evals it. It may use only globals guaranteed everywhere: Math,
+ * String, Object, Error, Number, parseFloat, isNaN. It must NOT contain the substrings
+ * the RGS sandbox blocklist rejects (eval with an open-paren, new Function, crypto,
+ * Deno, import, require) — sanitizeForSandbox would mutilate them.
  */
 export const EVALUATE_FORMULA_JS = `
       function evaluateFormula(formula, x) {
         try {
-          const scope = { x: x, pi: Math.PI, e: Math.E };
+          var src = String(formula);
+          var len = src.length;
+          var pos = 0;
+          var UNARY_FUNCS = {
+            sin: Math.sin, cos: Math.cos, tan: Math.tan, log: Math.log, exp: Math.exp,
+            sqrt: Math.sqrt, abs: Math.abs, floor: Math.floor, ceil: Math.ceil, round: Math.round,
+            cbrt: Math.cbrt, sign: Math.sign, fix: Math.trunc, trunc: Math.trunc,
+            log2: Math.log2, log10: Math.log10,
+            acosh: Math.acosh, asinh: Math.asinh, atanh: Math.atanh,
+            asin: Math.asin, acos: Math.acos, atan: Math.atan,
+            sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh,
+            expm1: Math.expm1, log1p: Math.log1p,
+            square: function (a) { return a * a; },
+            cube: function (a) { return a * a * a; }
+          };
+          var MULTI_FUNCS = {
+            pow: Math.pow, atan2: Math.atan2, min: Math.min, max: Math.max, hypot: Math.hypot,
+            nthRoot: function (a, b) { return Math.pow(a, 1 / b); },
+            mod: function (a, b) { return a % b; }
+          };
+          var CONSTS = { x: x, pi: Math.PI, e: Math.E };
+          var has = function (obj, key) { return Object.prototype.hasOwnProperty.call(obj, key); };
 
-          let processedFormula = String(formula)
-            .replace(/\\bsin\\b/g, 'Math.sin')
-            .replace(/\\bcos\\b/g, 'Math.cos')
-            .replace(/\\btan\\b/g, 'Math.tan')
-            .replace(/\\blog\\b/g, 'Math.log')
-            .replace(/\\bexp\\b/g, 'Math.exp')
-            .replace(/\\bsqrt\\b/g, 'Math.sqrt')
-            .replace(/\\bpow\\b/g, 'Math.pow')
-            .replace(/\\babs\\b/g, 'Math.abs')
-            .replace(/\\bfloor\\b/g, 'Math.floor')
-            .replace(/\\bceil\\b/g, 'Math.ceil')
-            .replace(/\\bround\\b/g, 'Math.round')
-            // Common mathjs functions that exist on JS Math with identical semantics —
-            // anything the editor's mathjs accepts but this misses would CRASH in the RGS.
-            .replace(/\\bmin\\b/g, 'Math.min')
-            .replace(/\\bmax\\b/g, 'Math.max')
-            .replace(/\\bcbrt\\b/g, 'Math.cbrt')
-            .replace(/\\bsign\\b/g, 'Math.sign')
-            // mathjs's truncation fn is 'fix' (NOT 'trunc' — mathjs has no trunc, so the
-            // old trunc→Math.trunc rule was dead AND, once fix→Math.trunc was added, the
-            // trunc rule re-matched the inserted "trunc" → "Math.Math.trunc" → crash. One
-            // fix rule, no trunc rule. fix = truncate toward zero = Math.trunc.
-            .replace(/\\bfix\\b/g, 'Math.trunc')
-            .replace(/\\blog2\\b/g, 'Math.log2')
-            .replace(/\\blog10\\b/g, 'Math.log10')
-            // Word-boundary \\b keeps asin/atan2/sinh/log1p from being clobbered by the
-            // shorter sin/atan/tan/log rules above, and longer variants (acosh vs acos vs
-            // cos) intact — order-independent.
-            .replace(/\\bacosh\\b/g, 'Math.acosh')
-            .replace(/\\basinh\\b/g, 'Math.asinh')
-            .replace(/\\batanh\\b/g, 'Math.atanh')
-            .replace(/\\batan2\\b/g, 'Math.atan2')
-            .replace(/\\basin\\b/g, 'Math.asin')
-            .replace(/\\bacos\\b/g, 'Math.acos')
-            .replace(/\\batan\\b/g, 'Math.atan')
-            .replace(/\\bsinh\\b/g, 'Math.sinh')
-            .replace(/\\bcosh\\b/g, 'Math.cosh')
-            .replace(/\\btanh\\b/g, 'Math.tanh')
-            .replace(/\\bhypot\\b/g, 'Math.hypot')
-            .replace(/\\bexpm1\\b/g, 'Math.expm1')
-            .replace(/\\blog1p\\b/g, 'Math.log1p')
-            // mathjs-only fns with no JS Math equivalent — shim to identical math.
-            // Arg-capturing ([^()]* = no nested parens, fine for the simple x-formulas
-            // these ports accept). Run before the ^->** rule below.
-            .replace(/\\bsquare\\s*\\(([^()]*)\\)/g, '(($1)**2)')
-            .replace(/\\bcube\\s*\\(([^()]*)\\)/g, '(($1)**3)')
-            .replace(/\\bnthRoot\\s*\\(([^(),]*),([^()]*)\\)/g, 'Math.pow($1, 1/($2))')
-            .replace(/\\bmod\\s*\\(([^(),]*),([^()]*)\\)/g, '(($1) % ($2))')
-            // mathjs (the editor) treats ^ as exponentiation, but raw JS eval treats ^ as
-            // bitwise XOR — so "2^x" silently gave the wrong number server-side. Convert
-            // ^ to ** (JS power) to match the editor.
-            .replace(/\\^/g, '**');
+          function isDigit(c) { return c >= '0' && c <= '9'; }
+          function isAlpha(c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c === '_'; }
+          function skipWs() {
+            while (pos < len) {
+              var cc = src.charCodeAt(pos);
+              if (cc === 32 || cc === 9 || cc === 10 || cc === 13) { pos++; } else { break; }
+            }
+          }
+          function parseNumber() {
+            var start = pos;
+            while (pos < len && isDigit(src[pos])) pos++;
+            if (src[pos] === '.') { pos++; while (pos < len && isDigit(src[pos])) pos++; }
+            if (src[pos] === 'e' || src[pos] === 'E') {
+              var save = pos;
+              pos++;
+              if (src[pos] === '+' || src[pos] === '-') pos++;
+              if (pos < len && isDigit(src[pos])) { while (pos < len && isDigit(src[pos])) pos++; }
+              else { pos = save; }
+            }
+            return parseFloat(src.slice(start, pos));
+          }
+          function parseIdent() {
+            var start = pos;
+            while (pos < len && (isAlpha(src[pos]) || isDigit(src[pos]))) pos++;
+            return src.slice(start, pos);
+          }
+          function parseExpressionLvl() { return parseTernary(); }
+          function parseTernary() {
+            var cond = parseComparison();
+            skipWs();
+            if (src[pos] === '?') {
+              pos++;
+              var thenVal = parseTernary();
+              skipWs();
+              if (src[pos] !== ':') throw new Error('Expected : in ternary at position ' + pos);
+              pos++;
+              var elseVal = parseTernary();
+              return cond ? thenVal : elseVal;
+            }
+            return cond;
+          }
+          function parseComparison() {
+            var left = parseAddSub();
+            skipWs();
+            var c = src[pos];
+            var c2 = src[pos + 1];
+            if (c === '<' && c2 === '=') { pos += 2; return left <= parseAddSub(); }
+            if (c === '>' && c2 === '=') { pos += 2; return left >= parseAddSub(); }
+            if (c === '=' && c2 === '=') { pos += 2; return left === parseAddSub(); }
+            if (c === '!' && c2 === '=') { pos += 2; return left !== parseAddSub(); }
+            if (c === '<') { pos += 1; return left < parseAddSub(); }
+            if (c === '>') { pos += 1; return left > parseAddSub(); }
+            return left;
+          }
+          function parseAddSub() {
+            var v = parseMulDiv();
+            for (;;) {
+              skipWs();
+              var c = src[pos];
+              if (c === '+') { pos++; v = v + parseMulDiv(); }
+              else if (c === '-') { pos++; v = v - parseMulDiv(); }
+              else return v;
+            }
+          }
+          function parseMulDiv() {
+            var v = parseUnary();
+            for (;;) {
+              skipWs();
+              var c = src[pos];
+              if (c === '*' && src[pos + 1] !== '*') { pos++; v = v * parseUnary(); }
+              else if (c === '/') { pos++; v = v / parseUnary(); }
+              else if (c === '%') { pos++; v = v % parseUnary(); }
+              else return v;
+            }
+          }
+          function parseUnary() {
+            skipWs();
+            var c = src[pos];
+            if (c === '-') { pos++; return -parseUnary(); }
+            if (c === '+') { pos++; return parseUnary(); }
+            return parsePower();
+          }
+          function parsePower() {
+            var base = parseAtom();
+            skipWs();
+            if (src[pos] === '^') { pos++; return Math.pow(base, parseUnary()); }
+            if (src[pos] === '*' && src[pos + 1] === '*') { pos += 2; return Math.pow(base, parseUnary()); }
+            return base;
+          }
+          function parseAtom() {
+            skipWs();
+            var c = src[pos];
+            if (c === '(') {
+              pos++;
+              var v = parseExpressionLvl();
+              skipWs();
+              if (src[pos] !== ')') throw new Error('Expected ) at position ' + pos);
+              pos++;
+              return v;
+            }
+            if (isDigit(c) || (c === '.' && isDigit(src[pos + 1]))) return parseNumber();
+            if (isAlpha(c)) {
+              var name = parseIdent();
+              skipWs();
+              if (src[pos] === '(') {
+                pos++;
+                var args = [];
+                skipWs();
+                if (src[pos] !== ')') {
+                  args.push(parseExpressionLvl());
+                  skipWs();
+                  while (src[pos] === ',') { pos++; args.push(parseExpressionLvl()); skipWs(); }
+                }
+                if (src[pos] !== ')') throw new Error('Expected ) after arguments to ' + name);
+                pos++;
+                if (has(UNARY_FUNCS, name)) {
+                  if (args.length !== 1) throw new Error(name + ' expects 1 argument, got ' + args.length);
+                  return UNARY_FUNCS[name](args[0]);
+                }
+                if (has(MULTI_FUNCS, name)) {
+                  if (args.length === 0) throw new Error(name + ' expects at least 1 argument');
+                  return MULTI_FUNCS[name].apply(null, args);
+                }
+                throw new Error('Unknown function: ' + name);
+              }
+              if (has(CONSTS, name)) return CONSTS[name];
+              throw new Error('Undefined symbol ' + name);
+            }
+            throw new Error('Unexpected character ' + (c === undefined ? '<end>' : c) + ' at position ' + pos);
+          }
 
-          Object.keys(scope).forEach((key) => {
-            const regex = new RegExp('\\\\b' + key + '\\\\b', 'g');
-            processedFormula = processedFormula.replace(regex, String(scope[key]));
-          });
-
-          const result = eval(processedFormula);
-          // Reject NaN AND Infinity (the strictest of the three former copies) — a
-          // non-finite weight/paytable entry is always a broken formula, and it must
-          // fail loudly in the certified RGS rather than poison the maths.
+          var result = parseExpressionLvl();
+          skipWs();
+          if (pos < len) throw new Error('Unexpected trailing input at position ' + pos);
           if (typeof result !== 'number' || !Number.isFinite(result)) {
             throw new Error('Formula must evaluate to a finite number, got ' + typeof result + ': ' + result);
           }

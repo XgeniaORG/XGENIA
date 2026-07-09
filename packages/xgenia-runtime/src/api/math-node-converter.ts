@@ -6,6 +6,7 @@
  */
 
 import { Node } from './types';
+import { EVALUATE_FORMULA_JS } from './formula-eval-emit';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -670,45 +671,25 @@ export class MathCalculationGenerator {
   // FORMULA OPERATIONS
   // ============================================================================
 
+  // 2026-07-10 (trace 1783634013326): these two used to emit eval(mathFormula.replace(/x/g, v))
+  // — DOUBLY broken in the RGS: (1) sanitizeForSandbox replaced the eval with 0, so every
+  // formula evaluated to 0 in the uploaded bundle; (2) `const result` was declared INSIDE the
+  // try{} while the wrapper's `return { result }` reads it OUTSIDE → ReferenceError. (The
+  // textual x-substitution also corrupted formulas containing 'x' in names, e.g. exp → e0p.)
+  // Both now delegate to the ONE shared no-eval evaluator (formula-eval-emit, parity-locked).
   private static generateSPFLogic(): string {
     return `
-      try {
-        // Simple formula evaluation (for Edge Functions)
-        const result = eval(mathFormula.replace(/x/g, parameterValue));
-        
-        if (typeof result !== 'number') {
-          throw new Error('Formula must evaluate to a number');
-        }
-        
-        if (!isFinite(result)) {
-          throw new Error('Formula produced non-finite value');
-        }
-      } catch (error: any) {
-        throw new Error('Formula evaluation error: ' + error.message);
-      }`;
+      ${EVALUATE_FORMULA_JS}
+      const result = evaluateFormula(mathFormula, Number(parameterValue));`;
   }
 
   private static generateMFAGLogic(): string {
     return `
-      try {
-        const length = Math.max(1, Math.min(arrayLength, 1000)); // Limit to 1000 items
-        const items = [];
-        
-        for (let i = 0; i < length; i++) {
-          const result = eval(mathFormula.replace(/x/g, i));
-          
-          if (typeof result !== 'number') {
-            throw new Error('Formula must evaluate to a number');
-          }
-          
-          if (!isFinite(result)) {
-            throw new Error('Formula produced non-finite value');
-          }
-          
-          items.push(result);
-        }
-      } catch (error: any) {
-        throw new Error('Formula evaluation error: ' + error.message);
+      ${EVALUATE_FORMULA_JS}
+      const length = Math.max(1, Math.min(Number(arrayLength) || 0, 1000)); // Limit to 1000 items
+      const items = [];
+      for (let i = 0; i < length; i++) {
+        items.push(evaluateFormula(mathFormula, i));
       }`;
   }
 }
