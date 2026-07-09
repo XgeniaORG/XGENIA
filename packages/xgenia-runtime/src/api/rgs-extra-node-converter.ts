@@ -109,6 +109,7 @@ export class RgsExtraNodeConverter {
     ['SaveGameSession', { kind: 'stub', outputs: [{ name: 'isSuccessful', type: 'boolean' }] }],
     ['DepositBalance', { kind: 'stub', outputs: [{ name: 'isSuccessful', type: 'boolean' }] }],
     ['WithdrawBalance', { kind: 'stub', outputs: [{ name: 'isSuccessful', type: 'boolean' }] }],
+    ['GetBalanceByPlayerId', { kind: 'stub', outputs: [{ name: 'balance', type: 'number' }, { name: 'isSuccessful', type: 'boolean' }] }],
   ]);
 
   public isExtraNode(typename: string): boolean {

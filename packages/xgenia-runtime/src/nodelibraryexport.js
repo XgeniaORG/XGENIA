@@ -801,7 +801,8 @@ function generateNodeLibrary(nodeRegister) {
             'SaveGameSession',
             'LoadGameSession',
             'DepositBalance',
-            'WithdrawBalance'
+            'WithdrawBalance',
+            'GetBalanceByPlayerId'
           ]
         },
         {
