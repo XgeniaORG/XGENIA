@@ -1349,6 +1349,71 @@ ${originalComponentStructure}
     const outputVariableMap = new Map<string, string>();
     let lastResultVar = '';
 
+    // --- Do-signal trigger reachability (shared by invocation + response gating) ---
+    // In the editor graph a node computes ONLY when its `Do` signal fires. The
+    // deployed script would otherwise run every node function unconditionally,
+    // so a node whose operation was never triggered still executes — e.g. the
+    // Division node runs on a "Generate Game ID" request and throws
+    // "[Division] Division by zero". We mirror the editor by gating each node's
+    // invocation on the set of request trigger flags (`is<Operation>`) that
+    // reach its `Do` via request `pm-is*` edges and internal `Do`/`Done` chains.
+    // A node with no signal input at all stays unconditional (e.g. a constant
+    // feeding the response directly). Components without an `xgenia.cloud.request`
+    // node (slot/maths graphs driven by `Component Inputs`) resolve to
+    // unconditional for every node, so this gating is a no-op for them.
+    const requestNode = this.component.graph.roots.find((n) => n.typename === 'xgenia.cloud.request');
+    const isSignalEdge = (c: any): boolean =>
+      (!!requestNode &&
+        c.fromId === requestNode.id &&
+        typeof c.fromProperty === 'string' &&
+        c.fromProperty.startsWith('pm-is')) ||
+      c.toProperty === 'Do' ||
+      c.fromProperty === 'Done';
+
+    const sigMemo = new Map<string, Set<string> | null>();
+    // null  -> unconditional (no signal inputs); Set -> the trigger flags that
+    // reach this node (empty -> reachable from no trigger, i.e. never fires).
+    const triggersForNode = (nodeId: string, stack: Set<string>): Set<string> | null => {
+      if (sigMemo.has(nodeId)) return sigMemo.get(nodeId)!;
+      if (stack.has(nodeId)) return new Set<string>(); // cycle guard
+      stack.add(nodeId);
+      const sigConns = this.connections.filter((c) => c.toId === nodeId && isSignalEdge(c));
+      let res: Set<string> | null;
+      if (sigConns.length === 0) {
+        res = null;
+      } else {
+        res = new Set<string>();
+        for (const c of sigConns) {
+          if (requestNode && c.fromId === requestNode.id) {
+            res.add(String(c.fromProperty).replace(/^pm-/, ''));
+          } else {
+            const up = triggersForNode(c.fromId, stack);
+            if (up === null) {
+              res = null;
+              break;
+            } // upstream always fires -> so does this
+            up.forEach((t) => (res as Set<string>).add(t));
+          }
+        }
+      }
+      stack.delete(nodeId);
+      sigMemo.set(nodeId, res);
+      return res;
+    };
+
+    // Gate expression for a node's invocation:
+    //   null   -> unconditional, always invoke
+    //   'false'-> signal-wired but no request trigger reaches it, never invoke
+    //   string -> a `config.isX || config.isY` guard; invoke only when it holds
+    const invocationGateFor = (nodeId: string): string | null => {
+      const trigs = triggersForNode(nodeId, new Set<string>());
+      if (trigs === null) return null;
+      if (trigs.size === 0) return 'false';
+      return Array.from(trigs)
+        .map((t) => this.safePropertyAccess('config', t))
+        .join(' || ');
+    };
+
     nodes.forEach((node) => {
       const functionName = this.getFunctionName(node);
       const inputConnections = this.connections.filter((c) => c.toId === node.id);
@@ -1479,10 +1544,22 @@ ${originalComponentStructure}
         .join(', ');
 
       const outputVar = `${functionName}Result`;
-      // Wrap each node call in try/catch so errors include the node name
-      invocationCode += `let ${outputVar};\n    `;
-      invocationCode += `try { ${outputVar} = ${functionName}({ ${inputObject} }); }\n    `;
-      invocationCode += `catch(_e) { throw new Error("[${node.label || functionName}] " + _e.message); }\n    `;
+      const nodeLabel = node.label || functionName;
+      const gate = invocationGateFor(node.id);
+      // Only invoke the node when its `Do` was actually triggered by this
+      // request (mirrors the editor, where a node computes solely on `Do`).
+      // Un-triggered nodes yield {} so downstream reads are undefined and their
+      // response fields are dropped by the trigger-gated response mapping below.
+      // Wrap the call in try/catch so any thrown error names the node.
+      invocationCode += `let ${outputVar} = {};\n    `;
+      if (gate === null) {
+        invocationCode += `try { ${outputVar} = ${functionName}({ ${inputObject} }); }\n    `;
+        invocationCode += `catch(_e) { throw new Error("[${nodeLabel}] " + _e.message); }\n    `;
+      } else if (gate === 'false') {
+        invocationCode += `/* [${nodeLabel}] not invoked: no request trigger reaches its Do */\n    `;
+      } else {
+        invocationCode += `if (${gate}) {\n      try { ${outputVar} = ${functionName}({ ${inputObject} }); }\n      catch(_e) { throw new Error("[${nodeLabel}] " + _e.message); }\n    }\n    `;
+      }
 
       outputVariableMap.set(node.id, outputVar);
       lastResultVar = outputVar;
@@ -1550,9 +1627,8 @@ ${originalComponentStructure}
     const responseNode = this.component.graph.roots.find(
       (n) => n.typename === 'xgenia.cloud.response'
     );
-    const requestNode = this.component.graph.roots.find(
-      (n) => n.typename === 'xgenia.cloud.request'
-    );
+    // `requestNode`, `isSignalEdge` and `triggersForNode` are declared once at
+    // the top of this method and reused here for response-field gating.
     if (responseNode && !componentOutputsNode) {
       // Resolve a source connection (through Variable2 passthroughs) to its
       // result expression, or null if the source isn't a generated node.
@@ -1595,39 +1671,8 @@ ${originalComponentStructure}
       //
       // Signal edges are: a request `pm-is*` trigger, or an internal `Do`/`Done`
       // connection (the universal trigger-in / signal-out ports for these nodes).
-      const isSignalEdge = (c: any): boolean =>
-        (!!requestNode && c.fromId === requestNode.id && typeof c.fromProperty === 'string' && c.fromProperty.startsWith('pm-is')) ||
-        c.toProperty === 'Do' ||
-        c.fromProperty === 'Done';
-
-      const sigMemo = new Map<string, Set<string> | null>();
-      // null  -> unconditional (no signal inputs); Set -> the trigger flags that
-      // reach this node (empty -> reachable from no trigger, i.e. never fires).
-      const triggersForNode = (nodeId: string, stack: Set<string>): Set<string> | null => {
-        if (sigMemo.has(nodeId)) return sigMemo.get(nodeId)!;
-        if (stack.has(nodeId)) return new Set<string>(); // cycle guard
-        stack.add(nodeId);
-        const sigConns = this.connections.filter((c) => c.toId === nodeId && isSignalEdge(c));
-        let res: Set<string> | null;
-        if (sigConns.length === 0) {
-          res = null;
-        } else {
-          res = new Set<string>();
-          for (const c of sigConns) {
-            if (requestNode && c.fromId === requestNode.id) {
-              res.add(String(c.fromProperty).replace(/^pm-/, ''));
-            } else {
-              const up = triggersForNode(c.fromId, stack);
-              if (up === null) { res = null; break; } // upstream always fires -> so does this
-              up.forEach((t) => (res as Set<string>).add(t));
-            }
-          }
-        }
-        stack.delete(nodeId);
-        sigMemo.set(nodeId, res);
-        return res;
-      };
-
+      // `isSignalEdge` / `triggersForNode` are defined once at the top of this
+      // method (they now gate node invocations too) and reused here.
       const responseConns = this.connections.filter(
         (c) => c.toId === responseNode.id && c.toProperty.startsWith('pm-')
       );
