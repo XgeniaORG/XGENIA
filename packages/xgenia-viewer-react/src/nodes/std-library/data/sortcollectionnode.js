@@ -226,12 +226,13 @@ const SortNode = {
         this._internal.collection = collection;
 
         this.flagOutputDirty('result');
-        this.sendSignalOnOutput('Done');
       } catch (error) {
         this._internal.lastError = error.message;
         this._internal.collection = null;
         this.flagOutputDirty('result');
         console.error('Sort Collection Node - Calculate error:', error.message);
+      } finally {
+        this.sendSignalOnOutput('Done');
       }
     }
   }

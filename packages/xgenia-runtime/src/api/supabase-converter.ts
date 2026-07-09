@@ -1344,10 +1344,92 @@ ${originalComponentStructure}
    * Generate function invocations for the RGS script.
    * Similar to generateFunctionInvocations but uses ctx.config instead of requestBody.
    */
+  /**
+   * Build a memoized resolver that returns, for a node id, the set of request
+   * operation-trigger flags (`is<Operation>`) whose `Do`-signal chain reaches it:
+   *   null    -> unconditional: no operation trigger gates this node (it has no
+   *              signal input, or its `Do` is driven directly by a non-`is*`
+   *              request signal like `do`/`fetch`). Always invoke.
+   *   Set(0)  -> gated but reachable from no trigger (dead/cyclic). Never invoke.
+   *   Set(>0) -> invoke only when one of these flags is set.
+   *
+   * This mirrors the editor, where a node computes only when its `Do` fires. A
+   * signal edge into a node is a request `pm-is*` trigger, or an internal
+   * `Do`/`Done` connection. Used to gate BOTH node invocations and response
+   * fields so an operation that wasn't triggered neither runs its nodes (e.g. a
+   * Division that would throw "Division by zero") nor leaks their outputs.
+   *
+   * Components without an `xgenia.cloud.request` node (slot/maths graphs driven
+   * by `Component Inputs`) resolve to `null` for every node, so gating built on
+   * this resolver is a no-op for them.
+   */
+  private buildTriggerResolver(requestNode?: Node): (nodeId: string) => Set<string> | null {
+    const isTriggerEdge = (c: Connection): boolean =>
+      !!requestNode &&
+      c.fromId === requestNode.id &&
+      typeof c.fromProperty === 'string' &&
+      c.fromProperty.startsWith('pm-is');
+    const isSignalEdge = (c: Connection): boolean =>
+      isTriggerEdge(c) || c.toProperty === 'Do' || c.fromProperty === 'Done';
+
+    const memo = new Map<string, Set<string> | null>();
+    const resolve = (nodeId: string, stack: Set<string>): Set<string> | null => {
+      if (memo.has(nodeId)) return memo.get(nodeId)!;
+      if (stack.has(nodeId)) return new Set<string>(); // cycle guard
+      stack.add(nodeId);
+      const sigConns = this.connections.filter((c) => c.toId === nodeId && isSignalEdge(c));
+      let res: Set<string> | null;
+      if (sigConns.length === 0) {
+        res = null; // no signal inputs -> unconditional
+      } else {
+        res = new Set<string>();
+        for (const c of sigConns) {
+          if (isTriggerEdge(c)) {
+            res.add(String(c.fromProperty).replace(/^pm-/, ''));
+          } else if (requestNode && c.fromId === requestNode.id) {
+            // `Do`/`Done` straight from the request node but NOT an `is*` trigger
+            // (e.g. a plain `do`/`fetch` signal) -> node runs unconditionally.
+            res = null;
+            break;
+          } else {
+            const up = resolve(c.fromId, stack);
+            if (up === null) {
+              res = null;
+              break;
+            } // upstream always fires -> so does this
+            up.forEach((t) => (res as Set<string>).add(t));
+          }
+        }
+      }
+      stack.delete(nodeId);
+      memo.set(nodeId, res);
+      return res;
+    };
+    return (nodeId: string) => resolve(nodeId, new Set<string>());
+  }
+
   private generateRgsFunctionInvocations(nodes: Node[]): string {
     let invocationCode = '';
     const outputVariableMap = new Map<string, string>();
     let lastResultVar = '';
+
+    // Gate each node's invocation (and, further down, each response field) on the
+    // request operation-triggers that reach its `Do` — mirroring the editor,
+    // where a node computes only when triggered. See buildTriggerResolver().
+    const requestNode = this.component.graph.roots.find((n) => n.typename === 'xgenia.cloud.request');
+    const triggersForNode = this.buildTriggerResolver(requestNode);
+    // Gate expression for a node's invocation:
+    //   null    -> unconditional, always invoke
+    //   'false' -> signal-wired but no request trigger reaches it, never invoke
+    //   string  -> a `config.isX || config.isY` guard; invoke only when it holds
+    const invocationGateFor = (nodeId: string): string | null => {
+      const trigs = triggersForNode(nodeId);
+      if (trigs === null) return null;
+      if (trigs.size === 0) return 'false';
+      return Array.from(trigs)
+        .map((t) => this.safePropertyAccess('config', t))
+        .join(' || ');
+    };
 
     nodes.forEach((node) => {
       const functionName = this.getFunctionName(node);
@@ -1479,10 +1561,22 @@ ${originalComponentStructure}
         .join(', ');
 
       const outputVar = `${functionName}Result`;
-      // Wrap each node call in try/catch so errors include the node name
-      invocationCode += `let ${outputVar};\n    `;
-      invocationCode += `try { ${outputVar} = ${functionName}({ ${inputObject} }); }\n    `;
-      invocationCode += `catch(_e) { throw new Error("[${node.label || functionName}] " + _e.message); }\n    `;
+      const nodeLabel = node.label || functionName;
+      const gate = invocationGateFor(node.id);
+      // Only invoke the node when its `Do` was actually triggered by this
+      // request (mirrors the editor, where a node computes solely on `Do`).
+      // Un-triggered nodes yield {} so downstream reads are undefined and their
+      // response fields are dropped by the trigger-gated response mapping below.
+      // Wrap the call in try/catch so any thrown error names the node.
+      invocationCode += `let ${outputVar} = {};\n    `;
+      if (gate === null) {
+        invocationCode += `try { ${outputVar} = ${functionName}({ ${inputObject} }); }\n    `;
+        invocationCode += `catch(_e) { throw new Error("[${nodeLabel}] " + _e.message); }\n    `;
+      } else if (gate === 'false') {
+        invocationCode += `/* [${nodeLabel}] not invoked: no request trigger reaches its Do */\n    `;
+      } else {
+        invocationCode += `if (${gate}) {\n      try { ${outputVar} = ${functionName}({ ${inputObject} }); }\n      catch(_e) { throw new Error("[${nodeLabel}] " + _e.message); }\n    }\n    `;
+      }
 
       outputVariableMap.set(node.id, outputVar);
       lastResultVar = outputVar;
@@ -1550,9 +1644,8 @@ ${originalComponentStructure}
     const responseNode = this.component.graph.roots.find(
       (n) => n.typename === 'xgenia.cloud.response'
     );
-    const requestNode = this.component.graph.roots.find(
-      (n) => n.typename === 'xgenia.cloud.request'
-    );
+    // `requestNode`, `isSignalEdge` and `triggersForNode` are declared once at
+    // the top of this method and reused here for response-field gating.
     if (responseNode && !componentOutputsNode) {
       // Resolve a source connection (through Variable2 passthroughs) to its
       // result expression, or null if the source isn't a generated node.
@@ -1595,39 +1688,8 @@ ${originalComponentStructure}
       //
       // Signal edges are: a request `pm-is*` trigger, or an internal `Do`/`Done`
       // connection (the universal trigger-in / signal-out ports for these nodes).
-      const isSignalEdge = (c: any): boolean =>
-        (!!requestNode && c.fromId === requestNode.id && typeof c.fromProperty === 'string' && c.fromProperty.startsWith('pm-is')) ||
-        c.toProperty === 'Do' ||
-        c.fromProperty === 'Done';
-
-      const sigMemo = new Map<string, Set<string> | null>();
-      // null  -> unconditional (no signal inputs); Set -> the trigger flags that
-      // reach this node (empty -> reachable from no trigger, i.e. never fires).
-      const triggersForNode = (nodeId: string, stack: Set<string>): Set<string> | null => {
-        if (sigMemo.has(nodeId)) return sigMemo.get(nodeId)!;
-        if (stack.has(nodeId)) return new Set<string>(); // cycle guard
-        stack.add(nodeId);
-        const sigConns = this.connections.filter((c) => c.toId === nodeId && isSignalEdge(c));
-        let res: Set<string> | null;
-        if (sigConns.length === 0) {
-          res = null;
-        } else {
-          res = new Set<string>();
-          for (const c of sigConns) {
-            if (requestNode && c.fromId === requestNode.id) {
-              res.add(String(c.fromProperty).replace(/^pm-/, ''));
-            } else {
-              const up = triggersForNode(c.fromId, stack);
-              if (up === null) { res = null; break; } // upstream always fires -> so does this
-              up.forEach((t) => (res as Set<string>).add(t));
-            }
-          }
-        }
-        stack.delete(nodeId);
-        sigMemo.set(nodeId, res);
-        return res;
-      };
-
+      // `isSignalEdge` / `triggersForNode` are defined once at the top of this
+      // method (they now gate node invocations too) and reused here.
       const responseConns = this.connections.filter(
         (c) => c.toId === responseNode.id && c.toProperty.startsWith('pm-')
       );
@@ -1651,7 +1713,7 @@ ${originalComponentStructure}
           // sandbox) still keeps its field — as null — when its trigger fires,
           // so the response shape matches the aggregator's declared outputs.
           const valueExpr = resolved != null ? resolved : 'null';
-          const trigs = requestNode ? triggersForNode(conns[i].fromId, new Set<string>()) : null;
+          const trigs = requestNode ? triggersForNode(conns[i].fromId) : null;
           let gate: string | null;
           if (trigs === null) {
             gate = null; // unconditional — no signal gating on this source
@@ -2114,6 +2176,22 @@ ${originalComponentStructure}
     let invocationCode = '';
     const outputVariableMap = new Map<string, string>();
 
+    // Gate each node's invocation on the request operation-triggers (`is<Op>`)
+    // that reach its `Do`, so an operation the request never triggered doesn't
+    // run its nodes (e.g. a Division that would throw "Division by zero" on an
+    // unrelated request). Untriggered nodes keep {} — downstream reads and
+    // response fields then resolve to undefined and drop out of the JSON.
+    // No-op when there is no aggregator request node. See buildTriggerResolver().
+    const triggersForNode = this.buildTriggerResolver(requestNode);
+    const invocationGateFor = (nodeId: string): string | null => {
+      const trigs = triggersForNode(nodeId);
+      if (trigs === null) return null;
+      if (trigs.size === 0) return 'false';
+      return Array.from(trigs)
+        .map((t) => this.safePropertyAccess('requestBody', t))
+        .join(' || ');
+    };
+
     nodes.forEach((node) => {
       const functionName = this.getFunctionName(node);
 
@@ -2438,6 +2516,21 @@ ${originalComponentStructure}
       }
 
       const outputVar = `${functionName}Result`;
+      const nodeLabel = node.label || functionName;
+      const gate = invocationGateFor(node.id);
+      // Emit a (possibly gated) invocation of `callExpr`. When gated, the node is
+      // only called if its request trigger fired; otherwise its result stays {}
+      // (mirrors the editor, where an untriggered node never computes, so its
+      // response fields resolve to undefined and drop out of the JSON).
+      const emitCall = (callExpr: string) => {
+        if (gate === null) {
+          invocationCode += `const ${outputVar} = ${callExpr};\n    `;
+        } else if (gate === 'false') {
+          invocationCode += `let ${outputVar} = {}; /* [${nodeLabel}] not invoked: no request trigger reaches its Do */\n    `;
+        } else {
+          invocationCode += `let ${outputVar} = {};\n    if (${gate}) { ${outputVar} = ${callExpr}; }\n    `;
+        }
+      };
 
       if (node.typename.startsWith('/#__cloud__/') || node.typename.startsWith('/#__maths__/')) {
         // For Cloud/Maths Logic component references, we need to pass input parameters
@@ -2520,22 +2613,15 @@ ${originalComponentStructure}
             ? this.detectAsyncOperations(jsNode.parameters.functionScript || '')
             : false;
 
+          const awaitPrefix = hasAsyncOperations ? 'await ' : '';
           if (inputObject) {
-            if (hasAsyncOperations) {
-              invocationCode += `const ${outputVar} = await ${functionName}({ ${inputObject} });\n    `;
-            } else {
-              invocationCode += `const ${outputVar} = ${functionName}({ ${inputObject} });\n    `;
-            }
+            emitCall(`${awaitPrefix}${functionName}({ ${inputObject} })`);
           } else {
-            if (hasAsyncOperations) {
-              invocationCode += `const ${outputVar} = await ${functionName}();\n    `;
-            } else {
-              invocationCode += `const ${outputVar} = ${functionName}();\n    `;
-            }
+            emitCall(`${awaitPrefix}${functionName}()`);
           }
         } else {
           // Fallback if Logic component not found
-          invocationCode += `const ${outputVar} = ${functionName}();\n    `;
+          emitCall(`${functionName}()`);
         }
       } else {
         // DbConfig nodes are variables, not functions - skip function invocation
@@ -2562,11 +2648,7 @@ ${originalComponentStructure}
         const hasAsyncOperations =
           isRestNode || isAsyncStdLibraryNode || this.detectAsyncOperations(node.parameters.functionScript || '');
 
-        if (hasAsyncOperations) {
-          invocationCode += `const ${outputVar} = await ${functionName}({ ${inputObject} });\n    `;
-        } else {
-          invocationCode += `const ${outputVar} = ${functionName}({ ${inputObject} });\n    `;
-        }
+        emitCall(`${hasAsyncOperations ? 'await ' : ''}${functionName}({ ${inputObject} })`);
       }
 
       outputVariableMap.set(node.id, outputVar);

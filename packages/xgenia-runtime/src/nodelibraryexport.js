@@ -799,7 +799,10 @@ function generateNodeLibrary(nodeRegister) {
             'GetPlayerIdByName',
             'ListGameSessions',
             'SaveGameSession',
-            'LoadGameSession'
+            'LoadGameSession',
+            'DepositBalance',
+            'WithdrawBalance',
+            'GetBalanceByPlayerId'
           ]
         },
         {

@@ -152,11 +152,12 @@ const ListGameSessionsNode = {
 
         this.flagOutputDirty('sessions');
         this.flagOutputDirty('isEmpty');
-        this.sendSignalOnOutput('Done');
       } catch (error) {
         this._internal.lastError = error.message;
         this._internal.inspectData = { error: error.message };
         console.error('List Game Sessions error:', error);
+      } finally {
+        this.sendSignalOnOutput('Done');
       }
     }
   }
