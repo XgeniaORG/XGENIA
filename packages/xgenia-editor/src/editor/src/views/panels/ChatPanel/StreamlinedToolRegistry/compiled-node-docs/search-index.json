@@ -22,1217 +22,6 @@
       "inputFormatHints": {},
       "outputFormatHints": {}
     },
-    "Addition": {
-      "name": "Addition",
-      "file": "addition.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/addition.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/addition",
-      "lineCount": 133,
-      "byteSize": 3686,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "Reset": {
-          "displayName": "Reset",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "firstNumber": {
-          "displayName": "First Number",
-          "type": "number",
-          "group": "Numbers"
-        },
-        "secondNumber": {
-          "displayName": "Second Number",
-          "type": "number",
-          "group": "Numbers"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "displayName": "Result",
-          "type": "number"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        },
-        "Reset Done": {
-          "displayName": "Reset Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Calculate Roll": {
-      "name": "Calculate Roll",
-      "file": "calculate-roll.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/calculate-roll.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/calculate-roll",
-      "lineCount": 101,
-      "byteSize": 2775,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "client seed": {
-          "type": "string"
-        },
-        "server seed": {
-          "type": "string"
-        },
-        "nonce": {
-          "type": "number"
-        },
-        "max range": {
-          "type": "number"
-        },
-        "min range": {
-          "type": "number"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "type": "number"
-        },
-        "combinedString hash": {
-          "type": "string"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Ceil": {
-      "name": "Ceil",
-      "file": "ceil.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/ceil.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/ceil",
-      "lineCount": 98,
-      "byteSize": 2467,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "value": {
-          "displayName": "Value",
-          "type": "number",
-          "group": "Input"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "displayName": "Ceiling Value",
-          "type": "number"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Division": {
-      "name": "Division",
-      "file": "division.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/division.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/division",
-      "lineCount": 140,
-      "byteSize": 3956,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "Reset": {
-          "displayName": "Reset",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "firstNumber": {
-          "displayName": "First Number",
-          "type": "number",
-          "group": "Numbers"
-        },
-        "secondNumber": {
-          "displayName": "Second Number",
-          "type": "number",
-          "group": "Numbers"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "displayName": "Result",
-          "type": "number"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        },
-        "Reset Done": {
-          "displayName": "Reset Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Equal": {
-      "name": "Equal",
-      "file": "equal.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/equal.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/equal",
-      "lineCount": 143,
-      "byteSize": 3968,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "firstNumber": {
-          "displayName": "First Number",
-          "type": "number",
-          "group": "Numbers"
-        },
-        "secondNumber": {
-          "displayName": "Second Number",
-          "type": "number",
-          "group": "Numbers"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "displayName": "Result",
-          "type": "boolean"
-        },
-        "trueCondition": {
-          "displayName": "True Condition",
-          "type": "signal"
-        },
-        "falseCondition": {
-          "displayName": "False Condition",
-          "type": "signal"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Floor": {
-      "name": "Floor",
-      "file": "floor.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/floor.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/floor",
-      "lineCount": 98,
-      "byteSize": 2477,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "value": {
-          "displayName": "Value",
-          "type": "number",
-          "group": "Input"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "displayName": "Floor Value",
-          "type": "number"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Hit Frequency Monitor": {
-      "name": "Hit Frequency Monitor",
-      "file": "hit-frequency-monitor.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/hit-frequency-monitor.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/hit-frequency-monitor",
-      "lineCount": 112,
-      "byteSize": 3142,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "Reset": {
-          "displayName": "Reset",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "winAmount": {
-          "displayName": "Win Amount",
-          "type": "number",
-          "group": "Data"
-        }
-      },
-      "outputFormatHints": {
-        "Hit Frequency": {
-          "displayName": "Hit Frequency",
-          "type": "number"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "ISAAC Random Number Array Generator": {
-      "name": "ISAAC Random Number Array Generator",
-      "file": "isaac-rng-array.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/isaac-rng-array.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/isaac-rng-array",
-      "lineCount": 574,
-      "byteSize": 16143,
-      "inputFormatHints": {
-        "mode": {
-          "displayName": "Mode",
-          "type": "enum",
-          "group": "Configuration"
-        },
-        "size": {
-          "displayName": "Size",
-          "type": "number",
-          "group": "Array"
-        },
-        "seed": {
-          "displayName": "Seed",
-          "type": "number",
-          "group": "Configuration"
-        },
-        "nonce": {
-          "displayName": "Nonce",
-          "type": "number",
-          "group": "Configuration"
-        },
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        }
-      },
-      "outputFormatHints": {
-        "array": {
-          "displayName": "Generated Array",
-          "type": "array"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "ISAAC Random Number Generator": {
-      "name": "ISAAC Random Number Generator",
-      "file": "isaac-rng.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/isaac-rng.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/isaac-rng",
-      "lineCount": 550,
-      "byteSize": 15708,
-      "inputFormatHints": {
-        "mode": {
-          "displayName": "Mode",
-          "type": "enum",
-          "group": "Configuration"
-        },
-        "seed": {
-          "displayName": "Seed",
-          "type": "number",
-          "group": "Configuration"
-        },
-        "nonce": {
-          "displayName": "Nonce",
-          "type": "number",
-          "group": "Configuration"
-        },
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        }
-      },
-      "outputFormatHints": {
-        "value": {
-          "displayName": "Generated Value",
-          "type": "number"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Less Than": {
-      "name": "Less Than",
-      "file": "lessThan.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/lessThan.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/less-than",
-      "lineCount": 142,
-      "byteSize": 3927,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "firstNumber": {
-          "displayName": "First Number",
-          "type": "number",
-          "group": "Numbers"
-        },
-        "secondNumber": {
-          "displayName": "Second Number",
-          "type": "number",
-          "group": "Numbers"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "displayName": "Result",
-          "type": "boolean"
-        },
-        "trueCondition": {
-          "displayName": "True Condition",
-          "type": "signal"
-        },
-        "falseCondition": {
-          "displayName": "False Condition",
-          "type": "signal"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Less Than Or Equal": {
-      "name": "Less Than Or Equal",
-      "file": "lessThanOrEqual.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/lessThanOrEqual.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/less-than-or-equal",
-      "lineCount": 142,
-      "byteSize": 3993,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "firstNumber": {
-          "displayName": "First Number",
-          "type": "number",
-          "group": "Numbers"
-        },
-        "secondNumber": {
-          "displayName": "Second Number",
-          "type": "number",
-          "group": "Numbers"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "displayName": "Result",
-          "type": "boolean"
-        },
-        "trueCondition": {
-          "displayName": "True Condition",
-          "type": "signal"
-        },
-        "falseCondition": {
-          "displayName": "False Condition",
-          "type": "signal"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Max": {
-      "name": "Max",
-      "file": "max.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/max.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/max",
-      "lineCount": 133,
-      "byteSize": 3632,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "firstNumber": {
-          "displayName": "First Number",
-          "type": "number",
-          "group": "Numbers"
-        },
-        "secondNumber": {
-          "displayName": "Second Number",
-          "type": "number",
-          "group": "Numbers"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "displayName": "Result",
-          "type": "number"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Max Array": {
-      "name": "Max Array",
-      "file": "maxArray.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/maxArray.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/max",
-      "lineCount": 194,
-      "byteSize": 5081,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "array": {
-          "displayName": "Array",
-          "type": "array",
-          "group": "Input"
-        },
-        "keyPath": {
-          "displayName": "Key Path",
-          "type": "string",
-          "group": "Object Options"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "displayName": "Maximum",
-          "type": "*"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Formula-Generated Array": {
-      "name": "Formula-Generated Array",
-      "file": "mfag.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/mfag.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/mfag",
-      "lineCount": 246,
-      "byteSize": 7238,
-      "inputFormatHints": {
-        "mathFormula": {
-          "displayName": "Math Formula",
-          "type": "string",
-          "group": "Parameters"
-        },
-        "arrayLength": {
-          "displayName": "Array Length",
-          "type": "number",
-          "group": "Parameters"
-        },
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        }
-      },
-      "outputFormatHints": {
-        "id": {
-          "displayName": "Id",
-          "type": "string",
-          "group": "General"
-        },
-        "items": {
-          "displayName": "Items",
-          "type": "array",
-          "group": "General"
-        },
-        "firstItemId": {
-          "displayName": "First Item Id",
-          "type": "string",
-          "group": "General"
-        },
-        "count": {
-          "displayName": "Count",
-          "type": "number",
-          "group": "General"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Min": {
-      "name": "Min",
-      "file": "min.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/min.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/min",
-      "lineCount": 135,
-      "byteSize": 3801,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "firstNumber": {
-          "displayName": "First Number",
-          "type": "number",
-          "group": "Numbers"
-        },
-        "secondNumber": {
-          "displayName": "Second Number",
-          "type": "number",
-          "group": "Numbers"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "displayName": "Result",
-          "type": "number"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Min Array": {
-      "name": "Min Array",
-      "file": "minArray.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/minArray.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/min",
-      "lineCount": 194,
-      "byteSize": 5062,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "array": {
-          "displayName": "Array",
-          "type": "array",
-          "group": "Input"
-        },
-        "keyPath": {
-          "displayName": "Key Path",
-          "type": "string",
-          "group": "Object Options"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "displayName": "Minimum",
-          "type": "*"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Modulo": {
-      "name": "Modulo",
-      "file": "modulo.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/modulo.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/modulo",
-      "lineCount": 123,
-      "byteSize": 3466,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "firstNumber": {
-          "displayName": "First Number",
-          "type": "number",
-          "group": "Numbers"
-        },
-        "secondNumber": {
-          "displayName": "Second Number",
-          "type": "number",
-          "group": "Numbers"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "displayName": "Result",
-          "type": "number"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Multiplication": {
-      "name": "Multiplication",
-      "file": "multiplication.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/multiplication.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/multiplication",
-      "lineCount": 152,
-      "byteSize": 4095,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "Reset": {
-          "displayName": "Reset",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "firstNumber": {
-          "displayName": "First Number",
-          "type": "number",
-          "group": "Numbers"
-        },
-        "secondNumber": {
-          "displayName": "Second Number",
-          "type": "number",
-          "group": "Numbers"
-        },
-        "auto": {
-          "displayName": "Auto Calculate",
-          "type": "boolean",
-          "group": "Behavior"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "displayName": "Result",
-          "type": "number"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        },
-        "Reset Done": {
-          "displayName": "Reset Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Random UUID Generator": {
-      "name": "Random UUID Generator",
-      "file": "random-uuid-generator.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/random-uuid-generator.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/random-uuid-generator",
-      "lineCount": 113,
-      "byteSize": 3023,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        }
-      },
-      "outputFormatHints": {
-        "uuid": {
-          "displayName": "UUID",
-          "type": "string"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Round": {
-      "name": "Round",
-      "file": "round.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/round.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/round",
-      "lineCount": 100,
-      "byteSize": 2650,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "value": {
-          "displayName": "Value",
-          "type": "number",
-          "group": "Input"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "displayName": "Rounded Value",
-          "type": "number"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "RTP Monitor": {
-      "name": "RTP Monitor",
-      "file": "rtp-monitor.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/rtp-monitor.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/rtp-monitor",
-      "lineCount": 126,
-      "byteSize": 3433,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "Reset": {
-          "displayName": "Reset",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "betAmount": {
-          "displayName": "Bet Amount",
-          "type": "number",
-          "group": "Data"
-        },
-        "winAmount": {
-          "displayName": "Win Amount",
-          "type": "number",
-          "group": "Data"
-        }
-      },
-      "outputFormatHints": {
-        "RTP": {
-          "displayName": "RTP",
-          "type": "number"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Server Seed Generator": {
-      "name": "Server Seed Generator",
-      "file": "server-seed-generator.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/server-seed-generator.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/server-seed-generator",
-      "lineCount": 123,
-      "byteSize": 3603,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        }
-      },
-      "outputFormatHints": {
-        "server seed": {
-          "displayName": "Server Seed",
-          "type": "string"
-        },
-        "nonce": {
-          "displayName": "Nonce",
-          "type": "number"
-        },
-        "committedHash": {
-          "displayName": "Committed Hash",
-          "type": "string"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Single Parameter Formula": {
-      "name": "Single Parameter Formula",
-      "file": "spf.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/spf.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/spf",
-      "lineCount": 163,
-      "byteSize": 4818,
-      "inputFormatHints": {
-        "mathFormula": {
-          "displayName": "Math Formula",
-          "type": "string",
-          "group": "Parameters"
-        },
-        "parameterValue": {
-          "displayName": "Parameter Value (x)",
-          "type": "number",
-          "group": "Parameters"
-        },
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "displayName": "Result",
-          "type": "number",
-          "group": "General"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Subtraction": {
-      "name": "Subtraction",
-      "file": "subtraction.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/subtraction.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/subtraction",
-      "lineCount": 133,
-      "byteSize": 3723,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "Reset": {
-          "displayName": "Reset",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "firstNumber": {
-          "displayName": "First Number",
-          "type": "number",
-          "group": "Numbers"
-        },
-        "secondNumber": {
-          "displayName": "Second Number",
-          "type": "number",
-          "group": "Numbers"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "displayName": "Result",
-          "type": "number"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        },
-        "Reset Done": {
-          "displayName": "Reset Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Sum": {
-      "name": "Sum",
-      "file": "sum.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/sum.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/sum",
-      "lineCount": 201,
-      "byteSize": 5367,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "array": {
-          "displayName": "Array",
-          "type": "array",
-          "group": "Input"
-        },
-        "keyPath": {
-          "displayName": "Key Path",
-          "type": "string",
-          "group": "Object Options"
-        }
-      },
-      "outputFormatHints": {
-        "result": {
-          "displayName": "Sum",
-          "type": "*"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "True Random Number Array Generator": {
-      "name": "True Random Number Array Generator",
-      "file": "trng-array.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/trng-array.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/trng-array",
-      "lineCount": 167,
-      "byteSize": 4974,
-      "inputFormatHints": {
-        "size": {
-          "displayName": "Size",
-          "type": "number",
-          "group": "Array"
-        },
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        }
-      },
-      "outputFormatHints": {
-        "array": {
-          "displayName": "Generated Array",
-          "type": "array"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "True Random Number Generator": {
-      "name": "True Random Number Generator",
-      "file": "trng.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/trng.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/trng",
-      "lineCount": 127,
-      "byteSize": 3709,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        }
-      },
-      "outputFormatHints": {
-        "value": {
-          "displayName": "Generated Value",
-          "type": "number"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Validate Outcome": {
-      "name": "Validate Outcome",
-      "file": "validate-outcome.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/validate-outcome.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/validate-outcome",
-      "lineCount": 81,
-      "byteSize": 2140,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "fairHash": {
-          "displayName": "Fair Hash",
-          "type": "string"
-        },
-        "maxRange": {
-          "displayName": "Max Range",
-          "type": "number"
-        },
-        "minRange": {
-          "displayName": "Min Range",
-          "type": "number"
-        }
-      },
-      "outputFormatHints": {
-        "rollResult": {
-          "displayName": "Roll Result",
-          "type": "number"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Verify Commitment": {
-      "name": "Verify Commitment",
-      "file": "verify-commitment.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/verify-commitment.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/verify-commitment",
-      "lineCount": 73,
-      "byteSize": 1784,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "serverSeed": {
-          "displayName": "Server Seed",
-          "type": "string"
-        },
-        "committedHash": {
-          "displayName": "Committed Hash",
-          "type": "string"
-        }
-      },
-      "outputFormatHints": {
-        "Result": {
-          "displayName": "Result",
-          "type": "boolean"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Verify Fairness": {
-      "name": "Verify Fairness",
-      "file": "verify-fairness.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/verify-fairness.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/verify-fairness",
-      "lineCount": 88,
-      "byteSize": 2368,
-      "inputFormatHints": {
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "serverSeed": {
-          "displayName": "Server Seed",
-          "type": "string"
-        },
-        "clientSeed": {
-          "displayName": "Client Seed",
-          "type": "string"
-        },
-        "nonce": {
-          "displayName": "Nonce",
-          "type": "number"
-        },
-        "expectedHash": {
-          "displayName": "Expected Hash",
-          "type": "string"
-        }
-      },
-      "outputFormatHints": {
-        "isFair": {
-          "displayName": "isFair",
-          "type": "boolean"
-        },
-        "Done": {
-          "displayName": "Done",
-          "type": "signal"
-        }
-      }
-    },
-    "Volatility Monitor": {
-      "name": "Volatility Monitor",
-      "file": "volatility-monitor.js",
-      "relativePath": "packages/xgenia-runtime/src/nodes/maths/volatility-monitor.js",
-      "category": "Math",
-      "docs": "https://docsapp.xgenia.com/nodes/math/volatility-monitor",
-      "lineCount": 237,
-      "byteSize": 6744,
-      "inputFormatHints": {
-        "value": {
-          "displayName": "Value",
-          "type": "number",
-          "group": "Data"
-        },
-        "Do": {
-          "displayName": "Do",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "Reset": {
-          "displayName": "Reset",
-          "type": "signal",
-          "group": "Actions"
-        }
-      },
-      "outputFormatHints": {
-        "Done": {
-          "displayName": "Done",
-          "type": "signal",
-          "group": "Events"
-        },
-        "volatilityResult": {
-          "displayName": "Volatility (%)",
-          "type": "number",
-          "group": "Results"
-        },
-        "standardDeviation": {
-          "displayName": "Standard Deviation (σ)",
-          "type": "number",
-          "group": "Results"
-        },
-        "mean": {
-          "displayName": "Mean (μ)",
-          "type": "number",
-          "group": "Results"
-        },
-        "variance": {
-          "displayName": "Variance (σ²)",
-          "type": "number",
-          "group": "Results"
-        },
-        "amplitude": {
-          "displayName": "Amplitude / Scaling Factor",
-          "type": "number",
-          "group": "Results"
-        }
-      }
-    },
     "And ": {
       "name": "And ",
       "file": "and.js",
@@ -1602,8 +391,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/convertInputsIntoRecord.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/convert-inputs-into-record",
-      "lineCount": 263,
-      "byteSize": 7663,
+      "lineCount": 266,
+      "byteSize": 7727,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -1635,8 +424,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/convertRecordIntoOutputs.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/convert-record-into-outputs",
-      "lineCount": 241,
-      "byteSize": 6730,
+      "lineCount": 244,
+      "byteSize": 6772,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -1999,6 +788,44 @@
         }
       }
     },
+    "DepositBalance": {
+      "name": "DepositBalance",
+      "file": "depositbalance.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/depositbalance.js",
+      "category": "Data",
+      "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/deposit-balance",
+      "lineCount": 168,
+      "byteSize": 5479,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "playerID": {
+          "displayName": "Player ID",
+          "type": "string",
+          "group": "General"
+        },
+        "depositAmount": {
+          "displayName": "Deposit Amount",
+          "type": "number",
+          "group": "General"
+        }
+      },
+      "outputFormatHints": {
+        "isSuccessful": {
+          "displayName": "Is Successful",
+          "type": "boolean",
+          "group": "Result"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal",
+          "group": "Events"
+        }
+      }
+    },
     "FilterDBModels": {
       "name": "FilterDBModels",
       "file": "filterdbmodelsnode.js",
@@ -2052,14 +879,52 @@
         }
       }
     },
+    "GetBalanceByPlayerId": {
+      "name": "GetBalanceByPlayerId",
+      "file": "getbalancebyplayerid.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/getbalancebyplayerid.js",
+      "category": "Data",
+      "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/get-balance-by-player-id",
+      "lineCount": 170,
+      "byteSize": 5397,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "playerID": {
+          "displayName": "Player ID",
+          "type": "string",
+          "group": "General"
+        }
+      },
+      "outputFormatHints": {
+        "balance": {
+          "displayName": "Balance",
+          "type": "number",
+          "group": "Result"
+        },
+        "isSuccessful": {
+          "displayName": "Is Successful",
+          "type": "boolean",
+          "group": "Result"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal",
+          "group": "Events"
+        }
+      }
+    },
     "GetPlayerIdByName": {
       "name": "GetPlayerIdByName",
       "file": "getplayeridbyname.js",
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/getplayeridbyname.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/get-player-id-by-name",
-      "lineCount": 158,
-      "byteSize": 5006,
+      "lineCount": 159,
+      "byteSize": 5024,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -2096,8 +961,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/listgamesessions.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/list-game-sessions",
-      "lineCount": 168,
-      "byteSize": 5120,
+      "lineCount": 169,
+      "byteSize": 5138,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -2461,6 +1326,44 @@
         }
       }
     },
+    "WithdrawBalance": {
+      "name": "WithdrawBalance",
+      "file": "withdrawbalance.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/withdrawbalance.js",
+      "category": "Data",
+      "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/withdraw-balance",
+      "lineCount": 170,
+      "byteSize": 5643,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "playerID": {
+          "displayName": "Player ID",
+          "type": "string",
+          "group": "General"
+        },
+        "withdrawAmount": {
+          "displayName": "Withdraw Amount",
+          "type": "number",
+          "group": "General"
+        }
+      },
+      "outputFormatHints": {
+        "isSuccessful": {
+          "displayName": "Is Successful",
+          "type": "boolean",
+          "group": "Result"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal",
+          "group": "Events"
+        }
+      }
+    },
     "Date To String": {
       "name": "Date To String",
       "file": "datetostring.js",
@@ -2584,8 +1487,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/importFromJsonFile.js",
       "category": "System",
       "docs": "https://docsapp.xgenia.com/nodes/utilities/system/import-from-json",
-      "lineCount": 291,
-      "byteSize": 8627,
+      "lineCount": 294,
+      "byteSize": 8733,
       "inputFormatHints": {},
       "outputFormatHints": {
         "Done": {
@@ -3196,8 +2099,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/writeToJson.js",
       "category": "System",
       "docs": "https://docsapp.xgenia.com/nodes/utilities/system/write-to-json",
-      "lineCount": 252,
-      "byteSize": 8689,
+      "lineCount": 253,
+      "byteSize": 8707,
       "inputFormatHints": {
         "array": {
           "displayName": "Array",
@@ -3239,10 +2142,1381 @@
       "relativePath": "private/xgenia-pro-nodes/src/index.js",
       "category": null,
       "docs": null,
-      "lineCount": 180,
-      "byteSize": 6568,
+      "lineCount": 210,
+      "byteSize": 7647,
       "inputFormatHints": {},
       "outputFormatHints": {}
+    },
+    "Auto Bet Strategy Evaluator": {
+      "name": "Auto Bet Strategy Evaluator",
+      "file": "auto-bet-strategy-evaluator.js",
+      "relativePath": "private/xgenia-pro-nodes/src/keno-games/auto-bet-strategy-evaluator.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/auto-bet-strategy-evaluator",
+      "lineCount": 105,
+      "byteSize": 3720,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "Reset": {
+          "displayName": "Reset",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "last win amount": {
+          "type": "number"
+        },
+        "last bet amount": {
+          "type": "number"
+        },
+        "base bet": {
+          "type": "number"
+        },
+        "max rounds": {
+          "type": "number"
+        },
+        "stop on profit": {
+          "type": "number"
+        },
+        "stop on loss": {
+          "type": "number"
+        },
+        "increase bet on loss %": {
+          "type": "number"
+        },
+        "increase bet on win %": {
+          "type": "number"
+        }
+      },
+      "outputFormatHints": {
+        "next bet amount": {
+          "type": "number"
+        },
+        "should continue": {
+          "type": "boolean"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Calculate PF Array Draw": {
+      "name": "Calculate PF Array Draw",
+      "file": "calculate-pf-array-draw.js",
+      "relativePath": "private/xgenia-pro-nodes/src/keno-games/calculate-pf-array-draw.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/calculate-pf-array-draw",
+      "lineCount": 163,
+      "byteSize": 6619,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "client seed": {
+          "type": "string"
+        },
+        "server seed": {
+          "type": "string"
+        },
+        "nonce": {
+          "type": "number"
+        },
+        "draw count": {
+          "type": "number"
+        },
+        "pool size": {
+          "type": "number"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "type": "array"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Check Keno Hits": {
+      "name": "Check Keno Hits",
+      "file": "check-keno-hits.js",
+      "relativePath": "private/xgenia-pro-nodes/src/keno-games/check-keno-hits.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/check-keno-hits",
+      "lineCount": 59,
+      "byteSize": 1770,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "selected spots": {
+          "type": "array"
+        },
+        "drawn numbers": {
+          "type": "array"
+        }
+      },
+      "outputFormatHints": {
+        "hit count": {
+          "type": "number"
+        },
+        "hit numbers": {
+          "type": "array"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Evaluate Keno Paytable": {
+      "name": "Evaluate Keno Paytable",
+      "file": "evaluate-keno-paytable.js",
+      "relativePath": "private/xgenia-pro-nodes/src/keno-games/evaluate-keno-paytable.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/evaluate-keno-paytable",
+      "lineCount": 82,
+      "byteSize": 2814,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "risk profile": {
+          "type": "string"
+        },
+        "selected spots count": {
+          "type": "number"
+        },
+        "hit count": {
+          "type": "number"
+        }
+      },
+      "outputFormatHints": {
+        "payout multiplier": {
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Addition": {
+      "name": "Addition",
+      "file": "addition.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/addition.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/addition",
+      "lineCount": 129,
+      "byteSize": 3409,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "Reset": {
+          "displayName": "Reset",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "firstNumber": {
+          "displayName": "First Number",
+          "type": "number",
+          "group": "Numbers"
+        },
+        "secondNumber": {
+          "displayName": "Second Number",
+          "type": "number",
+          "group": "Numbers"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "displayName": "Result",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        },
+        "Reset Done": {
+          "displayName": "Reset Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Calculate Roll": {
+      "name": "Calculate Roll",
+      "file": "calculate-roll.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/calculate-roll.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/calculate-roll",
+      "lineCount": 99,
+      "byteSize": 2630,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "client seed": {
+          "type": "string"
+        },
+        "server seed": {
+          "type": "string"
+        },
+        "nonce": {
+          "type": "number"
+        },
+        "max range": {
+          "type": "number"
+        },
+        "min range": {
+          "type": "number"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "type": "number"
+        },
+        "combinedString hash": {
+          "type": "string"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Ceil": {
+      "name": "Ceil",
+      "file": "ceil.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/ceil.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/ceil",
+      "lineCount": 96,
+      "byteSize": 2358,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "value": {
+          "displayName": "Value",
+          "type": "number",
+          "group": "Input"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "displayName": "Ceiling Value",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Division": {
+      "name": "Division",
+      "file": "division.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/division.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/division",
+      "lineCount": 135,
+      "byteSize": 3636,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "Reset": {
+          "displayName": "Reset",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "firstNumber": {
+          "displayName": "First Number",
+          "type": "number",
+          "group": "Numbers"
+        },
+        "secondNumber": {
+          "displayName": "Second Number",
+          "type": "number",
+          "group": "Numbers"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "displayName": "Result",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        },
+        "Reset Done": {
+          "displayName": "Reset Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Equal": {
+      "name": "Equal",
+      "file": "equal.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/equal.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/equal",
+      "lineCount": 140,
+      "byteSize": 3734,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "firstNumber": {
+          "displayName": "First Number",
+          "type": "number",
+          "group": "Numbers"
+        },
+        "secondNumber": {
+          "displayName": "Second Number",
+          "type": "number",
+          "group": "Numbers"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "displayName": "Result",
+          "type": "boolean"
+        },
+        "trueCondition": {
+          "displayName": "True Condition",
+          "type": "signal"
+        },
+        "falseCondition": {
+          "displayName": "False Condition",
+          "type": "signal"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Floor": {
+      "name": "Floor",
+      "file": "floor.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/floor.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/floor",
+      "lineCount": 96,
+      "byteSize": 2368,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "value": {
+          "displayName": "Value",
+          "type": "number",
+          "group": "Input"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "displayName": "Floor Value",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Hit Frequency Monitor": {
+      "name": "Hit Frequency Monitor",
+      "file": "hit-frequency-monitor.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/hit-frequency-monitor.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/hit-frequency-monitor",
+      "lineCount": 109,
+      "byteSize": 2908,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "Reset": {
+          "displayName": "Reset",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "winAmount": {
+          "displayName": "Win Amount",
+          "type": "number",
+          "group": "Data"
+        }
+      },
+      "outputFormatHints": {
+        "Hit Frequency": {
+          "displayName": "Hit Frequency",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "ISAAC Random Number Array Generator": {
+      "name": "ISAAC Random Number Array Generator",
+      "file": "isaac-rng-array.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/isaac-rng-array.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/isaac-rng-array",
+      "lineCount": 573,
+      "byteSize": 15613,
+      "inputFormatHints": {
+        "mode": {
+          "displayName": "Mode",
+          "type": "enum",
+          "group": "Configuration"
+        },
+        "size": {
+          "displayName": "Size",
+          "type": "number",
+          "group": "Array"
+        },
+        "seed": {
+          "displayName": "Seed",
+          "type": "number",
+          "group": "Configuration"
+        },
+        "nonce": {
+          "displayName": "Nonce",
+          "type": "number",
+          "group": "Configuration"
+        },
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        }
+      },
+      "outputFormatHints": {
+        "array": {
+          "displayName": "Generated Array",
+          "type": "array"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "ISAAC Random Number Generator": {
+      "name": "ISAAC Random Number Generator",
+      "file": "isaac-rng.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/isaac-rng.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/isaac-rng",
+      "lineCount": 546,
+      "byteSize": 14916,
+      "inputFormatHints": {
+        "mode": {
+          "displayName": "Mode",
+          "type": "enum",
+          "group": "Configuration"
+        },
+        "seed": {
+          "displayName": "Seed",
+          "type": "number",
+          "group": "Configuration"
+        },
+        "nonce": {
+          "displayName": "Nonce",
+          "type": "number",
+          "group": "Configuration"
+        },
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        }
+      },
+      "outputFormatHints": {
+        "value": {
+          "displayName": "Generated Value",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Less Than": {
+      "name": "Less Than",
+      "file": "lessThan.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/lessThan.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/less-than",
+      "lineCount": 139,
+      "byteSize": 3693,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "firstNumber": {
+          "displayName": "First Number",
+          "type": "number",
+          "group": "Numbers"
+        },
+        "secondNumber": {
+          "displayName": "Second Number",
+          "type": "number",
+          "group": "Numbers"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "displayName": "Result",
+          "type": "boolean"
+        },
+        "trueCondition": {
+          "displayName": "True Condition",
+          "type": "signal"
+        },
+        "falseCondition": {
+          "displayName": "False Condition",
+          "type": "signal"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Less Than Or Equal": {
+      "name": "Less Than Or Equal",
+      "file": "lessThanOrEqual.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/lessThanOrEqual.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/less-than-or-equal",
+      "lineCount": 139,
+      "byteSize": 3759,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "firstNumber": {
+          "displayName": "First Number",
+          "type": "number",
+          "group": "Numbers"
+        },
+        "secondNumber": {
+          "displayName": "Second Number",
+          "type": "number",
+          "group": "Numbers"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "displayName": "Result",
+          "type": "boolean"
+        },
+        "trueCondition": {
+          "displayName": "True Condition",
+          "type": "signal"
+        },
+        "falseCondition": {
+          "displayName": "False Condition",
+          "type": "signal"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Max": {
+      "name": "Max",
+      "file": "max.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/max.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/max",
+      "lineCount": 131,
+      "byteSize": 3523,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "firstNumber": {
+          "displayName": "First Number",
+          "type": "number",
+          "group": "Numbers"
+        },
+        "secondNumber": {
+          "displayName": "Second Number",
+          "type": "number",
+          "group": "Numbers"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "displayName": "Result",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Max Array": {
+      "name": "Max Array",
+      "file": "maxArray.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/maxArray.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/max",
+      "lineCount": 193,
+      "byteSize": 5015,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "array": {
+          "displayName": "Array",
+          "type": "array",
+          "group": "Input"
+        },
+        "keyPath": {
+          "displayName": "Key Path",
+          "type": "string",
+          "group": "Object Options"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "displayName": "Maximum",
+          "type": "*"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Formula-Generated Array": {
+      "name": "Formula-Generated Array",
+      "file": "mfag.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/mfag.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/mfag",
+      "lineCount": 237,
+      "byteSize": 6733,
+      "inputFormatHints": {
+        "mathFormula": {
+          "displayName": "Math Formula",
+          "type": "string",
+          "group": "Parameters"
+        },
+        "arrayLength": {
+          "displayName": "Array Length",
+          "type": "number",
+          "group": "Parameters"
+        },
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        }
+      },
+      "outputFormatHints": {
+        "id": {
+          "displayName": "Id",
+          "type": "string",
+          "group": "General"
+        },
+        "items": {
+          "displayName": "Items",
+          "type": "array",
+          "group": "General"
+        },
+        "firstItemId": {
+          "displayName": "First Item Id",
+          "type": "string",
+          "group": "General"
+        },
+        "count": {
+          "displayName": "Count",
+          "type": "number",
+          "group": "General"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Min": {
+      "name": "Min",
+      "file": "min.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/min.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/min",
+      "lineCount": 131,
+      "byteSize": 3524,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "firstNumber": {
+          "displayName": "First Number",
+          "type": "number",
+          "group": "Numbers"
+        },
+        "secondNumber": {
+          "displayName": "Second Number",
+          "type": "number",
+          "group": "Numbers"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "displayName": "Result",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Min Array": {
+      "name": "Min Array",
+      "file": "minArray.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/minArray.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/min",
+      "lineCount": 193,
+      "byteSize": 4996,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "array": {
+          "displayName": "Array",
+          "type": "array",
+          "group": "Input"
+        },
+        "keyPath": {
+          "displayName": "Key Path",
+          "type": "string",
+          "group": "Object Options"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "displayName": "Minimum",
+          "type": "*"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Modulo": {
+      "name": "Modulo",
+      "file": "modulo.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/modulo.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/modulo",
+      "lineCount": 118,
+      "byteSize": 3146,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "firstNumber": {
+          "displayName": "First Number",
+          "type": "number",
+          "group": "Numbers"
+        },
+        "secondNumber": {
+          "displayName": "Second Number",
+          "type": "number",
+          "group": "Numbers"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "displayName": "Result",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Multiplication": {
+      "name": "Multiplication",
+      "file": "multiplication.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/multiplication.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/multiplication",
+      "lineCount": 132,
+      "byteSize": 3509,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "Reset": {
+          "displayName": "Reset",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "firstNumber": {
+          "displayName": "First Number",
+          "type": "number",
+          "group": "Numbers"
+        },
+        "secondNumber": {
+          "displayName": "Second Number",
+          "type": "number",
+          "group": "Numbers"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "displayName": "Result",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        },
+        "Reset Done": {
+          "displayName": "Reset Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Random UUID Generator": {
+      "name": "Random UUID Generator",
+      "file": "random-uuid-generator.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/random-uuid-generator.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/random-uuid-generator",
+      "lineCount": 111,
+      "byteSize": 2878,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        }
+      },
+      "outputFormatHints": {
+        "uuid": {
+          "displayName": "UUID",
+          "type": "string"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Round": {
+      "name": "Round",
+      "file": "round.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/round.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/round",
+      "lineCount": 96,
+      "byteSize": 2373,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "value": {
+          "displayName": "Value",
+          "type": "number",
+          "group": "Input"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "displayName": "Rounded Value",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "RTP Monitor": {
+      "name": "RTP Monitor",
+      "file": "rtp-monitor.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/rtp-monitor.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/rtp-monitor",
+      "lineCount": 123,
+      "byteSize": 3199,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "Reset": {
+          "displayName": "Reset",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "betAmount": {
+          "displayName": "Bet Amount",
+          "type": "number",
+          "group": "Data"
+        },
+        "winAmount": {
+          "displayName": "Win Amount",
+          "type": "number",
+          "group": "Data"
+        }
+      },
+      "outputFormatHints": {
+        "RTP": {
+          "displayName": "RTP",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Server Seed Generator": {
+      "name": "Server Seed Generator",
+      "file": "server-seed-generator.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/server-seed-generator.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/server-seed-generator",
+      "lineCount": 121,
+      "byteSize": 3458,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        }
+      },
+      "outputFormatHints": {
+        "server seed": {
+          "displayName": "Server Seed",
+          "type": "string"
+        },
+        "nonce": {
+          "displayName": "Nonce",
+          "type": "number"
+        },
+        "committedHash": {
+          "displayName": "Committed Hash",
+          "type": "string"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Single Parameter Formula": {
+      "name": "Single Parameter Formula",
+      "file": "spf.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/spf.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/spf",
+      "lineCount": 159,
+      "byteSize": 4547,
+      "inputFormatHints": {
+        "mathFormula": {
+          "displayName": "Math Formula",
+          "type": "string",
+          "group": "Parameters"
+        },
+        "parameterValue": {
+          "displayName": "Parameter Value (x)",
+          "type": "number",
+          "group": "Parameters"
+        },
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "displayName": "Result",
+          "type": "number",
+          "group": "General"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Subtraction": {
+      "name": "Subtraction",
+      "file": "subtraction.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/subtraction.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/subtraction",
+      "lineCount": 129,
+      "byteSize": 3446,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "Reset": {
+          "displayName": "Reset",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "firstNumber": {
+          "displayName": "First Number",
+          "type": "number",
+          "group": "Numbers"
+        },
+        "secondNumber": {
+          "displayName": "Second Number",
+          "type": "number",
+          "group": "Numbers"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "displayName": "Result",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        },
+        "Reset Done": {
+          "displayName": "Reset Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Sum": {
+      "name": "Sum",
+      "file": "sum.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/sum.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/sum",
+      "lineCount": 200,
+      "byteSize": 5301,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "array": {
+          "displayName": "Array",
+          "type": "array",
+          "group": "Input"
+        },
+        "keyPath": {
+          "displayName": "Key Path",
+          "type": "string",
+          "group": "Object Options"
+        }
+      },
+      "outputFormatHints": {
+        "result": {
+          "displayName": "Sum",
+          "type": "*"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "True Random Number Array Generator": {
+      "name": "True Random Number Array Generator",
+      "file": "trng-array.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/trng-array.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/trng-array",
+      "lineCount": 166,
+      "byteSize": 4908,
+      "inputFormatHints": {
+        "size": {
+          "displayName": "Size",
+          "type": "number",
+          "group": "Array"
+        },
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        }
+      },
+      "outputFormatHints": {
+        "array": {
+          "displayName": "Generated Array",
+          "type": "array"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "True Random Number Generator": {
+      "name": "True Random Number Generator",
+      "file": "trng.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/trng.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/trng",
+      "lineCount": 126,
+      "byteSize": 3643,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        }
+      },
+      "outputFormatHints": {
+        "value": {
+          "displayName": "Generated Value",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Validate Outcome": {
+      "name": "Validate Outcome",
+      "file": "validate-outcome.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/validate-outcome.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/validate-outcome",
+      "lineCount": 79,
+      "byteSize": 1995,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "fairHash": {
+          "displayName": "Fair Hash",
+          "type": "string"
+        },
+        "maxRange": {
+          "displayName": "Max Range",
+          "type": "number"
+        },
+        "minRange": {
+          "displayName": "Min Range",
+          "type": "number"
+        }
+      },
+      "outputFormatHints": {
+        "rollResult": {
+          "displayName": "Roll Result",
+          "type": "number"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Verify Commitment": {
+      "name": "Verify Commitment",
+      "file": "verify-commitment.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/verify-commitment.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/verify-commitment",
+      "lineCount": 71,
+      "byteSize": 1639,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "serverSeed": {
+          "displayName": "Server Seed",
+          "type": "string"
+        },
+        "committedHash": {
+          "displayName": "Committed Hash",
+          "type": "string"
+        }
+      },
+      "outputFormatHints": {
+        "Result": {
+          "displayName": "Result",
+          "type": "boolean"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Verify Fairness": {
+      "name": "Verify Fairness",
+      "file": "verify-fairness.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/verify-fairness.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/verify-fairness",
+      "lineCount": 86,
+      "byteSize": 2223,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "serverSeed": {
+          "displayName": "Server Seed",
+          "type": "string"
+        },
+        "clientSeed": {
+          "displayName": "Client Seed",
+          "type": "string"
+        },
+        "nonce": {
+          "displayName": "Nonce",
+          "type": "number"
+        },
+        "expectedHash": {
+          "displayName": "Expected Hash",
+          "type": "string"
+        }
+      },
+      "outputFormatHints": {
+        "isFair": {
+          "displayName": "isFair",
+          "type": "boolean"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal"
+        }
+      }
+    },
+    "Volatility Monitor": {
+      "name": "Volatility Monitor",
+      "file": "volatility-monitor.js",
+      "relativePath": "private/xgenia-pro-nodes/src/maths/volatility-monitor.js",
+      "category": "Math",
+      "docs": "https://docsapp.xgenia.com/nodes/math/volatility-monitor",
+      "lineCount": 234,
+      "byteSize": 6510,
+      "inputFormatHints": {
+        "value": {
+          "displayName": "Value",
+          "type": "number",
+          "group": "Data"
+        },
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "Reset": {
+          "displayName": "Reset",
+          "type": "signal",
+          "group": "Actions"
+        }
+      },
+      "outputFormatHints": {
+        "Done": {
+          "displayName": "Done",
+          "type": "signal",
+          "group": "Events"
+        },
+        "volatilityResult": {
+          "displayName": "Volatility (%)",
+          "type": "number",
+          "group": "Results"
+        },
+        "standardDeviation": {
+          "displayName": "Standard Deviation (σ)",
+          "type": "number",
+          "group": "Results"
+        },
+        "mean": {
+          "displayName": "Mean (μ)",
+          "type": "number",
+          "group": "Results"
+        },
+        "variance": {
+          "displayName": "Variance (σ²)",
+          "type": "number",
+          "group": "Results"
+        },
+        "amplitude": {
+          "displayName": "Amplitude / Scaling Factor",
+          "type": "number",
+          "group": "Results"
+        }
+      }
     },
     "Auto ML Analyzer": {
       "name": "Auto ML Analyzer",
@@ -8591,8 +8865,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/RenderPaylinesPixi.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/render-paylines-pixi",
-      "lineCount": 446,
-      "byteSize": 17941,
+      "lineCount": 456,
+      "byteSize": 18541,
       "inputFormatHints": {
         "winningLinesDetails": {
           "displayName": "Winning Lines Details",
@@ -8704,8 +8978,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/calculate-free-spins-states.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/calculate-free-spins-states",
-      "lineCount": 447,
-      "byteSize": 13890,
+      "lineCount": 442,
+      "byteSize": 13746,
       "inputFormatHints": {
         "engineReels": {
           "displayName": "Engine Reels",
@@ -9097,8 +9371,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/generate-symbol-weights.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/generate-symbol-weights",
-      "lineCount": 274,
-      "byteSize": 8992,
+      "lineCount": 276,
+      "byteSize": 8918,
       "inputFormatHints": {
         "numberOfSymbols": {
           "displayName": "Number of Symbols",
@@ -9183,8 +9457,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/init-free-spins.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/init-free-spins",
-      "lineCount": 165,
-      "byteSize": 4846,
+      "lineCount": 160,
+      "byteSize": 4702,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
@@ -9226,8 +9500,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/reel-strips-generator.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/reel-strips-generator",
-      "lineCount": 242,
-      "byteSize": 7802,
+      "lineCount": 244,
+      "byteSize": 7806,
       "inputFormatHints": {
         "symbolWeights": {
           "displayName": "Symbol Weights",
@@ -9289,8 +9563,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/reel-ways-calculate-winnings.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/reel-ways-calculate-winnings",
-      "lineCount": 223,
-      "byteSize": 6715,
+      "lineCount": 217,
+      "byteSize": 6486,
       "inputFormatHints": {
         "winningLines": {
           "displayName": "Winning Lines",
@@ -9342,8 +9616,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/reel-ways-check-wins.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/reel-ways-check-wins",
-      "lineCount": 220,
-      "byteSize": 6807,
+      "lineCount": 214,
+      "byteSize": 6544,
       "inputFormatHints": {
         "numberOfSymbols": {
           "displayName": "Number of Symbols",
@@ -10027,8 +10301,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/spin-calculate.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/spin-calculate",
-      "lineCount": 302,
-      "byteSize": 8647,
+      "lineCount": 304,
+      "byteSize": 8688,
       "inputFormatHints": {
         "betAmount": {
           "displayName": "Bet Amount",
@@ -10140,8 +10414,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/spin-result.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/spin-result",
-      "lineCount": 511,
-      "byteSize": 16066,
+      "lineCount": 500,
+      "byteSize": 15542,
       "inputFormatHints": {
         "reels": {
           "displayName": "Reels",
@@ -10333,8 +10607,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/symbol-frequency-tracker.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/symbol-frequency-tracker",
-      "lineCount": 191,
-      "byteSize": 5790,
+      "lineCount": 187,
+      "byteSize": 5647,
       "inputFormatHints": {
         "numberOfSymbols": {
           "displayName": "Number of Symbols",
@@ -10381,8 +10655,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/volatility-estimator.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/volatility-estimator",
-      "lineCount": 297,
-      "byteSize": 9496,
+      "lineCount": 300,
+      "byteSize": 9536,
       "inputFormatHints": {
         "spinResults": {
           "displayName": "Spin Results",
@@ -10439,8 +10713,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/weighted-reels.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/weighted-reels",
-      "lineCount": 802,
-      "byteSize": 27525,
+      "lineCount": 797,
+      "byteSize": 27099,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
@@ -13451,8 +13725,8 @@
       "relativePath": "std-library/data/concatenatearraynode.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/array/array-concatenate",
-      "lineCount": 153,
-      "byteSize": 4065,
+      "lineCount": 154,
+      "byteSize": 4083,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -13487,8 +13761,8 @@
       "relativePath": "std-library/data/copyarraynode.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/array/copy-array-node",
-      "lineCount": 218,
-      "byteSize": 6493,
+      "lineCount": 220,
+      "byteSize": 6664,
       "inputFormatHints": {
         "items": {
           "displayName": "Source Items",
@@ -13540,8 +13814,8 @@
       "relativePath": "std-library/data/extractvaluesnode.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/array/extract-values",
-      "lineCount": 202,
-      "byteSize": 4959,
+      "lineCount": 203,
+      "byteSize": 4977,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -13576,8 +13850,8 @@
       "relativePath": "std-library/data/fillarraynode.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/array/array-fill",
-      "lineCount": 177,
-      "byteSize": 4637,
+      "lineCount": 178,
+      "byteSize": 4655,
       "inputFormatHints": {
         "size": {
           "displayName": "Size",
@@ -13749,8 +14023,8 @@
       "relativePath": "std-library/data/getarrayitemnode.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/array/get-array-item",
-      "lineCount": 242,
-      "byteSize": 6794,
+      "lineCount": 243,
+      "byteSize": 6812,
       "inputFormatHints": {
         "arrayId": {
           "displayName": "Array Id",
@@ -13882,8 +14156,8 @@
       "relativePath": "std-library/data/modifyobjectinarraynode.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/array/modify-object-in-array",
-      "lineCount": 281,
-      "byteSize": 8273,
+      "lineCount": 282,
+      "byteSize": 8291,
       "inputFormatHints": {
         "objectId": {
           "displayName": "Object Id",
@@ -13996,8 +14270,8 @@
       "relativePath": "std-library/data/sortcollectionnode.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/array/array-sort",
-      "lineCount": 243,
-      "byteSize": 6265,
+      "lineCount": 244,
+      "byteSize": 6283,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -15682,51 +15956,6 @@
       "net.xgenia.ComponentObject",
       "net.xgenia.ParentComponentObject"
     ],
-    "Math": [
-      "Addition",
-      "Calculate Roll",
-      "Ceil",
-      "Division",
-      "Equal",
-      "Floor",
-      "Hit Frequency Monitor",
-      "ISAAC Random Number Array Generator",
-      "ISAAC Random Number Generator",
-      "Less Than",
-      "Less Than Or Equal",
-      "Max",
-      "Max Array",
-      "Formula-Generated Array",
-      "Min",
-      "Min Array",
-      "Modulo",
-      "Multiplication",
-      "Random UUID Generator",
-      "Round",
-      "RTP Monitor",
-      "Server Seed Generator",
-      "Single Parameter Formula",
-      "Subtraction",
-      "Sum",
-      "True Random Number Array Generator",
-      "True Random Number Generator",
-      "Validate Outcome",
-      "Verify Commitment",
-      "Verify Fairness",
-      "Volatility Monitor",
-      "Counter",
-      "Calculate Free Spins States",
-      "Cascade The Reels",
-      "Generate Symbol Weights",
-      "Init Free Spins",
-      "Reel Strips Generator",
-      "Reel Ways Calculate Winnings",
-      "Reel Ways Check Wins",
-      "SlotMainEngine",
-      "Symbol Frequency Tracker",
-      "Weighted Reels",
-      "Number Remapper"
-    ],
     "Logic": [
       "And ",
       "arrayStateManager",
@@ -15770,7 +15999,9 @@
       "Convert Inputs into Record",
       "Convert Record into Outputs",
       "collectionName",
+      "DepositBalance",
       "FilterDBModels",
+      "GetBalanceByPlayerId",
       "GetPlayerIdByName",
       "ListGameSessions",
       "LoadGameSession",
@@ -15778,6 +16009,7 @@
       "Model2",
       "REST2",
       "SaveGameSession",
+      "WithdrawBalance",
       "RunTasks",
       "Generate Reel Strips",
       "CollectionInsert",
@@ -15799,6 +16031,55 @@
       "Sort Collection",
       "Static Data",
       "Variable2"
+    ],
+    "Math": [
+      "Counter",
+      "Auto Bet Strategy Evaluator",
+      "Calculate PF Array Draw",
+      "Check Keno Hits",
+      "Evaluate Keno Paytable",
+      "Addition",
+      "Calculate Roll",
+      "Ceil",
+      "Division",
+      "Equal",
+      "Floor",
+      "Hit Frequency Monitor",
+      "ISAAC Random Number Array Generator",
+      "ISAAC Random Number Generator",
+      "Less Than",
+      "Less Than Or Equal",
+      "Max",
+      "Max Array",
+      "Formula-Generated Array",
+      "Min",
+      "Min Array",
+      "Modulo",
+      "Multiplication",
+      "Random UUID Generator",
+      "Round",
+      "RTP Monitor",
+      "Server Seed Generator",
+      "Single Parameter Formula",
+      "Subtraction",
+      "Sum",
+      "True Random Number Array Generator",
+      "True Random Number Generator",
+      "Validate Outcome",
+      "Verify Commitment",
+      "Verify Fairness",
+      "Volatility Monitor",
+      "Calculate Free Spins States",
+      "Cascade The Reels",
+      "Generate Symbol Weights",
+      "Init Free Spins",
+      "Reel Strips Generator",
+      "Reel Ways Calculate Winnings",
+      "Reel Ways Check Wins",
+      "SlotMainEngine",
+      "Symbol Frequency Tracker",
+      "Weighted Reels",
+      "Number Remapper"
     ],
     "Cloud Functions": [
       "Aggregator"
@@ -16011,1568 +16292,6 @@
     ]
   },
   "portIndex": {
-    "Do": [
-      {
-        "node": "Addition",
-        "direction": "input"
-      },
-      {
-        "node": "Calculate Roll",
-        "direction": "input"
-      },
-      {
-        "node": "Ceil",
-        "direction": "input"
-      },
-      {
-        "node": "Division",
-        "direction": "input"
-      },
-      {
-        "node": "Equal",
-        "direction": "input"
-      },
-      {
-        "node": "Floor",
-        "direction": "input"
-      },
-      {
-        "node": "Hit Frequency Monitor",
-        "direction": "input"
-      },
-      {
-        "node": "ISAAC Random Number Array Generator",
-        "direction": "input"
-      },
-      {
-        "node": "ISAAC Random Number Generator",
-        "direction": "input"
-      },
-      {
-        "node": "Less Than",
-        "direction": "input"
-      },
-      {
-        "node": "Less Than Or Equal",
-        "direction": "input"
-      },
-      {
-        "node": "Max",
-        "direction": "input"
-      },
-      {
-        "node": "Max Array",
-        "direction": "input"
-      },
-      {
-        "node": "Formula-Generated Array",
-        "direction": "input"
-      },
-      {
-        "node": "Min",
-        "direction": "input"
-      },
-      {
-        "node": "Min Array",
-        "direction": "input"
-      },
-      {
-        "node": "Modulo",
-        "direction": "input"
-      },
-      {
-        "node": "Multiplication",
-        "direction": "input"
-      },
-      {
-        "node": "Random UUID Generator",
-        "direction": "input"
-      },
-      {
-        "node": "Round",
-        "direction": "input"
-      },
-      {
-        "node": "RTP Monitor",
-        "direction": "input"
-      },
-      {
-        "node": "Server Seed Generator",
-        "direction": "input"
-      },
-      {
-        "node": "Single Parameter Formula",
-        "direction": "input"
-      },
-      {
-        "node": "Subtraction",
-        "direction": "input"
-      },
-      {
-        "node": "Sum",
-        "direction": "input"
-      },
-      {
-        "node": "True Random Number Array Generator",
-        "direction": "input"
-      },
-      {
-        "node": "True Random Number Generator",
-        "direction": "input"
-      },
-      {
-        "node": "Validate Outcome",
-        "direction": "input"
-      },
-      {
-        "node": "Verify Commitment",
-        "direction": "input"
-      },
-      {
-        "node": "Verify Fairness",
-        "direction": "input"
-      },
-      {
-        "node": "Volatility Monitor",
-        "direction": "input"
-      },
-      {
-        "node": "Convert Inputs into Record",
-        "direction": "input"
-      },
-      {
-        "node": "Convert Record into Outputs",
-        "direction": "input"
-      },
-      {
-        "node": "Convert to String",
-        "direction": "input"
-      },
-      {
-        "node": "GetPlayerIdByName",
-        "direction": "input"
-      },
-      {
-        "node": "ListGameSessions",
-        "direction": "input"
-      },
-      {
-        "node": "LoadGameSession",
-        "direction": "input"
-      },
-      {
-        "node": "SaveGameSession",
-        "direction": "input"
-      },
-      {
-        "node": "Loop",
-        "direction": "input"
-      },
-      {
-        "node": "Export to JSON file",
-        "direction": "input"
-      },
-      {
-        "node": "Render Paylines Pixi",
-        "direction": "input"
-      },
-      {
-        "node": "Calculate Free Spins States",
-        "direction": "input"
-      },
-      {
-        "node": "Calculate Winnings",
-        "direction": "input"
-      },
-      {
-        "node": "Cascade The Reels",
-        "direction": "input"
-      },
-      {
-        "node": "Check Jackpot",
-        "direction": "input"
-      },
-      {
-        "node": "Check Wins",
-        "direction": "input"
-      },
-      {
-        "node": "Generate Symbol Weights",
-        "direction": "input"
-      },
-      {
-        "node": "Get Paytable",
-        "direction": "input"
-      },
-      {
-        "node": "Init Free Spins",
-        "direction": "input"
-      },
-      {
-        "node": "Reel Strips Generator",
-        "direction": "input"
-      },
-      {
-        "node": "Reel Ways Calculate Winnings",
-        "direction": "input"
-      },
-      {
-        "node": "Reel Ways Check Wins",
-        "direction": "input"
-      },
-      {
-        "node": "Render Paylines",
-        "direction": "input"
-      },
-      {
-        "node": "Spin Calculate",
-        "direction": "input"
-      },
-      {
-        "node": "Spin Result",
-        "direction": "input"
-      },
-      {
-        "node": "Symbol Frequency Tracker",
-        "direction": "input"
-      },
-      {
-        "node": "Volatility Estimator",
-        "direction": "input"
-      },
-      {
-        "node": "Weighted Reels",
-        "direction": "input"
-      },
-      {
-        "node": "Concatenate Array",
-        "direction": "input"
-      },
-      {
-        "node": "CopyArray",
-        "direction": "input"
-      },
-      {
-        "node": "Extract Values",
-        "direction": "input"
-      },
-      {
-        "node": "Fill-Generated Array",
-        "direction": "input"
-      },
-      {
-        "node": "GetArrayItem",
-        "direction": "input"
-      },
-      {
-        "node": "ModifyObjectInArray",
-        "direction": "input"
-      },
-      {
-        "node": "Sort Collection",
-        "direction": "input"
-      },
-      {
-        "node": "Debug Panel Visual",
-        "direction": "input"
-      },
-      {
-        "node": "Object Viewer",
-        "direction": "input"
-      },
-      {
-        "node": "Distribution Chart",
-        "direction": "input"
-      },
-      {
-        "node": "Histogram Chart",
-        "direction": "input"
-      },
-      {
-        "node": "Line Chart",
-        "direction": "input"
-      },
-      {
-        "node": "Project Version Tag",
-        "direction": "input"
-      },
-      {
-        "node": "Reel Visualizer",
-        "direction": "input"
-      }
-    ],
-    "Reset": [
-      {
-        "node": "Addition",
-        "direction": "input"
-      },
-      {
-        "node": "Division",
-        "direction": "input"
-      },
-      {
-        "node": "Hit Frequency Monitor",
-        "direction": "input"
-      },
-      {
-        "node": "Multiplication",
-        "direction": "input"
-      },
-      {
-        "node": "RTP Monitor",
-        "direction": "input"
-      },
-      {
-        "node": "Subtraction",
-        "direction": "input"
-      },
-      {
-        "node": "Volatility Monitor",
-        "direction": "input"
-      }
-    ],
-    "firstNumber": [
-      {
-        "node": "Addition",
-        "direction": "input"
-      },
-      {
-        "node": "Division",
-        "direction": "input"
-      },
-      {
-        "node": "Equal",
-        "direction": "input"
-      },
-      {
-        "node": "Less Than",
-        "direction": "input"
-      },
-      {
-        "node": "Less Than Or Equal",
-        "direction": "input"
-      },
-      {
-        "node": "Max",
-        "direction": "input"
-      },
-      {
-        "node": "Min",
-        "direction": "input"
-      },
-      {
-        "node": "Modulo",
-        "direction": "input"
-      },
-      {
-        "node": "Multiplication",
-        "direction": "input"
-      },
-      {
-        "node": "Subtraction",
-        "direction": "input"
-      }
-    ],
-    "secondNumber": [
-      {
-        "node": "Addition",
-        "direction": "input"
-      },
-      {
-        "node": "Division",
-        "direction": "input"
-      },
-      {
-        "node": "Equal",
-        "direction": "input"
-      },
-      {
-        "node": "Less Than",
-        "direction": "input"
-      },
-      {
-        "node": "Less Than Or Equal",
-        "direction": "input"
-      },
-      {
-        "node": "Max",
-        "direction": "input"
-      },
-      {
-        "node": "Min",
-        "direction": "input"
-      },
-      {
-        "node": "Modulo",
-        "direction": "input"
-      },
-      {
-        "node": "Multiplication",
-        "direction": "input"
-      },
-      {
-        "node": "Subtraction",
-        "direction": "input"
-      }
-    ],
-    "result": [
-      {
-        "node": "Addition",
-        "direction": "output"
-      },
-      {
-        "node": "Calculate Roll",
-        "direction": "output"
-      },
-      {
-        "node": "Ceil",
-        "direction": "output"
-      },
-      {
-        "node": "Division",
-        "direction": "output"
-      },
-      {
-        "node": "Equal",
-        "direction": "output"
-      },
-      {
-        "node": "Floor",
-        "direction": "output"
-      },
-      {
-        "node": "Less Than",
-        "direction": "output"
-      },
-      {
-        "node": "Less Than Or Equal",
-        "direction": "output"
-      },
-      {
-        "node": "Max",
-        "direction": "output"
-      },
-      {
-        "node": "Max Array",
-        "direction": "output"
-      },
-      {
-        "node": "Min",
-        "direction": "output"
-      },
-      {
-        "node": "Min Array",
-        "direction": "output"
-      },
-      {
-        "node": "Modulo",
-        "direction": "output"
-      },
-      {
-        "node": "Multiplication",
-        "direction": "output"
-      },
-      {
-        "node": "Round",
-        "direction": "output"
-      },
-      {
-        "node": "Single Parameter Formula",
-        "direction": "output"
-      },
-      {
-        "node": "Subtraction",
-        "direction": "output"
-      },
-      {
-        "node": "Sum",
-        "direction": "output"
-      },
-      {
-        "node": "And ",
-        "direction": "output"
-      },
-      {
-        "node": "Condition",
-        "direction": "output"
-      },
-      {
-        "node": "Expression",
-        "direction": "output"
-      },
-      {
-        "node": "Inverter",
-        "direction": "output"
-      },
-      {
-        "node": "MCP Tool",
-        "direction": "output"
-      },
-      {
-        "node": "Or ",
-        "direction": "output"
-      },
-      {
-        "node": "Substring",
-        "direction": "output"
-      },
-      {
-        "node": "Color Blend",
-        "direction": "output"
-      },
-      {
-        "node": "Cloud Function",
-        "direction": "output"
-      },
-      {
-        "node": "Concatenate Array",
-        "direction": "output"
-      },
-      {
-        "node": "Extract Values",
-        "direction": "output"
-      },
-      {
-        "node": "Fill-Generated Array",
-        "direction": "output"
-      },
-      {
-        "node": "Sort Collection",
-        "direction": "output"
-      }
-    ],
-    "Done": [
-      {
-        "node": "Addition",
-        "direction": "output"
-      },
-      {
-        "node": "Calculate Roll",
-        "direction": "output"
-      },
-      {
-        "node": "Ceil",
-        "direction": "output"
-      },
-      {
-        "node": "Division",
-        "direction": "output"
-      },
-      {
-        "node": "Equal",
-        "direction": "output"
-      },
-      {
-        "node": "Floor",
-        "direction": "output"
-      },
-      {
-        "node": "Hit Frequency Monitor",
-        "direction": "output"
-      },
-      {
-        "node": "ISAAC Random Number Array Generator",
-        "direction": "output"
-      },
-      {
-        "node": "ISAAC Random Number Generator",
-        "direction": "output"
-      },
-      {
-        "node": "Less Than",
-        "direction": "output"
-      },
-      {
-        "node": "Less Than Or Equal",
-        "direction": "output"
-      },
-      {
-        "node": "Max",
-        "direction": "output"
-      },
-      {
-        "node": "Max Array",
-        "direction": "output"
-      },
-      {
-        "node": "Formula-Generated Array",
-        "direction": "output"
-      },
-      {
-        "node": "Min",
-        "direction": "output"
-      },
-      {
-        "node": "Min Array",
-        "direction": "output"
-      },
-      {
-        "node": "Modulo",
-        "direction": "output"
-      },
-      {
-        "node": "Multiplication",
-        "direction": "output"
-      },
-      {
-        "node": "Random UUID Generator",
-        "direction": "output"
-      },
-      {
-        "node": "Round",
-        "direction": "output"
-      },
-      {
-        "node": "RTP Monitor",
-        "direction": "output"
-      },
-      {
-        "node": "Server Seed Generator",
-        "direction": "output"
-      },
-      {
-        "node": "Single Parameter Formula",
-        "direction": "output"
-      },
-      {
-        "node": "Subtraction",
-        "direction": "output"
-      },
-      {
-        "node": "Sum",
-        "direction": "output"
-      },
-      {
-        "node": "True Random Number Array Generator",
-        "direction": "output"
-      },
-      {
-        "node": "True Random Number Generator",
-        "direction": "output"
-      },
-      {
-        "node": "Validate Outcome",
-        "direction": "output"
-      },
-      {
-        "node": "Verify Commitment",
-        "direction": "output"
-      },
-      {
-        "node": "Verify Fairness",
-        "direction": "output"
-      },
-      {
-        "node": "Volatility Monitor",
-        "direction": "output"
-      },
-      {
-        "node": "Convert Inputs into Record",
-        "direction": "output"
-      },
-      {
-        "node": "Convert Record into Outputs",
-        "direction": "output"
-      },
-      {
-        "node": "Convert to String",
-        "direction": "output"
-      },
-      {
-        "node": "GetPlayerIdByName",
-        "direction": "output"
-      },
-      {
-        "node": "ListGameSessions",
-        "direction": "output"
-      },
-      {
-        "node": "LoadGameSession",
-        "direction": "output"
-      },
-      {
-        "node": "SaveGameSession",
-        "direction": "output"
-      },
-      {
-        "node": "Import from JSON file",
-        "direction": "output"
-      },
-      {
-        "node": "Loop",
-        "direction": "output"
-      },
-      {
-        "node": "Export to JSON file",
-        "direction": "output"
-      },
-      {
-        "node": "PixiReelController",
-        "direction": "output"
-      },
-      {
-        "node": "Render Paylines Pixi",
-        "direction": "output"
-      },
-      {
-        "node": "Calculate Free Spins States",
-        "direction": "output"
-      },
-      {
-        "node": "Calculate Winnings",
-        "direction": "output"
-      },
-      {
-        "node": "Cascade The Reels",
-        "direction": "output"
-      },
-      {
-        "node": "Check Jackpot",
-        "direction": "output"
-      },
-      {
-        "node": "Check Wins",
-        "direction": "output"
-      },
-      {
-        "node": "Generate Symbol Weights",
-        "direction": "output"
-      },
-      {
-        "node": "Get Paytable",
-        "direction": "output"
-      },
-      {
-        "node": "Init Free Spins",
-        "direction": "output"
-      },
-      {
-        "node": "Reel Strips Generator",
-        "direction": "output"
-      },
-      {
-        "node": "Reel Ways Calculate Winnings",
-        "direction": "output"
-      },
-      {
-        "node": "Reel Ways Check Wins",
-        "direction": "output"
-      },
-      {
-        "node": "Render Paylines",
-        "direction": "output"
-      },
-      {
-        "node": "SlotMainEngine",
-        "direction": "output"
-      },
-      {
-        "node": "Spin Calculate",
-        "direction": "output"
-      },
-      {
-        "node": "Spin Result",
-        "direction": "output"
-      },
-      {
-        "node": "Symbol Frequency Tracker",
-        "direction": "output"
-      },
-      {
-        "node": "Volatility Estimator",
-        "direction": "output"
-      },
-      {
-        "node": "Weighted Reels",
-        "direction": "output"
-      },
-      {
-        "node": "Concatenate Array",
-        "direction": "output"
-      },
-      {
-        "node": "CopyArray",
-        "direction": "output"
-      },
-      {
-        "node": "Extract Values",
-        "direction": "output"
-      },
-      {
-        "node": "Fill-Generated Array",
-        "direction": "output"
-      },
-      {
-        "node": "GetArrayItem",
-        "direction": "output"
-      },
-      {
-        "node": "ModifyObjectInArray",
-        "direction": "output"
-      },
-      {
-        "node": "Sort Collection",
-        "direction": "output"
-      }
-    ],
-    "Reset Done": [
-      {
-        "node": "Addition",
-        "direction": "output"
-      },
-      {
-        "node": "Division",
-        "direction": "output"
-      },
-      {
-        "node": "Multiplication",
-        "direction": "output"
-      },
-      {
-        "node": "Subtraction",
-        "direction": "output"
-      },
-      {
-        "node": "arrayStateManager",
-        "direction": "output"
-      },
-      {
-        "node": "stateManager",
-        "direction": "output"
-      }
-    ],
-    "client seed": [
-      {
-        "node": "Calculate Roll",
-        "direction": "input"
-      }
-    ],
-    "server seed": [
-      {
-        "node": "Calculate Roll",
-        "direction": "input"
-      },
-      {
-        "node": "Server Seed Generator",
-        "direction": "output"
-      }
-    ],
-    "nonce": [
-      {
-        "node": "Calculate Roll",
-        "direction": "input"
-      },
-      {
-        "node": "ISAAC Random Number Array Generator",
-        "direction": "input"
-      },
-      {
-        "node": "ISAAC Random Number Generator",
-        "direction": "input"
-      },
-      {
-        "node": "Server Seed Generator",
-        "direction": "output"
-      },
-      {
-        "node": "Verify Fairness",
-        "direction": "input"
-      }
-    ],
-    "max range": [
-      {
-        "node": "Calculate Roll",
-        "direction": "input"
-      }
-    ],
-    "min range": [
-      {
-        "node": "Calculate Roll",
-        "direction": "input"
-      }
-    ],
-    "combinedString hash": [
-      {
-        "node": "Calculate Roll",
-        "direction": "output"
-      }
-    ],
-    "value": [
-      {
-        "node": "Ceil",
-        "direction": "input"
-      },
-      {
-        "node": "Floor",
-        "direction": "input"
-      },
-      {
-        "node": "ISAAC Random Number Generator",
-        "direction": "output"
-      },
-      {
-        "node": "Round",
-        "direction": "input"
-      },
-      {
-        "node": "True Random Number Generator",
-        "direction": "output"
-      },
-      {
-        "node": "Volatility Monitor",
-        "direction": "input"
-      },
-      {
-        "node": "Inverter",
-        "direction": "input"
-      },
-      {
-        "node": "stake.API_MULTIPLIER",
-        "direction": "output"
-      },
-      {
-        "node": "stake.DisplayAmount",
-        "direction": "output"
-      },
-      {
-        "node": "net.xgenia.controls.options",
-        "direction": "input"
-      },
-      {
-        "node": "net.xgenia.controls.options",
-        "direction": "output"
-      },
-      {
-        "node": "Radio Button Group",
-        "direction": "input"
-      },
-      {
-        "node": "Radio Button Group",
-        "direction": "output"
-      },
-      {
-        "node": "net.xgenia.controls.range",
-        "direction": "input"
-      },
-      {
-        "node": "net.xgenia.controls.range",
-        "direction": "output"
-      },
-      {
-        "node": "pixi.InputAction",
-        "direction": "output"
-      },
-      {
-        "node": "logic.InputAction",
-        "direction": "output"
-      },
-      {
-        "node": "GetArrayItem",
-        "direction": "output"
-      },
-      {
-        "node": "Iterator",
-        "direction": "output"
-      },
-      {
-        "node": "Variable2",
-        "direction": "input"
-      },
-      {
-        "node": "Variable2",
-        "direction": "output"
-      },
-      {
-        "node": "Value Changed",
-        "direction": "input"
-      }
-    ],
-    "trueCondition": [
-      {
-        "node": "Equal",
-        "direction": "output"
-      },
-      {
-        "node": "Less Than",
-        "direction": "output"
-      },
-      {
-        "node": "Less Than Or Equal",
-        "direction": "output"
-      },
-      {
-        "node": "And ",
-        "direction": "output"
-      },
-      {
-        "node": "If",
-        "direction": "output"
-      },
-      {
-        "node": "Inverter",
-        "direction": "output"
-      },
-      {
-        "node": "Or ",
-        "direction": "output"
-      }
-    ],
-    "falseCondition": [
-      {
-        "node": "Equal",
-        "direction": "output"
-      },
-      {
-        "node": "Less Than",
-        "direction": "output"
-      },
-      {
-        "node": "Less Than Or Equal",
-        "direction": "output"
-      },
-      {
-        "node": "And ",
-        "direction": "output"
-      },
-      {
-        "node": "If",
-        "direction": "output"
-      },
-      {
-        "node": "Inverter",
-        "direction": "output"
-      },
-      {
-        "node": "Or ",
-        "direction": "output"
-      }
-    ],
-    "winAmount": [
-      {
-        "node": "Hit Frequency Monitor",
-        "direction": "input"
-      },
-      {
-        "node": "RTP Monitor",
-        "direction": "input"
-      }
-    ],
-    "Hit Frequency": [
-      {
-        "node": "Hit Frequency Monitor",
-        "direction": "output"
-      }
-    ],
-    "mode": [
-      {
-        "node": "ISAAC Random Number Array Generator",
-        "direction": "input"
-      },
-      {
-        "node": "ISAAC Random Number Generator",
-        "direction": "input"
-      },
-      {
-        "node": "Auto ML Predictor",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.CollisionDetector",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.GSAPPhysics",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.RevoltFX",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.UIScaler",
-        "direction": "input"
-      },
-      {
-        "node": "stake.RGSPlay",
-        "direction": "input"
-      },
-      {
-        "node": "PageStackNavigate",
-        "direction": "input"
-      }
-    ],
-    "size": [
-      {
-        "node": "ISAAC Random Number Array Generator",
-        "direction": "input"
-      },
-      {
-        "node": "True Random Number Array Generator",
-        "direction": "input"
-      },
-      {
-        "node": "Fill-Generated Array",
-        "direction": "input"
-      }
-    ],
-    "seed": [
-      {
-        "node": "ISAAC Random Number Array Generator",
-        "direction": "input"
-      },
-      {
-        "node": "ISAAC Random Number Generator",
-        "direction": "input"
-      },
-      {
-        "node": "Generate Reel Strips",
-        "direction": "input"
-      },
-      {
-        "node": "Slot Spin",
-        "direction": "input"
-      }
-    ],
-    "array": [
-      {
-        "node": "ISAAC Random Number Array Generator",
-        "direction": "output"
-      },
-      {
-        "node": "Max Array",
-        "direction": "input"
-      },
-      {
-        "node": "Min Array",
-        "direction": "input"
-      },
-      {
-        "node": "Sum",
-        "direction": "input"
-      },
-      {
-        "node": "True Random Number Array Generator",
-        "direction": "output"
-      },
-      {
-        "node": "Export to JSON file",
-        "direction": "input"
-      },
-      {
-        "node": "Extract Values",
-        "direction": "input"
-      },
-      {
-        "node": "Iterator",
-        "direction": "input"
-      },
-      {
-        "node": "Sort Collection",
-        "direction": "input"
-      }
-    ],
-    "keyPath": [
-      {
-        "node": "Max Array",
-        "direction": "input"
-      },
-      {
-        "node": "Min Array",
-        "direction": "input"
-      },
-      {
-        "node": "Sum",
-        "direction": "input"
-      },
-      {
-        "node": "Extract Values",
-        "direction": "input"
-      },
-      {
-        "node": "GetArrayItem",
-        "direction": "input"
-      },
-      {
-        "node": "GetArrayItem",
-        "direction": "output"
-      },
-      {
-        "node": "ModifyObjectInArray",
-        "direction": "input"
-      },
-      {
-        "node": "Sort Collection",
-        "direction": "input"
-      }
-    ],
-    "mathFormula": [
-      {
-        "node": "Formula-Generated Array",
-        "direction": "input"
-      },
-      {
-        "node": "Single Parameter Formula",
-        "direction": "input"
-      }
-    ],
-    "arrayLength": [
-      {
-        "node": "Formula-Generated Array",
-        "direction": "input"
-      }
-    ],
-    "id": [
-      {
-        "node": "Formula-Generated Array",
-        "direction": "output"
-      },
-      {
-        "node": "DbModel2",
-        "direction": "output"
-      },
-      {
-        "node": "Model2",
-        "direction": "output"
-      },
-      {
-        "node": "net.xgenia.user.User",
-        "direction": "output"
-      },
-      {
-        "node": "CollectionNew",
-        "direction": "output"
-      },
-      {
-        "node": "Collection2",
-        "direction": "output"
-      },
-      {
-        "node": "CopyArray",
-        "direction": "output"
-      }
-    ],
-    "items": [
-      {
-        "node": "Formula-Generated Array",
-        "direction": "output"
-      },
-      {
-        "node": "DbCollection2",
-        "direction": "output"
-      },
-      {
-        "node": "FilterDBModels",
-        "direction": "input"
-      },
-      {
-        "node": "FilterDBModels",
-        "direction": "output"
-      },
-      {
-        "node": "RunTasks",
-        "direction": "input"
-      },
-      {
-        "node": "net.xgenia.controls.options",
-        "direction": "input"
-      },
-      {
-        "node": "CollectionNew",
-        "direction": "input"
-      },
-      {
-        "node": "Collection2",
-        "direction": "input"
-      },
-      {
-        "node": "Collection2",
-        "direction": "output"
-      },
-      {
-        "node": "CopyArray",
-        "direction": "input"
-      },
-      {
-        "node": "CopyArray",
-        "direction": "output"
-      },
-      {
-        "node": "Filter Collection",
-        "direction": "input"
-      },
-      {
-        "node": "Filter Collection",
-        "direction": "output"
-      },
-      {
-        "node": "For Each",
-        "direction": "input"
-      },
-      {
-        "node": "Map Collection",
-        "direction": "input"
-      },
-      {
-        "node": "Map Collection",
-        "direction": "output"
-      },
-      {
-        "node": "Static Data",
-        "direction": "output"
-      }
-    ],
-    "firstItemId": [
-      {
-        "node": "Formula-Generated Array",
-        "direction": "output"
-      },
-      {
-        "node": "DbCollection2",
-        "direction": "output"
-      },
-      {
-        "node": "FilterDBModels",
-        "direction": "output"
-      },
-      {
-        "node": "Collection2",
-        "direction": "output"
-      },
-      {
-        "node": "CopyArray",
-        "direction": "output"
-      },
-      {
-        "node": "Filter Collection",
-        "direction": "output"
-      }
-    ],
-    "count": [
-      {
-        "node": "Formula-Generated Array",
-        "direction": "output"
-      },
-      {
-        "node": "DbCollection2",
-        "direction": "output"
-      },
-      {
-        "node": "FilterDBModels",
-        "direction": "output"
-      },
-      {
-        "node": "Collection2",
-        "direction": "output"
-      },
-      {
-        "node": "CopyArray",
-        "direction": "output"
-      },
-      {
-        "node": "Filter Collection",
-        "direction": "output"
-      },
-      {
-        "node": "Map Collection",
-        "direction": "output"
-      },
-      {
-        "node": "Static Data",
-        "direction": "output"
-      }
-    ],
-    "auto": [
-      {
-        "node": "Multiplication",
-        "direction": "input"
-      }
-    ],
-    "uuid": [
-      {
-        "node": "Random UUID Generator",
-        "direction": "output"
-      }
-    ],
-    "betAmount": [
-      {
-        "node": "RTP Monitor",
-        "direction": "input"
-      },
-      {
-        "node": "Calculate Free Spins States",
-        "direction": "input"
-      },
-      {
-        "node": "Calculate Winnings",
-        "direction": "input"
-      },
-      {
-        "node": "Reel Ways Calculate Winnings",
-        "direction": "input"
-      },
-      {
-        "node": "SlotMainEngine",
-        "direction": "input"
-      },
-      {
-        "node": "Slot Simulation",
-        "direction": "input"
-      },
-      {
-        "node": "Slot Spin",
-        "direction": "input"
-      },
-      {
-        "node": "Spin Calculate",
-        "direction": "input"
-      },
-      {
-        "node": "Spin Result",
-        "direction": "input"
-      }
-    ],
-    "RTP": [
-      {
-        "node": "RTP Monitor",
-        "direction": "output"
-      },
-      {
-        "node": "Slot Simulation",
-        "direction": "output"
-      },
-      {
-        "node": "Spin Result",
-        "direction": "output"
-      }
-    ],
-    "committedHash": [
-      {
-        "node": "Server Seed Generator",
-        "direction": "output"
-      },
-      {
-        "node": "Verify Commitment",
-        "direction": "input"
-      }
-    ],
-    "parameterValue": [
-      {
-        "node": "Single Parameter Formula",
-        "direction": "input"
-      }
-    ],
-    "fairHash": [
-      {
-        "node": "Validate Outcome",
-        "direction": "input"
-      }
-    ],
-    "maxRange": [
-      {
-        "node": "Validate Outcome",
-        "direction": "input"
-      }
-    ],
-    "minRange": [
-      {
-        "node": "Validate Outcome",
-        "direction": "input"
-      }
-    ],
-    "rollResult": [
-      {
-        "node": "Validate Outcome",
-        "direction": "output"
-      }
-    ],
-    "serverSeed": [
-      {
-        "node": "Verify Commitment",
-        "direction": "input"
-      },
-      {
-        "node": "Verify Fairness",
-        "direction": "input"
-      }
-    ],
-    "Result": [
-      {
-        "node": "Verify Commitment",
-        "direction": "output"
-      },
-      {
-        "node": "Convert to String",
-        "direction": "output"
-      }
-    ],
-    "clientSeed": [
-      {
-        "node": "Verify Fairness",
-        "direction": "input"
-      }
-    ],
-    "expectedHash": [
-      {
-        "node": "Verify Fairness",
-        "direction": "input"
-      }
-    ],
-    "isFair": [
-      {
-        "node": "Verify Fairness",
-        "direction": "output"
-      }
-    ],
-    "volatilityResult": [
-      {
-        "node": "Volatility Monitor",
-        "direction": "output"
-      },
-      {
-        "node": "Volatility Estimator",
-        "direction": "output"
-      }
-    ],
-    "standardDeviation": [
-      {
-        "node": "Volatility Monitor",
-        "direction": "output"
-      },
-      {
-        "node": "Volatility Estimator",
-        "direction": "output"
-      }
-    ],
-    "mean": [
-      {
-        "node": "Volatility Monitor",
-        "direction": "output"
-      },
-      {
-        "node": "Volatility Estimator",
-        "direction": "output"
-      }
-    ],
-    "variance": [
-      {
-        "node": "Volatility Monitor",
-        "direction": "output"
-      },
-      {
-        "node": "Volatility Estimator",
-        "direction": "output"
-      }
-    ],
-    "amplitude": [
-      {
-        "node": "Volatility Monitor",
-        "direction": "output"
-      },
-      {
-        "node": "Volatility Estimator",
-        "direction": "output"
-      }
-    ],
     "a": [
       {
         "node": "And ",
@@ -17629,6 +16348,196 @@
       {
         "node": "net.xgenia.externallink",
         "direction": "input"
+      }
+    ],
+    "result": [
+      {
+        "node": "And ",
+        "direction": "output"
+      },
+      {
+        "node": "Condition",
+        "direction": "output"
+      },
+      {
+        "node": "Expression",
+        "direction": "output"
+      },
+      {
+        "node": "Inverter",
+        "direction": "output"
+      },
+      {
+        "node": "MCP Tool",
+        "direction": "output"
+      },
+      {
+        "node": "Or ",
+        "direction": "output"
+      },
+      {
+        "node": "Substring",
+        "direction": "output"
+      },
+      {
+        "node": "Calculate PF Array Draw",
+        "direction": "output"
+      },
+      {
+        "node": "Addition",
+        "direction": "output"
+      },
+      {
+        "node": "Calculate Roll",
+        "direction": "output"
+      },
+      {
+        "node": "Ceil",
+        "direction": "output"
+      },
+      {
+        "node": "Division",
+        "direction": "output"
+      },
+      {
+        "node": "Equal",
+        "direction": "output"
+      },
+      {
+        "node": "Floor",
+        "direction": "output"
+      },
+      {
+        "node": "Less Than",
+        "direction": "output"
+      },
+      {
+        "node": "Less Than Or Equal",
+        "direction": "output"
+      },
+      {
+        "node": "Max",
+        "direction": "output"
+      },
+      {
+        "node": "Max Array",
+        "direction": "output"
+      },
+      {
+        "node": "Min",
+        "direction": "output"
+      },
+      {
+        "node": "Min Array",
+        "direction": "output"
+      },
+      {
+        "node": "Modulo",
+        "direction": "output"
+      },
+      {
+        "node": "Multiplication",
+        "direction": "output"
+      },
+      {
+        "node": "Round",
+        "direction": "output"
+      },
+      {
+        "node": "Single Parameter Formula",
+        "direction": "output"
+      },
+      {
+        "node": "Subtraction",
+        "direction": "output"
+      },
+      {
+        "node": "Sum",
+        "direction": "output"
+      },
+      {
+        "node": "Color Blend",
+        "direction": "output"
+      },
+      {
+        "node": "Cloud Function",
+        "direction": "output"
+      },
+      {
+        "node": "Concatenate Array",
+        "direction": "output"
+      },
+      {
+        "node": "Extract Values",
+        "direction": "output"
+      },
+      {
+        "node": "Fill-Generated Array",
+        "direction": "output"
+      },
+      {
+        "node": "Sort Collection",
+        "direction": "output"
+      }
+    ],
+    "trueCondition": [
+      {
+        "node": "And ",
+        "direction": "output"
+      },
+      {
+        "node": "If",
+        "direction": "output"
+      },
+      {
+        "node": "Inverter",
+        "direction": "output"
+      },
+      {
+        "node": "Or ",
+        "direction": "output"
+      },
+      {
+        "node": "Equal",
+        "direction": "output"
+      },
+      {
+        "node": "Less Than",
+        "direction": "output"
+      },
+      {
+        "node": "Less Than Or Equal",
+        "direction": "output"
+      }
+    ],
+    "falseCondition": [
+      {
+        "node": "And ",
+        "direction": "output"
+      },
+      {
+        "node": "If",
+        "direction": "output"
+      },
+      {
+        "node": "Inverter",
+        "direction": "output"
+      },
+      {
+        "node": "Or ",
+        "direction": "output"
+      },
+      {
+        "node": "Equal",
+        "direction": "output"
+      },
+      {
+        "node": "Less Than",
+        "direction": "output"
+      },
+      {
+        "node": "Less Than Or Equal",
+        "direction": "output"
       }
     ],
     "animationName": [
@@ -18123,6 +17032,32 @@
         "direction": "output"
       }
     ],
+    "Reset Done": [
+      {
+        "node": "arrayStateManager",
+        "direction": "output"
+      },
+      {
+        "node": "stateManager",
+        "direction": "output"
+      },
+      {
+        "node": "Addition",
+        "direction": "output"
+      },
+      {
+        "node": "Division",
+        "direction": "output"
+      },
+      {
+        "node": "Multiplication",
+        "direction": "output"
+      },
+      {
+        "node": "Subtraction",
+        "direction": "output"
+      }
+    ],
     "input": [
       {
         "node": "Boolean To Signal",
@@ -18263,6 +17198,626 @@
         "direction": "output"
       }
     ],
+    "Do": [
+      {
+        "node": "Convert Inputs into Record",
+        "direction": "input"
+      },
+      {
+        "node": "Convert Record into Outputs",
+        "direction": "input"
+      },
+      {
+        "node": "Convert to String",
+        "direction": "input"
+      },
+      {
+        "node": "DepositBalance",
+        "direction": "input"
+      },
+      {
+        "node": "GetBalanceByPlayerId",
+        "direction": "input"
+      },
+      {
+        "node": "GetPlayerIdByName",
+        "direction": "input"
+      },
+      {
+        "node": "ListGameSessions",
+        "direction": "input"
+      },
+      {
+        "node": "LoadGameSession",
+        "direction": "input"
+      },
+      {
+        "node": "SaveGameSession",
+        "direction": "input"
+      },
+      {
+        "node": "WithdrawBalance",
+        "direction": "input"
+      },
+      {
+        "node": "Loop",
+        "direction": "input"
+      },
+      {
+        "node": "Export to JSON file",
+        "direction": "input"
+      },
+      {
+        "node": "Auto Bet Strategy Evaluator",
+        "direction": "input"
+      },
+      {
+        "node": "Calculate PF Array Draw",
+        "direction": "input"
+      },
+      {
+        "node": "Check Keno Hits",
+        "direction": "input"
+      },
+      {
+        "node": "Evaluate Keno Paytable",
+        "direction": "input"
+      },
+      {
+        "node": "Addition",
+        "direction": "input"
+      },
+      {
+        "node": "Calculate Roll",
+        "direction": "input"
+      },
+      {
+        "node": "Ceil",
+        "direction": "input"
+      },
+      {
+        "node": "Division",
+        "direction": "input"
+      },
+      {
+        "node": "Equal",
+        "direction": "input"
+      },
+      {
+        "node": "Floor",
+        "direction": "input"
+      },
+      {
+        "node": "Hit Frequency Monitor",
+        "direction": "input"
+      },
+      {
+        "node": "ISAAC Random Number Array Generator",
+        "direction": "input"
+      },
+      {
+        "node": "ISAAC Random Number Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Less Than",
+        "direction": "input"
+      },
+      {
+        "node": "Less Than Or Equal",
+        "direction": "input"
+      },
+      {
+        "node": "Max",
+        "direction": "input"
+      },
+      {
+        "node": "Max Array",
+        "direction": "input"
+      },
+      {
+        "node": "Formula-Generated Array",
+        "direction": "input"
+      },
+      {
+        "node": "Min",
+        "direction": "input"
+      },
+      {
+        "node": "Min Array",
+        "direction": "input"
+      },
+      {
+        "node": "Modulo",
+        "direction": "input"
+      },
+      {
+        "node": "Multiplication",
+        "direction": "input"
+      },
+      {
+        "node": "Random UUID Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Round",
+        "direction": "input"
+      },
+      {
+        "node": "RTP Monitor",
+        "direction": "input"
+      },
+      {
+        "node": "Server Seed Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Single Parameter Formula",
+        "direction": "input"
+      },
+      {
+        "node": "Subtraction",
+        "direction": "input"
+      },
+      {
+        "node": "Sum",
+        "direction": "input"
+      },
+      {
+        "node": "True Random Number Array Generator",
+        "direction": "input"
+      },
+      {
+        "node": "True Random Number Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Validate Outcome",
+        "direction": "input"
+      },
+      {
+        "node": "Verify Commitment",
+        "direction": "input"
+      },
+      {
+        "node": "Verify Fairness",
+        "direction": "input"
+      },
+      {
+        "node": "Volatility Monitor",
+        "direction": "input"
+      },
+      {
+        "node": "Render Paylines Pixi",
+        "direction": "input"
+      },
+      {
+        "node": "Calculate Free Spins States",
+        "direction": "input"
+      },
+      {
+        "node": "Calculate Winnings",
+        "direction": "input"
+      },
+      {
+        "node": "Cascade The Reels",
+        "direction": "input"
+      },
+      {
+        "node": "Check Jackpot",
+        "direction": "input"
+      },
+      {
+        "node": "Check Wins",
+        "direction": "input"
+      },
+      {
+        "node": "Generate Symbol Weights",
+        "direction": "input"
+      },
+      {
+        "node": "Get Paytable",
+        "direction": "input"
+      },
+      {
+        "node": "Init Free Spins",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Strips Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Ways Calculate Winnings",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Ways Check Wins",
+        "direction": "input"
+      },
+      {
+        "node": "Render Paylines",
+        "direction": "input"
+      },
+      {
+        "node": "Spin Calculate",
+        "direction": "input"
+      },
+      {
+        "node": "Spin Result",
+        "direction": "input"
+      },
+      {
+        "node": "Symbol Frequency Tracker",
+        "direction": "input"
+      },
+      {
+        "node": "Volatility Estimator",
+        "direction": "input"
+      },
+      {
+        "node": "Weighted Reels",
+        "direction": "input"
+      },
+      {
+        "node": "Concatenate Array",
+        "direction": "input"
+      },
+      {
+        "node": "CopyArray",
+        "direction": "input"
+      },
+      {
+        "node": "Extract Values",
+        "direction": "input"
+      },
+      {
+        "node": "Fill-Generated Array",
+        "direction": "input"
+      },
+      {
+        "node": "GetArrayItem",
+        "direction": "input"
+      },
+      {
+        "node": "ModifyObjectInArray",
+        "direction": "input"
+      },
+      {
+        "node": "Sort Collection",
+        "direction": "input"
+      },
+      {
+        "node": "Debug Panel Visual",
+        "direction": "input"
+      },
+      {
+        "node": "Object Viewer",
+        "direction": "input"
+      },
+      {
+        "node": "Distribution Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Histogram Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Line Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Project Version Tag",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Visualizer",
+        "direction": "input"
+      }
+    ],
+    "Done": [
+      {
+        "node": "Convert Inputs into Record",
+        "direction": "output"
+      },
+      {
+        "node": "Convert Record into Outputs",
+        "direction": "output"
+      },
+      {
+        "node": "Convert to String",
+        "direction": "output"
+      },
+      {
+        "node": "DepositBalance",
+        "direction": "output"
+      },
+      {
+        "node": "GetBalanceByPlayerId",
+        "direction": "output"
+      },
+      {
+        "node": "GetPlayerIdByName",
+        "direction": "output"
+      },
+      {
+        "node": "ListGameSessions",
+        "direction": "output"
+      },
+      {
+        "node": "LoadGameSession",
+        "direction": "output"
+      },
+      {
+        "node": "SaveGameSession",
+        "direction": "output"
+      },
+      {
+        "node": "WithdrawBalance",
+        "direction": "output"
+      },
+      {
+        "node": "Import from JSON file",
+        "direction": "output"
+      },
+      {
+        "node": "Loop",
+        "direction": "output"
+      },
+      {
+        "node": "Export to JSON file",
+        "direction": "output"
+      },
+      {
+        "node": "Auto Bet Strategy Evaluator",
+        "direction": "output"
+      },
+      {
+        "node": "Calculate PF Array Draw",
+        "direction": "output"
+      },
+      {
+        "node": "Check Keno Hits",
+        "direction": "output"
+      },
+      {
+        "node": "Evaluate Keno Paytable",
+        "direction": "output"
+      },
+      {
+        "node": "Addition",
+        "direction": "output"
+      },
+      {
+        "node": "Calculate Roll",
+        "direction": "output"
+      },
+      {
+        "node": "Ceil",
+        "direction": "output"
+      },
+      {
+        "node": "Division",
+        "direction": "output"
+      },
+      {
+        "node": "Equal",
+        "direction": "output"
+      },
+      {
+        "node": "Floor",
+        "direction": "output"
+      },
+      {
+        "node": "Hit Frequency Monitor",
+        "direction": "output"
+      },
+      {
+        "node": "ISAAC Random Number Array Generator",
+        "direction": "output"
+      },
+      {
+        "node": "ISAAC Random Number Generator",
+        "direction": "output"
+      },
+      {
+        "node": "Less Than",
+        "direction": "output"
+      },
+      {
+        "node": "Less Than Or Equal",
+        "direction": "output"
+      },
+      {
+        "node": "Max",
+        "direction": "output"
+      },
+      {
+        "node": "Max Array",
+        "direction": "output"
+      },
+      {
+        "node": "Formula-Generated Array",
+        "direction": "output"
+      },
+      {
+        "node": "Min",
+        "direction": "output"
+      },
+      {
+        "node": "Min Array",
+        "direction": "output"
+      },
+      {
+        "node": "Modulo",
+        "direction": "output"
+      },
+      {
+        "node": "Multiplication",
+        "direction": "output"
+      },
+      {
+        "node": "Random UUID Generator",
+        "direction": "output"
+      },
+      {
+        "node": "Round",
+        "direction": "output"
+      },
+      {
+        "node": "RTP Monitor",
+        "direction": "output"
+      },
+      {
+        "node": "Server Seed Generator",
+        "direction": "output"
+      },
+      {
+        "node": "Single Parameter Formula",
+        "direction": "output"
+      },
+      {
+        "node": "Subtraction",
+        "direction": "output"
+      },
+      {
+        "node": "Sum",
+        "direction": "output"
+      },
+      {
+        "node": "True Random Number Array Generator",
+        "direction": "output"
+      },
+      {
+        "node": "True Random Number Generator",
+        "direction": "output"
+      },
+      {
+        "node": "Validate Outcome",
+        "direction": "output"
+      },
+      {
+        "node": "Verify Commitment",
+        "direction": "output"
+      },
+      {
+        "node": "Verify Fairness",
+        "direction": "output"
+      },
+      {
+        "node": "Volatility Monitor",
+        "direction": "output"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      },
+      {
+        "node": "Render Paylines Pixi",
+        "direction": "output"
+      },
+      {
+        "node": "Calculate Free Spins States",
+        "direction": "output"
+      },
+      {
+        "node": "Calculate Winnings",
+        "direction": "output"
+      },
+      {
+        "node": "Cascade The Reels",
+        "direction": "output"
+      },
+      {
+        "node": "Check Jackpot",
+        "direction": "output"
+      },
+      {
+        "node": "Check Wins",
+        "direction": "output"
+      },
+      {
+        "node": "Generate Symbol Weights",
+        "direction": "output"
+      },
+      {
+        "node": "Get Paytable",
+        "direction": "output"
+      },
+      {
+        "node": "Init Free Spins",
+        "direction": "output"
+      },
+      {
+        "node": "Reel Strips Generator",
+        "direction": "output"
+      },
+      {
+        "node": "Reel Ways Calculate Winnings",
+        "direction": "output"
+      },
+      {
+        "node": "Reel Ways Check Wins",
+        "direction": "output"
+      },
+      {
+        "node": "Render Paylines",
+        "direction": "output"
+      },
+      {
+        "node": "SlotMainEngine",
+        "direction": "output"
+      },
+      {
+        "node": "Spin Calculate",
+        "direction": "output"
+      },
+      {
+        "node": "Spin Result",
+        "direction": "output"
+      },
+      {
+        "node": "Symbol Frequency Tracker",
+        "direction": "output"
+      },
+      {
+        "node": "Volatility Estimator",
+        "direction": "output"
+      },
+      {
+        "node": "Weighted Reels",
+        "direction": "output"
+      },
+      {
+        "node": "Concatenate Array",
+        "direction": "output"
+      },
+      {
+        "node": "CopyArray",
+        "direction": "output"
+      },
+      {
+        "node": "Extract Values",
+        "direction": "output"
+      },
+      {
+        "node": "Fill-Generated Array",
+        "direction": "output"
+      },
+      {
+        "node": "GetArrayItem",
+        "direction": "output"
+      },
+      {
+        "node": "ModifyObjectInArray",
+        "direction": "output"
+      },
+      {
+        "node": "Sort Collection",
+        "direction": "output"
+      }
+    ],
     "data": [
       {
         "node": "Convert Inputs into Record",
@@ -18299,6 +17854,16 @@
       {
         "node": "Convert to String",
         "direction": "input"
+      }
+    ],
+    "Result": [
+      {
+        "node": "Convert to String",
+        "direction": "output"
+      },
+      {
+        "node": "Verify Commitment",
+        "direction": "output"
       }
     ],
     "increase": [
@@ -18479,6 +18044,102 @@
         "direction": "output"
       }
     ],
+    "items": [
+      {
+        "node": "DbCollection2",
+        "direction": "output"
+      },
+      {
+        "node": "FilterDBModels",
+        "direction": "input"
+      },
+      {
+        "node": "FilterDBModels",
+        "direction": "output"
+      },
+      {
+        "node": "RunTasks",
+        "direction": "input"
+      },
+      {
+        "node": "Formula-Generated Array",
+        "direction": "output"
+      },
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      },
+      {
+        "node": "CollectionNew",
+        "direction": "input"
+      },
+      {
+        "node": "Collection2",
+        "direction": "input"
+      },
+      {
+        "node": "Collection2",
+        "direction": "output"
+      },
+      {
+        "node": "CopyArray",
+        "direction": "input"
+      },
+      {
+        "node": "CopyArray",
+        "direction": "output"
+      },
+      {
+        "node": "Filter Collection",
+        "direction": "input"
+      },
+      {
+        "node": "Filter Collection",
+        "direction": "output"
+      },
+      {
+        "node": "For Each",
+        "direction": "input"
+      },
+      {
+        "node": "Map Collection",
+        "direction": "input"
+      },
+      {
+        "node": "Map Collection",
+        "direction": "output"
+      },
+      {
+        "node": "Static Data",
+        "direction": "output"
+      }
+    ],
+    "firstItemId": [
+      {
+        "node": "DbCollection2",
+        "direction": "output"
+      },
+      {
+        "node": "FilterDBModels",
+        "direction": "output"
+      },
+      {
+        "node": "Formula-Generated Array",
+        "direction": "output"
+      },
+      {
+        "node": "Collection2",
+        "direction": "output"
+      },
+      {
+        "node": "CopyArray",
+        "direction": "output"
+      },
+      {
+        "node": "Filter Collection",
+        "direction": "output"
+      }
+    ],
     "isEmpty": [
       {
         "node": "DbCollection2",
@@ -18486,6 +18147,40 @@
       },
       {
         "node": "ListGameSessions",
+        "direction": "output"
+      }
+    ],
+    "count": [
+      {
+        "node": "DbCollection2",
+        "direction": "output"
+      },
+      {
+        "node": "FilterDBModels",
+        "direction": "output"
+      },
+      {
+        "node": "Formula-Generated Array",
+        "direction": "output"
+      },
+      {
+        "node": "Collection2",
+        "direction": "output"
+      },
+      {
+        "node": "CopyArray",
+        "direction": "output"
+      },
+      {
+        "node": "Filter Collection",
+        "direction": "output"
+      },
+      {
+        "node": "Map Collection",
+        "direction": "output"
+      },
+      {
+        "node": "Static Data",
         "direction": "output"
       }
     ],
@@ -18847,6 +18542,36 @@
         "direction": "input"
       }
     ],
+    "id": [
+      {
+        "node": "DbModel2",
+        "direction": "output"
+      },
+      {
+        "node": "Model2",
+        "direction": "output"
+      },
+      {
+        "node": "net.xgenia.user.User",
+        "direction": "output"
+      },
+      {
+        "node": "Formula-Generated Array",
+        "direction": "output"
+      },
+      {
+        "node": "CollectionNew",
+        "direction": "output"
+      },
+      {
+        "node": "Collection2",
+        "direction": "output"
+      },
+      {
+        "node": "CopyArray",
+        "direction": "output"
+      }
+    ],
     "changed": [
       {
         "node": "DbModel2",
@@ -18884,6 +18609,48 @@
     "deleted": [
       {
         "node": "DeleteDbModelProperties",
+        "direction": "output"
+      }
+    ],
+    "playerID": [
+      {
+        "node": "DepositBalance",
+        "direction": "input"
+      },
+      {
+        "node": "GetBalanceByPlayerId",
+        "direction": "input"
+      },
+      {
+        "node": "WithdrawBalance",
+        "direction": "input"
+      }
+    ],
+    "depositAmount": [
+      {
+        "node": "DepositBalance",
+        "direction": "input"
+      }
+    ],
+    "isSuccessful": [
+      {
+        "node": "DepositBalance",
+        "direction": "output"
+      },
+      {
+        "node": "GetBalanceByPlayerId",
+        "direction": "output"
+      },
+      {
+        "node": "LoadGameSession",
+        "direction": "output"
+      },
+      {
+        "node": "SaveGameSession",
+        "direction": "output"
+      },
+      {
+        "node": "WithdrawBalance",
         "direction": "output"
       }
     ],
@@ -18987,6 +18754,36 @@
         "direction": "output"
       }
     ],
+    "balance": [
+      {
+        "node": "GetBalanceByPlayerId",
+        "direction": "output"
+      },
+      {
+        "node": "stake.RGSAuthenticate",
+        "direction": "output"
+      },
+      {
+        "node": "stake.BalanceUpdate",
+        "direction": "output"
+      },
+      {
+        "node": "stake.RGSBalance",
+        "direction": "output"
+      },
+      {
+        "node": "stake.DisplayAmount",
+        "direction": "input"
+      },
+      {
+        "node": "stake.RGSEndRound",
+        "direction": "output"
+      },
+      {
+        "node": "stake.RGSPlay",
+        "direction": "output"
+      }
+    ],
     "playerName": [
       {
         "node": "GetPlayerIdByName",
@@ -19059,16 +18856,6 @@
       {
         "node": "SaveGameSession",
         "direction": "input"
-      }
-    ],
-    "isSuccessful": [
-      {
-        "node": "LoadGameSession",
-        "direction": "output"
-      },
-      {
-        "node": "SaveGameSession",
-        "direction": "output"
       }
     ],
     "properties": [
@@ -19307,6 +19094,12 @@
         "direction": "output"
       }
     ],
+    "withdrawAmount": [
+      {
+        "node": "WithdrawBalance",
+        "direction": "input"
+      }
+    ],
     "formatString": [
       {
         "node": "Date To String",
@@ -19361,6 +19154,96 @@
       {
         "node": "Expression",
         "direction": "output"
+      }
+    ],
+    "value": [
+      {
+        "node": "Inverter",
+        "direction": "input"
+      },
+      {
+        "node": "Ceil",
+        "direction": "input"
+      },
+      {
+        "node": "Floor",
+        "direction": "input"
+      },
+      {
+        "node": "ISAAC Random Number Generator",
+        "direction": "output"
+      },
+      {
+        "node": "Round",
+        "direction": "input"
+      },
+      {
+        "node": "True Random Number Generator",
+        "direction": "output"
+      },
+      {
+        "node": "Volatility Monitor",
+        "direction": "input"
+      },
+      {
+        "node": "stake.API_MULTIPLIER",
+        "direction": "output"
+      },
+      {
+        "node": "stake.DisplayAmount",
+        "direction": "output"
+      },
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "output"
+      },
+      {
+        "node": "Radio Button Group",
+        "direction": "input"
+      },
+      {
+        "node": "Radio Button Group",
+        "direction": "output"
+      },
+      {
+        "node": "net.xgenia.controls.range",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.range",
+        "direction": "output"
+      },
+      {
+        "node": "pixi.InputAction",
+        "direction": "output"
+      },
+      {
+        "node": "logic.InputAction",
+        "direction": "output"
+      },
+      {
+        "node": "GetArrayItem",
+        "direction": "output"
+      },
+      {
+        "node": "Iterator",
+        "direction": "output"
+      },
+      {
+        "node": "Variable2",
+        "direction": "input"
+      },
+      {
+        "node": "Variable2",
+        "direction": "output"
+      },
+      {
+        "node": "Value Changed",
+        "direction": "input"
       }
     ],
     "next": [
@@ -19645,6 +19528,44 @@
         "direction": "output"
       }
     ],
+    "array": [
+      {
+        "node": "Export to JSON file",
+        "direction": "input"
+      },
+      {
+        "node": "ISAAC Random Number Array Generator",
+        "direction": "output"
+      },
+      {
+        "node": "Max Array",
+        "direction": "input"
+      },
+      {
+        "node": "Min Array",
+        "direction": "input"
+      },
+      {
+        "node": "Sum",
+        "direction": "input"
+      },
+      {
+        "node": "True Random Number Array Generator",
+        "direction": "output"
+      },
+      {
+        "node": "Extract Values",
+        "direction": "input"
+      },
+      {
+        "node": "Iterator",
+        "direction": "input"
+      },
+      {
+        "node": "Sort Collection",
+        "direction": "input"
+      }
+    ],
     "filePath": [
       {
         "node": "Export to JSON file",
@@ -19654,6 +19575,622 @@
     "debugInfo": [
       {
         "node": "Export to JSON file",
+        "direction": "output"
+      }
+    ],
+    "Reset": [
+      {
+        "node": "Auto Bet Strategy Evaluator",
+        "direction": "input"
+      },
+      {
+        "node": "Addition",
+        "direction": "input"
+      },
+      {
+        "node": "Division",
+        "direction": "input"
+      },
+      {
+        "node": "Hit Frequency Monitor",
+        "direction": "input"
+      },
+      {
+        "node": "Multiplication",
+        "direction": "input"
+      },
+      {
+        "node": "RTP Monitor",
+        "direction": "input"
+      },
+      {
+        "node": "Subtraction",
+        "direction": "input"
+      },
+      {
+        "node": "Volatility Monitor",
+        "direction": "input"
+      }
+    ],
+    "last win amount": [
+      {
+        "node": "Auto Bet Strategy Evaluator",
+        "direction": "input"
+      }
+    ],
+    "last bet amount": [
+      {
+        "node": "Auto Bet Strategy Evaluator",
+        "direction": "input"
+      }
+    ],
+    "base bet": [
+      {
+        "node": "Auto Bet Strategy Evaluator",
+        "direction": "input"
+      }
+    ],
+    "max rounds": [
+      {
+        "node": "Auto Bet Strategy Evaluator",
+        "direction": "input"
+      }
+    ],
+    "stop on profit": [
+      {
+        "node": "Auto Bet Strategy Evaluator",
+        "direction": "input"
+      }
+    ],
+    "stop on loss": [
+      {
+        "node": "Auto Bet Strategy Evaluator",
+        "direction": "input"
+      }
+    ],
+    "increase bet on loss %": [
+      {
+        "node": "Auto Bet Strategy Evaluator",
+        "direction": "input"
+      }
+    ],
+    "increase bet on win %": [
+      {
+        "node": "Auto Bet Strategy Evaluator",
+        "direction": "input"
+      }
+    ],
+    "next bet amount": [
+      {
+        "node": "Auto Bet Strategy Evaluator",
+        "direction": "output"
+      }
+    ],
+    "should continue": [
+      {
+        "node": "Auto Bet Strategy Evaluator",
+        "direction": "output"
+      }
+    ],
+    "client seed": [
+      {
+        "node": "Calculate PF Array Draw",
+        "direction": "input"
+      },
+      {
+        "node": "Calculate Roll",
+        "direction": "input"
+      }
+    ],
+    "server seed": [
+      {
+        "node": "Calculate PF Array Draw",
+        "direction": "input"
+      },
+      {
+        "node": "Calculate Roll",
+        "direction": "input"
+      },
+      {
+        "node": "Server Seed Generator",
+        "direction": "output"
+      }
+    ],
+    "nonce": [
+      {
+        "node": "Calculate PF Array Draw",
+        "direction": "input"
+      },
+      {
+        "node": "Calculate Roll",
+        "direction": "input"
+      },
+      {
+        "node": "ISAAC Random Number Array Generator",
+        "direction": "input"
+      },
+      {
+        "node": "ISAAC Random Number Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Server Seed Generator",
+        "direction": "output"
+      },
+      {
+        "node": "Verify Fairness",
+        "direction": "input"
+      }
+    ],
+    "draw count": [
+      {
+        "node": "Calculate PF Array Draw",
+        "direction": "input"
+      }
+    ],
+    "pool size": [
+      {
+        "node": "Calculate PF Array Draw",
+        "direction": "input"
+      }
+    ],
+    "selected spots": [
+      {
+        "node": "Check Keno Hits",
+        "direction": "input"
+      }
+    ],
+    "drawn numbers": [
+      {
+        "node": "Check Keno Hits",
+        "direction": "input"
+      }
+    ],
+    "hit count": [
+      {
+        "node": "Check Keno Hits",
+        "direction": "output"
+      },
+      {
+        "node": "Evaluate Keno Paytable",
+        "direction": "input"
+      }
+    ],
+    "hit numbers": [
+      {
+        "node": "Check Keno Hits",
+        "direction": "output"
+      }
+    ],
+    "risk profile": [
+      {
+        "node": "Evaluate Keno Paytable",
+        "direction": "input"
+      }
+    ],
+    "selected spots count": [
+      {
+        "node": "Evaluate Keno Paytable",
+        "direction": "input"
+      }
+    ],
+    "payout multiplier": [
+      {
+        "node": "Evaluate Keno Paytable",
+        "direction": "output"
+      }
+    ],
+    "firstNumber": [
+      {
+        "node": "Addition",
+        "direction": "input"
+      },
+      {
+        "node": "Division",
+        "direction": "input"
+      },
+      {
+        "node": "Equal",
+        "direction": "input"
+      },
+      {
+        "node": "Less Than",
+        "direction": "input"
+      },
+      {
+        "node": "Less Than Or Equal",
+        "direction": "input"
+      },
+      {
+        "node": "Max",
+        "direction": "input"
+      },
+      {
+        "node": "Min",
+        "direction": "input"
+      },
+      {
+        "node": "Modulo",
+        "direction": "input"
+      },
+      {
+        "node": "Multiplication",
+        "direction": "input"
+      },
+      {
+        "node": "Subtraction",
+        "direction": "input"
+      }
+    ],
+    "secondNumber": [
+      {
+        "node": "Addition",
+        "direction": "input"
+      },
+      {
+        "node": "Division",
+        "direction": "input"
+      },
+      {
+        "node": "Equal",
+        "direction": "input"
+      },
+      {
+        "node": "Less Than",
+        "direction": "input"
+      },
+      {
+        "node": "Less Than Or Equal",
+        "direction": "input"
+      },
+      {
+        "node": "Max",
+        "direction": "input"
+      },
+      {
+        "node": "Min",
+        "direction": "input"
+      },
+      {
+        "node": "Modulo",
+        "direction": "input"
+      },
+      {
+        "node": "Multiplication",
+        "direction": "input"
+      },
+      {
+        "node": "Subtraction",
+        "direction": "input"
+      }
+    ],
+    "max range": [
+      {
+        "node": "Calculate Roll",
+        "direction": "input"
+      }
+    ],
+    "min range": [
+      {
+        "node": "Calculate Roll",
+        "direction": "input"
+      }
+    ],
+    "combinedString hash": [
+      {
+        "node": "Calculate Roll",
+        "direction": "output"
+      }
+    ],
+    "winAmount": [
+      {
+        "node": "Hit Frequency Monitor",
+        "direction": "input"
+      },
+      {
+        "node": "RTP Monitor",
+        "direction": "input"
+      }
+    ],
+    "Hit Frequency": [
+      {
+        "node": "Hit Frequency Monitor",
+        "direction": "output"
+      }
+    ],
+    "mode": [
+      {
+        "node": "ISAAC Random Number Array Generator",
+        "direction": "input"
+      },
+      {
+        "node": "ISAAC Random Number Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Auto ML Predictor",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.CollisionDetector",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.GSAPPhysics",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.UIScaler",
+        "direction": "input"
+      },
+      {
+        "node": "stake.RGSPlay",
+        "direction": "input"
+      },
+      {
+        "node": "PageStackNavigate",
+        "direction": "input"
+      }
+    ],
+    "size": [
+      {
+        "node": "ISAAC Random Number Array Generator",
+        "direction": "input"
+      },
+      {
+        "node": "True Random Number Array Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Fill-Generated Array",
+        "direction": "input"
+      }
+    ],
+    "seed": [
+      {
+        "node": "ISAAC Random Number Array Generator",
+        "direction": "input"
+      },
+      {
+        "node": "ISAAC Random Number Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Generate Reel Strips",
+        "direction": "input"
+      },
+      {
+        "node": "Slot Spin",
+        "direction": "input"
+      }
+    ],
+    "keyPath": [
+      {
+        "node": "Max Array",
+        "direction": "input"
+      },
+      {
+        "node": "Min Array",
+        "direction": "input"
+      },
+      {
+        "node": "Sum",
+        "direction": "input"
+      },
+      {
+        "node": "Extract Values",
+        "direction": "input"
+      },
+      {
+        "node": "GetArrayItem",
+        "direction": "input"
+      },
+      {
+        "node": "GetArrayItem",
+        "direction": "output"
+      },
+      {
+        "node": "ModifyObjectInArray",
+        "direction": "input"
+      },
+      {
+        "node": "Sort Collection",
+        "direction": "input"
+      }
+    ],
+    "mathFormula": [
+      {
+        "node": "Formula-Generated Array",
+        "direction": "input"
+      },
+      {
+        "node": "Single Parameter Formula",
+        "direction": "input"
+      }
+    ],
+    "arrayLength": [
+      {
+        "node": "Formula-Generated Array",
+        "direction": "input"
+      }
+    ],
+    "uuid": [
+      {
+        "node": "Random UUID Generator",
+        "direction": "output"
+      }
+    ],
+    "betAmount": [
+      {
+        "node": "RTP Monitor",
+        "direction": "input"
+      },
+      {
+        "node": "Calculate Free Spins States",
+        "direction": "input"
+      },
+      {
+        "node": "Calculate Winnings",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Ways Calculate Winnings",
+        "direction": "input"
+      },
+      {
+        "node": "SlotMainEngine",
+        "direction": "input"
+      },
+      {
+        "node": "Slot Simulation",
+        "direction": "input"
+      },
+      {
+        "node": "Slot Spin",
+        "direction": "input"
+      },
+      {
+        "node": "Spin Calculate",
+        "direction": "input"
+      },
+      {
+        "node": "Spin Result",
+        "direction": "input"
+      }
+    ],
+    "RTP": [
+      {
+        "node": "RTP Monitor",
+        "direction": "output"
+      },
+      {
+        "node": "Slot Simulation",
+        "direction": "output"
+      },
+      {
+        "node": "Spin Result",
+        "direction": "output"
+      }
+    ],
+    "committedHash": [
+      {
+        "node": "Server Seed Generator",
+        "direction": "output"
+      },
+      {
+        "node": "Verify Commitment",
+        "direction": "input"
+      }
+    ],
+    "parameterValue": [
+      {
+        "node": "Single Parameter Formula",
+        "direction": "input"
+      }
+    ],
+    "fairHash": [
+      {
+        "node": "Validate Outcome",
+        "direction": "input"
+      }
+    ],
+    "maxRange": [
+      {
+        "node": "Validate Outcome",
+        "direction": "input"
+      }
+    ],
+    "minRange": [
+      {
+        "node": "Validate Outcome",
+        "direction": "input"
+      }
+    ],
+    "rollResult": [
+      {
+        "node": "Validate Outcome",
+        "direction": "output"
+      }
+    ],
+    "serverSeed": [
+      {
+        "node": "Verify Commitment",
+        "direction": "input"
+      },
+      {
+        "node": "Verify Fairness",
+        "direction": "input"
+      }
+    ],
+    "clientSeed": [
+      {
+        "node": "Verify Fairness",
+        "direction": "input"
+      }
+    ],
+    "expectedHash": [
+      {
+        "node": "Verify Fairness",
+        "direction": "input"
+      }
+    ],
+    "isFair": [
+      {
+        "node": "Verify Fairness",
+        "direction": "output"
+      }
+    ],
+    "volatilityResult": [
+      {
+        "node": "Volatility Monitor",
+        "direction": "output"
+      },
+      {
+        "node": "Volatility Estimator",
+        "direction": "output"
+      }
+    ],
+    "standardDeviation": [
+      {
+        "node": "Volatility Monitor",
+        "direction": "output"
+      },
+      {
+        "node": "Volatility Estimator",
+        "direction": "output"
+      }
+    ],
+    "mean": [
+      {
+        "node": "Volatility Monitor",
+        "direction": "output"
+      },
+      {
+        "node": "Volatility Estimator",
+        "direction": "output"
+      }
+    ],
+    "variance": [
+      {
+        "node": "Volatility Monitor",
+        "direction": "output"
+      },
+      {
+        "node": "Volatility Estimator",
+        "direction": "output"
+      }
+    ],
+    "amplitude": [
+      {
+        "node": "Volatility Monitor",
+        "direction": "output"
+      },
+      {
+        "node": "Volatility Estimator",
         "direction": "output"
       }
     ],
@@ -25913,32 +26450,6 @@
       {
         "node": "stake.RGSPlay",
         "direction": "input"
-      }
-    ],
-    "balance": [
-      {
-        "node": "stake.RGSAuthenticate",
-        "direction": "output"
-      },
-      {
-        "node": "stake.BalanceUpdate",
-        "direction": "output"
-      },
-      {
-        "node": "stake.RGSBalance",
-        "direction": "output"
-      },
-      {
-        "node": "stake.DisplayAmount",
-        "direction": "input"
-      },
-      {
-        "node": "stake.RGSEndRound",
-        "direction": "output"
-      },
-      {
-        "node": "stake.RGSPlay",
-        "direction": "output"
       }
     ],
     "balanceAmount": [
