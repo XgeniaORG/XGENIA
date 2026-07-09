@@ -6,6 +6,7 @@
  */
 
 import { Node } from './types';
+import { EVALUATE_FORMULA_JS } from './formula-eval-emit';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -818,87 +819,7 @@ export class SlotGameCalculationGenerator {
   private static generateGetPaytableLogic(): string {
     return `
       // Math formula evaluation function (replaces mathjs)
-      function evaluateFormula(formula, x) {
-        try {
-          // Create a scope with the variable x and common constants
-          const scope = {
-            x: x,
-            pi: Math.PI,
-            e: Math.E
-          };
-
-          // Simple formula evaluation (basic math operations)
-          // Replace common math functions with JavaScript equivalents
-          let processedFormula = formula
-            .replace(/\\bsin\\b/g, 'Math.sin')
-            .replace(/\\bcos\\b/g, 'Math.cos')
-            .replace(/\\btan\\b/g, 'Math.tan')
-            .replace(/\\blog\\b/g, 'Math.log')
-            .replace(/\\bexp\\b/g, 'Math.exp')
-            .replace(/\\bsqrt\\b/g, 'Math.sqrt')
-            .replace(/\\bpow\\b/g, 'Math.pow')
-            .replace(/\\babs\\b/g, 'Math.abs')
-            .replace(/\\bfloor\\b/g, 'Math.floor')
-            .replace(/\\bceil\\b/g, 'Math.ceil')
-            .replace(/\\bround\\b/g, 'Math.round')
-            // 2026-07-03: cover the rest of the common mathjs functions — anything the
-            // editor's mathjs accepts but this list misses works in preview and CRASHES
-            // in the RGS. All of these exist on JS Math with identical semantics.
-            .replace(/\\bmin\\b/g, 'Math.min')
-            .replace(/\\bmax\\b/g, 'Math.max')
-            .replace(/\\bcbrt\\b/g, 'Math.cbrt')
-            .replace(/\\bsign\\b/g, 'Math.sign')
-            .replace(/\\btrunc\\b/g, 'Math.trunc')
-            .replace(/\\blog2\\b/g, 'Math.log2')
-            .replace(/\\blog10\\b/g, 'Math.log10')
-            // 2026-07-05: remaining mathjs fns that map 1:1 onto JS Math (identical
-            // name + semantics). Word-boundary \\b keeps e.g. asin/atan2/sinh/log1p
-            // from being clobbered by the shorter sin/atan/tan/log rules above, and
-            // keeps longer variants (acosh vs acos vs cos) intact — order-independent.
-            .replace(/\\bacosh\\b/g, 'Math.acosh')
-            .replace(/\\basinh\\b/g, 'Math.asinh')
-            .replace(/\\batanh\\b/g, 'Math.atanh')
-            .replace(/\\batan2\\b/g, 'Math.atan2')
-            .replace(/\\basin\\b/g, 'Math.asin')
-            .replace(/\\bacos\\b/g, 'Math.acos')
-            .replace(/\\batan\\b/g, 'Math.atan')
-            .replace(/\\bsinh\\b/g, 'Math.sinh')
-            .replace(/\\bcosh\\b/g, 'Math.cosh')
-            .replace(/\\btanh\\b/g, 'Math.tanh')
-            .replace(/\\bhypot\\b/g, 'Math.hypot')
-            .replace(/\\bexpm1\\b/g, 'Math.expm1')
-            .replace(/\\blog1p\\b/g, 'Math.log1p')
-            // mathjs-only fns with no JS Math equivalent — shim to identical math.
-            // Arg-capturing ([^()]* = no nested parens, fine for the simple x-formulas
-            // these ports accept). Run before the ^->** rule below.
-            .replace(/\\bsquare\\s*\\(([^()]*)\\)/g, '(($1)**2)')
-            .replace(/\\bcube\\s*\\(([^()]*)\\)/g, '(($1)**3)')
-            .replace(/\\bnthRoot\\s*\\(([^(),]*),([^()]*)\\)/g, 'Math.pow($1, 1/($2))')
-            .replace(/\\bmod\\s*\\(([^(),]*),([^()]*)\\)/g, '(($1) % ($2))')
-            // mathjs (the editor) treats ^ as exponentiation, but raw JS eval
-            // treats ^ as bitwise XOR — so "2^x" silently gave the wrong number
-            // server-side. Convert ^ to ** (JS power) to match the editor.
-            .replace(/\\^/g, '**');
-
-          // Replace variables with their values
-          Object.keys(scope).forEach(key => {
-            const regex = new RegExp('\\\\b' + key + '\\\\b', 'g');
-            processedFormula = processedFormula.replace(regex, scope[key]);
-          });
-
-          // Evaluate the formula
-          const result = eval(processedFormula);
-
-          // Ensure we get a number result
-          if (typeof result !== 'number' || isNaN(result)) {
-            throw new Error('Formula must evaluate to a number, got ' + typeof result + ': ' + result);
-          }
-
-          return result;
-        } catch (error: any) {
-          throw new Error('Formula evaluation error: ' + error.message);
-        }
-      }
+      ${EVALUATE_FORMULA_JS}
 
       // Validate inputs
       if (numberOfSymbols <= 0) {
@@ -949,75 +870,7 @@ export class SlotGameCalculationGenerator {
   private static generateSymbolWeightsLogic(): string {
     return `
       // Math formula evaluation function compatible with Deno (no external libs)
-      function evaluateFormula(formula, x) {
-        try {
-          const scope = { x: x, pi: Math.PI, e: Math.E };
-
-          let processedFormula = String(formula)
-            .replace(/\\bsin\\b/g, 'Math.sin')
-            .replace(/\\bcos\\b/g, 'Math.cos')
-            .replace(/\\btan\\b/g, 'Math.tan')
-            .replace(/\\blog\\b/g, 'Math.log')
-            .replace(/\\bexp\\b/g, 'Math.exp')
-            .replace(/\\bsqrt\\b/g, 'Math.sqrt')
-            .replace(/\\bpow\\b/g, 'Math.pow')
-            .replace(/\\babs\\b/g, 'Math.abs')
-            .replace(/\\bfloor\\b/g, 'Math.floor')
-            .replace(/\\bceil\\b/g, 'Math.ceil')
-            .replace(/\\bround\\b/g, 'Math.round')
-            // 2026-07-03: cover the rest of the common mathjs functions — anything the
-            // editor's mathjs accepts but this list misses works in preview and CRASHES
-            // in the RGS. All of these exist on JS Math with identical semantics.
-            .replace(/\\bmin\\b/g, 'Math.min')
-            .replace(/\\bmax\\b/g, 'Math.max')
-            .replace(/\\bcbrt\\b/g, 'Math.cbrt')
-            .replace(/\\bsign\\b/g, 'Math.sign')
-            .replace(/\\btrunc\\b/g, 'Math.trunc')
-            .replace(/\\blog2\\b/g, 'Math.log2')
-            .replace(/\\blog10\\b/g, 'Math.log10')
-            // 2026-07-05: remaining mathjs fns that map 1:1 onto JS Math (identical
-            // name + semantics). Word-boundary \\b keeps e.g. asin/atan2/sinh/log1p
-            // from being clobbered by the shorter sin/atan/tan/log rules above, and
-            // keeps longer variants (acosh vs acos vs cos) intact — order-independent.
-            .replace(/\\bacosh\\b/g, 'Math.acosh')
-            .replace(/\\basinh\\b/g, 'Math.asinh')
-            .replace(/\\batanh\\b/g, 'Math.atanh')
-            .replace(/\\batan2\\b/g, 'Math.atan2')
-            .replace(/\\basin\\b/g, 'Math.asin')
-            .replace(/\\bacos\\b/g, 'Math.acos')
-            .replace(/\\batan\\b/g, 'Math.atan')
-            .replace(/\\bsinh\\b/g, 'Math.sinh')
-            .replace(/\\bcosh\\b/g, 'Math.cosh')
-            .replace(/\\btanh\\b/g, 'Math.tanh')
-            .replace(/\\bhypot\\b/g, 'Math.hypot')
-            .replace(/\\bexpm1\\b/g, 'Math.expm1')
-            .replace(/\\blog1p\\b/g, 'Math.log1p')
-            // mathjs-only fns with no JS Math equivalent — shim to identical math.
-            // Arg-capturing ([^()]* = no nested parens, fine for the simple x-formulas
-            // these ports accept). Run before the ^->** rule below.
-            .replace(/\\bsquare\\s*\\(([^()]*)\\)/g, '(($1)**2)')
-            .replace(/\\bcube\\s*\\(([^()]*)\\)/g, '(($1)**3)')
-            .replace(/\\bnthRoot\\s*\\(([^(),]*),([^()]*)\\)/g, 'Math.pow($1, 1/($2))')
-            .replace(/\\bmod\\s*\\(([^(),]*),([^()]*)\\)/g, '(($1) % ($2))')
-            // mathjs (the editor) treats ^ as exponentiation, but raw JS eval
-            // treats ^ as bitwise XOR — so "2^x" silently gave the wrong number
-            // server-side. Convert ^ to ** (JS power) to match the editor.
-            .replace(/\\^/g, '**');
-
-          Object.keys(scope).forEach((key) => {
-            const regex = new RegExp('\\\\b' + key + '\\\\b', 'g');
-            processedFormula = processedFormula.replace(regex, String(scope[key]));
-          });
-
-          const result = eval(processedFormula);
-          if (typeof result !== 'number' || isNaN(result)) {
-            throw new Error('Formula must evaluate to a number, got ' + typeof result + ': ' + result);
-          }
-          return result;
-        } catch (error: any) {
-          throw new Error('Formula evaluation error: ' + error.message);
-        }
-      }
+      ${EVALUATE_FORMULA_JS}
 
       // Validate inputs
       const N = Number(numberOfSymbols);
@@ -1107,70 +960,7 @@ export class SlotGameCalculationGenerator {
   private static generateReelStripsFromSeedLogic(): string {
     return `
       // Evaluate formula helper
-      function evaluateFormula(formula, x) {
-        try {
-          const scope = { x: x, pi: Math.PI, e: Math.E };
-          let processed = String(formula)
-            .replace(/\\bsin\\b/g, 'Math.sin')
-            .replace(/\\bcos\\b/g, 'Math.cos')
-            .replace(/\\btan\\b/g, 'Math.tan')
-            .replace(/\\blog\\b/g, 'Math.log')
-            .replace(/\\bexp\\b/g, 'Math.exp')
-            .replace(/\\bsqrt\\b/g, 'Math.sqrt')
-            .replace(/\\bpow\\b/g, 'Math.pow')
-            .replace(/\\babs\\b/g, 'Math.abs')
-            .replace(/\\bfloor\\b/g, 'Math.floor')
-            .replace(/\\bceil\\b/g, 'Math.ceil')
-            .replace(/\\bround\\b/g, 'Math.round')
-            // 2026-07-03: cover the rest of the common mathjs functions — anything the
-            // editor's mathjs accepts but this list misses works in preview and CRASHES
-            // in the RGS. All of these exist on JS Math with identical semantics.
-            .replace(/\\bmin\\b/g, 'Math.min')
-            .replace(/\\bmax\\b/g, 'Math.max')
-            .replace(/\\bcbrt\\b/g, 'Math.cbrt')
-            .replace(/\\bsign\\b/g, 'Math.sign')
-            .replace(/\\btrunc\\b/g, 'Math.trunc')
-            .replace(/\\blog2\\b/g, 'Math.log2')
-            .replace(/\\blog10\\b/g, 'Math.log10')
-            // 2026-07-05: remaining mathjs fns that map 1:1 onto JS Math (identical
-            // name + semantics). Word-boundary \\b keeps e.g. asin/atan2/sinh/log1p
-            // from being clobbered by the shorter sin/atan/tan/log rules above, and
-            // keeps longer variants (acosh vs acos vs cos) intact — order-independent.
-            .replace(/\\bacosh\\b/g, 'Math.acosh')
-            .replace(/\\basinh\\b/g, 'Math.asinh')
-            .replace(/\\batanh\\b/g, 'Math.atanh')
-            .replace(/\\batan2\\b/g, 'Math.atan2')
-            .replace(/\\basin\\b/g, 'Math.asin')
-            .replace(/\\bacos\\b/g, 'Math.acos')
-            .replace(/\\batan\\b/g, 'Math.atan')
-            .replace(/\\bsinh\\b/g, 'Math.sinh')
-            .replace(/\\bcosh\\b/g, 'Math.cosh')
-            .replace(/\\btanh\\b/g, 'Math.tanh')
-            .replace(/\\bhypot\\b/g, 'Math.hypot')
-            .replace(/\\bexpm1\\b/g, 'Math.expm1')
-            .replace(/\\blog1p\\b/g, 'Math.log1p')
-            // mathjs-only fns with no JS Math equivalent — shim to identical math.
-            // Arg-capturing ([^()]* = no nested parens, fine for the simple x-formulas
-            // these ports accept). Run before the ^->** rule below.
-            .replace(/\\bsquare\\s*\\(([^()]*)\\)/g, '(($1)**2)')
-            .replace(/\\bcube\\s*\\(([^()]*)\\)/g, '(($1)**3)')
-            .replace(/\\bnthRoot\\s*\\(([^(),]*),([^()]*)\\)/g, 'Math.pow($1, 1/($2))')
-            .replace(/\\bmod\\s*\\(([^(),]*),([^()]*)\\)/g, '(($1) % ($2))')
-            // mathjs (the editor) treats ^ as exponentiation, but raw JS eval
-            // treats ^ as bitwise XOR — so "2^x" silently gave the wrong number
-            // server-side. Convert ^ to ** (JS power) to match the editor.
-            .replace(/\\^/g, '**');
-          Object.keys(scope).forEach((k) => {
-            const rx = new RegExp('\\\\b' + k + '\\\\b', 'g');
-            processed = processed.replace(rx, String(scope[k]));
-          });
-          const result = eval(processed);
-          if (typeof result !== 'number' || !Number.isFinite(result)) throw new Error('Bad formula result');
-          return result;
-        } catch (err: any) {
-          throw new Error('Formula evaluation error: ' + err.message);
-        }
-      }
+      ${EVALUATE_FORMULA_JS}
 
       // Seeded RNG (LCG)
       function SeededRandom(seed) {
