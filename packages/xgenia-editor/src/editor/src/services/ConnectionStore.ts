@@ -95,25 +95,26 @@ export const DEFAULT_CONNECTED_SERVICES: ServiceName[] = ['vercel', 'github'];
 
 /**
  * Resolve the access token for a default-connected service. Two sources, in order:
- *   1. window.__XGENIA_DEFAULT_TOKENS__ — runtime override (e.g. a shared team token).
- *   2. Build-time tokens from .env.local, injected via webpack DefinePlugin
- *      (XGENIA_VERCEL_TOKEN / XGENIA_GITHUB_TOKEN). These are git-ignored and never
- *      committed.
+ *   1. window.__XGENIA_DEFAULT_TOKENS__ — the shared team tokens, fetched at editor
+ *      startup from the RGS database via the get_deploy_tokens RPC (see
+ *      utils/rgs/deployTokens.ts). This is the primary source and is what lets every
+ *      collaborator publish out of the box without connecting their own accounts.
+ *      The tokens live server-side as data, so they rotate with a single UPDATE and
+ *      are never committed to git (committing them tripped GitHub push protection and
+ *      got the secret auto-revoked — which is why this indirection exists).
+ *   2. Build-time tokens from a git-ignored .env.local, injected via webpack
+ *      DefinePlugin (XGENIA_VERCEL_TOKEN / XGENIA_GITHUB_TOKEN). A local-only
+ *      fallback for maintainer builds; empty when absent.
  *
- * When none is present the service is still reported as connected (so the UI never
- * nags) but with an empty token.
- *
- * SECURITY NOTE: build-time tokens are bundled into the renderer in plaintext, so
- * this is appropriate for local/internal use. For a distributed app, hold tokens in
- * the main process or a backend proxy instead of the renderer bundle.
+ * Deliberately NO hardcoded/committed tokens here.
  */
 const BUILD_TIME_DEFAULT_TOKENS: Partial<Record<ServiceName, string>> = {
-    vercel: process.env.XGENIA_VERCEL_TOKEN,
-    github: process.env.XGENIA_GITHUB_TOKEN,
+    vercel: process.env.XGENIA_VERCEL_TOKEN || '',
+    github: process.env.XGENIA_GITHUB_TOKEN || '',
 };
 
 function getInjectedDefaultToken(service: ServiceName): string {
-    // 1. Runtime override takes precedence.
+    // 1. Runtime tokens fetched from the RGS DB at startup take precedence.
     try {
         const injected = (globalThis as any).__XGENIA_DEFAULT_TOKENS__;
         const token = injected?.[service];
@@ -122,7 +123,7 @@ function getInjectedDefaultToken(service: ServiceName): string {
         // ignore
     }
 
-    // 2. Build-time token from .env.local.
+    // 2. Build-time token from .env.local (maintainer local builds only).
     return BUILD_TIME_DEFAULT_TOKENS[service] || '';
 }
 

@@ -751,6 +751,7 @@ function generateNodeLibrary(nodeRegister) {
           items: [
             'RunTasks',
             'For Each',
+            'Repeater Loop',
             'For Each Actions',
             'Model2',
             'SetModelProperties',

@@ -1424,6 +1424,8 @@ ${originalComponentStructure}
       // Add node parameters as fallbacks
       Object.entries(node.parameters).forEach(([paramName, paramValue]) => {
         if (paramName === 'params' || paramName === 'functionScript' || paramName === 'code') return;
+        // isMath is a deployment-routing flag (Compile feature), not a data input.
+        if (paramName === 'isMath') return;
         // Skip internal port metadata that should never be passed as inputs
         if (paramName.startsWith('intype-') || paramName.startsWith('outtype-') ||
             paramName.startsWith('Inputs.') || paramName.startsWith('Outputs.') ||
@@ -1640,7 +1642,8 @@ ${originalComponentStructure}
         (this.mathNodeConverter && this.mathNodeConverter.isMathNode(node.typename))
       ) {
         Object.entries(node.parameters).forEach(([key, value]) => {
-          if (key !== 'params' && key !== 'functionScript') {
+          // isMath is a compile-time deployment-routing flag, not maths config.
+          if (key !== 'params' && key !== 'functionScript' && key !== 'isMath') {
             config[key] = value;
           }
         });
@@ -2088,7 +2091,8 @@ ${originalComponentStructure}
     nodes.forEach((node) => {
       const functionName = this.getFunctionName(node);
 
-      // For math, slot game, standard library, signal passthrough, and collection nodes, we need to handle the case where dynamicports might be empty
+      // For math, slot game, standard library, signal passthrough, collection, and RGS-extra
+      // nodes, we need to handle the case where dynamicports might be empty
       // but connections exist with the actual port names
       let inputConnections;
       if (
@@ -2097,9 +2101,14 @@ ${originalComponentStructure}
         (this.stdLibraryNodeConverter && this.stdLibraryNodeConverter.isStdLibraryNode(node.typename)) ||
         (this.signalPassthroughNodeConverter &&
           this.signalPassthroughNodeConverter.isSignalPassthroughNode(node.typename)) ||
-        (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename))
+        (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename)) ||
+        (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(node.typename))
       ) {
-        // For math and slot game nodes, look for connections to this node regardless of port prefix
+        // For these nodes, look for connections to this node regardless of port prefix.
+        // RGS-extra nodes (e.g. Convert Inputs into Record) name their dynamic value
+        // ports "input{i}"/"key{i}", which do NOT carry the "in-" prefix the generic
+        // branch below filters on — without this, their connections are silently
+        // dropped and the generated function falls back to defaults.
         inputConnections = this.connections.filter((c) => c.toId === node.id);
       } else if (node.typename.startsWith('/#__cloud__/') || node.typename.startsWith('/#__maths__/')) {
         // For Cloud/Maths Logic component references, no input connections needed (they're self-contained)
@@ -2121,7 +2130,8 @@ ${originalComponentStructure}
         (this.stdLibraryNodeConverter && this.stdLibraryNodeConverter.isStdLibraryNode(node.typename)) ||
         (this.signalPassthroughNodeConverter &&
           this.signalPassthroughNodeConverter.isSignalPassthroughNode(node.typename)) ||
-        (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename))
+        (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename)) ||
+        (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(node.typename))
       ) {
         // For math and slot game nodes, we need to include ALL required parameters
         // Some may come from connections, others from node parameters (sidepanel)
@@ -2191,7 +2201,8 @@ ${originalComponentStructure}
               } else if (
                 (this.mathNodeConverter && this.mathNodeConverter.isMathNode(sourceNodeType)) ||
                 (this.slotGameNodeConverter && this.slotGameNodeConverter.isSlotGameNode(sourceNodeType)) ||
-                (this.stdLibraryNodeConverter && this.stdLibraryNodeConverter.isStdLibraryNode(sourceNodeType))
+                (this.stdLibraryNodeConverter && this.stdLibraryNodeConverter.isStdLibraryNode(sourceNodeType)) ||
+                (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(sourceNodeType))
               ) {
                 // For REST nodes, use bracket notation and strip 'out-' prefix from fromProperty
                 // because REST node outputs are stored without the 'out-' prefix
@@ -2230,6 +2241,10 @@ ${originalComponentStructure}
           // Skip special parameters that aren't input ports
           // For REST nodes, requestScript and responseScript are embedded in the function body, not passed as parameters
           if (paramName === 'params' || paramName === 'functionScript') {
+            return;
+          }
+          // isMath is a deployment-routing flag (Compile feature), not a data input.
+          if (paramName === 'isMath') {
             return;
           }
           // Exclude requestScript and responseScript for REST nodes (they're embedded in function body)
@@ -2370,7 +2385,8 @@ ${originalComponentStructure}
                 } else if (
                   (this.mathNodeConverter && this.mathNodeConverter.isMathNode(sourceNode.typename)) ||
                   (this.slotGameNodeConverter && this.slotGameNodeConverter.isSlotGameNode(sourceNode.typename)) ||
-                  (this.stdLibraryNodeConverter && this.stdLibraryNodeConverter.isStdLibraryNode(sourceNode.typename))
+                  (this.stdLibraryNodeConverter && this.stdLibraryNodeConverter.isStdLibraryNode(sourceNode.typename)) ||
+                  (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(sourceNode.typename))
                 ) {
                   // For REST nodes, use bracket notation and strip 'out-' prefix from fromProperty
                   // because REST node outputs are stored without the 'out-' prefix
@@ -3081,7 +3097,11 @@ ${originalComponentStructure}
   }
 
   private getOutputPortNames(node: Node): string[] {
-    return node.dynamicports.filter((p) => p.plug === 'output').map((p) => this.sanitizeParameterName(p.displayName));
+    // Guard against a missing dynamicports array (e.g. a custom Function node
+    // loaded from disk before the editor materialised its derived out-* ports).
+    return (node.dynamicports || [])
+      .filter((p) => p.plug === 'output')
+      .map((p) => this.sanitizeParameterName(p.displayName));
   }
 
   private findPort(nodeId: string, portName: string) {

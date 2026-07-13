@@ -1,6 +1,7 @@
 const { BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const CrashTelemetry = require('./crash-telemetry');
 
 function FloatingWindow() {
   this.window = null;
@@ -130,7 +131,9 @@ FloatingWindow.prototype.open = function ({ x, y, width, height, minWidth, minHe
   });
 
   this.window.webContents.on('render-process-gone', (event, details) => {
-    console.error('[FloatingWindow] Render process gone:', details);
+    // (debug-export 1783408275898) Persist reason/exitCode so viewer-window
+    // crashes are diagnosable post-restart, same as the editor window.
+    CrashTelemetry.record('floating-window', details);
   });
 
   this.window.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
