@@ -269,16 +269,28 @@ function _rgsUuid() {
         ].join('\n      ');
 
       case 'Convert Inputs into Record':
-        // Collect input{i} ports into a record keyed by key{i} (or "input{i}").
+        // Collect every value input into a record. `input{i}` ports are keyed by
+        // their paired `key{i}` field (falling back to "input{i}"); a value port
+        // renamed to a custom label carries that label as its own input name and
+        // uses it directly as the key. Iterating over the delivered inputs (rather
+        // than scanning input0..input{numInputs}) keeps this in lockstep with the
+        // runtime node's buildRecord so renamed ports survive deployment.
         return [
-          'var _n = inputs.numInputs != null ? Math.floor(Number(inputs.numInputs)) : 32;',
-          'if (!(_n > 0)) { _n = 32; }',
           'var _rec = {};',
-          'for (var _i = 0; _i < _n; _i++) {',
-          '  var _v = inputs["input" + _i];',
+          'var _names = Object.keys(inputs);',
+          'for (var _i = 0; _i < _names.length; _i++) {',
+          '  var _name = _names[_i];',
+          '  if (_name === "numInputs" || _name === "Do" || _name.indexOf("key") === 0) { continue; }',
+          '  var _v = inputs[_name];',
           '  if (_v === undefined) { continue; }',
-          '  var _k = inputs["key" + _i];',
-          '  if (_k == null || String(_k).trim() === "") { _k = "input" + _i; } else { _k = String(_k).trim(); }',
+          '  var _m = /^input(\\d+)$/.exec(_name);',
+          '  var _k;',
+          '  if (_m) {',
+          '    var _kv = inputs["key" + _m[1]];',
+          '    _k = (_kv == null || String(_kv).trim() === "") ? ("input" + _m[1]) : String(_kv).trim();',
+          '  } else {',
+          '    _k = _name;',
+          '  }',
           '  _rec[_k] = _v;',
           '}',
           'return { data: _rec };'

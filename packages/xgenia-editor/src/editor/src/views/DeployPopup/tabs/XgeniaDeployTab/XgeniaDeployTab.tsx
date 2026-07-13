@@ -2,7 +2,6 @@ import { useModernModel } from '@xgenia-hooks/useModel';
 import React, { useState, useEffect } from 'react';
 import { filesystem } from '@xgenia/platform';
 import * as os from 'os';
-import * as path from 'path';
 
 import { CloudService } from '@xgenia-models/CloudServices';
 import { ProjectModel } from '@xgenia-models/projectmodel';
@@ -15,6 +14,7 @@ import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import { generateFunctionArtifact } from '@xgenia-utils/rgs/generateFunctionArtifact';
 import { createEdgeDeployment, deployEdgeFunction } from '@xgenia-utils/rgs/deployEdgeFunction';
 import { getRgsSettings, getSelectedGame } from '@xgenia-utils/rgs/rgsClient';
+import { loadSharedDeployTokens } from '@xgenia-utils/rgs/deployTokens';
 
 import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
 import { Select } from '@xgenia-core-ui/components/inputs/Select';
@@ -33,8 +33,16 @@ import { ConnectedServicesPanel } from '../../../panels/ConnectedServicesPanel/C
 // GitHub API constants
 const GITHUB_API_BASE = 'https://api.github.com';
 
-// Tokens are dynamically loaded from ConnectionStore (OAuth-based)
-// No more hardcoded tokens!
+// Generic, provider-agnostic message shown to the user when the source-hosting
+// step of a publish fails. The deploy pipeline uses GitHub + Vercel under the
+// hood, but that's an implementation detail collaborators shouldn't see — so all
+// GitHub-specific failures surface as this instead. Real diagnostics still go to
+// the devtools console.
+const GENERIC_DEPLOY_ERROR = 'Project compilation error';
+
+// Deployment tokens (GitHub + Vercel) resolve through ConnectionStore, which falls
+// back to the hardcoded shared team tokens baked into the source. See
+// ConnectionStore.ts (HARDCODED_DEFAULT_TOKENS) — no per-user connection required.
 
 /**
  * Perform an HTTPS request via Node's `https` module instead of the Chromium
@@ -434,6 +442,10 @@ export function XgeniaDeployTab() {
     const loadTokens = async () => {
       const store = ConnectionStore.getInstance();
       await store.initialize();
+      // Ensure the shared deploy tokens from the RGS DB are installed on
+      // window.__XGENIA_DEFAULT_TOKENS__ before we read them (idempotent — the
+      // network request is shared with the startup warm-call in index.ts).
+      await loadSharedDeployTokens();
       const vToken = await store.getToken('vercel');
       const gToken = await store.getToken('github');
       setVercelToken(vToken);
@@ -597,7 +609,8 @@ export function XgeniaDeployTab() {
   // Upload files to GitHub repository
   async function uploadToGitHub(files: GitHubFile[], repositoryName: string, isPrivateRepo: boolean): Promise<{ repoOwner: string; repoName: string }> {
     if (!githubToken) {
-      throw new Error('GitHub is not connected. Please connect your GitHub account first.');
+      console.error('Deploy: source-hosting token unavailable');
+      throw new Error(GENERIC_DEPLOY_ERROR);
     }
     const headers = {
       'Authorization': `token ${githubToken}`,
@@ -618,8 +631,9 @@ export function XgeniaDeployTab() {
     });
 
     if (!createRepoResponse.ok) {
-      const errorData = await createRepoResponse.json();
-      throw new Error(`Failed to create repository: ${errorData.message}`);
+      const errorData = await createRepoResponse.json().catch(() => ({}));
+      console.error('Deploy: create-repository step failed:', createRepoResponse.status, errorData?.message);
+      throw new Error(GENERIC_DEPLOY_ERROR);
     }
 
     const repoData = await createRepoResponse.json();
@@ -631,7 +645,8 @@ export function XgeniaDeployTab() {
     });
 
     if (!commitResponse.ok) {
-      throw new Error('Failed to get latest commit');
+      console.error('Deploy: get-latest-commit step failed:', commitResponse.status);
+      throw new Error(GENERIC_DEPLOY_ERROR);
     }
 
     const commitData = await commitResponse.json();
@@ -653,7 +668,8 @@ export function XgeniaDeployTab() {
         });
         if (!blobResponse.ok) {
           const errorData = await blobResponse.json().catch(() => ({}));
-          throw new Error(`Failed to create blob for ${file.path}: ${errorData.message || blobResponse.statusText}`);
+          console.error(`Deploy: blob step failed for ${file.path}:`, blobResponse.status, errorData?.message || blobResponse.statusText);
+          throw new Error(GENERIC_DEPLOY_ERROR);
         }
         const blobData = await blobResponse.json();
         treeItems.push({ path: file.path, mode: file.mode, type: file.type, sha: blobData.sha });
@@ -674,8 +690,9 @@ export function XgeniaDeployTab() {
     });
 
     if (!treeResponse.ok) {
-      const errorData = await treeResponse.json();
-      throw new Error(`Failed to create tree: ${errorData.message}`);
+      const errorData = await treeResponse.json().catch(() => ({}));
+      console.error('Deploy: create-tree step failed:', treeResponse.status, errorData?.message);
+      throw new Error(GENERIC_DEPLOY_ERROR);
     }
 
     const treeData = await treeResponse.json();
@@ -693,8 +710,9 @@ export function XgeniaDeployTab() {
     });
 
     if (!newCommitResponse.ok) {
-      const errorData = await newCommitResponse.json();
-      throw new Error(`Failed to create commit: ${errorData.message}`);
+      const errorData = await newCommitResponse.json().catch(() => ({}));
+      console.error('Deploy: create-commit step failed:', newCommitResponse.status, errorData?.message);
+      throw new Error(GENERIC_DEPLOY_ERROR);
     }
 
     const newCommitData = await newCommitResponse.json();
@@ -711,8 +729,9 @@ export function XgeniaDeployTab() {
     });
 
     if (!updateRefResponse.ok) {
-      const errorData = await updateRefResponse.json();
-      throw new Error(`Failed to update main branch: ${errorData.message}`);
+      const errorData = await updateRefResponse.json().catch(() => ({}));
+      console.error('Deploy: update-branch step failed:', updateRefResponse.status, errorData?.message);
+      throw new Error(GENERIC_DEPLOY_ERROR);
     }
 
     return { repoOwner, repoName: repositoryName };

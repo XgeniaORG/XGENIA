@@ -76,24 +76,31 @@ const ConvertInputsIntoRecordNode = {
   prototypeExtensions: {
     // Register dynamic ports on demand. Value ports are named `input{i}` and
     // their optional key fields are named `key{i}`.
+    //
+    // A value port can also be RENAMED to a custom label directly on the canvas,
+    // in which case its port name is no longer `input{i}` but the label itself
+    // (e.g. "score"). Such a port must still register as a value input, otherwise
+    // the incoming connection is rejected ("input doesn't exist") and its value is
+    // silently dropped — so anything that isn't a `key{i}` field is treated as a
+    // value input. `Do`/`numInputs` are static inputs and never reach here.
     registerInputIfNeeded: function (name) {
       if (this.hasInput(name)) return;
 
-      if (name.indexOf('input') === 0) {
-        this.registerInput(name, {
-          type: '*',
-          group: 'Inputs',
-          set: function (value) {
-            this._internal.inputValues[name] = value;
-          }
-        });
-      } else if (name.indexOf('key') === 0) {
+      if (name.indexOf('key') === 0) {
         this.registerInput(name, {
           type: 'string',
           group: 'Field Names',
           default: '',
           set: function (value) {
             this._internal.keys[name] = value || '';
+          }
+        });
+      } else {
+        this.registerInput(name, {
+          type: '*',
+          group: 'Inputs',
+          set: function (value) {
+            this._internal.inputValues[name] = value;
           }
         });
       }
@@ -112,18 +119,27 @@ const ConvertInputsIntoRecordNode = {
     buildRecord: function () {
       try {
         const internal = this._internal;
-        const numInputs = internal.numInputs || 0;
         const record = {};
 
-        for (let i = 0; i < numInputs; i++) {
-          const value = internal.inputValues['input' + i];
+        // Iterate over every value actually delivered to an input, rather than
+        // scanning `input0..input{numInputs}`. This way a value port renamed to a
+        // custom label (whose port name is the label, not `input{i}`) is included
+        // too. `input{i}` ports resolve their key via the paired `key{i}` field;
+        // a renamed port uses its own port name as the record key.
+        Object.keys(internal.inputValues).forEach((name) => {
+          // Skip ports that were removed/renamed away — their value lingers in the
+          // map but the port no longer exists on the node.
+          if (!this.hasInput(name)) return;
 
+          const value = internal.inputValues[name];
           // Skip ports that were never connected/set. null, false, 0 and '' are
           // all valid values and are kept.
-          if (value === undefined) continue;
+          if (value === undefined) return;
 
-          record[this.keyForIndex(i)] = value;
-        }
+          const match = /^input(\d+)$/.exec(name);
+          const key = match ? this.keyForIndex(Number(match[1])) : name;
+          record[key] = value;
+        });
 
         internal.record = record;
         this.flagOutputDirty('data');

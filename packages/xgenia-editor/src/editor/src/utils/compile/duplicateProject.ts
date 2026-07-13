@@ -2,7 +2,6 @@
 // new "__name__" folder, load it as a separate ProjectModel and register it in
 // the projects list. The original project is never modified.
 
-import path from 'path';
 import { filesystem } from '@xgenia/platform';
 import { projectFromDirectory } from '@xgenia-models/projectmodel.editor';
 import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
@@ -23,11 +22,17 @@ export async function duplicateCurrentProject(project: any): Promise<DuplicateRe
     throw new Error('The current project has not been saved to disk yet.');
   }
 
-  const originalName: string = project.name || path.basename(srcDir);
+  // Use the platform `filesystem` path helpers rather than Node's `path`: in the
+  // editor renderer, `path` resolves to `path-browserify` (POSIX-only), which
+  // mangles native Windows paths — `dirname("C:\\...\\proj")` returns "." and
+  // `join` produces a relative "__name__" instead of a sibling of the original.
+  // `filesystem` runs against the real (win32-aware) Node path in the main
+  // process, so the copy lands next to the original on every platform.
+  const originalName: string = project.name || filesystem.basename(srcDir);
   const newName = `__${originalName}__`;
 
-  const parent = path.dirname(srcDir);
-  const destDir = filesystem.makeUniquePath(path.join(parent, newName));
+  const parent = filesystem.dirname(srcDir);
+  const destDir = filesystem.makeUniquePath(filesystem.join(parent, newName));
 
   // Recursively copy project.json, fonts/, xgenia_modules/, etc.
   await filesystem.copyFolder(srcDir, destDir);
