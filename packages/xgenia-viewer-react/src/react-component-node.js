@@ -519,7 +519,11 @@ function createNodeFromReactComponent(def) {
         displayName: 'CSS Style',
         group: 'Advanced HTML',
         type: { name: 'string', codeeditor: 'text', allowEditOnly: true },
-        default: '/* background-color: red; */',
+        // Was '/* background-color: red; */' — a leftover dev placeholder that
+        // leaked into EVERY node's serialized styleCss, cluttering inspects and
+        // repeatedly read by the AI as a real/leftover style (trace 1784051747260,
+        // bug #10). Empty default keeps nodes clean; real CSS still overrides.
+        default: '',
         set(value) {
           this.updateAdvancedStyle({ content: value });
         }

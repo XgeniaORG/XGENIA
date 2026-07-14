@@ -1583,6 +1583,18 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
 
 // ─── Inline Style Parser ────────────────────────────────────
 
+/**
+ * Convert CSS VIEWPORT units (vw/vh) to parent-relative percent. XGENIA components
+ * are always mounted INSIDE a container — a root/element sized `100vw`/`100vh` fills
+ * the whole viewport and OVERFLOWS its host (trace 1784062451334: every generated
+ * root got width:100vw/height:100vh, so an inserted "piece" escaped its parent; the
+ * piecewise brief even said "no viewport units"). The engine already maps
+ * h-screen/min-h-screen → 100%; this extends that to inline/arbitrary vw/vh.
+ */
+function viewportDimToPercent(v: string): string {
+    return v.replace(/(\d*\.?\d+)v[wh]\b/gi, '$1%');
+}
+
 function parseInlineStyle(styleStr: string): ParsedStyles {
     const styles: ParsedStyles = {};
     const declarations = styleStr.split(';').filter(d => d.trim());
@@ -1664,13 +1676,14 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
             }
 
             // ─── Size ────────────────────────────
-            // Keep 'px' suffix — XGENIA interprets bare numbers as %
-            case 'width': styles.width = value.trim(); break;
-            case 'height': styles.height = value.trim(); break;
-            case 'min-width': styles.minWidth = value.trim(); break;
-            case 'min-height': styles.minHeight = value.trim(); break;
-            case 'max-width': styles.maxWidth = value.trim(); break;
-            case 'max-height': styles.maxHeight = value.trim(); break;
+            // Keep 'px' suffix — XGENIA interprets bare numbers as %.
+            // vw/vh → % so a piece doesn't overflow its host container.
+            case 'width': styles.width = viewportDimToPercent(value.trim()); break;
+            case 'height': styles.height = viewportDimToPercent(value.trim()); break;
+            case 'min-width': styles.minWidth = viewportDimToPercent(value.trim()); break;
+            case 'min-height': styles.minHeight = viewportDimToPercent(value.trim()); break;
+            case 'max-width': styles.maxWidth = viewportDimToPercent(value.trim()); break;
+            case 'max-height': styles.maxHeight = viewportDimToPercent(value.trim()); break;
 
             // ─── Padding (individual + shorthand) ─
             case 'padding-top': {
@@ -1776,6 +1789,16 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                 } else if (value.includes('rgba') || value.includes('rgb')) {
                     // background: rgba(16, 22, 34, 0.4)
                     styles.backgroundColor = value;
+                } else if (value.includes('url(')) {
+                    // Image / multi-token shorthand — keep verbatim in styleCss (can't map to a color port)
+                    styles.styleCss = (styles.styleCss || '') + `background: ${value};`;
+                } else if (value.trim()) {
+                    // Solid color via shorthand: background: #1a1f3a / navy / hsl(...).
+                    // Previously DROPPED (only gradients + rgb/rgba were handled) → the
+                    // node kept its transparent default and the specified color was lost
+                    // (trace 1784051747260: card/page solid backgrounds vanished). Route
+                    // solid shorthand colors to the native backgroundColor port.
+                    styles.backgroundColor = value.trim();
                 }
                 break;
             }
@@ -1869,8 +1892,37 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
             }
             case 'border-color': styles.borderColor = value; break;
             case 'border-style':
-                // Skip — XGENIA doesn't support border-style
+                // Skip — the Group emit auto-sets borderStyle="solid" whenever a
+                // borderWidth is present; non-solid styles aren't a native port.
                 break;
+            case 'border': {
+                // Inline `border: <width> <style> <color>` shorthand. Was a no-op
+                // (grouped with white-space/cursor) → the specified border vanished
+                // and the node kept its engine defaults (trace 1784056805028:
+                // @Export `border:1px solid #fff` came out borderWidth 2 / #000000).
+                // The Group emit auto-adds borderStyle="solid" when borderWidth is
+                // set, so we only need to populate borderWidth + borderColor.
+                const bwM = value.match(/(?:^|\s)(\d+(?:\.\d+)?)px/);
+                const isNone = /\bnone\b|\bhidden\b/.test(value) ||
+                    /(?:^|\s)0(?:px)?(?:\s|$)/.test(value);
+                if (isNone && !bwM) {
+                    styles.borderWidth = 0;
+                } else {
+                    styles.borderWidth = bwM ? parseFloat(bwM[1]) : 1;
+                    const colorM = value.match(/#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\)/);
+                    if (colorM) {
+                        styles.borderColor = colorM[0];
+                    } else {
+                        // named color: strip width + style keywords, take the first leftover token
+                        const named = value
+                            .replace(/(\d+(?:\.\d+)?px)/g, '')
+                            .replace(/\b(solid|dashed|dotted|double|groove|ridge|inset|outset|none|hidden)\b/g, '')
+                            .trim();
+                        if (named) styles.borderColor = named.split(/\s+/)[0];
+                    }
+                }
+                break;
+            }
 
             // ─── Visual ──────────────────────────
             case 'opacity': {
@@ -1908,7 +1960,6 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
             // ─── Skip known no-ops ───────────────
             case 'white-space':
             case 'overflow-wrap':
-            case 'border':
             case 'cursor':
                 break;
             case 'font-family':
@@ -2995,6 +3046,14 @@ function translateNode(
                         cssStyles.borderColor = borderMatch[2];
                     }
                 }
+                // Solid background-color → native backgroundColor port. Previously
+                // only `background` (gradients/complex) was handled via CSS Definition;
+                // a plain `background-color` in a class rule was dropped, leaving the
+                // node transparent (trace 1784051747260). `background` shorthand is
+                // still routed through hasComplexCss above.
+                if (props['background-color']) {
+                    cssStyles.backgroundColor = props['background-color'];
+                }
                 // box-shadow stays in styleCss (no native equivalent)
                 if (props['box-shadow'] && !hasComplexCss) {
                     cssStyles.styleCss = (cssStyles.styleCss || '') + `box-shadow: ${props['box-shadow']};`;
@@ -3390,14 +3449,22 @@ function translateNode(
         const inputType = (el.getAttribute('type') || 'text').toLowerCase();
         const placeholder = el.getAttribute('placeholder') || '';
         const value = el.getAttribute('value') || '';
-        const display = value || placeholder || '';
 
-        // checkbox / radio → small bordered Group with optional checkmark Text
+        // checkbox / radio → NATIVE control node. Was a decorative bordered Group
+        // (no observable state, can't be wired, no real toggle behavior; trace
+        // 1784062451334 — a "native checkbox" brief produced 0 controls). The XML
+        // path already maps <checkbox>/<radio> to net.xgenia.controls.checkbox /
+        // radiobutton, and the html-translator output flows through that SAME tag
+        // map — so emit the native tag here instead of faking it with a Group.
         if (inputType === 'checkbox' || inputType === 'radio') {
             const isChecked = el.hasAttribute('checked');
-            const sizePx = inputType === 'checkbox' ? 18 : 16;
-            const radius = inputType === 'radio' ? 999 : 4;
-            return `${indent}<group nodeLabel="${escapeXml(inputType)}" width="${sizePx}px" height="${sizePx}px" backgroundColor="${isChecked ? (styles.color || '#0df20d') : 'rgba(255,255,255,0.05)'}" borderRadius="${radius}" borderWidth="1" borderStyle="solid" borderColor="${styles.borderColor || 'rgba(255,255,255,0.3)'}" />`;
+            const ctrlLabel = el.getAttribute('aria-label') || el.getAttribute('name') || '';
+            const nl = escapeXml(ctrlLabel || inputType);
+            const labelAttr = ctrlLabel ? ` label="${escapeXml(ctrlLabel)}"` : '';
+            if (inputType === 'checkbox') {
+                return `${indent}<checkbox nodeLabel="${nl}"${labelAttr} checked="${isChecked ? 'true' : 'false'}" />`;
+            }
+            return `${indent}<radio nodeLabel="${nl}"${labelAttr} />`;
         }
 
         // range slider → track + filled portion + thumb
@@ -3422,9 +3489,26 @@ ${indent}  <group nodeLabel="thumb" width="${thumbSize}px" height="${thumbSize}p
 ${indent}</group>`;
         }
 
-        // text / email / password / number / search etc → text-input-like Group
+        // text / email / password / number / search / tel / url → NATIVE Text Input
+        // control (net.xgenia.controls.textinput). Was a decorative Group + inner
+        // Text mockup: NOT editable, no password masking, no value to wire — the
+        // form looked valid but was dead (trace 1784062451334: a "genuinely editable
+        // native controls" brief produced 0 inputs). The native node exists and the
+        // XML path uses it; emit the native <input> tag (styling params still apply
+        // as common UI ports). Placeholder stays real placeholder text, not a fake
+        // child Text node.
+        const nativeTypeMap: Record<string, string> = {
+            email: 'email', password: 'password', number: 'number', url: 'url',
+            tel: 'text', search: 'text', text: 'text',
+        };
+        const nativeType = nativeTypeMap[inputType] || 'text';
         const inputAttrs: string[] = [];
         inputAttrs.push(`nodeLabel="${escapeXml(placeholder || value || 'input')}"`);
+        inputAttrs.push(`type="${nativeType}"`);
+        if (placeholder) inputAttrs.push(`placeholder="${escapeXml(placeholder)}"`);
+        if (value) inputAttrs.push(`value="${escapeXml(value)}"`);
+        const ariaLabel = el.getAttribute('aria-label');
+        if (ariaLabel) inputAttrs.push(`label="${escapeXml(ariaLabel)}"`);
         if (styles.width) inputAttrs.push(`width="${styles.width}"`); else inputAttrs.push('width="100%"');
         if (styles.height) inputAttrs.push(`height="${styles.height}"`); else inputAttrs.push('height="40px"');
         if (styles.backgroundColor) inputAttrs.push(`backgroundColor="${styles.backgroundColor}"`);
@@ -3440,18 +3524,9 @@ ${indent}</group>`;
         if (styles.borderColor) inputAttrs.push(`borderColor="${styles.borderColor}"`);
         else inputAttrs.push('borderColor="rgba(255,255,255,0.15)"');
         addPositionAttrs(styles, inputAttrs);
-        inputAttrs.push('paddingLeft="12"', 'paddingRight="12"', 'paddingTop="8"', 'paddingBottom="8"');
-        inputAttrs.push('alignItems="center"');
+        if (styles.color) inputAttrs.push(`color="${styles.color}"`);
         if (styles.styleCss) inputAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
-
-        // Inner display text (placeholder or value)
-        const textColor = display === placeholder ? 'rgba(255,255,255,0.5)' : (styles.color || '#FFFFFF');
-        const textXml = display
-            ? `${indent}  <text nodeLabel="${escapeXml(display.substring(0, 30))}" text="${escapeXml(display)}" color="${textColor}" fontSize="${styles.fontSize || 14}" sizeMode="contentSize" flexGrow="0" flexShrink="0" />`
-            : '';
-        return textXml
-            ? `${indent}<group ${inputAttrs.join(' ')}>\n${textXml}\n${indent}</group>`
-            : `${indent}<group ${inputAttrs.join(' ')} />`;
+        return `${indent}<input ${inputAttrs.join(' ')} />`;
     }
 
     // ─── <textarea> → multi-line text-input-like Group ──
@@ -4018,7 +4093,15 @@ function createTextNode(el: HTMLElement, tag: string, text: string, styles: Pars
     if (styles.lineHeight) {
         // XGENIA treats lineHeight as a dimension (px). CSS unitless ratios like 1.25
         // must be converted to px by multiplying with fontSize.
-        const lhValue = parseFloat(styles.lineHeight);
+        let lhRaw: string = String(styles.lineHeight);
+        // CSS PERCENTAGE line-height (e.g. 150%) is a ratio of font-size. Previously
+        // emitted verbatim as "150%", which the px-based lineHeight port can't parse
+        // → it silently fell back to "Auto" (trace 1784056805028: CardSubtitle/TrendText
+        // line-height:150% → "Auto"). Normalize % to the unitless-ratio form so the
+        // px conversion below applies (150% → 1.5 → 1.5*fontSize).
+        const pctM = /^([\d.]+)%$/.exec(lhRaw.trim());
+        if (pctM) lhRaw = String(parseFloat(pctM[1]) / 100);
+        const lhValue = parseFloat(lhRaw);
         if (!isNaN(lhValue) && lhValue < 10) {
             // Unitless ratio (e.g., 1.25, 1.625) — convert to px
             const fs = styles.fontSize || HEADING_SIZES[tag] || 16;
@@ -4026,7 +4109,7 @@ function createTextNode(el: HTMLElement, tag: string, text: string, styles: Pars
             attrs.push(`lineHeight="${lhPx}"`);
         } else {
             // Already a px value or large number — emit as-is
-            attrs.push(`lineHeight="${styles.lineHeight}"`);
+            attrs.push(`lineHeight="${lhRaw}"`);
         }
     }
     // Font style (italic)

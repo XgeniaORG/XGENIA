@@ -2487,7 +2487,19 @@ ${autoReturnCode}
                 if (portType === 'object' || portType === 'array') return val;
                 const num = typeof val.value === 'number' ? val.value : parseFloat(String(val.value));
                 if (!isFinite(num)) return val; // garbage in → keep as-is
-                return num;
+                // Surface the SAME thing the runtime uses (the stated goal of this
+                // unwrap): bare number for px/unitless, CSS STRING for percent & other
+                // relative units. The original code collapsed EVERYTHING to a bare
+                // number, so `{value:100, unit:'%'}` reached the AI as `100` —
+                // indistinguishable from 100px. That single lost unit made a self-test
+                // AI misread a fill-parent (100%) container as a 100px lock and file a
+                // cascade of false "the HTML tool strips %" bugs (trace 1784051747260).
+                // A string like "100%" does NOT trip verify_logic_correctness CHECK 24
+                // (malformed_dimension_param) — that check flags only the {value,unit}
+                // OBJECT form and explicitly documents "100%" as the correct Group value.
+                const unit = String(val.unit || '').trim();
+                if (unit === '' || unit === 'px') return num;
+                return `${num}${unit}`; // e.g. "100%", "50vw", "1.5rem"
             }
             return val;
         };

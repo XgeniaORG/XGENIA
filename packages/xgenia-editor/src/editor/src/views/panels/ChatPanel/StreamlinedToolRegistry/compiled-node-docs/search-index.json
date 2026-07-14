@@ -391,8 +391,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/convertInputsIntoRecord.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/convert-inputs-into-record",
-      "lineCount": 266,
-      "byteSize": 7727,
+      "lineCount": 282,
+      "byteSize": 8843,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -1769,8 +1769,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/simplejavascript.js",
       "category": "CustomCode",
       "docs": "https://docsapp.xgenia.com/nodes/javascript/function",
-      "lineCount": 481,
-      "byteSize": 13825,
+      "lineCount": 506,
+      "byteSize": 14981,
       "inputFormatHints": {
         "scriptInputs": {
           "type": "proplist",
@@ -1789,6 +1789,11 @@
           "displayName": "Run",
           "type": "signal",
           "group": "Actions"
+        },
+        "isMath": {
+          "displayName": "Is Math",
+          "type": "boolean",
+          "group": "Deployment"
         }
       },
       "outputFormatHints": {}
@@ -14017,6 +14022,99 @@
         }
       }
     },
+    "Repeater Loop": {
+      "name": "Repeater Loop",
+      "file": "forloop.jsx",
+      "relativePath": "std-library/data/forloop.jsx",
+      "category": "Visual",
+      "docs": "https://docsapp.xgenia.com/nodes/ui-controls/repeater",
+      "lineCount": 1012,
+      "byteSize": 34272,
+      "inputFormatHints": {
+        "items": {
+          "displayName": "Items",
+          "type": "array",
+          "group": "Data"
+        },
+        "templateType": {
+          "displayName": "Template Type",
+          "type": "enum",
+          "group": "Appearance"
+        },
+        "template": {
+          "displayName": "Template",
+          "type": "component",
+          "group": "Appearance"
+        },
+        "templateScript": {
+          "displayName": "Script",
+          "type": "string",
+          "group": "Appearance"
+        },
+        "mode": {
+          "displayName": "Mode",
+          "type": "enum",
+          "group": "Behavior"
+        },
+        "delay": {
+          "displayName": "Stagger Delay (ms)",
+          "type": "number",
+          "group": "Loop"
+        },
+        "startIndex": {
+          "displayName": "Start Index",
+          "type": "number",
+          "group": "Loop"
+        },
+        "run": {
+          "displayName": "Force Re-sync",
+          "type": "signal",
+          "group": "Loop"
+        },
+        "stop": {
+          "displayName": "Cancel Pending",
+          "type": "signal",
+          "group": "Loop"
+        }
+      },
+      "outputFormatHints": {
+        "index": {
+          "displayName": "Index",
+          "type": "number",
+          "group": "Loop"
+        },
+        "isRunning": {
+          "displayName": "Is Running",
+          "type": "boolean",
+          "group": "Loop"
+        },
+        "processedCount": {
+          "displayName": "Used Count",
+          "type": "number",
+          "group": "Loop"
+        },
+        "queuedCount": {
+          "displayName": "Queued Spawns",
+          "type": "number",
+          "group": "Loop"
+        },
+        "iteration": {
+          "displayName": "Item Spawned",
+          "type": "signal",
+          "group": "Loop"
+        },
+        "done": {
+          "displayName": "Done",
+          "type": "signal",
+          "group": "Loop"
+        },
+        "itemActionItemId": {
+          "displayName": "Item Id",
+          "type": "string",
+          "group": "Actions"
+        }
+      }
+    },
     "GetArrayItem": {
       "name": "GetArrayItem",
       "file": "getarrayitemnode.js",
@@ -16284,7 +16382,8 @@
       "Color Blend"
     ],
     "Visual": [
-      "For Each"
+      "For Each",
+      "Repeater Loop"
     ],
     "Cloud": [
       "xgenia.cloud.request",
@@ -16704,6 +16803,10 @@
       {
         "node": "net.xgenia.animatetovalue",
         "direction": "input"
+      },
+      {
+        "node": "Repeater Loop",
+        "direction": "input"
       }
     ],
     "play": [
@@ -16793,6 +16896,10 @@
       },
       {
         "node": "AdvancedTimer",
+        "direction": "input"
+      },
+      {
+        "node": "Repeater Loop",
         "direction": "input"
       },
       {
@@ -17187,6 +17294,10 @@
       },
       {
         "node": "RunTasks",
+        "direction": "output"
+      },
+      {
+        "node": "Repeater Loop",
         "direction": "output"
       },
       {
@@ -18099,6 +18210,10 @@
       },
       {
         "node": "For Each",
+        "direction": "input"
+      },
+      {
+        "node": "Repeater Loop",
         "direction": "input"
       },
       {
@@ -19130,6 +19245,10 @@
       {
         "node": "JavaScriptFunction",
         "direction": "input"
+      },
+      {
+        "node": "Repeater Loop",
+        "direction": "input"
       }
     ],
     "isTrue": [
@@ -19266,6 +19385,10 @@
         "direction": "output"
       },
       {
+        "node": "Repeater Loop",
+        "direction": "output"
+      },
+      {
         "node": "GetArrayItem",
         "direction": "input"
       }
@@ -19355,6 +19478,12 @@
       }
     ],
     "functionScript": [
+      {
+        "node": "JavaScriptFunction",
+        "direction": "input"
+      }
+    ],
+    "isMath": [
       {
         "node": "JavaScriptFunction",
         "direction": "input"
@@ -19933,6 +20062,10 @@
       },
       {
         "node": "PageStackNavigate",
+        "direction": "input"
+      },
+      {
+        "node": "Repeater Loop",
         "direction": "input"
       }
     ],
@@ -27612,6 +27745,10 @@
       {
         "node": "AdvancedTimer",
         "direction": "output"
+      },
+      {
+        "node": "Repeater Loop",
+        "direction": "output"
       }
     ],
     "timePassed": [
@@ -28340,11 +28477,19 @@
       {
         "node": "For Each",
         "direction": "input"
+      },
+      {
+        "node": "Repeater Loop",
+        "direction": "input"
       }
     ],
     "template": [
       {
         "node": "For Each",
+        "direction": "input"
+      },
+      {
+        "node": "Repeater Loop",
         "direction": "input"
       }
     ],
@@ -28352,11 +28497,19 @@
       {
         "node": "For Each",
         "direction": "input"
+      },
+      {
+        "node": "Repeater Loop",
+        "direction": "input"
       }
     ],
     "itemActionItemId": [
       {
         "node": "For Each",
+        "direction": "output"
+      },
+      {
+        "node": "Repeater Loop",
         "direction": "output"
       }
     ],
@@ -28393,6 +28546,30 @@
     "itemId": [
       {
         "node": "For Each Actions",
+        "direction": "output"
+      }
+    ],
+    "startIndex": [
+      {
+        "node": "Repeater Loop",
+        "direction": "input"
+      }
+    ],
+    "processedCount": [
+      {
+        "node": "Repeater Loop",
+        "direction": "output"
+      }
+    ],
+    "queuedCount": [
+      {
+        "node": "Repeater Loop",
+        "direction": "output"
+      }
+    ],
+    "iteration": [
+      {
+        "node": "Repeater Loop",
         "direction": "output"
       }
     ],

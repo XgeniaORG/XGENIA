@@ -1203,7 +1203,30 @@ ${originalComponentStructure}
       '  ? _componentOutputs',
       '  : (typeof _lastResult === "object" ? { ..._lastResult } : { result: _lastResult });',
       '',
+      '// 2026-07-14 (trace 1784044997749): the RGS RTP harness scores each spin by the',
+      '// top-level `win` field — see this converter\'s own { win, data, state } contract',
+      '// (docstring above) and knowledge/topics.ts evaluate_contract. The old return',
+      '// OMITTED `win`, so EVERY spin scored 0 payout -> 0% RTP for all generated maths.',
+      '// Derive it from the data output (flat OR decomposed/finalResult shape). 0 is a',
+      '// valid win (a losing spin), so preserve it. Conservative JS only (sandbox-safe).',
+      'var _win = (function (d) {',
+      '  if (!d || typeof d !== "object") return 0;',
+      '  var fr = d.finalResult;',
+      '  var w = 0;',
+      '  if (d.win != null) w = d.win;',
+      '  else if (d.winAmount != null) w = d.winAmount;',
+      '  else if (d.spinWinnings != null) w = d.spinWinnings;',
+      '  else if (d.totalPayout != null) w = d.totalPayout;',
+      '  else if (d.totalWinnings != null) w = d.totalWinnings;',
+      '  else if (fr && fr.spinResults && fr.spinResults.totalPayout != null) w = fr.spinResults.totalPayout;',
+      '  else if (fr && fr.totalWinnings != null) w = fr.totalWinnings;',
+      '  else if (fr && fr.spinWinnings != null) w = fr.spinWinnings;',
+      '  var n = Number(w);',
+      '  return isFinite(n) ? n : 0;',
+      '})(_dataOut);',
+      '',
       'return {',
+      '  win: _win,',
       '  data: _dataOut,',
       '  state: { ...ctx.state, round: ctx.round }',
       '};',
@@ -1658,10 +1681,28 @@ ${originalComponentStructure}
       }
     }
 
+    // 2026-07-14 (trace 1784044997749): read component ports from BOTH shapes. Real
+    // editor Component Inputs/Outputs nodes store their ports at `node.ports` (with
+    // parameters = {}); only hand-written fixtures put them under `parameters.ports`.
+    // Reading ONLY parameters.ports made _portManifest empty for every real game -> the
+    // deployer printed "0 inputs (none), 0 outputs (none traced)", which misled the AI
+    // into thinking evaluate() was a no-op (it wasn't — data-flow tracing is by edges,
+    // not ports). Fall back to node.ports and normalize type (object {name} on real
+    // nodes, string on fixtures).
+    const _readCompPorts = (n: any): Array<{ name: string; type: string }> => {
+      const raw = ((n && n.parameters && n.parameters.ports) || (n && n.ports) || []) as any[];
+      return raw
+        .filter((p: any) => p && p.name)
+        .map((p: any) => ({
+          name: p.name,
+          type: typeof p.type === 'string' ? p.type : ((p.type && (p.type.name || p.type.type)) || 'number'),
+        }));
+    };
+
     // 3. Include Component Inputs defaults
     for (const node of this.component.graph.roots) {
-      if (node.typename === 'Component Inputs' && node.parameters.ports) {
-        for (const port of node.parameters.ports as Array<{ name: string; type: string }>) {
+      if (node.typename === 'Component Inputs') {
+        for (const port of _readCompPorts(node)) {
           if (port.name.toLowerCase() === 'betamount') {
             config['bet'] = config['bet'] || 100; // Default bet amount
           }
@@ -1675,15 +1716,11 @@ ${originalComponentStructure}
     const manifestOutputs: Array<{ name: string; type: string }> = [];
 
     for (const node of this.component.graph.roots) {
-      if (node.typename === 'Component Inputs' && node.parameters.ports) {
-        for (const port of node.parameters.ports as Array<{ name: string; type: string }>) {
-          manifestInputs.push({ name: port.name, type: port.type || 'number' });
-        }
+      if (node.typename === 'Component Inputs') {
+        for (const port of _readCompPorts(node)) manifestInputs.push(port);
       }
-      if (node.typename === 'Component Outputs' && node.parameters.ports) {
-        for (const port of node.parameters.ports as Array<{ name: string; type: string }>) {
-          manifestOutputs.push({ name: port.name, type: port.type || 'number' });
-        }
+      if (node.typename === 'Component Outputs') {
+        for (const port of _readCompPorts(node)) manifestOutputs.push(port);
       }
     }
 
