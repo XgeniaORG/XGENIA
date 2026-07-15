@@ -11,7 +11,7 @@
 // GPL model imports (this file intentionally lives in GPL code)
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import ThumbnailCache from '@xgenia-utils/thumbnailcache';
-import { isBloatPort, isTooLargeToSerialize } from './serialize-param-guard';
+import { isBloatPort, isTooLargeToSerialize, unwrapValueUnit } from './serialize-param-guard';
 import { NodeLibrary } from '@xgenia-models/nodelibrary';
 import { UndoQueue, UndoActionGroup } from '@xgenia-models/undo-queue-model';
 import { SidebarModel } from '@xgenia-models/sidebar';
@@ -2462,47 +2462,17 @@ ${autoReturnCode}
         //
         // FIX (2026-05-25 — same trace, second issue): the editor model wraps
         // some dimension params (width/height/fontSize/padding/margin) as
-        // {value, unit} objects for its property-editor UI. For HTML nodes
-        // this matches the model contract; for `type: number` ports (pixi
-        // dimensions, etc.) the wrap is internal storage that the runtime
-        // unwraps. When we surface the wrap to the AI side via getParameter,
-        // tools like verify_logic_correctness's malformed_dimension_param
-        // check trip on it as if the AI passed bad input. Unwrap here so the
-        // AI sees the same number the runtime sees.
-        const unwrapValueUnit = (val: any, portType: string): any => {
-            if (val && typeof val === 'object' && !Array.isArray(val) &&
-                val.value !== undefined && val.unit !== undefined) {
-                // Unwrap unconditionally when the {value, unit} shape is present.
-                // Trace 2026-05-25 showed pixi.Container.width has port type
-                // "dimension" (not "number") at runtime, so the original type
-                // whitelist missed it and CHECK 24 kept tripping. {value, unit}
-                // is editor-model internal storage; the runtime-effective value
-                // is ALWAYS the bare number (for numeric units like px) or a
-                // CSS string (for percent on HTML nodes). Prefer the bare
-                // number so downstream tools and checks see the same thing the
-                // runtime sees. We explicitly KEEP the wrap for object-typed
-                // ports (rare, never observed in practice) and for ports
-                // declared as 'object'/'array' where {value, unit} could be a
-                // genuine user value rather than dimension storage.
-                if (portType === 'object' || portType === 'array') return val;
-                const num = typeof val.value === 'number' ? val.value : parseFloat(String(val.value));
-                if (!isFinite(num)) return val; // garbage in → keep as-is
-                // Surface the SAME thing the runtime uses (the stated goal of this
-                // unwrap): bare number for px/unitless, CSS STRING for percent & other
-                // relative units. The original code collapsed EVERYTHING to a bare
-                // number, so `{value:100, unit:'%'}` reached the AI as `100` —
-                // indistinguishable from 100px. That single lost unit made a self-test
-                // AI misread a fill-parent (100%) container as a 100px lock and file a
-                // cascade of false "the HTML tool strips %" bugs (trace 1784051747260).
-                // A string like "100%" does NOT trip verify_logic_correctness CHECK 24
-                // (malformed_dimension_param) — that check flags only the {value,unit}
-                // OBJECT form and explicitly documents "100%" as the correct Group value.
-                const unit = String(val.unit || '').trim();
-                if (unit === '' || unit === 'px') return num;
-                return `${num}${unit}`; // e.g. "100%", "50vw", "1.5rem"
-            }
-            return val;
-        };
+        // {value, unit} objects for its property-editor UI. When we surface
+        // the wrap to the AI side via getParameter, tools like
+        // verify_logic_correctness's malformed_dimension_param check trip on
+        // it as if the AI passed bad input. Flatten via unwrapValueUnit
+        // (serialize-param-guard.ts) — which, since traces 1784010250453 /
+        // 1784051747260 (the "width: 100" phantom), preserves responsive units
+        // (%/vw/vh/em/rem) as CSS strings instead of collapsing everything to
+        // a bare number. Exotic units (deg, vmin, …) intentionally stay bare
+        // numbers — see the export's doc comment and the shared regression
+        // lock (unwrap-value-unit.test.ts) that pins both this and the
+        // xgenia-ai twin preserveDimensionUnit to the same unit set.
         // 2026-06-22: serialize every declared input port, skipping only the known
         // bloat pseudo-port (see isBloatPort) + a size backstop. The earlier
         // inputFormatHints allowlist (2026-05-25) over-corrected the pixi

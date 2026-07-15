@@ -32,3 +32,42 @@ export function isBloatPort(name: string, isJSFunction: boolean): boolean {
 export function isTooLargeToSerialize(value: unknown, maxStringLen = 20000): boolean {
   return typeof value === 'string' && value.length > maxStringLen;
 }
+
+/**
+ * Flatten an editor-model `{value, unit}` dimension wrap to what the runtime
+ * actually sees, WITHOUT losing the unit.
+ *
+ * Traces 1784010250453 / 1784051747260 (the "width: 100" phantom): collapsing
+ * every {value, unit} to the bare number made {value:100, unit:'%'},
+ * {value:100, unit:'vw'} and {value:100, unit:'px'} all read back as 100. The
+ * AI-side unit doctrine says a bare Group dimension is PIXELS, so the AI
+ * mis-read healthy responsive dims as 100px, "fixed" them to "100%", read back
+ * 100 again, and looped on phantom "my width isn't persisting" bugs.
+ *
+ * Rules (unit set MUST stay identical to the xgenia-ai twin
+ * preserveDimensionUnit in StreamlinedToolRegistry/utils/coerce-dim.ts — see
+ * regression-lock/unwrap-value-unit.test.ts, which locks both):
+ *   - object/array-typed ports → return the wrap untouched ({value, unit}
+ *     could be a genuine user value there, not dimension storage)
+ *   - responsive units (%, vh, vw, em, rem) → joined CSS string ("100vw") —
+ *     the runtime-effective value on HTML dimension ports. "100%" does NOT
+ *     trip verify_logic_correctness CHECK 24 (malformed_dimension_param); that
+ *     check flags only the raw {value, unit} OBJECT form.
+ *   - px / unitless / exotic units (deg, vmin, …) → bare number. Exotic units
+ *     stay numeric on purpose: operation-verification's string parser only
+ *     knows px|%|em|rem|vw|vh, so a "45deg" readback would mis-compare and
+ *     spawn new VERIFICATION_FAILEDs.
+ *   - non-numeric value / anything that isn't a {value, unit} wrap → unchanged
+ */
+export function unwrapValueUnit(val: any, portType: string): any {
+  if (val && typeof val === 'object' && !Array.isArray(val) &&
+      val.value !== undefined && val.unit !== undefined) {
+    if (portType === 'object' || portType === 'array') return val;
+    const num = typeof val.value === 'number' ? val.value : parseFloat(String(val.value));
+    if (!isFinite(num)) return val; // garbage in → keep as-is
+    const unit = String(val.unit || '').trim();
+    const responsive = unit === '%' || unit === 'vh' || unit === 'vw' || unit === 'em' || unit === 'rem';
+    return responsive ? `${num}${unit}` : num;
+  }
+  return val;
+}
