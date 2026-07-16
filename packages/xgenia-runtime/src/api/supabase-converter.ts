@@ -1366,21 +1366,12 @@ ${originalComponentStructure}
 
         let sourceValue: string;
 
-        // Resolve passthrough (Variable2) nodes by tracing backwards
-        let resolvedFromId = conn.fromId;
-        let resolvedFromProperty = conn.fromProperty;
-        let hops = 0;
-        while (!outputVariableMap.has(resolvedFromId) && hops < 10) {
-          const srcNode = this.nodes.get(resolvedFromId);
-          if (!srcNode || (srcNode.typename !== '/#__cloud__/Variable2' && srcNode.typename !== 'Variable2')) break;
-          const upstreamConn = this.connections.find(
-            (c) => c.toId === resolvedFromId && c.toProperty === 'value'
-          );
-          if (!upstreamConn) break;
-          resolvedFromId = upstreamConn.fromId;
-          resolvedFromProperty = upstreamConn.fromProperty;
-          hops++;
-        }
+        // Resolve passthrough (Variable2) nodes by tracing backwards — follows
+        // both direct `value` wires AND name-matched Set Variable writers
+        // (see resolveThroughVariables; trace 1784154340515).
+        const _resolved = this.resolveThroughVariables(conn.fromId, conn.fromProperty, (id) => outputVariableMap.has(id));
+        const resolvedFromId = _resolved.fromId;
+        const resolvedFromProperty = _resolved.fromProperty;
 
         if (outputVariableMap.has(resolvedFromId)) {
           const sourceNode = this.nodes.get(resolvedFromId);
@@ -1519,21 +1510,11 @@ ${originalComponentStructure}
           // conn.toProperty is the Component Outputs port name (e.g. "Sum")
           const outputPortName = conn.toProperty;
 
-          // Resolve the source through Variable2 passthroughs
-          let resolvedFromId = conn.fromId;
-          let resolvedFromProperty = conn.fromProperty;
-          let hops = 0;
-          while (!outputVariableMap.has(resolvedFromId) && hops < 10) {
-            const srcNode = this.nodes.get(resolvedFromId);
-            if (!srcNode || (srcNode.typename !== '/#__cloud__/Variable2' && srcNode.typename !== 'Variable2')) break;
-            const upstreamConn = this.connections.find(
-              (c) => c.toId === resolvedFromId && c.toProperty === 'value'
-            );
-            if (!upstreamConn) break;
-            resolvedFromId = upstreamConn.fromId;
-            resolvedFromProperty = upstreamConn.fromProperty;
-            hops++;
-          }
+          // Resolve the source through Variable2 passthroughs (incl. name-matched
+          // Set Variable writers — see resolveThroughVariables).
+          const _resolvedOut = this.resolveThroughVariables(conn.fromId, conn.fromProperty, (id) => outputVariableMap.has(id));
+          const resolvedFromId = _resolvedOut.fromId;
+          const resolvedFromProperty = _resolvedOut.fromProperty;
 
           if (outputVariableMap.has(resolvedFromId)) {
             const sourceNode = this.nodes.get(resolvedFromId);
@@ -1568,18 +1549,9 @@ ${originalComponentStructure}
       // Resolve a source connection (through Variable2 passthroughs) to its
       // result expression, or null if the source isn't a generated node.
       const resolveSourceExpr = (conn: any): string | null => {
-        let resolvedFromId = conn.fromId;
-        let resolvedFromProperty = conn.fromProperty;
-        let hops = 0;
-        while (!outputVariableMap.has(resolvedFromId) && hops < 10) {
-          const srcNode = this.nodes.get(resolvedFromId);
-          if (!srcNode || (srcNode.typename !== '/#__cloud__/Variable2' && srcNode.typename !== 'Variable2')) break;
-          const upstreamConn = this.connections.find((c) => c.toId === resolvedFromId && c.toProperty === 'value');
-          if (!upstreamConn) break;
-          resolvedFromId = upstreamConn.fromId;
-          resolvedFromProperty = upstreamConn.fromProperty;
-          hops++;
-        }
+        const _resolvedResp = this.resolveThroughVariables(conn.fromId, conn.fromProperty, (id) => outputVariableMap.has(id));
+        const resolvedFromId = _resolvedResp.fromId;
+        const resolvedFromProperty = _resolvedResp.fromProperty;
         if (!outputVariableMap.has(resolvedFromId)) return null;
         const sourceNode = this.nodes.get(resolvedFromId);
         let fromProp = resolvedFromProperty;
@@ -3172,6 +3144,61 @@ ${originalComponentStructure}
     return isSafeIdentifier ? `${obj}.${prop}` : `${obj}["${prop}"]`;
   }
 
+  /**
+   * Resolve a connection source through Variable2 hops to a "real" node.
+   *
+   * (2026-07-15, trace 1784154340515 — Relic Run "[WReels] Reel strips array is
+   * required and cannot be empty"): Variable2 and Set Variable are NOT compiled
+   * node types — the old passthrough only followed a data wire into the
+   * Variable2's `value` port. But the canonical persistence pattern writes the
+   * variable via a name-matched `Set Variable` node (generator → SetX.value,
+   * SetX.do fired by a signal), leaving the Variable2's `value` port unwired —
+   * so resolution dead-ended and the reader was inlined with the variable's
+   * INITIAL value (an empty array) forever. Any maths that generates reel strips
+   * at init and reads them through a Variable2 crashed server-side on every spin.
+   *
+   * This resolver follows BOTH: a wire into `value`, OR (when absent) the
+   * name-matched Set Variable writer's `value` source. NOTE the Stage-1
+   * semantics: the resolved source is evaluated in the spin script, so
+   * init-generated data is re-derived per evaluation rather than persisted
+   * across spins (true cross-spin persistence needs ctx.state mapping — a
+   * follow-up). With multiple same-name writers the first wired one wins.
+   */
+  private resolveThroughVariables(
+    fromId: string,
+    fromProperty: string,
+    isResolved: (id: string) => boolean
+  ): { fromId: string; fromProperty: string } {
+    let resolvedFromId = fromId;
+    let resolvedFromProperty = fromProperty;
+    let hops = 0;
+    while (!isResolved(resolvedFromId) && hops < 10) {
+      const srcNode = this.nodes.get(resolvedFromId);
+      if (!srcNode || (srcNode.typename !== '/#__cloud__/Variable2' && srcNode.typename !== 'Variable2')) break;
+      let upstreamConn = this.connections.find(
+        (c) => c.toId === resolvedFromId && c.toProperty === 'value'
+      );
+      if (!upstreamConn) {
+        // Variable2 persistence: value arrives via a name-matched Set Variable.
+        const varName = (srcNode.parameters as any)?.name;
+        const writer = varName
+          ? Array.from(this.nodes.values()).find(
+              (n) =>
+                (n.typename === 'Set Variable' || n.typename === '/#__cloud__/Set Variable') &&
+                (n.parameters as any)?.name === varName &&
+                this.connections.some((c) => c.toId === n.id && c.toProperty === 'value')
+            )
+          : undefined;
+        if (!writer) break;
+        upstreamConn = this.connections.find((c) => c.toId === writer.id && c.toProperty === 'value')!;
+      }
+      resolvedFromId = upstreamConn.fromId;
+      resolvedFromProperty = upstreamConn.fromProperty;
+      hops++;
+    }
+    return { fromId: resolvedFromId, fromProperty: resolvedFromProperty };
+  }
+
   private sortNodesByExecutionOrder(nodes: Node[]): Node[] {
     const nodeIds = new Set(nodes.map((n) => n.id));
     const adj: Map<string, string[]> = new Map();
@@ -3181,8 +3208,17 @@ ${originalComponentStructure}
       inDegree.set(node.id, 0);
     }
     for (const conn of this.connections) {
-      if (nodeIds.has(conn.fromId) && nodeIds.has(conn.toId)) {
-        adj.get(conn.fromId)!.push(conn.toId);
+      if (!nodeIds.has(conn.toId)) continue;
+      // (2026-07-15) Variable-mediated dependencies: a compiled node reading a
+      // Variable2 depends on the compiled node that WRITES it (via Set Variable).
+      // Without this synthetic edge the writer could sort AFTER the reader and
+      // the reader would reference its output before assignment.
+      let fromId = conn.fromId;
+      if (!nodeIds.has(fromId)) {
+        fromId = this.resolveThroughVariables(conn.fromId, conn.fromProperty, (id) => nodeIds.has(id)).fromId;
+      }
+      if (nodeIds.has(fromId) && fromId !== conn.toId) {
+        adj.get(fromId)!.push(conn.toId);
         inDegree.set(conn.toId, (inDegree.get(conn.toId) || 0) + 1);
       }
     }
@@ -3194,6 +3230,17 @@ ${originalComponentStructure}
       for (const v of adj.get(u) || []) {
         inDegree.set(v, inDegree.get(v)! - 1);
         if (inDegree.get(v) === 0) queue.push(v);
+      }
+    }
+    // Cycle safety net: Kahn's algorithm silently DROPS nodes stuck in a cycle
+    // (their in-degree never reaches 0) — they'd vanish from the compiled script
+    // entirely. Variable-mediated edges can create legitimate read-modify-write
+    // cycles (a node reads a variable it also writes), so append any remainder
+    // in original order instead of dropping it.
+    if (sorted.length < nodes.length) {
+      const seen = new Set(sorted);
+      for (const n of nodes) {
+        if (!seen.has(n.id)) sorted.push(n.id);
       }
     }
     return sorted.map((id) => this.nodes.get(id)!);

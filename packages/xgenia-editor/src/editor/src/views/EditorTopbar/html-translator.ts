@@ -264,7 +264,9 @@ function resolveFraction(value: string): string | undefined {
         '1/12': '8.333%', '2/12': '16.667%', '3/12': '25%', '4/12': '33.333%',
         '5/12': '41.667%', '6/12': '50%', '7/12': '58.333%', '8/12': '66.667%',
         '9/12': '75%', '10/12': '83.333%', '11/12': '91.667%',
-        'full': '100%', 'screen': '100vw',
+        // 'screen' → parent-relative % (NOT 100vw): components mount inside
+        // containers; viewport units overflow the host. Matches h-screen → 100%.
+        'full': '100%', 'screen': '100%',
     };
     return FRACTIONS[value];
 }
@@ -599,7 +601,7 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
 
         // ─── Width / Height ─────────────────
         if (rawCls === 'w-full') { styles.width = '100%'; continue; }
-        if (rawCls === 'w-screen') { styles.width = '100vw'; continue; }
+        if (rawCls === 'w-screen') { styles.width = '100%'; continue; } // % not vw — see viewportDimToPercent
         if (rawCls === 'w-fit') { styles.width = 'fit-content'; continue; }
         if (rawCls === 'w-min') { styles.width = 'min-content'; continue; }
         if (rawCls === 'w-max') { styles.width = 'max-content'; continue; }
@@ -614,9 +616,9 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         if (rawCls === 'min-h-full') { styles.minHeight = '100%'; continue; }
         if (rawCls === 'min-h-0') { styles.minHeight = '0'; continue; }
         if (rawCls === 'min-h-fit') { styles.minHeight = 'fit-content'; continue; }
-        // Arbitrary min-h: min-h-[320px], min-h-[50vh], etc.
+        // Arbitrary min-h: min-h-[320px], min-h-[50vh], etc. (vw/vh → %)
         const minHMatch = rawCls.match(/^min-h-\[(.+?)\]$/);
-        if (minHMatch) { styles.minHeight = minHMatch[1]; continue; }
+        if (minHMatch) { styles.minHeight = viewportDimToPercent(minHMatch[1]); continue; }
         // Spacing-scale min-h: min-h-12 → 48px
         const minHSpacingMatch = rawCls.match(/^min-h-(\d+(?:\.\d+)?)$/);
         if (minHSpacingMatch) {
@@ -625,14 +627,14 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             continue;
         }
         // min-w
-        if (rawCls === 'min-w-screen') { styles.minWidth = '100vw'; continue; }
+        if (rawCls === 'min-w-screen') { styles.minWidth = '100%'; continue; } // % not vw
         if (rawCls === 'min-w-full') { styles.minWidth = '100%'; continue; }
         if (rawCls === 'min-w-0') { styles.minWidth = '0'; continue; }
         if (rawCls === 'min-w-fit') { styles.minWidth = 'fit-content'; continue; }
         if (rawCls === 'min-w-min') { styles.minWidth = 'min-content'; continue; }
         if (rawCls === 'min-w-max') { styles.minWidth = 'max-content'; continue; }
         const minWArbMatch = rawCls.match(/^min-w-\[(.+?)\]$/);
-        if (minWArbMatch) { styles.minWidth = minWArbMatch[1]; continue; }
+        if (minWArbMatch) { styles.minWidth = viewportDimToPercent(minWArbMatch[1]); continue; }
         const minWSpacingMatch = rawCls.match(/^min-w-(\d+(?:\.\d+)?)$/);
         if (minWSpacingMatch) {
             const v = resolveSpacing(minWSpacingMatch[1]);
@@ -640,11 +642,11 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             continue;
         }
         // max-h
-        if (rawCls === 'max-h-screen') { styles.maxHeight = '100vh'; continue; }
+        if (rawCls === 'max-h-screen') { styles.maxHeight = '100%'; continue; } // % not vh
         if (rawCls === 'max-h-full') { styles.maxHeight = '100%'; continue; }
         if (rawCls === 'max-h-fit') { styles.maxHeight = 'fit-content'; continue; }
         const maxHArbMatch = rawCls.match(/^max-h-\[(.+?)\]$/);
-        if (maxHArbMatch) { styles.maxHeight = maxHArbMatch[1]; continue; }
+        if (maxHArbMatch) { styles.maxHeight = viewportDimToPercent(maxHArbMatch[1]); continue; }
         const maxHSpacingMatch = rawCls.match(/^max-h-(\d+(?:\.\d+)?)$/);
         if (maxHSpacingMatch) {
             const v = resolveSpacing(maxHSpacingMatch[1]);
@@ -656,7 +658,7 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             'xs': '320px', 'sm': '384px', 'md': '448px', 'lg': '512px', 'xl': '576px',
             '2xl': '672px', '3xl': '768px', '4xl': '896px', '5xl': '1024px',
             '6xl': '1152px', '7xl': '1280px', 'prose': '65ch', 'none': 'none',
-            'full': '100%', 'screen': '100vw',
+            'full': '100%', 'screen': '100%', // % not vw — viewport units overflow the host
         };
         const maxWNamedMatch = rawCls.match(/^max-w-([\w]+)$/);
         if (maxWNamedMatch && MAX_W_MAP[maxWNamedMatch[1]] !== undefined) {
@@ -672,13 +674,13 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         }
         // max-w-[arbitrary]
         const maxWArbMatch = rawCls.match(/^max-w-\[(.+?)\]$/);
-        if (maxWArbMatch) { styles.maxWidth = maxWArbMatch[1]; continue; }
+        if (maxWArbMatch) { styles.maxWidth = viewportDimToPercent(maxWArbMatch[1]); continue; }
 
         // w-N (spacing scale → px, fractions → %)
         const wMatch = rawCls.match(/^w-(.+)$/);
         if (wMatch) {
             const arbW = wMatch[1].match(/^\[(.+?)\]$/);
-            if (arbW) { styles.width = arbW[1]; continue; }
+            if (arbW) { styles.width = viewportDimToPercent(arbW[1]); continue; }
             const frac = resolveFraction(wMatch[1]);
             if (frac) { styles.width = frac; continue; }
             const v = resolveSpacing(wMatch[1]);
@@ -688,7 +690,7 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         const hMatch = rawCls.match(/^h-(.+)$/);
         if (hMatch) {
             const arbH = hMatch[1].match(/^\[(.+?)\]$/);
-            if (arbH) { styles.height = arbH[1]; continue; }
+            if (arbH) { styles.height = viewportDimToPercent(arbH[1]); continue; }
             const frac = resolveFraction(hMatch[1]);
             if (frac) { styles.height = frac; continue; }
             const v = resolveSpacing(hMatch[1]);
@@ -700,7 +702,7 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         const sizeMatch = rawCls.match(/^size-(.+)$/);
         if (sizeMatch) {
             const arbSize = sizeMatch[1].match(/^\[(.+?)\]$/);
-            if (arbSize) { styles.width = arbSize[1]; styles.height = arbSize[1]; continue; }
+            if (arbSize) { const sv = viewportDimToPercent(arbSize[1]); styles.width = sv; styles.height = sv; continue; }
             if (sizeMatch[1] === 'full') { styles.width = '100%'; styles.height = '100%'; continue; }
             const frac = resolveFraction(sizeMatch[1]);
             if (frac) { styles.width = frac; styles.height = frac; continue; }
@@ -1593,6 +1595,23 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
  */
 function viewportDimToPercent(v: string): string {
     return v.replace(/(\d*\.?\d+)v[wh]\b/gi, '$1%');
+}
+
+/**
+ * DECLARED identity for form controls: id → aria-label → data-node-label /
+ * data-label / data-name → name. The control emitters previously labeled
+ * themselves from CAPTION text (placeholder, selected option), so a brief
+ * asking for @EmailInput yielded @name_example_com and a Role dropdown became
+ * @Admin (trace 1784123058362). Mirrors generateNodeLabel's priority chain —
+ * identity is DECLARED, never derived from content, and caption text stays a
+ * FALLBACK only.
+ */
+function declaredControlLabel(el: HTMLElement): string | null {
+    const raw = el.getAttribute('id') || el.getAttribute('aria-label')
+        || el.getAttribute('data-node-label') || el.getAttribute('data-label')
+        || el.getAttribute('data-name') || el.getAttribute('name');
+    if (!raw || !raw.trim()) return null;
+    return raw.trim().replace(/[-_]+/g, ' ').substring(0, 40);
 }
 
 function parseInlineStyle(styleStr: string): ParsedStyles {
@@ -3458,9 +3477,10 @@ function translateNode(
         // map — so emit the native tag here instead of faking it with a Group.
         if (inputType === 'checkbox' || inputType === 'radio') {
             const isChecked = el.hasAttribute('checked');
-            const ctrlLabel = el.getAttribute('aria-label') || el.getAttribute('name') || '';
-            const nl = escapeXml(ctrlLabel || inputType);
-            const labelAttr = ctrlLabel ? ` label="${escapeXml(ctrlLabel)}"` : '';
+            const declared = declaredControlLabel(el);
+            const visibleLabel = el.getAttribute('aria-label') || '';
+            const nl = escapeXml(declared || inputType);
+            const labelAttr = visibleLabel ? ` label="${escapeXml(visibleLabel)}"` : '';
             if (inputType === 'checkbox') {
                 return `${indent}<checkbox nodeLabel="${nl}"${labelAttr} checked="${isChecked ? 'true' : 'false'}" />`;
             }
@@ -3477,7 +3497,7 @@ function translateNode(
             const thumbSize = 16;
             const fillColor = styles.color || styles.backgroundColor || '#0df20d';
             const sliderAttrs: string[] = [];
-            sliderAttrs.push(`nodeLabel="${escapeXml((el.getAttribute('aria-label') || 'slider'))}"`);
+            sliderAttrs.push(`nodeLabel="${escapeXml(declaredControlLabel(el) || 'slider')}"`);
             sliderAttrs.push(styles.width ? `width="${styles.width}"` : 'width="100%"');
             sliderAttrs.push(`height="${thumbSize}px"`);
             sliderAttrs.push('flexDirection="row"', 'alignItems="center"', 'position="relative"');
@@ -3503,10 +3523,13 @@ ${indent}</group>`;
         };
         const nativeType = nativeTypeMap[inputType] || 'text';
         const inputAttrs: string[] = [];
-        inputAttrs.push(`nodeLabel="${escapeXml(placeholder || value || 'input')}"`);
+        // Declared identity first (id/aria-label/data-*/name) — placeholder is a
+        // caption, not a name (it produced refs like @name_example_com).
+        inputAttrs.push(`nodeLabel="${escapeXml(declaredControlLabel(el) || placeholder || value || 'input')}"`);
         inputAttrs.push(`type="${nativeType}"`);
         if (placeholder) inputAttrs.push(`placeholder="${escapeXml(placeholder)}"`);
-        if (value) inputAttrs.push(`value="${escapeXml(value)}"`);
+        // Initial content port on net.xgenia.controls.textinput is `startValue`
+        if (value) inputAttrs.push(`startValue="${escapeXml(value)}"`);
         const ariaLabel = el.getAttribute('aria-label');
         if (ariaLabel) inputAttrs.push(`label="${escapeXml(ariaLabel)}"`);
         if (styles.width) inputAttrs.push(`width="${styles.width}"`); else inputAttrs.push('width="100%"');
@@ -3524,8 +3547,9 @@ ${indent}</group>`;
         if (styles.borderColor) inputAttrs.push(`borderColor="${styles.borderColor}"`);
         else inputAttrs.push('borderColor="rgba(255,255,255,0.15)"');
         addPositionAttrs(styles, inputAttrs);
-        if (styles.color) inputAttrs.push(`color="${styles.color}"`);
-        if (styles.styleCss) inputAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+        // textinput has no `color` port — route text color through styleCss.
+        const inputCss = `${styles.color ? `color: ${styles.color};` : ''}${styles.styleCss || ''}`;
+        if (inputCss) inputAttrs.push(`styleCss="${escapeXml(inputCss)}"`);
         return `${indent}<input ${inputAttrs.join(' ')} />`;
     }
 
@@ -3534,7 +3558,7 @@ ${indent}</group>`;
         const placeholder = el.getAttribute('placeholder') || '';
         const text = (el.textContent || '').trim() || placeholder;
         const taAttrs: string[] = [];
-        taAttrs.push(`nodeLabel="${escapeXml(placeholder || 'textarea')}"`);
+        taAttrs.push(`nodeLabel="${escapeXml(declaredControlLabel(el) || placeholder || 'textarea')}"`);
         if (styles.width) taAttrs.push(`width="${styles.width}"`); else taAttrs.push('width="100%"');
         if (styles.height) taAttrs.push(`height="${styles.height}"`); else taAttrs.push('height="100px"');
         if (styles.backgroundColor) taAttrs.push(`backgroundColor="${styles.backgroundColor}"`);
@@ -3555,11 +3579,27 @@ ${indent}</group>`;
     }
 
     // ─── <select> → render the currently-selected option as a styled dropdown-like Group ──
+    // <select> → NATIVE Dropdown (net.xgenia.controls.options). Was a decorative
+    // Group + selected-text + chevron mockup (not openable, no options, no value
+    // to wire; trace 1784123058362: a Role dropdown became @Admin, a Group). The
+    // XML pipeline maps <dropdown>/<select> to the native options node and JSON-
+    // parses its `items` attr (ARRAY_PORTS); item shape is [{Label, Value}].
     if (tag === 'select') {
-        const selectedOption = el.querySelector('option[selected]') || el.querySelector('option');
-        const selectedText = selectedOption ? (selectedOption.textContent || '').trim() : '';
+        const optionEls = Array.from(el.querySelectorAll('option'));
+        const items = optionEls.map((o) => {
+            const text = (o.textContent || '').trim();
+            const val = o.getAttribute('value');
+            return { Label: text || val || '', Value: val !== null ? val : text };
+        }).filter((it) => it.Label !== '' || it.Value !== '');
+        const selectedOption = el.querySelector('option[selected]') || optionEls[0];
+        const selectedValue = selectedOption
+            ? (selectedOption.getAttribute('value') ?? (selectedOption.textContent || '').trim())
+            : '';
         const selAttrs: string[] = [];
-        selAttrs.push(`nodeLabel="${escapeXml(selectedText || 'select')}"`);
+        const selectedText = selectedOption ? (selectedOption.textContent || '').trim() : '';
+        selAttrs.push(`nodeLabel="${escapeXml(declaredControlLabel(el) || selectedText || 'select')}"`);
+        if (items.length) selAttrs.push(`items="${escapeXml(JSON.stringify(items))}"`);
+        if (selectedValue) selAttrs.push(`value="${escapeXml(selectedValue)}"`);
         if (styles.width) selAttrs.push(`width="${styles.width}"`); else selAttrs.push('width="100%"');
         if (styles.height) selAttrs.push(`height="${styles.height}"`); else selAttrs.push('height="40px"');
         selAttrs.push(`backgroundColor="${styles.backgroundColor || 'rgba(255,255,255,0.05)'}"`);
@@ -3567,14 +3607,9 @@ ${indent}</group>`;
         selAttrs.push('borderWidth="1"', 'borderStyle="solid"');
         selAttrs.push(`borderColor="${styles.borderColor || 'rgba(255,255,255,0.15)'}"`);
         addPositionAttrs(styles, selAttrs);
-        selAttrs.push('paddingLeft="12"', 'paddingRight="12"', 'paddingTop="8"', 'paddingBottom="8"');
-        selAttrs.push('flexDirection="row"', 'alignItems="center"', 'justifyContent="space-between"');
-        if (styles.styleCss) selAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
-        const labelXml = selectedText
-            ? `${indent}  <text nodeLabel="${escapeXml(selectedText.substring(0, 30))}" text="${escapeXml(selectedText)}" color="${styles.color || '#FFFFFF'}" fontSize="${styles.fontSize || 14}" sizeMode="contentSize" flexGrow="0" flexShrink="0" />`
-            : '';
-        const chevronXml = `${indent}  <text nodeLabel="chevron" text="▾" color="rgba(255,255,255,0.6)" fontSize="14" sizeMode="contentSize" flexGrow="0" flexShrink="0" />`;
-        return `${indent}<group ${selAttrs.join(' ')}>\n${labelXml ? labelXml + '\n' : ''}${chevronXml}\n${indent}</group>`;
+        const selCss = `${styles.color ? `color: ${styles.color};` : ''}${styles.styleCss || ''}`;
+        if (selCss) selAttrs.push(`styleCss="${escapeXml(selCss)}"`);
+        return `${indent}<dropdown ${selAttrs.join(' ')} />`;
     }
 
     // ─── <table>, <thead>, <tbody>, <tfoot> → flex column Group of rows ──
@@ -4512,9 +4547,11 @@ function createButtonNode(
     // Extract clean text excluding icon fonts (material-icons etc.)
     const labelText = getButtonLabelText(el) || el.getAttribute('aria-label') || '';
 
-    // Use explicit nodeLabel/data-purpose/data-label for the XGENIA nodeLabel (AI targeting)
-    // but keep the text content as the displayed button label
+    // Use explicit nodeLabel/id/data-purpose/data-label for the XGENIA nodeLabel
+    // (AI targeting) but keep the text content as the displayed button label.
+    // id/aria-label added (trace 1784123058362) — declared identity beats caption.
     const explicitLabel = el.getAttribute('nodelabel') || el.getAttribute('nodeLabel')
+        || el.getAttribute('id') || el.getAttribute('aria-label')
         || el.getAttribute('data-purpose') || el.getAttribute('data-label')
         || el.getAttribute('data-name');
     attrs.push(`nodeLabel="${escapeXml(explicitLabel || labelText || 'Button')}"`);
