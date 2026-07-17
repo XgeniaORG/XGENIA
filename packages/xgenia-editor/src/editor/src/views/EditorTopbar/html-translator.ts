@@ -1917,12 +1917,6 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                 break;
             }
 
-            // ─── Dimension Constraints ───────────
-            case 'min-width': styles.minWidth = value; break;
-            case 'max-width': styles.maxWidth = value; break;
-            case 'min-height': styles.minHeight = value; break;
-            case 'max-height': styles.maxHeight = value; break;
-
             // ─── Colors & Backgrounds ────────────
             case 'background-image': {
                 const urlMatch = value.match(/url\(['"]?(.+?)['"]?\)/);
@@ -2189,8 +2183,6 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
             case 'background-clip':
             case '-webkit-background-clip':
             case '-webkit-text-fill-color':
-            case 'letter-spacing':
-            case 'line-height':
             // Typography decoration / style
             case 'text-decoration':
             case 'text-decoration-color':
@@ -2231,7 +2223,6 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
             case 'outline-offset':
             // Visibility / display extras (display itself is consumed above)
             case 'visibility':
-            case 'isolation':
             // Grid layout (placement + tracks)
             case 'grid-template-rows':
             case 'grid-template-areas':
@@ -2262,7 +2253,6 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
             case 'background-origin':
             case 'background-blend-mode':
             // Interaction
-            case 'cursor':
             case 'user-select':
             case '-webkit-user-select':
             case 'pointer-events':

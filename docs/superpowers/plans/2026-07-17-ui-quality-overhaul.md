@@ -439,3 +439,22 @@ Working software that looks generic is HALF-DONE. Visual quality is part of corr
 - Spec coverage: cluster 1 (eyes) → B5+C3+C4; cluster 2 (straitjacket) → C1+C2+C5; cluster 3 (silent drops) → A1-A3+B1-B4+C3+C6; cluster 4 (doctrine) → D1+C2; cluster 5 (mechanical locks) → every task carries a test. Deferred explicitly: ProxyProvider multimodal pass-through, multi-pass critique loop, server-proxy vision for keyless users, state-aware setParameter (engine hover states via css-definition instead).
 - Known coupling: C1's FORBIDDEN rewrite depends on B3 (hover) and B2 (assets bg) shipping in the same release — they do (same editor rebuild + ship).
 - Type consistency: `translationWarnings: string[]` (B1→C3); `parseStyleCssDeclarations` (A1); `translateHtmlToXgeniaXmlWithReport` (B1→tests).
+
+---
+
+# ROUND 2 (same Global Constraints as above)
+
+### Task R1: ProxyProvider multimodal pass-through (main model sees pixels)
+Files: private/xgenia-ai/src/ChatPanel/providers/ProxyProvider.ts (+ read-only: OpenRouterProvider.ts:2756-2781 as the pattern, AIProviderSettings.modelHasVision, supabase ai-chat/index.ts provider branches). Behavior: when a take_screenshot-shaped tool result carries image_data AND the active model is vision-capable AND the server provider branch forwards content arrays, emit a proper multimodal tool/user message (image block + text) instead of flattening; exempt image blocks from PER_RESULT_MAX (truncate text only); replace all PREVIOUS screenshot image blocks with placeholders (mirror OpenRouterProvider); keep text-only behavior for non-vision models (no regression). Verify the edge function branch for each proxy-mode provider accepts content arrays BEFORE enabling it for that provider; when unsure, stay text-only (a 400 poisons the stream — deliberation-stall lesson). Locks: new tests + full recovery/streaming suites green.
+
+### Task R2: In-tool critique pass + vision error-string filter
+Files: create-ui-from-html.ts, SubAgentDispatcher.ts. `refinePasses: 0|1` param (default 0, no behavior change): after auto-screenshot, when analysis flags generic/flat/off-theme, run ONE sub-agent improvement call (existingHtml mode) with the critique text. Vision analysis strings starting '[Vision sub-agent error:' never surface as analysis (analysis:null + note). Delete the retired SLOT_UI_THEME_PRESETS dead block (grep zero refs first). Locks: sim/lock tests.
+
+### Task R3: XML fallback de-templating
+Files: xml/XMLModificationService.ts (+ create-ui-from-xml.ts docs), ChatPanel-root XMLModificationService.ts (stale duplicate, zero importers — delete after grep), DesignExamples.ts (zero importers — delete after grep; extend tests/removed-helpers.test.ts). Behavior: remove the RANDOM stock-image fill entirely (src-less Image = honest placeholder, no off-theme imagery); neutralize the forced #4299e1/#2d3748 look (keep minimal legibility defaults, drop the branded palette); fix "Default is system blue" docs.
+
+### Task R4: Translator dead-case cleanup + Figma multi-shadow + keyframes trace
+Files: packages html-translator.ts (delete dead duplicate case clauses that esbuild warns about — first-case-wins, behavior-neutral, keep suite green), figma-translator.ts (emit shadows 2..N as a styleCss box-shadow list instead of break-at-one), plus a STATIC trace that nothing strips @keyframes between headCode and the preview DOM (report, don't change prompts unless the trace contradicts them).
+
+### Task R5: load_font persistence
+Files: load-font.ts, xml/HTMLUICreationTool.ts (export injectCssTextIntoHeadCode + a link-tag variant for reuse). Behavior: after a successful runtime load, persist (google → <link>, file/url → @font-face style block) into project headCode via the hang-proof getHeadCodeAccess path, deduped, so fonts survive preview reload; persist failure = note in result, never a tool failure. Locks: sim test.
