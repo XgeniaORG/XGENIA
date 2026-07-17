@@ -447,6 +447,20 @@ export class EditorBridge {
             }
         });
 
+        // Like html.translate but also reports every style/element the
+        // translator DROPPED — the ChatPanel surfaces `translationWarnings`
+        // to the model so it can restyle instead of silently losing fidelity.
+        h('html.translateWithReport', ([html, options]: [string, { omitRootWrapper?: boolean }?]) => {
+            try {
+                const { translateHtmlToXgeniaXmlWithReport } = require('../../EditorTopbar/html-translator');
+                const { xml, warnings } = translateHtmlToXgeniaXmlWithReport(html, options);
+                return { xml, translationWarnings: warnings };
+            } catch (err: any) {
+                console.error('[EditorBridge] html.translateWithReport failed:', err.message);
+                throw err;
+            }
+        });
+
         // --- Graph commands ---
         h('graph.getNodes', () => {
             const graph = this.getActiveGraph();

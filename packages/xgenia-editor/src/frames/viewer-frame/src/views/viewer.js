@@ -130,16 +130,20 @@ class Viewer extends View {
             // LOGGING POINT 2
             console.log('[viewer.js] DEBUG POINT 2: image has toDataURL. Preparing to send.');
 
+            // Aspect-preserving resize, max width 1024. The old fixed 400x250
+            // canvas both distorted the aspect ratio and starved the AI vision
+            // analysis of detail.
             const canvas = document.createElement('canvas');
-            canvas.width = 400;
-            canvas.height = 250;
+            const scale = Math.min(1, 1024 / image.width);
+            canvas.width = Math.round(image.width * scale);
+            canvas.height = Math.round(image.height * scale);
             const ctx = canvas.getContext('2d');
             // LOGGING POINT 2.1: Before drawImage
             console.log('[viewer.js] DEBUG POINT 2.1: canvas created, context obtained. Before ctx.drawImage.');
             ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
             // LOGGING POINT 2.2: After drawImage, before toDataURL
             console.log('[viewer.js] DEBUG POINT 2.2: After ctx.drawImage. Before canvas.toDataURL.');
-            const smallImageData = canvas.toDataURL('image/jpeg', 0.7);
+            const smallImageData = canvas.toDataURL('image/jpeg', 0.8);
             // LOGGING POINT 2.3: After canvas.toDataURL
             console.log('[viewer.js] DEBUG POINT 2.3: After canvas.toDataURL. Image data length:', smallImageData ? smallImageData.length : 'null');
 

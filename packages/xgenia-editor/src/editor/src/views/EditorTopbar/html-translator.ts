@@ -7,6 +7,17 @@
 
 import { isCleanClass, structuralRole } from './node-label';
 
+// ─── Translation warning channel ────────────────────────────
+// Collects every style/element the translator DROPS during a run so callers
+// can surface them instead of silently rendering something else. Reset per
+// translateHtmlToXgeniaXmlWithReport() call (translation is synchronous).
+
+let _warnings: string[] = [];
+
+function reportDrop(msg: string): void {
+    if (_warnings.length < 200) _warnings.push(msg);
+}
+
 // ─── Tailwind Scales ────────────────────────────────────────
 
 const SPACING: Record<string, number> = {
@@ -141,6 +152,7 @@ interface ParsedStyles {
     borderBottomLeftRadius?: number;
     borderWidth?: number;
     borderColor?: string;
+    borderStyle?: string;     // solid | dashed | dotted | double (native port; emit defaults to solid)
     opacity?: number;
     position?: string;
     top?: string;
@@ -172,7 +184,11 @@ interface ParsedStyles {
     _hasFlex?: boolean;       // Element has display:flex → default direction should be row
     _isInlineFlex?: boolean;  // Element has display:inline-flex → should shrink to content
     _gridCols?: number;       // CSS Grid columns count (grid-cols-N) → converted to flexbox wrap
+    _gridTracks?: string[];   // Raw grid-template-columns track list (e.g. ['2fr','1fr']) → fr ratios feed layoutString
     _colSpan?: number;        // CSS Grid col-span-N → used to compute Columns layoutString
+    _hoverClasses?: string[]; // hover: variant inner classes → css-definition :hover rule
+    _focusClasses?: string[]; // focus: variant inner classes → css-definition :focus rule
+    _activeClasses?: string[]; // active: variant inner classes → css-definition :active rule
     _gradientFrom?: string;   // Gradient from-color for text-transparent fallback
     _gradientTo?: string;     // Gradient to-color
     _gradientVia?: string;    // Gradient via-color (middle stop)
@@ -296,16 +312,62 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             }
         }
 
-        if (rawCls.startsWith('hover:') || rawCls.startsWith('focus:') ||
-            rawCls.startsWith('active:') || rawCls.startsWith('group-hover:') ||
+        // hover:/focus:/active: variants → collected per element and emitted as
+        // css-definition pseudo-class rules (see applyInteractionStates).
+        const stateVariantMatch = rawCls.match(/^(hover|focus|active):(.+)$/);
+        if (stateVariantMatch) {
+            const bucket = stateVariantMatch[1] === 'hover' ? '_hoverClasses'
+                : stateVariantMatch[1] === 'focus' ? '_focusClasses' : '_activeClasses';
+            (styles[bucket] = styles[bucket] || []).push(stateVariantMatch[2]);
+            continue;
+        }
+        if (rawCls.startsWith('group-hover:') ||
             rawCls.startsWith('group-active:') || rawCls.startsWith('selection:') ||
             rawCls.startsWith('placeholder:') || rawCls.startsWith('focus-within:') ||
             rawCls.startsWith('focus-visible:') || rawCls.startsWith('disabled:') ||
             rawCls.startsWith('first:') || rawCls.startsWith('last:') ||
-            rawCls.startsWith('odd:') || rawCls.startsWith('even:')) continue;
-        // Skip transition timing classes (but keep animate-spin/pulse → emit as CSS)
+            rawCls.startsWith('odd:') || rawCls.startsWith('even:')) {
+            reportDrop(`dropped: class '${cls}' (unsupported state variant)`);
+            continue;
+        }
+        // Transition classes → forward as CSS instead of dropping
+        if (rawCls === 'transition' || rawCls === 'transition-all') {
+            styles.styleCss = (styles.styleCss || '') + 'transition: all 150ms ease;';
+            continue;
+        }
+        if (rawCls === 'transition-none') {
+            styles.styleCss = (styles.styleCss || '') + 'transition: none;';
+            continue;
+        }
+        const transPropMatch = rawCls.match(/^transition-(colors|opacity|shadow|transform)$/);
+        if (transPropMatch) {
+            const TRANS_PROPS: Record<string, string> = {
+                'colors': 'color, background-color, border-color, fill, stroke',
+                'opacity': 'opacity', 'shadow': 'box-shadow', 'transform': 'transform',
+            };
+            styles.styleCss = (styles.styleCss || '') + `transition: ${TRANS_PROPS[transPropMatch[1]]} 150ms ease;`;
+            continue;
+        }
+        const durationMatch = rawCls.match(/^duration-(\d+)$/);
+        if (durationMatch) {
+            styles.styleCss = (styles.styleCss || '') + `transition-duration: ${durationMatch[1]}ms;`;
+            continue;
+        }
+        const easeMatch = rawCls.match(/^ease-(linear|in|out|in-out)$/);
+        if (easeMatch) {
+            const EASE_MAP: Record<string, string> = {
+                'linear': 'linear', 'in': 'cubic-bezier(0.4, 0, 1, 1)',
+                'out': 'cubic-bezier(0, 0, 0.2, 1)', 'in-out': 'cubic-bezier(0.4, 0, 0.2, 1)',
+            };
+            styles.styleCss = (styles.styleCss || '') + `transition-timing-function: ${EASE_MAP[easeMatch[1]]};`;
+            continue;
+        }
+        // Remaining transition/duration/ease forms (arbitrary values etc.)
         if (rawCls.startsWith('transition') ||
-            rawCls.startsWith('duration-') || rawCls.startsWith('ease-')) continue;
+            rawCls.startsWith('duration-') || rawCls.startsWith('ease-')) {
+            reportDrop(`dropped: class '${cls}' (unsupported transition form)`);
+            continue;
+        }
         // animate-spin/animate-pulse → inject keyframes via styleCss
         if (rawCls === 'animate-spin') {
             styles.styleCss = (styles.styleCss || '') + 'animation: spin 1s linear infinite;';
@@ -332,7 +394,10 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             continue;
         }
         // Skip unknown animate- classes
-        if (rawCls.startsWith('animate-')) continue;
+        if (rawCls.startsWith('animate-')) {
+            reportDrop(`dropped: class '${cls}' (unknown animation)`);
+            continue;
+        }
         // Skip snap/scroll utility
         if (rawCls.startsWith('snap-')) continue;
 
@@ -910,6 +975,10 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
                 // Gradient functions → styleCss (not a flat color)
                 if (arbVal.includes('gradient') || arbVal.includes('conic') || arbVal.includes('radial')) {
                     styles.styleCss = (styles.styleCss || '') + `background: ${arbVal};`;
+                } else if (arbVal.includes('url(')) {
+                    // bg-[url(...)] → a background IMAGE, never the color port
+                    styles.styleCss = (styles.styleCss || '') +
+                        `background-image: ${arbVal}; background-size: cover; background-position: center;`;
                 } else {
                     styles.backgroundColor = arbVal;
                 }
@@ -982,11 +1051,11 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             }
             continue;
         }
-        // Border style utilities
-        if (rawCls === 'border-solid') { styles.styleCss = (styles.styleCss || '') + 'border-style: solid;'; continue; }
-        if (rawCls === 'border-dashed') { styles.styleCss = (styles.styleCss || '') + 'border-style: dashed;'; continue; }
-        if (rawCls === 'border-dotted') { styles.styleCss = (styles.styleCss || '') + 'border-style: dotted;'; continue; }
-        if (rawCls === 'border-double') { styles.styleCss = (styles.styleCss || '') + 'border-style: double;'; continue; }
+        // Border style utilities → native borderStyle port (emitters default to solid)
+        if (rawCls === 'border-solid') { styles.borderStyle = 'solid'; continue; }
+        if (rawCls === 'border-dashed') { styles.borderStyle = 'dashed'; continue; }
+        if (rawCls === 'border-dotted') { styles.borderStyle = 'dotted'; continue; }
+        if (rawCls === 'border-double') { styles.borderStyle = 'double'; continue; }
         if (rawCls === 'border-none') { styles.borderWidth = 0; continue; }
         if (rawCls === 'border-hidden') { styles.styleCss = (styles.styleCss || '') + 'border-style: hidden;'; continue; }
         // Divide utilities (border between siblings)
@@ -1366,6 +1435,24 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             continue;
         }
 
+        // ─── Filter functions (brightness/contrast/saturate etc.) ──
+        // Previously fell off the end of the loop and vanished. Also needed so
+        // hover:brightness-110 parses into a :hover css-definition rule.
+        const filterFnMatch = rawCls.match(/^(brightness|contrast|saturate)-(\d+)$/);
+        if (filterFnMatch) {
+            styles.styleCss = (styles.styleCss || '') + `filter: ${filterFnMatch[1]}(${parseInt(filterFnMatch[2]) / 100});`;
+            continue;
+        }
+        if (rawCls === 'grayscale') { styles.styleCss = (styles.styleCss || '') + 'filter: grayscale(100%);'; continue; }
+        if (rawCls === 'grayscale-0') { styles.styleCss = (styles.styleCss || '') + 'filter: grayscale(0);'; continue; }
+        if (rawCls === 'invert') { styles.styleCss = (styles.styleCss || '') + 'filter: invert(100%);'; continue; }
+        if (rawCls === 'sepia') { styles.styleCss = (styles.styleCss || '') + 'filter: sepia(100%);'; continue; }
+        const hueRotateMatch = rawCls.match(/^hue-rotate-(\d+)$/);
+        if (hueRotateMatch) {
+            styles.styleCss = (styles.styleCss || '') + `filter: hue-rotate(${hueRotateMatch[1]}deg);`;
+            continue;
+        }
+
         // ─── Gradient text classes ─────────
         if (rawCls === 'text-transparent') { styles._hasTextTransparent = true; continue; }
         if (rawCls === 'bg-clip-text') { styles._hasBgClipText = true; continue; }
@@ -1614,6 +1701,22 @@ function declaredControlLabel(el: HTMLElement): string | null {
     return raw.trim().replace(/[-_]+/g, ' ').substring(0, 40);
 }
 
+/**
+ * Convert a CSS length to px. Handles px/rem/em (×16)/pt and bare numbers.
+ * Returns null for %/vw/vh/calc()/auto/keywords — callers must route those
+ * to styleCss instead of truncating them with parseInt ('1.5rem' → 1px bug).
+ */
+function cssLenToPx(value: string): number | null {
+    const m = /^(-?[\d.]+)(px|rem|em|pt)?$/.exec(String(value).trim());
+    if (!m) return null;
+    const num = parseFloat(m[1]);
+    if (isNaN(num)) return null;
+    const unit = m[2];
+    if (unit === 'rem' || unit === 'em') return Math.round(num * 16);
+    if (unit === 'pt') return Math.round(num * (4 / 3));
+    return Math.round(num);
+}
+
 function parseInlineStyle(styleStr: string): ParsedStyles {
     const styles: ParsedStyles = {};
     const declarations = styleStr.split(';').filter(d => d.trim());
@@ -1623,6 +1726,12 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
         if (!prop || valParts.length === 0) continue;
         const key = prop.trim().toLowerCase();
         const value = valParts.join(':').trim();
+
+        // var(--…) values reach the runtime with no variable definition to
+        // resolve against — still emitted, but flag it for the caller.
+        if (value.includes('var(--')) {
+            reportDrop(`dropped: '${key}: ${value.slice(0, 50)}' uses var(--…) with no variable definition`);
+        }
 
         switch (key) {
             // ─── Display & Flex ──────────────────
@@ -1639,8 +1748,11 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                 if (repeatMatch) {
                     styles._gridCols = parseInt(repeatMatch[1]);
                 } else {
-                    // Count space-separated column defs
-                    styles._gridCols = value.trim().split(/\s+/).length;
+                    // Count space-separated column defs; keep the raw track list
+                    // so fr ratios (2fr 1fr) can drive the Columns layoutString.
+                    const tracks = value.trim().split(/\s+/);
+                    styles._gridCols = tracks.length;
+                    styles._gridTracks = tracks;
                 }
                 break;
             }
@@ -1675,8 +1787,9 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                 break;
             }
             case 'gap': {
-                const g = parseInt(value);
-                if (!isNaN(g)) styles.gap = g;
+                const g = cssLenToPx(value.split(/\s+/)[0]);
+                if (g !== null) styles.gap = g;
+                else styles.styleCss = (styles.styleCss || '') + `gap: ${value};`;
                 break;
             }
 
@@ -1706,69 +1819,101 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
 
             // ─── Padding (individual + shorthand) ─
             case 'padding-top': {
-                const pt = parseInt(value);
-                if (!isNaN(pt)) styles.paddingTop = pt;
+                const pt = cssLenToPx(value);
+                if (pt !== null) styles.paddingTop = pt;
+                else styles.styleCss = (styles.styleCss || '') + `padding-top: ${value};`;
                 break;
             }
             case 'padding-bottom': {
-                const pb = parseInt(value);
-                if (!isNaN(pb)) styles.paddingBottom = pb;
+                const pb = cssLenToPx(value);
+                if (pb !== null) styles.paddingBottom = pb;
+                else styles.styleCss = (styles.styleCss || '') + `padding-bottom: ${value};`;
                 break;
             }
             case 'padding-left': {
-                const pl = parseInt(value);
-                if (!isNaN(pl)) styles.paddingLeft = pl;
+                const pl = cssLenToPx(value);
+                if (pl !== null) styles.paddingLeft = pl;
+                else styles.styleCss = (styles.styleCss || '') + `padding-left: ${value};`;
                 break;
             }
             case 'padding-right': {
-                const pr = parseInt(value);
-                if (!isNaN(pr)) styles.paddingRight = pr;
+                const pr = cssLenToPx(value);
+                if (pr !== null) styles.paddingRight = pr;
+                else styles.styleCss = (styles.styleCss || '') + `padding-right: ${value};`;
                 break;
             }
             case 'padding': {
                 // Shorthand: "48px 24px 32px" = top right bottom [left=right]
-                const parts = value.split(/\s+/).map(v => parseInt(v));
-                if (parts.length === 1 && !isNaN(parts[0])) {
-                    styles.paddingTop = styles.paddingBottom = styles.paddingLeft = styles.paddingRight = parts[0];
+                const rawParts = value.split(/\s+/);
+                const parts = rawParts.map(v => cssLenToPx(v));
+                if (parts.some(p => p === null)) {
+                    // %/calc/keyword part → whole shorthand via CSS
+                    styles.styleCss = (styles.styleCss || '') + `padding: ${value};`;
+                } else if (parts.length === 1) {
+                    styles.paddingTop = styles.paddingBottom = styles.paddingLeft = styles.paddingRight = parts[0]!;
                 } else if (parts.length === 2) {
-                    styles.paddingTop = styles.paddingBottom = parts[0];
-                    styles.paddingLeft = styles.paddingRight = parts[1];
+                    styles.paddingTop = styles.paddingBottom = parts[0]!;
+                    styles.paddingLeft = styles.paddingRight = parts[1]!;
                 } else if (parts.length === 3) {
-                    styles.paddingTop = parts[0];
-                    styles.paddingLeft = styles.paddingRight = parts[1];
-                    styles.paddingBottom = parts[2];
+                    styles.paddingTop = parts[0]!;
+                    styles.paddingLeft = styles.paddingRight = parts[1]!;
+                    styles.paddingBottom = parts[2]!;
                 } else if (parts.length >= 4) {
-                    styles.paddingTop = parts[0];
-                    styles.paddingRight = parts[1];
-                    styles.paddingBottom = parts[2];
-                    styles.paddingLeft = parts[3];
+                    styles.paddingTop = parts[0]!;
+                    styles.paddingRight = parts[1]!;
+                    styles.paddingBottom = parts[2]!;
+                    styles.paddingLeft = parts[3]!;
                 }
                 break;
             }
 
             // ─── Margin ──────────────────────────
             case 'margin-top': {
-                const mt = parseInt(value);
-                if (!isNaN(mt)) styles.marginTop = mt;
+                const mt = cssLenToPx(value);
+                if (mt !== null) styles.marginTop = mt;
+                else styles.styleCss = (styles.styleCss || '') + `margin-top: ${value};`;
                 break;
             }
             case 'margin-bottom': {
-                const mb = parseInt(value);
-                if (!isNaN(mb)) styles.marginBottom = mb;
+                const mb = cssLenToPx(value);
+                if (mb !== null) styles.marginBottom = mb;
+                else styles.styleCss = (styles.styleCss || '') + `margin-bottom: ${value};`;
                 break;
             }
             case 'margin-left': {
-                const ml = parseInt(value);
-                if (!isNaN(ml)) styles.marginLeft = ml;
+                const ml = cssLenToPx(value);
+                if (ml !== null) styles.marginLeft = ml;
+                else styles.styleCss = (styles.styleCss || '') + `margin-left: ${value};`;
                 break;
             }
             case 'margin-right': {
-                const mr = parseInt(value);
-                if (!isNaN(mr)) styles.marginRight = mr;
+                const mr = cssLenToPx(value);
+                if (mr !== null) styles.marginRight = mr;
+                else styles.styleCss = (styles.styleCss || '') + `margin-right: ${value};`;
                 break;
             }
             case 'margin': {
-                // For now just skip margin: 0px which is default
+                // Shorthand 1-4 values → per-side margin ports (was a no-op that
+                // silently dropped every inline margin). auto/%/calc parts fall
+                // back to styleCss so `margin: 0 auto` centering still works.
+                const mParts = value.split(/\s+/).map(v => cssLenToPx(v));
+                if (mParts.some(p => p === null)) {
+                    styles.styleCss = (styles.styleCss || '') + `margin: ${value};`;
+                } else if (mParts.length === 1) {
+                    styles.marginTop = styles.marginBottom = styles.marginLeft = styles.marginRight = mParts[0]!;
+                } else if (mParts.length === 2) {
+                    styles.marginTop = styles.marginBottom = mParts[0]!;
+                    styles.marginLeft = styles.marginRight = mParts[1]!;
+                } else if (mParts.length === 3) {
+                    styles.marginTop = mParts[0]!;
+                    styles.marginLeft = styles.marginRight = mParts[1]!;
+                    styles.marginBottom = mParts[2]!;
+                } else if (mParts.length >= 4) {
+                    styles.marginTop = mParts[0]!;
+                    styles.marginRight = mParts[1]!;
+                    styles.marginBottom = mParts[2]!;
+                    styles.marginLeft = mParts[3]!;
+                }
                 break;
             }
 
@@ -1859,8 +2004,14 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
 
             // ─── Borders ─────────────────────────
             case 'border-radius': {
+                // %-based radii (border-radius: 50% circles) can't map to the
+                // px radius ports — route the whole declaration to styleCss.
+                if (value.includes('%') || value.includes('calc(')) {
+                    styles.styleCss = (styles.styleCss || '') + `border-radius: ${value};`;
+                    break;
+                }
                 // Parse shorthand: border-radius: TL TR BR BL | TL TR/BL BR | TL/BR TR/BL | ALL
-                const parts = value.split(/\s+/).map(v => parseInt(v)).filter(v => !isNaN(v));
+                const parts = value.split(/\s+/).map(v => cssLenToPx(v)).filter((v): v is number => v !== null);
                 if (parts.length === 1) {
                     styles.borderRadius = parts[0];
                 } else if (parts.length === 2) {
@@ -1885,34 +2036,39 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                 break;
             }
             case 'border-top-left-radius': {
-                const r = parseInt(value);
-                if (!isNaN(r)) styles.borderTopLeftRadius = r;
+                const r = cssLenToPx(value);
+                if (r !== null) styles.borderTopLeftRadius = r;
+                else styles.styleCss = (styles.styleCss || '') + `border-top-left-radius: ${value};`;
                 break;
             }
             case 'border-top-right-radius': {
-                const r = parseInt(value);
-                if (!isNaN(r)) styles.borderTopRightRadius = r;
+                const r = cssLenToPx(value);
+                if (r !== null) styles.borderTopRightRadius = r;
+                else styles.styleCss = (styles.styleCss || '') + `border-top-right-radius: ${value};`;
                 break;
             }
             case 'border-bottom-right-radius': {
-                const r = parseInt(value);
-                if (!isNaN(r)) styles.borderBottomRightRadius = r;
+                const r = cssLenToPx(value);
+                if (r !== null) styles.borderBottomRightRadius = r;
+                else styles.styleCss = (styles.styleCss || '') + `border-bottom-right-radius: ${value};`;
                 break;
             }
             case 'border-bottom-left-radius': {
-                const r = parseInt(value);
-                if (!isNaN(r)) styles.borderBottomLeftRadius = r;
+                const r = cssLenToPx(value);
+                if (r !== null) styles.borderBottomLeftRadius = r;
+                else styles.styleCss = (styles.styleCss || '') + `border-bottom-left-radius: ${value};`;
                 break;
             }
             case 'border-width': {
-                const bw = parseInt(value);
-                if (!isNaN(bw)) styles.borderWidth = bw;
+                const bw = cssLenToPx(value);
+                if (bw !== null) styles.borderWidth = bw;
                 break;
             }
             case 'border-color': styles.borderColor = value; break;
             case 'border-style':
-                // Skip — the Group emit auto-sets borderStyle="solid" whenever a
-                // borderWidth is present; non-solid styles aren't a native port.
+                // Native borderStyle port supports solid/dashed/dotted — emitters
+                // use styles.borderStyle || 'solid' alongside borderWidth.
+                styles.borderStyle = value.trim();
                 break;
             case 'border': {
                 // Inline `border: <width> <style> <color>` shorthand. Was a no-op
@@ -1928,6 +2084,9 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                     styles.borderWidth = 0;
                 } else {
                     styles.borderWidth = bwM ? parseFloat(bwM[1]) : 1;
+                    // Non-solid styles (dashed/dotted/double) are real border ports
+                    const styleM = value.match(/\b(solid|dashed|dotted|double)\b/);
+                    if (styleM) styles.borderStyle = styleM[1];
                     const colorM = value.match(/#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\)/);
                     if (colorM) {
                         styles.borderColor = colorM[0];
@@ -2048,9 +2207,6 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
             case 'hyphens':
             case 'text-justify':
             // Borders (per-side / individual props)
-            case 'border-color':
-            case 'border-width':
-            case 'border-style':
             case 'border-top':
             case 'border-right':
             case 'border-bottom':
@@ -2160,10 +2316,18 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                 styles.fontStyle = value.trim();
                 break;
 
-            // Default: unknown properties go to styleCss if they seem important
-            default:
-                // Skip common layout no-ops
+            // Default: FORWARD unknown properties to styleCss — never vanish.
+            // Only a small explicit list of visual no-ops is skipped.
+            default: {
+                const NOOP_PROPS = new Set([
+                    'cursor', 'user-select', 'pointer-events', 'white-space',
+                    '-webkit-font-smoothing', '-moz-osx-font-smoothing', 'text-rendering',
+                ]);
+                if (!NOOP_PROPS.has(key)) {
+                    styles.styleCss = (styles.styleCss || '') + `${key}: ${value};`;
+                }
                 break;
+            }
         }
     }
     return styles;
@@ -2626,10 +2790,168 @@ export function detectExternalDependencies(html: string): DetectedDependency[] {
     return deps;
 }
 
+// ─── Interaction states (hover/focus/active) ────────────────
+// Generated pseudo-class rules are content-addressed: the class name is a
+// stable hash of pseudo+rule-body. The rules persist into project-GLOBAL
+// headCode, so a per-run counter would mint the same `.xg-hov-1` name with
+// DIFFERENT bodies across builds (later build restyles earlier components).
+// Hashing makes identical rules dedupe naturally across builds and makes it
+// impossible for different rules to share a name.
+const _stateRuleCache = new Map<string, string>();
+
+/** djb2-xor hash → stable 8-char lowercase hex. Deterministic across runs/builds. */
+function hashStateRule(s: string): string {
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) {
+        h = ((h << 5) + h) ^ s.charCodeAt(i);
+    }
+    return (h >>> 0).toString(16).padStart(8, '0');
+}
+// Classes that have a `.cls:hover|:focus|:active` rule in a <style> block —
+// elements carrying them must keep the class in cssClassName so the rule hits.
+let _stateRuleClasses = new Set<string>();
+
 /**
- * Translate raw HTML to XGENIA XML.
+ * Extract `.cls:hover { … }` (and :focus/:active) rules from <style> blocks.
+ * These are already valid CSS — they flow into css-definition nodes verbatim.
+ */
+function extractStateRules(html: string): Array<{ cls: string; pseudo: string; rule: string }> {
+    const out: Array<{ cls: string; pseudo: string; rule: string }> = [];
+    const styleBlocks = html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi);
+    if (!styleBlocks) return out;
+    for (const block of styleBlocks) {
+        const content = block.replace(/<\/?style[^>]*>/gi, '');
+        // Selector-level parse: grouped selectors ('.a:hover, .b:hover') are
+        // split on commas so each simple '.class:pseudo' part translates;
+        // anything else carrying a state pseudo (descendant '.card:hover .title',
+        // compound, ::before, …) is REPORTED instead of vanishing silently.
+        const ruleRegex = /([^{}]+)\{([^}]*)\}/g;
+        let m;
+        while ((m = ruleRegex.exec(content)) !== null) {
+            const selectorList = m[1].trim();
+            const body = m[2].trim().replace(/\s+/g, ' ');
+            if (!/:(hover|focus|active)\b/.test(selectorList) || !body) continue;
+            for (const rawSel of selectorList.split(',')) {
+                const sel = rawSel.trim();
+                const simple = sel.match(/^\.([\w-]+):(hover|focus|active)$/);
+                if (simple) {
+                    out.push({
+                        cls: simple[1],
+                        pseudo: simple[2],
+                        rule: `.${simple[1]}:${simple[2]} { ${body} }`,
+                    });
+                } else if (/:(hover|focus|active)\b/.test(sel)) {
+                    reportDrop(`dropped: state rule '${sel}' (only simple '.class:hover|:focus|:active' selectors translate)`);
+                }
+            }
+        }
+    }
+    return out;
+}
+
+/**
+ * Normalize fr-track ratios to integers — the runtime Columns.tsx parses
+ * layoutString with parseInt, so a verbatim '0.5 1' collapses the 0.5fr
+ * column to width 0. Multiply by increasing factors until every value is
+ * integral (within epsilon); fall back to scale-100 rounding + gcd-reduce.
+ * '0.5fr 1fr' → [1, 2]; '1.5fr 1fr' → [3, 2].
+ */
+function normalizeFrRatios(vals: number[]): number[] {
+    const eps = 1e-6;
+    for (let f = 1; f <= 10; f++) {
+        const scaled = vals.map(v => v * f);
+        if (scaled.every(v => Math.abs(v - Math.round(v)) < eps)) {
+            return scaled.map(v => Math.max(1, Math.round(v)));
+        }
+    }
+    const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+    const rounded = vals.map(v => Math.max(1, Math.round(v * 100)));
+    const g = rounded.reduce((a, b) => gcd(a, b));
+    return rounded.map(v => v / g);
+}
+
+/**
+ * Serialize the visual subset of ParsedStyles back to CSS declarations —
+ * used to turn hover:/focus:/active: Tailwind variants into pseudo-class rules.
+ */
+function parsedStylesToCssDeclarations(ps: ParsedStyles): string {
+    const out: string[] = [];
+    if (ps.backgroundColor) out.push(`background-color: ${ps.backgroundColor}`);
+    if (ps.color) out.push(`color: ${ps.color}`);
+    if (ps.borderColor) out.push(`border-color: ${ps.borderColor}`);
+    if (ps.borderWidth !== undefined) out.push(`border-width: ${ps.borderWidth}px`);
+    if (ps.borderStyle) out.push(`border-style: ${ps.borderStyle}`);
+    if (ps.borderRadius !== undefined) out.push(`border-radius: ${ps.borderRadius}px`);
+    if (ps.opacity !== undefined) out.push(`opacity: ${ps.opacity}`);
+    if (ps.fontWeight) out.push(`font-weight: ${ps.fontWeight}`);
+    if (ps.fontSize) out.push(`font-size: ${ps.fontSize}px`);
+    if (ps.letterSpacing) out.push(`letter-spacing: ${ps.letterSpacing}`);
+    if (ps._transforms && ps._transforms.length > 0) out.push(`transform: ${ps._transforms.join(' ')}`);
+    let body = out.map(d => `${d};`).join(' ');
+    if (ps.styleCss) body = `${body}${body ? ' ' : ''}${ps.styleCss}`;
+    return body.trim();
+}
+
+/**
+ * Turn collected hover:/focus:/active: variant classes into css-definition
+ * pseudo-class rules and attach the generated class to the element.
+ */
+function applyInteractionStates(
+    styles: ParsedStyles,
+    cssDefinitions: Map<string, string> | undefined,
+    customColors?: Record<string, string>,
+    customFonts?: Record<string, string>,
+    customShadows?: Record<string, string>,
+    customBackgroundImages?: Record<string, string>
+): void {
+    const states: Array<[string[] | undefined, string]> = [
+        [styles._hoverClasses, 'hover'],
+        [styles._focusClasses, 'focus'],
+        [styles._activeClasses, 'active'],
+    ];
+    for (const [classes, pseudo] of states) {
+        if (!classes || classes.length === 0) continue;
+        if (!cssDefinitions) {
+            classes.forEach(c => reportDrop(`dropped: class '${pseudo}:${c}' (no css-definition channel in this context)`));
+            continue;
+        }
+        const ps = parseTailwindClasses(classes.join(' '), customColors, customFonts, customShadows, customBackgroundImages);
+        const body = parsedStylesToCssDeclarations(ps);
+        if (!body) {
+            classes.forEach(c => reportDrop(`dropped: class '${pseudo}:${c}' (unsupported ${pseudo} style)`));
+            continue;
+        }
+        const ruleKey = `${pseudo}|${body}`;
+        let clsName = _stateRuleCache.get(ruleKey);
+        if (!clsName) {
+            clsName = `xg-${pseudo === 'hover' ? 'hov' : pseudo}-${hashStateRule(ruleKey)}`;
+            _stateRuleCache.set(ruleKey, clsName);
+            cssDefinitions.set(`__state_${clsName}__`, `.${clsName}:${pseudo} { ${body} transition: all 120ms ease; }`);
+        }
+        styles.cssClassName = styles.cssClassName ? `${styles.cssClassName} ${clsName}` : clsName;
+    }
+}
+
+/**
+ * Translate raw HTML to XGENIA XML (string API, back-compat).
  */
 export function translateHtmlToXgeniaXml(html: string, options?: { omitRootWrapper?: boolean }): string {
+    return translateHtmlToXgeniaXmlWithReport(html, options).xml;
+}
+
+/**
+ * Translate raw HTML to XGENIA XML and report every dropped style/element.
+ * The warnings array is deduped and capped — the bridge exposes it to the
+ * ChatPanel as `translationWarnings` so the AI sees what did NOT render.
+ */
+export function translateHtmlToXgeniaXmlWithReport(html: string, options?: { omitRootWrapper?: boolean }): { xml: string; warnings: string[] } {
+    _warnings = [];
+    _stateRuleCache.clear();
+    const xml = doTranslateHtmlToXgeniaXml(html, options);
+    return { xml, warnings: [...new Set(_warnings)].slice(0, 40) };
+}
+
+function doTranslateHtmlToXgeniaXml(html: string, options?: { omitRootWrapper?: boolean }): string {
     // Extract custom Tailwind colors
     const customColors = extractCustomColors(html);
     // Extract custom Tailwind font families
@@ -2640,6 +2962,16 @@ export function translateHtmlToXgeniaXml(html: string, options?: { omitRootWrapp
     const customBackgroundImages = extractCustomBackgroundImages(html);
     // Extract CSS class styles
     const cssClassStyles = extractCssClassStyles(html);
+
+    // ─── State rules (.cls:hover / :focus / :active) from <style> blocks ──
+    const stateRules = extractStateRules(html);
+    _stateRuleClasses = new Set(stateRules.map(r => r.cls));
+
+    // @media rules aren't translated — flag them once so responsive-only
+    // styling doesn't silently vanish.
+    if (/@media[\s(]/.test(html)) {
+        reportDrop('dropped: @media rules (translator renders the desktop layout only)');
+    }
 
     // ─── Extract font family from Google Fonts <link> tags ──
     let fontFamily: string | undefined;
@@ -2687,6 +3019,11 @@ export function translateHtmlToXgeniaXml(html: string, options?: { omitRootWrapp
 
     // Collect CSS definitions for CSS Definition nodes
     const cssDefinitions = new Map<string, string>();
+
+    // `.cls:hover` etc. from <style> — already valid CSS, forwarded verbatim
+    for (const sr of stateRules) {
+        cssDefinitions.set(`__staterule_${sr.cls}_${sr.pseudo}__`, sr.rule);
+    }
 
     // Extract @keyframes rules from <style> blocks
     const keyframesRules = extractKeyframesRules(html);
@@ -3025,6 +3362,13 @@ function translateNode(
     // Skip tags
     if (SKIP_TAGS.has(tag)) return null;
 
+    // <canvas>/<iframe> have no XGENIA equivalent — report instead of silently
+    // producing nothing.
+    if (tag === 'canvas' || tag === 'iframe') {
+        reportDrop(`dropped: <${tag}> element (no XGENIA equivalent; use nodes or an image instead)`);
+        return null;
+    }
+
     // Collect all text from this element
     const directText = getDirectText(el);
 
@@ -3055,6 +3399,13 @@ function translateNode(
                         cssDefinitions.set(cls, `.${cls} { ${ruleBody} }`);
                     }
                     cssClassNames.push(cls);
+                } else if (!hasComplexCss) {
+                    // Only border/background-color/box-shadow are extracted below —
+                    // report the class-rule properties that do NOT make it through.
+                    for (const p of Object.keys(props)) {
+                        if (p === 'border' || p === 'background-color' || p === 'box-shadow') continue;
+                        reportDrop(`dropped: <style> .${cls} property '${p}' (not extracted; use inline style or Tailwind)`);
+                    }
                 }
 
                 // Still extract native-compatible properties
@@ -3078,6 +3429,11 @@ function translateNode(
                     cssStyles.styleCss = (cssStyles.styleCss || '') + `box-shadow: ${props['box-shadow']};`;
                 }
             }
+            // Class has a :hover/:focus/:active rule in <style> — keep the class
+            // on the element (cssClassName) so the css-definition rule can hit it.
+            if (_stateRuleClasses.has(cls) && !cssClassNames.includes(cls)) {
+                cssClassNames.push(cls);
+            }
         }
     }
     if (cssClassNames.length > 0) {
@@ -3086,6 +3442,18 @@ function translateNode(
 
     // Merge: CSS class → Tailwind → inline (inline wins)
     const styles: ParsedStyles = { ...cssStyles, ...twStyles, ...inlineStyles };
+
+    // Preserve styleCss from BOTH class-rule extraction and Tailwind parsing —
+    // the plain spread would keep only the last one. (Inline styleCss additions
+    // come from parseInlineStyle's forward-by-default and must not clobber
+    // Tailwind-parsed CSS like filters/transitions.)
+    const styleCssParts = [cssStyles.styleCss, twStyles.styleCss, inlineStyles.styleCss].filter(Boolean);
+    if (styleCssParts.length > 1) {
+        styles.styleCss = styleCssParts.join('');
+    }
+
+    // hover:/focus:/active: Tailwind variants → css-definition pseudo-class rules
+    applyInteractionStates(styles, cssDefinitions, customColors, customFonts, customShadows, customBackgroundImages);
 
     // ─── Inherit textAlign from parent if not set on this element ──
     // XGENIA's flexbox layout doesn't inherit text-align, so we propagate it explicitly
@@ -3217,10 +3585,27 @@ function translateNode(
         if (styles.opacity !== undefined) attrs.push(`opacity="${styles.opacity}"`);
         addPositionAttrs(styles, attrs);
         if (styles.styleCss) attrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+        // Image is a react-component node → universal cssClassName port exists
+        if (styles.cssClassName) attrs.push(`cssClassName="${styles.cssClassName}"`);
         return `${indent}<img ${attrs.join(' ')} />`;
     }
 
-    // ─── Background image div → img ─────
+    // ─── Background image div WITH children → Group with CSS background ──
+    // Previously the whole subtree was replaced by a self-closing <img>, so a
+    // hero section's title/buttons vanished. Group has no native background-
+    // image port (verified: none in group.js/shared port definitions) → styleCss.
+    if (styles.backgroundImage && el.children.length > 0) {
+        // Defaults only where the author didn't declare the property —
+        // an explicit background-size/position must not be overridden.
+        const authored = styles.styleCss || '';
+        let bgCss = `background-image: url(${styles.backgroundImage});`;
+        if (!/background-size\s*:/i.test(authored)) bgCss += ' background-size: cover;';
+        if (!/background-position\s*:/i.test(authored)) bgCss += ' background-position: center;';
+        styles.styleCss = authored + bgCss;
+        styles.backgroundImage = undefined;
+    }
+
+    // ─── Background image div (childless) → img ─────
     if (styles.backgroundImage) {
         const attrs: string[] = [];
         const alt = el.getAttribute('data-alt') || el.getAttribute('aria-label') || 'Background Image';
@@ -3266,11 +3651,13 @@ function translateNode(
 
         // data-lucide / data-feather / data-iconify hooks are JS-replaced — skip.
         if (el.getAttribute('data-lucide') || el.getAttribute('data-feather') || el.getAttribute('data-iconify')) {
+            reportDrop(`dropped: icon '${el.getAttribute('data-lucide') || el.getAttribute('data-feather') || el.getAttribute('data-iconify')}' (JS-runtime icon libs don't render; use Material Icons or inline SVG)`);
             return null;
         }
 
         // Check for skippable icon fonts (FA, BI, Lucide class form)
         if (elClasses.some(c => SKIP_ICON_CLASSES.includes(c) || c.startsWith('fa-') || c.startsWith('bi-') || c.startsWith('lucide-') || c.startsWith('hero-'))) {
+            reportDrop(`dropped: icon '${elClasses.filter(Boolean).slice(0, 3).join(' ')}' (FontAwesome/Bootstrap/Lucide class icons need their runtime; use Material Icons or inline SVG)`);
             return null;
         }
 
@@ -3539,7 +3926,7 @@ ${indent}</group>`;
         addBorderRadiusAttrs(styles, inputAttrs);
         if (styles.borderWidth !== undefined) {
             inputAttrs.push(`borderWidth="${styles.borderWidth}"`);
-            inputAttrs.push('borderStyle="solid"');
+            inputAttrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
         } else {
             inputAttrs.push('borderWidth="1"');
             inputAttrs.push('borderStyle="solid"');
@@ -3550,6 +3937,8 @@ ${indent}</group>`;
         // textinput has no `color` port — route text color through styleCss.
         const inputCss = `${styles.color ? `color: ${styles.color};` : ''}${styles.styleCss || ''}`;
         if (inputCss) inputAttrs.push(`styleCss="${escapeXml(inputCss)}"`);
+        // textinput is a react-component node → universal cssClassName port exists
+        if (styles.cssClassName) inputAttrs.push(`cssClassName="${styles.cssClassName}"`);
         return `${indent}<input ${inputAttrs.join(' ')} />`;
     }
 
@@ -3624,7 +4013,7 @@ ${indent}</group>`;
         addBorderRadiusAttrs(styles, tblAttrs);
         if (styles.borderWidth) {
             tblAttrs.push(`borderWidth="${styles.borderWidth}"`);
-            tblAttrs.push('borderStyle="solid"');
+            tblAttrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
         }
         if (styles.borderColor) tblAttrs.push(`borderColor="${styles.borderColor}"`);
         if (styles.styleCss) tblAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
@@ -3743,7 +4132,7 @@ ${indent}</group>`;
         addBorderRadiusAttrs(styles, detailsAttrs);
         if (styles.borderWidth) {
             detailsAttrs.push(`borderWidth="${styles.borderWidth}"`);
-            detailsAttrs.push('borderStyle="solid"');
+            detailsAttrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
         }
         if (styles.borderColor) detailsAttrs.push(`borderColor="${styles.borderColor}"`);
         addPositionAttrs(styles, detailsAttrs);
@@ -3922,9 +4311,16 @@ ${indent}</group>`;
 
             // ─── Single row: emit a single <columns> (no wrapper needed) ──
             if (rows.length <= 1) {
-                const layoutString = childSpans.length > 0
-                    ? childSpans.join(' ')
-                    : Array(gridCols).fill('1').join(' ');
+                // fr-ratio tracks (grid-template-columns: 2fr 1fr) → proportional
+                // layoutString "2 1". Only when no explicit col-span overrides.
+                const frTracks = styles._gridTracks;
+                const allFr = !!frTracks && frTracks.length > 0 && frTracks.every(t => /^[\d.]+fr$/.test(t));
+                const spansAllDefault = childSpans.every(s => s === 1);
+                const layoutString = (allFr && spansAllDefault)
+                    ? normalizeFrRatios(frTracks!.map(t => parseFloat(t))).join(' ')
+                    : childSpans.length > 0
+                        ? childSpans.join(' ')
+                        : Array(gridCols).fill('1').join(' ');
 
                 const colAttrs: string[] = [];
                 colAttrs.push(`nodeLabel="${escapeXml(label + ' columns')}"`);
@@ -3937,7 +4333,7 @@ ${indent}</group>`;
                 if (styles.borderRadius) colAttrs.push(`borderRadius="${styles.borderRadius}"`);
                 if (styles.borderWidth) {
                     colAttrs.push(`borderWidth="${styles.borderWidth}"`);
-                    colAttrs.push('borderStyle="solid"');
+                    colAttrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
                 }
                 if (styles.borderColor) colAttrs.push(`borderColor="${styles.borderColor}"`);
                 if (styles.opacity !== undefined) colAttrs.push(`opacity="${styles.opacity}"`);
@@ -3949,6 +4345,8 @@ ${indent}</group>`;
                 if (styles.height) colAttrs.push(`height="${styles.height}"`);
                 addPositionAttrs(styles, colAttrs);
                 if (styles.styleCss) colAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+                // Columns is a react-component node → universal cssClassName port exists
+                if (styles.cssClassName) colAttrs.push(`cssClassName="${styles.cssClassName}"`);
 
                 if (children.length === 0) {
                     return `${indent}<columns ${colAttrs.join(' ')} />`;
@@ -3964,7 +4362,7 @@ ${indent}</group>`;
             if (styles.borderRadius) wrapperAttrs.push(`borderRadius="${styles.borderRadius}"`);
             if (styles.borderWidth) {
                 wrapperAttrs.push(`borderWidth="${styles.borderWidth}"`);
-                wrapperAttrs.push('borderStyle="solid"');
+                wrapperAttrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
             }
             if (styles.borderColor) wrapperAttrs.push(`borderColor="${styles.borderColor}"`);
             if (styles.opacity !== undefined) wrapperAttrs.push(`opacity="${styles.opacity}"`);
@@ -3977,6 +4375,8 @@ ${indent}</group>`;
             if (styles.gap) wrapperAttrs.push(`rowGap="${styles.gap}"`);
             addPositionAttrs(styles, wrapperAttrs);
             if (styles.styleCss) wrapperAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+            // Group is a react-component node → universal cssClassName port exists
+            if (styles.cssClassName) wrapperAttrs.push(`cssClassName="${styles.cssClassName}"`);
 
             const rowXmls: string[] = [];
             for (let r = 0; r < rows.length; r++) {
@@ -4016,6 +4416,64 @@ function getDirectText(el: HTMLElement): string {
     return text.trim();
 }
 
+/**
+ * Parse a solid CSS color into RGB (0-255). Supports #rgb/#rrggbb and
+ * rgb(r, g, b). Gradients, alpha (rgba/#rrggbbaa) and keywords return null —
+ * those keep the white default.
+ */
+function parseSolidCssColor(value: string): { r: number; g: number; b: number } | null {
+    const v = value.trim();
+    const hex = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(v);
+    if (hex) {
+        let h = hex[1];
+        if (h.length === 3) h = h.split('').map(c => c + c).join('');
+        return {
+            r: parseInt(h.slice(0, 2), 16),
+            g: parseInt(h.slice(2, 4), 16),
+            b: parseInt(h.slice(4, 6), 16),
+        };
+    }
+    const rgb = /^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/.exec(v);
+    if (rgb) {
+        return { r: parseInt(rgb[1]), g: parseInt(rgb[2]), b: parseInt(rgb[3]) };
+    }
+    return null;
+}
+
+/**
+ * Default text color for an element with no declared color: find the nearest
+ * self-or-ancestor with a declared background; if it's a resolvable solid,
+ * pick by relative luminance (light bg → dark text). Unknown/gradient/alpha
+ * backgrounds — and no background at all — keep the white default.
+ */
+function defaultTextColorFor(el: HTMLElement): string {
+    let node: HTMLElement | null = el;
+    while (node) {
+        const styleAttr = (typeof node.getAttribute === 'function' && node.getAttribute('style')) || '';
+        const bgDecl = /(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i.exec(styleAttr);
+        let declared: string | null = bgDecl ? bgDecl[1].trim() : null;
+        if (!declared) {
+            // Tailwind bg-… classes (standard palette + arbitrary hex values)
+            const classes = ((typeof node.getAttribute === 'function' && node.getAttribute('class')) || '').split(/\s+/);
+            for (const c of classes) {
+                const m = /^bg-(.+)$/.exec(c);
+                if (!m || m[1].startsWith('gradient')) continue;
+                const arb = /^\[(.+?)\]$/.exec(m[1]);
+                const resolved = arb ? arb[1] : resolveColor(m[1]);
+                if (resolved) { declared = resolved; break; }
+            }
+        }
+        if (declared) {
+            const rgb = parseSolidCssColor(declared);
+            if (!rgb) return '#FFFFFF'; // gradient/alpha/unknown → keep white
+            const lum = (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
+            return lum > 0.6 ? '#1A1A1A' : '#FFFFFF';
+        }
+        node = node.parentElement;
+    }
+    return '#FFFFFF';
+}
+
 function createTextNode(el: HTMLElement, tag: string, text: string, styles: ParsedStyles, indent: string): string {
     // Monospace defaults for code/keyboard/sample typographic tags.
     if (!styles.fontFamily && (tag === 'code' || tag === 'kbd' || tag === 'samp' || tag === 'var')) {
@@ -4035,7 +4493,8 @@ function createTextNode(el: HTMLElement, tag: string, text: string, styles: Pars
     const hasContainerStyles = styles.backgroundColor || styles.borderWidth || styles.borderRadius ||
         styles.borderTopLeftRadius !== undefined || styles.borderTopRightRadius !== undefined ||
         styles.borderBottomRightRadius !== undefined || styles.borderBottomLeftRadius !== undefined ||
-        styles.paddingTop || styles.paddingBottom || styles.paddingLeft || styles.paddingRight;
+        styles.paddingTop || styles.paddingBottom || styles.paddingLeft || styles.paddingRight ||
+        styles.marginTop || styles.marginBottom || styles.marginLeft || styles.marginRight;
     if (hasContainerStyles) {
         const wrapperAttrs: string[] = [];
         wrapperAttrs.push(`nodeLabel="${escapeXml(generateNodeLabel(el, tag, text) + ' pill')}"`);
@@ -4049,14 +4508,18 @@ function createTextNode(el: HTMLElement, tag: string, text: string, styles: Pars
         addBorderRadiusAttrs(styles, wrapperAttrs);
         if (styles.borderWidth) {
             wrapperAttrs.push(`borderWidth="${styles.borderWidth}"`);
-            // FIX (2026-03-10): XGENIA defaults borderStyle to none — must set solid.
-            wrapperAttrs.push('borderStyle="solid"');
+            // FIX (2026-03-10): XGENIA defaults borderStyle to none — must set it.
+            wrapperAttrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
         }
         if (styles.borderColor) wrapperAttrs.push(`borderColor="${styles.borderColor}"`);
         if (styles.paddingTop) wrapperAttrs.push(`paddingTop="${styles.paddingTop}"`);
         if (styles.paddingBottom) wrapperAttrs.push(`paddingBottom="${styles.paddingBottom}"`);
         if (styles.paddingLeft) wrapperAttrs.push(`paddingLeft="${styles.paddingLeft}"`);
         if (styles.paddingRight) wrapperAttrs.push(`paddingRight="${styles.paddingRight}"`);
+        if (styles.marginTop) wrapperAttrs.push(`marginTop="${styles.marginTop}"`);
+        if (styles.marginBottom) wrapperAttrs.push(`marginBottom="${styles.marginBottom}"`);
+        if (styles.marginLeft) wrapperAttrs.push(`marginLeft="${styles.marginLeft}"`);
+        if (styles.marginRight) wrapperAttrs.push(`marginRight="${styles.marginRight}"`);
         if (styles.opacity !== undefined) wrapperAttrs.push(`opacity="${styles.opacity}"`);
         // Transfer container-specific styleCss parts if needed
         if (styles.styleCss) wrapperAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
@@ -4076,6 +4539,10 @@ function createTextNode(el: HTMLElement, tag: string, text: string, styles: Pars
             paddingBottom: undefined,
             paddingLeft: undefined,
             paddingRight: undefined,
+            marginTop: undefined,
+            marginBottom: undefined,
+            marginLeft: undefined,
+            marginRight: undefined,
             styleCss: undefined,
             opacity: undefined,
             flexDirection: undefined,
@@ -4104,11 +4571,13 @@ function createTextNode(el: HTMLElement, tag: string, text: string, styles: Pars
         attrs.push('fontWeight="700"');
     }
 
-    // Color
+    // Color — luminance-aware default. The blanket '#FFFFFF' default made text
+    // invisible on light backgrounds (white-on-white). Walk the DOM for the
+    // nearest declared solid background and pick dark text when it's light.
     if (styles.color) {
         attrs.push(`color="${styles.color}"`);
     } else {
-        attrs.push('color="#FFFFFF"'); // Dark theme default
+        attrs.push(`color="${defaultTextColorFor(el)}"`);
     }
 
     // All text nodes should use contentSize so they center properly in parent containers.
@@ -4304,8 +4773,8 @@ function addContainerAttrs(styles: ParsedStyles, attrs: string[]): void {
     addBorderRadiusAttrs(styles, attrs);
     if (styles.borderWidth) {
         attrs.push(`borderWidth="${styles.borderWidth}"`);
-        // XGENIA defaults border-style to none — must explicitly set solid
-        attrs.push('borderStyle="solid"');
+        // XGENIA defaults border-style to none — must explicitly set it
+        attrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
     }
     if (styles.borderColor) attrs.push(`borderColor="${styles.borderColor}"`);
     if (styles.opacity !== undefined) attrs.push(`opacity="${styles.opacity}"`);
@@ -4614,7 +5083,7 @@ function createButtonNode(
         if (styles.borderRadius) groupAttrs.push(`borderRadius="${styles.borderRadius}"`);
         if (styles.borderWidth) {
             groupAttrs.push(`borderWidth="${styles.borderWidth}"`);
-            groupAttrs.push('borderStyle="solid"');
+            groupAttrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
         }
         if (styles.borderColor) groupAttrs.push(`borderColor="${styles.borderColor}"`);
         if (styles.opacity !== undefined) groupAttrs.push(`opacity="${styles.opacity}"`);
@@ -4723,8 +5192,8 @@ function createButtonNode(
     addBorderRadiusAttrs(styles, attrs);
     if (styles.borderWidth) {
         attrs.push(`borderWidth="${styles.borderWidth}"`);
-        // XGENIA defaults border-style to none — must explicitly set solid
-        attrs.push('borderStyle="solid"');
+        // XGENIA defaults border-style to none — must explicitly set it
+        attrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
     }
     if (styles.borderColor) attrs.push(`borderColor="${styles.borderColor}"`);
     if (styles.opacity !== undefined) attrs.push(`opacity="${styles.opacity}"`);

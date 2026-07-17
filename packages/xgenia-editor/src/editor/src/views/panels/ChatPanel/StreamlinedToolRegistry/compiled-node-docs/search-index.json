@@ -11320,8 +11320,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/utils/node-shared-port-definitions.js",
       "category": null,
       "docs": null,
-      "lineCount": 1596,
-      "byteSize": 45571,
+      "lineCount": 1600,
+      "byteSize": 45855,
       "inputFormatHints": {},
       "outputFormatHints": {}
     },
@@ -15351,8 +15351,8 @@
       "relativePath": "visual/columns.js",
       "category": null,
       "docs": "https://docsapp.xgenia.com/nodes/basic-elements/columns",
-      "lineCount": 158,
-      "byteSize": 3499,
+      "lineCount": 210,
+      "byteSize": 5235,
       "inputFormatHints": {
         "layoutString": {
           "displayName": "Layout String",

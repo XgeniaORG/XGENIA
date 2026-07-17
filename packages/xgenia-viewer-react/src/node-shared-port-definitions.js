@@ -3,6 +3,10 @@ import { getAbsoluteUrl } from '@xgenia/runtime/src/utils';
 import FontLoader from './fontloader';
 import { createTooltip } from './tooltips';
 
+// Weightless loadGoogleFont fetches only weight 400, so every bold render was
+// faux-bold. Request the full useful range up front.
+const DEFAULT_GOOGLE_FONT_WEIGHTS = '400,500,600,700,800,900';
+
 function addInputCss(definition, inputs) {
   if (!definition.inputCss) {
     definition.inputCss = {};
@@ -1299,7 +1303,7 @@ export default {
               family = family.split('/').pop();
             } else if (!FontLoader.instance.loadedFontFamilies[family]) {
               // Non-file font that isn't already loaded — try as Google Font
-              FontLoader.instance.loadGoogleFont(family);
+              FontLoader.instance.loadGoogleFont(family, DEFAULT_GOOGLE_FONT_WEIGHTS);
             }
             this.setStyle({ fontFamily: family }, styleTag);
           } else {
@@ -1441,7 +1445,7 @@ export default {
             FontLoader.instance.loadFont(fontValue);
           } else if (!FontLoader.instance.loadedFontFamilies[fontValue]) {
             // Non-file, non-system font — load as Google Font
-            FontLoader.instance.loadGoogleFont(fontValue);
+            FontLoader.instance.loadGoogleFont(fontValue, DEFAULT_GOOGLE_FONT_WEIGHTS);
           }
         }
         node.on('parameterUpdated', function (event) {
@@ -1449,7 +1453,7 @@ export default {
             if (event.value.split('.').length > 1) {
               FontLoader.instance.loadFont(event.value);
             } else if (!FontLoader.instance.loadedFontFamilies[event.value]) {
-              FontLoader.instance.loadGoogleFont(event.value);
+              FontLoader.instance.loadGoogleFont(event.value, DEFAULT_GOOGLE_FONT_WEIGHTS);
             }
           }
         });

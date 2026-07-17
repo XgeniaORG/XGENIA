@@ -49,6 +49,72 @@ import mergeDeep from './mergedeep';
 import NodeSharedPortDefinitions from './node-shared-port-definitions';
 import transitionParameter from './node-transitions';
 
+// Tolerant CSS declaration parser: paren-aware ';' split (so url(data:...;base64,...)
+// survives), first-':' split (so https:// values survive), applies every valid
+// declaration and reports (not swallows) the bad ones. The old parser rejected any
+// declaration whose value contained ':' or ';' and then discarded the ENTIRE style
+// block on a single bad declaration. Kept in sync with the copy in
+// private/xgenia-pro-nodes/src/utils/react-component-node.js (parity-locked by
+// private/xgenia-ai-app/tests/stylecss-parser.test.ts).
+export function parseStyleCssDeclarations(css) {
+  const style = {};
+  const errors = [];
+
+  // Strip /* */ comments (an unterminated comment swallows the rest, as before).
+  let raw = String(css || '');
+  let stripped = '';
+  while (raw.length) {
+    let next = raw.indexOf('/*');
+    if (next === -1) next = raw.length;
+    stripped += raw.substring(0, next);
+    raw = raw.substring(next);
+    if (raw.length) {
+      let end = raw.indexOf('*/');
+      if (end === -1) end = raw.length;
+      raw = raw.substring(end + 2);
+    }
+  }
+
+  const decls = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of stripped) {
+    if (ch === '(') depth++;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+    if (ch === ';' && depth === 0) {
+      decls.push(cur);
+      cur = '';
+    } else cur += ch;
+  }
+  if (depth > 0) {
+    // An unclosed '(' swallowed every later declaration into `cur`; report it
+    // instead of silently applying the mangled tail as one giant declaration.
+    // Declarations split cleanly BEFORE the unbalanced one still apply.
+    errors.push(`Unbalanced '(' in declaration: "${cur.trim().slice(0, 60)}"`);
+  } else if (cur.trim()) decls.push(cur);
+
+  for (const rawDecl of decls) {
+    const s = rawDecl.trim();
+    if (!s) continue;
+    const idx = s.indexOf(':');
+    if (idx <= 0) {
+      errors.push(`Invalid declaration: "${s.slice(0, 60)}"`);
+      continue;
+    }
+    const prop = s.slice(0, idx).trim();
+    const value = s.slice(idx + 1).trim();
+    if (!prop || !value) {
+      errors.push(`Invalid declaration: "${s.slice(0, 60)}"`);
+      continue;
+    }
+    // Custom properties (--x) keep their name verbatim; everything else camelCases.
+    const camel = prop.startsWith('--') ? prop : prop.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+    style[camel] = value;
+  }
+
+  return { style, errors };
+}
+
 function addOutputPropHandler(node, propCallbacks, propPath) {
   const props = propPath ? node.props[propPath] : node.props;
 
@@ -566,51 +632,23 @@ function createNodeFromReactComponent(def) {
           this.customCssStyles = undefined;
         }
 
-        let style;
-        let errorMessage = '';
-        let rawCss = (params.content || '').replace('\n', '');
-        let css = '';
-        while (rawCss.length) {
-          let nextComment = rawCss.indexOf('/*');
-          if (nextComment === -1) nextComment = rawCss.length;
-          css += rawCss.substring(0, nextComment);
-          rawCss = rawCss.substring(nextComment);
-          if (rawCss.length) {
-            let endComment = rawCss.indexOf('*/');
-            if (endComment === -1) endComment = rawCss.length;
-            rawCss = rawCss.substring(endComment + 2);
-          }
-        }
-        function trim(s) { return s.replace(/^\s+|\s+$/gm, ''); }
-        const styles = css.split(';').map(trim).filter((s) => s.length);
-        style = {};
-        for (const s of styles) {
-          // Split on the FIRST colon only. A naive s.split(':') breaks any
-          // declaration whose VALUE contains a colon — most importantly
-          // `background-image: url(https://...)`, `background: url(data:...)`,
-          // and gradient/transition values with embedded URLs — which used to
-          // be rejected as a "Syntax error", and (because one bad declaration
-          // aborts the whole block below) silently dropped ALL styles on the
-          // element. Splitting on the first colon preserves the value verbatim.
-          const colonIdx = s.indexOf(':');
-          const parts = colonIdx === -1 ? [s] : [trim(s.slice(0, colonIdx)), trim(s.slice(colonIdx + 1))];
-          if (s.indexOf('\n') !== -1) errorMessage += 'Missing semicolon: ' + s.split('\n')[0];
-          else if (parts.length !== 2 || !parts[0] || !parts[1]) errorMessage += 'Syntax error: ' + s;
-          else {
-            const nameParts = parts[0].split('-');
-            for (let i = 1; i < nameParts.length; i++) {
-              if (nameParts[i]) nameParts[i] = nameParts[i][0].toUpperCase() + nameParts[i].substring(1);
-            }
-            style[nameParts.join('')] = parts[1];
-          }
-        }
+        // Tolerant semantics: apply every valid declaration, report the bad
+        // ones as a warning — one bad declaration no longer drops the block.
+        const { style, errors } = parseStyleCssDeclarations(params.content);
 
-        if (errorMessage) {
-          this.context.editorConnection.sendWarning(this.nodeScope.componentOwner.name, this.id, 'css-parse-waring', { message: 'Error in CSS Style<br>' + errorMessage });
+        // Unconditional application (parity with the pre-tolerant code):
+        // when the parse yields zero keys (e.g. styleCss cleared to ''), the
+        // removeStyle of the prior keys above IS the runtime clear path —
+        // setStyle({}) is a no-op merge, and customCssStyles = {} keeps the
+        // bookkeeping identical to the old `style && this.setStyle(style)` /
+        // `this.customCssStyles = style` behavior.
+        this.setStyle(style);
+        this.customCssStyles = style;
+
+        if (errors.length) {
+          this.context.editorConnection.sendWarning(this.nodeScope.componentOwner.name, this.id, 'css-parse-waring', { message: 'styleCss: ' + errors.length + ' declaration(s) skipped:<br>' + errors.join('<br>') });
         } else {
           this.context.editorConnection.clearWarning(this.nodeScope.componentOwner.name, this.id, 'css-parse-waring');
-          style && this.setStyle(style);
-          this.customCssStyles = style;
         }
       },
       setChildIndex(index) {

@@ -1317,12 +1317,14 @@ export class CanvasView extends View {
 
       let thumbHeight, thumbWidth;
 
+      // 1024px short side — 400px thumbs were too small for the AI vision
+      // analysis to read UI detail (text, spacing, chrome).
       if (canvasWidth > canvasHeight) {
-        thumbWidth = Math.round(400 * (canvasWidth / canvasHeight));
-        thumbHeight = 400;
+        thumbWidth = Math.round(1024 * (canvasWidth / canvasHeight));
+        thumbHeight = 1024;
       } else {
-        thumbWidth = 400;
-        thumbHeight = Math.round(400 * (canvasHeight / canvasWidth));
+        thumbWidth = 1024;
+        thumbHeight = Math.round(1024 * (canvasHeight / canvasWidth));
       }
 
       const resizedImage = nativeImage.resize({
