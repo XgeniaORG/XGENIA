@@ -166,6 +166,14 @@ const mathsPanelOptions = {
     componentTitle: 'Maths Components'
 };
 
+// Create-game defaults + option lists (values mirror the games table CHECK constraints).
+const CREATE_DEFAULTS = { name: '', game_type: 'slot', volatility: 'medium', reel_rows: 3, reel_cols: 5, rtp: 96, min_bet: 20, max_bet: 10000 };
+const GAME_TYPE_OPTIONS = ['slot', 'video_poker', 'table', 'instant', 'crash', 'keno', 'scratch', 'lottery', 'arcade', 'bingo', 'poker', 'live', 'virtual', 'multiplayer'];
+const VOLATILITY_OPTIONS = ['low', 'medium', 'medium-high', 'high', 'very-high'];
+
+const MODAL_LABEL_STYLE: React.CSSProperties = { display: 'block', fontSize: '11px', color: '#a0a0b0', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' };
+const MODAL_INPUT_STYLE: React.CSSProperties = { width: '100%', padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff', fontSize: '14px', outline: 'none', boxSizing: 'border-box' };
+
 
 
 export function MathsPanel() {
@@ -189,6 +197,12 @@ export function MathsPanel() {
     const [showTestConfigModal, setShowTestConfigModal] = useState(false);
     const [simCount, setSimCount] = useState(10000);
     const [pipelineStep, setPipelineStep] = useState<string | null>(null);
+
+    // Create Game modal state
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [creating, setCreating] = useState(false);
+    const [createError, setCreateError] = useState<string | null>(null);
+    const [createForm, setCreateForm] = useState({ ...CREATE_DEFAULTS });
 
     const connected = !!settings;
 
@@ -276,6 +290,79 @@ export function MathsPanel() {
         setGames(null);
         setSelectedGame(null);
     }, []);
+
+    // Create a game on XGENIA RGS (same backend as the RGS platform, so it shows up there too).
+    const handleCreateGame = useCallback(async () => {
+        if (!settings?.apiKey) return;
+        const name = createForm.name.trim();
+        if (!name) { setCreateError('Enter a game name'); return; }
+
+        setCreating(true);
+        setCreateError(null);
+
+        const isSlotType = createForm.game_type === 'slot' || createForm.game_type === 'video_poker';
+        // games.default_rtp is a fraction with a CHECK (<= 1), so send RTP% as a fraction.
+        const rtpFraction = Math.max(0.0001, Math.min(1, (Number(createForm.rtp) || 96) / 100));
+        const minBet = Math.max(1, Math.round(Number(createForm.min_bet) || 20));
+        const maxBet = Math.max(minBet, Math.round(Number(createForm.max_bet) || 10000));
+
+        const payload: Record<string, unknown> = {
+            action: 'create-game',
+            name,
+            game_type: createForm.game_type,
+            volatility: createForm.volatility,
+            default_rtp: rtpFraction,
+            min_bet: minBet,
+            max_bet: maxBet,
+        };
+        if (isSlotType) {
+            payload.reel_rows = Math.max(1, Math.round(Number(createForm.reel_rows) || 3));
+            payload.reel_cols = Math.max(1, Math.round(Number(createForm.reel_cols) || 5));
+        }
+
+        try {
+            const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+                method: 'POST',
+                headers: rgsHeaders(settings.apiKey),
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            if (!res.ok || data.error) {
+                setCreateError(data.error || `Failed to create game (${res.status})`);
+                setCreating(false);
+                return;
+            }
+
+            // Refresh the games list and auto-select the new (or existing) game.
+            let newGames = games || [];
+            try {
+                const listRes = await fetch(`${XRGS_URL}/maths-deployer`, {
+                    method: 'POST',
+                    headers: rgsHeaders(settings.apiKey),
+                    body: JSON.stringify({ action: 'list-games' }),
+                });
+                const listData = await listRes.json();
+                if (listRes.ok && !listData.error) newGames = listData.games || [];
+            } catch { /* keep existing list on refresh failure */ }
+            setGames(newGames);
+
+            const created = newGames.find((g) => g.id === data.game_id) || newGames.find((g) => g.slug === data.slug);
+            if (created) {
+                setSelectedGame(created.id);
+                (window as any).__xrgs?.setActiveGame?.({ id: created.id, slug: created.slug, name: created.name, status: created.status });
+            }
+
+            setShowCreateModal(false);
+            setCreateForm({ ...CREATE_DEFAULTS });
+            setUploadStatus({
+                type: 'success',
+                message: data.created === false ? (data.message || `Game "${name}" already exists`) : `Game "${name}" created on XGENIA RGS`,
+            });
+        } catch (e) {
+            setCreateError(e instanceof Error ? e.message : 'Failed to create game');
+        }
+        setCreating(false);
+    }, [settings, createForm, games]);
 
     const dispatchCommand = useCallback((command: string) => {
         const { SidebarModel } = require('@xgenia-models/sidebar');
@@ -463,6 +550,14 @@ export function MathsPanel() {
                                         <label style={{ fontSize: '11px', color: '#a0a0b0', textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>
                                             Target Game
                                         </label>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        <span
+                                            onClick={() => { setCreateError(null); setShowCreateModal(true); }}
+                                            style={{ fontSize: '10px', color: '#67DE92', cursor: 'pointer', userSelect: 'none' as const }}
+                                            title="Create a new game on XGENIA RGS"
+                                        >
+                                            + New game
+                                        </span>
                                         <span
                                             onClick={async () => {
                                                 if (!settings?.apiKey) return;
@@ -491,6 +586,7 @@ export function MathsPanel() {
                                         >
                                             ↻ Refresh
                                         </span>
+                                        </div>
                                     </div>
                                     {games === null ? (
                                         <div style={{ fontSize: '11px', color: '#666', padding: '8px 0' }}>Loading games…</div>
@@ -500,7 +596,13 @@ export function MathsPanel() {
                                             backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '6px',
                                             border: '1px solid rgba(255,255,255,0.08)',
                                         }}>
-                                            No games found. Create a game in the XGENIA RGS Dashboard first.
+                                            No games yet.{' '}
+                                            <span
+                                                onClick={() => { setCreateError(null); setShowCreateModal(true); }}
+                                                style={{ color: '#67DE92', cursor: 'pointer', textDecoration: 'underline' }}
+                                            >
+                                                Create your first game
+                                            </span>.
                                         </div>
                                     ) : (
                                         <select
@@ -842,6 +944,162 @@ export function MathsPanel() {
                                     cursor: simCount >= 1000 ? 'pointer' : 'not-allowed',
                                 }}
                             >Upload</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ═══ Create Game Modal ═══ */}
+            {showCreateModal && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 10000,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: 'rgba(0,0,0,0.6)',
+                }} onClick={() => !creating && setShowCreateModal(false)}>
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: '440px', maxHeight: '85vh', overflowY: 'auto',
+                            backgroundColor: '#1e1e2e',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: '12px',
+                            padding: '24px',
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                        }}
+                    >
+                        <div style={{ marginBottom: '20px' }}>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>Create Game</div>
+                            <div style={{ fontSize: '12px', color: '#888' }}>
+                                Creates a game on XGENIA RGS. It appears in the RGS platform immediately.
+                            </div>
+                        </div>
+
+                        {/* Name */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={MODAL_LABEL_STYLE}>Game Name</label>
+                            <input
+                                type="text"
+                                placeholder="e.g. Dark Alice"
+                                value={createForm.name}
+                                onChange={(e) => { setCreateForm({ ...createForm, name: e.target.value }); setCreateError(null); }}
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleCreateGame(); }}
+                                style={MODAL_INPUT_STYLE}
+                                autoFocus
+                            />
+                        </div>
+
+                        {/* Game Type + Volatility */}
+                        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
+                            <div style={{ flex: 1 }}>
+                                <label style={MODAL_LABEL_STYLE}>Game Type</label>
+                                <select
+                                    value={createForm.game_type}
+                                    onChange={(e) => setCreateForm({ ...createForm, game_type: e.target.value })}
+                                    style={{ ...MODAL_INPUT_STYLE, appearance: 'none', cursor: 'pointer' }}
+                                >
+                                    {GAME_TYPE_OPTIONS.map((t) => (
+                                        <option key={t} value={t} style={{ background: '#1a1a2e' }}>{t.replace(/_/g, ' ')}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <label style={MODAL_LABEL_STYLE}>Volatility</label>
+                                <select
+                                    value={createForm.volatility}
+                                    onChange={(e) => setCreateForm({ ...createForm, volatility: e.target.value })}
+                                    style={{ ...MODAL_INPUT_STYLE, appearance: 'none', cursor: 'pointer' }}
+                                >
+                                    {VOLATILITY_OPTIONS.map((v) => (
+                                        <option key={v} value={v} style={{ background: '#1a1a2e' }}>{v}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Reel dimensions (slot-type only) */}
+                        {(createForm.game_type === 'slot' || createForm.game_type === 'video_poker') && (
+                            <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
+                                <div style={{ flex: 1 }}>
+                                    <label style={MODAL_LABEL_STYLE}>Reel Rows</label>
+                                    <input
+                                        type="number" min={1} max={12}
+                                        value={createForm.reel_rows}
+                                        onChange={(e) => setCreateForm({ ...createForm, reel_rows: Number(e.target.value) })}
+                                        style={MODAL_INPUT_STYLE}
+                                    />
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <label style={MODAL_LABEL_STYLE}>Reel Cols</label>
+                                    <input
+                                        type="number" min={1} max={12}
+                                        value={createForm.reel_cols}
+                                        onChange={(e) => setCreateForm({ ...createForm, reel_cols: Number(e.target.value) })}
+                                        style={MODAL_INPUT_STYLE}
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {/* RTP + bets */}
+                        <div style={{ display: 'flex', gap: '12px', marginBottom: '8px' }}>
+                            <div style={{ flex: 1 }}>
+                                <label style={MODAL_LABEL_STYLE}>RTP %</label>
+                                <input
+                                    type="number" min={1} max={100} step={0.01}
+                                    value={createForm.rtp}
+                                    onChange={(e) => setCreateForm({ ...createForm, rtp: Number(e.target.value) })}
+                                    style={MODAL_INPUT_STYLE}
+                                />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <label style={MODAL_LABEL_STYLE}>Min Bet</label>
+                                <input
+                                    type="number" min={1}
+                                    value={createForm.min_bet}
+                                    onChange={(e) => setCreateForm({ ...createForm, min_bet: Number(e.target.value) })}
+                                    style={MODAL_INPUT_STYLE}
+                                />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <label style={MODAL_LABEL_STYLE}>Max Bet</label>
+                                <input
+                                    type="number" min={1}
+                                    value={createForm.max_bet}
+                                    onChange={(e) => setCreateForm({ ...createForm, max_bet: Number(e.target.value) })}
+                                    style={MODAL_INPUT_STYLE}
+                                />
+                            </div>
+                        </div>
+                        <div style={{ fontSize: '10px', color: '#666', marginBottom: '16px' }}>
+                            Bets are in minor units (e.g. 20 = 0.20). New games are created with status “active”.
+                        </div>
+
+                        {createError && (
+                            <div style={{ fontSize: '11px', color: '#EF4444', marginBottom: '12px' }}>{createError}</div>
+                        )}
+
+                        {/* Actions */}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                            <button
+                                onClick={() => setShowCreateModal(false)}
+                                disabled={creating}
+                                style={{
+                                    padding: '8px 16px', borderRadius: '6px',
+                                    border: '1px solid rgba(255,255,255,0.12)', backgroundColor: 'transparent',
+                                    color: '#a0a0b0', fontSize: '13px', cursor: creating ? 'not-allowed' : 'pointer',
+                                }}
+                            >Cancel</button>
+                            <button
+                                onClick={handleCreateGame}
+                                disabled={creating || !createForm.name.trim()}
+                                style={{
+                                    padding: '8px 20px', borderRadius: '6px', border: 'none',
+                                    backgroundColor: creating || !createForm.name.trim() ? '#444' : '#67DE92',
+                                    color: creating || !createForm.name.trim() ? '#888' : '#1a1a2e',
+                                    fontSize: '13px', fontWeight: 700,
+                                    cursor: creating || !createForm.name.trim() ? 'not-allowed' : 'pointer',
+                                }}
+                            >{creating ? 'Creating…' : 'Create Game'}</button>
                         </div>
                     </div>
                 </div>
