@@ -9,6 +9,9 @@ import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
 
 export const XRGS_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/functions/v1';
 
+// PostgREST base for the same project — used to call the create_operator RPC.
+export const XRGS_REST_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/rest/v1';
+
 // Supabase anon key — required by verify_jwt on edge functions.
 // This is NOT a secret; it's the publishable key used to pass gateway auth.
 export const XRGS_ANON_KEY =
@@ -36,6 +39,62 @@ export function rgsHeaders(apiKey: string): Record<string, string> {
     apikey: XRGS_ANON_KEY,
     Authorization: `Bearer ${XRGS_ANON_KEY}`
   };
+}
+
+export interface CreateOperatorInput {
+  name: string;
+  slug?: string;
+  walletMode?: 'demo' | 'internal' | 'seamless';
+  currencies?: string[];
+}
+
+export interface CreateOperatorResult {
+  operator_id: string;
+  operator_slug: string;
+  status: string;
+  wallet_mode: string;
+  api_key: string;
+}
+
+/**
+ * Self-serve create an operator on XGENIA RGS and get its API key (returned once).
+ * Calls the public.create_operator RPC via PostgREST with the anon key: the RPC is
+ * SECURITY DEFINER and performs the admin-only operator_connectors insert on the
+ * caller's behalf, returning the raw X-Operator-Key. Only the key's SHA-256 hash
+ * is stored, so the raw key cannot be retrieved again.
+ */
+export async function createOperator(input: CreateOperatorInput): Promise<CreateOperatorResult> {
+  const res = await fetch(`${XRGS_REST_URL}/rpc/create_operator`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: XRGS_ANON_KEY,
+      Authorization: `Bearer ${XRGS_ANON_KEY}`
+    },
+    body: JSON.stringify({
+      p_name: input.name,
+      p_slug: input.slug || null,
+      p_wallet_mode: input.walletMode || 'demo',
+      p_currencies: input.currencies && input.currencies.length ? input.currencies : ['EUR']
+    })
+  });
+
+  const text = await res.text();
+  let data: any = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    /* non-JSON error body */
+  }
+
+  if (!res.ok) {
+    const msg = (data && (data.message || data.error || data.hint)) || text || `Request failed (${res.status})`;
+    throw new Error(msg);
+  }
+  if (!data || !data.api_key) {
+    throw new Error('Operator was created but no key was returned');
+  }
+  return data as CreateOperatorResult;
 }
 
 export function getRgsSettings(): RgsSettings | null {
