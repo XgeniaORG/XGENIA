@@ -167,10 +167,14 @@ const mathsPanelOptions = {
     componentTitle: 'Maths Components'
 };
 
-// Create-game defaults + option lists (values mirror the games table CHECK constraints).
-const CREATE_DEFAULTS = { name: '', game_type: 'slot', volatility: 'medium', reel_rows: 3, reel_cols: 5, rtp: 96, min_bet: 20, max_bet: 10000 };
-const GAME_TYPE_OPTIONS = ['slot', 'video_poker', 'table', 'instant', 'crash', 'keno', 'scratch', 'lottery', 'arcade', 'bingo', 'poker', 'live', 'virtual', 'multiplayer'];
-const VOLATILITY_OPTIONS = ['low', 'medium', 'medium-high', 'high', 'very-high'];
+// Create-game form — mirrors the RGS platform's "Game Library" create form exactly
+// (Game Name, Slug, Description). Everything else (game type, RTP, bets, volatility,
+// reel dimensions, version) is filled in by the games-table defaults on the backend,
+// same as a game created from the RGS platform.
+const CREATE_DEFAULTS = { name: '', slug: '', description: '' };
+
+// Slug generation matches the RGS Game Library form's autoSlug.
+const autoSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
 // Create-operator defaults + option lists (values mirror the operator_connectors CHECK constraints).
 const OPERATOR_DEFAULTS = { name: '', wallet_mode: 'demo', currencies: 'EUR' };
@@ -313,25 +317,17 @@ export function MathsPanel() {
         setCreating(true);
         setCreateError(null);
 
-        const isSlotType = createForm.game_type === 'slot' || createForm.game_type === 'video_poker';
-        // games.default_rtp is a fraction with a CHECK (<= 1), so send RTP% as a fraction.
-        const rtpFraction = Math.max(0.0001, Math.min(1, (Number(createForm.rtp) || 96) / 100));
-        const minBet = Math.max(1, Math.round(Number(createForm.min_bet) || 20));
-        const maxBet = Math.max(minBet, Math.round(Number(createForm.max_bet) || 10000));
-
+        // Same fields the RGS "Game Library" form submits: name, slug, description.
+        // status 'draft' matches the RGS create form (and keeps the game uploadable —
+        // the RGS backend rejects maths uploads to Active games). All other columns use
+        // the games-table defaults, so the row is identical to an RGS-created game.
         const payload: Record<string, unknown> = {
             action: 'create-game',
             name,
-            game_type: createForm.game_type,
-            volatility: createForm.volatility,
-            default_rtp: rtpFraction,
-            min_bet: minBet,
-            max_bet: maxBet,
+            slug: createForm.slug.trim() || autoSlug(name),
+            description: createForm.description,
+            status: 'draft',
         };
-        if (isSlotType) {
-            payload.reel_rows = Math.max(1, Math.round(Number(createForm.reel_rows) || 3));
-            payload.reel_cols = Math.max(1, Math.round(Number(createForm.reel_cols) || 5));
-        }
 
         try {
             const res = await fetch(`${XRGS_URL}/maths-deployer`, {
@@ -1031,110 +1027,48 @@ export function MathsPanel() {
                         }}
                     >
                         <div style={{ marginBottom: '20px' }}>
-                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>Create Game</div>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>New Game</div>
                             <div style={{ fontSize: '12px', color: '#888' }}>
-                                Creates a game on XGENIA RGS. It appears in the RGS platform immediately.
+                                Creates a game on XGENIA RGS. It appears in the RGS platform's Game Library immediately.
                             </div>
                         </div>
 
-                        {/* Name */}
+                        {/* Game Name — typing auto-fills the slug (matches the RGS form). */}
                         <div style={{ marginBottom: '16px' }}>
                             <label style={MODAL_LABEL_STYLE}>Game Name</label>
                             <input
                                 type="text"
                                 placeholder="e.g. Dark Alice"
                                 value={createForm.name}
-                                onChange={(e) => { setCreateForm({ ...createForm, name: e.target.value }); setCreateError(null); }}
+                                onChange={(e) => { const v = e.target.value; setCreateForm({ ...createForm, name: v, slug: autoSlug(v) }); setCreateError(null); }}
                                 onKeyDown={(e) => { if (e.key === 'Enter') handleCreateGame(); }}
                                 style={MODAL_INPUT_STYLE}
                                 autoFocus
                             />
                         </div>
 
-                        {/* Game Type + Volatility */}
-                        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
-                            <div style={{ flex: 1 }}>
-                                <label style={MODAL_LABEL_STYLE}>Game Type</label>
-                                <select
-                                    value={createForm.game_type}
-                                    onChange={(e) => setCreateForm({ ...createForm, game_type: e.target.value })}
-                                    style={{ ...MODAL_INPUT_STYLE, appearance: 'none', cursor: 'pointer' }}
-                                >
-                                    {GAME_TYPE_OPTIONS.map((t) => (
-                                        <option key={t} value={t} style={{ background: '#1a1a2e' }}>{t.replace(/_/g, ' ')}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div style={{ flex: 1 }}>
-                                <label style={MODAL_LABEL_STYLE}>Volatility</label>
-                                <select
-                                    value={createForm.volatility}
-                                    onChange={(e) => setCreateForm({ ...createForm, volatility: e.target.value })}
-                                    style={{ ...MODAL_INPUT_STYLE, appearance: 'none', cursor: 'pointer' }}
-                                >
-                                    {VOLATILITY_OPTIONS.map((v) => (
-                                        <option key={v} value={v} style={{ background: '#1a1a2e' }}>{v}</option>
-                                    ))}
-                                </select>
-                            </div>
+                        {/* Slug */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={MODAL_LABEL_STYLE}>Slug</label>
+                            <input
+                                type="text"
+                                placeholder="dark-alice"
+                                value={createForm.slug}
+                                onChange={(e) => setCreateForm({ ...createForm, slug: e.target.value })}
+                                style={MODAL_INPUT_STYLE}
+                            />
                         </div>
 
-                        {/* Reel dimensions (slot-type only) */}
-                        {(createForm.game_type === 'slot' || createForm.game_type === 'video_poker') && (
-                            <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
-                                <div style={{ flex: 1 }}>
-                                    <label style={MODAL_LABEL_STYLE}>Reel Rows</label>
-                                    <input
-                                        type="number" min={1} max={12}
-                                        value={createForm.reel_rows}
-                                        onChange={(e) => setCreateForm({ ...createForm, reel_rows: Number(e.target.value) })}
-                                        style={MODAL_INPUT_STYLE}
-                                    />
-                                </div>
-                                <div style={{ flex: 1 }}>
-                                    <label style={MODAL_LABEL_STYLE}>Reel Cols</label>
-                                    <input
-                                        type="number" min={1} max={12}
-                                        value={createForm.reel_cols}
-                                        onChange={(e) => setCreateForm({ ...createForm, reel_cols: Number(e.target.value) })}
-                                        style={MODAL_INPUT_STYLE}
-                                    />
-                                </div>
-                            </div>
-                        )}
-
-                        {/* RTP + bets */}
-                        <div style={{ display: 'flex', gap: '12px', marginBottom: '8px' }}>
-                            <div style={{ flex: 1 }}>
-                                <label style={MODAL_LABEL_STYLE}>RTP %</label>
-                                <input
-                                    type="number" min={1} max={100} step={0.01}
-                                    value={createForm.rtp}
-                                    onChange={(e) => setCreateForm({ ...createForm, rtp: Number(e.target.value) })}
-                                    style={MODAL_INPUT_STYLE}
-                                />
-                            </div>
-                            <div style={{ flex: 1 }}>
-                                <label style={MODAL_LABEL_STYLE}>Min Bet</label>
-                                <input
-                                    type="number" min={1}
-                                    value={createForm.min_bet}
-                                    onChange={(e) => setCreateForm({ ...createForm, min_bet: Number(e.target.value) })}
-                                    style={MODAL_INPUT_STYLE}
-                                />
-                            </div>
-                            <div style={{ flex: 1 }}>
-                                <label style={MODAL_LABEL_STYLE}>Max Bet</label>
-                                <input
-                                    type="number" min={1}
-                                    value={createForm.max_bet}
-                                    onChange={(e) => setCreateForm({ ...createForm, max_bet: Number(e.target.value) })}
-                                    style={MODAL_INPUT_STYLE}
-                                />
-                            </div>
-                        </div>
-                        <div style={{ fontSize: '10px', color: '#666', marginBottom: '16px' }}>
-                            Bets are in minor units (e.g. 20 = 0.20). New games are created with status “active”.
+                        {/* Description */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={MODAL_LABEL_STYLE}>Description</label>
+                            <input
+                                type="text"
+                                placeholder="A gothic horror-themed game..."
+                                value={createForm.description}
+                                onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
+                                style={MODAL_INPUT_STYLE}
+                            />
                         </div>
 
                         {createError && (
