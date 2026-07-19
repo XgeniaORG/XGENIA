@@ -5147,6 +5147,15 @@ function createButtonNode(
         if (iconInfo.iconColor) attrs.push(`iconColor="${iconInfo.iconColor}"`);
     }
 
+    // (export 1784496045678) A button with NO text and NO icon used to emit neither
+    // `label` nor `useLabel` — the runtime defaults useLabel:true and renders the
+    // label port's DEFAULT string "Label". An intentionally bare/shaped <button>
+    // must render empty like its HTML source. Icon-only buttons are untouched
+    // (useIcon already set above).
+    if (!labelText && !iconInfo) {
+        attrs.push('useLabel="false"');
+    }
+
     // ─── Dimensions ──────────────────────────────────────────
     if (styles.width) attrs.push(`width="${styles.width}"`);
     if (styles.height) attrs.push(`height="${styles.height}"`);
