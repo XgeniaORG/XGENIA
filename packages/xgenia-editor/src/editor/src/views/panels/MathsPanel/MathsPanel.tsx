@@ -27,6 +27,7 @@ import {
     getRgsSettings,
     saveRgsSettings,
     clearRgsSettings,
+    createOperator,
     RgsSettings
 } from '@xgenia-utils/rgs/rgsClient';
 
@@ -166,6 +167,22 @@ const mathsPanelOptions = {
     componentTitle: 'Maths Components'
 };
 
+// Create-game form — mirrors the RGS platform's "Game Library" create form exactly
+// (Game Name, Slug, Description). Everything else (game type, RTP, bets, volatility,
+// reel dimensions, version) is filled in by the games-table defaults on the backend,
+// same as a game created from the RGS platform.
+const CREATE_DEFAULTS = { name: '', slug: '', description: '' };
+
+// Slug generation matches the RGS Game Library form's autoSlug.
+const autoSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+
+// Create-operator defaults + option lists (values mirror the operator_connectors CHECK constraints).
+const OPERATOR_DEFAULTS = { name: '', wallet_mode: 'demo', currencies: 'EUR' };
+const WALLET_MODE_OPTIONS = ['demo', 'internal', 'seamless'];
+
+const MODAL_LABEL_STYLE: React.CSSProperties = { display: 'block', fontSize: '11px', color: '#a0a0b0', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' };
+const MODAL_INPUT_STYLE: React.CSSProperties = { width: '100%', padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff', fontSize: '14px', outline: 'none', boxSizing: 'border-box' };
+
 
 
 export function MathsPanel() {
@@ -189,6 +206,20 @@ export function MathsPanel() {
     const [showTestConfigModal, setShowTestConfigModal] = useState(false);
     const [simCount, setSimCount] = useState(10000);
     const [pipelineStep, setPipelineStep] = useState<string | null>(null);
+
+    // Create Game modal state
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [creating, setCreating] = useState(false);
+    const [createError, setCreateError] = useState<string | null>(null);
+    const [createForm, setCreateForm] = useState({ ...CREATE_DEFAULTS });
+
+    // Create Operator modal state. `newOperatorKey` holds the raw key returned once
+    // by the RPC so it can be shown/copied before the modal closes.
+    const [showOperatorModal, setShowOperatorModal] = useState(false);
+    const [creatingOperator, setCreatingOperator] = useState(false);
+    const [operatorError, setOperatorError] = useState<string | null>(null);
+    const [operatorForm, setOperatorForm] = useState({ ...OPERATOR_DEFAULTS });
+    const [newOperatorKey, setNewOperatorKey] = useState<string | null>(null);
 
     const connected = !!settings;
 
@@ -275,6 +306,107 @@ export function MathsPanel() {
         setSettings(null);
         setGames(null);
         setSelectedGame(null);
+    }, []);
+
+    // Create a game on XGENIA RGS (same backend as the RGS platform, so it shows up there too).
+    const handleCreateGame = useCallback(async () => {
+        if (!settings?.apiKey) return;
+        const name = createForm.name.trim();
+        if (!name) { setCreateError('Enter a game name'); return; }
+
+        setCreating(true);
+        setCreateError(null);
+
+        // Same fields the RGS "Game Library" form submits: name, slug, description.
+        // status 'draft' matches the RGS create form (and keeps the game uploadable —
+        // the RGS backend rejects maths uploads to Active games). All other columns use
+        // the games-table defaults, so the row is identical to an RGS-created game.
+        const payload: Record<string, unknown> = {
+            action: 'create-game',
+            name,
+            slug: createForm.slug.trim() || autoSlug(name),
+            description: createForm.description,
+            status: 'draft',
+        };
+
+        try {
+            const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+                method: 'POST',
+                headers: rgsHeaders(settings.apiKey),
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            if (!res.ok || data.error) {
+                setCreateError(data.error || `Failed to create game (${res.status})`);
+                setCreating(false);
+                return;
+            }
+
+            // Refresh the games list and auto-select the new (or existing) game.
+            let newGames = games || [];
+            try {
+                const listRes = await fetch(`${XRGS_URL}/maths-deployer`, {
+                    method: 'POST',
+                    headers: rgsHeaders(settings.apiKey),
+                    body: JSON.stringify({ action: 'list-games' }),
+                });
+                const listData = await listRes.json();
+                if (listRes.ok && !listData.error) newGames = listData.games || [];
+            } catch { /* keep existing list on refresh failure */ }
+            setGames(newGames);
+
+            const created = newGames.find((g) => g.id === data.game_id) || newGames.find((g) => g.slug === data.slug);
+            if (created) {
+                setSelectedGame(created.id);
+                (window as any).__xrgs?.setActiveGame?.({ id: created.id, slug: created.slug, name: created.name, status: created.status });
+            }
+
+            setShowCreateModal(false);
+            setCreateForm({ ...CREATE_DEFAULTS });
+            setUploadStatus({
+                type: 'success',
+                message: data.created === false ? (data.message || `Game "${name}" already exists`) : `Game "${name}" created on XGENIA RGS`,
+            });
+        } catch (e) {
+            setCreateError(e instanceof Error ? e.message : 'Failed to create game');
+        }
+        setCreating(false);
+    }, [settings, createForm, games]);
+
+    // Create an operator + API key on XGENIA RGS (so the user can connect without
+    // leaving the editor). Mirrors the RGS platform's "Operators" section.
+    const handleCreateOperator = useCallback(async () => {
+        const name = operatorForm.name.trim();
+        if (!name) { setOperatorError('Enter an operator name'); return; }
+
+        setCreatingOperator(true);
+        setOperatorError(null);
+        try {
+            const currencies = operatorForm.currencies
+                .split(',')
+                .map((c) => c.trim().toUpperCase())
+                .filter(Boolean);
+            const result = await createOperator({
+                name,
+                walletMode: operatorForm.wallet_mode as 'demo' | 'internal' | 'seamless',
+                currencies: currencies.length ? currencies : ['EUR'],
+            });
+            // Connect immediately using the freshly minted key (same as handleConnect).
+            saveRgsSettings(result.api_key);
+            setSettings({ apiKey: result.api_key });
+            setNewOperatorKey(result.api_key);
+            setUploadStatus({ type: 'success', message: `Operator "${name}" created — connected to XGENIA RGS` });
+        } catch (e) {
+            setOperatorError(e instanceof Error ? e.message : 'Failed to create operator');
+        }
+        setCreatingOperator(false);
+    }, [operatorForm]);
+
+    const closeOperatorModal = useCallback(() => {
+        setShowOperatorModal(false);
+        setOperatorForm({ ...OPERATOR_DEFAULTS });
+        setOperatorError(null);
+        setNewOperatorKey(null);
     }, []);
 
     const dispatchCommand = useCallback((command: string) => {
@@ -463,6 +595,14 @@ export function MathsPanel() {
                                         <label style={{ fontSize: '11px', color: '#a0a0b0', textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>
                                             Target Game
                                         </label>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        <span
+                                            onClick={() => { setCreateError(null); setShowCreateModal(true); }}
+                                            style={{ fontSize: '10px', color: '#67DE92', cursor: 'pointer', userSelect: 'none' as const }}
+                                            title="Create a new game on XGENIA RGS"
+                                        >
+                                            + New game
+                                        </span>
                                         <span
                                             onClick={async () => {
                                                 if (!settings?.apiKey) return;
@@ -491,6 +631,7 @@ export function MathsPanel() {
                                         >
                                             ↻ Refresh
                                         </span>
+                                        </div>
                                     </div>
                                     {games === null ? (
                                         <div style={{ fontSize: '11px', color: '#666', padding: '8px 0' }}>Loading games…</div>
@@ -500,7 +641,13 @@ export function MathsPanel() {
                                             backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '6px',
                                             border: '1px solid rgba(255,255,255,0.08)',
                                         }}>
-                                            No games found. Create a game in the XGENIA RGS Dashboard first.
+                                            No games yet.{' '}
+                                            <span
+                                                onClick={() => { setCreateError(null); setShowCreateModal(true); }}
+                                                style={{ color: '#67DE92', cursor: 'pointer', textDecoration: 'underline' }}
+                                            >
+                                                Create your first game
+                                            </span>.
                                         </div>
                                     ) : (
                                         <select
@@ -634,6 +781,20 @@ export function MathsPanel() {
                                         />
                                     </Box>
                                 )}
+                                {/* Self-serve: create an operator + key without leaving the editor */}
+                                <Box hasBottomSpacing>
+                                    <PrimaryButton
+                                        icon={IconName.CloudData}
+                                        label="Create operator & get key"
+                                        size={PrimaryButtonSize.Small}
+                                        variant={PrimaryButtonVariant.MutedOnLowBg}
+                                        onClick={() => { setShowOperatorModal(true); setOperatorError(null); setNewOperatorKey(null); }}
+                                        isGrowing
+                                    />
+                                </Box>
+                                <div style={{ fontSize: '10px', color: '#666' }}>
+                                    No API key yet? Create an operator to generate one and connect.
+                                </div>
                             </>
                         )}
 
@@ -843,6 +1004,237 @@ export function MathsPanel() {
                                 }}
                             >Upload</button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ═══ Create Game Modal ═══ */}
+            {showCreateModal && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 10000,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: 'rgba(0,0,0,0.6)',
+                }} onClick={() => !creating && setShowCreateModal(false)}>
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: '440px', maxHeight: '85vh', overflowY: 'auto',
+                            backgroundColor: '#1e1e2e',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: '12px',
+                            padding: '24px',
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                        }}
+                    >
+                        <div style={{ marginBottom: '20px' }}>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>New Game</div>
+                            <div style={{ fontSize: '12px', color: '#888' }}>
+                                Creates a game on XGENIA RGS. It appears in the RGS platform's Game Library immediately.
+                            </div>
+                        </div>
+
+                        {/* Game Name — typing auto-fills the slug (matches the RGS form). */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={MODAL_LABEL_STYLE}>Game Name</label>
+                            <input
+                                type="text"
+                                placeholder="e.g. Dark Alice"
+                                value={createForm.name}
+                                onChange={(e) => { const v = e.target.value; setCreateForm({ ...createForm, name: v, slug: autoSlug(v) }); setCreateError(null); }}
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleCreateGame(); }}
+                                style={MODAL_INPUT_STYLE}
+                                autoFocus
+                            />
+                        </div>
+
+                        {/* Slug */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={MODAL_LABEL_STYLE}>Slug</label>
+                            <input
+                                type="text"
+                                placeholder="dark-alice"
+                                value={createForm.slug}
+                                onChange={(e) => setCreateForm({ ...createForm, slug: e.target.value })}
+                                style={MODAL_INPUT_STYLE}
+                            />
+                        </div>
+
+                        {/* Description */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={MODAL_LABEL_STYLE}>Description</label>
+                            <input
+                                type="text"
+                                placeholder="A gothic horror-themed game..."
+                                value={createForm.description}
+                                onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
+                                style={MODAL_INPUT_STYLE}
+                            />
+                        </div>
+
+                        {createError && (
+                            <div style={{ fontSize: '11px', color: '#EF4444', marginBottom: '12px' }}>{createError}</div>
+                        )}
+
+                        {/* Actions */}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                            <button
+                                onClick={() => setShowCreateModal(false)}
+                                disabled={creating}
+                                style={{
+                                    padding: '8px 16px', borderRadius: '6px',
+                                    border: '1px solid rgba(255,255,255,0.12)', backgroundColor: 'transparent',
+                                    color: '#a0a0b0', fontSize: '13px', cursor: creating ? 'not-allowed' : 'pointer',
+                                }}
+                            >Cancel</button>
+                            <button
+                                onClick={handleCreateGame}
+                                disabled={creating || !createForm.name.trim()}
+                                style={{
+                                    padding: '8px 20px', borderRadius: '6px', border: 'none',
+                                    backgroundColor: creating || !createForm.name.trim() ? '#444' : '#67DE92',
+                                    color: creating || !createForm.name.trim() ? '#888' : '#1a1a2e',
+                                    fontSize: '13px', fontWeight: 700,
+                                    cursor: creating || !createForm.name.trim() ? 'not-allowed' : 'pointer',
+                                }}
+                            >{creating ? 'Creating…' : 'Create Game'}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Create Operator modal ─── */}
+            {showOperatorModal && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 10000,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: 'rgba(0,0,0,0.6)',
+                }} onClick={() => { if (!creatingOperator) { newOperatorKey ? closeOperatorModal() : setShowOperatorModal(false); } }}>
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: '440px', maxHeight: '85vh', overflowY: 'auto',
+                            backgroundColor: '#1e1e2e',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: '12px',
+                            padding: '24px',
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                        }}
+                    >
+                        <div style={{ marginBottom: '20px' }}>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>Create Operator</div>
+                            <div style={{ fontSize: '12px', color: '#888' }}>
+                                Creates an operator on XGENIA RGS and generates its API key, so you can connect the editor to the RGS platform.
+                            </div>
+                        </div>
+
+                        {newOperatorKey ? (
+                            <>
+                                <div style={{ marginBottom: '12px' }}>
+                                    <label style={MODAL_LABEL_STYLE}>Your API Key (shown once)</label>
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        value={newOperatorKey}
+                                        onFocus={(e) => e.currentTarget.select()}
+                                        style={{ ...MODAL_INPUT_STYLE, fontFamily: 'monospace', fontSize: '12px' }}
+                                    />
+                                </div>
+                                <div style={{ fontSize: '10px', color: '#E0B44A', marginBottom: '16px' }}>
+                                    Save this key now — it is only shown once and cannot be retrieved again. It has already been stored in this editor and is sent as the X-Operator-Key header.
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                                    <button
+                                        onClick={() => { navigator.clipboard?.writeText(newOperatorKey); }}
+                                        style={{
+                                            padding: '8px 16px', borderRadius: '6px',
+                                            border: '1px solid rgba(255,255,255,0.12)', backgroundColor: 'transparent',
+                                            color: '#a0a0b0', fontSize: '13px', cursor: 'pointer',
+                                        }}
+                                    >Copy</button>
+                                    <button
+                                        onClick={closeOperatorModal}
+                                        style={{
+                                            padding: '8px 20px', borderRadius: '6px', border: 'none',
+                                            backgroundColor: '#67DE92', color: '#1a1a2e',
+                                            fontSize: '13px', fontWeight: 700, cursor: 'pointer',
+                                        }}
+                                    >Done</button>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                {/* Name */}
+                                <div style={{ marginBottom: '16px' }}>
+                                    <label style={MODAL_LABEL_STYLE}>Operator Name</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Acme Casino"
+                                        value={operatorForm.name}
+                                        onChange={(e) => { setOperatorForm({ ...operatorForm, name: e.target.value }); setOperatorError(null); }}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') handleCreateOperator(); }}
+                                        style={MODAL_INPUT_STYLE}
+                                        autoFocus
+                                    />
+                                </div>
+
+                                {/* Wallet mode + currencies */}
+                                <div style={{ display: 'flex', gap: '12px', marginBottom: '8px' }}>
+                                    <div style={{ flex: 1 }}>
+                                        <label style={MODAL_LABEL_STYLE}>Wallet Mode</label>
+                                        <select
+                                            value={operatorForm.wallet_mode}
+                                            onChange={(e) => setOperatorForm({ ...operatorForm, wallet_mode: e.target.value })}
+                                            style={{ ...MODAL_INPUT_STYLE, appearance: 'none', cursor: 'pointer' }}
+                                        >
+                                            {WALLET_MODE_OPTIONS.map((m) => (
+                                                <option key={m} value={m} style={{ background: '#1a1a2e' }}>{m}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                        <label style={MODAL_LABEL_STYLE}>Currencies</label>
+                                        <input
+                                            type="text"
+                                            placeholder="EUR, USD"
+                                            value={operatorForm.currencies}
+                                            onChange={(e) => setOperatorForm({ ...operatorForm, currencies: e.target.value })}
+                                            style={MODAL_INPUT_STYLE}
+                                        />
+                                    </div>
+                                </div>
+                                <div style={{ fontSize: '10px', color: '#666', marginBottom: '16px' }}>
+                                    Comma-separated currency codes. New operators are created with status “testing” — an admin promotes them to “active” from the RGS platform.
+                                </div>
+
+                                {operatorError && (
+                                    <div style={{ fontSize: '11px', color: '#EF4444', marginBottom: '12px' }}>{operatorError}</div>
+                                )}
+
+                                {/* Actions */}
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                                    <button
+                                        onClick={() => setShowOperatorModal(false)}
+                                        disabled={creatingOperator}
+                                        style={{
+                                            padding: '8px 16px', borderRadius: '6px',
+                                            border: '1px solid rgba(255,255,255,0.12)', backgroundColor: 'transparent',
+                                            color: '#a0a0b0', fontSize: '13px', cursor: creatingOperator ? 'not-allowed' : 'pointer',
+                                        }}
+                                    >Cancel</button>
+                                    <button
+                                        onClick={handleCreateOperator}
+                                        disabled={creatingOperator || !operatorForm.name.trim()}
+                                        style={{
+                                            padding: '8px 20px', borderRadius: '6px', border: 'none',
+                                            backgroundColor: creatingOperator || !operatorForm.name.trim() ? '#444' : '#67DE92',
+                                            color: creatingOperator || !operatorForm.name.trim() ? '#888' : '#1a1a2e',
+                                            fontSize: '13px', fontWeight: 700,
+                                            cursor: creatingOperator || !operatorForm.name.trim() ? 'not-allowed' : 'pointer',
+                                        }}
+                                    >{creatingOperator ? 'Creating…' : 'Create Operator'}</button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             )}
