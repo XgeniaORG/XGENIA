@@ -1178,8 +1178,25 @@ NodeScope.prototype.setComponentModel = async function (componentModel) {
         var parentInstance = this.getNodeWithId(nodeModel.parent.id);
         this.componentOwner.setChildRoot(parentInstance);
       } else {
-        var nodeInstance = self.getNodeWithId(nodeModel.id);
-        self.insertNodeInTree(nodeInstance, nodeModel);
+        // (zombie-node fix 2026-07-20) createNodeFromModel (the 'nodeAdded'
+        // handler) is ASYNC, and importEditorNodeData emits 'nodeParentUpdated'
+        // in the same tick — the instance may not be registered yet, and the old
+        // code passed `undefined` into insertNodeInTree, which just logged an
+        // error and dropped the attach: a live-created child never mounted until
+        // preview refresh. Retry briefly until the instance materializes.
+        var attachChild = function (attempt) {
+          var nodeInstance = self.getNodeWithId(nodeModel.id);
+          if (nodeInstance) {
+            self.insertNodeInTree(nodeInstance, nodeModel);
+            return;
+          }
+          if (attempt < 40) {
+            setTimeout(function () { attachChild(attempt + 1); }, 25);
+          } else {
+            console.warn('[NodeScope] nodeParentUpdated: instance never materialized for', nodeModel.id);
+          }
+        };
+        attachChild(0);
       }
     },
     this
