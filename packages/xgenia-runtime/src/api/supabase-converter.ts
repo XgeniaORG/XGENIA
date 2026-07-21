@@ -598,6 +598,9 @@ export class CloudFunctionConverter {
   private readonly collectionNodeConverter: CollectionNodeConverter;
   // Add RGS extra node converter (provably-fair / data / I-O nodes)
   private readonly rgsExtraNodeConverter: RgsExtraNodeConverter;
+  // Stage-2 persistence: stateful variables (Variable2 + Set Variable writers)
+  // resolved once per generateRgsScript run; null on the cloud-function path.
+  private _statefulVars: Map<string, { initial: unknown; writers: Node[] }> | null = null;
 
   // Add project context for Cloud Logic components
   private readonly projectContext?: Project;
@@ -1003,6 +1006,9 @@ ${functionSignature}
   }
 
   public generateSupabaseFunction(): { name: string; code: string } {
+    // Stage-2 persistence is an RGS-only concept — never let a prior
+    // generateRgsScript() run on this instance leak into the cloud path.
+    this._statefulVars = null;
     const requestNode = this.findNodeByType('xgenia.cloud.request');
 
     // Get all function nodes (JavaScript + Math + Slot Game + Standard Library + Signal Passthrough + Collection + Cloud Logic references)
@@ -1147,6 +1153,11 @@ ${originalComponentStructure}
    * Must return { win: number, data: {}, state: {} }
    */
   public generateRgsScript(): { script: string; configData: Record<string, any> } {
+    // Stage-2 cross-spin persistence: variables written via Set Variable
+    // compile to a ctx.state-backed `_vars` store (see collectStatefulVariables).
+    const statefulVars = this.collectStatefulVariables();
+    this._statefulVars = statefulVars;
+
     // Discover ALL node types — matching generateSupabaseFunction()
     const jsFunctionNodes = this.findAllNodesByType('JavaScriptFunction');
     const mathNodes = this.findAllMathNodes();
@@ -1167,7 +1178,14 @@ ${originalComponentStructure}
       ...extraNodes,
       ...mathsLogicNodes,
       ...this.findAllNodesByType('Javascript2'),
-      ...this.findAllNodesByType('stateManager')
+      ...this.findAllNodesByType('stateManager'),
+      // Stage-2: Set Variable writers of stateful variables join the ordered
+      // node stream — they emit gated `_vars` writes, not function calls.
+      ...this.component.graph.roots.filter(
+        (n) =>
+          (n.typename === 'Set Variable' || n.typename === '/#__cloud__/Set Variable') &&
+          statefulVars.has((n.parameters as any)?.name)
+      ),
     ];
     const sortedFunctionNodes = this.sortNodesByExecutionOrder(allFunctionNodes);
 
@@ -1186,6 +1204,21 @@ ${originalComponentStructure}
     // Extract config data from node parameters + Variable2 defaults
     const configData = this.extractMathsConfig(sortedFunctionNodes);
 
+    // Stage-2 persistence prelude: hydrate `_vars` from ctx.state (production
+    // /spin threads game_sessions.round_state; the stress runner threads
+    // persistedState), defaulting each variable to its Variable2 initial value
+    // on the first spin of a session.
+    const statefulPrelude = statefulVars.size === 0
+      ? ''
+      : [
+          '// --- Cross-spin variable store (hydrated from ctx.state.__vars) ---',
+          'var _vars = (ctx.state && typeof ctx.state === "object" && ctx.state.__vars && typeof ctx.state.__vars === "object") ? Object.assign({}, ctx.state.__vars) : {};',
+          ...Array.from(statefulVars.entries()).map(
+            ([name, info]) =>
+              `if (!Object.prototype.hasOwnProperty.call(_vars, ${JSON.stringify(name)})) _vars[${JSON.stringify(name)}] = ${JSON.stringify(info.initial === undefined ? null : info.initial)};`
+          ),
+        ].join('\n');
+
     const script = [
       '// XGENIA RGS Maths Script - Auto-generated from editor graph',
       '// Generated: ' + new Date().toISOString(),
@@ -1193,6 +1226,8 @@ ${originalComponentStructure}
       '',
       '// --- Node function definitions ---',
       functionDefinitions,
+      '',
+      statefulPrelude,
       '',
       '// --- Node invocations (wired via graph connections) ---',
       functionInvocations,
@@ -1228,7 +1263,9 @@ ${originalComponentStructure}
       'return {',
       '  win: _win,',
       '  data: _dataOut,',
-      '  state: { ...ctx.state, round: ctx.round }',
+      statefulVars.size > 0
+        ? '  state: { ...ctx.state, __vars: _vars, round: ctx.round }'
+        : '  state: { ...ctx.state, round: ctx.round }',
       '};',
     ].join('\n');
 
@@ -1366,6 +1403,17 @@ ${originalComponentStructure}
 
         let sourceValue: string;
 
+        // Stage-2: reads from a STATEFUL Variable2 come from the `_vars` store
+        // (persisted via ctx.state), not from re-deriving the writer's source.
+        const _rawSrc = this.nodes.get(conn.fromId);
+        if (_rawSrc && (_rawSrc.typename === 'Variable2' || _rawSrc.typename === '/#__cloud__/Variable2')) {
+          const _vn = (_rawSrc.parameters as any)?.name;
+          if (_vn && this._statefulVars?.has(_vn)) {
+            inputMappings.set(inputName, `_vars[${JSON.stringify(_vn)}]`);
+            return;
+          }
+        }
+
         // Resolve passthrough (Variable2) nodes by tracing backwards — follows
         // both direct `value` wires AND name-matched Set Variable writers
         // (see resolveThroughVariables; trace 1784154340515).
@@ -1434,6 +1482,26 @@ ${originalComponentStructure}
         }
         inputMappings.set(inputName, sourceValue);
       });
+
+      // Stage-2: a stateful Set Variable node compiles to a signal-gated write
+      // into `_vars` — no function call, no output variable. The gate keeps
+      // init/reset chains from clobbering persisted state every spin (the
+      // compiled script has no real signal engine; everything runs per spin).
+      if (
+        (node.typename === 'Set Variable' || node.typename === '/#__cloud__/Set Variable') &&
+        this._statefulVars?.has((node.parameters as any)?.name)
+      ) {
+        const varName = (node.parameters as any).name;
+        const valueSrc = inputMappings.get('value');
+        if (valueSrc !== undefined) {
+          const writeGate = this.signalGateForWriter(node);
+          const wLabel = node.label || `Set Variable ${varName}`;
+          invocationCode += writeGate === 'true'
+            ? `_vars[${JSON.stringify(varName)}] = ${valueSrc}; /* [${wLabel}] */\n    `
+            : `if (${writeGate}) { _vars[${JSON.stringify(varName)}] = ${valueSrc}; } /* [${wLabel}] */\n    `;
+        }
+        return;
+      }
 
       // Add node parameters as fallbacks
       Object.entries(node.parameters).forEach(([paramName, paramValue]) => {
@@ -1509,6 +1577,18 @@ ${originalComponentStructure}
         for (const conn of outputConns) {
           // conn.toProperty is the Component Outputs port name (e.g. "Sum")
           const outputPortName = conn.toProperty;
+
+          // Stage-2: a Component Outputs port fed by a stateful Variable2
+          // reads the persisted `_vars` store.
+          const _rawOutSrc = this.nodes.get(conn.fromId);
+          if (_rawOutSrc && (_rawOutSrc.typename === 'Variable2' || _rawOutSrc.typename === '/#__cloud__/Variable2')) {
+            const _ovn = (_rawOutSrc.parameters as any)?.name;
+            if (_ovn && this._statefulVars?.has(_ovn)) {
+              const safeName = /[^a-zA-Z0-9_]/.test(outputPortName) ? `"${outputPortName}"` : outputPortName;
+              mappings.push(`${safeName}: _vars[${JSON.stringify(_ovn)}]`);
+              continue;
+            }
+          }
 
           // Resolve the source through Variable2 passthroughs (incl. name-matched
           // Set Variable writers — see resolveThroughVariables).
@@ -1794,6 +1874,12 @@ ${originalComponentStructure}
             else aliases.push(`state${i}`);
           }
           return `function ${funcName}(inputs) {\n  // StateManager passthrough: forward all state inputs\n  return { ${aliases.map(a => `${this.sanitizeParameterName(a)}: inputs.${this.sanitizeParameterName(a)}`).join(', ')} };\n}\n`;
+        }
+
+        // Stage-2: stateful Set Variable nodes emit inline `_vars` writes in the
+        // invocation stream — no function definition.
+        if (node.typename === 'Set Variable' || node.typename === '/#__cloud__/Set Variable') {
+          return '';
         }
 
         return `// Unknown node type: ${node.typename}`;
@@ -3164,6 +3250,98 @@ ${originalComponentStructure}
    * across spins (true cross-spin persistence needs ctx.state mapping — a
    * follow-up). With multiple same-name writers the first wired one wins.
    */
+  /**
+   * Stage-2 cross-spin persistence (2026-07-17). A "stateful" variable is a
+   * Variable2 with at least one name-matched `Set Variable` writer whose value
+   * port is wired. These compile to a `_vars` store hydrated from
+   * `ctx.state.__vars` and written back into the returned state, so the value
+   * genuinely persists across spins — in the RGS stress runner (persistedState)
+   * AND in production /spin (game_sessions.round_state). Variable2 nodes with
+   * no writer stay inlined as constants (Stage-1 behavior).
+   */
+  private collectStatefulVariables(): Map<string, { initial: unknown; writers: Node[] }> {
+    const stateful = new Map<string, { initial: unknown; writers: Node[] }>();
+    const roots = this.component.graph.roots;
+    for (const node of roots) {
+      if (node.typename !== 'Variable2' && node.typename !== '/#__cloud__/Variable2') continue;
+      const varName = (node.parameters as any)?.name;
+      if (!varName) continue;
+      const writers = roots.filter(
+        (n) =>
+          (n.typename === 'Set Variable' || n.typename === '/#__cloud__/Set Variable') &&
+          (n.parameters as any)?.name === varName &&
+          this.connections.some((c) => c.toId === n.id && c.toProperty === 'value')
+      );
+      if (writers.length === 0) continue;
+      if (!stateful.has(varName)) {
+        stateful.set(varName, { initial: (node.parameters as any)?.value, writers });
+      }
+    }
+    return stateful;
+  }
+
+  /** Port type lookup across both real-editor and fixture port storage shapes. */
+  private portTypeOf(node: Node | undefined, portName: string): string {
+    if (!node) return '';
+    const pools: any[] = [
+      ...((node as any).dynamicports || []),
+      ...(((node as any).ports as any[]) || []),
+      ...((((node as any).parameters || {}).ports as any[]) || []),
+    ];
+    const p = pools.find((x) => x && x.name === portName);
+    const t = p?.type;
+    return String((t && typeof t === 'object' ? t.name : t) || '').toLowerCase();
+  }
+
+  /**
+   * Gate expression for a Set Variable write: trace the writer's `do` signal
+   * chain backwards to its Component Inputs root(s).
+   *
+   * The compiled RGS script runs every node each evaluate() — there is no real
+   * signal engine — so init/reset chains would clobber persisted state every
+   * spin without this. Semantics: a chain rooted in a signal whose name looks
+   * like init/reset fires on ROUND 1 only (or when the caller explicitly sends
+   * `config.<Name>: true`); every other root (Spin etc.) fires every spin.
+   * A writer with no traceable Component Inputs root gates to `true` — closest
+   * to the editor "fired by an in-spin chain" case and to Stage-1 behavior.
+   */
+  private signalGateForWriter(writer: Node): string {
+    const rootGates = new Set<string>();
+    const visited = new Set<string>();
+    const queue: Array<{ nodeId: string; portName: string }> = [{ nodeId: writer.id, portName: 'do' }];
+    let steps = 0;
+    while (queue.length > 0 && steps < 200) {
+      steps++;
+      const { nodeId, portName } = queue.shift()!;
+      const key = `${nodeId} ${portName}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      for (const conn of this.connections) {
+        if (conn.toId !== nodeId || conn.toProperty !== portName) continue;
+        const src = this.nodes.get(conn.fromId);
+        if (!src) continue;
+        if (src.typename === 'Component Inputs') {
+          const root = conn.fromProperty;
+          rootGates.add(
+            /init|reset/i.test(root)
+              ? `(ctx.round === 1 || config[${JSON.stringify(root)}] === true)`
+              : 'true'
+          );
+          continue;
+        }
+        // Continue backwards through the source node's own signal inputs.
+        for (const upstream of this.connections) {
+          if (upstream.toId !== src.id) continue;
+          const t = this.portTypeOf(src, upstream.toProperty);
+          const looksSignal = t === 'signal' || /^(do|run|spin)$/i.test(upstream.toProperty) || upstream.toProperty.startsWith('on');
+          if (looksSignal) queue.push({ nodeId: src.id, portName: upstream.toProperty });
+        }
+      }
+    }
+    if (rootGates.size === 0 || rootGates.has('true')) return 'true';
+    return Array.from(rootGates).join(' || ');
+  }
+
   private resolveThroughVariables(
     fromId: string,
     fromProperty: string,
@@ -3215,6 +3393,26 @@ ${originalComponentStructure}
       // the reader would reference its output before assignment.
       let fromId = conn.fromId;
       if (!nodeIds.has(fromId)) {
+        // Stage-2: when the source is a STATEFUL Variable2, the reader depends
+        // on the Set Variable writer NODES themselves (the `_vars` write must
+        // emit before the read within a spin — round 1 would otherwise read the
+        // initial value that Stage-1's inline resolution used to paper over).
+        // Read-modify-write loops become cycles here; the Kahn remainder net
+        // below keeps those nodes in original order instead of dropping them.
+        const _srcVar = this.nodes.get(conn.fromId);
+        const _svn = _srcVar && (_srcVar.typename === 'Variable2' || _srcVar.typename === '/#__cloud__/Variable2')
+          ? (_srcVar.parameters as any)?.name
+          : null;
+        const _stInfo = _svn ? this._statefulVars?.get(_svn) : null;
+        if (_stInfo) {
+          for (const w of _stInfo.writers) {
+            if (nodeIds.has(w.id) && w.id !== conn.toId) {
+              adj.get(w.id)!.push(conn.toId);
+              inDegree.set(conn.toId, (inDegree.get(conn.toId) || 0) + 1);
+            }
+          }
+          continue;
+        }
         fromId = this.resolveThroughVariables(conn.fromId, conn.fromProperty, (id) => nodeIds.has(id)).fromId;
       }
       if (nodeIds.has(fromId) && fromId !== conn.toId) {
