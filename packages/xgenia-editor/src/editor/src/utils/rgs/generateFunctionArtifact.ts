@@ -135,7 +135,13 @@ function exampleValueForField(field: ParamField): any {
 
   const def = field.default;
   if (def !== undefined && def !== null) {
+    // A port default that is itself an array / object marks the port as complex
+    // (the editor-UI cloud params are wildcard `*`, so the declared-type check
+    // above misses them). Sample an empty container so the RGS "Testing" section
+    // infers array / object rather than the numeric name-heuristic fallback → 0.
+    if (Array.isArray(def)) return sampleForType('array');
     const dt = typeof def;
+    if (dt === 'object') return sampleForType('object');
     if (dt === 'string' || dt === 'number' || dt === 'boolean') return sampleForType(dt);
   }
 
