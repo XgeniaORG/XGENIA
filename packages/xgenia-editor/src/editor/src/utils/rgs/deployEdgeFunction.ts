@@ -93,3 +93,82 @@ export async function deployEdgeFunction(
   }
   return { slug: data.slug || artifact.slug, url: data.url };
 }
+
+// ─── Server Versions: download & delete ──────────────────────────
+// Per-version actions for the Maths RGS panel's "Server Versions" list,
+// mirroring the RGS studio Versions tab. Both go through maths-deployer
+// (service role) because XGENIA holds only the anon key + X-Operator-Key and
+// cannot write the RLS-protected game_function_deployments tables directly.
+
+export interface EdgeDeploymentBundle {
+  slug: string;
+  version: number;
+  name: string;
+  functions: Array<{
+    function_slug: string;
+    function_name: string;
+    function_url: string;
+    script: string;
+    payload_example: unknown;
+    response_example: unknown;
+  }>;
+}
+
+/**
+ * Fetches one Server Version's component edge functions (including their
+ * scripts) so the caller can build a downloadable JSON bundle — the same
+ * bundle the RGS studio Versions tab downloads.
+ */
+export async function downloadEdgeDeployment(
+  apiKey: string,
+  deploymentId: string
+): Promise<EdgeDeploymentBundle> {
+  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+    method: 'POST',
+    headers: rgsHeaders(apiKey),
+    body: JSON.stringify({ action: 'download-edge-deployment', deployment_id: deploymentId })
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const serverError = (data && data.error) || '';
+    if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes('download-edge-deployment')) {
+      throw new Error(
+        'XGENIA RGS backend is out of date — it does not support downloading versions yet. ' +
+          'Redeploy the `maths-deployer` function to the RGS project, then try again.'
+      );
+    }
+    throw new Error(serverError || `RGS download failed (HTTP ${res.status})`);
+  }
+  return data as EdgeDeploymentBundle;
+}
+
+/**
+ * Deletes one Server Version (deployment). Its component edge functions are
+ * removed by the DB's ON DELETE CASCADE. Optionally scoped to gameId so a
+ * mismatched deployment id can't delete another game's version.
+ */
+export async function deleteEdgeDeployment(
+  apiKey: string,
+  deploymentId: string,
+  gameId?: string
+): Promise<{ version: number }> {
+  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+    method: 'POST',
+    headers: rgsHeaders(apiKey),
+    body: JSON.stringify({ action: 'delete-edge-deployment', deployment_id: deploymentId, game_id: gameId })
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const serverError = (data && data.error) || '';
+    if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes('delete-edge-deployment')) {
+      throw new Error(
+        'XGENIA RGS backend is out of date — it does not support deleting versions yet. ' +
+          'Redeploy the `maths-deployer` function to the RGS project, then try again.'
+      );
+    }
+    throw new Error(serverError || `RGS delete failed (HTTP ${res.status})`);
+  }
+  return { version: data.version };
+}
