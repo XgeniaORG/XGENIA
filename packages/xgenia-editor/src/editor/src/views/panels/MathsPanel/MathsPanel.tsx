@@ -14,6 +14,7 @@ import { BasePanel } from '@xgenia-core-ui/components/sidebar/BasePanel';
 
 import { ComponentsPanel } from '../componentspanel';
 import { supabase } from '../../../supabaseInit';
+import { downloadEdgeDeployment, deleteEdgeDeployment } from '@xgenia-utils/rgs/deployEdgeFunction';
 
 
 // ─── RGS Connection ─────────────────────────────────────────
@@ -182,6 +183,9 @@ const WALLET_MODE_OPTIONS = ['demo', 'internal', 'seamless'];
 
 const MODAL_LABEL_STYLE: React.CSSProperties = { display: 'block', fontSize: '11px', color: '#a0a0b0', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' };
 const MODAL_INPUT_STYLE: React.CSSProperties = { width: '100%', padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff', fontSize: '14px', outline: 'none', boxSizing: 'border-box' };
+// Small per-version action buttons in the Server Versions list (download/delete).
+const VERSION_BTN_STYLE: React.CSSProperties = { fontSize: '11px', lineHeight: 1, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '4px', color: '#c0c0c0', padding: '3px 6px' };
+const VERSION_DELETE_BTN_STYLE: React.CSSProperties = { ...VERSION_BTN_STYLE, color: '#EF4444', borderColor: 'rgba(239,68,68,0.35)' };
 
 
 
@@ -201,6 +205,11 @@ export function MathsPanel() {
     // studio Versions tab), not maths_configs.
     const [versions, setVersions] = useState<any[] | null>(null);
     const [versionsLoading, setVersionsLoading] = useState(false);
+    // Per-version action state for the Server Versions download/delete controls.
+    // `versionActionId` = the version currently downloading/deleting (busy row);
+    // `confirmDeleteId` = the version showing its inline "Delete? Yes/No" confirm.
+    const [versionActionId, setVersionActionId] = useState<string | null>(null);
+    const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
     // Upload, Test & Deploy modal state
     const [showTestConfigModal, setShowTestConfigModal] = useState(false);
@@ -270,6 +279,55 @@ export function MathsPanel() {
     useEffect(() => {
         if (uploadStatus?.type === 'success') fetchVersions();
     }, [uploadStatus, fetchVersions]);
+
+    // Download one Server Version as a JSON bundle — identical to the RGS studio
+    // Versions tab: an array of the version's component edge functions (with
+    // scripts), saved as `${slug}-edge-functions-v${version}.bundle.json`.
+    const handleDownloadVersion = useCallback(async (v: any) => {
+        if (!settings?.apiKey) return;
+        setVersionActionId(v.id);
+        try {
+            const bundle = await downloadEdgeDeployment(settings.apiKey, v.id);
+            const out = (bundle.functions || []).map(fn => ({
+                slug: fn.function_slug,
+                function_name: fn.function_name,
+                function_url: fn.function_url,
+                script: fn.script,
+                payload_example: fn.payload_example,
+                response_example: fn.response_example,
+            }));
+            if (out.length === 0) {
+                setUploadStatus({ type: 'error', message: 'This version has no edge functions to download.' });
+            } else {
+                const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${bundle.slug}-edge-functions-v${bundle.version}.bundle.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+        } catch (e: any) {
+            setUploadStatus({ type: 'error', message: e?.message || 'Download failed' });
+        }
+        setVersionActionId(null);
+    }, [settings]);
+
+    // Delete one Server Version. The server cascade-deletes its component edge
+    // functions; refresh the list afterward.
+    const handleDeleteVersion = useCallback(async (v: any) => {
+        if (!settings?.apiKey) return;
+        setConfirmDeleteId(null);
+        setVersionActionId(v.id);
+        try {
+            await deleteEdgeDeployment(settings.apiKey, v.id, selectedGame || undefined);
+            await fetchVersions();
+            setUploadStatus({ type: 'success', message: `Deleted v${v.version}` });
+        } catch (e: any) {
+            setUploadStatus({ type: 'error', message: e?.message || 'Delete failed' });
+        }
+        setVersionActionId(null);
+    }, [settings, selectedGame, fetchVersions]);
 
     const handleConnect = useCallback(async () => {
         const key = keyInput.trim();
@@ -867,6 +925,21 @@ export function MathsPanel() {
                                                 <span style={{ fontSize: '10px', color: '#555' }}>
                                                     {new Date(v.created_at).toLocaleDateString()}
                                                 </span>
+
+                                                {versionActionId === v.id ? (
+                                                    <span style={{ fontSize: '10px', color: '#666', minWidth: '52px', textAlign: 'right' as const }}>Working&#8230;</span>
+                                                ) : confirmDeleteId === v.id ? (
+                                                    <span style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                                        <span style={{ fontSize: '10px', color: '#EF4444' }}>Delete?</span>
+                                                        <button title="Confirm delete" onClick={() => handleDeleteVersion(v)} style={VERSION_DELETE_BTN_STYLE}>Yes</button>
+                                                        <button title="Cancel" onClick={() => setConfirmDeleteId(null)} style={VERSION_BTN_STYLE}>No</button>
+                                                    </span>
+                                                ) : (
+                                                    <span style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                                        <button title="Download bundle" onClick={() => handleDownloadVersion(v)} style={VERSION_BTN_STYLE}>&#8595;</button>
+                                                        <button title="Delete version" onClick={() => setConfirmDeleteId(v.id)} style={VERSION_DELETE_BTN_STYLE}>&#128465;</button>
+                                                    </span>
+                                                )}
                                             </div>
                                         );
                                     })}
