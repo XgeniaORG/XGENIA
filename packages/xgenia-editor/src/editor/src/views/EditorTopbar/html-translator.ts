@@ -2141,7 +2141,26 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                 styles.styleCss = (styles.styleCss || '') + `z-index: ${value};`;
                 break;
             case 'transform': {
-                // Extract translateX/translateY as native transformOriginX/Y
+                // (trace 1784656944021 — the flattened roulette wheel) The old code
+                // ALWAYS extracted translateX/translateY into native
+                // transformOriginX/Y (an ORIGIN offset — not a translation!) and
+                // kept only the remainder in CSS. That silently destroys any
+                // compound transform, and compound transforms are exactly how
+                // circular layouts work: `translate(-50%,-50%) rotate(Ndeg)
+                // translateY(-Rpx)` had its radial push ripped out and misapplied
+                // as an origin shift — all 25 wheel pockets collapsed out of orbit
+                // into a flat row. Rules now:
+                //   • transform contains ONLY translateX/translateY → keep the
+                //     legacy native-offset mapping (simple nudges, widely used).
+                //   • anything compound (rotate/scale/skew/shorthand translate
+                //     present) → pass the WHOLE transform through to styleCss
+                //     verbatim; CSS order is semantics, never split it.
+                const fnNames = Array.from(value.matchAll(/([a-zA-Z0-9]+)\s*\(/g)).map((m) => m[1].toLowerCase());
+                const onlySimpleTranslate = fnNames.length > 0 && fnNames.every((f) => f === 'translatex' || f === 'translatey');
+                if (!onlySimpleTranslate) {
+                    styles.styleCss = (styles.styleCss || '') + `transform: ${value};`;
+                    break;
+                }
                 const txMatch = value.match(/translateX\(([^)]+)\)/);
                 const tyMatch = value.match(/translateY\(([^)]+)\)/);
                 if (txMatch) {
@@ -2157,14 +2176,6 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                         styles.transformOriginY = parsed;
                         styles._transformOriginYUnit = tyMatch[1].includes('%') ? '%' : 'px';
                     }
-                }
-                // Keep non-translate transforms in CSS
-                const remaining = value
-                    .replace(/translateX\([^)]+\)/g, '')
-                    .replace(/translateY\([^)]+\)/g, '')
-                    .trim();
-                if (remaining) {
-                    styles.styleCss = (styles.styleCss || '') + `transform: ${remaining};`;
                 }
                 break;
             }
