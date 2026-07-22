@@ -684,7 +684,7 @@ export function MathsPanel() {
                                 <Box hasBottomSpacing>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
                                         <label style={{ fontSize: '11px', color: '#a0a0b0', textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>
-                                            Target Game
+                                            Selected Game
                                         </label>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                         <span

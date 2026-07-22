@@ -9,13 +9,18 @@ import { NO_ENVIRONMENT_VALUE, RGS_ENVIRONMENT_VALUE } from './DeployPopup.const
  * @param cloudService
  * @returns
  */
-export function useEnvironmentsAsOptions(cloudService: ICloudService) {
+export function useEnvironmentsAsOptions(
+  cloudService: ICloudService,
+  opts?: { alwaysIncludeRgs?: boolean }
+) {
   const options = [{ label: 'No cloud service', value: NO_ENVIRONMENT_VALUE }];
 
   // XGENIA RGS is connected separately (Maths RGS panel), not via
-  // cloudService.backend — offer it whenever an operator key is present.
+  // cloudService.backend. Offer it whenever an operator key is present, or
+  // always when the caller opts in (the Vercel deploy tab does, so the user can
+  // pick it and get a clear "connect first" error when no key is set).
   try {
-    if (getRgsSettings()?.apiKey) {
+    if (opts?.alwaysIncludeRgs || getRgsSettings()?.apiKey) {
       options.push({ label: 'XGENIA RGS', value: RGS_ENVIRONMENT_VALUE });
     }
   } catch {
