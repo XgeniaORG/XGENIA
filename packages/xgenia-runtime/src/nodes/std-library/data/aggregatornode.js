@@ -57,6 +57,40 @@ function splitList(value) {
     .filter(Boolean);
 }
 
+// Serialize the outgoing payload without letting a bad data value take down the
+// send. A UI output wired as a `data-<field>` input can, in edge cases, carry a
+// live runtime object (a node/graph model) instead of a plain value; those hold
+// `context` <-> `_dirtyNodes` back-references, so a naive JSON.stringify throws
+// "Converting circular structure to JSON" — synchronously, mid reactive-update
+// flush, which crashes the whole app. Mirror the circular-safe replacer the
+// editor connection already uses (WeakSet -> "[Circular]") so the POST still
+// goes out, and warn loudly with the offending field(s) so a mis-wired
+// non-serializable input stays VISIBLE rather than being silently swallowed.
+function stringifyPayloadSafe(payload) {
+  try {
+    return JSON.stringify(payload);
+  } catch (e) {
+    const offenders = Object.keys(payload).filter(function (k) {
+      return payload[k] !== null && typeof payload[k] === 'object';
+    });
+    console.warn(
+      'Aggregator: payload was not directly JSON-serializable (' +
+        (e && e.message ? e.message : e) +
+        '). Replacing cycles with "[Circular]". Verify these data input(s) are ' +
+        'wired to a plain value, not a node/model object:',
+      offenders
+    );
+    const seen = new WeakSet();
+    return JSON.stringify(payload, function (key, value) {
+      if (value !== null && typeof value === 'object') {
+        if (seen.has(value)) return '[Circular]';
+        seen.add(value);
+      }
+      return value;
+    });
+  }
+}
+
 const AggregatorNode = {
   name: 'Aggregator',
   displayNodeName: 'Aggregator Node',
@@ -182,10 +216,23 @@ const AggregatorNode = {
 
       const url = this._internal.url || DEFAULT_URL;
       const _this = this;
+
+      let body;
+      try {
+        body = stringifyPayloadSafe(payload);
+      } catch (e) {
+        // A serialization failure the circular-safe replacer can't fix (e.g. a
+        // BigInt). Don't let it throw through the reactive update flush — report
+        // a failed send instead so the graph stays alive.
+        console.log('Aggregator: failed to serialize payload for', url, e);
+        _this.sendSignalOnOutput('failure');
+        return;
+      }
+
       fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: body
       })
         .then(function (response) {
           return response
