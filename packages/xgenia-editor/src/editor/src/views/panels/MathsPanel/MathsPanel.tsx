@@ -12,9 +12,10 @@ import { VStack } from '@xgenia-core-ui/components/layout/Stack';
 import { Tooltip } from '@xgenia-core-ui/components/popups/Tooltip';
 import { BasePanel } from '@xgenia-core-ui/components/sidebar/BasePanel';
 
-import { ComponentsPanel } from '../componentspanel';
 import { supabase } from '../../../supabaseInit';
 import { downloadEdgeDeployment, deleteEdgeDeployment } from '@xgenia-utils/rgs/deployEdgeFunction';
+import { AppRegistry } from '@xgenia-models/app_registry';
+import { MathsComponentDocumentProvider } from '../../documents/MathsComponentDocument';
 
 
 // ─── RGS Connection ─────────────────────────────────────────
@@ -162,12 +163,6 @@ function mergeRgsSettings(patch: Record<string, any>): void {
 
 export const MathsPanel_ID = 'maths-panel';
 
-const mathsPanelOptions = {
-    showSheetList: false,
-    lockCurrentSheetName: '__maths__',
-    componentTitle: 'Maths Components'
-};
-
 // Create-game form — mirrors the RGS platform's "Game Library" create form exactly
 // (Game Name, Slug, Description). Everything else (game type, RTP, bets, volatility,
 // reel dimensions, version) is filled in by the games-table defaults on the backend,
@@ -186,6 +181,10 @@ const MODAL_INPUT_STYLE: React.CSSProperties = { width: '100%', padding: '10px 1
 // Small per-version action buttons in the Server Versions list (download/delete).
 const VERSION_BTN_STYLE: React.CSSProperties = { fontSize: '11px', lineHeight: 1, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '4px', color: '#c0c0c0', padding: '3px 6px' };
 const VERSION_DELETE_BTN_STYLE: React.CSSProperties = { ...VERSION_BTN_STYLE, color: '#EF4444', borderColor: 'rgba(239,68,68,0.35)' };
+
+// A component-name row in the Components sub-section. Clicking it opens the
+// component's API docs + script inspector in the editor's main area.
+const COMPONENT_ROW_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: '6px', marginBottom: '4px', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: '#e0e0e0' };
 
 
 
@@ -210,6 +209,10 @@ export function MathsPanel() {
     // `confirmDeleteId` = the version showing its inline "Delete? Yes/No" confirm.
     const [versionActionId, setVersionActionId] = useState<string | null>(null);
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+    // The Server Version whose components are shown in the Components sub-section.
+    // Null until the user clicks a row; the derived `selectedVersion` below then
+    // falls back to the newest version (matching the studio "API docs" default).
+    const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
 
     // Upload, Test & Deploy modal state
     const [showTestConfigModal, setShowTestConfigModal] = useState(false);
@@ -231,6 +234,32 @@ export function MathsPanel() {
     const [newOperatorKey, setNewOperatorKey] = useState<string | null>(null);
 
     const connected = !!settings;
+
+    // The version whose components the Components sub-section renders. Defaults to
+    // the newest (first) version until the user clicks another row — same default
+    // as the studio "API docs" page.
+    const selectedVersion =
+        (versions || []).find((v: any) => v.id === selectedVersionId) || (versions || [])[0] || null;
+
+    // Open a component's API docs + script inspector in the editor's MAIN area
+    // (an AppRegistry document, like the Component Diff view) — not in this
+    // sidebar. The document fetches the script itself via download-edge-deployment.
+    const openComponentDoc = (fn: any) => {
+        if (!settings?.apiKey || !selectedVersion) return;
+        AppRegistry.instance.openDocument(MathsComponentDocumentProvider.ID, {
+            apiKey: settings.apiKey,
+            deploymentId: selectedVersion.id,
+            version: selectedVersion.version,
+            gameName: (games || []).find((g: any) => g.id === selectedGame)?.name,
+            fn: {
+                function_slug: fn.function_slug,
+                function_name: fn.function_name,
+                function_url: fn.function_url,
+                payload_example: fn.payload_example,
+                response_example: fn.response_example
+            }
+        });
+    };
 
     // Load games when connected
     useEffect(() => {
@@ -274,6 +303,10 @@ export function MathsPanel() {
     }, [settings, selectedGame]);
 
     useEffect(() => { fetchVersions(); }, [selectedGame, fetchVersions]);
+
+    // Clear the components selection when the game changes so the sub-section
+    // re-defaults to the new game's newest version.
+    useEffect(() => { setSelectedVersionId(null); }, [selectedGame]);
 
     // Refresh versions after upload
     useEffect(() => {
@@ -901,12 +934,20 @@ export function MathsPanel() {
 
                                     {versions && versions.map((v: any) => {
                                         const count = v.functions?.length || 0;
+                                        const isSelected = selectedVersion?.id === v.id;
                                         return (
-                                            <div key={v.id} style={{
-                                                display: 'flex', alignItems: 'center', gap: '8px',
-                                                padding: '6px 8px', borderRadius: '4px', marginBottom: '4px',
-                                                backgroundColor: 'rgba(255,255,255,0.03)',
-                                            }}>
+                                            <div
+                                                key={v.id}
+                                                onClick={() => setSelectedVersionId(v.id)}
+                                                title="View this version's components"
+                                                style={{
+                                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                                    padding: '6px 8px', borderRadius: '4px', marginBottom: '4px',
+                                                    cursor: 'pointer',
+                                                    backgroundColor: isSelected ? 'rgba(103,222,146,0.12)' : 'rgba(255,255,255,0.03)',
+                                                    border: `1px solid ${isSelected ? 'rgba(103,222,146,0.35)' : 'transparent'}`,
+                                                }}
+                                            >
                                                 <span style={{
                                                     fontSize: '11px', fontWeight: 700, fontFamily: 'monospace',
                                                     color: '#e0e0e0', minWidth: '24px',
@@ -929,13 +970,13 @@ export function MathsPanel() {
                                                 {versionActionId === v.id ? (
                                                     <span style={{ fontSize: '10px', color: '#666', minWidth: '52px', textAlign: 'right' as const }}>Working&#8230;</span>
                                                 ) : confirmDeleteId === v.id ? (
-                                                    <span style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                                    <span style={{ display: 'flex', gap: '4px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
                                                         <span style={{ fontSize: '10px', color: '#EF4444' }}>Delete?</span>
                                                         <button title="Confirm delete" onClick={() => handleDeleteVersion(v)} style={VERSION_DELETE_BTN_STYLE}>Yes</button>
                                                         <button title="Cancel" onClick={() => setConfirmDeleteId(null)} style={VERSION_BTN_STYLE}>No</button>
                                                     </span>
                                                 ) : (
-                                                    <span style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                                    <span style={{ display: 'flex', gap: '4px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
                                                         <button title="Download bundle" onClick={() => handleDownloadVersion(v)} style={VERSION_BTN_STYLE}>&#8595;</button>
                                                         <button title="Delete version" onClick={() => setConfirmDeleteId(v.id)} style={VERSION_DELETE_BTN_STYLE}>&#128465;</button>
                                                     </span>
@@ -950,11 +991,61 @@ export function MathsPanel() {
                 </Box>
                 </div>
 
-                {/* Maths Components — the node-graph components for this project, locked to the
-                    __maths__ sheet (mirrors CloudFunctionsPanel's cloud-components list). Without this the
-                    panel only showed RGS "Server Versions" and no local components. */}
-                <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                    <ComponentsPanel options={mathsPanelOptions} />
+                {/* Components — the deployed edge functions of the selected Server Version,
+                    shown API-docs style (mirrors the RGS studio "API docs" page). Clicking a
+                    version in "Server Versions" above drives this list; it defaults to the
+                    newest version. */}
+                <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px' }}>
+                        <span style={{ fontWeight: 600, fontSize: '12px', textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: '#a0a0b0' }}>
+                            Components
+                        </span>
+                        {selectedVersion && (
+                            <span style={{ fontSize: '10px', color: '#666', fontFamily: 'monospace' }}>
+                                v{selectedVersion.version} · {selectedVersion.functions?.length || 0}
+                            </span>
+                        )}
+                    </div>
+
+                    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '0 12px 12px' }}>
+                        {!connected || !selectedGame ? (
+                            <div style={{ fontSize: '11px', color: '#666', padding: '8px 0' }}>
+                                Connect to XGENIA RGS and select a game to view its deployed components.
+                            </div>
+                        ) : versionsLoading ? (
+                            <div style={{ fontSize: '11px', color: '#666', padding: '8px 0' }}>Loading&#8230;</div>
+                        ) : !selectedVersion ? (
+                            <div style={{ fontSize: '11px', color: '#666', padding: '8px 0' }}>
+                                No deployed versions yet. Deploy a version to view its components&#8217; API docs.
+                            </div>
+                        ) : (selectedVersion.functions?.length || 0) === 0 ? (
+                            <div style={{ fontSize: '11px', color: '#666', padding: '8px 0' }}>
+                                This version has no components.
+                            </div>
+                        ) : (
+                            // Names only. Clicking a name opens its API docs + script
+                            // inspector in the editor's main area (not this sidebar).
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                {[...selectedVersion.functions]
+                                    .sort((a: any, b: any) => (a.function_slug || '').localeCompare(b.function_slug || ''))
+                                    .map((fn: any) => (
+                                        <button
+                                            key={fn.id || fn.function_slug}
+                                            onClick={() => openComponentDoc(fn)}
+                                            title="Open API docs & script inspector"
+                                            style={COMPONENT_ROW_STYLE}
+                                        >
+                                            <span style={{
+                                                flex: 1, minWidth: 0,
+                                                fontSize: '12px', color: '#e0e0e0',
+                                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
+                                            }}>{fn.function_name || fn.function_slug}</span>
+                                            <span style={{ flexShrink: 0, fontSize: '13px', color: '#67DE92', lineHeight: 1 }}>&#8250;</span>
+                                        </button>
+                                    ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
 
             </Container>

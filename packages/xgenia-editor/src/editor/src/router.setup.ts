@@ -9,6 +9,7 @@ import { IconName } from '@xgenia-core-ui/components/common/Icon';
 import config from '../../shared/config/config';
 import { ComponentDiffDocumentProvider } from './views/documents/ComponentDiffDocument';
 import { EditorDocumentProvider } from './views/documents/EditorDocument';
+import { MathsComponentDocumentProvider } from './views/documents/MathsComponentDocument';
 import { NodePickerPanel } from './views/NodePicker/NodePickerPanel';
 // ChatPanel: proprietary AI module loaded via iframe (GPL-isolated) or symlink (legacy).
 // Falls back to a GPL-3 shell if neither is available.
@@ -279,6 +280,7 @@ export function installDocuments() {
   appRegistry.openDocument(EditorDocumentProvider.ID);
 
   appRegistry.registerDocumentProvider(ComponentDiffDocumentProvider.ID, new ComponentDiffDocumentProvider());
+  appRegistry.registerDocumentProvider(MathsComponentDocumentProvider.ID, new MathsComponentDocumentProvider());
 
   if (import.meta.webpackHot) {
     import.meta.webpackHot.accept('./views/documents/EditorDocument', () => {
@@ -288,6 +290,12 @@ export function installDocuments() {
       AppRegistry.instance.registerDocumentProvider(
         ComponentDiffDocumentProvider.ID,
         new ComponentDiffDocumentProvider()
+      );
+    });
+    import.meta.webpackHot.accept('./views/documents/MathsComponentDocument', () => {
+      AppRegistry.instance.registerDocumentProvider(
+        MathsComponentDocumentProvider.ID,
+        new MathsComponentDocumentProvider()
       );
     });
   }
