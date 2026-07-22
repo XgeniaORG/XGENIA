@@ -1001,6 +1001,28 @@ export class EditorBridge {
             }
         });
 
+        // BRAIN: merge AI/user annotations under node.metadata.ai. metadata
+        // round-trips through NodeGraphNode.toJSON, so this persists into
+        // project.json. We fire a Model.* change event so the 1s autosave
+        // debounce (projectmodel.ts) writes it to disk. Best-effort mirror of
+        // the .xgenia/brain.json sidecar, which stays authoritative.
+        h('node.setMetadata', ([nodeId, patch]: [string, Record<string, any>]) => {
+            const node = this.findNode(nodeId);
+            if (!node) throw new Error(`Node not found: ${nodeId}`);
+            try {
+                const meta = ((node as any).metadata && typeof (node as any).metadata === 'object')
+                    ? (node as any).metadata : ((node as any).metadata = {});
+                meta.ai = { ...(meta.ai || {}), ...(patch || {}), updatedAt: new Date().toISOString() };
+                // Trigger autosave without disturbing parameter/port listeners.
+                if (typeof (node as any).notifyListeners === 'function') {
+                    (node as any).notifyListeners('metadataChanged', { model: node, key: 'ai' });
+                }
+                return true;
+            } catch {
+                return false;
+            }
+        });
+
         h('node.findByLabel', ([label]: [string]) => {
             const graph = this.getActiveGraph();
             if (!graph) return null;
