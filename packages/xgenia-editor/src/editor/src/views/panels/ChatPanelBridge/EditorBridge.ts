@@ -948,6 +948,44 @@ export class EditorBridge {
             return '';
         });
 
+        // COMMENTS (sticky notes) — a SEPARATE canvas layer from nodes, held in
+        // graph.commentsModel, NOT walked by any node/XML serializer. The AI was
+        // blind to them (trace 1784753612441: an empty component with two comments
+        // read as "nothing here"). These handlers surface + edit them.
+        h('graph.getComments', () => {
+            const cm = this.getActiveGraph()?.commentsModel;
+            return cm && Array.isArray(cm.comments) ? cm.comments.map((c: any) => ({ ...c })) : [];
+        });
+        h('graph.addComment', ([comment]: [any]) => {
+            const cm = this.getActiveGraph()?.commentsModel;
+            if (!cm || typeof cm.addComment !== 'function') return null;
+            const c: any = {
+                text: comment?.text ?? '',
+                x: comment?.x ?? 0, y: comment?.y ?? 0,
+                width: comment?.width ?? 150, height: comment?.height ?? 100,
+                fill: comment?.fill ?? 'transparent',
+                ...(comment?.color ? { color: comment.color } : {}),
+                ...(comment?.id ? { id: comment.id } : {}),
+            };
+            cm.addComment(c); // assigns c.id if absent
+            return { ...c };
+        });
+        h('graph.updateComment', ([id, patch]: [string, any]) => {
+            const cm = this.getActiveGraph()?.commentsModel;
+            if (!cm) return false;
+            const existing = (cm.comments || []).find((c: any) => c.id === id);
+            if (!existing) return false;
+            cm.setComment(id, { ...existing, ...(patch || {}) });
+            return true;
+        });
+        h('graph.deleteComment', ([id]: [string]) => {
+            const cm = this.getActiveGraph()?.commentsModel;
+            if (!cm) return false;
+            const before = (cm.comments || []).length;
+            cm.removeComment(id);
+            return (cm.comments || []).length < before;
+        });
+
         // --- Node commands ---
         h('node.setParameter', ([nodeId, name, value]: [string, string, any]) => {
             const node = this.findNode(nodeId);
@@ -2401,6 +2439,10 @@ ${autoReturnCode}
             x: node.x,
             y: node.y,
             parameters: this.serializeParameters(node),
+            // BRAIN: surface the AI/user annotation (purpose/notes) written into
+            // node.metadata.ai so on-node knowledge round-trips back to the AI on
+            // inspection — nodes carry data, not just the .xgenia/brain.json sidecar.
+            ...(node.metadata?.ai ? { aiKnowledge: node.metadata.ai } : {}),
             // Include ports for live proxy caching — tools call node.getPorts()/getPort()
             // FIX (2026-03-07): Use getPorts() METHOD (returns static + dynamic ports from type system)
             // instead of .ports PROPERTY (only dynamic/user-added ports).
