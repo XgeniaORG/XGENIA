@@ -71,6 +71,26 @@ function isLogicComponentInstance(node: any): boolean {
   }
 }
 
+// A node type may declare the Compile `isMath` deployment toggle with a default.
+// Frontend-only nodes (e.g. the pixi reel renderer, which drives the WebGL scene
+// and is fed live node references) declare `default: false` so they are never
+// extracted to a backend edge function — even without a per-instance parameter.
+// Returns the type's declared default, or true (backend) when the type doesn't
+// declare isMath, so existing node types are unaffected.
+function typeIsMathDefault(type: any): boolean {
+  try {
+    const ports = type && type.ports ? type.ports : [];
+    for (let i = 0; i < ports.length; i++) {
+      if (ports[i] && ports[i].name === 'isMath') {
+        return ports[i].default !== false;
+      }
+    }
+  } catch (e) {
+    /* fall through to the backend default */
+  }
+  return true;
+}
+
 // Roots that hold logic (non-UI) and should be extracted from a visual
 // component: logic-component instances, primitive logic nodes and custom nodes —
 // but not visual nodes, page-structure/navigation nodes, or component gateways.
@@ -99,13 +119,18 @@ export function collectLogicRoots(comp: any): any[] {
     else if (type.category && NON_LOGIC_CATEGORIES.has(type.category)) isLogic = false;
     else isLogic = true;
     if (!isLogic) return false;
-    // Per-instance deployment override (the `isMath` toggle). A non-visual node /
-    // logic-component instance defaults to the backend (RGS), but the user may
-    // flip `isMath` off to keep it on the frontend (Vercel) — e.g. logic that
-    // drives UI animations. Excluding it here means it is never extracted: it
-    // stays untouched in the visual component and ships with the UI bundle.
-    // A missing/true value reads as backend, so existing projects are unchanged.
-    if (root.parameters && root.parameters.isMath === false) return false;
+    // Deployment target (the `isMath` toggle). A non-visual node / logic-component
+    // instance defaults to the backend (RGS); false keeps it on the frontend
+    // (Vercel) — never extracted, ships untouched with the UI bundle. Resolution:
+    //   1. an explicit per-instance `isMath` parameter (user override), else
+    //   2. the node TYPE's declared isMath default — frontend-only renderers like
+    //      the pixi reel controller declare false and are kept client-side with no
+    //      per-instance parameter, else
+    //   3. backend (true), so existing projects/node types are unchanged.
+    const explicitIsMath = root.parameters ? root.parameters.isMath : undefined;
+    const isMath =
+      explicitIsMath === true || explicitIsMath === false ? explicitIsMath : typeIsMathDefault(type);
+    if (!isMath) return false;
     // Skip logic roots wired to nothing (e.g. an unused logic-component instance
     // left on the page). Extracting them only adds dead nodes to the cloud
     // component that compute on default 0 inputs — and a dead Division would even

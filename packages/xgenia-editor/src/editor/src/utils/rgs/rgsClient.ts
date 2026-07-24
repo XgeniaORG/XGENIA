@@ -111,11 +111,17 @@ export function getRgsSettings(): RgsSettings | null {
 }
 
 export function saveRgsSettings(settings: RgsSettings | string): void {
-  const s =
-    typeof settings === 'string'
-      ? { apiKey: settings, rgsUrl: XRGS_URL }
-      : { ...settings, rgsUrl: XRGS_URL };
-  localStorage.setItem(RGS_SETTINGS_KEY, JSON.stringify(s));
+  // Merge into whatever is already stored so unrelated fields (activeGame /
+  // testSettings, written by the Maths RGS panel via mergeRgsSettings) survive a
+  // key re-save. Previously this overwrote the whole object and wiped them.
+  let cur: any = {};
+  try {
+    cur = JSON.parse(localStorage.getItem(RGS_SETTINGS_KEY) || '{}');
+  } catch {
+    /* ignore */
+  }
+  const patch = typeof settings === 'string' ? { apiKey: settings } : { ...settings };
+  localStorage.setItem(RGS_SETTINGS_KEY, JSON.stringify({ ...cur, ...patch, rgsUrl: XRGS_URL }));
 }
 
 export function clearRgsSettings(): void {
@@ -126,7 +132,42 @@ export function isRgsConnected(): boolean {
   return !!getRgsSettings()?.apiKey;
 }
 
-/** Persist the game chosen in the Maths RGS panel so the Deploy flow can read it. */
+/**
+ * The game selected in the Maths RGS panel. This is the single source of truth
+ * shared by the panel and the Deploy flow: the panel writes it (via __xrgs.
+ * setActiveGame → mergeRgsSettings) into `xgenia_rgs_settings.activeGame`, and
+ * the Deploy popup reads it here to pre-select the backend target game.
+ *
+ * NOTE: this replaced the old, separate `xgenia_selected_game` key
+ * (getSelectedGame/setSelectedGame below), which the panel never actually wrote —
+ * so the Deploy flow read a stale leftover value and deployed to the wrong game.
+ */
+export function getActiveGame(): SelectedGame | null {
+  try {
+    const p = JSON.parse(localStorage.getItem(RGS_SETTINGS_KEY) || '{}');
+    if (p?.activeGame?.id) return p.activeGame;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+export function setActiveGame(game: SelectedGame | null): void {
+  let cur: any = {};
+  try {
+    cur = JSON.parse(localStorage.getItem(RGS_SETTINGS_KEY) || '{}');
+  } catch {
+    /* ignore */
+  }
+  localStorage.setItem(RGS_SETTINGS_KEY, JSON.stringify({ ...cur, activeGame: game || null }));
+  EventDispatcher.instance.emit('rgs.gameSelected', game);
+}
+
+/**
+ * @deprecated Superseded by getActiveGame/setActiveGame. Kept only so any older
+ * code paths still compile; the `xgenia_selected_game` key is no longer written
+ * or read by the panel or the Deploy flow.
+ */
 export function setSelectedGame(game: SelectedGame | null): void {
   if (!game) {
     localStorage.removeItem(SELECTED_GAME_KEY);
@@ -136,6 +177,7 @@ export function setSelectedGame(game: SelectedGame | null): void {
   EventDispatcher.instance.emit('rgs.gameSelected', game);
 }
 
+/** @deprecated Use getActiveGame. */
 export function getSelectedGame(): SelectedGame | null {
   try {
     const raw = localStorage.getItem(SELECTED_GAME_KEY);

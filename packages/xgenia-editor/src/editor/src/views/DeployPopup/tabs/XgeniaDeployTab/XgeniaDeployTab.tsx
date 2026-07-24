@@ -13,7 +13,7 @@ import { saveProject } from '@xgenia-utils/compile/duplicateProject';
 import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import { generateFunctionArtifact } from '@xgenia-utils/rgs/generateFunctionArtifact';
 import { createEdgeDeployment, deployEdgeFunction } from '@xgenia-utils/rgs/deployEdgeFunction';
-import { getRgsSettings, getSelectedGame } from '@xgenia-utils/rgs/rgsClient';
+import { getRgsSettings, getActiveGame, isRgsConnected, rgsHeaders, XRGS_URL } from '@xgenia-utils/rgs/rgsClient';
 import { loadSharedDeployTokens } from '@xgenia-utils/rgs/deployTokens';
 
 import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
@@ -416,10 +416,23 @@ interface DeployedDomain {
 
 export function XgeniaDeployTab() {
   const cloudService = useModernModel(CloudService.instance);
-  const environmentOptions = useEnvironmentsAsOptions(cloudService);
+  // Always offer "XGENIA RGS" here so the user can pick it and get a clear
+  // "connect first" error when no operator key is set (see rgsError below).
+  const environmentOptions = useEnvironmentsAsOptions(cloudService, { alwaysIncludeRgs: true });
   const { user } = useAuth();
 
   const [environmentId, setEnvironmentId] = useState(NO_ENVIRONMENT_VALUE);
+
+  // ── XGENIA RGS backend target ──────────────────────────────────────────
+  // When "XGENIA RGS" is the selected cloud service, the backend (logic) is
+  // deployed to a specific RGS game. The game is chosen right here rather than
+  // read from a background store, so the deploy always targets exactly what the
+  // user picked. Defaults to the game selected in the Maths RGS panel.
+  const [rgsGames, setRgsGames] = useState<any[] | null>(null);
+  const [rgsGameId, setRgsGameId] = useState<string>(() => getActiveGame()?.id || '');
+  const [rgsGamesError, setRgsGamesError] = useState('');
+  const rgsSelected = environmentId === RGS_ENVIRONMENT_VALUE;
+  const rgsConnected = isRgsConnected();
   const [domainName, setDomainName] = useState('');
   const [isPrivate, setIsPrivate] = useState(true);
   const [isDeploying, setIsDeploying] = useState(false);
@@ -464,6 +477,49 @@ export function XgeniaDeployTab() {
     });
     return () => unsub();
   }, []);
+
+  // Load the RGS game list when "XGENIA RGS" is selected (and connected), so the
+  // Target Game dropdown can be populated. Defaults the selection to the game set
+  // in the Maths RGS panel if it still exists.
+  useEffect(() => {
+    if (!rgsSelected) return;
+    const rgs = getRgsSettings();
+    if (!rgs?.apiKey) return;
+    let cancelled = false;
+    setRgsGamesError('');
+    setRgsGames(null); // loading
+    (async () => {
+      try {
+        const r = await fetch(`${XRGS_URL}/maths-deployer`, {
+          method: 'POST',
+          headers: rgsHeaders(rgs.apiKey),
+          body: JSON.stringify({ action: 'list-games' }),
+        });
+        const data = await r.json();
+        if (cancelled) return;
+        if (!r.ok || data.error) {
+          setRgsGames([]);
+          setRgsGamesError(data.error || 'Failed to load games from XGENIA RGS.');
+          return;
+        }
+        const list = data.games || [];
+        setRgsGames(list);
+        // Keep the current pick if it still exists; otherwise default to the
+        // Maths RGS panel's active game; otherwise leave unselected.
+        setRgsGameId((cur) => {
+          if (cur && list.some((g: any) => g.id === cur)) return cur;
+          const active = getActiveGame()?.id;
+          return active && list.some((g: any) => g.id === active) ? active : '';
+        });
+      } catch (err) {
+        if (!cancelled) {
+          setRgsGames([]);
+          setRgsGamesError('Failed to load games from XGENIA RGS.');
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [rgsSelected]);
 
   // Team info — falls back to XGENIA team when user has no personal Vercel account
   const teamInfo = { id: 'team_N25wk38vGG6CZAyu8JUhf1fe', slug: 'xgenia' };
@@ -1171,7 +1227,8 @@ export function XgeniaDeployTab() {
 
   async function deployToRgsAndVercel(activityId: string) {
     const rgs = getRgsSettings();
-    const game = getSelectedGame();
+    // Deploy to exactly the game picked in this popup's Target Game dropdown.
+    const game = (rgsGames || []).find((g: any) => g.id === rgsGameId);
     if (!rgs?.apiKey) {
       ToastLayer.hideActivity(activityId);
       ToastLayer.showError('Not connected to XGENIA RGS. Connect in the Maths RGS panel first.');
@@ -1179,7 +1236,7 @@ export function XgeniaDeployTab() {
     }
     if (!game?.id) {
       ToastLayer.hideActivity(activityId);
-      ToastLayer.showError('No target game selected. Choose a game in the Maths RGS panel first.');
+      ToastLayer.showError('No target game selected. Choose a target game above.');
       return;
     }
 
@@ -1426,10 +1483,43 @@ export function XgeniaDeployTab() {
           />
         )}
 
+        {/* XGENIA RGS: pick the game the backend (logic) is deployed to. Shown
+            only when "XGENIA RGS" is the selected cloud service. */}
+        {rgsSelected && !rgsConnected && (
+          <Text style={{ marginBottom: '12px', fontSize: '12px', color: '#f66' }}>
+            Not connected to XGENIA RGS. Connect in the Maths RGS panel first.
+          </Text>
+        )}
+
+        {rgsSelected && rgsConnected && (
+          rgsGames === null ? (
+            <Text style={{ marginBottom: '12px', fontSize: '12px', color: '#999' }}>
+              Loading games…
+            </Text>
+          ) : rgsGames.length === 0 ? (
+            <Text style={{ marginBottom: '12px', fontSize: '12px', color: '#f66' }}>
+              {rgsGamesError || 'No games found. Create one in the Maths RGS panel first.'}
+            </Text>
+          ) : (
+            <Select
+              options={rgsGames.map((g: any) => ({ label: g.name, value: g.id }))}
+              onChange={(value: string) => setRgsGameId(String(value))}
+              placeholder="Select a target game…"
+              value={rgsGameId}
+              label="Target game"
+              hasBottomSpacing
+            />
+          )
+        )}
+
         <PrimaryButton
           label={isDeploying ? "Deploying..." : "Deploy"}
           onClick={onDeployToVercelClicked}
-          isDisabled={isDeploying || !domainName.trim()}
+          isDisabled={
+            isDeploying ||
+            !domainName.trim() ||
+            (rgsSelected && (!rgsConnected || !rgsGameId))
+          }
         />
 
         <div style={{ marginTop: '12px' }}>
