@@ -83,6 +83,23 @@ Test runner: live vitest suite in `private/xgenia-ai-app` (per repo convention).
 - Any new image-generation orchestration (that is Phase 2).
 - Changing the sub-agent model selection.
 
+## Appendix — second-pass trace findings (1784900887290) triage
+
+The in-editor AI's second inspection pass surfaced 18 findings. Triage against this program:
+
+**Absorbed into Phase 1 (this spec):**
+- #4 font fraud (Cinzel 900 faked from 700 / weights unloaded) → Fix 2 extended: the css2 API rejects the whole request when any weight is missing; hardcoded `wght@300-700` silently killed fonts without a 300 (Cinzel) and capped titles at 700. Now: accurate `GOOGLE_FONT_WEIGHTS` map per known family, bare link for unknowns.
+- #10/#16/#18 px-on-4K, mount-size blindness, editor-canvas desync → Fix 3 (the post-mount rect audit is exactly the missing step named in #10).
+- #13 wireframe accepted as final → Fix 4 (refine default ON).
+- #12 style side-channel → Fix 1 (the read-path race; style IS injected when the cache is warm).
+- #1 currency soup (1000 / €100 / $0.00) → new prompt law: HUD NUMBER FORMAT.
+- #6 full-bleed stat slabs + hairline borders → new prompt law: METERS ARE PILLS, NOT SLABS.
+- #14 tone break ("Cartoon Romania") → new prompt law: COPY REGISTER.
+
+**Phase 2 (art stack) — confirmed by:** #3 zero image nodes, #7 naked PIXI in a letterboxed hole, #11 symbol collage without a bible, #15 DOM/PIXI split visual language, #17 no craft components.
+
+**Separate track (wiring/completion, not UI generation):** #2 balance never wired to @BalanceText (parent-agent completion failure — belongs with the slot-doctrine verify gates), #9 white App chassis (page assembly), #5 hover vocabulary (bounded by the editor-package translator's simple `:hover` support), #8 double canvas (editor-preview artifact, not product).
+
 ## Files touched (expected)
 
 - `private/xgenia-ai-app/src/shims/editor-views.ts` — Fix 1 (`ensureStyleCacheWarmed`).
