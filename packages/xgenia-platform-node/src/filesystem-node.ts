@@ -1,5 +1,6 @@
 import fs from 'fs';
 import nodePath from 'path';
+import { fileURLToPath } from 'url';
 import fse, { mkdirp } from 'fs-extra';
 import JSZip from 'jszip';
 import { FileBlob, FileInfo, FileStat, IFileSystem, OpenDialogOptions } from '@xgenia/platform';
@@ -279,6 +280,18 @@ export class FileSystemNode implements IFileSystem {
         });
     }
 
+    const handleUnzip = (blob: any, resolve: () => void, reject: (_: any) => void) => {
+      unzipToFolder(to, blob, function (r) {
+        if (r.result !== 'success') {
+          reject({ result: 'failure', message: 'Failed to extract' });
+          _this.removeDirRecursive(to);
+          return;
+        }
+
+        resolve();
+      });
+    };
+
     return new Promise((resolve, reject) => {
       // Make sure the folder is empty
       const isEmpty = this.isDirectoryEmpty(to);
@@ -287,21 +300,40 @@ export class FileSystemNode implements IFileSystem {
         return;
       }
 
-      // Load zip file from URL
+      // If the URL points to a local file, read it directly via fs.
+      // Going through XMLHttpRequest fails under Electron's CSP, which does not
+      // allow the 'file:' scheme in connect-src. The Node platform has full
+      // filesystem access, so this is both correct and faster.
+      let localPath: string | undefined;
+      if (url.startsWith('file:')) {
+        try {
+          localPath = fileURLToPath(url);
+        } catch (_e) {
+          localPath = decodeURIComponent(url.replace(/^file:\/\/\/?/, ''));
+        }
+      } else if (!/^[a-z]+:\/\//i.test(url)) {
+        // Not an http(s)/network URL — treat as a plain filesystem path.
+        localPath = url;
+      }
+
+      if (localPath !== undefined) {
+        fs.readFile(localPath, (err, data) => {
+          if (err) {
+            reject({ result: 'failure', message: 'Failed to read file: ' + err.message });
+            return;
+          }
+          handleUnzip(data, resolve, reject);
+        });
+        return;
+      }
+
+      // Load zip file from a network URL
       // @ts-ignore XMLHttpRequest
       const xhr = new XMLHttpRequest();
       xhr.open('GET', url, true);
       xhr.responseType = 'blob';
       xhr.onload = function (_e) {
-        unzipToFolder(to, this.response, function (r) {
-          if (r.result !== 'success') {
-            reject({ result: 'failure', message: 'Failed to extract' });
-            _this.removeDirRecursive(to);
-            return;
-          }
-
-          resolve();
-        });
+        handleUnzip(this.response, resolve, reject);
       };
       xhr.send();
     });
