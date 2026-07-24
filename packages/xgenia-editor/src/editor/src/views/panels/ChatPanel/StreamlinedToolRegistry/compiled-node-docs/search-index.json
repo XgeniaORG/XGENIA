@@ -543,8 +543,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/aggregatornode.js",
       "category": "Cloud Functions",
       "docs": "https://docsapp.xgenia.com/nodes/cloud-functions/aggregator",
-      "lineCount": 274,
-      "byteSize": 9808,
+      "lineCount": 321,
+      "byteSize": 11766,
       "inputFormatHints": {
         "url": {
           "displayName": "URL",
@@ -8433,9 +8433,14 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 1833,
-      "byteSize": 87039,
+      "lineCount": 1850,
+      "byteSize": 87996,
       "inputFormatHints": {
+        "isMath": {
+          "displayName": "Is Math",
+          "type": "boolean",
+          "group": "Deployment"
+        },
         "reelStrips": {
           "displayName": "Reel Strips",
           "type": "array",
@@ -19486,6 +19491,10 @@
     "isMath": [
       {
         "node": "JavaScriptFunction",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
         "direction": "input"
       }
     ],
