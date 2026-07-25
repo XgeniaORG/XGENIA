@@ -803,7 +803,8 @@ function generateNodeLibrary(nodeRegister) {
             'LoadGameSession',
             'DepositBalance',
             'WithdrawBalance',
-            'GetBalanceByPlayerId'
+            'GetBalanceByPlayerId',
+            'CreateStripeDeposit'
           ]
         },
         {
