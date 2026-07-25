@@ -745,7 +745,7 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         const wMatch = rawCls.match(/^w-(.+)$/);
         if (wMatch) {
             const arbW = wMatch[1].match(/^\[(.+?)\]$/);
-            if (arbW) { styles.width = viewportDimToPercent(arbW[1]); continue; }
+            if (arbW) { assignDimension(styles, 'width', 'width', arbW[1]); continue; }
             const frac = resolveFraction(wMatch[1]);
             if (frac) { styles.width = frac; continue; }
             const v = resolveSpacing(wMatch[1]);
@@ -755,7 +755,7 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         const hMatch = rawCls.match(/^h-(.+)$/);
         if (hMatch) {
             const arbH = hMatch[1].match(/^\[(.+?)\]$/);
-            if (arbH) { styles.height = viewportDimToPercent(arbH[1]); continue; }
+            if (arbH) { assignDimension(styles, 'height', 'height', arbH[1]); continue; }
             const frac = resolveFraction(hMatch[1]);
             if (frac) { styles.height = frac; continue; }
             const v = resolveSpacing(hMatch[1]);
@@ -767,7 +767,7 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         const sizeMatch = rawCls.match(/^size-(.+)$/);
         if (sizeMatch) {
             const arbSize = sizeMatch[1].match(/^\[(.+?)\]$/);
-            if (arbSize) { const sv = viewportDimToPercent(arbSize[1]); styles.width = sv; styles.height = sv; continue; }
+            if (arbSize) { assignDimension(styles, 'width', 'width', arbSize[1]); assignDimension(styles, 'height', 'height', arbSize[1]); continue; }
             if (sizeMatch[1] === 'full') { styles.width = '100%'; styles.height = '100%'; continue; }
             const frac = resolveFraction(sizeMatch[1]);
             if (frac) { styles.width = frac; styles.height = frac; continue; }
@@ -1318,8 +1318,13 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
                 const m = deg.match(/^\[(.+)\]$/);
                 deg = m ? m[1] : deg;
             }
+            // The arbitrary value may already carry its own unit (rotate-[-90deg],
+            // rotate-[0.5turn], rotate-[2rad]) — only append 'deg' when the value is a
+            // bare number, else we emit `-90degdeg` which the browser drops entirely
+            // (trace 1784942070260: reel-frame ornaments never rotated).
+            const hasUnit = /[a-z%]$/i.test(deg.trim());
             styles._transforms = (styles._transforms || []);
-            styles._transforms.push(`rotate(${neg}${deg}deg)`);
+            styles._transforms.push(`rotate(${neg}${deg}${hasUnit ? '' : 'deg'})`);
             continue;
         }
         const scaleMatch = rawCls.match(/^scale-(?:([xy])-)?(\d+|\[.+\])$/);
@@ -1685,6 +1690,27 @@ function viewportDimToPercent(v: string): string {
 }
 
 /**
+ * Assign a width/height/min/max dimension to its native size attr, OR fall back to
+ * raw styleCss when the value is a CSS FUNCTION the dimension port can't parse
+ * (trace 1784942070260 #1). The dimension ports accept only {value,unit}; a
+ * `clamp(24px,2.6%,50px)` / `min(760px,76%)` / `calc(…)` string parses to NaN and the
+ * element silently collapses to the port's 100% default (or, for min/max, gets a stray
+ * '%' appended → invalid). Route those to styleCss where the browser evaluates them.
+ * Also converts Tailwind arbitrary-value underscores to spaces (#2:
+ * `calc(100%_-_2rem)` → `calc(100% - 2rem)`).
+ * @param styleKey  the ParsedStyles field ('width','height','minWidth',…)
+ * @param cssProp   the CSS property name for the styleCss fallback ('width','min-width',…)
+ */
+function assignDimension(styles: any, styleKey: string, cssProp: string, rawValue: string): void {
+    const v = String(rawValue).trim().replace(/_/g, ' ');
+    if (/\b(clamp|calc|min|max|var)\(/i.test(v)) {
+        styles.styleCss = (styles.styleCss || '') + `${cssProp}: ${v};`;
+    } else {
+        styles[styleKey] = viewportDimToPercent(v);
+    }
+}
+
+/**
  * DECLARED identity for form controls: id → aria-label → data-node-label /
  * data-label / data-name → name. The control emitters previously labeled
  * themselves from CAPTION text (placeholder, selected option), so a brief
@@ -1810,12 +1836,12 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
             // ─── Size ────────────────────────────
             // Keep 'px' suffix — XGENIA interprets bare numbers as %.
             // vw/vh → % so a piece doesn't overflow its host container.
-            case 'width': styles.width = viewportDimToPercent(value.trim()); break;
-            case 'height': styles.height = viewportDimToPercent(value.trim()); break;
-            case 'min-width': styles.minWidth = viewportDimToPercent(value.trim()); break;
-            case 'min-height': styles.minHeight = viewportDimToPercent(value.trim()); break;
-            case 'max-width': styles.maxWidth = viewportDimToPercent(value.trim()); break;
-            case 'max-height': styles.maxHeight = viewportDimToPercent(value.trim()); break;
+            case 'width': assignDimension(styles, 'width', 'width', value); break;
+            case 'height': assignDimension(styles, 'height', 'height', value); break;
+            case 'min-width': assignDimension(styles, 'minWidth', 'min-width', value); break;
+            case 'min-height': assignDimension(styles, 'minHeight', 'min-height', value); break;
+            case 'max-width': assignDimension(styles, 'maxWidth', 'max-width', value); break;
+            case 'max-height': assignDimension(styles, 'maxHeight', 'max-height', value); break;
 
             // ─── Padding (individual + shorthand) ─
             case 'padding-top': {
@@ -2886,7 +2912,10 @@ function parsedStylesToCssDeclarations(ps: ParsedStyles): string {
     if (ps.opacity !== undefined) out.push(`opacity: ${ps.opacity}`);
     if (ps.fontWeight) out.push(`font-weight: ${ps.fontWeight}`);
     if (ps.fontSize) out.push(`font-size: ${ps.fontSize}px`);
-    if (ps.letterSpacing) out.push(`letter-spacing: ${ps.letterSpacing}`);
+    // letter-spacing needs a unit — a non-zero unitless value is invalid CSS and the
+    // browser drops it (trace 1784942070260 #3: hover:tracking-wide stored '0.5' →
+    // "letter-spacing: 0.5" did nothing). Append px when the value is a bare number.
+    if (ps.letterSpacing) out.push(`letter-spacing: ${/[a-z%]$/i.test(String(ps.letterSpacing)) ? ps.letterSpacing : ps.letterSpacing + 'px'}`);
     if (ps._transforms && ps._transforms.length > 0) out.push(`transform: ${ps._transforms.join(' ')}`);
     let body = out.map(d => `${d};`).join(' ');
     if (ps.styleCss) body = `${body}${body ? ' ' : ''}${ps.styleCss}`;
@@ -4606,14 +4635,18 @@ function createTextNode(el: HTMLElement, tag: string, text: string, styles: Pars
         // px conversion below applies (150% → 1.5 → 1.5*fontSize).
         const pctM = /^([\d.]+)%$/.exec(lhRaw.trim());
         if (pctM) lhRaw = String(parseFloat(pctM[1]) / 100);
-        const lhValue = parseFloat(lhRaw);
-        if (!isNaN(lhValue) && lhValue < 10) {
-            // Unitless ratio (e.g., 1.25, 1.625) — convert to px
+        const lhTrim = lhRaw.trim();
+        const lhValue = parseFloat(lhTrim);
+        // Only treat as a UNITLESS ratio when there's genuinely no unit (trace
+        // 1784942070260 #5): the old `parseFloat < 10` also fired on "8px" (→ 8*fontSize
+        // = 128px) and "1.5rem", because parseFloat silently drops the unit. Unitful
+        // values (29px, 1.5rem) are emitted as-is — the XML parser strips the unit.
+        const isUnitlessRatio = /^[\d.]+$/.test(lhTrim) && !isNaN(lhValue) && lhValue < 10;
+        if (isUnitlessRatio) {
             const fs = styles.fontSize || HEADING_SIZES[tag] || 16;
             const lhPx = Math.round(lhValue * fs);
             attrs.push(`lineHeight="${lhPx}"`);
         } else {
-            // Already a px value or large number — emit as-is
             attrs.push(`lineHeight="${lhRaw}"`);
         }
     }
@@ -4760,8 +4793,18 @@ function addContainerAttrs(styles: ParsedStyles, attrs: string[]): void {
         } else {
             attrs.push('sizeMode="contentSize"');
         }
-    } else {
+    } else if (styles.width && styles.height) {
         attrs.push('sizeMode="explicit"');
+    } else if (styles.flexGrow) {
+        // One axis explicit + flex-grow: let the flex engine own the main axis; the
+        // authored axis is emitted above. Don't force explicit (would fill the missing
+        // axis to the 100% port default).
+    } else {
+        // ASYMMETRIC SIZE (trace 1784942070260): only ONE axis is authored. `explicit`
+        // fills the MISSING axis from the engine's port default (height defaults to
+        // 100%), so a width-only container becomes full-parent-height and centers its
+        // children with huge gaps. Use the per-axis mode so the unset axis hugs content.
+        attrs.push(styles.width ? 'sizeMode="contentHeight"' : 'sizeMode="contentWidth"');
     }
     // Native commonUIParams (dimension constraints)
     if (styles.minWidth) attrs.push(`minWidth="${styles.minWidth}"`);
@@ -4788,12 +4831,15 @@ function addContainerAttrs(styles: ParsedStyles, attrs: string[]): void {
         }
     }
 
-    // Transform origin — native XGENIA ports (from CSS translate)
+    // Transform origin — native XGENIA ports (from CSS translate).
+    // Emit the captured unit (trace 1784942070260 #4): the port defaultUnit is '%', so a
+    // bare "10" from a px translate rendered as 10% (the `_transformOrigin*Unit` field was
+    // captured but never used). Append it so px translates stay px.
     if (styles.transformOriginX !== undefined) {
-        attrs.push(`transformOriginX="${styles.transformOriginX}"`);
+        attrs.push(`transformOriginX="${styles.transformOriginX}${styles._transformOriginXUnit || ''}"`);
     }
     if (styles.transformOriginY !== undefined) {
-        attrs.push(`transformOriginY="${styles.transformOriginY}"`);
+        attrs.push(`transformOriginY="${styles.transformOriginY}${styles._transformOriginYUnit || ''}"`);
     }
 
     // ─── CSS FALLBACK props (string values — work as-is) ────────
@@ -5047,8 +5093,14 @@ function createButtonNode(
         groupAttrs.push('justifyContent="center"');
 
         // ─── Dimensions go to Group (visual container) ──────
-        if (styles.width || styles.height) {
+        // Per-axis size mode (trace 1784942070260): `explicit` fills a missing axis from
+        // the 100% port default, so a one-axis button wrapper balloons to full height.
+        if (styles.width && styles.height) {
             groupAttrs.push('sizeMode="explicit"');
+        } else if (styles.width) {
+            groupAttrs.push('sizeMode="contentHeight"');
+        } else if (styles.height) {
+            groupAttrs.push('sizeMode="contentWidth"');
         }
         if (styles.width) groupAttrs.push(`width="${styles.width}"`);
         if (styles.height) groupAttrs.push(`height="${styles.height}"`);
