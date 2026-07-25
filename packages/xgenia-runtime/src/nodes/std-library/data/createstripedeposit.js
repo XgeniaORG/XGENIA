@@ -5,9 +5,18 @@ const { resolveSupabaseConfig } = require('./rgs-config');
 // Create Deposit (Stripe)
 // -----------------------
 // Starts a REAL deposit: creates a Stripe Checkout Session for a player + amount
-// and exposes the hosted Checkout URL. Wire `checkoutUrl` into an "External Link"
-// node (and this node's `Done` into that node's `Do`) to open Checkout so the
-// player can pay.
+// and, by default, opens the hosted Checkout in a detached browser window so the
+// player can pay. In the Electron editor `window.open` is routed to the user's
+// external browser (main.js setWindowOpenHandler -> shell.openExternal), i.e. a
+// real, detached browser window; in a published web game it opens a separate
+// popup window. Opening the payment page in the OS browser (rather than an
+// embedded webview) is also the recommended, trusted way to take a payment.
+//
+// The `checkoutUrl` is still exposed as an output, and `openAutomatically` (default
+// true) can be turned off to fall back to the wire-it-yourself flow: `checkoutUrl`
+// -> an "External Link" node (and `Done` -> its `Do`). Auto-open can be blocked by
+// a browser popup blocker in a web build when not triggered by a user gesture (a
+// button press is fine); the URL output is the fallback for that case.
 //
 // Unlike the mock "Deposit Balance" node (which credits players.balance
 // immediately), this node moves NO balance itself. The balance is credited only
@@ -31,6 +40,7 @@ const CreateStripeDepositNode = {
   initialize: function () {
     this._internal.playerID = '';
     this._internal.amount = 0;
+    this._internal.openAutomatically = true;
     this._internal.checkoutUrl = '';
     this._internal.isSuccessful = false;
     this._internal.lastError = null;
@@ -70,6 +80,15 @@ const CreateStripeDepositNode = {
       set: function (value) {
         this._internal.amount = value;
       }
+    },
+    openAutomatically: {
+      type: 'boolean',
+      displayName: 'Open Automatically',
+      group: 'General',
+      default: true,
+      set: function (value) {
+        this._internal.openAutomatically = value;
+      }
     }
   },
   outputs: {
@@ -100,6 +119,29 @@ const CreateStripeDepositNode = {
       // Prefer connected cloudservices metadata; fall back to the XGENIA RGS
       // project so the node also works in the editor preview. See rgs-config.js.
       return resolveSupabaseConfig(this);
+    },
+    openCheckout: function (url) {
+      // Open the hosted Checkout in a detached browser window. In the Electron
+      // editor, window.open is intercepted by the main-window setWindowOpenHandler
+      // and routed to shell.openExternal (the user's real browser); in a published
+      // web game it opens a separate popup window. No-ops in the cloud runtime,
+      // which has no window object.
+      if (typeof window === 'undefined' || typeof window.open !== 'function') {
+        return;
+      }
+      try {
+        const features = 'popup=1,width=480,height=760,noopener,noreferrer';
+        const opened = window.open(url, '_blank', features);
+        if (opened && typeof opened.focus === 'function') {
+          try {
+            opened.focus();
+          } catch (e) {
+            /* focus may throw for cross-origin popups; ignore */
+          }
+        }
+      } catch (e) {
+        console.error('Create Deposit (Stripe): failed to open checkout window:', e);
+      }
     },
     createCheckoutSession: async function () {
       this._internal.lastError = null;
@@ -160,10 +202,25 @@ const CreateStripeDepositNode = {
         this._internal.checkoutUrl = checkoutUrl;
         ok = true;
 
+        const openAutoRaw = this.getInputValue('openAutomatically');
+        const openAutomatically =
+          openAutoRaw !== undefined ? openAutoRaw !== false : this._internal.openAutomatically !== false;
+
+        let openAttempted = false;
+        if (openAutomatically) {
+          openAttempted = true;
+          // Best-effort: opens a detached browser window (the external browser in
+          // the Electron editor). The return value is unreliable (Electron denies
+          // the in-app window; noopener returns null on the web), so a null handle
+          // is NOT treated as failure — the checkoutUrl output is the fallback.
+          this.openCheckout(checkoutUrl);
+        }
+
         this._internal.inspectData = {
           playerID: playerID,
           amount: amount,
           checkoutUrl: checkoutUrl,
+          openAttempted: openAttempted,
           isSuccessful: true
         };
 
