@@ -14,9 +14,14 @@ const { resolveSupabaseConfig } = require('./rgs-config');
 //
 // The `checkoutUrl` is still exposed as an output, and `openAutomatically` (default
 // true) can be turned off to fall back to the wire-it-yourself flow: `checkoutUrl`
-// -> an "External Link" node (and `Done` -> its `Do`). Auto-open can be blocked by
-// a browser popup blocker in a web build when not triggered by a user gesture (a
-// button press is fine); the URL output is the fallback for that case.
+// -> an "External Link" node (and `Done` -> its `Do`).
+//
+// Web popup-blocker handling: browsers block window.open once an `await` has broken
+// the click's user-activation, so on the web this node opens a BLANK popup
+// synchronously on the gesture (before the fetch) and navigates it to Checkout
+// afterwards. If even that is blocked, it degrades to a same-tab redirect to
+// Checkout (Stripe returns the player via success_url). In the Electron editor it
+// opens the user's external browser directly (no popup blocker there).
 //
 // Unlike the mock "Deposit Balance" node (which credits players.balance
 // immediately), this node moves NO balance itself. The balance is credited only
@@ -120,33 +125,67 @@ const CreateStripeDepositNode = {
       // project so the node also works in the editor preview. See rgs-config.js.
       return resolveSupabaseConfig(this);
     },
-    openCheckout: function (url) {
-      // Open the hosted Checkout in a detached browser window. In the Electron
-      // editor, window.open is intercepted by the main-window setWindowOpenHandler
-      // and routed to shell.openExternal (the user's real browser); in a published
-      // web game it opens a separate popup window. No-ops in the cloud runtime,
-      // which has no window object.
-      if (typeof window === 'undefined' || typeof window.open !== 'function') {
-        return;
+    openCheckout: function (url, ctx) {
+      // Send the player to the hosted Checkout using the most reliable mechanism
+      // for the current environment. Returns the method used (for the inspector).
+      // See createCheckoutSession for why the web path pre-opens a popup.
+      ctx = ctx || {};
+      if (!ctx.hasWindow) {
+        return 'none'; // cloud runtime — no window/DOM
       }
-      try {
-        const features = 'popup=1,width=480,height=760,noopener,noreferrer';
-        const opened = window.open(url, '_blank', features);
-        if (opened && typeof opened.focus === 'function') {
-          try {
-            opened.focus();
-          } catch (e) {
-            /* focus may throw for cross-origin popups; ignore */
-          }
+      // Electron editor: window.open is routed to the user's real browser
+      // (main-window setWindowOpenHandler -> shell.openExternal). No popup blocker
+      // applies, so opening after the await is fine.
+      if (ctx.isElectron) {
+        try {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        } catch (e) {
+          console.error('Create Deposit (Stripe): open failed:', e);
         }
+        return 'external';
+      }
+      // Web: reuse the blank popup opened on the click gesture, if it survived the
+      // async gap, and just navigate it to Checkout.
+      if (ctx.popup && !ctx.popup.closed) {
+        try {
+          ctx.popup.location.href = url;
+          if (typeof ctx.popup.focus === 'function') {
+            try { ctx.popup.focus(); } catch (e) { /* cross-origin focus can throw */ }
+          }
+          return 'popup';
+        } catch (e) {
+          try { ctx.popup.close(); } catch (e2) { /* ignore */ }
+        }
+      }
+      // Popup blocked (e.g. the deposit ran outside the click's activation): fall
+      // back to a same-tab redirect, which browsers do not popup-block. Stripe
+      // returns the player via the session success_url.
+      try {
+        window.location.assign(url);
+        return 'redirect';
       } catch (e) {
-        console.error('Create Deposit (Stripe): failed to open checkout window:', e);
+        console.error('Create Deposit (Stripe): redirect failed:', e);
+        return 'none';
       }
     },
     createCheckoutSession: async function () {
       this._internal.lastError = null;
       this._internal.checkoutUrl = '';
       let ok = false;
+
+      const openAutoRaw = this.getInputValue('openAutomatically');
+      const openAutomatically =
+        openAutoRaw !== undefined ? openAutoRaw !== false : this._internal.openAutomatically !== false;
+
+      const hasWindow = typeof window !== 'undefined' && typeof window.open === 'function';
+      const isElectron =
+        hasWindow &&
+        typeof navigator !== 'undefined' &&
+        typeof navigator.userAgent === 'string' &&
+        navigator.userAgent.indexOf('Electron') !== -1;
+
+      // Blank popup pre-opened on the web (below), navigated to Checkout later.
+      let popup = null;
 
       try {
         const playerID = (this.getInputValue('playerID') || this._internal.playerID || '').toString();
@@ -167,6 +206,23 @@ const CreateStripeDepositNode = {
         }
 
         const endpoint = `${url}/functions/v1/create-checkout-session`;
+
+        // IMPORTANT: open the blank popup NOW, synchronously, before the first
+        // await. On the web a browser blocks window.open once an await has broken
+        // the user-gesture chain, so opening here (still within the click) is what
+        // keeps the popup from being blocked; we navigate it to Checkout once the
+        // session exists. Skipped in Electron (window.open is routed to the
+        // external browser, so a blank '' would open a stray tab) and when
+        // auto-open is off. If this returns null the popup was blocked and
+        // openCheckout() falls back to a same-tab redirect.
+        if (openAutomatically && hasWindow && !isElectron) {
+          try {
+            popup = window.open('', '_blank', 'popup=1,width=480,height=760');
+          } catch (e) {
+            popup = null;
+          }
+        }
+
         const response = await fetch(endpoint, {
           method: 'POST',
           headers: {
@@ -202,30 +258,32 @@ const CreateStripeDepositNode = {
         this._internal.checkoutUrl = checkoutUrl;
         ok = true;
 
-        const openAutoRaw = this.getInputValue('openAutomatically');
-        const openAutomatically =
-          openAutoRaw !== undefined ? openAutoRaw !== false : this._internal.openAutomatically !== false;
-
-        let openAttempted = false;
+        let openMethod = 'disabled';
         if (openAutomatically) {
-          openAttempted = true;
-          // Best-effort: opens a detached browser window (the external browser in
-          // the Electron editor). The return value is unreliable (Electron denies
-          // the in-app window; noopener returns null on the web), so a null handle
-          // is NOT treated as failure — the checkoutUrl output is the fallback.
-          this.openCheckout(checkoutUrl);
+          openMethod = this.openCheckout(checkoutUrl, {
+            popup: popup,
+            isElectron: isElectron,
+            hasWindow: hasWindow
+          });
+        } else if (popup) {
+          try { popup.close(); } catch (e) { /* ignore */ }
         }
+        popup = null; // handed off (or closed) — don't re-close in catch
 
         this._internal.inspectData = {
           playerID: playerID,
           amount: amount,
           checkoutUrl: checkoutUrl,
-          openAttempted: openAttempted,
+          openMethod: openMethod,
           isSuccessful: true
         };
 
         this.flagOutputDirty('checkoutUrl');
       } catch (error) {
+        // Close the pre-opened blank popup if we failed before using it.
+        if (popup) {
+          try { popup.close(); } catch (e) { /* ignore */ }
+        }
         this._internal.lastError = error.message;
         this._internal.inspectData = { isSuccessful: false, error: error.message };
         console.error('Create Deposit (Stripe) error:', error);
