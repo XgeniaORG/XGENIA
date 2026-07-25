@@ -77,12 +77,17 @@ export function registerDynamicPorts(node) {
       const type = nodeLibrary.getNodeTypeWithName(node.typename);
       
       if (type) {
-      // Text input specific ports
+      // Text input specific ports.
+      // (trace 1784998058885) The runtime control (viewer-react controls/text-input.ts) emits
+      // `textChanged` (not `onChange`) and exposes the text via `onTextChanged`/`startValue` —
+      // there is NO `onChange` or `value` port. Registering those made the editor offer dead,
+      // never-firing wires. onFocus/onBlur come from the node definition (addControlEventsAndStates)
+      // but re-declaring them here is harmless (the loop below dedupes by name).
       const textInputPorts = [
-        { name: 'onChange', type: 'action', displayName: 'Change', group: 'Actions' },
+        { name: 'textChanged', type: 'action', displayName: 'Text Changed', group: 'Actions' },
+        { name: 'onEnter', type: 'action', displayName: 'Enter', group: 'Actions' },
         { name: 'onFocus', type: 'action', displayName: 'Focus', group: 'Actions' },
-        { name: 'onBlur', type: 'action', displayName: 'Blur', group: 'Actions' },
-        { name: 'value', type: 'string', displayName: 'Value', group: 'Properties' }
+        { name: 'onBlur', type: 'action', displayName: 'Blur', group: 'Actions' }
       ];
       
       textInputPorts.forEach(port => {
