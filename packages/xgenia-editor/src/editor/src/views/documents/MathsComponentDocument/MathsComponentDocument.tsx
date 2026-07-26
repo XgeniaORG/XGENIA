@@ -9,6 +9,7 @@ import { Container, ContainerDirection } from '@xgenia-core-ui/components/layout
 import { Label } from '@xgenia-core-ui/components/typography/Label';
 
 import { downloadEdgeDeployment } from '@xgenia-utils/rgs/deployEdgeFunction';
+import { formatScript } from '@xgenia-utils/rgs/formatScript';
 
 import { EditorDocumentProvider } from '../EditorDocument';
 
@@ -125,17 +126,20 @@ function MathsComponentDocument({ apiKey, deploymentId, version, gameName, fn }:
 
     // Fetch the version's full bundle (which includes scripts) and pick out this
     // component's script by slug. list-edge-deployments omits `script`, so this
-    // download-edge-deployment call is the only way to get it.
+    // download-edge-deployment call is the only way to get it. The raw script is
+    // run through Prettier before display — see formatScript for why.
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
         setScript(null);
         setScriptError(null);
         downloadEdgeDeployment(apiKey, deploymentId)
-            .then((bundle) => {
+            .then(async (bundle) => {
                 if (cancelled) return;
                 const match = (bundle.functions || []).find((f) => f.function_slug === fn.function_slug);
-                setScript(match?.script ?? '');
+                const formatted = match?.script ? await formatScript(match.script) : '';
+                if (cancelled) return;
+                setScript(formatted);
                 setLoading(false);
             })
             .catch((e: any) => {
