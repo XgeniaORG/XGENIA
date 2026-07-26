@@ -64,7 +64,15 @@ const GENERIC_DEPLOY_ERROR = 'Project compilation error';
 function nodeHttpsRequest(
   url: string,
   options: { method?: string; headers?: Record<string, string>; body?: string } = {}
-): Promise<{ ok: boolean; status: number; statusText: string; json: () => Promise<any>; text: () => Promise<string> }> {
+): Promise<{
+  ok: boolean;
+  status: number;
+  statusText: string;
+  /** Lower-cased response headers — used to read Vercel's `x-vercel-error`. */
+  headers: Record<string, string>;
+  json: () => Promise<any>;
+  text: () => Promise<string>;
+}> {
   // Use Electron's injected Node require (window.require) rather than a bare
   // require() — this bypasses webpack, which otherwise maps 'https' to the
   // 'https-browserify' polyfill (resolve.fallback) that runs over XHR and would
@@ -98,10 +106,16 @@ function nodeHttpsRequest(
         res.on('data', (chunk: string) => { bodyText += chunk; });
         res.on('end', () => {
           const status = res.statusCode || 0;
+          const headers: Record<string, string> = {};
+          for (const key in res.headers || {}) {
+            const value = res.headers[key];
+            headers[key.toLowerCase()] = Array.isArray(value) ? value.join(', ') : String(value);
+          }
           resolve({
             ok: status >= 200 && status < 300,
             status,
             statusText: res.statusMessage || '',
+            headers,
             text: async () => bodyText,
             json: async () => (bodyText ? JSON.parse(bodyText) : {}),
           });
@@ -574,18 +588,62 @@ export function XgeniaDeployTab() {
     return `${trimmedDomain}.vercel.app`; // Add .vercel.app suffix
   }
 
+  /**
+   * Is "<name>.vercel.app" free across ALL of Vercel?
+   *
+   * `*.vercel.app` is a single namespace shared by every Vercel account, not a
+   * per-team one. Vercel only auto-assigns the pretty "<project>.vercel.app"
+   * alias when that exact subdomain is globally unclaimed; if some stranger's
+   * project already owns it, our project silently gets only the team-scoped
+   * "<project>-<team>.vercel.app" URL instead — no error, no warning.
+   *
+   * There is no Vercel API that answers "is this .vercel.app subdomain free"
+   * (/v6/domains/:d/status is about *registrable* domains), so we probe the
+   * hostname itself: an unclaimed subdomain answers 404 with the header
+   * `x-vercel-error: DEPLOYMENT_NOT_FOUND`. Anything else (200/302/401/502…)
+   * means a live Vercel project is already bound to it.
+   *
+   * @returns true = free, false = taken by someone, null = probe inconclusive
+   *          (offline/DNS/proxy) — callers must not block a deploy on null.
+   */
+  async function isVercelSubdomainFree(hostname: string): Promise<boolean | null> {
+    try {
+      const response = await nodeHttpsRequest(`https://${hostname}/`, { method: 'HEAD' });
+      if (response.status === 404 && response.headers['x-vercel-error'] === 'DEPLOYMENT_NOT_FOUND') {
+        return true;
+      }
+      // Only trust the verdict when we know Vercel actually answered.
+      if (response.headers['x-vercel-id'] || /vercel/i.test(response.headers['server'] || '')) {
+        return false;
+      }
+      return null;
+    } catch (error: any) {
+      console.warn(`Could not probe ${hostname} for availability:`, error?.message || error);
+      return null;
+    }
+  }
+
+  type DomainAvailability = {
+    available: boolean;
+    /** Why it is unavailable — drives the message shown to the user. */
+    reason?: 'existing-project' | 'taken-elsewhere';
+  };
+
   // Check if domain is available using Vercel SDK
-  async function checkDomainAvailability(domain: string): Promise<boolean> {
+  async function checkDomainAvailability(domain: string): Promise<DomainAvailability> {
     const trimmed = domain.trim();
     // For .vercel.app, availability is effectively whether a project of that name exists in the team
     const projectName = trimmed.includes('.') ? trimmed.replace(/\.vercel\.app$/i, '') : trimmed;
     try {
       await vercel.projects.getProject({ idOrName: projectName, teamId: teamInfo.id, slug: teamInfo.slug });
       // Project exists in this team -> domain (default alias) is taken
-      return false;
+      return { available: false, reason: 'existing-project' };
     } catch (error: any) {
-      // If project not found (likely 404), consider available for our team
-      return true;
+      // Not in our team — but the global .vercel.app namespace may still own it.
+      const isFree = await isVercelSubdomainFree(`${projectName}.vercel.app`);
+      if (isFree === false) return { available: false, reason: 'taken-elsewhere' };
+      // true (free) or null (couldn't tell) -> let the deploy proceed.
+      return { available: true };
     }
   }
 
@@ -793,6 +851,50 @@ export function XgeniaDeployTab() {
     return { repoOwner, repoName: repositoryName };
   }
 
+  /**
+   * Which URL is this project actually reachable on?
+   *
+   * NEVER build this by hand as `${domainName}.vercel.app` — Vercel hands out
+   * that pretty alias only when the subdomain is globally free (see
+   * isVercelSubdomainFree). When it isn't, that hostname belongs to a stranger's
+   * project and pointing the user at it shows THEIR site (or THEIR error page).
+   * So ask Vercel which domains are bound to our project and pick from those.
+   */
+  async function resolveLiveUrl(
+    projectName: string,
+    deploymentURL: string,
+    deploymentAliases?: string[]
+  ): Promise<string> {
+    let candidates: string[] = [];
+
+    try {
+      const result = await vercel.domains.getProjectDomains({
+        projectName,
+        teamId: teamInfo.id,
+        slug: teamInfo.slug,
+      });
+      candidates = (result?.domains || []).map((d: any) => d?.name).filter(Boolean);
+    } catch (error: any) {
+      console.warn('Could not read project domains, falling back to deployment aliases:', error?.message || error);
+    }
+
+    if (candidates.length === 0 && Array.isArray(deploymentAliases)) {
+      candidates = deploymentAliases.filter(Boolean);
+    }
+
+    // The pretty alias, when we actually got it.
+    const preferred = `${projectName}.vercel.app`;
+    if (candidates.includes(preferred)) return `https://${preferred}`;
+
+    // Otherwise the shortest stable alias (e.g. "<project>-<team>.vercel.app")
+    // beats the immutable per-deployment URL, which changes on every publish.
+    const stable = candidates
+      .filter((c) => c !== deploymentURL)
+      .sort((a, b) => a.length - b.length)[0];
+
+    return `https://${stable || deploymentURL}`;
+  }
+
   // Deploy GitHub repository to Vercel using SDK
   async function deployToVercel(repoOwner: string, repoName: string, domainName: string): Promise<{ deploymentId: string; deploymentUrl: string; aliasUrl: string }> {
     try {
@@ -829,6 +931,7 @@ export function XgeniaDeployTab() {
       // Monitor deployment status
       let deploymentStatus;
       let deploymentURL;
+      let deploymentAliases: string[] | undefined;
       let attempts = 0;
       const maxAttempts = 24; // Maximum 2 minutes of waiting (24 * 5 seconds)
 
@@ -846,6 +949,7 @@ export function XgeniaDeployTab() {
 
           deploymentStatus = statusResponse.status;
           deploymentURL = statusResponse.url;
+          deploymentAliases = statusResponse.alias;
           console.log(`📋 Status: ${deploymentStatus}, URL: ${deploymentURL}`);
 
           if (attempts >= maxAttempts) {
@@ -866,13 +970,16 @@ export function XgeniaDeployTab() {
         throw new Error(`Status monitoring failed: ${statusError.message}`);
       }
 
-      // Use the auto-generated deployment URL
+      // The immutable per-deployment URL always works; the alias is the one we
+      // show the user, resolved from the domains Vercel really bound to us.
       const deploymentHttpsUrl = `https://${deploymentURL}`;
+      const aliasUrl = await resolveLiveUrl(domainName, deploymentURL, deploymentAliases);
+      console.log(`🔗 Live URL resolved to ${aliasUrl}`);
 
       return {
         deploymentId,
         deploymentUrl: deploymentHttpsUrl,
-        aliasUrl: deploymentHttpsUrl // Use the same URL since no custom alias
+        aliasUrl
       };
     } catch (error: any) {
       console.error('❌ Deployment process failed:', error);
@@ -1029,10 +1136,14 @@ export function XgeniaDeployTab() {
     try {
       // Step 1: Check domain availability
       ToastLayer.showActivity('Step 1/5: Checking domain availability...', activityId);
-      const isDomainAvailable = await checkDomainAvailability(newName.trim());
+      const availability = await checkDomainAvailability(newName.trim());
 
-      if (!isDomainAvailable) {
-        throw new Error('Domain name is already in use. Please choose a different name.');
+      if (!availability.available) {
+        throw new Error(
+          availability.reason === 'taken-elsewhere'
+            ? `${newName.trim()}.vercel.app is already taken by another Vercel account. Please choose a different name.`
+            : 'Domain name is already in use. Please choose a different name.'
+        );
       }
 
       // Step 2: Update Vercel project name
@@ -1300,7 +1411,7 @@ export function XgeniaDeployTab() {
       const { deploymentId, aliasUrl } = await deployToVercel(repoOwner, actualRepoName, domainName.trim());
 
       ToastLayer.hideActivity(activityId);
-      const userFriendlyDomain = `${domainName.trim()}.vercel.app`;
+      const userFriendlyDomain = aliasUrl.replace(/^https?:\/\//, '');
       ToastLayer.showSuccess(`Deployed UI to Vercel and logic to XGENIA RGS!\nLive URL: ${userFriendlyDomain}`);
       setSuccessMessage(`Deployed to Vercel + XGENIA RGS. Live URL: ${userFriendlyDomain}`);
       saveDeployedDomain(domainName.trim(), deploymentId, aliasUrl);
@@ -1336,10 +1447,14 @@ export function XgeniaDeployTab() {
     try {
       // Early: Check domain availability before any heavy work
       ToastLayer.showActivity('Checking domain availability...', activityId);
-      const isDomainAvailableEarly = await checkDomainAvailability(domainName.trim());
-      if (!isDomainAvailableEarly) {
+      const availability = await checkDomainAvailability(domainName.trim());
+      if (!availability.available) {
         ToastLayer.hideActivity(activityId);
-        setDomainError('Domain name is already in use on Vercel. Please choose a different name.');
+        setDomainError(
+          availability.reason === 'taken-elsewhere'
+            ? `${domainName.trim()}.vercel.app is already taken by another Vercel account (the .vercel.app namespace is shared globally). Pick a more unique name, e.g. "${domainName.trim()}-${Math.random().toString(36).slice(2, 6)}".`
+            : 'Domain name is already in use on Vercel. Please choose a different name.'
+        );
         return;
       }
 
@@ -1403,7 +1518,7 @@ export function XgeniaDeployTab() {
         const { deploymentId, deploymentUrl, aliasUrl } = await deployToVercel(repoOwner, actualRepoName, domainName.trim());
 
         ToastLayer.hideActivity(activityId);
-        const userFriendlyDomain = `${domainName.trim()}.vercel.app`;
+        const userFriendlyDomain = aliasUrl.replace(/^https?:\/\//, '');
         ToastLayer.showSuccess(`Successfully deployed to Vercel!\nLive URL: ${userFriendlyDomain}\n(Domain may take a few minutes to become active)`);
         setSuccessMessage(`Successfully deployed to Vercel. Live URL: ${userFriendlyDomain}`);
 
@@ -1621,8 +1736,11 @@ export function XgeniaDeployTab() {
                         <>
                           <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
                             <div style={{ display: 'flex', alignItems: 'center' }}>
+                              {/* Link the URL Vercel actually assigned (domain.url),
+                                  never a guessed "<name>.vercel.app" — that alias
+                                  may belong to a different Vercel account. */}
                               <a
-                                href={`https://${domain.name}.vercel.app`}
+                                href={domain.url || `https://${domain.name}.vercel.app`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 style={{
@@ -1635,7 +1753,7 @@ export function XgeniaDeployTab() {
                                 onMouseEnter={(e) => (e.target as HTMLAnchorElement).style.textDecoration = 'underline'}
                                 onMouseLeave={(e) => (e.target as HTMLAnchorElement).style.textDecoration = 'none'}
                               >
-                                {domain.name}.vercel.app
+                                {(domain.url || `https://${domain.name}.vercel.app`).replace(/^https?:\/\//, '')}
                               </a>
                             </div>
 
