@@ -183,6 +183,103 @@ export async function downloadEdgeDeployment(
 }
 
 /**
+ * Fetches ONE component edge function (including its script) out of a Server
+ * Version, for the Components list's per-component Download action.
+ *
+ * Reuses `download-edge-deployment` rather than adding a per-function action:
+ * that handler already returns the version's functions with their scripts, and
+ * a version holds a handful of components, so filtering client-side costs
+ * nothing and keeps the backend surface smaller.
+ */
+export async function downloadEdgeFunction(
+  apiKey: string,
+  deploymentId: string,
+  functionSlug: string
+): Promise<{ version: number; slug: string; fn: EdgeDeploymentBundle['functions'][number] }> {
+  const bundle = await downloadEdgeDeployment(apiKey, deploymentId);
+  const fn = (bundle.functions || []).find(f => f.function_slug === functionSlug);
+  if (!fn) {
+    throw new Error(`Component "${functionSlug}" is not part of v${bundle.version} any more`);
+  }
+  return { version: bundle.version, slug: bundle.slug, fn };
+}
+
+/**
+ * Renames one component edge function (display name only — its slug and URL,
+ * which the deployed frontend calls, stay the same). Scoped to gameId so a
+ * mismatched function id can't rename another game's component.
+ */
+export async function renameEdgeFunction(
+  apiKey: string,
+  functionId: string,
+  functionName: string,
+  gameId?: string
+): Promise<{ functionName: string }> {
+  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+    method: 'POST',
+    headers: rgsHeaders(apiKey),
+    body: JSON.stringify({
+      action: 'rename-edge-function',
+      function_id: functionId,
+      function_name: functionName,
+      game_id: gameId
+    })
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const serverError = (data && data.error) || '';
+    if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes('rename-edge-function')) {
+      throw new Error(
+        'XGENIA RGS backend is out of date — it does not support renaming components yet. ' +
+          'Redeploy the `maths-deployer` function to the RGS project, then try again.'
+      );
+    }
+    throw new Error(serverError || `RGS rename failed (HTTP ${res.status})`);
+  }
+  return { functionName: data.function_name };
+}
+
+/**
+ * Deletes one component edge function, leaving the rest of its Server Version
+ * intact. Scoped to gameId so a mismatched function id can't delete another
+ * game's component.
+ *
+ * Callers must warn first when the component is the live copy (see
+ * isLiveComponent in MathsPanel): rgs-fn serves the newest ACTIVE row for a
+ * (game, slug), so deleting it promotes an older version's copy — or takes the
+ * endpoint offline when there is none.
+ */
+export async function deleteEdgeFunction(
+  apiKey: string,
+  functionId: string,
+  gameId?: string
+): Promise<{ functionSlug: string }> {
+  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+    method: 'POST',
+    headers: rgsHeaders(apiKey),
+    body: JSON.stringify({
+      action: 'delete-edge-function',
+      function_id: functionId,
+      game_id: gameId
+    })
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const serverError = (data && data.error) || '';
+    if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes('delete-edge-function')) {
+      throw new Error(
+        'XGENIA RGS backend is out of date — it does not support deleting single components yet. ' +
+          'Redeploy the `maths-deployer` function to the RGS project, then try again.'
+      );
+    }
+    throw new Error(serverError || `RGS delete failed (HTTP ${res.status})`);
+  }
+  return { functionSlug: data.function_slug };
+}
+
+/**
  * Deletes one Server Version (deployment). Its component edge functions are
  * removed by the DB's ON DELETE CASCADE. Optionally scoped to gameId so a
  * mismatched deployment id can't delete another game's version.
