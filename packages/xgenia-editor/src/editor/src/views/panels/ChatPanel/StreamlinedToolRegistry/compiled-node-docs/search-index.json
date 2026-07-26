@@ -597,6 +597,54 @@
         }
       }
     },
+    "CreateStripeDeposit": {
+      "name": "CreateStripeDeposit",
+      "file": "createstripedeposit.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/createstripedeposit.js",
+      "category": "Data",
+      "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/create-deposit-stripe",
+      "lineCount": 302,
+      "byteSize": 11192,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "playerID": {
+          "displayName": "Player ID",
+          "type": "string",
+          "group": "General"
+        },
+        "amount": {
+          "displayName": "Amount",
+          "type": "number",
+          "group": "General"
+        },
+        "openAutomatically": {
+          "displayName": "Open Automatically",
+          "type": "boolean",
+          "group": "General"
+        }
+      },
+      "outputFormatHints": {
+        "checkoutUrl": {
+          "displayName": "Checkout URL",
+          "type": "string",
+          "group": "Result"
+        },
+        "isSuccessful": {
+          "displayName": "Is Successful",
+          "type": "boolean",
+          "group": "Result"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal",
+          "group": "Events"
+        }
+      }
+    },
     "DbCollection2": {
       "name": "DbCollection2",
       "file": "dbcollectionnode2.js",
@@ -16101,6 +16149,7 @@
     "Data": [
       "Convert Inputs into Record",
       "Convert Record into Outputs",
+      "CreateStripeDeposit",
       "collectionName",
       "DepositBalance",
       "FilterDBModels",
@@ -17328,6 +17377,10 @@
         "direction": "input"
       },
       {
+        "node": "CreateStripeDeposit",
+        "direction": "input"
+      },
+      {
         "node": "DepositBalance",
         "direction": "input"
       },
@@ -17643,6 +17696,10 @@
       },
       {
         "node": "Convert to String",
+        "direction": "output"
+      },
+      {
+        "node": "CreateStripeDeposit",
         "direction": "output"
       },
       {
@@ -18157,6 +18214,72 @@
       },
       {
         "node": "Open File Picker",
+        "direction": "output"
+      }
+    ],
+    "playerID": [
+      {
+        "node": "CreateStripeDeposit",
+        "direction": "input"
+      },
+      {
+        "node": "DepositBalance",
+        "direction": "input"
+      },
+      {
+        "node": "GetBalanceByPlayerId",
+        "direction": "input"
+      },
+      {
+        "node": "WithdrawBalance",
+        "direction": "input"
+      }
+    ],
+    "amount": [
+      {
+        "node": "CreateStripeDeposit",
+        "direction": "input"
+      },
+      {
+        "node": "stake.RGSPlay",
+        "direction": "input"
+      }
+    ],
+    "openAutomatically": [
+      {
+        "node": "CreateStripeDeposit",
+        "direction": "input"
+      }
+    ],
+    "checkoutUrl": [
+      {
+        "node": "CreateStripeDeposit",
+        "direction": "output"
+      }
+    ],
+    "isSuccessful": [
+      {
+        "node": "CreateStripeDeposit",
+        "direction": "output"
+      },
+      {
+        "node": "DepositBalance",
+        "direction": "output"
+      },
+      {
+        "node": "GetBalanceByPlayerId",
+        "direction": "output"
+      },
+      {
+        "node": "LoadGameSession",
+        "direction": "output"
+      },
+      {
+        "node": "SaveGameSession",
+        "direction": "output"
+      },
+      {
+        "node": "WithdrawBalance",
         "direction": "output"
       }
     ],
@@ -18732,46 +18855,10 @@
         "direction": "output"
       }
     ],
-    "playerID": [
-      {
-        "node": "DepositBalance",
-        "direction": "input"
-      },
-      {
-        "node": "GetBalanceByPlayerId",
-        "direction": "input"
-      },
-      {
-        "node": "WithdrawBalance",
-        "direction": "input"
-      }
-    ],
     "depositAmount": [
       {
         "node": "DepositBalance",
         "direction": "input"
-      }
-    ],
-    "isSuccessful": [
-      {
-        "node": "DepositBalance",
-        "direction": "output"
-      },
-      {
-        "node": "GetBalanceByPlayerId",
-        "direction": "output"
-      },
-      {
-        "node": "LoadGameSession",
-        "direction": "output"
-      },
-      {
-        "node": "SaveGameSession",
-        "direction": "output"
-      },
-      {
-        "node": "WithdrawBalance",
-        "direction": "output"
       }
     ],
     "enabled": [
@@ -26735,12 +26822,6 @@
       },
       {
         "node": "stake.ToAPIAmount",
-        "direction": "input"
-      }
-    ],
-    "amount": [
-      {
-        "node": "stake.RGSPlay",
         "direction": "input"
       }
     ],

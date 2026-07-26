@@ -29,10 +29,18 @@ export function projectFromDirectory(projectdir: string, callback: (project?: Pr
         // Before opening the project, we need to patch it, if necessary
         applyPatches(content);
 
-        // Disable model listeners while loading project, otherwise this will bog down large projects
+        // Disable model listeners while loading project, otherwise this will bog down large projects.
+        // (trace 1785024174577) try/finally is REQUIRED: if fromJSON throws (a corrupt/partial
+        // project file is enough), the flag stayed false for the REST OF THE SESSION — every
+        // model listener dead, so editor→viewer sync silently stopped and every later edit looked
+        // like it "didn't take effect" until a restart. Restore it no matter what.
         Model._listenersEnabled = false;
-        const project = ProjectModel.fromJSON(content);
-        Model._listenersEnabled = true;
+        let project;
+        try {
+          project = ProjectModel.fromJSON(content);
+        } finally {
+          Model._listenersEnabled = true;
+        }
         project._retainedProjectDirectory = projectdir;
         console.log('[projectFromDirectory] ProjectModel created. Directory:', project._retainedProjectDirectory);
 
