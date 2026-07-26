@@ -23,7 +23,7 @@ const { resolveSupabaseConfig } = require('./rgs-config');
 // Checkout (Stripe returns the player via success_url). In the Electron editor it
 // opens the user's external browser directly (no popup blocker there).
 //
-// Unlike the mock "Deposit Balance" node (which credits players.balance
+// Unlike the "Deposit Balance" node (which credits players.balance
 // immediately), this node moves NO balance itself. The balance is credited only
 // after the payment settles, by the `stripe-webhook` edge function calling the
 // `credit_stripe_deposit` RPC (idempotent by Stripe event id). The balance stays
@@ -37,8 +37,8 @@ const { resolveSupabaseConfig } = require('./rgs-config');
 // event-id dedup, so a Stripe retry/resend records nothing further.
 //
 // It POSTs { playerID, amount } to the `create-checkout-session` edge function at
-// `${url}/functions/v1/create-checkout-session` (note: the mock data nodes hit
-// `/rest/v1/rpc/...` instead). `amount` is in minor units (e.g. cents) of the
+// `${url}/functions/v1/create-checkout-session` (note: the RPC-backed data nodes
+// hit `/rest/v1/rpc/...` instead). `amount` is in minor units (e.g. cents) of the
 // player's currency, matching players.balance. Supabase connection (url + anon
 // key) is resolved the same way as the other RGS-backed nodes. See rgs-config.js.
 
