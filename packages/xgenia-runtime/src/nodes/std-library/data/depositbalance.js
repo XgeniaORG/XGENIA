@@ -4,11 +4,19 @@ const { resolveSupabaseConfig } = require('./rgs-config');
 
 // Deposit Balance
 // ---------------
-// Adds a deposit amount to a player's balance on the RGS platform. The node
-// sends one REST request to the Supabase PostgREST RPC `deposit_balance` (see
-// XRGS migration 20260709130000_deposit_balance.sql), which is SECURITY DEFINER
+// Adds a deposit amount to a player's balance on the RGS platform AND records
+// the deposit there. The node sends one REST request to the Supabase PostgREST
+// RPC `deposit_balance` (see XRGS migrations 20260709130000_deposit_balance.sql
+// and 20260726120300_deposit_balance_transaction.sql), which is SECURITY DEFINER
 // so it can update the players table despite its RLS (the anon key has no
 // UPDATE policy on players, so a direct PostgREST write would match no rows).
+//
+// The credit and the record are one call on purpose: the RPC does both inside a
+// single transaction, so a player can never be credited without a matching
+// record (or vice versa). The deposit lands in the RGS `transactions` table as a
+// `Deposit` row, visible on the platform's Transactions page. Unlike a
+// withdrawal — which is a request an operator still has to settle, so it starts
+// `Pending` — a deposit here is instant and complete, so its status is `Done`.
 //
 // balance is stored in minor units (bigint); the RPC rounds the amount to the
 // nearest whole minor unit and rejects non-positive amounts / unknown players
