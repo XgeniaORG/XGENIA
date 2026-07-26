@@ -4,11 +4,21 @@ const { resolveSupabaseConfig } = require('./rgs-config');
 
 // Withdraw Balance
 // ----------------
-// Subtracts a withdraw amount from a player's balance on the RGS platform. The
-// node sends one REST request to the Supabase PostgREST RPC `withdraw_balance`
-// (see XRGS migration 20260709140000_withdraw_balance.sql), which is SECURITY
-// DEFINER so it can update the players table despite its RLS (the anon key has
-// no UPDATE policy on players, so a direct PostgREST write would match no rows).
+// Subtracts a withdraw amount from a player's balance on the RGS platform AND
+// files a withdrawal request there. The node sends one REST request to the
+// Supabase PostgREST RPC `withdraw_balance` (see XRGS migrations
+// 20260709140000_withdraw_balance.sql and 20260726120100_withdraw_balance_request.sql),
+// which is SECURITY DEFINER so it can update the players table despite its RLS
+// (the anon key has no UPDATE policy on players, so a direct PostgREST write
+// would match no rows).
+//
+// The debit and the request are one call on purpose: the RPC does both inside a
+// single transaction, so the player can never be debited without a matching
+// request being recorded (or vice versa). The request lands in the RGS
+// `transactions` table as a `Withdraw` row with status `Pending`, visible on the
+// platform's Transactions page, for an operator to settle out of band. The money
+// is reserved immediately — a pending request is already deducted from the
+// balance, so it cannot be spent twice.
 //
 // balance is stored in minor units (bigint); the RPC rounds the amount to the
 // nearest whole minor unit and rejects non-positive amounts, unknown players,

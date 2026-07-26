@@ -801,10 +801,17 @@ function generateNodeLibrary(nodeRegister) {
             'ListGameSessions',
             'SaveGameSession',
             'LoadGameSession',
+            'GetBalanceByPlayerId'
+          ]
+        },
+        {
+          // Nodes that MOVE money on a player's RGS balance. Reading the balance
+          // (GetBalanceByPlayerId) stays under Cloud Data — it changes nothing.
+          name: 'Transactions',
+          items: [
             'DepositBalance',
-            'WithdrawBalance',
-            'GetBalanceByPlayerId',
-            'CreateStripeDeposit'
+            'CreateStripeDeposit',
+            'WithdrawBalance'
           ]
         },
         {
