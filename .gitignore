@@ -226,3 +226,12 @@ docs/superpowers/specs/2026-07-14-steam-inspired-slot-catalog-design.md
 .agents/skills/cavecrew/SKILL.md
 .agents/skills/cavecrew/README.md
 skills-lock.json
+amazon-discount-sorter/content.js
+amazon-discount-sorter/icons/icon128.png
+amazon-discount-sorter/icons/icon16.png
+amazon-discount-sorter/icons/icon48.png
+amazon-discount-sorter/manifest.json
+amazon-discount-sorter/popup.html
+amazon-discount-sorter/popup.js
+amazon-discount-sorter/README.md
+amazon-discount-sorter/styles.css

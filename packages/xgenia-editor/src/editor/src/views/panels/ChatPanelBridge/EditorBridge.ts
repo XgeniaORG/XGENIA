@@ -2171,13 +2171,37 @@ export class EditorBridge {
                     reject(new Error(`Code execution timed out after ${cappedTimeout}ms`));
                 }, cappedTimeout);
 
-                const resultHandler = (response: any) => {
-                    const message = response.args || response;
-                    if (message.id !== evalId) return;
+                // ═══ MULTI-CLIENT EVAL SELECTION (trace 1785088922912) ═══
+                // sendRuntimeEval BROADCASTS — it carries no client id, so every connected
+                // client runs it and every one replies with the same evalId. The old handler
+                // took the FIRST reply and unsubscribed, discarding the rest. When both the
+                // real viewer (localhost:8574, "XGENIA Viewer", 10 body children) and the
+                // cloud-runtime shell (cloudruntime/index.html, 0 body children, 6 elements)
+                // are connected, the EMPTY one wins the race for DOM-heavy code because it has
+                // almost nothing to walk. That is why simulate_interaction could never find the
+                // SPIN button while execute_code, one call later, enumerated it fine — and why
+                // it looked intermittent (execute_code hit the shell too, on other calls).
+                //
+                // Fix: score each reply by whether its document actually has content, and
+                // prefer a real one. Zero added latency in the healthy case — a good reply
+                // resolves immediately; only an empty-document reply waits briefly to see if a
+                // real viewer answers too. Falls back to first-reply behaviour if no client
+                // reports a document (older viewers), so this can only ever improve selection.
+                let settled = false;
+                let graceTimer: any = null;
+                let best: any = null;
 
-                    EventDispatcher.instance.off(evalId);
-                    clearTimeout(timer);
+                const scoreOf = (m: any): number => {
+                    if (!m?.success) return -10;
+                    const raw = m.result;
+                    const doc = raw && typeof raw === 'object' ? (raw as any).__doc : null;
+                    if (!doc) return 0; // unknown shape — neutral, never worse than a known-empty
+                    const kids = typeof doc.kids === 'number' ? doc.kids : -1;
+                    if (kids > 0) return 1000 + (typeof doc.els === 'number' ? doc.els : 0);
+                    return -1; // answered from an empty shell
+                };
 
+                const emit = (message: any) => {
                     if (message.success) {
                         // Extract structured result with logs if available
                         const raw = message.result;
@@ -2201,6 +2225,33 @@ export class EditorBridge {
                     } else {
                         resolve({ success: false, error: `Viewer Execution Error:\n${message.error}` });
                     }
+                };
+
+                const finishWith = (message: any) => {
+                    if (settled) return;
+                    settled = true;
+                    if (graceTimer) clearTimeout(graceTimer);
+                    EventDispatcher.instance.off(evalId);
+                    clearTimeout(timer);
+                    emit(message);
+                };
+
+                const resultHandler = (response: any) => {
+                    const message = response.args || response;
+                    if (message.id !== evalId) return;
+                    if (settled) return;
+
+                    if (best === null || scoreOf(message) > scoreOf(best)) best = message;
+
+                    // Take it now unless we KNOW it is bad: a real document (>0) is
+                    // authoritative, and an unscoreable reply (0 — no __doc, e.g. a
+                    // non-object result) must not pay the grace penalty on every call.
+                    // Only a known-empty shell (-1) or a failure (-10) waits.
+                    if (scoreOf(message) >= 0) { finishWith(message); return; }
+
+                    // Empty-shell or error reply: give the real viewer a brief window to answer
+                    // before accepting this one. Bounded, and only ever delays a bad reply.
+                    if (!graceTimer) graceTimer = setTimeout(() => finishWith(best), 300);
                 };
 
                 EventDispatcher.instance.on('Viewer.runtimeEvalResult', resultHandler, evalId);
@@ -2264,7 +2315,20 @@ ${autoReturnCode}
     console.log = __oc.log; console.warn = __oc.warn; console.error = __oc.error;
     console.info = __oc.info; console.debug = __oc.debug;
   }
-})().then(function(r) { return { __result: r, __logs: __logs }; });`;
+})().then(function(r) {
+  // __doc lets the editor tell WHICH connected client answered (see MULTI-CLIENT EVAL
+  // SELECTION above). runtimeEval is broadcast, so the empty cloud-runtime shell replies
+  // too — and fastest. Consumers ignore __doc; only reply-scoring reads it.
+  var __d = null;
+  try {
+    __d = {
+      url: String((typeof location !== 'undefined' && location.href) || ''),
+      kids: (typeof document !== 'undefined' && document.body && document.body.children) ? document.body.children.length : -1,
+      els: (typeof document !== 'undefined' && document.getElementsByTagName) ? document.getElementsByTagName('*').length : -1
+    };
+  } catch (e) { __d = null; }
+  return { __result: r, __logs: __logs, __doc: __d };
+});`;
                     vc.sendRuntimeEval(wrappedCode, evalId);
                 } catch (syncError: any) {
                     clearTimeout(timer);
