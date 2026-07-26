@@ -2249,9 +2249,19 @@ export class EditorBridge {
                     // Only a known-empty shell (-1) or a failure (-10) waits.
                     if (scoreOf(message) >= 0) { finishWith(message); return; }
 
-                    // Empty-shell or error reply: give the real viewer a brief window to answer
-                    // before accepting this one. Bounded, and only ever delays a bad reply.
-                    if (!graceTimer) graceTimer = setTimeout(() => finishWith(best), 300);
+                    // Empty-shell or error reply: wait for a better answer before accepting it.
+                    //
+                    // (trace 1785091702991) This was 300ms and that was far too short. The shell
+                    // BAILS fast — empty scope, one 500ms retry, give up at ~500ms — while a real
+                    // viewer deliberately waits out the caller's settle time before replying
+                    // (simulate_interaction clicks, then waits settleMs — 2500ms in that run).
+                    // So the good answer landed ~2s after the window had already closed, and the
+                    // shell's useless reply won anyway. A known-bad reply carries NO information,
+                    // so waiting for a better one costs nothing but latency, and only in the case
+                    // where no better client exists. Bound it by the caller's own timeout — they
+                    // already agreed to wait that long — capped so a genuinely dead preview still
+                    // fails promptly rather than hanging for the full 15s+.
+                    if (!graceTimer) graceTimer = setTimeout(() => finishWith(best), Math.min(cappedTimeout, 5000));
                 };
 
                 EventDispatcher.instance.on('Viewer.runtimeEvalResult', resultHandler, evalId);
