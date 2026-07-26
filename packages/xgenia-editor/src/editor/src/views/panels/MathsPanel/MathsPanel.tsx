@@ -17,6 +17,7 @@ import { supabase } from '../../../supabaseInit';
 import {
     downloadEdgeDeployment,
     deleteEdgeDeployment,
+    renameEdgeDeployment,
     downloadEdgeFunction,
     renameEdgeFunction,
     deleteEdgeFunction
@@ -235,11 +236,15 @@ export function MathsPanel() {
     // studio Versions tab), not maths_configs.
     const [versions, setVersions] = useState<any[] | null>(null);
     const [versionsLoading, setVersionsLoading] = useState(false);
-    // Per-version action state for the Server Versions download/delete controls.
-    // `versionActionId` = the version currently downloading/deleting (busy row);
-    // `confirmDeleteId` = the version showing its inline "Delete? Yes/No" confirm.
+    // Per-version action state for the Server Versions rename/download/delete controls.
+    // `versionActionId` = the version currently renaming/downloading/deleting (busy row);
+    // `confirmDeleteId` = the version showing its inline "Delete? Yes/No" confirm;
+    // `renameVersion` = the version whose rename modal is open.
     const [versionActionId, setVersionActionId] = useState<string | null>(null);
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+    const [renameVersion, setRenameVersion] = useState<any | null>(null);
+    const [versionNameInput, setVersionNameInput] = useState('');
+    const [versionRenameError, setVersionRenameError] = useState<string | null>(null);
     // The Server Version whose components are shown in the Components sub-section.
     // Null until the user clicks a row; the derived `selectedVersion` below then
     // falls back to the newest version (matching the studio "API docs" default).
@@ -403,6 +408,27 @@ export function MathsPanel() {
         }
         setVersionActionId(null);
     }, [settings, selectedGame, fetchVersions]);
+
+    // Rename one Server Version. Label only — the version number, its components
+    // and their function URLs are untouched, so a deployed frontend is unaffected.
+    const handleRenameVersion = useCallback(async () => {
+        if (!settings?.apiKey || !renameVersion) return;
+        const name = versionNameInput.trim();
+        if (!name) { setVersionRenameError('Enter a version name'); return; }
+        if (name === (renameVersion.name || '')) { setRenameVersion(null); return; }
+
+        setVersionActionId(renameVersion.id);
+        setVersionRenameError(null);
+        try {
+            await renameEdgeDeployment(settings.apiKey, renameVersion.id, name, selectedGame || undefined);
+            setRenameVersion(null);
+            await fetchVersions();
+            setUploadStatus({ type: 'success', message: `Renamed v${renameVersion.version} to "${name}"` });
+        } catch (e: any) {
+            setVersionRenameError(e?.message || 'Rename failed');
+        }
+        setVersionActionId(null);
+    }, [settings, renameVersion, versionNameInput, selectedGame, fetchVersions]);
 
     // ─── Components: per-component actions (three-dot menu) ──────────
     // Rename one component's DISPLAY name. Its slug and URL are untouched, so
@@ -1087,6 +1113,15 @@ export function MathsPanel() {
                                                     </span>
                                                 ) : (
                                                     <span style={{ display: 'flex', gap: '4px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+                                                        <button
+                                                            title="Rename version"
+                                                            onClick={() => {
+                                                                setRenameVersion(v);
+                                                                setVersionNameInput(v.name || '');
+                                                                setVersionRenameError(null);
+                                                            }}
+                                                            style={VERSION_BTN_STYLE}
+                                                        >&#9998;</button>
                                                         <button title="Download bundle" onClick={() => handleDownloadVersion(v)} style={VERSION_BTN_STYLE}>&#8595;</button>
                                                         <button title="Delete version" onClick={() => setConfirmDeleteId(v.id)} style={VERSION_DELETE_BTN_STYLE}>&#128465;</button>
                                                     </span>
@@ -1542,6 +1577,76 @@ export function MathsPanel() {
                                 </div>
                             </>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Rename Server Version modal ─── */}
+            {renameVersion && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 10000,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: 'rgba(0,0,0,0.6)',
+                }} onClick={() => { if (versionActionId !== renameVersion.id) setRenameVersion(null); }}>
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: '420px',
+                            backgroundColor: '#1e1e2e',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: '12px',
+                            padding: '24px',
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                        }}
+                    >
+                        <div style={{ marginBottom: '20px' }}>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>Rename v{renameVersion.version}</div>
+                            <div style={{ fontSize: '12px', color: '#888' }}>
+                                Renames the label shown in this list. The version number, its components and their
+                                function URLs are unchanged, so deployed frontends are unaffected.
+                            </div>
+                        </div>
+
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={MODAL_LABEL_STYLE}>Version Name</label>
+                            <input
+                                type="text"
+                                placeholder={`v${renameVersion.version}`}
+                                value={versionNameInput}
+                                onChange={(e) => { setVersionNameInput(e.target.value); setVersionRenameError(null); }}
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleRenameVersion(); }}
+                                style={MODAL_INPUT_STYLE}
+                                autoFocus
+                            />
+                        </div>
+
+                        {versionRenameError && (
+                            <div style={{ fontSize: '11px', color: '#EF4444', marginBottom: '12px' }}>{versionRenameError}</div>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                            <button
+                                onClick={() => setRenameVersion(null)}
+                                disabled={versionActionId === renameVersion.id}
+                                style={{
+                                    padding: '8px 16px', borderRadius: '6px',
+                                    border: '1px solid rgba(255,255,255,0.12)', backgroundColor: 'transparent',
+                                    color: '#a0a0b0', fontSize: '13px',
+                                    cursor: versionActionId === renameVersion.id ? 'not-allowed' : 'pointer',
+                                }}
+                            >Cancel</button>
+                            <button
+                                onClick={handleRenameVersion}
+                                disabled={versionActionId === renameVersion.id || !versionNameInput.trim()}
+                                style={{
+                                    padding: '8px 20px', borderRadius: '6px', border: 'none',
+                                    backgroundColor: versionActionId === renameVersion.id || !versionNameInput.trim() ? '#444' : '#67DE92',
+                                    color: versionActionId === renameVersion.id || !versionNameInput.trim() ? '#888' : '#1a1a2e',
+                                    fontSize: '13px', fontWeight: 700,
+                                    cursor: versionActionId === renameVersion.id || !versionNameInput.trim() ? 'not-allowed' : 'pointer',
+                                }}
+                            >{versionActionId === renameVersion.id ? 'Renaming…' : 'Rename'}</button>
+                        </div>
                     </div>
                 </div>
             )}

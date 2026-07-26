@@ -183,6 +183,44 @@ export async function downloadEdgeDeployment(
 }
 
 /**
+ * Renames one Server Version (deployment). `name` is the label shown in the
+ * Server Versions list and nothing else: the version number stays, its
+ * components keep their slugs and function URLs, and rgs-fn never reads this
+ * table — so renaming cannot affect a deployed frontend. Scoped to gameId so a
+ * mismatched deployment id can't rename another game's version.
+ */
+export async function renameEdgeDeployment(
+  apiKey: string,
+  deploymentId: string,
+  name: string,
+  gameId?: string
+): Promise<{ name: string; version: number }> {
+  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+    method: 'POST',
+    headers: rgsHeaders(apiKey),
+    body: JSON.stringify({
+      action: 'rename-edge-deployment',
+      deployment_id: deploymentId,
+      name,
+      game_id: gameId
+    })
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const serverError = (data && data.error) || '';
+    if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes('rename-edge-deployment')) {
+      throw new Error(
+        'XGENIA RGS backend is out of date — it does not support renaming versions yet. ' +
+          'Redeploy the `maths-deployer` function to the RGS project, then try again.'
+      );
+    }
+    throw new Error(serverError || `RGS rename failed (HTTP ${res.status})`);
+  }
+  return { name: data.name, version: data.version };
+}
+
+/**
  * Fetches ONE component edge function (including its script) out of a Server
  * Version, for the Components list's per-component Download action.
  *
