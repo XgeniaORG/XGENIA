@@ -52,7 +52,11 @@ ComponentInstanceNode.prototype = Object.create(Node.prototype, {
           // preview refresh re-ran setComponentModel. Retry briefly until the
           // instance exists, then attach and re-render.
           const attach = (attempt) => {
-            const inst = this.nodeScope.getNodeWithId(id);
+            // (trace 1785024174577) MUST be findNodeWithId — getNodeWithId fabricates a
+            // phantom on a miss, so `inst` was ALWAYS truthy and this retry never ran.
+            // The zombie-root fix above pushed a null-rendering phantom into roots on
+            // attempt 0, which is why the symptom persisted despite the 2026-07-20 fix.
+            const inst = this.nodeScope.findNodeWithId(id);
             if (inst) {
               if (this._internal.roots.indexOf(inst) === -1) this._internal.roots.push(inst);
               this.forceUpdate();

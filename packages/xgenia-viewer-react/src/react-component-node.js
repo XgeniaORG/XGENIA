@@ -678,6 +678,17 @@ function createNodeFromReactComponent(def) {
         this.flagOutputDirty('childrenCount');
       },
       addChild(child, index) {
+        // (trace 1785024174577) IDEMPOTENT: re-attaching a child that is already mounted
+        // used to splice it in a SECOND time, rendering the same node twice — the
+        // user-reported "the live DOM shows extra Save buttons after remounts", which no
+        // amount of graph-side deleting could clear because the graph only had one node.
+        // Re-attaching at a NEW index is still honoured (move, not duplicate).
+        const existing = this.children.indexOf(child);
+        if (existing !== -1) {
+          if (index === undefined || index === existing) return; // already exactly where asked
+          this.children.splice(existing, 1); // move: drop the old position first
+          if (index > existing) index--;
+        }
         if (index === undefined) index = this.children.length;
         child.parent = this;
         this.children.splice(index, 0, child);
