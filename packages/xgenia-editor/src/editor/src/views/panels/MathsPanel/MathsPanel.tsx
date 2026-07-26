@@ -186,6 +186,27 @@ const VERSION_DELETE_BTN_STYLE: React.CSSProperties = { ...VERSION_BTN_STYLE, co
 // component's API docs + script inspector in the editor's main area.
 const COMPONENT_ROW_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: '6px', marginBottom: '4px', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: '#e0e0e0' };
 
+/**
+ * Whether `deploymentId` holds the copy of `slug` that the public rgs-fn
+ * dispatcher actually serves — i.e. whether redeploying it changes production.
+ *
+ * rgs-fn resolves a (game, slug) to the NEWEST ACTIVE row by created_at across
+ * every version, not to the newest version. Those usually agree, but they come
+ * apart when a component was dropped from a later version: the surviving older
+ * row stays live. Mirror the dispatcher's rule rather than assuming "highest
+ * version wins", so the redeploy confirmation never misstates the blast radius.
+ */
+const isLiveComponent = (versions: any[] | null, deploymentId: string, slug: string): boolean => {
+    const rows = (versions || []).flatMap((v: any) =>
+        (v.functions || [])
+            .filter((f: any) => f.function_slug === slug && f.status === 'active')
+            .map((f: any) => ({ deploymentId: v.id, createdAt: f.created_at }))
+    );
+    if (rows.length === 0) return false;
+    const live = rows.reduce((newest, row) => (row.createdAt > newest.createdAt ? row : newest));
+    return live.deploymentId === deploymentId;
+};
+
 
 
 export function MathsPanel() {
@@ -248,9 +269,12 @@ export function MathsPanel() {
         if (!settings?.apiKey || !selectedVersion) return;
         AppRegistry.instance.openDocument(MathsComponentDocumentProvider.ID, {
             apiKey: settings.apiKey,
+            // Needed to redeploy an edited script — deploy-edge-function is game-scoped.
+            gameId: selectedGame,
             deploymentId: selectedVersion.id,
             version: selectedVersion.version,
             gameName: (games || []).find((g: any) => g.id === selectedGame)?.name,
+            isLiveVersion: isLiveComponent(versions, selectedVersion.id, fn.function_slug),
             fn: {
                 function_slug: fn.function_slug,
                 function_name: fn.function_name,
