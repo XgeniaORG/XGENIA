@@ -29,6 +29,13 @@ const { resolveSupabaseConfig } = require('./rgs-config');
 // `credit_stripe_deposit` RPC (idempotent by Stripe event id). The balance stays
 // a plain players.balance integer — we just gate the credit behind a real payment.
 //
+// That same RPC also records the deposit in the RGS `transactions` table as a
+// `Deposit (Stripe)` row with status `Done`, visible on the platform's
+// Transactions page, with the Stripe event id in external_tx_id so the row can be
+// traced back to the Stripe dashboard (see XRGS migration
+// 20260726120400_stripe_deposit_transaction.sql). The row is written inside the
+// event-id dedup, so a Stripe retry/resend records nothing further.
+//
 // It POSTs { playerID, amount } to the `create-checkout-session` edge function at
 // `${url}/functions/v1/create-checkout-session` (note: the mock data nodes hit
 // `/rest/v1/rpc/...` instead). `amount` is in minor units (e.g. cents) of the
@@ -40,6 +47,17 @@ const CreateStripeDepositNode = {
   displayNodeName: 'Create Deposit (Stripe)',
   docs: 'https://docsapp.xgenia.com/nodes/data/cloud-data/create-deposit-stripe',
   category: 'Data',
+  // TEMPORARILY DISABLED (2026-07-26). `deprecated` hides the node from the node
+  // picker and the search index (NodePicker.utils.ts) and refuses new instances
+  // with a message (componentmodel.ts canCreateNode), while leaving every
+  // EXISTING instance loading, running and publishing exactly as before — which
+  // deleting the node or commenting out its registration would not: those turn
+  // saved projects that already use it into unknown-type graphs.
+  //
+  // Nothing else here is stubbed out, so re-enabling is deleting this one line
+  // (plus a viewer-bundle rebuild, since the editor reads node metadata from
+  // src/external/viewer/xgenia.viewer.js, not from this file).
+  deprecated: true,
   color: 'data',
   searchTags: ['balance', 'deposit', 'stripe', 'payment', 'checkout', 'pay', 'player', 'wallet', 'credit', 'funds', 'money', 'rgs', 'cloud', 'top up', 'top-up'],
   initialize: function () {
