@@ -71,6 +71,8 @@ import AlignBoxMiddleLeftIcon from '@hugeicons/core-free-icons/AlignBoxMiddleLef
 // @ts-ignore
 import CloudIcon from '@hugeicons/core-free-icons/CloudIcon';
 // @ts-ignore
+import CoinsSwapIcon from '@hugeicons/core-free-icons/CoinsSwapIcon';
+// @ts-ignore
 import UserIcon from '@hugeicons/core-free-icons/UserIcon';
 // @ts-ignore
 import GlobeIcon from '@hugeicons/core-free-icons/GlobeIcon';
@@ -162,6 +164,7 @@ const SUBCATEGORY_ICONS: Record<string, any> = {
   'Arrays': AlignBoxMiddleLeftIcon,
   'Array': AlignBoxMiddleLeftIcon,
   'Cloud Data': CloudIcon,
+  'Transactions': CoinsSwapIcon,
   'Cloud Functions': FlashIcon,
   'User Management': UserIcon,
   'User': UserIcon,
