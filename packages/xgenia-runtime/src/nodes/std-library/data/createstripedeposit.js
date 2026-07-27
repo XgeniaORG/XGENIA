@@ -1,6 +1,6 @@
 'use strict';
 
-const { resolveSupabaseConfig } = require('./rgs-config');
+const { resolveSupabaseConfig, resolveRgsGame } = require('./rgs-config');
 
 // Create Deposit (Stripe)
 // -----------------------
@@ -36,11 +36,18 @@ const { resolveSupabaseConfig } = require('./rgs-config');
 // 20260726120400_stripe_deposit_transaction.sql). The row is written inside the
 // event-id dedup, so a Stripe retry/resend records nothing further.
 //
-// It POSTs { playerID, amount } to the `create-checkout-session` edge function at
-// `${url}/functions/v1/create-checkout-session` (note: the RPC-backed data nodes
-// hit `/rest/v1/rpc/...` instead). `amount` is in minor units (e.g. cents) of the
-// player's currency, matching players.balance. Supabase connection (url + anon
-// key) is resolved the same way as the other RGS-backed nodes. See rgs-config.js.
+// It POSTs { playerID, amount, gameID } to the `create-checkout-session` edge
+// function at `${url}/functions/v1/create-checkout-session` (note: the RPC-backed
+// data nodes hit `/rest/v1/rpc/...` instead). `amount` is in minor units (e.g.
+// cents) of the player's currency, matching players.balance. Supabase connection
+// (url + anon key) is resolved the same way as the other RGS-backed nodes. See
+// rgs-config.js.
+//
+// `gameID` is the Target Game this project was published against, read from the
+// project's `rgsgame` metadata (see resolveRgsGame). It is stored in the Checkout
+// Session's metadata and read back by `stripe-webhook` when the payment settles, so
+// the deposit shows a game on the platform's Transactions page instead of "—".
+// Absent it, the deposit is credited and recorded exactly as before.
 
 const CreateStripeDepositNode = {
   name: 'CreateStripeDeposit',
@@ -223,6 +230,10 @@ const CreateStripeDepositNode = {
           throw new Error('No Supabase cloud service configured (missing url or anon key).');
         }
 
+        // Which game this deposit belongs to; empty in an editor preview and in
+        // projects published before the deploy flow started stamping it.
+        const game = resolveRgsGame(this);
+
         const endpoint = `${url}/functions/v1/create-checkout-session`;
 
         // IMPORTANT: open the blank popup NOW, synchronously, before the first
@@ -250,7 +261,10 @@ const CreateStripeDepositNode = {
           },
           body: JSON.stringify({
             playerID: playerID,
-            amount: amount
+            amount: amount,
+            // Omitted when the project does not know its game; the edge function
+            // then leaves the game out of the Checkout Session's metadata.
+            gameID: game.id || undefined
           })
         });
 
@@ -291,6 +305,7 @@ const CreateStripeDepositNode = {
         this._internal.inspectData = {
           playerID: playerID,
           amount: amount,
+          game: game.name || game.id || '(none)',
           checkoutUrl: checkoutUrl,
           openMethod: openMethod,
           isSuccessful: true

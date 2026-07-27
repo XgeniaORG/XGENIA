@@ -1384,6 +1384,18 @@ export function XgeniaDeployTab() {
         if (url) node.parameters.url = url;
       }
     }
+
+    // 3b. Stamp the Target Game onto the copy, so the deployed game knows which RGS
+    //     game it IS. Aggregator logic gets this for free — its function URL carries
+    //     the game slug — but the cashier nodes (Deposit Balance, Withdraw Balance,
+    //     Create Deposit (Stripe)) call player-scoped RPCs that see only a player and
+    //     an amount, so without this their rows land on the platform's Transactions
+    //     page with no game at all. Read back at runtime by resolveRgsGame in
+    //     rgs-config.js. Stamped on the COPY, not ProjectModel.instance, so the
+    //     user's own project is left untouched and a deploy to a different target
+    //     game never leaves a stale id behind.
+    copy.setMetaData('rgsgame', { id: game.id, name: game.name, slug: game.slug });
+
     await saveProject(copy, compiledDir);
 
     // 4. Vercel-deploy the COPY — UI only (build excludes /#__cloud__/ components).

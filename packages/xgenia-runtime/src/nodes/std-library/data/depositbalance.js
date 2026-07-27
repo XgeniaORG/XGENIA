@@ -1,6 +1,6 @@
 'use strict';
 
-const { resolveSupabaseConfig } = require('./rgs-config');
+const { resolveSupabaseConfig, resolveRgsGame } = require('./rgs-config');
 
 // Deposit Balance
 // ---------------
@@ -25,6 +25,14 @@ const { resolveSupabaseConfig } = require('./rgs-config');
 // Supabase connection (url + anon key) comes from the project's `cloudservices`
 // metadata, the same source used by the other RGS-backed nodes (e.g. Save Game
 // Session, Get Player ID by Player Name).
+//
+// The deposit is also attributed to the game it was made in. The RPC sees only a
+// player and an amount, so the game has to be told: p_game_id carries the Target
+// Game this project was published against, which the deploy flow stamps into the
+// project's `rgsgame` metadata (see resolveRgsGame). Without it the deposit still
+// credits exactly as before, it just shows no game on the platform's Transactions
+// page — which is what every deposit did until now. Nothing to wire: the node reads
+// it from the published project, so no new input and no graph changes.
 
 const DepositBalanceNode = {
   name: 'DepositBalance',
@@ -119,6 +127,17 @@ const DepositBalanceNode = {
           throw new Error('No Supabase cloud service configured (missing url or anon key).');
         }
 
+        // Only send p_game_id when the project actually knows its game. Sending it
+        // unconditionally would break against an RGS that still has the older
+        // two-argument deposit_balance, since PostgREST resolves the function by the
+        // exact set of arguments it is given.
+        const game = resolveRgsGame(this);
+        const payload = {
+          p_player_id: playerID,
+          p_deposit_amount: depositAmount
+        };
+        if (game.id) payload.p_game_id = game.id;
+
         const endpoint = `${url}/rest/v1/rpc/deposit_balance`;
         const response = await fetch(endpoint, {
           method: 'POST',
@@ -127,10 +146,7 @@ const DepositBalanceNode = {
             apikey: anonKey,
             Authorization: `Bearer ${anonKey}`
           },
-          body: JSON.stringify({
-            p_player_id: playerID,
-            p_deposit_amount: depositAmount
-          })
+          body: JSON.stringify(payload)
         });
 
         if (!response.ok) {
@@ -154,6 +170,7 @@ const DepositBalanceNode = {
         this._internal.inspectData = {
           playerID: playerID,
           depositAmount: depositAmount,
+          game: game.name || game.id || '(none)',
           balance: row && row.balance !== undefined ? row.balance : null,
           isSuccessful: true
         };

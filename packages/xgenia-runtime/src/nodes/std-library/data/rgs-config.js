@@ -26,20 +26,29 @@ const RGS_FALLBACK_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co';
 const RGS_FALLBACK_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzdWJ6d3lkcmplbG1qZmtrcmhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4ODA3NDcsImV4cCI6MjA4NzQ1Njc0N30.Hewc7WlLZuufC0trhCKKKc4AhLXk7jy7qG3irBQPykY';
 
-// Resolves { url, anonKey } for the given node, preferring connected
-// cloudservices metadata and falling back to the XGENIA RGS project.
-function resolveSupabaseConfig(node) {
-  let cloudServices = null;
+// Reads one key off the project metadata a node is running inside. Deployed games
+// and editor previews both end up here: the graph model carries the metadata the
+// project was saved with, and the window fallback covers nodes invoked outside a
+// graph context.
+function readProjectMetaData(node, key) {
   if (
     node &&
     node.context &&
     node.context.graphModel &&
     typeof node.context.graphModel.getMetaData === 'function'
   ) {
-    cloudServices = node.context.graphModel.getMetaData('cloudservices');
-  } else if (typeof window !== 'undefined' && window.XgeniaRuntime && window.XgeniaRuntime.instance) {
-    cloudServices = window.XgeniaRuntime.instance.getMetaData('cloudservices');
+    return node.context.graphModel.getMetaData(key);
   }
+  if (typeof window !== 'undefined' && window.XgeniaRuntime && window.XgeniaRuntime.instance) {
+    return window.XgeniaRuntime.instance.getMetaData(key);
+  }
+  return null;
+}
+
+// Resolves { url, anonKey } for the given node, preferring connected
+// cloudservices metadata and falling back to the XGENIA RGS project.
+function resolveSupabaseConfig(node) {
+  const cloudServices = readProjectMetaData(node, 'cloudservices');
 
   const supabaseConfig = cloudServices && cloudServices.supabase;
   const url = (supabaseConfig && supabaseConfig.url) || RGS_FALLBACK_URL;
@@ -50,8 +59,35 @@ function resolveSupabaseConfig(node) {
   return { url, anonKey };
 }
 
+// Resolves which RGS game this project belongs to, as { id, name, slug }.
+//
+// The deploy flow stamps the Target Game picked in the Publish popup into the
+// project's `rgsgame` metadata (see XgeniaDeployTab.deployToRgsAndVercel), so a
+// deployed game can tell the platform WHICH game an action was taken in. The
+// cashier nodes need it: deposit_balance / withdraw_balance / create-checkout-session
+// otherwise see only a player and an amount, and their rows land on the platform's
+// Transactions page with no game — the "—" in its Game column.
+//
+// Anything missing comes back as '' rather than undefined, so callers can test one
+// way. Two cases resolve to empty and are expected, not errors:
+//   * a project published before the deploy flow started stamping this;
+//   * an editor preview, where nothing has been published yet.
+// The nodes then simply omit the game, and the RGS functions record the row exactly
+// as they did before.
+function resolveRgsGame(node) {
+  const game = readProjectMetaData(node, 'rgsgame') || {};
+
+  return {
+    id: (game.id || '').toString(),
+    name: (game.name || '').toString(),
+    slug: (game.slug || '').toString()
+  };
+}
+
 module.exports = {
   RGS_FALLBACK_URL,
   RGS_FALLBACK_ANON_KEY,
-  resolveSupabaseConfig
+  readProjectMetaData,
+  resolveSupabaseConfig,
+  resolveRgsGame
 };
