@@ -61,6 +61,44 @@ export class EditorBridge {
         window.addEventListener('message', this.handleMessage.bind(this));
         // Listen for active component changes from the NodeGraphEditor
         this.listenForComponentChanges();
+        // Forward viewer console output into the plugin iframe
+        this.forwardViewerConsole();
+    }
+
+    /**
+     * Forward viewer console logs to the plugin iframe.
+     *
+     * WHY (trace 1785095779892 / 1785106018235): every debug export showed
+     * `bySource: {editor: 500, viewer: 0}` — the AI has NEVER seen a viewer log, so when
+     * the viewer crashed there was no stack, no error, nothing to diagnose with. It looked
+     * like the viewer "produces no logs"; in fact the chain was broken at the last hop.
+     *
+     * ViewerConnection receives `viewerConsole` over the socket and re-emits it as
+     * `Viewer.consoleLog` on the EDITOR's EventDispatcher. ConsoleLogBuffer subscribes to
+     * that event — but it runs in the plugin IFRAME, where `EventDispatcher.instance` is a
+     * different object from this one, so the subscription can never fire. (Same parent-vs-
+     * iframe singleton split that CodeApprovalService already documents.)
+     *
+     * ConsoleLogBuffer ALSO listens for a postMessage of shape
+     * `{ type: 'xgenia-viewer-console', level, message, stack }` and nothing ever sent it.
+     * This sends it — the receiving end already exists and needs no change.
+     */
+    private forwardViewerConsole() {
+        try {
+            EventDispatcher.instance.on('Viewer.consoleLog', (data: any) => {
+                const win = this.iframe?.contentWindow;
+                if (!win) return; // panel not mounted yet — nothing to forward to
+                this.safePostMessage(win, {
+                    type: 'xgenia-viewer-console',
+                    level: data?.level || 'log',
+                    message: typeof data?.message === 'string' ? data.message : String(data?.message ?? ''),
+                    stack: data?.stack,
+                    timestamp: data?.timestamp || Date.now(),
+                }, this.pluginOrigin);
+            }, this);
+        } catch (e: any) {
+            console.warn('[EditorBridge] Could not subscribe to viewer console logs:', e?.message || e);
+        }
     }
 
     /** Listen for NodeGraphEditor active component changes via EventDispatcher */
