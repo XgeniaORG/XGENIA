@@ -504,7 +504,9 @@ export function XgeniaDeployTab() {
    * left it untouched — so this is a pure navigation, no project swap.
    *
    * Node ids match because the copy is a byte-for-byte duplicate, so the exact
-   * logic root that became the edge function can be selected and centred.
+   * nodes that became the edge function can be highlighted — ALL of them. A
+   * component's logic is routinely several roots, and each root a subtree, so
+   * highlighting one node would misrepresent what is being deployed.
    */
   function showSourceComponent(item: ComponentSetupItem): boolean {
     try {
@@ -513,10 +515,11 @@ export function XgeniaDeployTab() {
       if (!comp) return false;
       const switchTo = NodeGraphContextTmp?.switchToComponent;
       if (typeof switchTo !== 'function') return false;
-      // switchToComponent only reads `.id` off this — it re-resolves the real
-      // editor node itself via findNodeWithId — so an id carrier is enough.
-      const rootId = item.logicRootIds[0];
-      switchTo(comp, { pushHistory: true, node: rootId ? ({ id: rootId } as any) : undefined });
+
+      // Switch first with no `node` — passing one would single-select it and
+      // pan to it, which revealNodes is about to override anyway.
+      switchTo(comp, { pushHistory: true });
+      NodeGraphContextTmp.nodeGraph?.revealNodes?.(item.logicNodeIds);
       return true;
     } catch (e) {
       console.warn('[Deploy] Could not reveal source component:', e);
@@ -1463,8 +1466,7 @@ export function XgeniaDeployTab() {
             numericInputs: numericPortNames(artifact.payloadExample),
             numericOutputs: numericPortNames(artifact.responseExample),
             sourceComponentName: origin?.sourceComponentName || '(unknown)',
-            logicRootIds: origin?.logicRootIds || [],
-            logicNodeCount: origin?.logicNodeCount || 0
+            logicNodeIds: origin?.logicNodeIds || []
           };
         })
       );

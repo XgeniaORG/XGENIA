@@ -31,10 +31,8 @@ export interface ComponentSetupItem {
   numericOutputs: string[];
   /** Visual component this was extracted from, e.g. "/Slot/GameScreen". */
   sourceComponentName: string;
-  /** Ids of the extracted logic roots — resolve against the OPEN project, not the compiled copy. */
-  logicRootIds: string[];
-  /** How many nodes were extracted, shown as naming context. */
-  logicNodeCount: number;
+  /** Ids of every extracted node — resolve against the OPEN project, not the compiled copy. */
+  logicNodeIds: string[];
 }
 
 /** What the user decided for one component. */
@@ -353,8 +351,8 @@ export function ComponentSetupDialog({
                 >
                   <span>
                     from <span style={{ fontFamily: 'monospace', color: '#aaa' }}>{item.sourceComponentName}</span>
-                    {item.logicNodeCount > 0 &&
-                      ` · ${item.logicNodeCount} logic ${item.logicNodeCount === 1 ? 'node' : 'nodes'}`}
+                    {item.logicNodeIds.length > 0 &&
+                      ` · ${item.logicNodeIds.length} logic ${item.logicNodeIds.length === 1 ? 'node' : 'nodes'}`}
                   </span>
                   <button
                     onClick={() => handleShow(item)}

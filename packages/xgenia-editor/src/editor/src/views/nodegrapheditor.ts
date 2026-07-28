@@ -2715,6 +2715,65 @@ export class NodeGraphEditor extends View {
     return res;
   }
 
+  /**
+   * Highlight a SET of nodes and bring the whole set into view.
+   *
+   * `selectNode` is single-select by construction — it clears the selection
+   * before selecting — so calling it in a loop leaves only the last node
+   * highlighted. That is wrong whenever the thing being pointed at is a group
+   * rather than one node (e.g. "these are the nodes that compiled into one
+   * backend component"). This drives the same `selector` the rubber-band
+   * multiselect drives, which is what `isHighlighted` reads when painting, and
+   * frames the group's bounding box instead of centring an arbitrary member.
+   *
+   * Ids that don't resolve in the active component are skipped.
+   *
+   * @returns how many nodes were actually highlighted.
+   */
+  public revealNodes(ids: string[]): number {
+    const nodes: NodeGraphEditorNode[] = [];
+    for (const id of ids || []) {
+      const node = this.findNodeWithId(id);
+      if (node) nodes.push(node);
+    }
+    if (nodes.length === 0) return 0;
+
+    this.clearSelection({ disableHidePanels: true });
+    this.commentLayer?.clearSelection();
+    // Note: deliberately not setting node.selected — that flag is the
+    // single-selection highlight, and Selector.unselect() only knows how to
+    // clear it for a selection of one. Group highlighting goes through the
+    // selector alone, exactly as multiselectNodes does.
+    this.selector.select(nodes);
+    // So a follow-up shift-drag extends this selection rather than ignoring it.
+    this.lastMultiselected = nodes;
+
+    // Twice, as switchToComponent does — global positions aren't final until
+    // the second pass the first time a freshly bound model is laid out.
+    this.relayout();
+    this.layout();
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const node of nodes) {
+      minX = Math.min(minX, node.global.x);
+      minY = Math.min(minY, node.global.y);
+      maxX = Math.max(maxX, node.global.x + node.nodeSize.width);
+      maxY = Math.max(maxY, node.global.y + node.nodeSize.height);
+    }
+
+    const panAndScale = this.getPanAndScale();
+    this.moveRoots(
+      -panAndScale.x + this.currentLayout.width / 2 / panAndScale.scale - (minX + maxX) / 2,
+      -panAndScale.y + this.currentLayout.height / 2 / panAndScale.scale - (minY + maxY) / 2
+    );
+
+    this.repaint();
+    return nodes.length;
+  }
+
   findConnectionWithModel(model: Connection): NodeGraphEditorConnection {
     for (const i in this.connections) if (this.connections[i].model === model) return this.connections[i];
   }

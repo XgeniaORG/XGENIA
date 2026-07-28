@@ -33,10 +33,14 @@ export interface CompiledComponentOrigin {
   cloudName: string;
   /** Name of the visual component whose logic was extracted, e.g. "/Slot/GameScreen". */
   sourceComponentName: string;
-  /** Ids of the extracted logic ROOTS, in extraction order. */
-  logicRootIds: string[];
-  /** Total nodes extracted across those roots — shown as context, not used for lookup. */
-  logicNodeCount: number;
+  /**
+   * Ids of EVERY node that was extracted — each logic root plus its whole
+   * subtree, the same set `flattenLogic` collects. Roots alone would be wrong
+   * to highlight: a root is a tree, and a component's logic is routinely
+   * several of them, so highlighting root ids would leave most of the extracted
+   * graph looking untouched.
+   */
+  logicNodeIds: string[];
 }
 
 export interface CompileResult {
@@ -77,14 +81,18 @@ export async function compileProject(project: any): Promise<CompileResult> {
     }
 
     // Record the origin before anything is cloned or removed, so the ids are
-    // the ones the ORIGINAL project still uses.
-    let logicNodeCount = 0;
-    logicRoots.forEach((root: any) => root.forEach(() => logicNodeCount++));
+    // the ones the ORIGINAL project still uses. `root.forEach` walks the root
+    // and all of its descendants.
+    const logicNodeIds: string[] = [];
+    logicRoots.forEach((root: any) =>
+      root.forEach((n: any) => {
+        if (n.id) logicNodeIds.push(n.id);
+      })
+    );
     origins.push({
       cloudName,
       sourceComponentName: comp.name,
-      logicRootIds: logicRoots.map((root: any) => root.id).filter(Boolean),
-      logicNodeCount
+      logicNodeIds
     });
 
     const boundary = captureBoundary(comp, logicRoots);
