@@ -5,6 +5,11 @@
 // then takes each field of the JSON response and emits it on an out-<field>
 // output port, which is wired back to the UI component that originally
 // displayed that value (the reverse of the input aggregation).
+//
+// Response fields are named after the logic node that PRODUCES them
+// ("subtractionResult", see captureBoundary), so a display fed by several
+// operations gets one connection per operation — the same shape the graph had
+// before the logic was extracted.
 
 import { NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 import { guid } from '@xgenia-utils/utils';

@@ -3,6 +3,8 @@
 // Naming conventions (per product spec):
 //   * data payload fields -> camelCase  (e.g. "First Number" -> "firstNumber")
 //   * trigger operations   -> PascalCase (e.g. "Add" -> "Add", flag "isAdd")
+//   * response fields      -> camelCase "<producing node><output port>"
+//                             (e.g. Subtraction.result -> "subtractionResult")
 //   * aggregator data port -> "data-<field>"   trigger port -> "do-<X>"
 //   * logic component name -> "/#__cloud__/__Component_N__"
 
@@ -38,6 +40,29 @@ export function camelCase(input: string): string {
 export function pascalCase(input: string): string {
   const w = toWords(input);
   return w.map((x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase()).join('');
+}
+
+// Join two label parts (e.g. a node label and one of its port labels) into a
+// single word source for camelCase/pascalCase, collapsing a repeated boundary so
+// the result doesn't stutter:
+//   "Subtraction" + "Result"   -> "Subtraction Result"  ("subtractionResult")
+//   "Calculate Win" + "Win"    -> "Calculate Win"       ("calculateWin")
+//   "Result" + "result"        -> "Result"              ("result")
+export function joinLabelParts(first: string, second: string): string {
+  const a = toWords(first);
+  const b = toWords(second);
+  if (!a.length) return b.join(' ');
+  if (!b.length) return a.join(' ');
+  const lower = (w: string) => w.toLowerCase();
+  // Longest run of words that is both a tail of `a` and a head of `b`.
+  let overlap = Math.min(a.length, b.length);
+  while (overlap > 0) {
+    const tail = a.slice(a.length - overlap).map(lower).join(' ');
+    const head = b.slice(0, overlap).map(lower).join(' ');
+    if (tail === head) break;
+    overlap--;
+  }
+  return [...a, ...b.slice(overlap)].join(' ');
 }
 
 // A port whose type is the "signal" pulse type (string form or { name } form).
@@ -193,8 +218,12 @@ export interface BoundaryTrigger {
 }
 
 export interface BoundaryOutput {
-  field: string; // camelCase response field (named after the UI destination)
-  sources: { logicSourceId: string; logicProperty: string }[]; // logic outputs producing it
+  // camelCase response field, named after the PRODUCING logic node and its output
+  // port ("<node><port>", e.g. "subtractionResult") — see captureBoundary.
+  field: string;
+  // The logic output producing it. Keyed one field per (node, port), so this
+  // always holds exactly one entry; kept as a list for the consumers' sake.
+  sources: { logicSourceId: string; logicProperty: string }[];
   targets: { uiTargetId: string; uiPort: string }[]; // UI inputs that display the value
 }
 
