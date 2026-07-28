@@ -16,6 +16,14 @@ export interface FunctionArtifact {
   script: string;
   payloadExample: Record<string, any>;
   responseExample: Record<string, any>;
+  // Which request port carries the bet and which response port carries the win.
+  // Chosen by the user in the post-compile setup card (ComponentSetupDialog) and
+  // stored on the RGS row so the platform's "Testing → Simulate" section defaults
+  // to the same mapping instead of guessing the first numeric port. Left
+  // undefined by generateFunctionArtifact — the deploy caller fills them in — and
+  // an undefined value leaves whatever RGS already has untouched.
+  betInputPort?: string;
+  winOutputPort?: string;
 }
 
 // One public parameter of a cloud request/response node: its clean field name,

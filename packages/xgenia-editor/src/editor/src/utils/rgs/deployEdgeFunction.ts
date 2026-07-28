@@ -67,6 +67,11 @@ export async function deployEdgeFunction(
       script: artifact.script,
       payload_example: artifact.payloadExample,
       response_example: artifact.responseExample,
+      // Omitted entirely when the caller didn't choose a mapping — the RGS
+      // handler only writes the columns it receives, so a script-only redeploy
+      // keeps the bet/win ports the original publish stored.
+      ...(artifact.betInputPort !== undefined ? { bet_input_port: artifact.betInputPort } : {}),
+      ...(artifact.winOutputPort !== undefined ? { win_output_port: artifact.winOutputPort } : {}),
       functions_base: XRGS_URL,
       // Public anon key, embedded in the function URL so the deployed frontend
       // (Aggregator node) can call it through the gateway without extra headers.
