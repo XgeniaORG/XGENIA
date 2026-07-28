@@ -1423,7 +1423,7 @@ export function XgeniaDeployTab() {
           const publicSlug = artifact.slug.replace(/^_+|_+$/g, '') || artifact.slug;
           return {
             componentName: comp.name,
-            slug: publicSlug,
+            defaultSlug: publicSlug,
             defaultName: publicSlug,
             numericInputs: numericPortNames(artifact.payloadExample),
             numericOutputs: numericPortNames(artifact.responseExample)
@@ -1449,11 +1449,15 @@ export function XgeniaDeployTab() {
       const choice = choices[comp.name];
       const { url } = await deployEdgeFunction(rgs.apiKey, game.id, deploymentId, {
         ...artifact,
-        // The user's name replaces the generated one. The SLUG is deliberately
-        // left alone — it is baked into the function URL the deployed frontend
-        // calls, so renaming must stay a display-only change (same contract as
-        // the Maths panel's per-component Rename).
+        // The user's name replaces the generated one, and the slug follows it —
+        // so this Publish's endpoint becomes /rgs-fn/<game>/<new slug>. The
+        // Aggregator nodes are repointed at whatever URL comes back (step 5), so
+        // the frontend built in THIS publish always calls the right one. An
+        // already-live frontend keeps calling the old slug, which keeps
+        // resolving to the older version's script — old builds stay pinned
+        // rather than breaking.
         functionName: choice?.functionName || artifact.functionName,
+        slug: choice?.slug || artifact.slug,
         betInputPort: choice?.betInputPort ?? '',
         winOutputPort: choice?.winOutputPort ?? ''
       });

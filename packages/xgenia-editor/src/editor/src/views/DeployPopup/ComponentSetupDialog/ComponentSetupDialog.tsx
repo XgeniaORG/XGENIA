@@ -21,9 +21,9 @@ import { createPortal } from 'react-dom';
 export interface ComponentSetupItem {
   /** Compiled component name, e.g. "/#__cloud__/__Component_1__". The key we map answers back on. */
   componentName: string;
-  /** Routing slug the function is deployed under, e.g. "Component_1". Not editable — it is baked into the live URL. */
-  slug: string;
-  /** Default display name (the slug), pre-filled into the name field. */
+  /** Slug as compiled, e.g. "Component_1" — the fallback when a name slugifies to nothing. */
+  defaultSlug: string;
+  /** Default display name (the compiled slug), pre-filled into the name field. */
   defaultName: string;
   /** Numeric request ports — bet candidates. */
   numericInputs: string[];
@@ -34,8 +34,31 @@ export interface ComponentSetupItem {
 /** What the user decided for one component. */
 export interface ComponentSetupChoice {
   functionName: string;
+  /** Derived from functionName — the routing slug the function deploys under. */
+  slug: string;
   betInputPort: string;
   winOutputPort: string;
+}
+
+/**
+ * Turn a display name into the routing slug the function is deployed under.
+ *
+ * The slug becomes a path segment of the live endpoint
+ * (`/rgs-fn/<game>/<slug>`), which `rgs-fn` matches against `function_slug`
+ * EXACTLY — so it has to survive a URL round-trip untouched. Anything outside
+ * [A-Za-z0-9_-] collapses to an underscore; case is preserved so the compiled
+ * default ("Component_1") slugifies back to itself and a rename that only
+ * changes the label doesn't silently change the endpoint.
+ *
+ * A name made entirely of punctuation leaves nothing to route on, so it falls
+ * back to the compiled slug rather than producing an empty path segment.
+ */
+export function toFunctionSlug(name: string, fallback: string): string {
+  const slug = String(name || '')
+    .trim()
+    .replace(/[^A-Za-z0-9_-]+/g, '_')
+    .replace(/^[_-]+|[_-]+$/g, '');
+  return slug || fallback;
 }
 
 export interface ComponentSetupDialogProps {
@@ -88,11 +111,17 @@ const control: React.CSSProperties = {
 };
 
 export function ComponentSetupDialog({ items, onConfirm, onCancel }: ComponentSetupDialogProps) {
-  const [choices, setChoices] = useState<Record<string, ComponentSetupChoice>>(() => {
-    const initial: Record<string, ComponentSetupChoice> = {};
+  // Only the name is edited; the slug is always derived from it, so the endpoint
+  // the card shows and the endpoint we deploy can never drift apart.
+  const [names, setNames] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    for (const item of items) initial[item.componentName] = item.defaultName;
+    return initial;
+  });
+  const [ports, setPorts] = useState<Record<string, { betInputPort: string; winOutputPort: string }>>(() => {
+    const initial: Record<string, { betInputPort: string; winOutputPort: string }> = {};
     for (const item of items) {
       initial[item.componentName] = {
-        functionName: item.defaultName,
         // Pre-select the first numeric port on each side — the same guess the
         // RGS Testing page makes today — so a user who just wants the default
         // can hit Continue.
@@ -103,32 +132,55 @@ export function ComponentSetupDialog({ items, onConfirm, onCancel }: ComponentSe
     return initial;
   });
 
-  const update = (componentName: string, patch: Partial<ComponentSetupChoice>) => {
-    setChoices((prev) => ({ ...prev, [componentName]: { ...prev[componentName], ...patch } }));
+  const slugOf = (item: ComponentSetupItem) => toFunctionSlug(names[item.componentName], item.defaultSlug);
+
+  const updatePorts = (componentName: string, patch: Partial<{ betInputPort: string; winOutputPort: string }>) => {
+    setPorts((prev) => ({ ...prev, [componentName]: { ...prev[componentName], ...patch } }));
   };
 
-  // A blank name would deploy as an unlabelled row; two components sharing a
-  // name makes the RGS Components / Testing dropdowns ambiguous.
+  // Three ways a set of names is unusable:
+  //   * blank — deploys an unlabelled row;
+  //   * duplicate names — the RGS Components / Testing dropdowns go ambiguous;
+  //   * duplicate slugs — two components would share one endpoint. That one is
+  //     hard failure, not cosmetics: the deploy upserts on
+  //     (deployment_id, function_slug), so the second component would overwrite
+  //     the first instead of deploying. Distinct names can still collide here
+  //     ("Slot Spin" and "Slot-Spin" both slugify to "Slot_Spin"), and path
+  //     segments are compared case-sensitively but are far too easy to confuse,
+  //     so treat a case-only difference as a collision too.
   const error = useMemo(() => {
-    const names = items.map((i) => (choices[i.componentName]?.functionName || '').trim());
-    if (names.some((n) => !n)) return 'Every component needs a name.';
-    const lowered = names.map((n) => n.toLowerCase());
-    if (new Set(lowered).size !== lowered.length) return 'Component names must be unique.';
+    const trimmed = items.map((i) => (names[i.componentName] || '').trim());
+    if (trimmed.some((n) => !n)) return 'Every component needs a name.';
+
+    const loweredNames = trimmed.map((n) => n.toLowerCase());
+    const dupeName = loweredNames.find((n, i) => loweredNames.indexOf(n) !== i);
+    if (dupeName) {
+      const shown = trimmed[loweredNames.indexOf(dupeName)];
+      return `Two components are both named "${shown}". Give each one a different name.`;
+    }
+
+    const slugs = items.map((i) => slugOf(i).toLowerCase());
+    const dupeSlug = slugs.find((s, i) => slugs.indexOf(s) !== i);
+    if (dupeSlug) {
+      const first = items[slugs.indexOf(dupeSlug)];
+      return `Those names produce the same endpoint "${slugOf(first)}". Only letters, numbers, _ and - survive in an endpoint, so make the names differ by more than punctuation.`;
+    }
     return '';
-  }, [items, choices]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, names]);
 
   const handleConfirm = () => {
     if (error) return;
-    const trimmed: Record<string, ComponentSetupChoice> = {};
+    const result: Record<string, ComponentSetupChoice> = {};
     for (const item of items) {
-      const choice = choices[item.componentName];
-      trimmed[item.componentName] = {
-        functionName: choice.functionName.trim(),
-        betInputPort: choice.betInputPort,
-        winOutputPort: choice.winOutputPort
+      result[item.componentName] = {
+        functionName: (names[item.componentName] || '').trim(),
+        slug: slugOf(item),
+        betInputPort: ports[item.componentName].betInputPort,
+        winOutputPort: ports[item.componentName].winOutputPort
       };
     }
-    onConfirm(trimmed);
+    onConfirm(result);
   };
 
   return createPortal(
@@ -145,7 +197,9 @@ export function ComponentSetupDialog({ items, onConfirm, onCancel }: ComponentSe
         </div>
 
         {items.map((item) => {
-          const choice = choices[item.componentName];
+          const name = names[item.componentName];
+          const port = ports[item.componentName];
+          const slug = slugOf(item);
           return (
             <div
               key={item.componentName}
@@ -161,16 +215,20 @@ export function ComponentSetupDialog({ items, onConfirm, onCancel }: ComponentSe
                 <label style={fieldLabel}>Component name</label>
                 <input
                   type="text"
-                  value={choice.functionName}
-                  onChange={(e) => update(item.componentName, { functionName: e.target.value })}
+                  value={name}
+                  onChange={(e) => setNames((prev) => ({ ...prev, [item.componentName]: e.target.value }))}
                   placeholder={item.defaultName}
                   style={control}
                   autoFocus={items[0].componentName === item.componentName}
                 />
-                {/* The slug is baked into the deployed function URL, so it stays
-                    as compiled even when the display name changes. */}
+                {/* The slug follows the name, and it is what the deployed
+                    frontend calls — so show the endpoint it resolves to as the
+                    user types, since punctuation does not survive slugifying. */}
                 <div style={{ fontSize: '10px', color: '#666', marginTop: '4px', fontFamily: 'monospace' }}>
-                  endpoint: {item.slug}
+                  endpoint: {slug}
+                  {slug !== item.defaultSlug && (
+                    <span style={{ color: '#888', fontFamily: 'inherit' }}> (was {item.defaultSlug})</span>
+                  )}
                 </div>
               </div>
 
@@ -178,8 +236,8 @@ export function ComponentSetupDialog({ items, onConfirm, onCancel }: ComponentSe
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <label style={fieldLabel}>Bet input</label>
                   <select
-                    value={choice.betInputPort}
-                    onChange={(e) => update(item.componentName, { betInputPort: e.target.value })}
+                    value={port.betInputPort}
+                    onChange={(e) => updatePorts(item.componentName, { betInputPort: e.target.value })}
                     style={control}
                     disabled={item.numericInputs.length === 0}
                   >
@@ -194,8 +252,8 @@ export function ComponentSetupDialog({ items, onConfirm, onCancel }: ComponentSe
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <label style={fieldLabel}>Win output</label>
                   <select
-                    value={choice.winOutputPort}
-                    onChange={(e) => update(item.componentName, { winOutputPort: e.target.value })}
+                    value={port.winOutputPort}
+                    onChange={(e) => updatePorts(item.componentName, { winOutputPort: e.target.value })}
                     style={control}
                     disabled={item.numericOutputs.length === 0}
                   >
