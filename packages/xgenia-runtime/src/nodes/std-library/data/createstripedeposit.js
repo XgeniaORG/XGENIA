@@ -1,6 +1,7 @@
 'use strict';
 
 const { resolveSupabaseConfig, resolveRgsGame } = require('./rgs-config');
+const { setCurrentPlayerId } = require('./rgs-play-context');
 
 // Create Deposit (Stripe)
 // -----------------------
@@ -214,6 +215,11 @@ const CreateStripeDepositNode = {
 
       try {
         const playerID = (this.getInputValue('playerID') || this._internal.playerID || '').toString();
+
+        // A cashier node running means the game knows who is playing, even if it
+        // never used the Get Player ID node. Remember it so the rounds around
+        // this call are attributed to the same player. See rgs-play-context.js.
+        setCurrentPlayerId(playerID);
 
         const rawAmount = this.getInputValue('amount');
         const amount = Number(rawAmount !== undefined ? rawAmount : this._internal.amount);
