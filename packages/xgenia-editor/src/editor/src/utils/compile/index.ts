@@ -15,11 +15,37 @@ import { buildCloudComponent, captureBoundary } from './flattenLogic';
 import { insertAggregatorNode } from './aggregatorNode';
 import { CLOUD_PREFIX, collectLogicRoots, isVisualComponent } from './util';
 
+/**
+ * Where one cloud component came from.
+ *
+ * A cloud component is machine-generated and flattened, so it is the wrong
+ * thing to show someone who is trying to work out what they are looking at.
+ * Its SOURCE is the component they recognise — and it is still sitting in the
+ * open project, because compile only ever mutates the copy.
+ *
+ * The ids travel because `duplicateCurrentProject` is a byte-for-byte folder
+ * copy: a node in the copy has the same id as the same node in the original, so
+ * these ids resolve against `ProjectModel.instance`. (They are captured before
+ * `buildCloudComponent`, which reassigns ids — but only on its clones.)
+ */
+export interface CompiledComponentOrigin {
+  /** "/#__cloud__/__Component_1__" */
+  cloudName: string;
+  /** Name of the visual component whose logic was extracted, e.g. "/Slot/GameScreen". */
+  sourceComponentName: string;
+  /** Ids of the extracted logic ROOTS, in extraction order. */
+  logicRootIds: string[];
+  /** Total nodes extracted across those roots — shown as context, not used for lookup. */
+  logicNodeCount: number;
+}
+
 export interface CompileResult {
   name: string;
   dir: string;
   componentsCreated: number;
   visualComponentsVisited: number;
+  /** One entry per created cloud component, in creation order. */
+  origins: CompiledComponentOrigin[];
 }
 
 export async function compileProject(project: any): Promise<CompileResult> {
@@ -35,6 +61,7 @@ export async function compileProject(project: any): Promise<CompileResult> {
 
   let componentCounter = 0;
   let visited = 0;
+  const origins: CompiledComponentOrigin[] = [];
 
   for (const comp of visualComponents) {
     const logicRoots = collectLogicRoots(comp);
@@ -48,6 +75,17 @@ export async function compileProject(project: any): Promise<CompileResult> {
       componentCounter++;
       cloudName = `${CLOUD_PREFIX}__Component_${componentCounter}__`;
     }
+
+    // Record the origin before anything is cloned or removed, so the ids are
+    // the ones the ORIGINAL project still uses.
+    let logicNodeCount = 0;
+    logicRoots.forEach((root: any) => root.forEach(() => logicNodeCount++));
+    origins.push({
+      cloudName,
+      sourceComponentName: comp.name,
+      logicRootIds: logicRoots.map((root: any) => root.id).filter(Boolean),
+      logicNodeCount
+    });
 
     const boundary = captureBoundary(comp, logicRoots);
 
@@ -67,6 +105,7 @@ export async function compileProject(project: any): Promise<CompileResult> {
     name: newName,
     dir: destDir,
     componentsCreated: componentCounter,
-    visualComponentsVisited: visited
+    visualComponentsVisited: visited,
+    origins
   };
 }

@@ -23,6 +23,8 @@ import { Text } from '@xgenia-core-ui/components/typography/Text';
 import { TextType } from '@xgenia-core-ui/components/typography/Text/Text';
 import { TextInput } from '@xgenia-core-ui/components/inputs/TextInput';
 
+import { NodeGraphContextTmp } from '@xgenia-contexts/NodeGraphContext/NodeGraphContext';
+
 import { ToastLayer } from '../../../ToastLayer/ToastLayer';
 import {
   ComponentSetupDialog,
@@ -490,6 +492,36 @@ export function XgeniaDeployTab() {
     return new Promise<Record<string, ComponentSetupChoice> | null>((resolve) => {
       setSetupRequest({ items, resolve });
     });
+  }
+
+  /**
+   * Reveal in the editor the component a compiled logic component came from.
+   *
+   * Deliberately targets the OPEN project, never the compiled copy: the copy's
+   * cloud components are flattened and machine-named (useless for recognising
+   * anything), and loading it would replace what the user is looking at. The
+   * source component is the one they recognise, it is still open, and compile
+   * left it untouched — so this is a pure navigation, no project swap.
+   *
+   * Node ids match because the copy is a byte-for-byte duplicate, so the exact
+   * logic root that became the edge function can be selected and centred.
+   */
+  function showSourceComponent(item: ComponentSetupItem): boolean {
+    try {
+      const project: any = ProjectModel.instance;
+      const comp = project?.getComponentWithName?.(item.sourceComponentName);
+      if (!comp) return false;
+      const switchTo = NodeGraphContextTmp?.switchToComponent;
+      if (typeof switchTo !== 'function') return false;
+      // switchToComponent only reads `.id` off this — it re-resolves the real
+      // editor node itself via findNodeWithId — so an id carrier is enough.
+      const rootId = item.logicRootIds[0];
+      switchTo(comp, { pushHistory: true, node: rootId ? ({ id: rootId } as any) : undefined });
+      return true;
+    } catch (e) {
+      console.warn('[Deploy] Could not reveal source component:', e);
+      return false;
+    }
   }
 
   // Service connection tokens (loaded from ConnectionStore)
@@ -1386,7 +1418,7 @@ export function XgeniaDeployTab() {
 
     // 1. Compile — produces the __<name>__ copy with cloud components + aggregators.
     ToastLayer.showActivity('Compiling project...', activityId);
-    const { dir: compiledDir } = await compileProject(ProjectModel.instance);
+    const { dir: compiledDir, origins } = await compileProject(ProjectModel.instance);
     const copy: any = await new Promise((resolve, reject) => {
       projectFromDirectory(
         compiledDir,
@@ -1421,12 +1453,18 @@ export function XgeniaDeployTab() {
           // RGS stores the slug with XGENIA's wrapping underscores stripped
           // ("__Component_1__" → "Component_1"), so show and default to that.
           const publicSlug = artifact.slug.replace(/^_+|_+$/g, '') || artifact.slug;
+          // Compile records which visual component each cloud component was
+          // extracted from, so the card can point at something recognisable.
+          const origin = (origins || []).find((o) => o.cloudName === comp.name);
           return {
             componentName: comp.name,
             defaultSlug: publicSlug,
             defaultName: publicSlug,
             numericInputs: numericPortNames(artifact.payloadExample),
-            numericOutputs: numericPortNames(artifact.responseExample)
+            numericOutputs: numericPortNames(artifact.responseExample),
+            sourceComponentName: origin?.sourceComponentName || '(unknown)',
+            logicRootIds: origin?.logicRootIds || [],
+            logicNodeCount: origin?.logicNodeCount || 0
           };
         })
       );
@@ -1947,6 +1985,7 @@ export function XgeniaDeployTab() {
       {setupRequest && (
         <ComponentSetupDialog
           items={setupRequest.items}
+          onShowComponent={showSourceComponent}
           onConfirm={(choices) => {
             const { resolve } = setupRequest;
             setSetupRequest(null);

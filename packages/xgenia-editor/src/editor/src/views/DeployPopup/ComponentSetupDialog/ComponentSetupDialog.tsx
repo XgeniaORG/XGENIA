@@ -29,6 +29,12 @@ export interface ComponentSetupItem {
   numericInputs: string[];
   /** Numeric response ports — win candidates. */
   numericOutputs: string[];
+  /** Visual component this was extracted from, e.g. "/Slot/GameScreen". */
+  sourceComponentName: string;
+  /** Ids of the extracted logic roots — resolve against the OPEN project, not the compiled copy. */
+  logicRootIds: string[];
+  /** How many nodes were extracted, shown as naming context. */
+  logicNodeCount: number;
 }
 
 /** What the user decided for one component. */
@@ -66,6 +72,12 @@ export interface ComponentSetupDialogProps {
   /** Keyed by `ComponentSetupItem.componentName`. */
   onConfirm: (choices: Record<string, ComponentSetupChoice>) => void;
   onCancel: () => void;
+  /**
+   * Reveal an item's source component in the editor behind this card. Returns
+   * false when it couldn't (component gone), so the card can say so instead of
+   * collapsing onto nothing.
+   */
+  onShowComponent: (item: ComponentSetupItem) => boolean;
 }
 
 const overlay: React.CSSProperties = {
@@ -89,6 +101,24 @@ const card: React.CSSProperties = {
   boxShadow: '0 20px 60px rgba(0,0,0,0.5)'
 };
 
+// Docked strip shown while previewing a component. No backdrop — the whole
+// point is that the canvas behind it stays readable — but high z-index so it
+// can't be lost behind a panel.
+const collapsedBar: React.CSSProperties = {
+  position: 'fixed',
+  left: 0,
+  right: 0,
+  bottom: 0,
+  zIndex: 10001,
+  display: 'flex',
+  alignItems: 'center',
+  gap: '16px',
+  padding: '12px 20px',
+  backgroundColor: '#1e1e2e',
+  borderTop: '1px solid rgba(255,255,255,0.12)',
+  boxShadow: '0 -8px 24px rgba(0,0,0,0.4)'
+};
+
 const fieldLabel: React.CSSProperties = {
   display: 'block',
   fontSize: '11px',
@@ -98,19 +128,46 @@ const fieldLabel: React.CSSProperties = {
   marginBottom: '6px'
 };
 
+// Opaque on purpose. A translucent fill (rgba(255,255,255,0.06)) looks correct
+// on the closed control — it composites over the card — but the dropdown the
+// browser opens for a <select> is its own surface with no card behind it, so
+// the same fill composites over white and the white option text vanishes.
+const CONTROL_BG = '#2c2c3b'; // == 6% white over the card's #1e1e2e, so nothing looks different
+
 const control: React.CSSProperties = {
   width: '100%',
   padding: '9px 12px',
-  backgroundColor: 'rgba(255,255,255,0.06)',
+  backgroundColor: CONTROL_BG,
   border: '1px solid rgba(255,255,255,0.12)',
   borderRadius: '6px',
   color: '#fff',
   fontSize: '13px',
   outline: 'none',
-  boxSizing: 'border-box'
+  boxSizing: 'border-box',
+  // Belt and braces: the dropdown list is drawn by the platform, so also tell
+  // it we're on a dark surface. That covers the parts CSS can't reach — the
+  // popup's own chrome, its scrollbar, and the highlight on the hovered row.
+  colorScheme: 'dark'
 };
 
-export function ComponentSetupDialog({ items, onConfirm, onCancel }: ComponentSetupDialogProps) {
+// <option> does not inherit the select's colours in Chromium — an unstyled one
+// falls back to the platform default (white on white here), so state it.
+const optionStyle: React.CSSProperties = {
+  backgroundColor: CONTROL_BG,
+  color: '#fff'
+};
+
+export function ComponentSetupDialog({
+  items,
+  onConfirm,
+  onCancel,
+  onShowComponent
+}: ComponentSetupDialogProps) {
+  // Which item we're previewing in the editor, if any. While set, the card
+  // collapses to a bar so the canvas behind it is visible — the card stays
+  // MOUNTED, so every name typed so far survives the round trip.
+  const [previewing, setPreviewing] = useState<ComponentSetupItem | null>(null);
+  const [previewError, setPreviewError] = useState('');
   // Only the name is edited; the slug is always derived from it, so the endpoint
   // the card shows and the endpoint we deploy can never drift apart.
   const [names, setNames] = useState<Record<string, string>>(() => {
@@ -183,8 +240,57 @@ export function ComponentSetupDialog({ items, onConfirm, onCancel }: ComponentSe
     onConfirm(result);
   };
 
+  const handleShow = (item: ComponentSetupItem) => {
+    setPreviewError('');
+    if (onShowComponent(item)) setPreviewing(item);
+    else setPreviewError(`Couldn't locate ${item.sourceComponentName} in the open project.`);
+  };
+
+  // ── Collapsed: a docked bar, no overlay, canvas fully visible ──────────
+  if (previewing) {
+    return createPortal(
+      <div style={collapsedBar}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: '12px', color: '#fff', fontWeight: 600 }}>
+            Publishing paused · naming {items.length === 1 ? '1 component' : `${items.length} components`}
+          </div>
+          <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+            Showing <span style={{ fontFamily: 'monospace', color: '#67DE92' }}>{previewing.sourceComponentName}</span>
+            {' '}— the logic behind{' '}
+            <span style={{ fontFamily: 'monospace' }}>{toFunctionSlug(names[previewing.componentName], previewing.defaultSlug)}</span>.
+            {/* The copy this publish deploys was compiled before the card opened,
+                so anything edited now lands in the NEXT publish, not this one. */}
+            {' '}Edits made now won’t be included in this publish.
+          </div>
+        </div>
+        <div style={{ flex: 1 }} />
+        <button
+          onClick={() => setPreviewing(null)}
+          style={{
+            padding: '8px 20px',
+            borderRadius: '6px',
+            border: 'none',
+            backgroundColor: '#67DE92',
+            color: '#1a1a2e',
+            fontSize: '13px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          Resume naming
+        </button>
+      </div>,
+      document.body
+    );
+  }
+
   return createPortal(
-    <div style={overlay} onClick={onCancel}>
+    // Clicking the dim area deliberately does NOTHING. It used to cancel, which
+    // is a bad trade for a flow that has already spent a compile — and worse now
+    // that there is something worth looking at behind the card. Cancelling is
+    // the explicit button.
+    <div style={overlay}>
       <div style={card} onClick={(e) => e.stopPropagation()}>
         <div style={{ marginBottom: '20px' }}>
           <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>
@@ -230,6 +336,41 @@ export function ComponentSetupDialog({ items, onConfirm, onCancel }: ComponentSe
                     <span style={{ color: '#888', fontFamily: 'inherit' }}> (was {item.defaultSlug})</span>
                   )}
                 </div>
+
+                {/* Which component's logic this actually is. The compiled
+                    component is flattened and machine-named, so the source is
+                    the only thing here that identifies it to a human. */}
+                <div
+                  style={{
+                    fontSize: '10px',
+                    color: '#888',
+                    marginTop: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    flexWrap: 'wrap'
+                  }}
+                >
+                  <span>
+                    from <span style={{ fontFamily: 'monospace', color: '#aaa' }}>{item.sourceComponentName}</span>
+                    {item.logicNodeCount > 0 &&
+                      ` · ${item.logicNodeCount} logic ${item.logicNodeCount === 1 ? 'node' : 'nodes'}`}
+                  </span>
+                  <button
+                    onClick={() => handleShow(item)}
+                    style={{
+                      padding: 0,
+                      border: 'none',
+                      background: 'none',
+                      color: '#67DE92',
+                      fontSize: '10px',
+                      textDecoration: 'underline',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Show component
+                  </button>
+                </div>
               </div>
 
               <div style={{ display: 'flex', gap: '12px' }}>
@@ -241,9 +382,11 @@ export function ComponentSetupDialog({ items, onConfirm, onCancel }: ComponentSe
                     style={control}
                     disabled={item.numericInputs.length === 0}
                   >
-                    <option value="">— None —</option>
+                    <option value="" style={optionStyle}>
+                      — None —
+                    </option>
                     {item.numericInputs.map((p) => (
-                      <option key={p} value={p}>
+                      <option key={p} value={p} style={optionStyle}>
                         {p}
                       </option>
                     ))}
@@ -257,9 +400,11 @@ export function ComponentSetupDialog({ items, onConfirm, onCancel }: ComponentSe
                     style={control}
                     disabled={item.numericOutputs.length === 0}
                   >
-                    <option value="">— None —</option>
+                    <option value="" style={optionStyle}>
+                      — None —
+                    </option>
                     {item.numericOutputs.map((p) => (
-                      <option key={p} value={p}>
+                      <option key={p} value={p} style={optionStyle}>
                         {p}
                       </option>
                     ))}
@@ -282,6 +427,7 @@ export function ComponentSetupDialog({ items, onConfirm, onCancel }: ComponentSe
           );
         })}
 
+        {previewError && <div style={{ fontSize: '11px', color: '#c9a227', marginBottom: '12px' }}>{previewError}</div>}
         {error && <div style={{ fontSize: '11px', color: '#f66', marginBottom: '12px' }}>{error}</div>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
