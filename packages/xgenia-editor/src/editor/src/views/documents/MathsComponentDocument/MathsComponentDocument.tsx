@@ -8,9 +8,12 @@ import { PrimaryButton, PrimaryButtonVariant } from '@xgenia-core-ui/components/
 import { Container, ContainerDirection } from '@xgenia-core-ui/components/layout/Container';
 import { Label } from '@xgenia-core-ui/components/typography/Label';
 
-import { downloadEdgeDeployment } from '@xgenia-utils/rgs/deployEdgeFunction';
+import { downloadEdgeDeployment, redeployEdgeFunctionScript } from '@xgenia-utils/rgs/deployEdgeFunction';
+import { formatScript } from '@xgenia-utils/rgs/formatScript';
+import { validateRgsScript } from '@xgenia-utils/rgs/validateRgsScript';
 
 import { EditorDocumentProvider } from '../EditorDocument';
+import { ToastLayer } from '../../ToastLayer/ToastLayer';
 
 // Reuse the app's Monaco theme so the read-only script viewer matches the
 // property-panel code editor. Importing the theme module runs its
@@ -28,15 +31,26 @@ export interface MathsComponentDoc {
     function_slug: string;
     function_name: string;
     function_url: string;
-    payload_example?: unknown;
-    response_example?: unknown;
+    // JSON objects straight from the game_edge_functions columns. Re-sent
+    // verbatim on redeploy, so they are typed as objects rather than `unknown`.
+    payload_example?: Record<string, any>;
+    response_example?: Record<string, any>;
 }
 
 interface MathsComponentDocumentProps {
     apiKey: string;
+    /** Required to redeploy — the deploy-edge-function action is game-scoped. */
+    gameId?: string;
     deploymentId: string;
     version: number;
     gameName?: string;
+    /**
+     * True when this version holds the copy of the component that the public
+     * rgs-fn dispatcher actually serves — i.e. redeploying changes production.
+     * Computed by the caller (see isLiveComponent in MathsPanel), because only
+     * it can see every version's rows. Drives the confirm + success wording.
+     */
+    isLiveVersion?: boolean;
     fn: MathsComponentDoc;
 }
 
@@ -54,12 +68,17 @@ const prettyJson = (v: unknown): string => {
     }
 };
 
-// ─── Read-only Monaco script viewer ─────────────────────────
-// Mirrors the RGS studio "Inspect" page: a read-only JS editor showing the
-// deployed component's executable script.
-function ScriptViewer({ value }: { value: string }) {
+// ─── Monaco script editor ───────────────────────────────────
+// Shows the deployed component's executable script. Editable so the script can
+// be corrected and redeployed over the live edge function; `onChange` reports
+// every keystroke so the parent can track the dirty state.
+function ScriptViewer({ value, onChange }: { value: string; onChange?: (next: string) => void }) {
     const containerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+    // onChange is read from a ref so the editor is never recreated when the
+    // parent re-renders with a new closure — recreating loses cursor + undo.
+    const onChangeRef = useRef(onChange);
+    onChangeRef.current = onChange;
 
     useEffect(() => {
         if (!containerRef.current) return undefined;
@@ -67,29 +86,32 @@ function ScriptViewer({ value }: { value: string }) {
             value,
             language: 'javascript',
             theme: getTheme(),
-            readOnly: true,
-            domReadOnly: true,
+            readOnly: false,
             minimap: { enabled: false },
             fontSize: 13,
             wordWrap: 'on',
             scrollBeyondLastLine: false,
             lineNumbers: 'on',
-            renderLineHighlight: 'none',
             glyphMargin: false,
             folding: true,
-            contextmenu: false,
             automaticLayout: true,
             scrollbar: { alwaysConsumeMouseWheel: false }
         });
         editorRef.current = editor;
+        const sub = editor.onDidChangeModelContent(() => {
+            onChangeRef.current?.(editor.getValue());
+        });
         return () => {
+            sub.dispose();
             editor.getModel()?.dispose();
             editor.dispose();
             editorRef.current = null;
         };
     }, []);
 
-    // Push new script text in without recreating the editor (setValue bypasses readOnly).
+    // Push externally-changed text in (initial load, or a revert). Guarded on
+    // inequality so the user's own keystrokes don't round-trip back through
+    // setValue, which would reset the cursor to the top of the file.
     useEffect(() => {
         const editor = editorRef.current;
         if (editor && editor.getValue() !== value) {
@@ -118,24 +140,35 @@ function MathsComponentTopbar({ title }: { title: string }) {
     );
 }
 
-function MathsComponentDocument({ apiKey, deploymentId, version, gameName, fn }: MathsComponentDocumentProps) {
+function MathsComponentDocument({ apiKey, gameId, deploymentId, version, gameName, isLiveVersion, fn }: MathsComponentDocumentProps) {
     const [script, setScript] = useState<string | null>(null);
     const [scriptError, setScriptError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
+    // The last-known deployed text. `script` diverges from it as the user types;
+    // the gap is what makes the redeploy button live and drives Revert.
+    const [deployedScript, setDeployedScript] = useState<string | null>(null);
+    const [redeploying, setRedeploying] = useState(false);
+    const [confirmRedeploy, setConfirmRedeploy] = useState(false);
 
     // Fetch the version's full bundle (which includes scripts) and pick out this
     // component's script by slug. list-edge-deployments omits `script`, so this
-    // download-edge-deployment call is the only way to get it.
+    // download-edge-deployment call is the only way to get it. The raw script is
+    // run through Prettier before display — see formatScript for why.
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
         setScript(null);
+        setDeployedScript(null);
         setScriptError(null);
+        setConfirmRedeploy(false);
         downloadEdgeDeployment(apiKey, deploymentId)
-            .then((bundle) => {
+            .then(async (bundle) => {
                 if (cancelled) return;
                 const match = (bundle.functions || []).find((f) => f.function_slug === fn.function_slug);
-                setScript(match?.script ?? '');
+                const formatted = match?.script ? await formatScript(match.script) : '';
+                if (cancelled) return;
+                setScript(formatted);
+                setDeployedScript(formatted);
                 setLoading(false);
             })
             .catch((e: any) => {
@@ -147,6 +180,46 @@ function MathsComponentDocument({ apiKey, deploymentId, version, gameName, fn }:
             cancelled = true;
         };
     }, [apiKey, deploymentId, fn.function_slug]);
+
+    // Compared against the *formatted* baseline, so simply opening a component
+    // and reformatting it does not count as an edit.
+    const isDirty = script !== null && deployedScript !== null && script !== deployedScript;
+    const canRedeploy = isDirty && !!gameId && !redeploying && !loading;
+
+    const handleRevert = () => {
+        setScript(deployedScript);
+        setConfirmRedeploy(false);
+    };
+
+    const handleRedeploy = async () => {
+        if (!gameId || script === null) return;
+
+        // Catch the failures that would otherwise only appear as a broken live
+        // endpoint on the next spin — the RGS sandbox validates at execution
+        // time, not at deploy time.
+        const validation = validateRgsScript(script);
+        if (!validation.ok) {
+            setConfirmRedeploy(false);
+            ToastLayer.showError(validation.error || 'Script failed validation');
+            return;
+        }
+
+        setRedeploying(true);
+        setConfirmRedeploy(false);
+        try {
+            await redeployEdgeFunctionScript(apiKey, gameId, deploymentId, fn, script);
+            setDeployedScript(script);
+            ToastLayer.showSuccess(
+                isLiveVersion
+                    ? `${fn.function_name} redeployed — live now`
+                    : `${fn.function_name} updated in v${version} (not the live version)`
+            );
+        } catch (e: any) {
+            ToastLayer.showError(e?.message || 'Redeploy failed');
+        } finally {
+            setRedeploying(false);
+        }
+    };
 
     const titleParts = [gameName, `v${version}`, fn.function_name].filter(Boolean);
 
@@ -184,10 +257,64 @@ function MathsComponentDocument({ apiKey, deploymentId, version, gameName, fn }:
                 <div style={{ flex: 1, minHeight: '200px', display: 'flex', flexDirection: 'column', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                     <div style={{ flexShrink: 0, padding: '10px 20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#a0a0b0' }}>
-                            Inspect deployed script
+                            Deployed script
                         </span>
                         {loading && <span style={{ fontSize: '11px', color: '#666' }}>Loading&#8230;</span>}
+                        {!loading && script === '' && (
+                            <span style={{ fontSize: '11px', color: '#666' }}>No script stored for this component</span>
+                        )}
+                        {isDirty && !redeploying && (
+                            <span style={{ fontSize: '11px', color: '#F5A623' }}>Edited — not yet deployed</span>
+                        )}
+                        {redeploying && <span style={{ fontSize: '11px', color: '#666' }}>Redeploying&#8230;</span>}
+
+                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {/* Overwriting a live endpoint is destructive and has no undo
+                                server-side, so the button arms a confirm step first. */}
+                            {confirmRedeploy ? (
+                                <>
+                                    <span style={{ fontSize: '11px', color: '#F5A623' }}>
+                                        {isLiveVersion
+                                            ? `Overwrite the live ${fn.function_name} endpoint?`
+                                            : `Overwrite ${fn.function_name} in v${version}?`}
+                                    </span>
+                                    <PrimaryButton
+                                        label="Confirm"
+                                        variant={PrimaryButtonVariant.Danger}
+                                        onClick={handleRedeploy}
+                                    />
+                                    <PrimaryButton
+                                        label="Cancel"
+                                        variant={PrimaryButtonVariant.MutedOnLowBg}
+                                        onClick={() => setConfirmRedeploy(false)}
+                                    />
+                                </>
+                            ) : (
+                                <>
+                                    {isDirty && (
+                                        <PrimaryButton
+                                            label="Revert"
+                                            variant={PrimaryButtonVariant.MutedOnLowBg}
+                                            isDisabled={redeploying}
+                                            onClick={handleRevert}
+                                        />
+                                    )}
+                                    <PrimaryButton
+                                        label="Redeploy"
+                                        variant={PrimaryButtonVariant.Cta}
+                                        isDisabled={!canRedeploy}
+                                        isLoading={redeploying}
+                                        onClick={() => setConfirmRedeploy(true)}
+                                    />
+                                </>
+                            )}
+                        </div>
                     </div>
+                    {!gameId && !loading && (
+                        <div style={{ flexShrink: 0, padding: '0 20px 8px', fontSize: '11px', color: '#666' }}>
+                            Select a game in the Maths RGS panel to enable redeploying.
+                        </div>
+                    )}
                     <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
                         {scriptError ? (
                             <div style={{ padding: '12px 20px', fontSize: '12px', color: '#EF4444' }}>
@@ -196,7 +323,10 @@ function MathsComponentDocument({ apiKey, deploymentId, version, gameName, fn }:
                         ) : loading ? (
                             <div style={{ padding: '12px 20px', fontSize: '12px', color: '#666' }}>Loading script&#8230;</div>
                         ) : (
-                            <ScriptViewer value={script || '// No script available for this component'} />
+                            /* Empty rather than a placeholder comment — the buffer is
+                               now deployable, so nothing must appear in it that the
+                               user did not write. The header notes the empty case. */
+                            <ScriptViewer value={script ?? ''} onChange={setScript} />
                         )}
                     </div>
                 </div>

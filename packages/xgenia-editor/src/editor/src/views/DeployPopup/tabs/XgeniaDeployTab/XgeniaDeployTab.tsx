@@ -23,7 +23,14 @@ import { Text } from '@xgenia-core-ui/components/typography/Text';
 import { TextType } from '@xgenia-core-ui/components/typography/Text/Text';
 import { TextInput } from '@xgenia-core-ui/components/inputs/TextInput';
 
+import { NodeGraphContextTmp } from '@xgenia-contexts/NodeGraphContext/NodeGraphContext';
+
 import { ToastLayer } from '../../../ToastLayer/ToastLayer';
+import {
+  ComponentSetupDialog,
+  ComponentSetupChoice,
+  ComponentSetupItem
+} from '../../ComponentSetupDialog';
 import { NO_ENVIRONMENT_VALUE, RGS_ENVIRONMENT_VALUE } from '../../DeployPopup.constants';
 import { useEnvironmentsAsOptions } from '../../DeployPopup.hooks';
 import { useAuth } from '../../../../context/AuthContext';
@@ -428,6 +435,19 @@ interface DeployedDomain {
   accountId?: string;
 }
 
+/**
+ * Port names in an example payload whose value is a JS number.
+ *
+ * The RGS side has no stored port types — it infers each port's type from the
+ * `typeof` of its example value (see test.tsx `portTypeOf`), and only numeric
+ * ports can be a bet or a win. Mirroring that rule here keeps the choices this
+ * popup offers identical to the ones RGS Testing will show.
+ */
+function numericPortNames(example: Record<string, any> | undefined | null): string[] {
+  if (!example || typeof example !== 'object') return [];
+  return Object.keys(example).filter((key) => typeof example[key] === 'number');
+}
+
 export function XgeniaDeployTab() {
   const cloudService = useModernModel(CloudService.instance);
   // Always offer "XGENIA RGS" here so the user can pick it and get a clear
@@ -458,6 +478,54 @@ export function XgeniaDeployTab() {
   const [newDomainName, setNewDomainName] = useState('');
   const [domainError, setDomainError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  // ── Post-compile component setup card ─────────────────────────────────
+  // Holds the pending "name your components / map bet + win" prompt. The deploy
+  // routine parks on the promise stored here while the user fills the card in.
+  const [setupRequest, setSetupRequest] = useState<{
+    items: ComponentSetupItem[];
+    resolve: (choices: Record<string, ComponentSetupChoice> | null) => void;
+  } | null>(null);
+
+  /** Show the setup card and resolve with the user's choices, or null if cancelled. */
+  function requestComponentSetup(items: ComponentSetupItem[]) {
+    return new Promise<Record<string, ComponentSetupChoice> | null>((resolve) => {
+      setSetupRequest({ items, resolve });
+    });
+  }
+
+  /**
+   * Reveal in the editor the component a compiled logic component came from.
+   *
+   * Deliberately targets the OPEN project, never the compiled copy: the copy's
+   * cloud components are flattened and machine-named (useless for recognising
+   * anything), and loading it would replace what the user is looking at. The
+   * source component is the one they recognise, it is still open, and compile
+   * left it untouched — so this is a pure navigation, no project swap.
+   *
+   * Node ids match because the copy is a byte-for-byte duplicate, so the exact
+   * nodes that became the edge function can be highlighted — ALL of them. A
+   * component's logic is routinely several roots, and each root a subtree, so
+   * highlighting one node would misrepresent what is being deployed.
+   */
+  function showSourceComponent(item: ComponentSetupItem): boolean {
+    try {
+      const project: any = ProjectModel.instance;
+      const comp = project?.getComponentWithName?.(item.sourceComponentName);
+      if (!comp) return false;
+      const switchTo = NodeGraphContextTmp?.switchToComponent;
+      if (typeof switchTo !== 'function') return false;
+
+      // Switch first with no `node` — passing one would single-select it and
+      // pan to it, which revealNodes is about to override anyway.
+      switchTo(comp, { pushHistory: true });
+      NodeGraphContextTmp.nodeGraph?.revealNodes?.(item.logicNodeIds);
+      return true;
+    } catch (e) {
+      console.warn('[Deploy] Could not reveal source component:', e);
+      return false;
+    }
+  }
 
   // Service connection tokens (loaded from ConnectionStore)
   const [vercelToken, setVercelToken] = useState<string | null>(null);
@@ -1353,7 +1421,7 @@ export function XgeniaDeployTab() {
 
     // 1. Compile — produces the __<name>__ copy with cloud components + aggregators.
     ToastLayer.showActivity('Compiling project...', activityId);
-    const { dir: compiledDir } = await compileProject(ProjectModel.instance);
+    const { dir: compiledDir, origins } = await compileProject(ProjectModel.instance);
     const copy: any = await new Promise((resolve, reject) => {
       projectFromDirectory(
         compiledDir,
@@ -1362,20 +1430,81 @@ export function XgeniaDeployTab() {
       );
     });
 
-    // 2. Open a versioned deployment, then deploy each logic component into it
+    // 2. Turn each compiled logic component into a deployable artifact. This is
+    //    still "compilation" from the user's point of view — the script is
+    //    generated and the request/response ports are derived here — so it runs
+    //    before we ask them anything.
+    const cloudComponents = copy.components.filter((c: any) =>
+      String(c.name).startsWith('/#__cloud__/__Component_')
+    );
+    const artifacts = cloudComponents.map((comp: any) => ({
+      comp,
+      artifact: generateFunctionArtifact(comp, copy)
+    }));
+
+    // 3. Compilation is done — pause and let the user name each component and
+    //    say which port is the bet and which is the win, instead of shipping the
+    //    generated "__Component_N__" name and leaving RGS Testing to guess the
+    //    mapping. Cancelling here aborts the publish before anything is uploaded.
+    //    A UI-only project compiles to no logic components at all — nothing to
+    //    ask about, so don't interrupt it with an empty card.
+    let choices: Record<string, ComponentSetupChoice> = {};
+    if (artifacts.length > 0) {
+      ToastLayer.hideActivity(activityId);
+      const picked = await requestComponentSetup(
+        artifacts.map(({ comp, artifact }) => {
+          // RGS stores the slug with XGENIA's wrapping underscores stripped
+          // ("__Component_1__" → "Component_1"), so show and default to that.
+          const publicSlug = artifact.slug.replace(/^_+|_+$/g, '') || artifact.slug;
+          // Compile records which visual component each cloud component was
+          // extracted from, so the card can point at something recognisable.
+          const origin = (origins || []).find((o) => o.cloudName === comp.name);
+          return {
+            componentName: comp.name,
+            defaultSlug: publicSlug,
+            defaultName: publicSlug,
+            numericInputs: numericPortNames(artifact.payloadExample),
+            numericOutputs: numericPortNames(artifact.responseExample),
+            sourceComponentName: origin?.sourceComponentName || '(unknown)',
+            logicNodeIds: origin?.logicNodeIds || []
+          };
+        })
+      );
+      if (!picked) {
+        // User backed out — leave no compiled copy behind, don't report failure.
+        cleanupCompiledCopy(compiledDir);
+        ToastLayer.showInteraction('Publish cancelled.');
+        return;
+      }
+      choices = picked;
+    }
+
+    // 4. Open a versioned deployment, then deploy each logic component into it
     //    as a per-game RGS edge function. Every Publish becomes a new version,
     //    so the game keeps full deploy history.
     ToastLayer.showActivity('Deploying logic to XGENIA RGS...', activityId);
     const { deploymentId } = await createEdgeDeployment(rgs.apiKey, game.id, copy.name);
     const urlByComponent: Record<string, string> = {};
-    for (const comp of copy.components) {
-      if (!String(comp.name).startsWith('/#__cloud__/__Component_')) continue;
-      const artifact = generateFunctionArtifact(comp, copy);
-      const { url } = await deployEdgeFunction(rgs.apiKey, game.id, deploymentId, artifact);
+    for (const { comp, artifact } of artifacts) {
+      const choice = choices[comp.name];
+      const { url } = await deployEdgeFunction(rgs.apiKey, game.id, deploymentId, {
+        ...artifact,
+        // The user's name replaces the generated one, and the slug follows it —
+        // so this Publish's endpoint becomes /rgs-fn/<game>/<new slug>. The
+        // Aggregator nodes are repointed at whatever URL comes back (step 5), so
+        // the frontend built in THIS publish always calls the right one. An
+        // already-live frontend keeps calling the old slug, which keeps
+        // resolving to the older version's script — old builds stay pinned
+        // rather than breaking.
+        functionName: choice?.functionName || artifact.functionName,
+        slug: choice?.slug || artifact.slug,
+        betInputPort: choice?.betInputPort ?? '',
+        winOutputPort: choice?.winOutputPort ?? ''
+      });
       urlByComponent[comp.name] = url;
     }
 
-    // 3. Point each Aggregator node at its deployed function URL.
+    // 5. Point each Aggregator node at its deployed function URL.
     for (const comp of copy.components) {
       for (const node of comp.graph.roots) {
         if (node.typename !== 'Aggregator') continue;
@@ -1384,9 +1513,21 @@ export function XgeniaDeployTab() {
         if (url) node.parameters.url = url;
       }
     }
+
+    // 5b. Stamp the Target Game onto the copy, so the deployed game knows which RGS
+    //     game it IS. Aggregator logic gets this for free — its function URL carries
+    //     the game slug — but the cashier nodes (Deposit Balance, Withdraw Balance,
+    //     Create Deposit (Stripe)) call player-scoped RPCs that see only a player and
+    //     an amount, so without this their rows land on the platform's Transactions
+    //     page with no game at all. Read back at runtime by resolveRgsGame in
+    //     rgs-config.js. Stamped on the COPY, not ProjectModel.instance, so the
+    //     user's own project is left untouched and a deploy to a different target
+    //     game never leaves a stale id behind.
+    copy.setMetaData('rgsgame', { id: game.id, name: game.name, slug: game.slug });
+
     await saveProject(copy, compiledDir);
 
-    // 4. Vercel-deploy the COPY — UI only (build excludes /#__cloud__/ components).
+    // 6. Vercel-deploy the COPY — UI only (build excludes /#__cloud__/ components).
     const tempDir = filesystem.join(os.tmpdir(), `xgenia-deploy-${Date.now()}`);
     await filesystem.makeDirectory(tempDir);
     try {
@@ -1840,6 +1981,25 @@ export function XgeniaDeployTab() {
           </div>
         )}
       </PopupSection>
+
+      {/* Post-compile setup card. Portalled to document.body, so it is centred
+          over the editor rather than anchored to the Publish popup. */}
+      {setupRequest && (
+        <ComponentSetupDialog
+          items={setupRequest.items}
+          onShowComponent={showSourceComponent}
+          onConfirm={(choices) => {
+            const { resolve } = setupRequest;
+            setSetupRequest(null);
+            resolve(choices);
+          }}
+          onCancel={() => {
+            const { resolve } = setupRequest;
+            setSetupRequest(null);
+            resolve(null);
+          }}
+        />
+      )}
     </>
   );
 }

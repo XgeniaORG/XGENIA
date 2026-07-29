@@ -32,6 +32,7 @@
 // Phase 1: the request URL is a dummy localhost value supplied at compile time.
 
 const EdgeTriggeredInput = require('../../../edgetriggeredinput');
+const { getPlayContextFields } = require('./rgs-play-context');
 
 const DEFAULT_URL = 'http://localhost:54321/functions/v1/aggregator';
 
@@ -211,6 +212,15 @@ const AggregatorNode = {
       for (let i = 0; i < triggers.length; i++) {
         payload['is' + triggers[i]] = triggers[i] === this._internal.activeTrigger;
       }
+
+      // Who is playing, and in which sitting. The deployed component's logic
+      // ignores these — they exist so the platform can attribute the round to a
+      // player and a session when the publish card mapped a bet/win port.
+      // Applied last, so these reserved names win over a component field of the
+      // same name rather than being silently disabled by one. See
+      // rgs-play-context.js.
+      const context = getPlayContextFields();
+      for (const key in context) payload[key] = context[key];
 
       this._internal.lastPayload = payload;
 

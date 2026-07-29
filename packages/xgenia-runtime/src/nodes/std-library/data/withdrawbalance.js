@@ -1,14 +1,25 @@
 'use strict';
 
-const { resolveSupabaseConfig } = require('./rgs-config');
+const { resolveSupabaseConfig, resolveRgsGame } = require('./rgs-config');
+const { setCurrentPlayerId } = require('./rgs-play-context');
 
 // Withdraw Balance
 // ----------------
-// Subtracts a withdraw amount from a player's balance on the RGS platform. The
-// node sends one REST request to the Supabase PostgREST RPC `withdraw_balance`
-// (see XRGS migration 20260709140000_withdraw_balance.sql), which is SECURITY
-// DEFINER so it can update the players table despite its RLS (the anon key has
-// no UPDATE policy on players, so a direct PostgREST write would match no rows).
+// Subtracts a withdraw amount from a player's balance on the RGS platform AND
+// files a withdrawal request there. The node sends one REST request to the
+// Supabase PostgREST RPC `withdraw_balance` (see XRGS migrations
+// 20260709140000_withdraw_balance.sql and 20260726120100_withdraw_balance_request.sql),
+// which is SECURITY DEFINER so it can update the players table despite its RLS
+// (the anon key has no UPDATE policy on players, so a direct PostgREST write
+// would match no rows).
+//
+// The debit and the request are one call on purpose: the RPC does both inside a
+// single transaction, so the player can never be debited without a matching
+// request being recorded (or vice versa). The request lands in the RGS
+// `transactions` table as a `Withdraw` row with status `Pending`, visible on the
+// platform's Transactions page, for an operator to settle out of band. The money
+// is reserved immediately — a pending request is already deducted from the
+// balance, so it cannot be spent twice.
 //
 // balance is stored in minor units (bigint); the RPC rounds the amount to the
 // nearest whole minor unit and rejects non-positive amounts, unknown players,
@@ -19,6 +30,12 @@ const { resolveSupabaseConfig } = require('./rgs-config');
 // Supabase connection (url + anon key) comes from the project's `cloudservices`
 // metadata, the same source used by the other RGS-backed nodes (e.g. Deposit
 // Balance, Save Game Session).
+//
+// The request is also attributed to the game it was made in, exactly as the Deposit
+// Balance node does: p_game_id carries the Target Game this project was published
+// against, read from the project's `rgsgame` metadata (see resolveRgsGame). Absent
+// it, the withdrawal is filed exactly as before but shows no game on the platform's
+// Transactions page. Nothing to wire — no new input, no graph changes.
 
 const WithdrawBalanceNode = {
   name: 'WithdrawBalance',
@@ -98,6 +115,11 @@ const WithdrawBalanceNode = {
       try {
         const playerID = (this.getInputValue('playerID') || this._internal.playerID || '').toString();
 
+        // A cashier node running means the game knows who is playing, even if it
+        // never used the Get Player ID node. Remember it so the rounds around
+        // this call are attributed to the same player. See rgs-play-context.js.
+        setCurrentPlayerId(playerID);
+
         const rawAmount = this.getInputValue('withdrawAmount');
         const withdrawAmount = Number(rawAmount !== undefined ? rawAmount : this._internal.withdrawAmount);
 
@@ -113,6 +135,16 @@ const WithdrawBalanceNode = {
           throw new Error('No Supabase cloud service configured (missing url or anon key).');
         }
 
+        // Only send p_game_id when the project knows its game — PostgREST resolves
+        // the function by the exact argument set, so sending it against an RGS that
+        // still has the older two-argument withdraw_balance would fail the call.
+        const game = resolveRgsGame(this);
+        const payload = {
+          p_player_id: playerID,
+          p_withdraw_amount: withdrawAmount
+        };
+        if (game.id) payload.p_game_id = game.id;
+
         const endpoint = `${url}/rest/v1/rpc/withdraw_balance`;
         const response = await fetch(endpoint, {
           method: 'POST',
@@ -121,10 +153,7 @@ const WithdrawBalanceNode = {
             apikey: anonKey,
             Authorization: `Bearer ${anonKey}`
           },
-          body: JSON.stringify({
-            p_player_id: playerID,
-            p_withdraw_amount: withdrawAmount
-          })
+          body: JSON.stringify(payload)
         });
 
         if (!response.ok) {
@@ -148,6 +177,7 @@ const WithdrawBalanceNode = {
         this._internal.inspectData = {
           playerID: playerID,
           withdrawAmount: withdrawAmount,
+          game: game.name || game.id || '(none)',
           balance: row && row.balance !== undefined ? row.balance : null,
           isSuccessful: true
         };

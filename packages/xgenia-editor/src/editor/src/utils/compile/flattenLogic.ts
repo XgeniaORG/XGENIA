@@ -14,6 +14,7 @@ import {
   assignUnique,
   camelCase,
   isSignalPort,
+  joinLabelParts,
   pascalCase,
   safeLabel
 } from './util';
@@ -43,6 +44,21 @@ function deriveTriggerName(targetNode: any, toPort: string): string {
 
 function deriveFieldName(sourceNode: any): string {
   return camelCase(safeLabel(sourceNode));
+}
+
+// Response-field name for a logic output that crosses to the UI: the PRODUCING
+// node plus the output port it came from, camelCased — Subtraction.result
+// becomes "subtractionResult". The port's displayName is preferred over its raw
+// name (ports are addressed internally as e.g. "result" but shown as "Result").
+function deriveOutputFieldName(sourceNode: any, fromPort: string): string {
+  let disp = '';
+  try {
+    const port = sourceNode.getPort(fromPort, 'output');
+    disp = port && port.displayName ? String(port.displayName) : '';
+  } catch (e) {
+    /* ignore */
+  }
+  return camelCase(joinLabelParts(safeLabel(sourceNode), disp || fromPort || ''));
 }
 
 // Scan the component's connections for edges crossing the UI<->logic boundary.
@@ -93,22 +109,38 @@ export function captureBoundary(comp: any, logicRoots: any[]): Boundary {
       }
     } else if (fromLogic && !toLogic) {
       // logic output -> UI input: a value the edge function returns and the UI
-      // displays. Key by the UI DESTINATION (toId|toProperty), not the logic
-      // source, so that multiple operations writing to the same display (e.g.
-      // Addition.result and Subtraction.result both feeding the Result text)
-      // collapse into ONE response field (e.g. "result"). Remember the UI
-      // target so the aggregator can wire the response value back into the UI.
+      // displays. Key by the LOGIC SOURCE (fromId|fromProperty) and name the
+      // field after it — "<node><port>", e.g. "subtractionResult".
+      //
+      // Naming by the UI DESTINATION instead (what this used to do) is ambiguous:
+      // one display can show the results of several operations (Addition.result
+      // and Subtraction.result both feeding the Result text), so every one of
+      // them collapsed into a single "result" field — and where destinations
+      // clashed, into "result", "result2", … which nobody can tell apart when
+      // picking an output port to test on RGS. Producer-based names are unique by
+      // construction and say which operation they came from.
+      //
+      // Remember the UI targets so the aggregator can wire the response value
+      // back into the UI (one source may feed several displays).
       const sourceNode = graph.findNodeWithId(c.fromId);
       const targetNode = graph.findNodeWithId(c.toId);
       if (!sourceNode || !targetNode) return;
-      const identity = c.toId + '|' + c.toProperty;
-      const field = assignUnique(deriveFieldName(targetNode), identity, outRegistry);
+      const identity = c.fromId + '|' + c.fromProperty;
+      const field = assignUnique(
+        deriveOutputFieldName(sourceNode, c.fromProperty),
+        identity,
+        outRegistry
+      );
       let entry = outMap.get(field);
       if (!entry) {
-        entry = { field, sources: [], targets: [{ uiTargetId: c.toId, uiPort: c.toProperty }] };
+        entry = {
+          field,
+          sources: [{ logicSourceId: c.fromId, logicProperty: c.fromProperty }],
+          targets: []
+        };
         outMap.set(field, entry);
       }
-      entry.sources.push({ logicSourceId: c.fromId, logicProperty: c.fromProperty });
+      entry.targets.push({ uiTargetId: c.toId, uiPort: c.toProperty });
     }
   });
 

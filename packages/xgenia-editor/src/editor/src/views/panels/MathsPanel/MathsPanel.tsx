@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
-import { IconName } from '@xgenia-core-ui/components/common/Icon';
+import { IconName, IconSize } from '@xgenia-core-ui/components/common/Icon';
 import {
     PrimaryButton,
     PrimaryButtonSize,
@@ -9,11 +9,19 @@ import {
 import { Box } from '@xgenia-core-ui/components/layout/Box';
 import { Container, ContainerDirection } from '@xgenia-core-ui/components/layout/Container';
 import { VStack } from '@xgenia-core-ui/components/layout/Stack';
+import { ContextMenu } from '@xgenia-core-ui/components/popups/ContextMenu';
 import { Tooltip } from '@xgenia-core-ui/components/popups/Tooltip';
 import { BasePanel } from '@xgenia-core-ui/components/sidebar/BasePanel';
 
 import { supabase } from '../../../supabaseInit';
-import { downloadEdgeDeployment, deleteEdgeDeployment } from '@xgenia-utils/rgs/deployEdgeFunction';
+import {
+    downloadEdgeDeployment,
+    deleteEdgeDeployment,
+    renameEdgeDeployment,
+    downloadEdgeFunction,
+    renameEdgeFunction,
+    deleteEdgeFunction
+} from '@xgenia-utils/rgs/deployEdgeFunction';
 import { AppRegistry } from '@xgenia-models/app_registry';
 import { MathsComponentDocumentProvider } from '../../documents/MathsComponentDocument';
 
@@ -182,9 +190,33 @@ const MODAL_INPUT_STYLE: React.CSSProperties = { width: '100%', padding: '10px 1
 const VERSION_BTN_STYLE: React.CSSProperties = { fontSize: '11px', lineHeight: 1, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '4px', color: '#c0c0c0', padding: '3px 6px' };
 const VERSION_DELETE_BTN_STYLE: React.CSSProperties = { ...VERSION_BTN_STYLE, color: '#EF4444', borderColor: 'rgba(239,68,68,0.35)' };
 
-// A component-name row in the Components sub-section. Clicking it opens the
-// component's API docs + script inspector in the editor's main area.
-const COMPONENT_ROW_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: '6px', marginBottom: '4px', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: '#e0e0e0' };
+// A component row in the Components sub-section: the name opens the component's
+// API docs + script inspector in the editor's main area, and the three-dot menu
+// on the far right holds its rename / download / delete actions.
+const COMPONENT_ROW_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: '6px', marginBottom: '4px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: '#e0e0e0' };
+// The name part of that row — a transparent button filling the space left of the menu.
+const COMPONENT_NAME_BTN_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0, padding: 0, textAlign: 'left', background: 'transparent', border: 'none', color: '#e0e0e0', cursor: 'pointer' };
+
+/**
+ * Whether `deploymentId` holds the copy of `slug` that the public rgs-fn
+ * dispatcher actually serves — i.e. whether redeploying it changes production.
+ *
+ * rgs-fn resolves a (game, slug) to the NEWEST ACTIVE row by created_at across
+ * every version, not to the newest version. Those usually agree, but they come
+ * apart when a component was dropped from a later version: the surviving older
+ * row stays live. Mirror the dispatcher's rule rather than assuming "highest
+ * version wins", so the redeploy confirmation never misstates the blast radius.
+ */
+const isLiveComponent = (versions: any[] | null, deploymentId: string, slug: string): boolean => {
+    const rows = (versions || []).flatMap((v: any) =>
+        (v.functions || [])
+            .filter((f: any) => f.function_slug === slug && f.status === 'active')
+            .map((f: any) => ({ deploymentId: v.id, createdAt: f.created_at }))
+    );
+    if (rows.length === 0) return false;
+    const live = rows.reduce((newest, row) => (row.createdAt > newest.createdAt ? row : newest));
+    return live.deploymentId === deploymentId;
+};
 
 
 
@@ -204,15 +236,27 @@ export function MathsPanel() {
     // studio Versions tab), not maths_configs.
     const [versions, setVersions] = useState<any[] | null>(null);
     const [versionsLoading, setVersionsLoading] = useState(false);
-    // Per-version action state for the Server Versions download/delete controls.
-    // `versionActionId` = the version currently downloading/deleting (busy row);
-    // `confirmDeleteId` = the version showing its inline "Delete? Yes/No" confirm.
+    // Per-version action state for the Server Versions rename/download/delete controls.
+    // `versionActionId` = the version currently renaming/downloading/deleting (busy row);
+    // `confirmDeleteId` = the version showing its inline "Delete? Yes/No" confirm;
+    // `renameVersion` = the version whose rename modal is open.
     const [versionActionId, setVersionActionId] = useState<string | null>(null);
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+    const [renameVersion, setRenameVersion] = useState<any | null>(null);
+    const [versionNameInput, setVersionNameInput] = useState('');
+    const [versionRenameError, setVersionRenameError] = useState<string | null>(null);
     // The Server Version whose components are shown in the Components sub-section.
     // Null until the user clicks a row; the derived `selectedVersion` below then
     // falls back to the newest version (matching the studio "API docs" default).
     const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
+    // Per-component action state for the Components sub-section's three-dot menu.
+    // `componentActionId` = the component currently downloading/renaming/deleting;
+    // `renameFn` / `confirmDeleteFn` = the component whose modal is open.
+    const [componentActionId, setComponentActionId] = useState<string | null>(null);
+    const [renameFn, setRenameFn] = useState<any | null>(null);
+    const [renameInput, setRenameInput] = useState('');
+    const [renameError, setRenameError] = useState<string | null>(null);
+    const [confirmDeleteFn, setConfirmDeleteFn] = useState<any | null>(null);
 
     // Upload, Test & Deploy modal state
     const [showTestConfigModal, setShowTestConfigModal] = useState(false);
@@ -248,9 +292,12 @@ export function MathsPanel() {
         if (!settings?.apiKey || !selectedVersion) return;
         AppRegistry.instance.openDocument(MathsComponentDocumentProvider.ID, {
             apiKey: settings.apiKey,
+            // Needed to redeploy an edited script — deploy-edge-function is game-scoped.
+            gameId: selectedGame,
             deploymentId: selectedVersion.id,
             version: selectedVersion.version,
             gameName: (games || []).find((g: any) => g.id === selectedGame)?.name,
+            isLiveVersion: isLiveComponent(versions, selectedVersion.id, fn.function_slug),
             fn: {
                 function_slug: fn.function_slug,
                 function_name: fn.function_name,
@@ -360,6 +407,95 @@ export function MathsPanel() {
             setUploadStatus({ type: 'error', message: e?.message || 'Delete failed' });
         }
         setVersionActionId(null);
+    }, [settings, selectedGame, fetchVersions]);
+
+    // Rename one Server Version. Label only — the version number, its components
+    // and their function URLs are untouched, so a deployed frontend is unaffected.
+    const handleRenameVersion = useCallback(async () => {
+        if (!settings?.apiKey || !renameVersion) return;
+        const name = versionNameInput.trim();
+        if (!name) { setVersionRenameError('Enter a version name'); return; }
+        if (name === (renameVersion.name || '')) { setRenameVersion(null); return; }
+
+        setVersionActionId(renameVersion.id);
+        setVersionRenameError(null);
+        try {
+            await renameEdgeDeployment(settings.apiKey, renameVersion.id, name, selectedGame || undefined);
+            setRenameVersion(null);
+            await fetchVersions();
+            setUploadStatus({ type: 'success', message: `Renamed v${renameVersion.version} to "${name}"` });
+        } catch (e: any) {
+            setVersionRenameError(e?.message || 'Rename failed');
+        }
+        setVersionActionId(null);
+    }, [settings, renameVersion, versionNameInput, selectedGame, fetchVersions]);
+
+    // ─── Components: per-component actions (three-dot menu) ──────────
+    // Rename one component's DISPLAY name. Its slug and URL are untouched, so
+    // anything already calling the endpoint keeps working.
+    const handleRenameComponent = useCallback(async () => {
+        if (!settings?.apiKey || !renameFn) return;
+        const name = renameInput.trim();
+        if (!name) { setRenameError('Enter a component name'); return; }
+        if (name === (renameFn.function_name || '')) { setRenameFn(null); return; }
+
+        setComponentActionId(renameFn.id);
+        setRenameError(null);
+        try {
+            await renameEdgeFunction(settings.apiKey, renameFn.id, name, selectedGame || undefined);
+            setRenameFn(null);
+            await fetchVersions();
+            setUploadStatus({ type: 'success', message: `Renamed to "${name}"` });
+        } catch (e: any) {
+            setRenameError(e?.message || 'Rename failed');
+        }
+        setComponentActionId(null);
+    }, [settings, renameFn, renameInput, selectedGame, fetchVersions]);
+
+    // Download one component as JSON (script + API docs) — the single-component
+    // counterpart of the Server Version bundle, same file shape as the RGS studio.
+    const handleDownloadComponent = useCallback(async (fn: any) => {
+        if (!settings?.apiKey || !selectedVersion) return;
+        setComponentActionId(fn.id);
+        try {
+            const { version, slug, fn: full } = await downloadEdgeFunction(
+                settings.apiKey,
+                selectedVersion.id,
+                fn.function_slug
+            );
+            const blob = new Blob([JSON.stringify({
+                slug: full.function_slug,
+                function_name: full.function_name,
+                function_url: full.function_url,
+                script: full.script,
+                payload_example: full.payload_example,
+                response_example: full.response_example,
+            }, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${slug}-${full.function_slug}-v${version}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (e: any) {
+            setUploadStatus({ type: 'error', message: e?.message || 'Download failed' });
+        }
+        setComponentActionId(null);
+    }, [settings, selectedVersion]);
+
+    // Delete one component, leaving the rest of its version intact.
+    const handleDeleteComponent = useCallback(async (fn: any) => {
+        if (!settings?.apiKey) return;
+        setConfirmDeleteFn(null);
+        setComponentActionId(fn.id);
+        try {
+            await deleteEdgeFunction(settings.apiKey, fn.id, selectedGame || undefined);
+            await fetchVersions();
+            setUploadStatus({ type: 'success', message: `Deleted ${fn.function_name || fn.function_slug}` });
+        } catch (e: any) {
+            setUploadStatus({ type: 'error', message: e?.message || 'Delete failed' });
+        }
+        setComponentActionId(null);
     }, [settings, selectedGame, fetchVersions]);
 
     const handleConnect = useCallback(async () => {
@@ -977,6 +1113,15 @@ export function MathsPanel() {
                                                     </span>
                                                 ) : (
                                                     <span style={{ display: 'flex', gap: '4px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+                                                        <button
+                                                            title="Rename version"
+                                                            onClick={() => {
+                                                                setRenameVersion(v);
+                                                                setVersionNameInput(v.name || '');
+                                                                setVersionRenameError(null);
+                                                            }}
+                                                            style={VERSION_BTN_STYLE}
+                                                        >&#9998;</button>
                                                         <button title="Download bundle" onClick={() => handleDownloadVersion(v)} style={VERSION_BTN_STYLE}>&#8595;</button>
                                                         <button title="Delete version" onClick={() => setConfirmDeleteId(v.id)} style={VERSION_DELETE_BTN_STYLE}>&#128465;</button>
                                                     </span>
@@ -1024,24 +1169,57 @@ export function MathsPanel() {
                             </div>
                         ) : (
                             // Names only. Clicking a name opens its API docs + script
-                            // inspector in the editor's main area (not this sidebar).
+                            // inspector in the editor's main area (not this sidebar);
+                            // the three-dot menu on the right holds per-component actions.
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
                                 {[...selectedVersion.functions]
                                     .sort((a: any, b: any) => (a.function_slug || '').localeCompare(b.function_slug || ''))
                                     .map((fn: any) => (
-                                        <button
-                                            key={fn.id || fn.function_slug}
-                                            onClick={() => openComponentDoc(fn)}
-                                            title="Open API docs & script inspector"
-                                            style={COMPONENT_ROW_STYLE}
-                                        >
-                                            <span style={{
-                                                flex: 1, minWidth: 0,
-                                                fontSize: '12px', color: '#e0e0e0',
-                                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
-                                            }}>{fn.function_name || fn.function_slug}</span>
-                                            <span style={{ flexShrink: 0, fontSize: '13px', color: '#67DE92', lineHeight: 1 }}>&#8250;</span>
-                                        </button>
+                                        <div key={fn.id || fn.function_slug} style={COMPONENT_ROW_STYLE}>
+                                            <button
+                                                onClick={() => openComponentDoc(fn)}
+                                                title="Open API docs & script inspector"
+                                                style={COMPONENT_NAME_BTN_STYLE}
+                                            >
+                                                <span style={{
+                                                    flex: 1, minWidth: 0,
+                                                    fontSize: '12px', color: '#e0e0e0',
+                                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
+                                                }}>{fn.function_name || fn.function_slug}</span>
+                                                <span style={{ flexShrink: 0, fontSize: '13px', color: '#67DE92', lineHeight: 1 }}>&#8250;</span>
+                                            </button>
+
+                                            {componentActionId === fn.id ? (
+                                                <span style={{ fontSize: '10px', color: '#666' }}>Working&#8230;</span>
+                                            ) : (
+                                                <ContextMenu
+                                                    size={IconSize.Tiny}
+                                                    menuItems={[
+                                                        {
+                                                            label: 'Rename',
+                                                            icon: IconName.Pencil,
+                                                            onClick: () => {
+                                                                setRenameFn(fn);
+                                                                setRenameInput(fn.function_name || fn.function_slug || '');
+                                                                setRenameError(null);
+                                                            }
+                                                        },
+                                                        {
+                                                            label: 'Download',
+                                                            icon: IconName.CloudDownload,
+                                                            onClick: () => handleDownloadComponent(fn)
+                                                        },
+                                                        'divider',
+                                                        {
+                                                            label: 'Delete',
+                                                            icon: IconName.Trash,
+                                                            isDangerous: true,
+                                                            onClick: () => setConfirmDeleteFn(fn)
+                                                        }
+                                                    ]}
+                                                />
+                                            )}
+                                        </div>
                                     ))}
                             </div>
                         )}
@@ -1399,6 +1577,205 @@ export function MathsPanel() {
                                 </div>
                             </>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Rename Server Version modal ─── */}
+            {renameVersion && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 10000,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: 'rgba(0,0,0,0.6)',
+                }} onClick={() => { if (versionActionId !== renameVersion.id) setRenameVersion(null); }}>
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: '420px',
+                            backgroundColor: '#1e1e2e',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: '12px',
+                            padding: '24px',
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                        }}
+                    >
+                        <div style={{ marginBottom: '20px' }}>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>Rename v{renameVersion.version}</div>
+                            <div style={{ fontSize: '12px', color: '#888' }}>
+                                Renames the label shown in this list. The version number, its components and their
+                                function URLs are unchanged, so deployed frontends are unaffected.
+                            </div>
+                        </div>
+
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={MODAL_LABEL_STYLE}>Version Name</label>
+                            <input
+                                type="text"
+                                placeholder={`v${renameVersion.version}`}
+                                value={versionNameInput}
+                                onChange={(e) => { setVersionNameInput(e.target.value); setVersionRenameError(null); }}
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleRenameVersion(); }}
+                                style={MODAL_INPUT_STYLE}
+                                autoFocus
+                            />
+                        </div>
+
+                        {versionRenameError && (
+                            <div style={{ fontSize: '11px', color: '#EF4444', marginBottom: '12px' }}>{versionRenameError}</div>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                            <button
+                                onClick={() => setRenameVersion(null)}
+                                disabled={versionActionId === renameVersion.id}
+                                style={{
+                                    padding: '8px 16px', borderRadius: '6px',
+                                    border: '1px solid rgba(255,255,255,0.12)', backgroundColor: 'transparent',
+                                    color: '#a0a0b0', fontSize: '13px',
+                                    cursor: versionActionId === renameVersion.id ? 'not-allowed' : 'pointer',
+                                }}
+                            >Cancel</button>
+                            <button
+                                onClick={handleRenameVersion}
+                                disabled={versionActionId === renameVersion.id || !versionNameInput.trim()}
+                                style={{
+                                    padding: '8px 20px', borderRadius: '6px', border: 'none',
+                                    backgroundColor: versionActionId === renameVersion.id || !versionNameInput.trim() ? '#444' : '#67DE92',
+                                    color: versionActionId === renameVersion.id || !versionNameInput.trim() ? '#888' : '#1a1a2e',
+                                    fontSize: '13px', fontWeight: 700,
+                                    cursor: versionActionId === renameVersion.id || !versionNameInput.trim() ? 'not-allowed' : 'pointer',
+                                }}
+                            >{versionActionId === renameVersion.id ? 'Renaming…' : 'Rename'}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Rename Component modal (Components three-dot menu) ─── */}
+            {renameFn && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 10000,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: 'rgba(0,0,0,0.6)',
+                }} onClick={() => { if (componentActionId !== renameFn.id) setRenameFn(null); }}>
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: '420px',
+                            backgroundColor: '#1e1e2e',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: '12px',
+                            padding: '24px',
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                        }}
+                    >
+                        <div style={{ marginBottom: '20px' }}>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>Rename Component</div>
+                            <div style={{ fontSize: '12px', color: '#888' }}>
+                                Display name only — <span style={{ fontFamily: 'monospace' }}>{renameFn.function_slug}</span> and its
+                                function URL stay the same, so anything already calling this component keeps working.
+                            </div>
+                        </div>
+
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={MODAL_LABEL_STYLE}>Component Name</label>
+                            <input
+                                type="text"
+                                placeholder={renameFn.function_slug}
+                                value={renameInput}
+                                onChange={(e) => { setRenameInput(e.target.value); setRenameError(null); }}
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleRenameComponent(); }}
+                                style={MODAL_INPUT_STYLE}
+                                autoFocus
+                            />
+                        </div>
+
+                        {renameError && (
+                            <div style={{ fontSize: '11px', color: '#EF4444', marginBottom: '12px' }}>{renameError}</div>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                            <button
+                                onClick={() => setRenameFn(null)}
+                                disabled={componentActionId === renameFn.id}
+                                style={{
+                                    padding: '8px 16px', borderRadius: '6px',
+                                    border: '1px solid rgba(255,255,255,0.12)', backgroundColor: 'transparent',
+                                    color: '#a0a0b0', fontSize: '13px',
+                                    cursor: componentActionId === renameFn.id ? 'not-allowed' : 'pointer',
+                                }}
+                            >Cancel</button>
+                            <button
+                                onClick={handleRenameComponent}
+                                disabled={componentActionId === renameFn.id || !renameInput.trim()}
+                                style={{
+                                    padding: '8px 20px', borderRadius: '6px', border: 'none',
+                                    backgroundColor: componentActionId === renameFn.id || !renameInput.trim() ? '#444' : '#67DE92',
+                                    color: componentActionId === renameFn.id || !renameInput.trim() ? '#888' : '#1a1a2e',
+                                    fontSize: '13px', fontWeight: 700,
+                                    cursor: componentActionId === renameFn.id || !renameInput.trim() ? 'not-allowed' : 'pointer',
+                                }}
+                            >{componentActionId === renameFn.id ? 'Renaming…' : 'Rename'}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Delete Component confirmation (Components three-dot menu) ─── */}
+            {confirmDeleteFn && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 10000,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: 'rgba(0,0,0,0.6)',
+                }} onClick={() => setConfirmDeleteFn(null)}>
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: '420px',
+                            backgroundColor: '#1e1e2e',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: '12px',
+                            padding: '24px',
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                        }}
+                    >
+                        <div style={{ marginBottom: '20px' }}>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>
+                                Delete “{confirmDeleteFn.function_name || confirmDeleteFn.function_slug}”?
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#888' }}>
+                                Removes this component from v{selectedVersion?.version} only — the version's other
+                                components are left alone. This cannot be undone.
+                            </div>
+                        </div>
+
+                        {/* rgs-fn serves the newest active copy of a (game, slug) across ALL
+                            versions, so say what deleting this one actually does to players. */}
+                        {selectedVersion && isLiveComponent(versions, selectedVersion.id, confirmDeleteFn.function_slug) && (
+                            <div style={{ fontSize: '11px', color: '#E0B44A', marginBottom: '16px' }}>
+                                This is the copy the live endpoint currently serves. Deleting it promotes an older
+                                version's copy — or takes the endpoint offline if this was the only one.
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                            <button
+                                onClick={() => setConfirmDeleteFn(null)}
+                                style={{
+                                    padding: '8px 16px', borderRadius: '6px',
+                                    border: '1px solid rgba(255,255,255,0.12)', backgroundColor: 'transparent',
+                                    color: '#a0a0b0', fontSize: '13px', cursor: 'pointer',
+                                }}
+                            >Cancel</button>
+                            <button
+                                onClick={() => handleDeleteComponent(confirmDeleteFn)}
+                                style={{
+                                    padding: '8px 20px', borderRadius: '6px', border: 'none',
+                                    backgroundColor: '#EF4444', color: '#fff',
+                                    fontSize: '13px', fontWeight: 700, cursor: 'pointer',
+                                }}
+                            >Delete</button>
+                        </div>
                     </div>
                 </div>
             )}

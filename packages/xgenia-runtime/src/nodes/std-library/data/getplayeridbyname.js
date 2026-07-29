@@ -1,6 +1,7 @@
 'use strict';
 
 const { resolveSupabaseConfig } = require('./rgs-config');
+const { setCurrentPlayerId } = require('./rgs-play-context');
 
 // Get Player ID by Player Name
 // ----------------------------
@@ -133,6 +134,11 @@ const GetPlayerIdByNameNode = {
 
         this._internal.playerId = row.player_id;
         this._internal.isExistBefore = row.is_exist_before === true;
+
+        // This is a deployed game telling us who is playing. Remember it, so the
+        // rounds that follow are attributed to this player instead of the
+        // browser's anonymous guest. See rgs-play-context.js.
+        setCurrentPlayerId(row.player_id);
 
         this._internal.inspectData = {
           playerName: playerName,

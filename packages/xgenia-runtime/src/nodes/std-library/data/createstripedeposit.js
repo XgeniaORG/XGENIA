@@ -1,6 +1,7 @@
 'use strict';
 
-const { resolveSupabaseConfig } = require('./rgs-config');
+const { resolveSupabaseConfig, resolveRgsGame } = require('./rgs-config');
+const { setCurrentPlayerId } = require('./rgs-play-context');
 
 // Create Deposit (Stripe)
 // -----------------------
@@ -23,23 +24,48 @@ const { resolveSupabaseConfig } = require('./rgs-config');
 // Checkout (Stripe returns the player via success_url). In the Electron editor it
 // opens the user's external browser directly (no popup blocker there).
 //
-// Unlike the mock "Deposit Balance" node (which credits players.balance
+// Unlike the "Deposit Balance" node (which credits players.balance
 // immediately), this node moves NO balance itself. The balance is credited only
 // after the payment settles, by the `stripe-webhook` edge function calling the
 // `credit_stripe_deposit` RPC (idempotent by Stripe event id). The balance stays
 // a plain players.balance integer — we just gate the credit behind a real payment.
 //
-// It POSTs { playerID, amount } to the `create-checkout-session` edge function at
-// `${url}/functions/v1/create-checkout-session` (note: the mock data nodes hit
-// `/rest/v1/rpc/...` instead). `amount` is in minor units (e.g. cents) of the
-// player's currency, matching players.balance. Supabase connection (url + anon
-// key) is resolved the same way as the other RGS-backed nodes. See rgs-config.js.
+// That same RPC also records the deposit in the RGS `transactions` table as a
+// `Deposit (Stripe)` row with status `Done`, visible on the platform's
+// Transactions page, with the Stripe event id in external_tx_id so the row can be
+// traced back to the Stripe dashboard (see XRGS migration
+// 20260726120400_stripe_deposit_transaction.sql). The row is written inside the
+// event-id dedup, so a Stripe retry/resend records nothing further.
+//
+// It POSTs { playerID, amount, gameID } to the `create-checkout-session` edge
+// function at `${url}/functions/v1/create-checkout-session` (note: the RPC-backed
+// data nodes hit `/rest/v1/rpc/...` instead). `amount` is in minor units (e.g.
+// cents) of the player's currency, matching players.balance. Supabase connection
+// (url + anon key) is resolved the same way as the other RGS-backed nodes. See
+// rgs-config.js.
+//
+// `gameID` is the Target Game this project was published against, read from the
+// project's `rgsgame` metadata (see resolveRgsGame). It is stored in the Checkout
+// Session's metadata and read back by `stripe-webhook` when the payment settles, so
+// the deposit shows a game on the platform's Transactions page instead of "—".
+// Absent it, the deposit is credited and recorded exactly as before.
 
 const CreateStripeDepositNode = {
   name: 'CreateStripeDeposit',
   displayNodeName: 'Create Deposit (Stripe)',
   docs: 'https://docsapp.xgenia.com/nodes/data/cloud-data/create-deposit-stripe',
   category: 'Data',
+  // TEMPORARILY DISABLED (2026-07-26). `deprecated` hides the node from the node
+  // picker and the search index (NodePicker.utils.ts) and refuses new instances
+  // with a message (componentmodel.ts canCreateNode), while leaving every
+  // EXISTING instance loading, running and publishing exactly as before — which
+  // deleting the node or commenting out its registration would not: those turn
+  // saved projects that already use it into unknown-type graphs.
+  //
+  // Nothing else here is stubbed out, so re-enabling is deleting this one line
+  // (plus a viewer-bundle rebuild, since the editor reads node metadata from
+  // src/external/viewer/xgenia.viewer.js, not from this file).
+  deprecated: true,
   color: 'data',
   searchTags: ['balance', 'deposit', 'stripe', 'payment', 'checkout', 'pay', 'player', 'wallet', 'credit', 'funds', 'money', 'rgs', 'cloud', 'top up', 'top-up'],
   initialize: function () {
@@ -190,6 +216,11 @@ const CreateStripeDepositNode = {
       try {
         const playerID = (this.getInputValue('playerID') || this._internal.playerID || '').toString();
 
+        // A cashier node running means the game knows who is playing, even if it
+        // never used the Get Player ID node. Remember it so the rounds around
+        // this call are attributed to the same player. See rgs-play-context.js.
+        setCurrentPlayerId(playerID);
+
         const rawAmount = this.getInputValue('amount');
         const amount = Number(rawAmount !== undefined ? rawAmount : this._internal.amount);
 
@@ -204,6 +235,10 @@ const CreateStripeDepositNode = {
         if (!url || !anonKey) {
           throw new Error('No Supabase cloud service configured (missing url or anon key).');
         }
+
+        // Which game this deposit belongs to; empty in an editor preview and in
+        // projects published before the deploy flow started stamping it.
+        const game = resolveRgsGame(this);
 
         const endpoint = `${url}/functions/v1/create-checkout-session`;
 
@@ -232,7 +267,10 @@ const CreateStripeDepositNode = {
           },
           body: JSON.stringify({
             playerID: playerID,
-            amount: amount
+            amount: amount,
+            // Omitted when the project does not know its game; the edge function
+            // then leaves the game out of the Checkout Session's metadata.
+            gameID: game.id || undefined
           })
         });
 
@@ -273,6 +311,7 @@ const CreateStripeDepositNode = {
         this._internal.inspectData = {
           playerID: playerID,
           amount: amount,
+          game: game.name || game.id || '(none)',
           checkoutUrl: checkoutUrl,
           openMethod: openMethod,
           isSuccessful: true
