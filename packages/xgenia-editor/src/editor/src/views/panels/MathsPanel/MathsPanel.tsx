@@ -313,6 +313,14 @@ export function MathsPanel() {
     const [createError, setCreateError] = useState<string | null>(null);
     const [createForm, setCreateForm] = useState({ ...CREATE_DEFAULTS });
 
+    // Delete Game modal state. `deletePreview` is the server's account of what would
+    // be destroyed and what stands in the way (maths-deployer game-delete-preview);
+    // the modal is confirmation only, and every rule is enforced server-side.
+    const [deletePreview, setDeletePreview] = useState<any | null>(null);
+    const [deletePreviewLoading, setDeletePreviewLoading] = useState(false);
+    const [deletingGame, setDeletingGame] = useState(false);
+    const [deleteGameError, setDeleteGameError] = useState<string | null>(null);
+
     // Create Operator modal state. `newOperatorKey` holds the raw key returned once
     // by the RPC so it can be shown/copied before the modal closes.
     const [showOperatorModal, setShowOperatorModal] = useState(false);
@@ -709,6 +717,77 @@ export function MathsPanel() {
         setCreatingOperator(false);
     }, [operatorForm]);
 
+    // ─── Delete the selected game ───────────────────────────────
+    // Ask the server what deleting it would cost before showing any confirmation:
+    // whether it is deletable at all (a played game never is — its rounds, ledger
+    // entries and compliance reports are permanent), and what would be torn down
+    // with it (maths versions, server versions, and any PUBLISHED component
+    // endpoints a deployed frontend is calling).
+    const openDeleteGame = useCallback(async () => {
+        if (!settings?.apiKey || !selectedGame) return;
+        setDeleteGameError(null);
+        setDeletePreviewLoading(true);
+        setDeletePreview({ loading: true });
+        try {
+            const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+                method: 'POST',
+                headers: rgsHeaders(settings.apiKey),
+                body: JSON.stringify({ action: 'game-delete-preview', game_id: selectedGame }),
+            });
+            const data = await res.json();
+            if (!res.ok || data.error) {
+                setDeletePreview(null);
+                setUploadStatus({ type: 'error', message: data.error || 'Could not check the game' });
+                return;
+            }
+            setDeletePreview(data);
+        } catch (err) {
+            setDeletePreview(null);
+            setUploadStatus({ type: 'error', message: err instanceof Error ? err.message : 'Could not check the game' });
+        } finally {
+            setDeletePreviewLoading(false);
+        }
+    }, [settings, selectedGame]);
+
+    const confirmDeleteGame = useCallback(async () => {
+        if (!settings?.apiKey || !selectedGame || !deletePreview?.game) return;
+        setDeletingGame(true);
+        setDeleteGameError(null);
+        try {
+            const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+                method: 'POST',
+                headers: rgsHeaders(settings.apiKey),
+                body: JSON.stringify({
+                    action: 'delete-game',
+                    game_id: selectedGame,
+                    // The preview already told the user this would remove live
+                    // endpoints; acknowledging it here is what unlocks the delete.
+                    confirm_published: deletePreview.active_components > 0 ? true : undefined,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok || data.error) {
+                setDeleteGameError(data.error || 'Failed to delete the game');
+                return;
+            }
+
+            const name = data.name || deletePreview.game.name;
+            // Drop the selection and everything derived from it before refetching,
+            // so nothing renders against a game that no longer exists.
+            setSelectedGame(null);
+            (window as any).__xrgs?.setActiveGame?.(null);
+            setVersions(null);
+            setSelectedVersionId(null);
+            setDeletePreview(null);
+            setGames((prev) => (prev || []).filter((g: any) => g.id !== selectedGame));
+            setUploadStatus({ type: 'success', message: `Game "${name}" deleted` });
+        } catch (err) {
+            setDeleteGameError(err instanceof Error ? err.message : 'Failed to delete the game');
+        } finally {
+            setDeletingGame(false);
+        }
+    }, [settings, selectedGame, deletePreview]);
+
     const closeOperatorModal = useCallback(() => {
         setShowOperatorModal(false);
         setOperatorForm({ ...OPERATOR_DEFAULTS });
@@ -1037,12 +1116,27 @@ export function MathsPanel() {
                                                 backgroundColor: 'rgba(255,255,255,0.03)',
                                                 borderRadius: '4px',
                                                 display: 'flex',
+                                                alignItems: 'center',
                                                 flexWrap: 'wrap' as const,
                                                 gap: '8px',
                                             }}>
                                                 <span>{g.reel_rows}×{g.reel_cols}</span>
                                                 <span>RTP {(parseFloat(g.default_rtp) * 100).toFixed(1)}%</span>
                                                 <span>{g.volatility}</span>
+                                                {/* Deleting is scoped to games this operator owns and is
+                                                    refused server-side once a game has been played. */}
+                                                <span
+                                                    onClick={() => { if (!deletePreviewLoading) void openDeleteGame(); }}
+                                                    style={{
+                                                        marginLeft: 'auto',
+                                                        color: deletePreviewLoading ? '#666' : '#EF4444',
+                                                        cursor: deletePreviewLoading ? 'default' : 'pointer',
+                                                        userSelect: 'none' as const,
+                                                    }}
+                                                    title="Delete this game from XGENIA RGS"
+                                                >
+                                                    {deletePreviewLoading ? 'Checking…' : 'Delete game'}
+                                                </span>
                                             </div>
                                         </Box>
                                     );
@@ -1548,6 +1642,123 @@ export function MathsPanel() {
                                     cursor: creating || !createForm.name.trim() ? 'not-allowed' : 'pointer',
                                 }}
                             >{creating ? 'Creating…' : 'Create Game'}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Delete Game modal ─── */}
+            {deletePreview && !deletePreview.loading && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 10000,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: 'rgba(0,0,0,0.6)',
+                }} onClick={() => { if (!deletingGame) { setDeletePreview(null); setDeleteGameError(null); } }}>
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: '440px', maxHeight: '85vh', overflowY: 'auto',
+                            backgroundColor: '#1e1e2e',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: '12px',
+                            padding: '24px',
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                        }}
+                    >
+                        <div style={{ marginBottom: '16px' }}>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>
+                                {deletePreview.deletable ? 'Delete this game?' : 'This game cannot be deleted'}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#888' }}>
+                                {deletePreview.game?.name}
+                                <span style={{ color: '#666', fontFamily: 'monospace' }}> · {deletePreview.game?.slug}</span>
+                            </div>
+                        </div>
+
+                        {deletePreview.deletable ? (
+                            <>
+                                {/* What goes with it. */}
+                                {(deletePreview.cascades?.length > 0 || deletePreview.active_components > 0) ? (
+                                    <div style={{ marginBottom: '16px' }}>
+                                        <label style={MODAL_LABEL_STYLE}>This also removes</label>
+                                        <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '12px', color: '#c8c8d0', lineHeight: 1.7 }}>
+                                            {(deletePreview.cascades || []).map((c: any) => (
+                                                <li key={c.table}>{c.text || `${c.count} ${c.label}`}</li>
+                                            ))}
+                                            {deletePreview.active_components > 0 && (
+                                                <li style={{ color: '#E0B44A' }}>
+                                                    {deletePreview.active_components} published component{' '}
+                                                    {deletePreview.active_components === 1 ? 'endpoint' : 'endpoints'}
+                                                </li>
+                                            )}
+                                        </ul>
+                                    </div>
+                                ) : (
+                                    <div style={{ fontSize: '12px', color: '#c8c8d0', marginBottom: '16px' }}>
+                                        Nothing has been built on this game yet — it will simply be removed.
+                                    </div>
+                                )}
+
+                                {deletePreview.active_components > 0 && (
+                                    <div style={{
+                                        fontSize: '11px', color: '#E0B44A', marginBottom: '16px',
+                                        padding: '8px 10px', borderRadius: '6px',
+                                        backgroundColor: 'rgba(224,180,74,0.1)',
+                                        border: '1px solid rgba(224,180,74,0.3)',
+                                    }}>
+                                        Those endpoints are live. Any deployed frontend calling them will start failing
+                                        as soon as this game is deleted.
+                                    </div>
+                                )}
+
+                                <div style={{ fontSize: '11px', color: '#666', marginBottom: '16px' }}>
+                                    This cannot be undone.
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div style={{ marginBottom: '12px' }}>
+                                    <label style={MODAL_LABEL_STYLE}>Because it has</label>
+                                    <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '12px', color: '#c8c8d0', lineHeight: 1.7 }}>
+                                        {(deletePreview.blockers || []).map((b: any) => (
+                                            <li key={b.table}>{b.text || `${b.count} ${b.label}`}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                                <div style={{ fontSize: '11px', color: '#a0a0b0', marginBottom: '16px' }}>
+                                    That record is permanent. To take the game out of circulation while keeping its
+                                    history, set its status to “retired” in the RGS platform&apos;s Game Library.
+                                </div>
+                            </>
+                        )}
+
+                        {deleteGameError && (
+                            <div style={{ fontSize: '11px', color: '#EF4444', marginBottom: '12px' }}>{deleteGameError}</div>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                            <button
+                                onClick={() => { setDeletePreview(null); setDeleteGameError(null); }}
+                                disabled={deletingGame}
+                                style={{
+                                    padding: '8px 16px', borderRadius: '6px',
+                                    border: '1px solid rgba(255,255,255,0.12)', backgroundColor: 'transparent',
+                                    color: '#a0a0b0', fontSize: '13px', cursor: deletingGame ? 'not-allowed' : 'pointer',
+                                }}
+                            >{deletePreview.deletable ? 'Cancel' : 'Close'}</button>
+                            {deletePreview.deletable && (
+                                <button
+                                    onClick={confirmDeleteGame}
+                                    disabled={deletingGame}
+                                    style={{
+                                        padding: '8px 20px', borderRadius: '6px', border: 'none',
+                                        backgroundColor: deletingGame ? '#444' : '#EF4444',
+                                        color: deletingGame ? '#888' : '#fff',
+                                        fontSize: '13px', fontWeight: 700,
+                                        cursor: deletingGame ? 'not-allowed' : 'pointer',
+                                    }}
+                                >{deletingGame ? 'Deleting…' : 'Delete game'}</button>
+                            )}
                         </div>
                     </div>
                 </div>
