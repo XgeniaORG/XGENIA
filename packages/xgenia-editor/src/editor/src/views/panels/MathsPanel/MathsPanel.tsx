@@ -38,7 +38,12 @@ import {
     saveRgsSettings,
     clearRgsSettings,
     createOperator,
-    RgsSettings
+    fetchOperatorInfo,
+    formatOperatorFunds,
+    EDITOR_OPERATOR_MODES,
+    RgsSettings,
+    OperatorMode,
+    OperatorInfo
 } from '@xgenia-utils/rgs/rgsClient';
 
 // ─── Shared RGS test config (game + settings) ───────────────
@@ -180,9 +185,26 @@ const CREATE_DEFAULTS = { name: '', slug: '', description: '' };
 // Slug generation matches the RGS Game Library form's autoSlug.
 const autoSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
-// Create-operator defaults + option lists (values mirror the operator_connectors CHECK constraints).
-const OPERATOR_DEFAULTS = { name: '', wallet_mode: 'demo', currencies: 'EUR' };
-const WALLET_MODE_OPTIONS = ['demo', 'internal', 'seamless'];
+// Create-operator form — mirrors the RGS platform's "New Operator" form field for
+// field (Operator Name, Slug, Mode, Wallet Balance, Supported Currencies, Max Bet,
+// Max Win, IP Whitelist), with one deliberate difference: Mode offers only Demo and
+// Live. `internal` is superadmin over every game in the platform and is granted
+// from the RGS platform alone — see EDITOR_OPERATOR_MODES in rgsClient.
+//
+// wallet_balance / max_bet / max_win are held as strings because they are text
+// inputs; wallet_balance is entered in MAJOR units (what the platform shows) and
+// converted to cents on submit, while max bet/win are in cents, exactly as the
+// platform labels them.
+const OPERATOR_DEFAULTS = {
+    name: '',
+    slug: '',
+    mode: 'demo' as OperatorMode,
+    wallet_balance: '0.00',
+    currencies: 'EUR',
+    max_bet: '',
+    max_win: '',
+    allowed_ips: ''
+};
 
 const MODAL_LABEL_STYLE: React.CSSProperties = { display: 'block', fontSize: '11px', color: '#a0a0b0', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' };
 const MODAL_INPUT_STYLE: React.CSSProperties = { width: '100%', padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff', fontSize: '14px', outline: 'none', boxSizing: 'border-box' };
@@ -196,6 +218,28 @@ const VERSION_DELETE_BTN_STYLE: React.CSSProperties = { ...VERSION_BTN_STYLE, co
 const COMPONENT_ROW_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: '6px', marginBottom: '4px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: '#e0e0e0' };
 // The name part of that row — a transparent button filling the space left of the menu.
 const COMPONENT_NAME_BTN_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0, padding: 0, textAlign: 'left', background: 'transparent', border: 'none', color: '#e0e0e0', cursor: 'pointer' };
+
+/**
+ * One label/value line in the connected-operator summary under
+ * "Connected to XGENIA RGS".
+ */
+const OperatorDetail = ({ label, value, isNegative }: { label: string; value: string; isNegative?: boolean }) => (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', fontSize: '11px', lineHeight: 1.4 }}>
+        <span style={{ color: '#7a7a8a', flexShrink: 0 }}>{label}</span>
+        <span
+            style={{
+                color: isNegative ? '#EF4444' : '#c8c8d0',
+                fontWeight: 500,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+            }}
+            title={value}
+        >
+            {value}
+        </span>
+    </div>
+);
 
 /**
  * Whether `deploymentId` holds the copy of `slug` that the public rgs-fn
@@ -277,6 +321,11 @@ export function MathsPanel() {
     const [operatorForm, setOperatorForm] = useState({ ...OPERATOR_DEFAULTS });
     const [newOperatorKey, setNewOperatorKey] = useState<string | null>(null);
 
+    // The operator this key belongs to — name, mode and remaining wallet funds,
+    // shown under "Connected to XGENIA RGS". Null while loading or if the lookup
+    // fails; the detail line is simply omitted then rather than showing a blank.
+    const [operatorInfo, setOperatorInfo] = useState<OperatorInfo | null>(null);
+
     const connected = !!settings;
 
     // The version whose components the Components sub-section renders. Defaults to
@@ -307,6 +356,21 @@ export function MathsPanel() {
             }
         });
     };
+
+    // Who are we connected as? Fetched alongside the games list so the connection
+    // block can name the operator, its mode and its remaining wallet funds. The
+    // wallet figure moves with play, so it is refreshed whenever the games list is.
+    const loadOperatorInfo = useCallback(async () => {
+        if (!settings?.apiKey) { setOperatorInfo(null); return; }
+        try {
+            setOperatorInfo(await fetchOperatorInfo(settings.apiKey));
+        } catch (err) {
+            console.error('[MathsPanel] operator-info failed:', err);
+            setOperatorInfo(null);
+        }
+    }, [settings]);
+
+    useEffect(() => { void loadOperatorInfo(); }, [loadOperatorInfo]);
 
     // Load games when connected
     useEffect(() => {
@@ -606,6 +670,13 @@ export function MathsPanel() {
         const name = operatorForm.name.trim();
         if (!name) { setOperatorError('Enter an operator name'); return; }
 
+        // Entered in major units, stored in cents — same as the platform's form.
+        const funds = Math.round(parseFloat(operatorForm.wallet_balance || '0') * 100);
+        if (!Number.isFinite(funds) || funds < 0) {
+            setOperatorError('Wallet balance must be zero or more');
+            return;
+        }
+
         setCreatingOperator(true);
         setOperatorError(null);
         try {
@@ -613,10 +684,19 @@ export function MathsPanel() {
                 .split(',')
                 .map((c) => c.trim().toUpperCase())
                 .filter(Boolean);
+            const allowedIps = operatorForm.allowed_ips
+                .split(',')
+                .map((ip) => ip.trim())
+                .filter(Boolean);
             const result = await createOperator({
                 name,
-                walletMode: operatorForm.wallet_mode as 'demo' | 'internal' | 'seamless',
+                slug: operatorForm.slug.trim() || undefined,
+                mode: operatorForm.mode,
                 currencies: currencies.length ? currencies : ['EUR'],
+                walletBalance: funds,
+                maxBet: operatorForm.max_bet ? parseInt(operatorForm.max_bet, 10) : null,
+                maxWin: operatorForm.max_win ? parseInt(operatorForm.max_win, 10) : null,
+                allowedIps,
             });
             // Connect immediately using the freshly minted key (same as handleConnect).
             saveRgsSettings(result.api_key);
@@ -790,26 +870,51 @@ export function MathsPanel() {
                 <div style={{ flexShrink: 0, maxHeight: '50%', overflowY: 'auto', overflowX: 'hidden' }}>
                 <Box hasXSpacing hasYSpacing>
                     <VStack>
-                        {/* Connection Status */}
+                        {/* Connection Status — plus, once connected, which operator
+                            the key belongs to: name, mode and remaining wallet
+                            fund. Internal mode has no wallet, so it reports that
+                            rather than a zero balance. */}
                         <Box hasBottomSpacing>
                             <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
                                 padding: '8px 12px',
                                 borderRadius: '6px',
                                 backgroundColor: connected ? 'rgba(103, 222, 146, 0.1)' : 'rgba(255, 255, 255, 0.05)',
                                 border: `1px solid ${connected ? 'rgba(103, 222, 146, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`,
                             }}>
-                                <div style={{
-                                    width: '8px',
-                                    height: '8px',
-                                    borderRadius: '50%',
-                                    backgroundColor: connected ? '#67DE92' : '#666',
-                                }} />
-                                <span style={{ fontSize: '13px', color: '#e0e0e0' }}>
-                                    {connected ? 'Connected to XGENIA RGS' : 'Not connected'}
-                                </span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div style={{
+                                        width: '8px',
+                                        height: '8px',
+                                        borderRadius: '50%',
+                                        backgroundColor: connected ? '#67DE92' : '#666',
+                                        flexShrink: 0,
+                                    }} />
+                                    <span style={{ fontSize: '13px', color: '#e0e0e0' }}>
+                                        {connected ? 'Connected to XGENIA RGS' : 'Not connected'}
+                                    </span>
+                                </div>
+
+                                {connected && operatorInfo && (
+                                    <div style={{ marginTop: '8px', paddingLeft: '16px', display: 'grid', gap: '3px' }}>
+                                        <OperatorDetail
+                                            label="Operator"
+                                            value={operatorInfo.name || operatorInfo.operator_slug}
+                                        />
+                                        <OperatorDetail
+                                            label="Mode"
+                                            value={operatorInfo.mode.charAt(0).toUpperCase() + operatorInfo.mode.slice(1)}
+                                        />
+                                        <OperatorDetail
+                                            label="Wallet fund"
+                                            value={
+                                                operatorInfo.wallet_balance === null
+                                                    ? 'No wallet'
+                                                    : formatOperatorFunds(operatorInfo.wallet_balance, operatorInfo.currency)
+                                            }
+                                            isNegative={(operatorInfo.wallet_balance ?? 0) < 0}
+                                        />
+                                    </div>
+                                )}
                             </div>
                         </Box>
 
@@ -834,6 +939,10 @@ export function MathsPanel() {
                                             onClick={async () => {
                                                 if (!settings?.apiKey) return;
                                                 setGames(null); // show loading
+                                                // The wallet fund moves with every
+                                                // round, so refresh it alongside the
+                                                // games list.
+                                                void loadOperatorInfo();
                                                 try {
                                                     const r = await fetch(`${XRGS_URL}/maths-deployer`, {
                                                         method: 'POST',
@@ -1505,47 +1614,127 @@ export function MathsPanel() {
                             </>
                         ) : (
                             <>
-                                {/* Name */}
+                                {/* Name + slug — as on the platform's form, the slug
+                                    is derived from the name until the user edits it. */}
                                 <div style={{ marginBottom: '16px' }}>
                                     <label style={MODAL_LABEL_STYLE}>Operator Name</label>
                                     <input
                                         type="text"
                                         placeholder="e.g. Acme Casino"
                                         value={operatorForm.name}
-                                        onChange={(e) => { setOperatorForm({ ...operatorForm, name: e.target.value }); setOperatorError(null); }}
+                                        onChange={(e) => {
+                                            setOperatorForm({
+                                                ...operatorForm,
+                                                name: e.target.value,
+                                                slug: autoSlug(e.target.value),
+                                            });
+                                            setOperatorError(null);
+                                        }}
                                         onKeyDown={(e) => { if (e.key === 'Enter') handleCreateOperator(); }}
                                         style={MODAL_INPUT_STYLE}
                                         autoFocus
                                     />
                                 </div>
 
-                                {/* Wallet mode + currencies */}
-                                <div style={{ display: 'flex', gap: '12px', marginBottom: '8px' }}>
+                                <div style={{ marginBottom: '16px' }}>
+                                    <label style={MODAL_LABEL_STYLE}>Slug</label>
+                                    <input
+                                        type="text"
+                                        placeholder="acme-casino"
+                                        value={operatorForm.slug}
+                                        onChange={(e) => setOperatorForm({ ...operatorForm, slug: e.target.value })}
+                                        style={MODAL_INPUT_STYLE}
+                                    />
+                                    <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>Used in API URLs.</div>
+                                </div>
+
+                                {/* Mode — Demo and Live only. Internal is superadmin
+                                    over every game and is granted from the RGS
+                                    platform alone. */}
+                                <div style={{ marginBottom: '16px' }}>
+                                    <label style={MODAL_LABEL_STYLE}>Mode</label>
+                                    <select
+                                        value={operatorForm.mode}
+                                        onChange={(e) => setOperatorForm({ ...operatorForm, mode: e.target.value as OperatorMode })}
+                                        style={{ ...MODAL_INPUT_STYLE, appearance: 'none', cursor: 'pointer' }}
+                                    >
+                                        {EDITOR_OPERATOR_MODES.map((m) => (
+                                            <option key={m.value} value={m.value} style={{ background: '#1a1a2e' }}>{m.label}</option>
+                                        ))}
+                                    </select>
+                                    <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
+                                        {EDITOR_OPERATOR_MODES.find((m) => m.value === operatorForm.mode)?.blurb}
+                                        {' '}Internal mode is created from the RGS platform only.
+                                    </div>
+                                </div>
+
+                                {/* Wallet — the funding behind this operator's games. */}
+                                <div style={{ marginBottom: '16px' }}>
+                                    <label style={MODAL_LABEL_STYLE}>
+                                        Wallet Balance ({operatorForm.currencies.split(',')[0]?.trim() || 'EUR'})
+                                    </label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        placeholder="1000000.00"
+                                        value={operatorForm.wallet_balance}
+                                        onChange={(e) => { setOperatorForm({ ...operatorForm, wallet_balance: e.target.value }); setOperatorError(null); }}
+                                        style={MODAL_INPUT_STYLE}
+                                    />
+                                    <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
+                                        Funding for the games this operator owns. Player losses credit it; player wins are paid out of it.
+                                    </div>
+                                </div>
+
+                                {/* Currencies + bet limits */}
+                                <div style={{ marginBottom: '16px' }}>
+                                    <label style={MODAL_LABEL_STYLE}>Supported Currencies</label>
+                                    <input
+                                        type="text"
+                                        placeholder="EUR, USD, GBP"
+                                        value={operatorForm.currencies}
+                                        onChange={(e) => setOperatorForm({ ...operatorForm, currencies: e.target.value })}
+                                        style={MODAL_INPUT_STYLE}
+                                    />
+                                    <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>Comma-separated ISO codes.</div>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
                                     <div style={{ flex: 1 }}>
-                                        <label style={MODAL_LABEL_STYLE}>Wallet Mode</label>
-                                        <select
-                                            value={operatorForm.wallet_mode}
-                                            onChange={(e) => setOperatorForm({ ...operatorForm, wallet_mode: e.target.value })}
-                                            style={{ ...MODAL_INPUT_STYLE, appearance: 'none', cursor: 'pointer' }}
-                                        >
-                                            {WALLET_MODE_OPTIONS.map((m) => (
-                                                <option key={m} value={m} style={{ background: '#1a1a2e' }}>{m}</option>
-                                            ))}
-                                        </select>
+                                        <label style={MODAL_LABEL_STYLE}>Max Bet (cents)</label>
+                                        <input
+                                            type="number"
+                                            placeholder="100000"
+                                            value={operatorForm.max_bet}
+                                            onChange={(e) => setOperatorForm({ ...operatorForm, max_bet: e.target.value })}
+                                            style={MODAL_INPUT_STYLE}
+                                        />
                                     </div>
                                     <div style={{ flex: 1 }}>
-                                        <label style={MODAL_LABEL_STYLE}>Currencies</label>
+                                        <label style={MODAL_LABEL_STYLE}>Max Win (cents)</label>
                                         <input
-                                            type="text"
-                                            placeholder="EUR, USD"
-                                            value={operatorForm.currencies}
-                                            onChange={(e) => setOperatorForm({ ...operatorForm, currencies: e.target.value })}
+                                            type="number"
+                                            placeholder="5000000"
+                                            value={operatorForm.max_win}
+                                            onChange={(e) => setOperatorForm({ ...operatorForm, max_win: e.target.value })}
                                             style={MODAL_INPUT_STYLE}
                                         />
                                     </div>
                                 </div>
-                                <div style={{ fontSize: '10px', color: '#666', marginBottom: '16px' }}>
-                                    Comma-separated currency codes. New operators are created with status “testing” — an admin promotes them to “active” from the RGS platform.
+
+                                <div style={{ marginBottom: '16px' }}>
+                                    <label style={MODAL_LABEL_STYLE}>IP Whitelist</label>
+                                    <input
+                                        type="text"
+                                        placeholder="1.2.3.4, 5.6.7.8"
+                                        value={operatorForm.allowed_ips}
+                                        onChange={(e) => setOperatorForm({ ...operatorForm, allowed_ips: e.target.value })}
+                                        style={MODAL_INPUT_STYLE}
+                                    />
+                                    <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
+                                        Comma-separated. Leave blank to allow all IPs.
+                                    </div>
                                 </div>
 
                                 {operatorError && (
