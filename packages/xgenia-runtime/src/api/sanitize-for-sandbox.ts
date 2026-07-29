@@ -17,6 +17,161 @@
  * The eval-strip rules stay as defense-in-depth for any other generator that
  * regresses into emitting eval.
  */
+/** `/` starts a regex literal (not a division) after these tokens. */
+const REGEX_PRECEDING_KEYWORDS = new Set([
+    'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void',
+    'case', 'do', 'else', 'yield', 'await', 'throw'
+]);
+
+/**
+ * Strip `//` line comments and block comments WITHOUT touching text that only
+ * looks like a comment because it sits inside a string, template or regex.
+ *
+ * WHY THIS IS NOT A REGEX (2026-07-29, Keno Dynasty deploy): this used to be
+ * `s.replace(/\/\/.*$/gm, '')`, which ate the tail of every URL in a user
+ * script — `const url = "https://x.supabase.co/functions/v1/keno-controller"`
+ * came out of the generator as `const url = "https:` , an unterminated string
+ * literal. The deployed edge function then failed to compile, and because the
+ * RGS sandbox runs its denylist BEFORE compiling, the operator saw whatever
+ * generic error came first instead of "your URL got truncated". Any `//` inside
+ * a literal hit this: URLs, protocol-relative paths, regexes like /a\/\/b/.
+ *
+ * Comments are still stripped in code position, which is the point of doing this
+ * at all — a comment mentioning `fetch(` or `Deno` would trip the sandbox's
+ * source-level denylist even though the code never calls either.
+ */
+function stripCommentsPreservingLiterals(src: string): string {
+    let out = '';
+    let i = 0;
+    const n = src.length;
+
+    // A `${ ... }` inside a template literal is code, which may itself contain a
+    // template. `templateBraceDepth` remembers the brace depth each open
+    // interpolation started at, so the matching `}` returns us to template text.
+    const templateBraceDepth: number[] = [];
+    let braceDepth = 0;
+    let inTemplate = false;
+
+    /** Whether a `/` here opens a regex literal rather than being division. */
+    const regexCanStart = (): boolean => {
+        const tail = out.replace(/\s+$/, '');
+        if (!tail) return true;
+        const word = /[A-Za-z_$][\w$]*$/.exec(tail);
+        if (word) return REGEX_PRECEDING_KEYWORDS.has(word[0]);
+        return '(,=:[!&|?{};+-*%~^<>'.includes(tail[tail.length - 1]);
+    };
+
+    while (i < n) {
+        const c = src[i];
+        const next = i + 1 < n ? src[i + 1] : '';
+
+        if (inTemplate) {
+            if (c === '\\') {
+                out += c + (next || '');
+                i += 2;
+            } else if (c === '`') {
+                inTemplate = false;
+                out += c;
+                i++;
+            } else if (c === '$' && next === '{') {
+                templateBraceDepth.push(braceDepth);
+                inTemplate = false;
+                out += '${';
+                i += 2;
+            } else {
+                out += c;
+                i++;
+            }
+            continue;
+        }
+
+        // ── code position ──
+        if (c === '/' && next === '/') {
+            while (i < n && src[i] !== '\n') i++;
+            continue;
+        }
+        if (c === '/' && next === '*') {
+            const end = src.indexOf('*/', i + 2);
+            i = end === -1 ? n : end + 2;
+            continue;
+        }
+        if (c === '"' || c === "'") {
+            const quote = c;
+            out += c;
+            i++;
+            while (i < n) {
+                if (src[i] === '\\') {
+                    out += src.slice(i, i + 2);
+                    i += 2;
+                    continue;
+                }
+                out += src[i];
+                // An unterminated string (newline before the closing quote) is a
+                // pre-existing syntax error; stop consuming so the rest of the
+                // file is still scanned as code rather than swallowed as string.
+                if (src[i] === quote || src[i] === '\n') {
+                    i++;
+                    break;
+                }
+                i++;
+            }
+            continue;
+        }
+        if (c === '`') {
+            inTemplate = true;
+            out += c;
+            i++;
+            continue;
+        }
+        if (c === '}' && templateBraceDepth.length && braceDepth === templateBraceDepth[templateBraceDepth.length - 1]) {
+            templateBraceDepth.pop();
+            inTemplate = true;
+            out += c;
+            i++;
+            continue;
+        }
+        if (c === '{') {
+            braceDepth++;
+            out += c;
+            i++;
+            continue;
+        }
+        if (c === '}') {
+            if (braceDepth > 0) braceDepth--;
+            out += c;
+            i++;
+            continue;
+        }
+        if (c === '/' && regexCanStart()) {
+            // Consume /pattern/flags. `/` inside a [...] class is literal.
+            let j = i + 1;
+            let inClass = false;
+            let closed = false;
+            while (j < n) {
+                const rc = src[j];
+                if (rc === '\\') { j += 2; continue; }
+                if (rc === '\n') break;              // not a regex after all
+                if (inClass) { if (rc === ']') inClass = false; }
+                else if (rc === '[') inClass = true;
+                else if (rc === '/') { closed = true; j++; break; }
+                j++;
+            }
+            if (closed) {
+                while (j < n && /[a-z]/.test(src[j])) j++; // flags
+                out += src.slice(i, j);
+                i = j;
+                continue;
+            }
+            // Fall through: treat as a plain division operator.
+        }
+
+        out += c;
+        i++;
+    }
+
+    return out;
+}
+
 export function sanitizeForSandbox(script: string): string {
     let s = script;
 
@@ -104,11 +259,11 @@ export function sanitizeForSandbox(script: string): string {
     // Also catch standalone Deno word that might remain
     s = s.replace(/\btypeof\s+Deno\b/g, 'typeof undefined');
 
-    // 5. Strip single-line comments that might contain blocked words
-    s = s.replace(/\/\/.*$/gm, '');
-
-    // 6. Strip multi-line comments
-    s = s.replace(/\/\*[\s\S]*?\*\//g, '');
+    // 5 + 6. Strip line and block comments (they can contain words the sandbox
+    // denylist rejects), but never touch a `//` that lives inside a string,
+    // template or regex — see stripCommentsPreservingLiterals for the URL-eating
+    // regression this replaced.
+    s = stripCommentsPreservingLiterals(s);
 
     // 7. Clean up multiple blank lines
     s = s.replace(/\n{3,}/g, '\n\n');
