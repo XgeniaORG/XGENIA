@@ -397,6 +397,12 @@ function defineNode(opts) {
     name: opts.name,
     displayNodeName: opts.displayNodeName || opts.displayName,
     deprecated: opts.deprecated,
+    // A node that reaches the RGS platform / backend services itself (edge
+    // functions, /rest/v1 RPCs, the Supabase client via CloudStore/UserService,
+    // an RGS SDK). Such nodes are never candidates for backend extraction, so
+    // they don't get the Compile `isMath` deployment toggle — see
+    // nodelibraryexport.js and compile/util.ts.
+    usesBackendServices: opts.usesBackendServices,
     haveComponentPorts: opts.haveComponentPorts,
     version: opts.version,
     module: opts.module,

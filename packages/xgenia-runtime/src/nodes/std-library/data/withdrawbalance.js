@@ -43,6 +43,9 @@ const WithdrawBalanceNode = {
   docs: 'https://docsapp.xgenia.com/nodes/data/cloud-data/withdraw-balance',
   category: 'Data',
   color: 'data',
+  // Calls the RGS platform itself (POST /rest/v1/rpc/withdraw_balance), so it never
+  // routes to a generated backend edge function: no `isMath` toggle.
+  usesBackendServices: true,
   searchTags: ['balance', 'withdraw', 'withdrawal', 'player', 'wallet', 'debit', 'funds', 'money', 'rgs', 'cloud', 'subtract', 'cash out', 'cashout', 'payout'],
   initialize: function () {
     this._internal.playerID = '';

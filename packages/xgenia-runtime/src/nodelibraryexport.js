@@ -11,6 +11,27 @@ var ISMATH_NON_LOGIC_CATEGORIES = {
   'Component Utilities': true
 };
 
+// Categories whose nodes ARE the backend / talk to it themselves: cloud function
+// gateways, the deployed-function caller, the cloud DB + auth + storage nodes.
+// They already depend on RGS/backend services from their own implementation, so
+// "compile me into a backend edge function" is not a choice they have — they get
+// no `isMath` toggle and the compiler never extracts them (compile/util.ts).
+// Individual nodes in other categories (e.g. the RGS player/balance/session nodes
+// under 'Data', the Stake Engine RGS nodes) declare `usesBackendServices: true`
+// in their own definition instead.
+var ISMATH_BACKEND_SERVICE_CATEGORIES = {
+  Cloud: true,
+  'Cloud Functions': true,
+  'Cloud Services': true
+};
+
+function usesBackendServices(nodeMetadata) {
+  return !!(
+    nodeMetadata.usesBackendServices === true ||
+    (nodeMetadata.category && ISMATH_BACKEND_SERVICE_CATEGORIES[nodeMetadata.category])
+  );
+}
+
 function formatDynamicPorts(nodeMetadata) {
   const dynamicports = [];
 
@@ -437,15 +458,25 @@ function generateNodeLibrary(nodeRegister) {
     // unchanged (a node with no stored value reads as true at Compile time).
     // Visual/page/navigation nodes, the Component Inputs/Outputs gateways and the
     // compile-internal Aggregator never route to a backend, so they don't get it.
+    // Neither do nodes that ALREADY call the RGS platform / backend services from
+    // their own implementation (`usesBackendServices`) — asking to deploy those as
+    // backend nodes is meaningless: they depend on those services either way, and
+    // most of them need a browser (session, launch URL, redirect, popup) to work.
+    // Re-emit the flag so the editor-side compiler can honour it (compile/util.ts).
     // `allowEditOnly` makes it an editable property (not a connectable port).
     var isVisualNode =
       nodeMetadata.category === 'Visual' ||
       nodeMetadata.allowAsChild === true ||
       nodeMetadata.allowChildren === true;
     var alreadyHasIsMath = !!(nodeMetadata.inputs && nodeMetadata.inputs.isMath);
+    var isBackendServiceNode = usesBackendServices(nodeMetadata);
+    if (isBackendServiceNode) {
+      nodeObj.usesBackendServices = true;
+    }
     if (
       !isVisualNode &&
       !alreadyHasIsMath &&
+      !isBackendServiceNode &&
       !nodeMetadata.haveComponentPorts &&
       !(nodeMetadata.category && ISMATH_NON_LOGIC_CATEGORIES[nodeMetadata.category]) &&
       nodeMetadata.name !== 'Aggregator'

@@ -85,6 +85,25 @@ export function isVisualType(type: any): boolean {
 // in the visual component (Page Inputs, Routers, Component Inputs/Outputs, …).
 const NON_LOGIC_CATEGORIES = new Set(['Navigation', 'Visual', 'Visuals', 'Component Utilities']);
 
+// Nodes that already reach the RGS platform / backend services from their own
+// implementation — cloud function gateways and callers, the cloud DB/auth/storage
+// nodes, the RGS player/balance/session nodes, the Stake Engine RGS nodes.
+// Extracting them into a generated edge function makes no sense: they depend on
+// those services from wherever they run, and most need the browser (Supabase
+// session, launch-URL query params, redirects, a Stripe popup) to work at all.
+// So they carry no `isMath` toggle (nodelibraryexport.js drops the injection and
+// re-emits `usesBackendServices`) and they are excluded here BEFORE the isMath
+// resolution below, so a value stored on an old node instance can't resurrect the
+// extraction. The category list is a duplicate of the runtime's
+// ISMATH_BACKEND_SERVICE_CATEGORIES — it keeps this correct against a viewer
+// bundle that predates the flag.
+const BACKEND_SERVICE_CATEGORIES = new Set(['Cloud', 'Cloud Functions', 'Cloud Services']);
+
+function usesBackendServices(type: any): boolean {
+  if (!type) return false;
+  return type.usesBackendServices === true || BACKEND_SERVICE_CATEGORIES.has(type.category);
+}
+
 function isLogicComponentInstance(node: any): boolean {
   if (!isComponentInstance(node)) return false;
   try {
@@ -142,6 +161,7 @@ export function collectLogicRoots(comp: any): any[] {
     else if (isVisualType(type)) isLogic = false;
     else if (type.haveComponentPorts) isLogic = false; // Component Inputs / Outputs
     else if (type.category && NON_LOGIC_CATEGORIES.has(type.category)) isLogic = false;
+    else if (usesBackendServices(type)) isLogic = false; // already backend/RGS-backed
     else isLogic = true;
     if (!isLogic) return false;
     // Deployment target (the `isMath` toggle). A non-visual node / logic-component

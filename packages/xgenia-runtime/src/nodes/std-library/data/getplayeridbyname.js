@@ -24,6 +24,9 @@ const GetPlayerIdByNameNode = {
   docs: 'https://docsapp.xgenia.com/nodes/data/cloud-data/get-player-id-by-name',
   category: 'Data',
   color: 'data',
+  // Calls the RGS platform itself (POST /rest/v1/rpc/get_or_create_player_by_name),
+  // so it never routes to a generated backend edge function: no `isMath` toggle.
+  usesBackendServices: true,
   searchTags: ['player', 'id', 'name', 'display name', 'rgs', 'cloud', 'lookup', 'find', 'create'],
   initialize: function () {
     this._internal.playerName = '';
