@@ -24,6 +24,7 @@ import {
 } from '@xgenia-utils/rgs/deployEdgeFunction';
 import { AppRegistry } from '@xgenia-models/app_registry';
 import { MathsComponentDocumentProvider } from '../../documents/MathsComponentDocument';
+import { MathsSimulateDocumentProvider } from '../../documents/MathsSimulateDocument';
 
 
 // ─── RGS Connection ─────────────────────────────────────────
@@ -214,7 +215,7 @@ const VERSION_DELETE_BTN_STYLE: React.CSSProperties = { ...VERSION_BTN_STYLE, co
 
 // A component row in the Components sub-section: the name opens the component's
 // API docs + script inspector in the editor's main area, and the three-dot menu
-// on the far right holds its rename / download / delete actions.
+// on the far right holds its rename / simulate / download / delete actions.
 const COMPONENT_ROW_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: '6px', marginBottom: '4px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: '#e0e0e0' };
 // The name part of that row — a transparent button filling the space left of the menu.
 const COMPONENT_NAME_BTN_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0, padding: 0, textAlign: 'left', background: 'transparent', border: 'none', color: '#e0e0e0', cursor: 'pointer' };
@@ -361,6 +362,30 @@ export function MathsPanel() {
                 function_url: fn.function_url,
                 payload_example: fn.payload_example,
                 response_example: fn.response_example
+            }
+        });
+    };
+
+    // Open a component's Simulate view in the editor's MAIN area — the same
+    // Define Inputs → Simulate → Results flow as a game's Testing subsection in
+    // the RGS studio, run locally against the deployed script. The document
+    // fetches that script itself via download-edge-deployment.
+    const openComponentSimulate = (fn: any) => {
+        if (!settings?.apiKey || !selectedVersion) return;
+        AppRegistry.instance.openDocument(MathsSimulateDocumentProvider.ID, {
+            apiKey: settings.apiKey,
+            deploymentId: selectedVersion.id,
+            version: selectedVersion.version,
+            gameName: (games || []).find((g: any) => g.id === selectedGame)?.name,
+            fn: {
+                function_slug: fn.function_slug,
+                function_name: fn.function_name,
+                payload_example: fn.payload_example,
+                response_example: fn.response_example,
+                // The bet/win mapping chosen in the post-compile setup card at
+                // publish time; the view defaults its pickers to these.
+                bet_input_port: fn.bet_input_port,
+                win_output_port: fn.win_output_port
             }
         });
     };
@@ -1406,6 +1431,11 @@ export function MathsPanel() {
                                                                 setRenameInput(fn.function_name || fn.function_slug || '');
                                                                 setRenameError(null);
                                                             }
+                                                        },
+                                                        {
+                                                            label: 'Simulate',
+                                                            icon: IconName.Play,
+                                                            onClick: () => openComponentSimulate(fn)
                                                         },
                                                         {
                                                             label: 'Download',

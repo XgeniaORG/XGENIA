@@ -10,6 +10,7 @@ import config from '../../shared/config/config';
 import { ComponentDiffDocumentProvider } from './views/documents/ComponentDiffDocument';
 import { EditorDocumentProvider } from './views/documents/EditorDocument';
 import { MathsComponentDocumentProvider } from './views/documents/MathsComponentDocument';
+import { MathsSimulateDocumentProvider } from './views/documents/MathsSimulateDocument';
 import { NodePickerPanel } from './views/NodePicker/NodePickerPanel';
 // ChatPanel: proprietary AI module loaded via iframe (GPL-isolated) or symlink (legacy).
 // Falls back to a GPL-3 shell if neither is available.
@@ -281,6 +282,7 @@ export function installDocuments() {
 
   appRegistry.registerDocumentProvider(ComponentDiffDocumentProvider.ID, new ComponentDiffDocumentProvider());
   appRegistry.registerDocumentProvider(MathsComponentDocumentProvider.ID, new MathsComponentDocumentProvider());
+  appRegistry.registerDocumentProvider(MathsSimulateDocumentProvider.ID, new MathsSimulateDocumentProvider());
 
   if (import.meta.webpackHot) {
     import.meta.webpackHot.accept('./views/documents/EditorDocument', () => {
@@ -296,6 +298,12 @@ export function installDocuments() {
       AppRegistry.instance.registerDocumentProvider(
         MathsComponentDocumentProvider.ID,
         new MathsComponentDocumentProvider()
+      );
+    });
+    import.meta.webpackHot.accept('./views/documents/MathsSimulateDocument', () => {
+      AppRegistry.instance.registerDocumentProvider(
+        MathsSimulateDocumentProvider.ID,
+        new MathsSimulateDocumentProvider()
       );
     });
   }
