@@ -42,8 +42,11 @@ import {
     fetchOperatorInfo,
     formatOperatorFunds,
     EDITOR_OPERATOR_MODES,
+    GAME_MODES,
+    gameModesForOperatorMode,
     RgsSettings,
     OperatorMode,
+    GameMode,
     OperatorInfo
 } from '@xgenia-utils/rgs/rgsClient';
 
@@ -177,11 +180,16 @@ function mergeRgsSettings(patch: Record<string, any>): void {
 
 export const MathsPanel_ID = 'maths-panel';
 
-// Create-game form — mirrors the RGS platform's "Game Library" create form exactly
-// (Game Name, Slug, Description). Everything else (game type, RTP, bets, volatility,
-// reel dimensions, version) is filled in by the games-table defaults on the backend,
+// Create-game form — mirrors the RGS platform's "Game Library" create form
+// (Game Name, Slug, Description, Mode), minus its Owner field: a game created from
+// here is owned by the operator whose key the editor is connected with, so there is
+// nothing to pick. Everything else (game type, RTP, bets, volatility, reel
+// dimensions, version) is filled in by the games-table defaults on the backend,
 // same as a game created from the RGS platform.
-const CREATE_DEFAULTS = { name: '', slug: '', description: '' };
+//
+// Mode is whether real money moves through the game. Which values are offered
+// depends on the connected key — see gameModesForOperatorMode.
+const CREATE_DEFAULTS = { name: '', slug: '', description: '', mode: 'demo' as GameMode };
 
 // Slug generation matches the RGS Game Library form's autoSlug.
 const autoSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -641,15 +649,22 @@ export function MathsPanel() {
         setCreating(true);
         setCreateError(null);
 
-        // Same fields the RGS "Game Library" form submits: name, slug, description.
+        // Same fields the RGS "Game Library" form submits: name, slug, description, mode.
         // status 'draft' matches the RGS create form (and keeps the game uploadable —
         // the RGS backend rejects maths uploads to Active games). All other columns use
         // the games-table defaults, so the row is identical to an RGS-created game.
+        //
+        // Mode is clamped to what this key may create rather than trusted from the
+        // form: operator-info can land after the modal opened and narrow the choice.
+        // The backend rejects an out-of-bounds mode anyway; this just avoids failing
+        // the create over a value the user can no longer see.
+        const allowed = gameModesForOperatorMode(operatorInfo?.mode);
         const payload: Record<string, unknown> = {
             action: 'create-game',
             name,
             slug: createForm.slug.trim() || autoSlug(name),
             description: createForm.description,
+            mode: allowed.includes(createForm.mode) ? createForm.mode : allowed[0],
             status: 'draft',
         };
 
@@ -695,7 +710,7 @@ export function MathsPanel() {
             setCreateError(e instanceof Error ? e.message : 'Failed to create game');
         }
         setCreating(false);
-    }, [settings, createForm, games]);
+    }, [settings, createForm, games, operatorInfo]);
 
     // Create an operator + API key on XGENIA RGS (so the user can connect without
     // leaving the editor). Mirrors the RGS platform's "Operators" section.
@@ -1644,6 +1659,32 @@ export function MathsPanel() {
                                 onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
                                 style={MODAL_INPUT_STYLE}
                             />
+                        </div>
+
+                        {/* Mode — whether real money moves through the game. The connected
+                            key's own mode caps the choice: a demo key can only make demo
+                            games, so it gets a single option rather than a rejected create. */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={MODAL_LABEL_STYLE}>Mode</label>
+                            <select
+                                value={createForm.mode}
+                                onChange={(e) => setCreateForm({ ...createForm, mode: e.target.value as GameMode })}
+                                style={MODAL_INPUT_STYLE}
+                            >
+                                {GAME_MODES
+                                    .filter((m) => gameModesForOperatorMode(operatorInfo?.mode).includes(m.value))
+                                    .map((m) => (
+                                        <option key={m.value} value={m.value} style={{ backgroundColor: '#1e1e2e' }}>
+                                            {m.label}
+                                        </option>
+                                    ))}
+                            </select>
+                            <div style={{ fontSize: '11px', color: '#7a7a8a', marginTop: '6px' }}>
+                                {GAME_MODES.find((m) => m.value === createForm.mode)?.blurb}
+                                {operatorInfo?.mode === 'demo' && (
+                                    <> Your operator key runs in Demo mode, so its games can only be Demo.</>
+                                )}
+                            </div>
                         </div>
 
                         {createError && (

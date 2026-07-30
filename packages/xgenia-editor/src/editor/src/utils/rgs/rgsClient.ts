@@ -61,6 +61,31 @@ export const EDITOR_OPERATOR_MODES: { value: OperatorMode; label: string; blurb:
 ];
 
 /**
+ * A GAME's mode — whether real money moves through it. Mirrors the RGS platform's
+ * "Mode" field on the Game Library form; distinct from `status`, which is the
+ * game's lifecycle rather than its money.
+ */
+export type GameMode = 'demo' | 'live';
+
+export const GAME_MODES: { value: GameMode; label: string; blurb: string }[] = [
+  { value: 'demo', label: 'Demo', blurb: 'Play money. Nothing real is at stake.' },
+  { value: 'live', label: 'Live', blurb: 'Real money.' }
+];
+
+/**
+ * Which modes a game created with this key may have. The connected operator's own
+ * mode is the ceiling: a demo key's wallet holds play money, so its games can only
+ * be demo, while live and internal keys can create either.
+ *
+ * An unknown mode (operator-info not loaded, or the key resolved to a platform
+ * session) is treated as demo-only — the restrictive read, since the backend and
+ * the DB trigger both reject a live game the key isn't entitled to anyway.
+ */
+export function gameModesForOperatorMode(operatorMode: string | null | undefined): GameMode[] {
+  return operatorMode === 'live' || operatorMode === 'internal' ? ['demo', 'live'] : ['demo'];
+}
+
+/**
  * Fields the RGS platform's "New Operator" form collects, so the editor's
  * "Create operator & get key" popup can mirror it exactly.
  *
