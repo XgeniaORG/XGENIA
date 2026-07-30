@@ -28,7 +28,11 @@ import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import { CreateNewNodePanel } from '../createnewnodepanel';
 import { DeployPopup } from '../DeployPopup/DeployPopup';
 import { ToastLayer } from '../ToastLayer/ToastLayer';
-import { compileProject } from '../../utils/compile';
+// Compile-only button retired — Publish compiles as its first step, so the standalone
+// button was a second way to do half of Publish. Kept commented rather than deleted so
+// it can be restored; the compiler itself is untouched and still used by
+// XgeniaDeployTab (its own `compileProject` import).
+// import { compileProject } from '../../utils/compile';
 import { FigmaImportDialog } from './FigmaImportDialog';
 import { TitleBar } from '../documents/EditorDocument/titlebar';
 import { NodeGraphEditor } from '../nodegrapheditor';
@@ -86,8 +90,9 @@ export function EditorTopbar({
   const screenSizeTrigger = useRef<HTMLDivElement>(null);
   const previewLayoutTrigger = useRef<HTMLDivElement>(null);
   const [isDeployVisible, setIsDeployVisible] = useState(false);
-  const compileButtonRef = useRef<HTMLDivElement>(null);
-  const [isCompiling, setIsCompiling] = useState(false);
+  // Compile button state — retired with the button itself (see the JSX below).
+  // const compileButtonRef = useRef<HTMLDivElement>(null);
+  // const [isCompiling, setIsCompiling] = useState(false);
   const [isFigmaDialogVisible, setIsFigmaDialogVisible] = useState(false);
   const figmaButtonRef = useRef<HTMLDivElement>(null);
   const [isWarningsDialogVisible, setIsWarningsDialogVisible] = useState(false);
@@ -119,32 +124,34 @@ export function EditorTopbar({
     return () => { EventDispatcher.instance.off(eventGroup); };
   }, []);
 
-  const handleCompile = async () => {
-    if (isCompiling) return;
-    const project = ProjectModel.instance;
-    if (!project) {
-      ToastLayer.showError('No project is open to compile.');
-      return;
-    }
-    const activityId = 'compile';
-    setIsCompiling(true);
-    ToastLayer.showActivity('Compiling project…', activityId);
-    try {
-      const result = await compileProject(project);
-      ToastLayer.hideActivity(activityId);
-      ToastLayer.showSuccess(
-        `Compiled to ${result.name} (${result.componentsCreated} logic component${
-          result.componentsCreated === 1 ? '' : 's'
-        }).`
-      );
-    } catch (e: any) {
-      ToastLayer.hideActivity(activityId);
-      ToastLayer.showError('Compile failed: ' + (e?.message || String(e)));
-      console.error('[Compile] failed', e);
-    } finally {
-      setIsCompiling(false);
-    }
-  };
+  // Compile-only handler — retired with the button (see the JSX below). Publish runs
+  // the same compileProject() as its first step, so nothing here is lost.
+  // const handleCompile = async () => {
+  //   if (isCompiling) return;
+  //   const project = ProjectModel.instance;
+  //   if (!project) {
+  //     ToastLayer.showError('No project is open to compile.');
+  //     return;
+  //   }
+  //   const activityId = 'compile';
+  //   setIsCompiling(true);
+  //   ToastLayer.showActivity('Compiling project…', activityId);
+  //   try {
+  //     const result = await compileProject(project);
+  //     ToastLayer.hideActivity(activityId);
+  //     ToastLayer.showSuccess(
+  //       `Compiled to ${result.name} (${result.componentsCreated} logic component${
+  //         result.componentsCreated === 1 ? '' : 's'
+  //       }).`
+  //     );
+  //   } catch (e: any) {
+  //     ToastLayer.hideActivity(activityId);
+  //     ToastLayer.showError('Compile failed: ' + (e?.message || String(e)));
+  //     console.error('[Compile] failed', e);
+  //   } finally {
+  //     setIsCompiling(false);
+  //   }
+  // };
 
   const zoomLevelOptions = [
     {
@@ -759,6 +766,11 @@ export function EditorTopbar({
           </Tooltip>
         </span>
 
+        {/* Compile button — removed from the topbar. Publish (below) compiles first and
+            then deploys, so this only ever did half of what Publish does. Commented out
+            rather than deleted; restoring it means uncommenting this block plus the ref,
+            state, handler and `compileProject` import above.
+
         <span ref={compileButtonRef} style={{ margin: '0 4px', position: 'relative' }}>
           <Tooltip content="Compile: copy the project and extract logic into deployable cloud components">
             <button
@@ -789,6 +801,7 @@ export function EditorTopbar({
             </button>
           </Tooltip>
         </span>
+        */}
 
         <span
           ref={deployButtonRef}

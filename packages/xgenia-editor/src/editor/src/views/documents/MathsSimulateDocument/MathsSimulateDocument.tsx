@@ -125,8 +125,17 @@ const SECTION_STYLE: React.CSSProperties = { background: 'rgba(255,255,255,0.03)
 const SECTION_TITLE_STYLE: React.CSSProperties = { fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#a0a0b0', marginBottom: '10px' };
 const HINT_STYLE: React.CSSProperties = { fontSize: '11px', color: '#7a7a8a', lineHeight: 1.5 };
 const FIELD_LABEL_STYLE: React.CSSProperties = { display: 'block', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#8a8a9a', marginBottom: '4px' };
-const SELECT_STYLE: React.CSSProperties = { padding: '6px 8px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '5px', color: '#e0e0e0', fontSize: '12px', outline: 'none' };
-const INPUT_STYLE: React.CSSProperties = { ...SELECT_STYLE, fontFamily: 'monospace' };
+const CONTROL_STYLE: React.CSSProperties = { padding: '6px 8px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '5px', color: '#e0e0e0', fontSize: '12px', outline: 'none' };
+// The window's own gray (same var as the scrolling content area below). A <select>
+// needs an OPAQUE background: the native dropdown popup is drawn on the platform's
+// white popup surface, so the translucent rgba(255,255,255,0.06) the other controls
+// use composited to near-white there and made the #e0e0e0 option text unreadable.
+// Set on the options too — the popup rows take their colour from the option, not the
+// select, on some platforms.
+const SELECT_SURFACE = 'var(--theme-color-bg-3, #16161f)';
+const SELECT_STYLE: React.CSSProperties = { ...CONTROL_STYLE, background: SELECT_SURFACE };
+const OPTION_STYLE: React.CSSProperties = { background: SELECT_SURFACE, color: '#e0e0e0' };
+const INPUT_STYLE: React.CSSProperties = { ...CONTROL_STYLE, fontFamily: 'monospace' };
 const PORT_ROW_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '6px', padding: '8px 10px', marginBottom: '6px' };
 const TYPE_CHIP_STYLE: React.CSSProperties = { flexShrink: 0, fontSize: '9px', fontFamily: 'monospace', padding: '2px 5px', borderRadius: '3px', background: 'rgba(255,255,255,0.06)', color: '#8a8a9a' };
 const STAT_TILE_STYLE: React.CSSProperties = { flex: 1, minWidth: '140px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', padding: '12px', textAlign: 'center' };
@@ -328,8 +337,8 @@ function MathsSimulateDocument({ apiKey, deploymentId, version, gameName, fn }: 
                                                         value={config.mode}
                                                         onChange={(e) => updateInputConfig(port.name, port.type, { mode: e.target.value as InputMode })}
                                                     >
-                                                        <option value="rng">RNG Value</option>
-                                                        <option value="fixed">Fixed Value</option>
+                                                        <option style={OPTION_STYLE} value="rng">RNG Value</option>
+                                                        <option style={OPTION_STYLE} value="fixed">Fixed Value</option>
                                                     </select>
                                                     {config.mode === 'fixed' ? (
                                                         <input
@@ -370,9 +379,9 @@ function MathsSimulateDocument({ apiKey, deploymentId, version, gameName, fn }: 
                                                     value={config.mode}
                                                     onChange={(e) => updateInputConfig(port.name, port.type, { mode: e.target.value as InputMode })}
                                                 >
-                                                    <option value="random">Random (50/50)</option>
-                                                    <option value="true">Always true</option>
-                                                    <option value="false">Always false</option>
+                                                    <option style={OPTION_STYLE} value="random">Random (50/50)</option>
+                                                    <option style={OPTION_STYLE} value="true">Always true</option>
+                                                    <option style={OPTION_STYLE} value="false">Always false</option>
                                                 </select>
                                             )}
 
@@ -383,8 +392,8 @@ function MathsSimulateDocument({ apiKey, deploymentId, version, gameName, fn }: 
                                                         value={config.mode}
                                                         onChange={(e) => updateInputConfig(port.name, port.type, { mode: e.target.value as InputMode })}
                                                     >
-                                                        <option value="random">Random Name</option>
-                                                        <option value="fixed">Fixed Value</option>
+                                                        <option style={OPTION_STYLE} value="random">Random Name</option>
+                                                        <option style={OPTION_STYLE} value="fixed">Fixed Value</option>
                                                     </select>
                                                     {config.mode === 'fixed' && (
                                                         <input
@@ -432,9 +441,9 @@ function MathsSimulateDocument({ apiKey, deploymentId, version, gameName, fn }: 
                                     value={betInputPort}
                                     onChange={(e) => setBetInputPort(e.target.value)}
                                 >
-                                    <option value="">— Select input port —</option>
+                                    <option style={OPTION_STYLE} value="">— Select input port —</option>
                                     {numericInputs.map((p) => (
-                                        <option key={p.name} value={p.name}>{p.name} ({p.type})</option>
+                                        <option style={OPTION_STYLE} key={p.name} value={p.name}>{p.name} ({p.type})</option>
                                     ))}
                                 </select>
                                 <div style={{ fontSize: '10px', color: '#7a7a8a', marginTop: '4px' }}>
@@ -448,9 +457,9 @@ function MathsSimulateDocument({ apiKey, deploymentId, version, gameName, fn }: 
                                     value={winOutputPort}
                                     onChange={(e) => setWinOutputPort(e.target.value)}
                                 >
-                                    <option value="">— Select output port —</option>
+                                    <option style={OPTION_STYLE} value="">— Select output port —</option>
                                     {numericOutputs.map((p) => (
-                                        <option key={p.name} value={p.name}>{p.name} ({p.type})</option>
+                                        <option style={OPTION_STYLE} key={p.name} value={p.name}>{p.name} ({p.type})</option>
                                     ))}
                                 </select>
                             </div>
