@@ -1300,8 +1300,19 @@ export function MathsPanel() {
                                         <span style={{ fontWeight: 600, fontSize: '12px', textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: '#a0a0b0' }}>
                                             Server Versions
                                         </span>
-                                        {versionsLoading && (
+                                        {versionsLoading ? (
                                             <span style={{ fontSize: '10px', color: '#666' }}>Loading&#8230;</span>
+                                        ) : (
+                                            // Re-runs list-edge-deployments. The Components
+                                            // sub-section follows automatically, since its
+                                            // `selectedVersion` is derived from this list.
+                                            <span
+                                                onClick={() => { void fetchVersions(); }}
+                                                style={{ fontSize: '10px', color: '#666', cursor: 'pointer', userSelect: 'none' as const }}
+                                                title="Refresh server versions list"
+                                            >
+                                                ↻ Refresh
+                                            </span>
                                         )}
                                     </div>
 
