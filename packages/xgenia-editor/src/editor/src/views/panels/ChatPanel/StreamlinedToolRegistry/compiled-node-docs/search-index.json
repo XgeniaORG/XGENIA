@@ -543,8 +543,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/aggregatornode.js",
       "category": "Cloud Functions",
       "docs": "https://docsapp.xgenia.com/nodes/cloud-functions/aggregator",
-      "lineCount": 321,
-      "byteSize": 11766,
+      "lineCount": 331,
+      "byteSize": 12353,
       "inputFormatHints": {
         "url": {
           "displayName": "URL",
@@ -597,14 +597,62 @@
         }
       }
     },
+    "CreateDeposit": {
+      "name": "CreateDeposit",
+      "file": "createdeposit.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/createdeposit.js",
+      "category": "Data",
+      "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/create-deposit",
+      "lineCount": 345,
+      "byteSize": 13135,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "playerID": {
+          "displayName": "Player ID",
+          "type": "string",
+          "group": "General"
+        },
+        "amount": {
+          "displayName": "Amount",
+          "type": "number",
+          "group": "General"
+        },
+        "openAutomatically": {
+          "displayName": "Open Automatically",
+          "type": "boolean",
+          "group": "General"
+        }
+      },
+      "outputFormatHints": {
+        "paymentUrl": {
+          "displayName": "Payment URL",
+          "type": "string",
+          "group": "Result"
+        },
+        "isSuccessful": {
+          "displayName": "Is Successful",
+          "type": "boolean",
+          "group": "Result"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal",
+          "group": "Events"
+        }
+      }
+    },
     "CreateStripeDeposit": {
       "name": "CreateStripeDeposit",
       "file": "createstripedeposit.js",
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/createstripedeposit.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/create-deposit-stripe",
-      "lineCount": 302,
-      "byteSize": 11192,
+      "lineCount": 345,
+      "byteSize": 13844,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -709,8 +757,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/dbmodelcrudbase.js",
       "category": "Data",
       "docs": null,
-      "lineCount": 885,
-      "byteSize": 29927,
+      "lineCount": 890,
+      "byteSize": 30284,
       "inputFormatHints": {},
       "outputFormatHints": {}
     },
@@ -842,8 +890,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/depositbalance.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/deposit-balance",
-      "lineCount": 168,
-      "byteSize": 5479,
+      "lineCount": 202,
+      "byteSize": 7626,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -880,8 +928,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/filterdbmodelsnode.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/filter-records",
-      "lineCount": 520,
-      "byteSize": 16263,
+      "lineCount": 523,
+      "byteSize": 16452,
       "inputFormatHints": {
         "items": {
           "displayName": "Items",
@@ -933,8 +981,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/getbalancebyplayerid.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/get-balance-by-player-id",
-      "lineCount": 170,
-      "byteSize": 5397,
+      "lineCount": 179,
+      "byteSize": 5926,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -971,8 +1019,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/getplayeridbyname.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/get-player-id-by-name",
-      "lineCount": 159,
-      "byteSize": 5024,
+      "lineCount": 168,
+      "byteSize": 5546,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -1009,8 +1057,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/listgamesessions.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/list-game-sessions",
-      "lineCount": 169,
-      "byteSize": 5138,
+      "lineCount": 172,
+      "byteSize": 5324,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -1052,8 +1100,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/loadgamesession.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/load-game-session",
-      "lineCount": 200,
-      "byteSize": 6316,
+      "lineCount": 203,
+      "byteSize": 6501,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -1276,8 +1324,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/savegamesession.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/save-game-session",
-      "lineCount": 204,
-      "byteSize": 6431,
+      "lineCount": 207,
+      "byteSize": 6616,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -1380,8 +1428,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/withdrawbalance.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/withdraw-balance",
-      "lineCount": 170,
-      "byteSize": 5643,
+      "lineCount": 203,
+      "byteSize": 7632,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -2646,14 +2694,9 @@
       "relativePath": "private/xgenia-pro-nodes/src/maths/isaac-rng-array.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/isaac-rng-array",
-      "lineCount": 573,
-      "byteSize": 15613,
+      "lineCount": 496,
+      "byteSize": 13119,
       "inputFormatHints": {
-        "mode": {
-          "displayName": "Mode",
-          "type": "enum",
-          "group": "Configuration"
-        },
         "size": {
           "displayName": "Size",
           "type": "number",
@@ -2692,14 +2735,9 @@
       "relativePath": "private/xgenia-pro-nodes/src/maths/isaac-rng.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/isaac-rng",
-      "lineCount": 546,
-      "byteSize": 14916,
+      "lineCount": 473,
+      "byteSize": 12718,
       "inputFormatHints": {
-        "mode": {
-          "displayName": "Mode",
-          "type": "enum",
-          "group": "Configuration"
-        },
         "seed": {
           "displayName": "Seed",
           "type": "number",
@@ -10880,8 +10918,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-authenticate.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 187,
-      "byteSize": 5046,
+      "lineCount": 191,
+      "byteSize": 5316,
       "inputFormatHints": {
         "authenticate": {
           "displayName": "Authenticate",
@@ -10963,8 +11001,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-balance-update.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 62,
-      "byteSize": 1663,
+      "lineCount": 65,
+      "byteSize": 1847,
       "inputFormatHints": {},
       "outputFormatHints": {
         "updated": {
@@ -10995,8 +11033,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-balance.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 130,
-      "byteSize": 3564,
+      "lineCount": 134,
+      "byteSize": 3833,
       "inputFormatHints": {
         "refresh": {
           "displayName": "Refresh",
@@ -11043,8 +11081,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-display-amount.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 110,
-      "byteSize": 2910,
+      "lineCount": 113,
+      "byteSize": 3103,
       "inputFormatHints": {
         "balance": {
           "displayName": "Balance",
@@ -11081,8 +11119,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-end-round.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 155,
-      "byteSize": 4216,
+      "lineCount": 159,
+      "byteSize": 4483,
       "inputFormatHints": {
         "endRound": {
           "displayName": "End Round",
@@ -11144,8 +11182,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-event.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 133,
-      "byteSize": 3432,
+      "lineCount": 137,
+      "byteSize": 3692,
       "inputFormatHints": {
         "send": {
           "displayName": "Send",
@@ -11225,8 +11263,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-play.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 241,
-      "byteSize": 6390,
+      "lineCount": 245,
+      "byteSize": 6652,
       "inputFormatHints": {
         "play": {
           "displayName": "Play",
@@ -11328,8 +11366,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-round-active.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 47,
-      "byteSize": 1312,
+      "lineCount": 50,
+      "byteSize": 1494,
       "inputFormatHints": {},
       "outputFormatHints": {
         "changed": {
@@ -12656,8 +12694,8 @@
       "relativePath": "navigation/showpopup.js",
       "category": "Navigation",
       "docs": "https://docsapp.xgenia.com/nodes/popups/show-popup",
-      "lineCount": 214,
-      "byteSize": 6131,
+      "lineCount": 276,
+      "byteSize": 9580,
       "inputFormatHints": {
         "target": {
           "displayName": "Target",
@@ -12673,6 +12711,16 @@
       "outputFormatHints": {
         "Closed": {
           "type": "signal"
+        },
+        "Opened": {
+          "displayName": "Opened",
+          "type": "signal",
+          "group": "Signals"
+        },
+        "isOpen": {
+          "displayName": "Is Open",
+          "type": "boolean",
+          "group": "State"
         }
       }
     },
@@ -16149,6 +16197,7 @@
     "Data": [
       "Convert Inputs into Record",
       "Convert Record into Outputs",
+      "CreateDeposit",
       "CreateStripeDeposit",
       "collectionName",
       "DepositBalance",
@@ -17377,6 +17426,10 @@
         "direction": "input"
       },
       {
+        "node": "CreateDeposit",
+        "direction": "input"
+      },
+      {
         "node": "CreateStripeDeposit",
         "direction": "input"
       },
@@ -17696,6 +17749,10 @@
       },
       {
         "node": "Convert to String",
+        "direction": "output"
+      },
+      {
+        "node": "CreateDeposit",
         "direction": "output"
       },
       {
@@ -18219,6 +18276,10 @@
     ],
     "playerID": [
       {
+        "node": "CreateDeposit",
+        "direction": "input"
+      },
+      {
         "node": "CreateStripeDeposit",
         "direction": "input"
       },
@@ -18237,6 +18298,10 @@
     ],
     "amount": [
       {
+        "node": "CreateDeposit",
+        "direction": "input"
+      },
+      {
         "node": "CreateStripeDeposit",
         "direction": "input"
       },
@@ -18247,17 +18312,25 @@
     ],
     "openAutomatically": [
       {
+        "node": "CreateDeposit",
+        "direction": "input"
+      },
+      {
         "node": "CreateStripeDeposit",
         "direction": "input"
       }
     ],
-    "checkoutUrl": [
+    "paymentUrl": [
       {
-        "node": "CreateStripeDeposit",
+        "node": "CreateDeposit",
         "direction": "output"
       }
     ],
     "isSuccessful": [
+      {
+        "node": "CreateDeposit",
+        "direction": "output"
+      },
       {
         "node": "CreateStripeDeposit",
         "direction": "output"
@@ -18280,6 +18353,12 @@
       },
       {
         "node": "WithdrawBalance",
+        "direction": "output"
+      }
+    ],
+    "checkoutUrl": [
+      {
+        "node": "CreateStripeDeposit",
         "direction": "output"
       }
     ],
@@ -20123,48 +20202,6 @@
         "direction": "output"
       }
     ],
-    "mode": [
-      {
-        "node": "ISAAC Random Number Array Generator",
-        "direction": "input"
-      },
-      {
-        "node": "ISAAC Random Number Generator",
-        "direction": "input"
-      },
-      {
-        "node": "Auto ML Predictor",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.CollisionDetector",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.GSAPPhysics",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.RevoltFX",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.UIScaler",
-        "direction": "input"
-      },
-      {
-        "node": "stake.RGSPlay",
-        "direction": "input"
-      },
-      {
-        "node": "PageStackNavigate",
-        "direction": "input"
-      },
-      {
-        "node": "Repeater Loop",
-        "direction": "input"
-      }
-    ],
     "size": [
       {
         "node": "ISAAC Random Number Array Generator",
@@ -20558,6 +20595,40 @@
     "inputData": [
       {
         "node": "Auto ML Predictor",
+        "direction": "input"
+      }
+    ],
+    "mode": [
+      {
+        "node": "Auto ML Predictor",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.CollisionDetector",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.GSAPPhysics",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.UIScaler",
+        "direction": "input"
+      },
+      {
+        "node": "stake.RGSPlay",
+        "direction": "input"
+      },
+      {
+        "node": "PageStackNavigate",
+        "direction": "input"
+      },
+      {
+        "node": "Repeater Loop",
         "direction": "input"
       }
     ],
@@ -27802,6 +27873,18 @@
       }
     ],
     "Closed": [
+      {
+        "node": "NavigationShowPopup",
+        "direction": "output"
+      }
+    ],
+    "Opened": [
+      {
+        "node": "NavigationShowPopup",
+        "direction": "output"
+      }
+    ],
+    "isOpen": [
       {
         "node": "NavigationShowPopup",
         "direction": "output"

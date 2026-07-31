@@ -90,7 +90,7 @@ const NON_LOGIC_CATEGORIES = new Set(['Navigation', 'Visual', 'Visuals', 'Compon
 // nodes, the RGS player/balance/session nodes, the Stake Engine RGS nodes.
 // Extracting them into a generated edge function makes no sense: they depend on
 // those services from wherever they run, and most need the browser (Supabase
-// session, launch-URL query params, redirects, a Stripe popup) to work at all.
+// session, launch-URL query params, redirects, a payment-page popup) to work at all.
 // So they carry no `isMath` toggle (nodelibraryexport.js drops the injection and
 // re-emits `usesBackendServices`) and they are excluded here BEFORE the isMath
 // resolution below, so a value stored on an old node instance can't resurrect the

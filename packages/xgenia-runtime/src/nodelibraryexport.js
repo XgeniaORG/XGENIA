@@ -841,6 +841,9 @@ function generateNodeLibrary(nodeRegister) {
           name: 'Transactions',
           items: [
             'DepositBalance',
+            'CreateDeposit',
+            // Deprecated, so the node picker hides it anyway; listed so an
+            // existing instance still resolves its category.
             'CreateStripeDeposit',
             'WithdrawBalance'
           ]
