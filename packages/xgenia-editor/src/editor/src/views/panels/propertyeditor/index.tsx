@@ -45,8 +45,22 @@ export function PropertyEditor(props: PropertyEditorProps) {
       console.warn('PropertyEditor: No model provided');
       return;
     }
-    const instance = new PropertyEditorView(props);
-    instance.render();
+    let instance: PropertyEditorView;
+    try {
+      instance = new PropertyEditorView(props);
+      instance.render();
+    } catch (error: any) {
+      // The legacy view renders arbitrary per-node-type port views. Identify the node
+      // that failed, otherwise the ErrorBoundary above only reports <PropertyEditor>.
+      console.error(
+        '[PropertyEditor] Failed to render legacy view for node' +
+          ' id=' + props.model?.id +
+          ' typename=' + props.model?.typename +
+          ' type=' + props.model?.type?.name +
+          '\n' + (error?.stack || error?.message || String(error))
+      );
+      throw error;
+    }
     setInstance(instance);
 
     SidebarModel.instance.on(

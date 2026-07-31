@@ -43,7 +43,7 @@ export class PropertyEditor extends View {
   }
 
   dispose() {
-    this.portsView.dispose();
+    this.portsView && this.portsView.dispose();
   }
   scheduleRenderPortsView() {
     if (this.renderPortsViewScheduled) return;
@@ -110,11 +110,11 @@ export class PropertyEditor extends View {
           getNodeTypeAdapter = registeradapters.getNodeTypeAdapter;
         } catch (e: any) {
           console.warn('[PropertyEditor] Could not import registeradapters:', e);
-          // Continue without adapter - not critical for basic functionality
-          return;
+          // Continue without adapter - not critical for basic functionality.
+          // Must not return here, or the ports/template below never render at all.
         }
 
-        const adapter = getNodeTypeAdapter(this.model.typename);
+        const adapter = getNodeTypeAdapter && getNodeTypeAdapter(this.model.typename);
         console.log('[PropertyEditor] Got adapter for', this.model.typename, ':', adapter);
 
         // If this is a RouterNavigate node, manually trigger port update

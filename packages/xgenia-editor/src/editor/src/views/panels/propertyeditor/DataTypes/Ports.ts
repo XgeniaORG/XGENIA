@@ -126,7 +126,7 @@ export class Ports extends View {
     this.model && this.model.owner && this.model.owner.off(this);
     EventDispatcher.instance.off(this);
 
-    this.views.forEach((v) => v.dispose && v.dispose());
+    this.views && this.views.forEach((v) => v.dispose && v.dispose());
 
     this.hidePopout();
   }
@@ -158,8 +158,9 @@ export class Ports extends View {
 
     //remember the scrolling so a re-render doesn't reset the scroll position
     let scrollTop = 0;
-    if (this.el[0].parentElement) {
-      scrollTop = this.el[0].parentElement.parentElement.scrollTop;
+    const scrollEl = this.el[0].parentElement && this.el[0].parentElement.parentElement;
+    if (scrollEl) {
+      scrollTop = scrollEl.scrollTop;
     }
 
     //this will reset any scrolling that might've occurred
@@ -186,8 +187,8 @@ export class Ports extends View {
     }
 
     //and now the rendering is done. In case any scrolling was done, set the scrolling again
-    if (scrollTop) {
-      this.el[0].parentElement.parentElement.scrollTop = scrollTop;
+    if (scrollTop && scrollEl) {
+      scrollEl.scrollTop = scrollTop;
     }
 
     this.$('input')

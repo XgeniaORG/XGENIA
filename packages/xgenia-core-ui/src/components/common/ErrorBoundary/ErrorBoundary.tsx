@@ -38,17 +38,37 @@ export class ErrorBoundary extends Component<
 
     componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
         this.setState({ error, errorInfo });
-        console.error('Error caught by ErrorBoundary:', error, errorInfo);
+
+        // Log the message and the stacks as plain strings. Passing the Error object
+        // directly makes Chrome render it as a collapsed frame list, which hides the
+        // actual message in copied console output.
+        console.error(
+            'Error caught by ErrorBoundary: ' + (error?.message || String(error)) +
+            '\n\nStack:\n' + (error?.stack || '(no stack)') +
+            '\n\nComponent stack:' + (errorInfo?.componentStack || ' (none)')
+        );
     }
+
+    private onTryAgain = (): void => {
+        // Reset our own state, otherwise the fallback UI sticks around forever and
+        // the button does nothing at all.
+        this.setState({ error: null, errorInfo: null, showMore: false });
+        this.props.onTryAgain && this.props.onTryAgain();
+    };
 
     render() {
         if (this.state.errorInfo) {
             const onCopyError = () => {
                 navigator.clipboard.writeText(
-                    JSON.stringify({
-                        error: this.state.error?.toString(),
-                        stack: this.state.errorInfo?.componentStack,
-                    })
+                    [
+                        this.state.error?.toString() || 'Unknown error',
+                        '',
+                        'Stack:',
+                        this.state.error?.stack || '(no stack)',
+                        '',
+                        'Component stack:',
+                        this.state.errorInfo?.componentStack || '(none)'
+                    ].join('\n')
                 );
             };
 
@@ -71,7 +91,7 @@ export class ErrorBoundary extends Component<
                                                 <PrimaryButton
                                                     size={PrimaryButtonSize.Small}
                                                     label="Click here to try again"
-                                                    onClick={this.props.onTryAgain}
+                                                    onClick={this.onTryAgain}
                                                 />
                                             </Box>
                                         </HStack>
@@ -94,6 +114,7 @@ export class ErrorBoundary extends Component<
                                                 <span className={css.Error}>
                                                     {this.state.error?.toString()}
                                                 </span>
+                                                <span>{'\n' + (this.state.error?.stack || '')}</span>
                                                 <span>{this.state.errorInfo?.componentStack}</span>
                                             </pre>
                                         </Collapsible>
