@@ -50,6 +50,19 @@ const { setCurrentPlayerId } = require('./rgs-play-context');
 //     same-tab redirect, and the player comes back via the return URL.
 // Set `openAutomatically` to false to wire `paymentUrl` into an External Link
 // node yourself instead.
+//
+// CRYPTO IS DIFFERENT: THERE IS NO PAGE
+// ------------------------------------
+// When the platform's provider is `crypto`, the player pays from their own wallet
+// and there is nowhere to send them. The node opens nothing (navigating to an
+// `ethereum:` URI would only raise an "unknown protocol" dialog on a desktop) and
+// instead fills in the Crypto outputs — Deposit Address, Token Amount, Token and
+// Network — for the game to display. `Payment URL` then holds an EIP-681 request
+// URI, which is what belongs in a QR code or behind a mobile "open wallet" link.
+//
+// Nothing about the game's wiring changes between providers: the same Do/Player
+// ID/Amount inputs serve all three, and the outputs a given provider does not use
+// are simply empty.
 
 const CreateDepositNode = {
   name: 'CreateDeposit',
@@ -64,13 +77,18 @@ const CreateDepositNode = {
   searchTags: [
     'balance', 'deposit', 'payment', 'pay', 'cashier', 'checkout', 'player',
     'wallet', 'credit', 'funds', 'money', 'card', 'rgs', 'cloud', 'top up',
-    'top-up', 'nuvei', 'psp', 'stripe'
+    'top-up', 'nuvei', 'psp', 'stripe', 'crypto', 'usdc', 'usdt', 'stablecoin',
+    'onchain', 'on-chain', 'base', 'web3', 'bitcoin', 'ethereum'
   ],
   initialize: function () {
     this._internal.playerID = '';
     this._internal.amount = 0;
     this._internal.openAutomatically = true;
     this._internal.paymentUrl = '';
+    this._internal.depositAddress = '';
+    this._internal.tokenAmount = '';
+    this._internal.tokenSymbol = '';
+    this._internal.chainName = '';
     this._internal.isSuccessful = false;
     this._internal.lastError = null;
     this._internal.inspectData = null;
@@ -127,6 +145,47 @@ const CreateDepositNode = {
       group: 'Result',
       getter: function () {
         return this._internal.paymentUrl;
+      }
+    },
+    // ── Crypto only ────────────────────────────────────────────────────────
+    // Empty for every other provider. A crypto deposit has no payment page to
+    // send the player to: they pay from their own wallet, so the game has to show
+    // them WHERE to send it. These are those details.
+    //
+    // `Payment URL` still carries an EIP-681 request URI in this case, which is
+    // what belongs in a QR code and what a mobile wallet link should point at —
+    // it encodes the token, the chain, the address and the exact amount, so the
+    // player cannot mistype any of it.
+    depositAddress: {
+      displayName: 'Deposit Address',
+      type: 'string',
+      group: 'Crypto',
+      getter: function () {
+        return this._internal.depositAddress;
+      }
+    },
+    tokenAmount: {
+      displayName: 'Token Amount',
+      type: 'string',
+      group: 'Crypto',
+      getter: function () {
+        return this._internal.tokenAmount;
+      }
+    },
+    tokenSymbol: {
+      displayName: 'Token',
+      type: 'string',
+      group: 'Crypto',
+      getter: function () {
+        return this._internal.tokenSymbol;
+      }
+    },
+    chainName: {
+      displayName: 'Network',
+      type: 'string',
+      group: 'Crypto',
+      getter: function () {
+        return this._internal.chainName;
       }
     },
     isSuccessful: {
@@ -193,6 +252,10 @@ const CreateDepositNode = {
     createDeposit: async function () {
       this._internal.lastError = null;
       this._internal.paymentUrl = '';
+      this._internal.depositAddress = '';
+      this._internal.tokenAmount = '';
+      this._internal.tokenSymbol = '';
+      this._internal.chainName = '';
       let ok = false;
 
       const openAutoRaw = this.getInputValue('openAutomatically');
@@ -293,8 +356,32 @@ const CreateDepositNode = {
         this._internal.paymentUrl = paymentUrl;
         ok = true;
 
+        // Crypto pays from the player's own wallet, so there is no page to send
+        // them to and nothing to navigate. The address and amount come back as
+        // outputs for the game to display (with the URI above for a QR code).
+        const crypto = (data && data.crypto) || null;
+        if (crypto) {
+          this._internal.depositAddress = (crypto.address || '').toString();
+          this._internal.tokenAmount = (crypto.tokenAmount || '').toString();
+          this._internal.tokenSymbol = (crypto.token || '').toString();
+          this._internal.chainName = (crypto.chainName || '').toString();
+          this.flagOutputDirty('depositAddress');
+          this.flagOutputDirty('tokenAmount');
+          this.flagOutputDirty('tokenSymbol');
+          this.flagOutputDirty('chainName');
+        }
+
         let openMethod = 'disabled';
-        if (openAutomatically) {
+        if (crypto) {
+          // Navigating to an `ethereum:` URI does nothing useful on a desktop and
+          // would pop an "unknown protocol" dialog, so the blank popup opened on
+          // the click is closed instead. Wire `Payment URL` into a QR code, or
+          // into an External Link node yourself for a mobile wallet hand-off.
+          if (popup) {
+            try { popup.close(); } catch (e) { /* ignore */ }
+          }
+          openMethod = 'crypto: pay from wallet';
+        } else if (openAutomatically) {
           openMethod = this.openPaymentPage(paymentUrl, {
             popup: popup,
             isElectron: isElectron,
@@ -318,7 +405,18 @@ const CreateDepositNode = {
           paymentUrl: paymentUrl,
           openMethod: openMethod,
           isSuccessful: true,
-          note: 'Payment page opened. The balance is credited only once the payment settles.'
+          ...(crypto
+            ? {
+              network: this._internal.chainName + (crypto.testnet ? ' (TESTNET)' : ''),
+              send: this._internal.tokenAmount + ' ' + this._internal.tokenSymbol,
+              toAddress: this._internal.depositAddress,
+              confirmations: crypto.minConfirmations,
+              quoteExpiresAt: crypto.quoteExpiresAt
+            }
+            : {}),
+          note: crypto
+            ? 'Show the address and amount to the player. The balance is credited once the transfer confirms on-chain.'
+            : 'Payment page opened. The balance is credited only once the payment settles.'
         };
 
         this.flagOutputDirty('paymentUrl');

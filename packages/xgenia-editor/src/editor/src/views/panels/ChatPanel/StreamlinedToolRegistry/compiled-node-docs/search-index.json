@@ -603,8 +603,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/createdeposit.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/create-deposit",
-      "lineCount": 345,
-      "byteSize": 13135,
+      "lineCount": 443,
+      "byteSize": 17612,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -632,6 +632,26 @@
           "displayName": "Payment URL",
           "type": "string",
           "group": "Result"
+        },
+        "depositAddress": {
+          "displayName": "Deposit Address",
+          "type": "string",
+          "group": "Crypto"
+        },
+        "tokenAmount": {
+          "displayName": "Token Amount",
+          "type": "string",
+          "group": "Crypto"
+        },
+        "tokenSymbol": {
+          "displayName": "Token",
+          "type": "string",
+          "group": "Crypto"
+        },
+        "chainName": {
+          "displayName": "Network",
+          "type": "string",
+          "group": "Crypto"
         },
         "isSuccessful": {
           "displayName": "Is Successful",
@@ -18321,6 +18341,30 @@
       }
     ],
     "paymentUrl": [
+      {
+        "node": "CreateDeposit",
+        "direction": "output"
+      }
+    ],
+    "depositAddress": [
+      {
+        "node": "CreateDeposit",
+        "direction": "output"
+      }
+    ],
+    "tokenAmount": [
+      {
+        "node": "CreateDeposit",
+        "direction": "output"
+      }
+    ],
+    "tokenSymbol": [
+      {
+        "node": "CreateDeposit",
+        "direction": "output"
+      }
+    ],
+    "chainName": [
       {
         "node": "CreateDeposit",
         "direction": "output"
