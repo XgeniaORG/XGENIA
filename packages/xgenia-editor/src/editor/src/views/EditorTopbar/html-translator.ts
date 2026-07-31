@@ -4746,6 +4746,70 @@ function addContainerAttrs(styles: ParsedStyles, attrs: string[]): void {
         if (!styles.height) styles.height = '100%';
     }
 
+    // ─── ABSOLUTE OFFSETS → alignX/alignY + transformX/transformY ───────────────
+    // (2026-07-31, exports 1785455504098 / 1785459401956)
+    //
+    // `left`/`top`/`right`/`bottom` were parsed into `styles` and then never emitted —
+    // outside the inset-0 case above, nothing downstream reads them. So an authored
+    // `position:absolute; left:340px; top:1232px` reached the graph as a bare absolute
+    // node with no offset, and the engine parked it in the corner:
+    //
+    //     alignX = alignX || 'left';                       // viewer layout.align
+    //     if (alignX === 'left') safelySetStyle('left', 0) // unconditional overwrite
+    //
+    // Even had they been emitted, the engine would have discarded them — `safelySetStyle`
+    // is a plain `style[key] = value`, so an authored left never survives. The only
+    // offsets the engine honours are the transformX/transformY params ("Pos X"/"Pos Y"),
+    // which this translator has never produced.
+    //
+    // The consequence is bigger than a missing feature: absolute layout silently does not
+    // work, so the UI specialist can only express layout through nested flex — which is
+    // how a cabinet came to self-inflate to 1415px through a chain of flex-grow:100 Groups
+    // and got deleted, 43 nodes at a time, because no parameter could repair it.
+    //
+    // Emitting the anchor + offset pair makes absolute positioning real, which is what a
+    // fixed design canvas needs, and gives the generator a way to say "this goes HERE".
+    if (styles.position === 'absolute') {
+        const insetFill =
+            (styles as any).top === '0' && (styles as any).bottom === '0' &&
+            (styles as any).left === '0' && (styles as any).right === '0';
+        if (!insetFill) {
+            // "-12px" → -12 ; "12px" → 12 ; "50%" → null (handled as centring below)
+            const px = (v: unknown): number | null => {
+                if (v === undefined || v === null) return null;
+                const m = String(v).trim().match(/^(-?\d+(?:\.\d+)?)(px)?$/i);
+                return m ? Number(m[1]) : null;
+            };
+            const isHalf = (v: unknown) => String(v ?? '').trim() === '50%';
+
+            const L = (styles as any).left, R = (styles as any).right;
+            const T = (styles as any).top, B = (styles as any).bottom;
+
+            // Horizontal. `right` anchors to the right edge, so its offset runs inward —
+            // i.e. negative in transform space.
+            if (isHalf(L)) {
+                attrs.push(`alignX="center"`);
+            } else if (px(L) !== null) {
+                attrs.push(`alignX="left"`);
+                if (px(L) !== 0) attrs.push(`transformX="${px(L)}"`);
+            } else if (px(R) !== null) {
+                attrs.push(`alignX="right"`);
+                if (px(R) !== 0) attrs.push(`transformX="${-(px(R) as number)}"`);
+            }
+
+            // Vertical, same rule with bottom.
+            if (isHalf(T)) {
+                attrs.push(`alignY="center"`);
+            } else if (px(T) !== null) {
+                attrs.push(`alignY="top"`);
+                if (px(T) !== 0) attrs.push(`transformY="${px(T)}"`);
+            } else if (px(B) !== null) {
+                attrs.push(`alignY="bottom"`);
+                if (px(B) !== 0) attrs.push(`transformY="${-(px(B) as number)}"`);
+            }
+        }
+    }
+
     // ─── Native commonUIParams (units handled by runtime) ───────
     // gap → split into rowGap + columnGap (both native commonUIParams,
     // and in isDimensionParameter — runtime handles unit parsing)
