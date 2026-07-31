@@ -132,7 +132,7 @@ export async function createOperator(input: CreateOperatorInput): Promise<Create
       p_name: input.name,
       p_slug: input.slug || null,
       p_wallet_mode: input.mode || 'demo',
-      p_currencies: input.currencies && input.currencies.length ? input.currencies : ['EUR'],
+      p_currencies: input.currencies && input.currencies.length ? input.currencies : ['USD'],
       p_wallet_balance: Math.max(0, Math.round(input.walletBalance || 0)),
       p_max_bet: input.maxBet ?? null,
       p_max_win: input.maxWin ?? null,
@@ -194,8 +194,8 @@ export async function fetchOperatorInfo(apiKey: string): Promise<OperatorInfo | 
   return (data?.operator as OperatorInfo | null) ?? null;
 }
 
-/** Format a cents amount for display, e.g. 100000000 → "€1,000,000.00". */
-export function formatOperatorFunds(cents: number | null | undefined, currency = 'EUR'): string {
+/** Format a cents amount for display, e.g. 100000000 → "$1,000,000.00". */
+export function formatOperatorFunds(cents: number | null | undefined, currency = 'USD'): string {
   if (cents === null || cents === undefined) return '—';
   const symbols: Record<string, string> = { EUR: '€', USD: '$', GBP: '£' };
   const amount = (cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });

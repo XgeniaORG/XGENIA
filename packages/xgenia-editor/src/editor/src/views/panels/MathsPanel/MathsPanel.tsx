@@ -209,7 +209,7 @@ const OPERATOR_DEFAULTS = {
     slug: '',
     mode: 'demo' as OperatorMode,
     wallet_balance: '0.00',
-    currencies: 'EUR',
+    currencies: 'USD',
     max_bet: '',
     max_win: '',
     allowed_ips: ''
@@ -740,7 +740,7 @@ export function MathsPanel() {
                 name,
                 slug: operatorForm.slug.trim() || undefined,
                 mode: operatorForm.mode,
-                currencies: currencies.length ? currencies : ['EUR'],
+                currencies: currencies.length ? currencies : ['USD'],
                 walletBalance: funds,
                 maxBet: operatorForm.max_bet ? parseInt(operatorForm.max_bet, 10) : null,
                 maxWin: operatorForm.max_win ? parseInt(operatorForm.max_win, 10) : null,
@@ -1964,7 +1964,7 @@ export function MathsPanel() {
                                 {/* Wallet — the funding behind this operator's games. */}
                                 <div style={{ marginBottom: '16px' }}>
                                     <label style={MODAL_LABEL_STYLE}>
-                                        Wallet Balance ({operatorForm.currencies.split(',')[0]?.trim() || 'EUR'})
+                                        Wallet Balance ({operatorForm.currencies.split(',')[0]?.trim() || 'USD'})
                                     </label>
                                     <input
                                         type="number"
