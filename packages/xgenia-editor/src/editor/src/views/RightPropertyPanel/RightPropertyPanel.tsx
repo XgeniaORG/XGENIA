@@ -26,6 +26,8 @@ export function RightPropertyPanel() {
         return component ? React.createElement(component) : null;
     });
     const [isPinned, setIsPinned] = useState(false);
+    /** Bumped on every panel change so the ErrorBoundary below gets a fresh instance. */
+    const [contentKey, setContentKey] = useState(0);
 
     useEffect(() => {
         const group = {};
@@ -39,6 +41,7 @@ export function RightPropertyPanel() {
                 } else {
                     setPanelContent(null);
                 }
+                setContentKey((prev) => prev + 1);
             },
             group
         );
@@ -82,7 +85,7 @@ export function RightPropertyPanel() {
                 )}
             </div>
             <div className={css['PanelContent']}>
-                <ErrorBoundary showTryAgain>
+                <ErrorBoundary key={contentKey} showTryAgain onTryAgain={() => setContentKey((prev) => prev + 1)}>
                     {panelContent}
                 </ErrorBoundary>
             </div>

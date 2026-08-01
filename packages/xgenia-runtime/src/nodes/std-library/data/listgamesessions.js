@@ -21,6 +21,9 @@ const ListGameSessionsNode = {
   docs: 'https://docsapp.xgenia.com/nodes/data/cloud-data/list-game-sessions',
   category: 'Data',
   color: 'data',
+  // Calls the RGS platform itself (POST /rest/v1/rpc/list_game_sessions), so it never
+  // routes to a generated backend edge function: no `isMath` toggle.
+  usesBackendServices: true,
   searchTags: ['game', 'session', 'sessions', 'player', 'game id', 'rgs', 'cloud', 'list', 'fetch', 'query'],
   initialize: function () {
     this._internal.playerId = '';

@@ -23,7 +23,11 @@ export interface ComponentSetupItem {
   componentName: string;
   /** Slug as compiled, e.g. "Component_1" — the fallback when a name slugifies to nothing. */
   defaultSlug: string;
-  /** Default display name (the compiled slug), pre-filled into the name field. */
+  /**
+   * Name pre-filled into the name field — the source component's own name
+   * ("/Components/Keno Dynasty" → "Keno Dynasty"), or the compiled slug when
+   * that isn't usable (unknown source, or a name another item already took).
+   */
   defaultName: string;
   /** Numeric request ports — bet candidates. */
   numericInputs: string[];
@@ -304,6 +308,7 @@ export function ComponentSetupDialog({
           const name = names[item.componentName];
           const port = ports[item.componentName];
           const slug = slugOf(item);
+          const prefilledSlug = toFunctionSlug(item.defaultName, item.defaultSlug);
           return (
             <div
               key={item.componentName}
@@ -330,8 +335,13 @@ export function ComponentSetupDialog({
                     user types, since punctuation does not survive slugifying. */}
                 <div style={{ fontSize: '10px', color: '#666', marginTop: '4px', fontFamily: 'monospace' }}>
                   endpoint: {slug}
-                  {slug !== item.defaultSlug && (
-                    <span style={{ color: '#888', fontFamily: 'inherit' }}> (was {item.defaultSlug})</span>
+                  {/* Compared against the slug the PRE-FILLED name produces, not
+                      the compiled slug — the default name is the source
+                      component's, so its endpoint already differs from
+                      "Component_N" and a "(was ...)" on every untouched row
+                      would be noise. This way it marks an actual edit. */}
+                  {slug !== prefilledSlug && (
+                    <span style={{ color: '#888', fontFamily: 'inherit' }}> (was {prefilledSlug})</span>
                   )}
                 </div>
 

@@ -24,6 +24,9 @@ const SaveGameSessionNode = {
   docs: 'https://docsapp.xgenia.com/nodes/data/cloud-data/save-game-session',
   category: 'Data',
   color: 'data',
+  // Calls the RGS platform itself (POST /rest/v1/rpc/save_game_session), so it never
+  // routes to a generated backend edge function: no `isMath` toggle.
+  usesBackendServices: true,
   searchTags: ['game', 'session', 'sessions', 'player', 'game id', 'rgs', 'cloud', 'save', 'upsert', 'write', 'store', 'update', 'insert'],
   initialize: function () {
     this._internal.playerId = '';

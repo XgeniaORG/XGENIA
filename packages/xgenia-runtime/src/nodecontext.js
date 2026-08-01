@@ -809,6 +809,12 @@ NodeContext.prototype.showPopup = async function (popupComponent, params, args) 
     //TODO: figure out why this requestAnimationFrame is necessary
     group.addChild(popupNode);
   });
+
+  // Return the container so callers can distinguish "the popup actually opened" from the
+  // `!this.onShowPopup` early-return above, which also produced `undefined`. NavigationShowPopup
+  // uses this to set its `isOpen` output truthfully instead of optimistically. Purely additive —
+  // no existing caller reads the return value (showpopup.js `show()`, api/navigation.js).
+  return group;
 };
 
 NodeContext.prototype.setWarningTypes = function (warningTypes) {

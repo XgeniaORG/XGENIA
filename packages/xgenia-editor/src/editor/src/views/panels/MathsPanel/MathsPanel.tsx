@@ -24,6 +24,7 @@ import {
 } from '@xgenia-utils/rgs/deployEdgeFunction';
 import { AppRegistry } from '@xgenia-models/app_registry';
 import { MathsComponentDocumentProvider } from '../../documents/MathsComponentDocument';
+import { MathsSimulateDocumentProvider } from '../../documents/MathsSimulateDocument';
 
 
 // ─── RGS Connection ─────────────────────────────────────────
@@ -38,7 +39,15 @@ import {
     saveRgsSettings,
     clearRgsSettings,
     createOperator,
-    RgsSettings
+    fetchOperatorInfo,
+    formatOperatorFunds,
+    EDITOR_OPERATOR_MODES,
+    GAME_MODES,
+    gameModesForOperatorMode,
+    RgsSettings,
+    OperatorMode,
+    GameMode,
+    OperatorInfo
 } from '@xgenia-utils/rgs/rgsClient';
 
 // ─── Shared RGS test config (game + settings) ───────────────
@@ -171,18 +180,40 @@ function mergeRgsSettings(patch: Record<string, any>): void {
 
 export const MathsPanel_ID = 'maths-panel';
 
-// Create-game form — mirrors the RGS platform's "Game Library" create form exactly
-// (Game Name, Slug, Description). Everything else (game type, RTP, bets, volatility,
-// reel dimensions, version) is filled in by the games-table defaults on the backend,
+// Create-game form — mirrors the RGS platform's "Game Library" create form
+// (Game Name, Slug, Description, Mode), minus its Owner field: a game created from
+// here is owned by the operator whose key the editor is connected with, so there is
+// nothing to pick. Everything else (game type, RTP, bets, volatility, reel
+// dimensions, version) is filled in by the games-table defaults on the backend,
 // same as a game created from the RGS platform.
-const CREATE_DEFAULTS = { name: '', slug: '', description: '' };
+//
+// Mode is whether real money moves through the game. Which values are offered
+// depends on the connected key — see gameModesForOperatorMode.
+const CREATE_DEFAULTS = { name: '', slug: '', description: '', mode: 'demo' as GameMode };
 
 // Slug generation matches the RGS Game Library form's autoSlug.
 const autoSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
-// Create-operator defaults + option lists (values mirror the operator_connectors CHECK constraints).
-const OPERATOR_DEFAULTS = { name: '', wallet_mode: 'demo', currencies: 'EUR' };
-const WALLET_MODE_OPTIONS = ['demo', 'internal', 'seamless'];
+// Create-operator form — mirrors the RGS platform's "New Operator" form field for
+// field (Operator Name, Slug, Mode, Wallet Balance, Supported Currencies, Max Bet,
+// Max Win, IP Whitelist), with one deliberate difference: Mode offers only Demo and
+// Live. `internal` is superadmin over every game in the platform and is granted
+// from the RGS platform alone — see EDITOR_OPERATOR_MODES in rgsClient.
+//
+// wallet_balance / max_bet / max_win are held as strings because they are text
+// inputs; wallet_balance is entered in MAJOR units (what the platform shows) and
+// converted to cents on submit, while max bet/win are in cents, exactly as the
+// platform labels them.
+const OPERATOR_DEFAULTS = {
+    name: '',
+    slug: '',
+    mode: 'demo' as OperatorMode,
+    wallet_balance: '0.00',
+    currencies: 'USD',
+    max_bet: '',
+    max_win: '',
+    allowed_ips: ''
+};
 
 const MODAL_LABEL_STYLE: React.CSSProperties = { display: 'block', fontSize: '11px', color: '#a0a0b0', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' };
 const MODAL_INPUT_STYLE: React.CSSProperties = { width: '100%', padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff', fontSize: '14px', outline: 'none', boxSizing: 'border-box' };
@@ -192,10 +223,32 @@ const VERSION_DELETE_BTN_STYLE: React.CSSProperties = { ...VERSION_BTN_STYLE, co
 
 // A component row in the Components sub-section: the name opens the component's
 // API docs + script inspector in the editor's main area, and the three-dot menu
-// on the far right holds its rename / download / delete actions.
+// on the far right holds its rename / simulate / download / delete actions.
 const COMPONENT_ROW_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: '6px', marginBottom: '4px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: '#e0e0e0' };
 // The name part of that row — a transparent button filling the space left of the menu.
 const COMPONENT_NAME_BTN_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0, padding: 0, textAlign: 'left', background: 'transparent', border: 'none', color: '#e0e0e0', cursor: 'pointer' };
+
+/**
+ * One label/value line in the connected-operator summary under
+ * "Connected to XGENIA RGS".
+ */
+const OperatorDetail = ({ label, value, isNegative }: { label: string; value: string; isNegative?: boolean }) => (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', fontSize: '11px', lineHeight: 1.4 }}>
+        <span style={{ color: '#7a7a8a', flexShrink: 0 }}>{label}</span>
+        <span
+            style={{
+                color: isNegative ? '#EF4444' : '#c8c8d0',
+                fontWeight: 500,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+            }}
+            title={value}
+        >
+            {value}
+        </span>
+    </div>
+);
 
 /**
  * Whether `deploymentId` holds the copy of `slug` that the public rgs-fn
@@ -269,6 +322,14 @@ export function MathsPanel() {
     const [createError, setCreateError] = useState<string | null>(null);
     const [createForm, setCreateForm] = useState({ ...CREATE_DEFAULTS });
 
+    // Delete Game modal state. `deletePreview` is the server's account of what would
+    // be destroyed and what stands in the way (maths-deployer game-delete-preview);
+    // the modal is confirmation only, and every rule is enforced server-side.
+    const [deletePreview, setDeletePreview] = useState<any | null>(null);
+    const [deletePreviewLoading, setDeletePreviewLoading] = useState(false);
+    const [deletingGame, setDeletingGame] = useState(false);
+    const [deleteGameError, setDeleteGameError] = useState<string | null>(null);
+
     // Create Operator modal state. `newOperatorKey` holds the raw key returned once
     // by the RPC so it can be shown/copied before the modal closes.
     const [showOperatorModal, setShowOperatorModal] = useState(false);
@@ -276,6 +337,11 @@ export function MathsPanel() {
     const [operatorError, setOperatorError] = useState<string | null>(null);
     const [operatorForm, setOperatorForm] = useState({ ...OPERATOR_DEFAULTS });
     const [newOperatorKey, setNewOperatorKey] = useState<string | null>(null);
+
+    // The operator this key belongs to — name, mode and remaining wallet funds,
+    // shown under "Connected to XGENIA RGS". Null while loading or if the lookup
+    // fails; the detail line is simply omitted then rather than showing a blank.
+    const [operatorInfo, setOperatorInfo] = useState<OperatorInfo | null>(null);
 
     const connected = !!settings;
 
@@ -307,6 +373,45 @@ export function MathsPanel() {
             }
         });
     };
+
+    // Open a component's Simulate view in the editor's MAIN area — the same
+    // Define Inputs → Simulate → Results flow as a game's Testing subsection in
+    // the RGS studio, run locally against the deployed script. The document
+    // fetches that script itself via download-edge-deployment.
+    const openComponentSimulate = (fn: any) => {
+        if (!settings?.apiKey || !selectedVersion) return;
+        AppRegistry.instance.openDocument(MathsSimulateDocumentProvider.ID, {
+            apiKey: settings.apiKey,
+            deploymentId: selectedVersion.id,
+            version: selectedVersion.version,
+            gameName: (games || []).find((g: any) => g.id === selectedGame)?.name,
+            fn: {
+                function_slug: fn.function_slug,
+                function_name: fn.function_name,
+                payload_example: fn.payload_example,
+                response_example: fn.response_example,
+                // The bet/win mapping chosen in the post-compile setup card at
+                // publish time; the view defaults its pickers to these.
+                bet_input_port: fn.bet_input_port,
+                win_output_port: fn.win_output_port
+            }
+        });
+    };
+
+    // Who are we connected as? Fetched alongside the games list so the connection
+    // block can name the operator, its mode and its remaining wallet funds. The
+    // wallet figure moves with play, so it is refreshed whenever the games list is.
+    const loadOperatorInfo = useCallback(async () => {
+        if (!settings?.apiKey) { setOperatorInfo(null); return; }
+        try {
+            setOperatorInfo(await fetchOperatorInfo(settings.apiKey));
+        } catch (err) {
+            console.error('[MathsPanel] operator-info failed:', err);
+            setOperatorInfo(null);
+        }
+    }, [settings]);
+
+    useEffect(() => { void loadOperatorInfo(); }, [loadOperatorInfo]);
 
     // Load games when connected
     useEffect(() => {
@@ -544,15 +649,22 @@ export function MathsPanel() {
         setCreating(true);
         setCreateError(null);
 
-        // Same fields the RGS "Game Library" form submits: name, slug, description.
+        // Same fields the RGS "Game Library" form submits: name, slug, description, mode.
         // status 'draft' matches the RGS create form (and keeps the game uploadable —
         // the RGS backend rejects maths uploads to Active games). All other columns use
         // the games-table defaults, so the row is identical to an RGS-created game.
+        //
+        // Mode is clamped to what this key may create rather than trusted from the
+        // form: operator-info can land after the modal opened and narrow the choice.
+        // The backend rejects an out-of-bounds mode anyway; this just avoids failing
+        // the create over a value the user can no longer see.
+        const allowed = gameModesForOperatorMode(operatorInfo?.mode);
         const payload: Record<string, unknown> = {
             action: 'create-game',
             name,
             slug: createForm.slug.trim() || autoSlug(name),
             description: createForm.description,
+            mode: allowed.includes(createForm.mode) ? createForm.mode : allowed[0],
             status: 'draft',
         };
 
@@ -598,13 +710,20 @@ export function MathsPanel() {
             setCreateError(e instanceof Error ? e.message : 'Failed to create game');
         }
         setCreating(false);
-    }, [settings, createForm, games]);
+    }, [settings, createForm, games, operatorInfo]);
 
     // Create an operator + API key on XGENIA RGS (so the user can connect without
     // leaving the editor). Mirrors the RGS platform's "Operators" section.
     const handleCreateOperator = useCallback(async () => {
         const name = operatorForm.name.trim();
         if (!name) { setOperatorError('Enter an operator name'); return; }
+
+        // Entered in major units, stored in cents — same as the platform's form.
+        const funds = Math.round(parseFloat(operatorForm.wallet_balance || '0') * 100);
+        if (!Number.isFinite(funds) || funds < 0) {
+            setOperatorError('Wallet balance must be zero or more');
+            return;
+        }
 
         setCreatingOperator(true);
         setOperatorError(null);
@@ -613,10 +732,19 @@ export function MathsPanel() {
                 .split(',')
                 .map((c) => c.trim().toUpperCase())
                 .filter(Boolean);
+            const allowedIps = operatorForm.allowed_ips
+                .split(',')
+                .map((ip) => ip.trim())
+                .filter(Boolean);
             const result = await createOperator({
                 name,
-                walletMode: operatorForm.wallet_mode as 'demo' | 'internal' | 'seamless',
-                currencies: currencies.length ? currencies : ['EUR'],
+                slug: operatorForm.slug.trim() || undefined,
+                mode: operatorForm.mode,
+                currencies: currencies.length ? currencies : ['USD'],
+                walletBalance: funds,
+                maxBet: operatorForm.max_bet ? parseInt(operatorForm.max_bet, 10) : null,
+                maxWin: operatorForm.max_win ? parseInt(operatorForm.max_win, 10) : null,
+                allowedIps,
             });
             // Connect immediately using the freshly minted key (same as handleConnect).
             saveRgsSettings(result.api_key);
@@ -628,6 +756,77 @@ export function MathsPanel() {
         }
         setCreatingOperator(false);
     }, [operatorForm]);
+
+    // ─── Delete the selected game ───────────────────────────────
+    // Ask the server what deleting it would cost before showing any confirmation:
+    // whether it is deletable at all (a played game never is — its rounds, ledger
+    // entries and compliance reports are permanent), and what would be torn down
+    // with it (maths versions, server versions, and any PUBLISHED component
+    // endpoints a deployed frontend is calling).
+    const openDeleteGame = useCallback(async () => {
+        if (!settings?.apiKey || !selectedGame) return;
+        setDeleteGameError(null);
+        setDeletePreviewLoading(true);
+        setDeletePreview({ loading: true });
+        try {
+            const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+                method: 'POST',
+                headers: rgsHeaders(settings.apiKey),
+                body: JSON.stringify({ action: 'game-delete-preview', game_id: selectedGame }),
+            });
+            const data = await res.json();
+            if (!res.ok || data.error) {
+                setDeletePreview(null);
+                setUploadStatus({ type: 'error', message: data.error || 'Could not check the game' });
+                return;
+            }
+            setDeletePreview(data);
+        } catch (err) {
+            setDeletePreview(null);
+            setUploadStatus({ type: 'error', message: err instanceof Error ? err.message : 'Could not check the game' });
+        } finally {
+            setDeletePreviewLoading(false);
+        }
+    }, [settings, selectedGame]);
+
+    const confirmDeleteGame = useCallback(async () => {
+        if (!settings?.apiKey || !selectedGame || !deletePreview?.game) return;
+        setDeletingGame(true);
+        setDeleteGameError(null);
+        try {
+            const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+                method: 'POST',
+                headers: rgsHeaders(settings.apiKey),
+                body: JSON.stringify({
+                    action: 'delete-game',
+                    game_id: selectedGame,
+                    // The preview already told the user this would remove live
+                    // endpoints; acknowledging it here is what unlocks the delete.
+                    confirm_published: deletePreview.active_components > 0 ? true : undefined,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok || data.error) {
+                setDeleteGameError(data.error || 'Failed to delete the game');
+                return;
+            }
+
+            const name = data.name || deletePreview.game.name;
+            // Drop the selection and everything derived from it before refetching,
+            // so nothing renders against a game that no longer exists.
+            setSelectedGame(null);
+            (window as any).__xrgs?.setActiveGame?.(null);
+            setVersions(null);
+            setSelectedVersionId(null);
+            setDeletePreview(null);
+            setGames((prev) => (prev || []).filter((g: any) => g.id !== selectedGame));
+            setUploadStatus({ type: 'success', message: `Game "${name}" deleted` });
+        } catch (err) {
+            setDeleteGameError(err instanceof Error ? err.message : 'Failed to delete the game');
+        } finally {
+            setDeletingGame(false);
+        }
+    }, [settings, selectedGame, deletePreview]);
 
     const closeOperatorModal = useCallback(() => {
         setShowOperatorModal(false);
@@ -790,26 +989,51 @@ export function MathsPanel() {
                 <div style={{ flexShrink: 0, maxHeight: '50%', overflowY: 'auto', overflowX: 'hidden' }}>
                 <Box hasXSpacing hasYSpacing>
                     <VStack>
-                        {/* Connection Status */}
+                        {/* Connection Status — plus, once connected, which operator
+                            the key belongs to: name, mode and remaining wallet
+                            fund. Internal mode has no wallet, so it reports that
+                            rather than a zero balance. */}
                         <Box hasBottomSpacing>
                             <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
                                 padding: '8px 12px',
                                 borderRadius: '6px',
                                 backgroundColor: connected ? 'rgba(103, 222, 146, 0.1)' : 'rgba(255, 255, 255, 0.05)',
                                 border: `1px solid ${connected ? 'rgba(103, 222, 146, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`,
                             }}>
-                                <div style={{
-                                    width: '8px',
-                                    height: '8px',
-                                    borderRadius: '50%',
-                                    backgroundColor: connected ? '#67DE92' : '#666',
-                                }} />
-                                <span style={{ fontSize: '13px', color: '#e0e0e0' }}>
-                                    {connected ? 'Connected to XGENIA RGS' : 'Not connected'}
-                                </span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div style={{
+                                        width: '8px',
+                                        height: '8px',
+                                        borderRadius: '50%',
+                                        backgroundColor: connected ? '#67DE92' : '#666',
+                                        flexShrink: 0,
+                                    }} />
+                                    <span style={{ fontSize: '13px', color: '#e0e0e0' }}>
+                                        {connected ? 'Connected to XGENIA RGS' : 'Not connected'}
+                                    </span>
+                                </div>
+
+                                {connected && operatorInfo && (
+                                    <div style={{ marginTop: '8px', paddingLeft: '16px', display: 'grid', gap: '3px' }}>
+                                        <OperatorDetail
+                                            label="Operator"
+                                            value={operatorInfo.name || operatorInfo.operator_slug}
+                                        />
+                                        <OperatorDetail
+                                            label="Mode"
+                                            value={operatorInfo.mode.charAt(0).toUpperCase() + operatorInfo.mode.slice(1)}
+                                        />
+                                        <OperatorDetail
+                                            label="Wallet fund"
+                                            value={
+                                                operatorInfo.wallet_balance === null
+                                                    ? 'No wallet'
+                                                    : formatOperatorFunds(operatorInfo.wallet_balance, operatorInfo.currency)
+                                            }
+                                            isNegative={(operatorInfo.wallet_balance ?? 0) < 0}
+                                        />
+                                    </div>
+                                )}
                             </div>
                         </Box>
 
@@ -834,6 +1058,10 @@ export function MathsPanel() {
                                             onClick={async () => {
                                                 if (!settings?.apiKey) return;
                                                 setGames(null); // show loading
+                                                // The wallet fund moves with every
+                                                // round, so refresh it alongside the
+                                                // games list.
+                                                void loadOperatorInfo();
                                                 try {
                                                     const r = await fetch(`${XRGS_URL}/maths-deployer`, {
                                                         method: 'POST',
@@ -928,12 +1156,27 @@ export function MathsPanel() {
                                                 backgroundColor: 'rgba(255,255,255,0.03)',
                                                 borderRadius: '4px',
                                                 display: 'flex',
+                                                alignItems: 'center',
                                                 flexWrap: 'wrap' as const,
                                                 gap: '8px',
                                             }}>
                                                 <span>{g.reel_rows}×{g.reel_cols}</span>
                                                 <span>RTP {(parseFloat(g.default_rtp) * 100).toFixed(1)}%</span>
                                                 <span>{g.volatility}</span>
+                                                {/* Deleting is scoped to games this operator owns and is
+                                                    refused server-side once a game has been played. */}
+                                                <span
+                                                    onClick={() => { if (!deletePreviewLoading) void openDeleteGame(); }}
+                                                    style={{
+                                                        marginLeft: 'auto',
+                                                        color: deletePreviewLoading ? '#666' : '#EF4444',
+                                                        cursor: deletePreviewLoading ? 'default' : 'pointer',
+                                                        userSelect: 'none' as const,
+                                                    }}
+                                                    title="Delete this game from XGENIA RGS"
+                                                >
+                                                    {deletePreviewLoading ? 'Checking…' : 'Delete game'}
+                                                </span>
                                             </div>
                                         </Box>
                                     );
@@ -1057,8 +1300,19 @@ export function MathsPanel() {
                                         <span style={{ fontWeight: 600, fontSize: '12px', textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: '#a0a0b0' }}>
                                             Server Versions
                                         </span>
-                                        {versionsLoading && (
+                                        {versionsLoading ? (
                                             <span style={{ fontSize: '10px', color: '#666' }}>Loading&#8230;</span>
+                                        ) : (
+                                            // Re-runs list-edge-deployments. The Components
+                                            // sub-section follows automatically, since its
+                                            // `selectedVersion` is derived from this list.
+                                            <span
+                                                onClick={() => { void fetchVersions(); }}
+                                                style={{ fontSize: '10px', color: '#666', cursor: 'pointer', userSelect: 'none' as const }}
+                                                title="Refresh server versions list"
+                                            >
+                                                ↻ Refresh
+                                            </span>
                                         )}
                                     </div>
 
@@ -1203,6 +1457,11 @@ export function MathsPanel() {
                                                                 setRenameInput(fn.function_name || fn.function_slug || '');
                                                                 setRenameError(null);
                                                             }
+                                                        },
+                                                        {
+                                                            label: 'Simulate',
+                                                            icon: IconName.Play,
+                                                            onClick: () => openComponentSimulate(fn)
                                                         },
                                                         {
                                                             label: 'Download',
@@ -1413,6 +1672,32 @@ export function MathsPanel() {
                             />
                         </div>
 
+                        {/* Mode — whether real money moves through the game. The connected
+                            key's own mode caps the choice: a demo key can only make demo
+                            games, so it gets a single option rather than a rejected create. */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={MODAL_LABEL_STYLE}>Mode</label>
+                            <select
+                                value={createForm.mode}
+                                onChange={(e) => setCreateForm({ ...createForm, mode: e.target.value as GameMode })}
+                                style={MODAL_INPUT_STYLE}
+                            >
+                                {GAME_MODES
+                                    .filter((m) => gameModesForOperatorMode(operatorInfo?.mode).includes(m.value))
+                                    .map((m) => (
+                                        <option key={m.value} value={m.value} style={{ backgroundColor: '#1e1e2e' }}>
+                                            {m.label}
+                                        </option>
+                                    ))}
+                            </select>
+                            <div style={{ fontSize: '11px', color: '#7a7a8a', marginTop: '6px' }}>
+                                {GAME_MODES.find((m) => m.value === createForm.mode)?.blurb}
+                                {operatorInfo?.mode === 'demo' && (
+                                    <> Your operator key runs in Demo mode, so its games can only be Demo.</>
+                                )}
+                            </div>
+                        </div>
+
                         {createError && (
                             <div style={{ fontSize: '11px', color: '#EF4444', marginBottom: '12px' }}>{createError}</div>
                         )}
@@ -1439,6 +1724,123 @@ export function MathsPanel() {
                                     cursor: creating || !createForm.name.trim() ? 'not-allowed' : 'pointer',
                                 }}
                             >{creating ? 'Creating…' : 'Create Game'}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Delete Game modal ─── */}
+            {deletePreview && !deletePreview.loading && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 10000,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: 'rgba(0,0,0,0.6)',
+                }} onClick={() => { if (!deletingGame) { setDeletePreview(null); setDeleteGameError(null); } }}>
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: '440px', maxHeight: '85vh', overflowY: 'auto',
+                            backgroundColor: '#1e1e2e',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: '12px',
+                            padding: '24px',
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                        }}
+                    >
+                        <div style={{ marginBottom: '16px' }}>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>
+                                {deletePreview.deletable ? 'Delete this game?' : 'This game cannot be deleted'}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#888' }}>
+                                {deletePreview.game?.name}
+                                <span style={{ color: '#666', fontFamily: 'monospace' }}> · {deletePreview.game?.slug}</span>
+                            </div>
+                        </div>
+
+                        {deletePreview.deletable ? (
+                            <>
+                                {/* What goes with it. */}
+                                {(deletePreview.cascades?.length > 0 || deletePreview.active_components > 0) ? (
+                                    <div style={{ marginBottom: '16px' }}>
+                                        <label style={MODAL_LABEL_STYLE}>This also removes</label>
+                                        <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '12px', color: '#c8c8d0', lineHeight: 1.7 }}>
+                                            {(deletePreview.cascades || []).map((c: any) => (
+                                                <li key={c.table}>{c.text || `${c.count} ${c.label}`}</li>
+                                            ))}
+                                            {deletePreview.active_components > 0 && (
+                                                <li style={{ color: '#E0B44A' }}>
+                                                    {deletePreview.active_components} published component{' '}
+                                                    {deletePreview.active_components === 1 ? 'endpoint' : 'endpoints'}
+                                                </li>
+                                            )}
+                                        </ul>
+                                    </div>
+                                ) : (
+                                    <div style={{ fontSize: '12px', color: '#c8c8d0', marginBottom: '16px' }}>
+                                        Nothing has been built on this game yet — it will simply be removed.
+                                    </div>
+                                )}
+
+                                {deletePreview.active_components > 0 && (
+                                    <div style={{
+                                        fontSize: '11px', color: '#E0B44A', marginBottom: '16px',
+                                        padding: '8px 10px', borderRadius: '6px',
+                                        backgroundColor: 'rgba(224,180,74,0.1)',
+                                        border: '1px solid rgba(224,180,74,0.3)',
+                                    }}>
+                                        Those endpoints are live. Any deployed frontend calling them will start failing
+                                        as soon as this game is deleted.
+                                    </div>
+                                )}
+
+                                <div style={{ fontSize: '11px', color: '#666', marginBottom: '16px' }}>
+                                    This cannot be undone.
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div style={{ marginBottom: '12px' }}>
+                                    <label style={MODAL_LABEL_STYLE}>Because it has</label>
+                                    <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '12px', color: '#c8c8d0', lineHeight: 1.7 }}>
+                                        {(deletePreview.blockers || []).map((b: any) => (
+                                            <li key={b.table}>{b.text || `${b.count} ${b.label}`}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                                <div style={{ fontSize: '11px', color: '#a0a0b0', marginBottom: '16px' }}>
+                                    That record is permanent. To take the game out of circulation while keeping its
+                                    history, set its status to “retired” in the RGS platform&apos;s Game Library.
+                                </div>
+                            </>
+                        )}
+
+                        {deleteGameError && (
+                            <div style={{ fontSize: '11px', color: '#EF4444', marginBottom: '12px' }}>{deleteGameError}</div>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                            <button
+                                onClick={() => { setDeletePreview(null); setDeleteGameError(null); }}
+                                disabled={deletingGame}
+                                style={{
+                                    padding: '8px 16px', borderRadius: '6px',
+                                    border: '1px solid rgba(255,255,255,0.12)', backgroundColor: 'transparent',
+                                    color: '#a0a0b0', fontSize: '13px', cursor: deletingGame ? 'not-allowed' : 'pointer',
+                                }}
+                            >{deletePreview.deletable ? 'Cancel' : 'Close'}</button>
+                            {deletePreview.deletable && (
+                                <button
+                                    onClick={confirmDeleteGame}
+                                    disabled={deletingGame}
+                                    style={{
+                                        padding: '8px 20px', borderRadius: '6px', border: 'none',
+                                        backgroundColor: deletingGame ? '#444' : '#EF4444',
+                                        color: deletingGame ? '#888' : '#fff',
+                                        fontSize: '13px', fontWeight: 700,
+                                        cursor: deletingGame ? 'not-allowed' : 'pointer',
+                                    }}
+                                >{deletingGame ? 'Deleting…' : 'Delete game'}</button>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -1505,47 +1907,127 @@ export function MathsPanel() {
                             </>
                         ) : (
                             <>
-                                {/* Name */}
+                                {/* Name + slug — as on the platform's form, the slug
+                                    is derived from the name until the user edits it. */}
                                 <div style={{ marginBottom: '16px' }}>
                                     <label style={MODAL_LABEL_STYLE}>Operator Name</label>
                                     <input
                                         type="text"
                                         placeholder="e.g. Acme Casino"
                                         value={operatorForm.name}
-                                        onChange={(e) => { setOperatorForm({ ...operatorForm, name: e.target.value }); setOperatorError(null); }}
+                                        onChange={(e) => {
+                                            setOperatorForm({
+                                                ...operatorForm,
+                                                name: e.target.value,
+                                                slug: autoSlug(e.target.value),
+                                            });
+                                            setOperatorError(null);
+                                        }}
                                         onKeyDown={(e) => { if (e.key === 'Enter') handleCreateOperator(); }}
                                         style={MODAL_INPUT_STYLE}
                                         autoFocus
                                     />
                                 </div>
 
-                                {/* Wallet mode + currencies */}
-                                <div style={{ display: 'flex', gap: '12px', marginBottom: '8px' }}>
+                                <div style={{ marginBottom: '16px' }}>
+                                    <label style={MODAL_LABEL_STYLE}>Slug</label>
+                                    <input
+                                        type="text"
+                                        placeholder="acme-casino"
+                                        value={operatorForm.slug}
+                                        onChange={(e) => setOperatorForm({ ...operatorForm, slug: e.target.value })}
+                                        style={MODAL_INPUT_STYLE}
+                                    />
+                                    <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>Used in API URLs.</div>
+                                </div>
+
+                                {/* Mode — Demo and Live only. Internal is superadmin
+                                    over every game and is granted from the RGS
+                                    platform alone. */}
+                                <div style={{ marginBottom: '16px' }}>
+                                    <label style={MODAL_LABEL_STYLE}>Mode</label>
+                                    <select
+                                        value={operatorForm.mode}
+                                        onChange={(e) => setOperatorForm({ ...operatorForm, mode: e.target.value as OperatorMode })}
+                                        style={{ ...MODAL_INPUT_STYLE, appearance: 'none', cursor: 'pointer' }}
+                                    >
+                                        {EDITOR_OPERATOR_MODES.map((m) => (
+                                            <option key={m.value} value={m.value} style={{ background: '#1a1a2e' }}>{m.label}</option>
+                                        ))}
+                                    </select>
+                                    <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
+                                        {EDITOR_OPERATOR_MODES.find((m) => m.value === operatorForm.mode)?.blurb}
+                                        {' '}Internal mode is created from the RGS platform only.
+                                    </div>
+                                </div>
+
+                                {/* Wallet — the funding behind this operator's games. */}
+                                <div style={{ marginBottom: '16px' }}>
+                                    <label style={MODAL_LABEL_STYLE}>
+                                        Wallet Balance ({operatorForm.currencies.split(',')[0]?.trim() || 'USD'})
+                                    </label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        placeholder="1000000.00"
+                                        value={operatorForm.wallet_balance}
+                                        onChange={(e) => { setOperatorForm({ ...operatorForm, wallet_balance: e.target.value }); setOperatorError(null); }}
+                                        style={MODAL_INPUT_STYLE}
+                                    />
+                                    <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
+                                        Funding for the games this operator owns. Player losses credit it; player wins are paid out of it.
+                                    </div>
+                                </div>
+
+                                {/* Currencies + bet limits */}
+                                <div style={{ marginBottom: '16px' }}>
+                                    <label style={MODAL_LABEL_STYLE}>Supported Currencies</label>
+                                    <input
+                                        type="text"
+                                        placeholder="EUR, USD, GBP"
+                                        value={operatorForm.currencies}
+                                        onChange={(e) => setOperatorForm({ ...operatorForm, currencies: e.target.value })}
+                                        style={MODAL_INPUT_STYLE}
+                                    />
+                                    <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>Comma-separated ISO codes.</div>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
                                     <div style={{ flex: 1 }}>
-                                        <label style={MODAL_LABEL_STYLE}>Wallet Mode</label>
-                                        <select
-                                            value={operatorForm.wallet_mode}
-                                            onChange={(e) => setOperatorForm({ ...operatorForm, wallet_mode: e.target.value })}
-                                            style={{ ...MODAL_INPUT_STYLE, appearance: 'none', cursor: 'pointer' }}
-                                        >
-                                            {WALLET_MODE_OPTIONS.map((m) => (
-                                                <option key={m} value={m} style={{ background: '#1a1a2e' }}>{m}</option>
-                                            ))}
-                                        </select>
+                                        <label style={MODAL_LABEL_STYLE}>Max Bet (cents)</label>
+                                        <input
+                                            type="number"
+                                            placeholder="100000"
+                                            value={operatorForm.max_bet}
+                                            onChange={(e) => setOperatorForm({ ...operatorForm, max_bet: e.target.value })}
+                                            style={MODAL_INPUT_STYLE}
+                                        />
                                     </div>
                                     <div style={{ flex: 1 }}>
-                                        <label style={MODAL_LABEL_STYLE}>Currencies</label>
+                                        <label style={MODAL_LABEL_STYLE}>Max Win (cents)</label>
                                         <input
-                                            type="text"
-                                            placeholder="EUR, USD"
-                                            value={operatorForm.currencies}
-                                            onChange={(e) => setOperatorForm({ ...operatorForm, currencies: e.target.value })}
+                                            type="number"
+                                            placeholder="5000000"
+                                            value={operatorForm.max_win}
+                                            onChange={(e) => setOperatorForm({ ...operatorForm, max_win: e.target.value })}
                                             style={MODAL_INPUT_STYLE}
                                         />
                                     </div>
                                 </div>
-                                <div style={{ fontSize: '10px', color: '#666', marginBottom: '16px' }}>
-                                    Comma-separated currency codes. New operators are created with status “testing” — an admin promotes them to “active” from the RGS platform.
+
+                                <div style={{ marginBottom: '16px' }}>
+                                    <label style={MODAL_LABEL_STYLE}>IP Whitelist</label>
+                                    <input
+                                        type="text"
+                                        placeholder="1.2.3.4, 5.6.7.8"
+                                        value={operatorForm.allowed_ips}
+                                        onChange={(e) => setOperatorForm({ ...operatorForm, allowed_ips: e.target.value })}
+                                        style={MODAL_INPUT_STYLE}
+                                    />
+                                    <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
+                                        Comma-separated. Leave blank to allow all IPs.
+                                    </div>
                                 </div>
 
                                 {operatorError && (

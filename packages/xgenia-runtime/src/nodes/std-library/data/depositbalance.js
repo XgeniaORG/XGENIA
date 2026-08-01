@@ -41,6 +41,9 @@ const DepositBalanceNode = {
   docs: 'https://docsapp.xgenia.com/nodes/data/cloud-data/deposit-balance',
   category: 'Data',
   color: 'data',
+  // Calls the RGS platform itself (POST /rest/v1/rpc/deposit_balance), so it never
+  // routes to a generated backend edge function: no `isMath` toggle.
+  usesBackendServices: true,
   searchTags: ['balance', 'deposit', 'player', 'wallet', 'credit', 'funds', 'money', 'rgs', 'cloud', 'add', 'top up', 'top-up'],
   initialize: function () {
     this._internal.playerID = '';

@@ -58,24 +58,45 @@ class ProjectModules {
               main: manifest.main
             };
 
-            // Special handling for Material Icons module
-            if (m.name === 'Material Icons' && (!m.entries || !m.main)) {
-              console.log(`[DEBUG] Special case: Material Icons module detected, ensuring entries and main are set`);
-              m.main = 'index.js';
-              m.entries = ['index.js'];
-              m.index = path + '/index.js';
-              console.log(`[DEBUG] Updated Material Icons module:`, JSON.stringify(m));
-            } 
-            else if (manifest.entries && Array.isArray(manifest.entries) && manifest.entries.length > 0) {
-                m.index = path + '/' + manifest.entries[0];
-                 console.log(`[DEBUG] Using entries[0] for index: ${m.index}`);
+            // `index` becomes a <script src> in the built page (injectIntoHtml), so it
+            // must point at a file that actually ships. It used to be taken on faith:
+            // the Material Icons branch below invented 'index.js' whenever the manifest
+            // declared no entry, and a stylesheet-only iconset (manifest.json + a
+            // fonts.googleapis stylesheet, no JS at all) then produced
+            //   <script defer src="/xgenia_modules/material-icons/index.js"></script>
+            // in every deployed game — a guaranteed 404 in the console. Resolve the
+            // candidate first, then only keep it if it exists on disk.
+            const moduleEntryExists = function (relPath) {
+              try {
+                return fs.existsSync(projectDirectory + '/' + relPath);
+              } catch (e) {
+                return false;
+              }
+            };
+
+            let candidate;
+            if (manifest.entries && Array.isArray(manifest.entries) && manifest.entries.length > 0) {
+              candidate = path + '/' + manifest.entries[0];
+            } else if (manifest.main) {
+              candidate = path + '/' + manifest.main;
+            } else {
+              // No declared entry. Some Material Icons builds do ship an index.js
+              // without listing it, so probe for it — but only accept it if present.
+              candidate = path + '/index.js';
+              console.log(`[DEBUG] Manifest for ${m.name} declares no 'entries'/'main' — probing ${candidate}`);
             }
-            else if (manifest.main) {
-              m.index = path + '/' + manifest.main;
-              console.log(`[DEBUG] Using main for index: ${m.index}`);
-            }
-            else {
-                 console.warn(`[DEBUG] Manifest for ${m.name} missing both 'entries' and 'main'. Cannot determine index.`);
+
+            if (moduleEntryExists(candidate)) {
+              m.index = candidate;
+              m.main = m.main || candidate.substring(candidate.lastIndexOf('/') + 1);
+              m.entries = m.entries || [m.main];
+              console.log(`[DEBUG] Using index: ${m.index}`);
+            } else if (manifest.entries || manifest.main) {
+              // Declared but missing — a broken module. Say so rather than emitting a
+              // script tag that 404s at runtime.
+              console.warn(`[DEBUG] Module ${m.name} declares entry '${candidate}' but the file is missing — not injecting it.`);
+            } else {
+              console.log(`[DEBUG] Module ${m.name} has no JS entry (asset/stylesheet-only module).`);
             }
 
             if (manifest.dependencies) {

@@ -110,6 +110,7 @@ export class RgsExtraNodeConverter {
     ['DepositBalance', { kind: 'stub', outputs: [{ name: 'isSuccessful', type: 'boolean' }] }],
     ['WithdrawBalance', { kind: 'stub', outputs: [{ name: 'isSuccessful', type: 'boolean' }] }],
     ['GetBalanceByPlayerId', { kind: 'stub', outputs: [{ name: 'balance', type: 'number' }, { name: 'isSuccessful', type: 'boolean' }] }],
+    ['CreateDeposit', { kind: 'stub', outputs: [{ name: 'paymentUrl', type: 'string' }, { name: 'depositAddress', type: 'string' }, { name: 'tokenAmount', type: 'string' }, { name: 'tokenSymbol', type: 'string' }, { name: 'chainName', type: 'string' }, { name: 'isSuccessful', type: 'boolean' }] }],
     ['CreateStripeDeposit', { kind: 'stub', outputs: [{ name: 'checkoutUrl', type: 'string' }, { name: 'isSuccessful', type: 'boolean' }] }],
   ]);
 

@@ -67,6 +67,10 @@ const CreateStripeDepositNode = {
   // src/external/viewer/xgenia.viewer.js, not from this file).
   deprecated: true,
   color: 'data',
+  // Calls the RGS platform itself (the create-checkout-session edge function under
+  // /functions/v1) and then needs the browser to reach Stripe Checkout, so it never
+  // routes to a generated backend edge function: no `isMath` toggle.
+  usesBackendServices: true,
   searchTags: ['balance', 'deposit', 'stripe', 'payment', 'checkout', 'pay', 'player', 'wallet', 'credit', 'funds', 'money', 'rgs', 'cloud', 'top up', 'top-up'],
   initialize: function () {
     this._internal.playerID = '';

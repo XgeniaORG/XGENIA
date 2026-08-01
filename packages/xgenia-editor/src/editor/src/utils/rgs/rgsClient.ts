@@ -41,18 +41,75 @@ export function rgsHeaders(apiKey: string): Record<string, string> {
   };
 }
 
+/**
+ * An operator's MODE — the only thing that decides what its key can reach.
+ *
+ *   demo     — has a wallet, no real money; sees only the games it created.
+ *   live     — the same, with a real-money wallet.
+ *   internal — no wallet, superadmin over every game in the platform.
+ *
+ * Only demo and live can be created from the editor: `internal` is superadmin, so
+ * the RGS platform's own Operators page is the only place that grants it (the
+ * create_operator RPC rejects it — the editor holds nothing but the public anon
+ * key, so this cannot be a UI-only restriction).
+ */
+export type OperatorMode = 'demo' | 'live';
+
+export const EDITOR_OPERATOR_MODES: { value: OperatorMode; label: string; blurb: string }[] = [
+  { value: 'demo', label: 'Demo', blurb: 'Wallet with play money. Sees only the games created with this key.' },
+  { value: 'live', label: 'Live', blurb: 'Same as Demo, with a real-money wallet.' }
+];
+
+/**
+ * A GAME's mode — whether real money moves through it. Mirrors the RGS platform's
+ * "Mode" field on the Game Library form; distinct from `status`, which is the
+ * game's lifecycle rather than its money.
+ */
+export type GameMode = 'demo' | 'live';
+
+export const GAME_MODES: { value: GameMode; label: string; blurb: string }[] = [
+  { value: 'demo', label: 'Demo', blurb: 'Play money. Nothing real is at stake.' },
+  { value: 'live', label: 'Live', blurb: 'Real money.' }
+];
+
+/**
+ * Which modes a game created with this key may have. The connected operator's own
+ * mode is the ceiling: a demo key's wallet holds play money, so its games can only
+ * be demo, while live and internal keys can create either.
+ *
+ * An unknown mode (operator-info not loaded, or the key resolved to a platform
+ * session) is treated as demo-only — the restrictive read, since the backend and
+ * the DB trigger both reject a live game the key isn't entitled to anyway.
+ */
+export function gameModesForOperatorMode(operatorMode: string | null | undefined): GameMode[] {
+  return operatorMode === 'live' || operatorMode === 'internal' ? ['demo', 'live'] : ['demo'];
+}
+
+/**
+ * Fields the RGS platform's "New Operator" form collects, so the editor's
+ * "Create operator & get key" popup can mirror it exactly.
+ *
+ * Amounts are in MINOR UNITS (cents), matching the platform and the DB.
+ */
 export interface CreateOperatorInput {
   name: string;
   slug?: string;
-  walletMode?: 'demo' | 'internal' | 'seamless';
+  mode?: OperatorMode;
   currencies?: string[];
+  /** Opening wallet balance, in cents. */
+  walletBalance?: number;
+  maxBet?: number | null;
+  maxWin?: number | null;
+  allowedIps?: string[];
 }
 
 export interface CreateOperatorResult {
   operator_id: string;
   operator_slug: string;
-  status: string;
+  name: string;
   wallet_mode: string;
+  wallet_balance: number;
+  supported_currencies: string[];
   api_key: string;
 }
 
@@ -74,8 +131,12 @@ export async function createOperator(input: CreateOperatorInput): Promise<Create
     body: JSON.stringify({
       p_name: input.name,
       p_slug: input.slug || null,
-      p_wallet_mode: input.walletMode || 'demo',
-      p_currencies: input.currencies && input.currencies.length ? input.currencies : ['EUR']
+      p_wallet_mode: input.mode || 'demo',
+      p_currencies: input.currencies && input.currencies.length ? input.currencies : ['USD'],
+      p_wallet_balance: Math.max(0, Math.round(input.walletBalance || 0)),
+      p_max_bet: input.maxBet ?? null,
+      p_max_win: input.maxWin ?? null,
+      p_allowed_ips: input.allowedIps && input.allowedIps.length ? input.allowedIps : null
     })
   });
 
@@ -95,6 +156,50 @@ export async function createOperator(input: CreateOperatorInput): Promise<Create
     throw new Error('Operator was created but no key was returned');
   }
   return data as CreateOperatorResult;
+}
+
+/** The operator an API key belongs to, as reported by maths-deployer/operator-info. */
+export interface OperatorInfo {
+  operator_id: string;
+  operator_slug: string;
+  name: string | null;
+  mode: string;
+  /** Remaining wallet balance in cents, or null for internal mode (no wallet). */
+  wallet_balance: number | null;
+  currency: string;
+  supported_currencies: string[];
+  max_bet: number | null;
+  max_win: number | null;
+}
+
+/**
+ * Who is this key? Used by the Maths RGS panel to show the connected operator's
+ * name, mode and remaining wallet funds. Returns null when the key resolves to no
+ * operator (e.g. a platform session rather than an operator key), so the caller
+ * can simply not render the detail line rather than handle an error.
+ */
+export async function fetchOperatorInfo(apiKey: string): Promise<OperatorInfo | null> {
+  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+    method: 'POST',
+    headers: rgsHeaders(apiKey),
+    body: JSON.stringify({ action: 'operator-info' })
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Request failed (${res.status})`);
+  }
+
+  const data = await res.json();
+  return (data?.operator as OperatorInfo | null) ?? null;
+}
+
+/** Format a cents amount for display, e.g. 100000000 → "$1,000,000.00". */
+export function formatOperatorFunds(cents: number | null | undefined, currency = 'USD'): string {
+  if (cents === null || cents === undefined) return '—';
+  const symbols: Record<string, string> = { EUR: '€', USD: '$', GBP: '£' };
+  const amount = (cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${symbols[currency] || currency + ' '}${amount}`;
 }
 
 export function getRgsSettings(): RgsSettings | null {

@@ -62,6 +62,9 @@ function registerNodes(xgeniaRuntime) {
     require('./src/nodes/std-library/data/depositbalance'),
     require('./src/nodes/std-library/data/withdrawbalance'),
     require('./src/nodes/std-library/data/getbalancebyplayerid'),
+    require('./src/nodes/std-library/data/createdeposit'),
+    // Deprecated (Stripe prohibits gambling) — still registered so projects that
+    // already contain it keep loading. Superseded by createdeposit above.
     require('./src/nodes/std-library/data/createstripedeposit'),
     require('./src/nodes/std-library/convertInputsIntoRecord'),
     require('./src/nodes/std-library/convertRecordIntoOutputs'),

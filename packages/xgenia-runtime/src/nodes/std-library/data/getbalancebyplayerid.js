@@ -25,6 +25,9 @@ const GetBalanceByPlayerIdNode = {
   docs: 'https://docsapp.xgenia.com/nodes/data/cloud-data/get-balance-by-player-id',
   category: 'Data',
   color: 'data',
+  // Calls the RGS platform itself (POST /rest/v1/rpc/get_player_balance), so it
+  // never routes to a generated backend edge function: no `isMath` toggle.
+  usesBackendServices: true,
   searchTags: ['balance', 'get', 'read', 'fetch', 'player', 'wallet', 'funds', 'money', 'rgs', 'cloud', 'retrieve', 'lookup'],
   initialize: function () {
     this._internal.playerID = '';

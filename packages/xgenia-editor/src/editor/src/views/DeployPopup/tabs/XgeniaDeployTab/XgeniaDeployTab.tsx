@@ -12,7 +12,7 @@ import { compileProject } from '@xgenia-utils/compile';
 import { saveProject } from '@xgenia-utils/compile/duplicateProject';
 import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import { generateFunctionArtifact } from '@xgenia-utils/rgs/generateFunctionArtifact';
-import { createEdgeDeployment, deployEdgeFunction } from '@xgenia-utils/rgs/deployEdgeFunction';
+import { createEdgeDeployment, deployEdgeFunction, deleteEdgeDeployment } from '@xgenia-utils/rgs/deployEdgeFunction';
 import { getRgsSettings, getActiveGame, isRgsConnected, rgsHeaders, XRGS_URL } from '@xgenia-utils/rgs/rgsClient';
 import { loadSharedDeployTokens } from '@xgenia-utils/rgs/deployTokens';
 
@@ -425,6 +425,29 @@ interface GitHubFile {
   encoding?: 'utf-8' | 'base64';
 }
 
+/**
+ * One RGS Server Version a domain's frontend was published against.
+ *
+ * A published game is two halves: the Vercel deployment (UI) and an RGS
+ * deployment version holding the edge functions its Aggregator nodes call.
+ * Recording the pair is what lets deleting the domain take its backend with it
+ * — otherwise a deleted frontend leaves its logic live and callable on the RGS
+ * platform, with nothing left in the editor pointing at it.
+ *
+ * Optional throughout: domains published before this was recorded (and any
+ * deploy to a plain cloud service, which has no RGS backend at all) simply have
+ * no link, and delete then behaves as it always did.
+ */
+interface RgsBackendRef {
+  /** `game_function_deployments.id` — the Server Version row to delete. */
+  deploymentId: string;
+  /** Scopes the delete server-side, so a stale id can't touch another game. */
+  gameId: string;
+  /** Display only, for the domains list and the delete toast. */
+  gameName?: string;
+  version?: number;
+}
+
 interface DeployedDomain {
   name: string;
   id: string;
@@ -433,6 +456,14 @@ interface DeployedDomain {
   updatedAt?: string;
   deviceId?: string;
   accountId?: string;
+  /**
+   * Every RGS Server Version published under this domain, oldest first.
+   *
+   * A list rather than one id because republishing the same domain opens a NEW
+   * version and leaves the earlier ones on the platform — so the frontend's
+   * backend is all of them, and deleting the domain has to clean up all of them.
+   */
+  rgsBackends?: RgsBackendRef[];
 }
 
 /**
@@ -446,6 +477,22 @@ interface DeployedDomain {
 function numericPortNames(example: Record<string, any> | undefined | null): string[] {
   if (!example || typeof example !== 'object') return [];
   return Object.keys(example).filter((key) => typeof example[key] === 'number');
+}
+
+/**
+ * Last path segment of a component's name — "/Components/Keno Dynasty" →
+ * "Keno Dynasty".
+ *
+ * Component names are folder paths, so the segments in front are where the user
+ * filed it, not what it is called. Returns '' for a missing or all-slashes name,
+ * which callers treat as "no name to use".
+ */
+function leafComponentName(componentName: string | undefined | null): string {
+  const segments = String(componentName || '')
+    .split('/')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return segments.length ? segments[segments.length - 1] : '';
 }
 
 export function XgeniaDeployTab() {
@@ -1089,7 +1136,12 @@ export function XgeniaDeployTab() {
   }
 
   // Save deployed domain to local storage
-  function saveDeployedDomain(domainName: string, deploymentId: string, deploymentUrl: string) {
+  function saveDeployedDomain(
+    domainName: string,
+    deploymentId: string,
+    deploymentUrl: string,
+    rgsBackend?: RgsBackendRef
+  ) {
     try {
       const storedDomains = localStorage.getItem('xgenia-deployed-domains');
       const deployedDomainsData = storedDomains ? JSON.parse(storedDomains) : [];
@@ -1101,6 +1153,16 @@ export function XgeniaDeployTab() {
         )
       );
       const currentTime = new Date().toISOString();
+      // Carry the backend links across a republish and APPEND this publish's
+      // version, rather than replacing: every version this domain opened is
+      // still live on the platform, and delete has to account for all of them.
+      const existingBackends: RgsBackendRef[] =
+        existingIndex >= 0 && Array.isArray(deployedDomainsData[existingIndex]?.rgsBackends)
+          ? deployedDomainsData[existingIndex].rgsBackends
+          : [];
+      const rgsBackends = rgsBackend && !existingBackends.some((b) => b.deploymentId === rgsBackend.deploymentId)
+        ? [...existingBackends, rgsBackend]
+        : existingBackends;
       const newDomain: DeployedDomain = {
         name: domainName,
         id: deploymentId,
@@ -1109,6 +1171,7 @@ export function XgeniaDeployTab() {
         updatedAt: currentTime,
         deviceId,
         accountId: currentAccountId || undefined,
+        ...(rgsBackends.length > 0 ? { rgsBackends } : {})
       };
 
       if (existingIndex >= 0) {
@@ -1331,8 +1394,90 @@ export function XgeniaDeployTab() {
     }
   }
 
-  // Delete a specific domain/deployment
-  async function deleteDomain(domainId: string, domainName: string) {
+  /** Drop one domain from the stored list and from the list on screen. */
+  function forgetDomain(domainId: string) {
+    const storedDomains = localStorage.getItem('xgenia-deployed-domains');
+    const deployedDomainsData = storedDomains ? JSON.parse(storedDomains) : [];
+    const updatedDomains = deployedDomainsData.filter((d: any) => d.id !== domainId);
+    localStorage.setItem('xgenia-deployed-domains', JSON.stringify(updatedDomains));
+    setDeployedDomains(prev => prev.filter(domain => domain.id !== domainId));
+  }
+
+  /** "v3 (Keno Dynasty)" — how a backend version is named in messages. */
+  function backendLabel(b: RgsBackendRef): string {
+    const version = b.version ? `v${b.version}` : 'version';
+    return b.gameName ? `${version} (${b.gameName})` : version;
+  }
+
+  /**
+   * Delete the RGS Server Version(s) behind a Vercel deployment.
+   *
+   * Deleting the Vercel project only removes the UI half of a published game:
+   * its logic lives in RGS edge functions, which stay live and callable on their
+   * public `/rgs-fn/<game>/<slug>` endpoints with nothing left pointing at them.
+   * So the domain's recorded versions go too — the cascade on
+   * game_function_deployments takes their component functions with them.
+   *
+   * Never throws. By the time this runs the Vercel project is already gone, so a
+   * backend that won't delete cannot be allowed to fail the whole operation —
+   * it has to be reported instead, with the version named so it can be removed
+   * by hand from the Maths RGS panel.
+   */
+  async function deleteRgsBackends(
+    domain: DeployedDomain
+  ): Promise<{ ok: boolean; message: string; keepRecord: boolean }> {
+    const backends = domain.rgsBackends || [];
+    // Nothing linked: an older record, or a deploy to a plain cloud service.
+    if (backends.length === 0) return { ok: true, message: '', keepRecord: false };
+
+    const apiKey = getRgsSettings()?.apiKey;
+    if (!apiKey) {
+      return {
+        ok: false,
+        keepRecord: true,
+        message:
+          ` Its XGENIA RGS backend (${backends.map(backendLabel).join(', ')}) was NOT deleted — not connected to` +
+          ` XGENIA RGS. Connect in the Maths RGS panel and delete again.`
+      };
+    }
+
+    const failures: string[] = [];
+    for (const backend of backends) {
+      try {
+        await deleteEdgeDeployment(apiKey, backend.deploymentId, backend.gameId);
+      } catch (e: any) {
+        const message = String(e?.message || e);
+        // Already gone server-side (deleted from the RGS studio, or a previous
+        // attempt that got this far) is the outcome we wanted, not a failure.
+        if (/not found/i.test(message)) continue;
+        console.error(`Failed to delete RGS deployment ${backend.deploymentId}:`, e);
+        failures.push(`${backendLabel(backend)}: ${message}`);
+      }
+    }
+
+    if (failures.length > 0) {
+      return {
+        ok: false,
+        keepRecord: true,
+        message:
+          ` Its XGENIA RGS backend could not be deleted (${failures.join('; ')}).` +
+          ` Delete it from the Maths RGS panel — the domain stays listed so you can retry.`
+      };
+    }
+    const deleted = backends.map(backendLabel).join(', ');
+    return {
+      ok: true,
+      keepRecord: false,
+      message: ` XGENIA RGS backend deleted too (${deleted}).`
+    };
+  }
+
+  // Delete a specific domain/deployment — frontend (Vercel project) AND the RGS
+  // backend it was published with, so a deleted game leaves nothing running.
+  // Vercel goes first: if it fails, the backend is deliberately left alone
+  // rather than pulling the logic out from under a frontend that is still live.
+  async function deleteDomain(domain: DeployedDomain) {
+    const { id: domainId, name: domainName } = domain;
     setDeletingDomains(prev => new Set([...prev, domainId]));
 
     try {
@@ -1343,16 +1488,12 @@ export function XgeniaDeployTab() {
         slug: teamInfo.slug
       });
 
-      // Remove from local storage
-      const storedDomains = localStorage.getItem('xgenia-deployed-domains');
-      const deployedDomainsData = storedDomains ? JSON.parse(storedDomains) : [];
-      const updatedDomains = deployedDomainsData.filter((d: any) => d.id !== domainId);
-      localStorage.setItem('xgenia-deployed-domains', JSON.stringify(updatedDomains));
+      const backend = await deleteRgsBackends(domain);
+      if (!backend.keepRecord) forgetDomain(domainId);
 
-      // Remove from the UI list
-      setDeployedDomains(prev => prev.filter(domain => domain.id !== domainId));
-
-      ToastLayer.showSuccess(`Successfully deleted ${domainName}.vercel.app project from Vercel`);
+      const summary = `Successfully deleted ${domainName}.vercel.app project from Vercel.${backend.message}`;
+      if (backend.ok) ToastLayer.showSuccess(summary);
+      else ToastLayer.showError(summary);
     } catch (error: any) {
       console.error('Failed to delete project from Vercel:', error);
 
@@ -1360,16 +1501,14 @@ export function XgeniaDeployTab() {
       if (error.message.includes('404') || error.message.includes('Not Found') || error.message.includes('not found')) {
         console.log('Project not found in Vercel, removing from local storage only');
 
-        // Remove from local storage
-        const storedDomains = localStorage.getItem('xgenia-deployed-domains');
-        const deployedDomainsData = storedDomains ? JSON.parse(storedDomains) : [];
-        const updatedDomains = deployedDomainsData.filter((d: any) => d.id !== domainId);
-        localStorage.setItem('xgenia-deployed-domains', JSON.stringify(updatedDomains));
+        // The frontend is already gone, but its backend may not be — this is the
+        // last chance to take it with the record, so still try.
+        const backend = await deleteRgsBackends(domain);
+        if (!backend.keepRecord) forgetDomain(domainId);
 
-        // Remove from the UI list
-        setDeployedDomains(prev => prev.filter(domain => domain.id !== domainId));
-
-        ToastLayer.showSuccess(`Removed ${domainName}.vercel.app from list (project not found in Vercel)`);
+        const summary = `Removed ${domainName}.vercel.app from list (project not found in Vercel).${backend.message}`;
+        if (backend.ok) ToastLayer.showSuccess(summary);
+        else ToastLayer.showError(summary);
       } else {
         // For other errors, show the actual error
         ToastLayer.showError(`Failed to delete ${domainName}.vercel.app: ${error.message}`);
@@ -1451,18 +1590,32 @@ export function XgeniaDeployTab() {
     let choices: Record<string, ComponentSetupChoice> = {};
     if (artifacts.length > 0) {
       ToastLayer.hideActivity(activityId);
+      // Names already handed out, lowercased. Two visual components in different
+      // folders can share a leaf name ("/Slot/GameScreen", "/Keno/GameScreen"),
+      // and the card refuses to continue on duplicates — so a name that is
+      // already taken falls back to the compiled slug rather than opening the
+      // card on a blocking error.
+      const usedNames = new Set<string>();
       const picked = await requestComponentSetup(
         artifacts.map(({ comp, artifact }) => {
           // RGS stores the slug with XGENIA's wrapping underscores stripped
-          // ("__Component_1__" → "Component_1"), so show and default to that.
+          // ("__Component_1__" → "Component_1"), so that is the compiled slug
+          // the card falls back to.
           const publicSlug = artifact.slug.replace(/^_+|_+$/g, '') || artifact.slug;
           // Compile records which visual component each cloud component was
           // extracted from, so the card can point at something recognisable.
           const origin = (origins || []).find((o) => o.cloudName === comp.name);
+          // Default to the source component's own name — its last path segment
+          // ("/Components/Keno Dynasty" → "Keno Dynasty"), since the enclosing
+          // folders are the user's filing, not the component's identity. Beats
+          // "Component_1": it is what they will recognise in the RGS lists.
+          const leafName = leafComponentName(origin?.sourceComponentName);
+          const defaultName = leafName && !usedNames.has(leafName.toLowerCase()) ? leafName : publicSlug;
+          usedNames.add(defaultName.toLowerCase());
           return {
             componentName: comp.name,
             defaultSlug: publicSlug,
-            defaultName: publicSlug,
+            defaultName,
             numericInputs: numericPortNames(artifact.payloadExample),
             numericOutputs: numericPortNames(artifact.responseExample),
             sourceComponentName: origin?.sourceComponentName || '(unknown)',
@@ -1483,11 +1636,18 @@ export function XgeniaDeployTab() {
     //    as a per-game RGS edge function. Every Publish becomes a new version,
     //    so the game keeps full deploy history.
     ToastLayer.showActivity('Deploying logic to XGENIA RGS...', activityId);
-    const { deploymentId } = await createEdgeDeployment(rgs.apiKey, game.id, copy.name);
+    // Named rgsDeploymentId, not deploymentId: the Vercel deploy below returns an
+    // id by that name too, and the two must never be confused — this one is the
+    // Server Version that a later domain delete has to remove.
+    const { deploymentId: rgsDeploymentId, version: rgsVersion } = await createEdgeDeployment(
+      rgs.apiKey,
+      game.id,
+      copy.name
+    );
     const urlByComponent: Record<string, string> = {};
     for (const { comp, artifact } of artifacts) {
       const choice = choices[comp.name];
-      const { url } = await deployEdgeFunction(rgs.apiKey, game.id, deploymentId, {
+      const { url } = await deployEdgeFunction(rgs.apiKey, game.id, rgsDeploymentId, {
         ...artifact,
         // The user's name replaces the generated one, and the slug follows it —
         // so this Publish's endpoint becomes /rgs-fn/<game>/<new slug>. The
@@ -1555,7 +1715,14 @@ export function XgeniaDeployTab() {
       const userFriendlyDomain = aliasUrl.replace(/^https?:\/\//, '');
       ToastLayer.showSuccess(`Deployed UI to Vercel and logic to XGENIA RGS!\nLive URL: ${userFriendlyDomain}`);
       setSuccessMessage(`Deployed to Vercel + XGENIA RGS. Live URL: ${userFriendlyDomain}`);
-      saveDeployedDomain(domainName.trim(), deploymentId, aliasUrl);
+      // Record which RGS Server Version this frontend talks to, so deleting the
+      // domain later can delete its backend instead of orphaning it.
+      saveDeployedDomain(domainName.trim(), deploymentId, aliasUrl, {
+        deploymentId: rgsDeploymentId,
+        gameId: game.id,
+        gameName: game.name,
+        version: rgsVersion
+      });
       if (showDeployedDomains) await fetchDeployedDomains();
 
       try { filesystem.removeDirRecursive(tempDir); } catch (e) { /* ignore */ }
@@ -1915,6 +2082,16 @@ export function XgeniaDeployTab() {
                                   <span style={{ color: '#aaa' }}>Updated:</span> {formatTimestamp(domain.updatedAt)}
                                 </div>
                               )}
+                              {/* Delete removes the linked RGS Server Version(s)
+                                  as well, so name them here — that is not
+                                  something to discover from the toast after the
+                                  fact. */}
+                              {(domain.rgsBackends || []).length > 0 && (
+                                <div>
+                                  <span style={{ color: '#aaa' }}>RGS backend:</span>{' '}
+                                  {(domain.rgsBackends || []).map(backendLabel).join(', ')}
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -1935,7 +2112,7 @@ export function XgeniaDeployTab() {
                               Rename
                             </button>
                             <button
-                              onClick={() => deleteDomain(domain.id, domain.name)}
+                              onClick={() => deleteDomain(domain)}
                               disabled={deletingDomains.has(domain.id)}
                               style={{
                                 padding: '4px 8px',

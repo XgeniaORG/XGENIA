@@ -6,6 +6,11 @@ const ShowPopupNode = {
   initialize: function () {
     this._internal.popupParams = {};
     this._internal.closeResults = {};
+    // Number of popups this node currently has open. A counter rather than a boolean because
+    // `show` can legitimately fire again before the first popup closes (double-click on a
+    // settings button), and each open gets its own onClosePopup callback — a plain boolean
+    // would be flipped to false by the first close while another popup was still on screen.
+    this._internal.openCount = 0;
   },
   inputs: {
     target: {
@@ -28,6 +33,35 @@ const ShowPopupNode = {
   outputs: {
     Closed: {
       type: 'signal'
+    },
+    // ─── OBSERVABLE OPEN STATE (2026-07-29, debug export 1785320275289) ──────────────────
+    // Before this the node's ONLY output was the `Closed` signal, which made "is the popup
+    // open?" unanswerable:
+    //   • a signal carries no value, so nothing can read it — an AI probing `Closed` with
+    //     expect{} got told the port "does not exist" (it does; it is just unreadable), and
+    //     that false failure became a completion blocker;
+    //   • `Closed` does not even fire on every close. See `onClosePopup` below: when the popup
+    //     is dismissed through a NAMED closeAction the node emits THAT action's signal instead,
+    //     so anything listening on `Closed` alone silently misses the close entirely;
+    //   • `_internal.hasScheduledShow` is not a substitute — it is true only for the one frame
+    //     between the `show` signal and the popup actually opening.
+    //
+    // `isOpen` is a readable boolean, so open state can be asserted directly
+    // (expect{ port: 'isOpen', equals: true }) and wired to drive UI. `Opened` is the signal
+    // counterpart to `Closed`, so open/close can be handled symmetrically. Both flip on EVERY
+    // path, including named close actions.
+    Opened: {
+      type: 'signal',
+      displayName: 'Opened',
+      group: 'Signals'
+    },
+    isOpen: {
+      type: 'boolean',
+      displayName: 'Is Open',
+      group: 'State',
+      getter: function () {
+        return this._internal.openCount > 0;
+      }
     }
   },
   methods: {
@@ -44,14 +78,29 @@ const ShowPopupNode = {
         internal.hasScheduledShow = true;
         this.scheduleAfterInputsHaveUpdated(function () {
           internal.hasScheduledShow = false;
-          _this.show();
+          // show() is async (it awaits context.showPopup). Attach a handler so a failure to
+          // open surfaces as a console error instead of an unhandled promise rejection.
+          Promise.resolve(_this.show()).catch(function (e) {
+            console.error('[NavigationShowPopup] failed to show popup "' + internal.target + '":', e);
+          });
         });
       }
     },
-    show: function () {
+    /** Adjust the open counter and publish the new `isOpen` value. */
+    _setOpenDelta: function (delta) {
+      const next = Math.max(0, (this._internal.openCount || 0) + delta);
+      const wasOpen = (this._internal.openCount || 0) > 0;
+      const isOpen = next > 0;
+      this._internal.openCount = next;
+      // Only publish on an actual transition, so stacked popups don't re-emit the same value.
+      if (wasOpen !== isOpen) {
+        this.flagOutputDirty('isOpen');
+      }
+    },
+    show: async function () {
       if (this._internal.target == undefined) return;
 
-      this.context.showPopup(this._internal.target, this._internal.popupParams, {
+      const group = await this.context.showPopup(this._internal.target, this._internal.popupParams, {
         senderNode: this.nodeScope.componentOwner,
         /**
          * @param {string | undefined} action
@@ -59,6 +108,11 @@ const ShowPopupNode = {
          */
         onClosePopup: (action, results) => {
           this._internal.closeResults = results;
+
+          // Before the action branch on purpose: a popup closed through a NAMED closeAction
+          // emits that action's signal and NOT `Closed`, so open state has to be cleared here
+          // to stay correct on every close path.
+          this._setOpenDelta(-1);
 
           for (const key in results) {
             if (this.hasOutput('closeResult-' + key)) {
@@ -73,6 +127,14 @@ const ShowPopupNode = {
           }
         }
       });
+
+      // Only report open when the popup really opened. showPopup returns the container group on
+      // success and undefined when the runtime has no onShowPopup handler — reporting
+      // optimistically here would make `isOpen` claim a popup that never appeared.
+      if (group) {
+        this._setOpenDelta(1);
+        this.sendSignalOnOutput('Opened');
+      }
     },
     registerInputIfNeeded: function (name) {
       if (this.hasInput(name)) {
