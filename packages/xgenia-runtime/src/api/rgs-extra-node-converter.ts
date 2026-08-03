@@ -103,6 +103,11 @@ export class RgsExtraNodeConverter {
     ['AddDbModelRelation', { kind: 'stub', outputs: [{ name: 'error', type: 'string' }, { name: 'id', type: 'string' }] }],
     ['RemoveDbModelRelation', { kind: 'stub', outputs: [{ name: 'error', type: 'string' }, { name: 'id', type: 'string' }] }],
     ['FilterDBModels', { kind: 'stub', outputs: [{ name: 'items', type: 'array' }, { name: 'firstItemId', type: 'string' }, { name: 'count', type: 'number' }] }],
+    ['CreateNewPlayer', { kind: 'stub', outputs: [{ name: 'playerId', type: 'string' }, { name: 'isSuccessful', type: 'boolean' }, { name: 'error', type: 'string' }] }],
+    ['UpdatePlayer', { kind: 'stub', outputs: [{ name: 'playerId', type: 'string' }, { name: 'playerName', type: 'string' }, { name: 'demoBalance', type: 'number' }, { name: 'isSuccessful', type: 'boolean' }, { name: 'error', type: 'string' }] }],
+    ['GetPlayer', { kind: 'stub', outputs: [{ name: 'playerId', type: 'string' }, { name: 'playerName', type: 'string' }, { name: 'demoBalance', type: 'number' }, { name: 'liveBalance', type: 'number' }, { name: 'isSuccessful', type: 'boolean' }, { name: 'error', type: 'string' }] }],
+    // Deprecated 2026-08, superseded by the three above; kept so an already-published
+    // project that still contains it converts.
     ['GetPlayerIdByName', { kind: 'stub', outputs: [{ name: 'playerId', type: 'string' }, { name: 'isExistBefore', type: 'boolean' }] }],
     ['ListGameSessions', { kind: 'stub', outputs: [{ name: 'sessions', type: 'array' }, { name: 'isEmpty', type: 'boolean' }] }],
     ['LoadGameSession', { kind: 'stub', outputs: [{ name: 'sessionData', type: '*' }, { name: 'isSuccessful', type: 'boolean' }] }],

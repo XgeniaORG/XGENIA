@@ -42,6 +42,19 @@ const WithdrawBalanceNode = {
   displayNodeName: 'Withdraw Balance',
   docs: 'https://docsapp.xgenia.com/nodes/data/cloud-data/withdraw-balance',
   category: 'Data',
+  // DEPRECATED 2026-08-04 — withdrawals are switched off across the RGS platform.
+  // `withdraw_balance` now raises 'withdrawals are disabled on this platform', has
+  // lost EXECUTE for the anon key this node uses, and the pending `transactions`
+  // row it used to file would be refused by a trigger (XRGS migration
+  // 20260804120100_disable_payment_features). There is nothing left for it to do:
+  // with no cashier there is nowhere for a balance to be paid out TO.
+  //
+  // To take play money off a player, set a lower Demo Balance with **Update
+  // Player** — a correction to an account, not a payout.
+  //
+  // See depositbalance.js for what `deprecated` does and does not change, and why
+  // the node stays registered rather than being removed.
+  deprecated: true,
   color: 'data',
   // Calls the RGS platform itself (POST /rest/v1/rpc/withdraw_balance), so it never
   // routes to a generated backend edge function: no `isMath` toggle.

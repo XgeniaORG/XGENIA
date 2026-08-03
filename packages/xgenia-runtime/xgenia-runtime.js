@@ -55,16 +55,27 @@ function registerNodes(xgeniaRuntime) {
     // Cloud
     require('./src/nodes/std-library/data/cloudfilenode'),
     require('./src/nodes/std-library/data/dbconfig'),
+    // Players. Create / Update / Get replaced the single get-or-create node in
+    // 2026-08 — see createnewplayer.js for why it was split three ways.
+    require('./src/nodes/std-library/data/createnewplayer'),
+    require('./src/nodes/std-library/data/updateplayer'),
+    require('./src/nodes/std-library/data/getplayer'),
+    // Deprecated, superseded by the three above — still registered so projects
+    // that already contain it keep loading, running and publishing.
     require('./src/nodes/std-library/data/getplayeridbyname'),
     require('./src/nodes/std-library/data/listgamesessions'),
     require('./src/nodes/std-library/data/savegamesession'),
     require('./src/nodes/std-library/data/loadgamesession'),
+    require('./src/nodes/std-library/data/getbalancebyplayerid'),
+    // Cashier nodes, all DEPRECATED 2026-08-04: deposits, withdrawals and
+    // operator top-ups are switched off across the RGS platform, and the RPCs
+    // behind these four refuse. Still registered — deprecation hides a node from
+    // the picker while leaving existing instances loadable, which commenting out
+    // a registration does not (it turns saved projects into unknown-type graphs).
+    // Play money is set on the player now: Create New Player / Update Player.
     require('./src/nodes/std-library/data/depositbalance'),
     require('./src/nodes/std-library/data/withdrawbalance'),
-    require('./src/nodes/std-library/data/getbalancebyplayerid'),
     require('./src/nodes/std-library/data/createdeposit'),
-    // Deprecated (Stripe prohibits gambling) — still registered so projects that
-    // already contain it keep loading. Superseded by createdeposit above.
     require('./src/nodes/std-library/data/createstripedeposit'),
     require('./src/nodes/std-library/convertInputsIntoRecord'),
     require('./src/nodes/std-library/convertRecordIntoOutputs'),

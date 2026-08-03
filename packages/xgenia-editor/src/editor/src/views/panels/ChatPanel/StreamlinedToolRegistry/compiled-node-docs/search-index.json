@@ -603,8 +603,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/createdeposit.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/create-deposit",
-      "lineCount": 443,
-      "byteSize": 17612,
+      "lineCount": 459,
+      "byteSize": 18621,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -656,6 +656,54 @@
         "isSuccessful": {
           "displayName": "Is Successful",
           "type": "boolean",
+          "group": "Result"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal",
+          "group": "Events"
+        }
+      }
+    },
+    "CreateNewPlayer": {
+      "name": "CreateNewPlayer",
+      "file": "createnewplayer.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/createnewplayer.js",
+      "category": "Data",
+      "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/create-new-player",
+      "lineCount": 244,
+      "byteSize": 8461,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "playerName": {
+          "displayName": "Player Name",
+          "type": "string",
+          "group": "General"
+        },
+        "demoBalance": {
+          "displayName": "Initial Demo Balance",
+          "type": "number",
+          "group": "General"
+        }
+      },
+      "outputFormatHints": {
+        "playerId": {
+          "displayName": "Player Id",
+          "type": "string",
+          "group": "Result"
+        },
+        "isSuccessful": {
+          "displayName": "Is Successful",
+          "type": "boolean",
+          "group": "Result"
+        },
+        "error": {
+          "displayName": "Error",
+          "type": "string",
           "group": "Result"
         },
         "Done": {
@@ -910,8 +958,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/depositbalance.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/deposit-balance",
-      "lineCount": 202,
-      "byteSize": 7626,
+      "lineCount": 220,
+      "byteSize": 8838,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -1033,14 +1081,77 @@
         }
       }
     },
+    "GetPlayer": {
+      "name": "GetPlayer",
+      "file": "getplayer.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/getplayer.js",
+      "category": "Data",
+      "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/get-player",
+      "lineCount": 284,
+      "byteSize": 9536,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "playerId": {
+          "displayName": "Player ID",
+          "type": "string",
+          "group": "Identify"
+        },
+        "playerName": {
+          "displayName": "Player Name",
+          "type": "string",
+          "group": "Identify"
+        }
+      },
+      "outputFormatHints": {
+        "playerId": {
+          "displayName": "Player Id",
+          "type": "string",
+          "group": "Result"
+        },
+        "playerName": {
+          "displayName": "Player Name",
+          "type": "string",
+          "group": "Result"
+        },
+        "demoBalance": {
+          "displayName": "Demo Balance",
+          "type": "number",
+          "group": "Result"
+        },
+        "liveBalance": {
+          "displayName": "Live Balance",
+          "type": "number",
+          "group": "Result"
+        },
+        "isSuccessful": {
+          "displayName": "Is Successful",
+          "type": "boolean",
+          "group": "Result"
+        },
+        "error": {
+          "displayName": "Error",
+          "type": "string",
+          "group": "Result"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal",
+          "group": "Events"
+        }
+      }
+    },
     "GetPlayerIdByName": {
       "name": "GetPlayerIdByName",
       "file": "getplayeridbyname.js",
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/getplayeridbyname.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/get-player-id-by-name",
-      "lineCount": 168,
-      "byteSize": 5546,
+      "lineCount": 189,
+      "byteSize": 6843,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -1442,14 +1553,82 @@
         }
       }
     },
+    "UpdatePlayer": {
+      "name": "UpdatePlayer",
+      "file": "updateplayer.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/updateplayer.js",
+      "category": "Data",
+      "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/update-player",
+      "lineCount": 335,
+      "byteSize": 12276,
+      "inputFormatHints": {
+        "Do": {
+          "displayName": "Do",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "playerId": {
+          "displayName": "Player ID",
+          "type": "string",
+          "group": "Identify"
+        },
+        "playerName": {
+          "displayName": "Player Name",
+          "type": "string",
+          "group": "Identify"
+        },
+        "newPlayerName": {
+          "displayName": "New Player Name",
+          "type": "string",
+          "group": "Update"
+        },
+        "demoBalance": {
+          "displayName": "Demo Balance",
+          "type": "number",
+          "group": "Update"
+        }
+      },
+      "outputFormatHints": {
+        "playerId": {
+          "displayName": "Player Id",
+          "type": "string",
+          "group": "Result"
+        },
+        "playerName": {
+          "displayName": "Player Name",
+          "type": "string",
+          "group": "Result"
+        },
+        "demoBalance": {
+          "displayName": "Demo Balance",
+          "type": "number",
+          "group": "Result"
+        },
+        "isSuccessful": {
+          "displayName": "Is Successful",
+          "type": "boolean",
+          "group": "Result"
+        },
+        "error": {
+          "displayName": "Error",
+          "type": "string",
+          "group": "Result"
+        },
+        "Done": {
+          "displayName": "Done",
+          "type": "signal",
+          "group": "Events"
+        }
+      }
+    },
     "WithdrawBalance": {
       "name": "WithdrawBalance",
       "file": "withdrawbalance.js",
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/withdrawbalance.js",
       "category": "Data",
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/withdraw-balance",
-      "lineCount": 203,
-      "byteSize": 7632,
+      "lineCount": 216,
+      "byteSize": 8416,
       "inputFormatHints": {
         "Do": {
           "displayName": "Do",
@@ -2714,14 +2893,9 @@
       "relativePath": "private/xgenia-pro-nodes/src/maths/isaac-rng-array.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/isaac-rng-array",
-      "lineCount": 573,
-      "byteSize": 15613,
+      "lineCount": 496,
+      "byteSize": 13119,
       "inputFormatHints": {
-        "mode": {
-          "displayName": "Mode",
-          "type": "enum",
-          "group": "Configuration"
-        },
         "size": {
           "displayName": "Size",
           "type": "number",
@@ -2760,14 +2934,9 @@
       "relativePath": "private/xgenia-pro-nodes/src/maths/isaac-rng.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/isaac-rng",
-      "lineCount": 546,
-      "byteSize": 14916,
+      "lineCount": 473,
+      "byteSize": 12718,
       "inputFormatHints": {
-        "mode": {
-          "displayName": "Mode",
-          "type": "enum",
-          "group": "Configuration"
-        },
         "seed": {
           "displayName": "Seed",
           "type": "number",
@@ -10948,8 +11117,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-authenticate.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 187,
-      "byteSize": 5046,
+      "lineCount": 191,
+      "byteSize": 5316,
       "inputFormatHints": {
         "authenticate": {
           "displayName": "Authenticate",
@@ -11031,8 +11200,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-balance-update.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 62,
-      "byteSize": 1663,
+      "lineCount": 65,
+      "byteSize": 1847,
       "inputFormatHints": {},
       "outputFormatHints": {
         "updated": {
@@ -11063,8 +11232,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-balance.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 130,
-      "byteSize": 3564,
+      "lineCount": 134,
+      "byteSize": 3833,
       "inputFormatHints": {
         "refresh": {
           "displayName": "Refresh",
@@ -11111,8 +11280,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-display-amount.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 110,
-      "byteSize": 2910,
+      "lineCount": 113,
+      "byteSize": 3103,
       "inputFormatHints": {
         "balance": {
           "displayName": "Balance",
@@ -11149,8 +11318,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-end-round.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 155,
-      "byteSize": 4216,
+      "lineCount": 159,
+      "byteSize": 4483,
       "inputFormatHints": {
         "endRound": {
           "displayName": "End Round",
@@ -11212,8 +11381,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-event.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 133,
-      "byteSize": 3432,
+      "lineCount": 137,
+      "byteSize": 3692,
       "inputFormatHints": {
         "send": {
           "displayName": "Send",
@@ -11293,8 +11462,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-play.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 241,
-      "byteSize": 6390,
+      "lineCount": 245,
+      "byteSize": 6652,
       "inputFormatHints": {
         "play": {
           "displayName": "Play",
@@ -11396,8 +11565,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-round-active.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 47,
-      "byteSize": 1312,
+      "lineCount": 50,
+      "byteSize": 1494,
       "inputFormatHints": {},
       "outputFormatHints": {
         "changed": {
@@ -16228,11 +16397,13 @@
       "Convert Inputs into Record",
       "Convert Record into Outputs",
       "CreateDeposit",
+      "CreateNewPlayer",
       "CreateStripeDeposit",
       "collectionName",
       "DepositBalance",
       "FilterDBModels",
       "GetBalanceByPlayerId",
+      "GetPlayer",
       "GetPlayerIdByName",
       "ListGameSessions",
       "LoadGameSession",
@@ -16240,6 +16411,7 @@
       "Model2",
       "REST2",
       "SaveGameSession",
+      "UpdatePlayer",
       "WithdrawBalance",
       "RunTasks",
       "Generate Reel Strips",
@@ -17460,6 +17632,10 @@
         "direction": "input"
       },
       {
+        "node": "CreateNewPlayer",
+        "direction": "input"
+      },
+      {
         "node": "CreateStripeDeposit",
         "direction": "input"
       },
@@ -17469,6 +17645,10 @@
       },
       {
         "node": "GetBalanceByPlayerId",
+        "direction": "input"
+      },
+      {
+        "node": "GetPlayer",
         "direction": "input"
       },
       {
@@ -17485,6 +17665,10 @@
       },
       {
         "node": "SaveGameSession",
+        "direction": "input"
+      },
+      {
+        "node": "UpdatePlayer",
         "direction": "input"
       },
       {
@@ -17786,6 +17970,10 @@
         "direction": "output"
       },
       {
+        "node": "CreateNewPlayer",
+        "direction": "output"
+      },
+      {
         "node": "CreateStripeDeposit",
         "direction": "output"
       },
@@ -17795,6 +17983,10 @@
       },
       {
         "node": "GetBalanceByPlayerId",
+        "direction": "output"
+      },
+      {
+        "node": "GetPlayer",
         "direction": "output"
       },
       {
@@ -17811,6 +18003,10 @@
       },
       {
         "node": "SaveGameSession",
+        "direction": "output"
+      },
+      {
+        "node": "UpdatePlayer",
         "direction": "output"
       },
       {
@@ -18386,6 +18582,10 @@
         "direction": "output"
       },
       {
+        "node": "CreateNewPlayer",
+        "direction": "output"
+      },
+      {
         "node": "CreateStripeDeposit",
         "direction": "output"
       },
@@ -18398,6 +18598,10 @@
         "direction": "output"
       },
       {
+        "node": "GetPlayer",
+        "direction": "output"
+      },
+      {
         "node": "LoadGameSession",
         "direction": "output"
       },
@@ -18406,7 +18610,215 @@
         "direction": "output"
       },
       {
+        "node": "UpdatePlayer",
+        "direction": "output"
+      },
+      {
         "node": "WithdrawBalance",
+        "direction": "output"
+      }
+    ],
+    "playerName": [
+      {
+        "node": "CreateNewPlayer",
+        "direction": "input"
+      },
+      {
+        "node": "GetPlayer",
+        "direction": "input"
+      },
+      {
+        "node": "GetPlayer",
+        "direction": "output"
+      },
+      {
+        "node": "GetPlayerIdByName",
+        "direction": "input"
+      },
+      {
+        "node": "UpdatePlayer",
+        "direction": "input"
+      },
+      {
+        "node": "UpdatePlayer",
+        "direction": "output"
+      }
+    ],
+    "demoBalance": [
+      {
+        "node": "CreateNewPlayer",
+        "direction": "input"
+      },
+      {
+        "node": "GetPlayer",
+        "direction": "output"
+      },
+      {
+        "node": "UpdatePlayer",
+        "direction": "input"
+      },
+      {
+        "node": "UpdatePlayer",
+        "direction": "output"
+      }
+    ],
+    "playerId": [
+      {
+        "node": "CreateNewPlayer",
+        "direction": "output"
+      },
+      {
+        "node": "GetPlayer",
+        "direction": "input"
+      },
+      {
+        "node": "GetPlayer",
+        "direction": "output"
+      },
+      {
+        "node": "GetPlayerIdByName",
+        "direction": "output"
+      },
+      {
+        "node": "ListGameSessions",
+        "direction": "input"
+      },
+      {
+        "node": "LoadGameSession",
+        "direction": "input"
+      },
+      {
+        "node": "SaveGameSession",
+        "direction": "input"
+      },
+      {
+        "node": "UpdatePlayer",
+        "direction": "input"
+      },
+      {
+        "node": "UpdatePlayer",
+        "direction": "output"
+      }
+    ],
+    "error": [
+      {
+        "node": "CreateNewPlayer",
+        "direction": "output"
+      },
+      {
+        "node": "DbCollection2",
+        "direction": "output"
+      },
+      {
+        "node": "DbModel2",
+        "direction": "output"
+      },
+      {
+        "node": "GetPlayer",
+        "direction": "output"
+      },
+      {
+        "node": "UpdatePlayer",
+        "direction": "output"
+      },
+      {
+        "node": "MCP Tool",
+        "direction": "output"
+      },
+      {
+        "node": "net.xgenia.user.SetUserProperties",
+        "direction": "output"
+      },
+      {
+        "node": "net.xgenia.user.User",
+        "direction": "output"
+      },
+      {
+        "node": "Export to JSON file",
+        "direction": "output"
+      },
+      {
+        "node": "Auto ML Analyzer",
+        "direction": "output"
+      },
+      {
+        "node": "Auto ML Predictor",
+        "direction": "output"
+      },
+      {
+        "node": "Auto ML Trainer",
+        "direction": "output"
+      },
+      {
+        "node": "Client Retention Analyzer",
+        "direction": "output"
+      },
+      {
+        "node": "Retention Action Engine",
+        "direction": "output"
+      },
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "output"
+      },
+      {
+        "node": "stake.RGSAuthenticate",
+        "direction": "output"
+      },
+      {
+        "node": "stake.RGSBalance",
+        "direction": "output"
+      },
+      {
+        "node": "stake.RGSEndRound",
+        "direction": "output"
+      },
+      {
+        "node": "stake.RGSEvent",
+        "direction": "output"
+      },
+      {
+        "node": "stake.RGSPlay",
+        "direction": "output"
+      },
+      {
+        "node": "CloudFunction2",
+        "direction": "output"
+      },
+      {
+        "node": "Upload File",
+        "direction": "output"
+      },
+      {
+        "node": "net.xgenia.user.LogIn",
+        "direction": "output"
+      },
+      {
+        "node": "net.xgenia.user.LogOut",
+        "direction": "output"
+      },
+      {
+        "node": "net.xgenia.user.RequestPasswordReset",
+        "direction": "output"
+      },
+      {
+        "node": "net.xgenia.user.ResetPassword",
+        "direction": "output"
+      },
+      {
+        "node": "net.xgenia.user.SendEmailVerification",
+        "direction": "output"
+      },
+      {
+        "node": "net.xgenia.user.SignUp",
+        "direction": "output"
+      },
+      {
+        "node": "net.xgenia.user.VerifyEmail",
+        "direction": "output"
+      },
+      {
+        "node": "xgenia.cloud.aggregate",
         "direction": "output"
       }
     ],
@@ -18669,116 +19081,6 @@
       },
       {
         "node": "ModifyObjectInArray",
-        "direction": "output"
-      },
-      {
-        "node": "Upload File",
-        "direction": "output"
-      },
-      {
-        "node": "net.xgenia.user.LogIn",
-        "direction": "output"
-      },
-      {
-        "node": "net.xgenia.user.LogOut",
-        "direction": "output"
-      },
-      {
-        "node": "net.xgenia.user.RequestPasswordReset",
-        "direction": "output"
-      },
-      {
-        "node": "net.xgenia.user.ResetPassword",
-        "direction": "output"
-      },
-      {
-        "node": "net.xgenia.user.SendEmailVerification",
-        "direction": "output"
-      },
-      {
-        "node": "net.xgenia.user.SignUp",
-        "direction": "output"
-      },
-      {
-        "node": "net.xgenia.user.VerifyEmail",
-        "direction": "output"
-      },
-      {
-        "node": "xgenia.cloud.aggregate",
-        "direction": "output"
-      }
-    ],
-    "error": [
-      {
-        "node": "DbCollection2",
-        "direction": "output"
-      },
-      {
-        "node": "DbModel2",
-        "direction": "output"
-      },
-      {
-        "node": "MCP Tool",
-        "direction": "output"
-      },
-      {
-        "node": "net.xgenia.user.SetUserProperties",
-        "direction": "output"
-      },
-      {
-        "node": "net.xgenia.user.User",
-        "direction": "output"
-      },
-      {
-        "node": "Export to JSON file",
-        "direction": "output"
-      },
-      {
-        "node": "Auto ML Analyzer",
-        "direction": "output"
-      },
-      {
-        "node": "Auto ML Predictor",
-        "direction": "output"
-      },
-      {
-        "node": "Auto ML Trainer",
-        "direction": "output"
-      },
-      {
-        "node": "Client Retention Analyzer",
-        "direction": "output"
-      },
-      {
-        "node": "Retention Action Engine",
-        "direction": "output"
-      },
-      {
-        "node": "pixi.RevoltFX",
-        "direction": "output"
-      },
-      {
-        "node": "stake.RGSAuthenticate",
-        "direction": "output"
-      },
-      {
-        "node": "stake.RGSBalance",
-        "direction": "output"
-      },
-      {
-        "node": "stake.RGSEndRound",
-        "direction": "output"
-      },
-      {
-        "node": "stake.RGSEvent",
-        "direction": "output"
-      },
-      {
-        "node": "stake.RGSPlay",
-        "direction": "output"
-      },
-      {
-        "node": "CloudFunction2",
         "direction": "output"
       },
       {
@@ -19124,28 +19426,10 @@
         "direction": "output"
       }
     ],
-    "playerName": [
+    "liveBalance": [
       {
-        "node": "GetPlayerIdByName",
-        "direction": "input"
-      }
-    ],
-    "playerId": [
-      {
-        "node": "GetPlayerIdByName",
+        "node": "GetPlayer",
         "direction": "output"
-      },
-      {
-        "node": "ListGameSessions",
-        "direction": "input"
-      },
-      {
-        "node": "LoadGameSession",
-        "direction": "input"
-      },
-      {
-        "node": "SaveGameSession",
-        "direction": "input"
       }
     ],
     "isExistBefore": [
@@ -19432,6 +19716,12 @@
       {
         "node": "stringlist",
         "direction": "output"
+      }
+    ],
+    "newPlayerName": [
+      {
+        "node": "UpdatePlayer",
+        "direction": "input"
       }
     ],
     "withdrawAmount": [
@@ -20256,48 +20546,6 @@
         "direction": "output"
       }
     ],
-    "mode": [
-      {
-        "node": "ISAAC Random Number Array Generator",
-        "direction": "input"
-      },
-      {
-        "node": "ISAAC Random Number Generator",
-        "direction": "input"
-      },
-      {
-        "node": "Auto ML Predictor",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.CollisionDetector",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.GSAPPhysics",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.RevoltFX",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.UIScaler",
-        "direction": "input"
-      },
-      {
-        "node": "stake.RGSPlay",
-        "direction": "input"
-      },
-      {
-        "node": "PageStackNavigate",
-        "direction": "input"
-      },
-      {
-        "node": "Repeater Loop",
-        "direction": "input"
-      }
-    ],
     "size": [
       {
         "node": "ISAAC Random Number Array Generator",
@@ -20691,6 +20939,40 @@
     "inputData": [
       {
         "node": "Auto ML Predictor",
+        "direction": "input"
+      }
+    ],
+    "mode": [
+      {
+        "node": "Auto ML Predictor",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.CollisionDetector",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.GSAPPhysics",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.UIScaler",
+        "direction": "input"
+      },
+      {
+        "node": "stake.RGSPlay",
+        "direction": "input"
+      },
+      {
+        "node": "PageStackNavigate",
+        "direction": "input"
+      },
+      {
+        "node": "Repeater Loop",
         "direction": "input"
       }
     ],

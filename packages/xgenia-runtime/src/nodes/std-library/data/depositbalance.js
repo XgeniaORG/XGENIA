@@ -40,6 +40,24 @@ const DepositBalanceNode = {
   displayNodeName: 'Deposit Balance',
   docs: 'https://docsapp.xgenia.com/nodes/data/cloud-data/deposit-balance',
   category: 'Data',
+  // DEPRECATED 2026-08-04 — deposits are switched off across the RGS platform.
+  // `deposit_balance` now raises 'deposits are disabled on this platform', has lost
+  // EXECUTE for the anon key this node uses, and a trigger on `transactions` would
+  // refuse the row anyway (XRGS migration 20260804120100_disable_payment_features).
+  // So this node can no longer succeed, whatever it is wired to.
+  //
+  // What to use instead: a player's play money is set where the player is — the
+  // Initial Demo Balance on **Create New Player**, or the Demo Balance on **Update
+  // Player**. That is a setting on the account rather than a money movement, which
+  // is the whole point of the change: no cashier, no ledger row, no payment rail.
+  //
+  // `deprecated` hides it from the node picker and the search index and refuses new
+  // instances, while leaving existing instances loading and publishing — deleting
+  // the node or commenting out its registration would instead turn every saved
+  // project that uses it into an unknown-type graph. Nothing below is stubbed out,
+  // so re-enabling is deleting this one line (plus reversing that migration and a
+  // viewer-bundle rebuild).
+  deprecated: true,
   color: 'data',
   // Calls the RGS platform itself (POST /rest/v1/rpc/deposit_balance), so it never
   // routes to a generated backend edge function: no `isMath` toggle.
