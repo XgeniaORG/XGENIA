@@ -1433,7 +1433,10 @@ function _isSourceCodePort(typename, parameterName) {
 
   language = language.toLowerCase();
 
-  if (language === 'javascript' || language === 'json' || language === 'css') {
+  // 'scss' is the styleCss ports (a CSS declaration list — see CodeEditor/index.ts for
+  // why it is not modelled as 'css'). It is hand-authored source like the rest, so it
+  // gets line-by-line 3-way merge instead of a whole-parameter conflict.
+  if (language === 'javascript' || language === 'json' || language === 'css' || language === 'scss') {
     return true;
   }
 

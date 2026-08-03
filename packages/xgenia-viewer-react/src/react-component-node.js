@@ -56,11 +56,8 @@ import transitionParameter from './node-transitions';
 // block on a single bad declaration. Kept in sync with the copy in
 // private/xgenia-pro-nodes/src/utils/react-component-node.js (parity-locked by
 // private/xgenia-ai-app/tests/stylecss-parser.test.ts).
-export function parseStyleCssDeclarations(css) {
-  const style = {};
-  const errors = [];
-
-  // Strip /* */ comments (an unterminated comment swallows the rest, as before).
+// Strip /* */ comments (an unterminated comment swallows the rest, as before).
+export function stripCssComments(css) {
   let raw = String(css || '');
   let stripped = '';
   while (raw.length) {
@@ -74,6 +71,14 @@ export function parseStyleCssDeclarations(css) {
       raw = raw.substring(end + 2);
     }
   }
+  return stripped;
+}
+
+export function parseStyleCssDeclarations(css) {
+  const style = {};
+  const errors = [];
+
+  const stripped = stripCssComments(css);
 
   const decls = [];
   let depth = 0;
@@ -114,6 +119,165 @@ export function parseStyleCssDeclarations(css) {
 
   return { style, errors };
 }
+
+// Conditional group rules wrap rules that still belong to this node, so their
+// contents get scoped. @keyframes / @font-face / @property own their inner
+// preludes ('from', '50%', …) — those pass through verbatim.
+const SCOPED_AT_RULE = /^@(media|supports|container|layer|scope)\b/i;
+
+// Split one CSS block into its flat declaration text and its nested blocks.
+// This is what makes `&:hover { … }`, `> * { … }` and `@media … { … }`
+// expressible in a styleCss port: the flat part stays inline style (as it always
+// has), the blocks become real CSS rules in a per-node <style> element.
+// Brace-, paren- AND quote-aware, so `url(a{b)` and `content: "}"` don't derail it.
+export function splitCssBlocks(css) {
+  const src = stripCssComments(css);
+  const errors = [];
+  const blocks = [];
+  let flat = '';
+  let pending = ''; // text since the last ';' or '}' — a declaration, or a selector
+  let paren = 0;
+  let quote = null;
+  let i = 0;
+
+  while (i < src.length) {
+    const ch = src[i];
+
+    if (quote) {
+      pending += ch;
+      if (ch === quote && src[i - 1] !== '\\') quote = null;
+      i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      pending += ch;
+      i++;
+      continue;
+    }
+    if (ch === '(') paren++;
+    else if (ch === ')') paren = Math.max(0, paren - 1);
+
+    if (ch === '{' && paren === 0) {
+      const bodyStart = i + 1;
+      let depth = 1;
+      let j = bodyStart;
+      let q = null;
+      let pd = 0;
+      while (j < src.length && depth > 0) {
+        const c = src[j];
+        if (q) {
+          if (c === q && src[j - 1] !== '\\') q = null;
+        } else if (c === '"' || c === "'") {
+          q = c;
+        } else if (c === '(') pd++;
+        else if (c === ')') pd = Math.max(0, pd - 1);
+        else if (pd === 0 && c === '{') depth++;
+        else if (pd === 0 && c === '}') {
+          depth--;
+          if (depth === 0) break;
+        }
+        j++;
+      }
+      if (depth > 0) {
+        // Unclosed '{' swallowed the rest; report it rather than emitting a
+        // truncated rule whose declarations would leak into the next one.
+        errors.push(`Unbalanced '{' in rule: "${pending.trim().slice(0, 60)}"`);
+        pending = '';
+        break;
+      }
+      const prelude = pending.trim();
+      if (prelude) blocks.push({ prelude, body: src.slice(bodyStart, j) });
+      else errors.push('Ignored a rule block with no selector');
+      pending = '';
+      i = j + 1;
+      continue;
+    }
+
+    if (ch === '}' && paren === 0) {
+      errors.push(`Unexpected '}' — dropped "${pending.trim().slice(0, 60)}"`);
+      pending = '';
+      i++;
+      continue;
+    }
+
+    pending += ch;
+    if (ch === ';' && paren === 0) {
+      flat += pending;
+      pending = '';
+    }
+    i++;
+  }
+
+  // Trailing text with no ';' is still a declaration (parity with the flat parser).
+  flat += pending;
+  return { flat, blocks, errors };
+}
+
+// Resolve one nested prelude against the enclosing scope selector.
+//   '&:hover'  -> '.scope:hover'      (explicit &, anywhere in the selector)
+//   ':hover'   -> '.scope:hover'      (leading pseudo attaches to the scope)
+//   '> *'      -> '.scope > *'        (leading combinator)
+//   '.title'   -> '.scope .title'     (descendant)
+function scopeCssSelector(prelude, scope) {
+  return prelude
+    .split(',')
+    .map((part) => {
+      const s = part.trim();
+      if (!s) return null;
+      if (s.indexOf('&') !== -1) return s.replace(/&/g, scope);
+      if (s.charAt(0) === ':') return scope + s;
+      return scope + ' ' + s;
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
+// Flatten nested blocks into CSS text rooted at `scope`. Declaration bodies are
+// emitted verbatim — the browser's own parser handles them, so vendor prefixes,
+// !important and every value syntax work without a camelCase round trip.
+export function renderScopedCssRules(blocks, scope, errors) {
+  let out = '';
+  for (const { prelude, body } of blocks) {
+    if (prelude.charAt(0) === '@' && !SCOPED_AT_RULE.test(prelude)) {
+      // @keyframes / @font-face / @property — body belongs to the at-rule itself.
+      out += prelude + ' {' + body + '}\n';
+      continue;
+    }
+
+    const inner = splitCssBlocks(body);
+    if (errors && inner.errors.length) errors.push(...inner.errors);
+    const decls = inner.flat.trim();
+
+    if (prelude.charAt(0) === '@') {
+      // Conditional group rule: bare declarations inside still target this node.
+      let nested = '';
+      if (decls) nested += scope + ' { ' + decls + ' }\n';
+      nested += renderScopedCssRules(inner.blocks, scope, errors);
+      if (nested) out += prelude + ' {\n' + nested + '}\n';
+      continue;
+    }
+
+    const selector = scopeCssSelector(prelude, scope);
+    if (!selector) continue;
+    if (decls) out += selector + ' { ' + decls + ' }\n';
+    out += renderScopedCssRules(inner.blocks, selector, errors);
+  }
+  return out;
+}
+
+// Full styleCss parse: inline declarations plus the nested blocks around them.
+export function parseStyleCss(css) {
+  const split = splitCssBlocks(css);
+  const flat = parseStyleCssDeclarations(split.flat);
+  return { style: flat.style, blocks: split.blocks, errors: split.errors.concat(flat.errors) };
+}
+
+// One <style> element per scope class, shared by every node instance that
+// resolves to it (component instances reuse the definition's node id, so N
+// instances legitimately want the same rules). Refcounted so the last one out
+// removes it.
+const _scopedCssStyleElements = new Map();
 
 function addOutputPropHandler(node, propCallbacks, propPath) {
   const props = propPath ? node.props[propPath] : node.props;
@@ -601,15 +765,28 @@ function createNodeFromReactComponent(def) {
         type: 'string',
         default: '',
         set(value) {
-          this.props.className = value;
-          this.forceUpdate();
+          this._cssUserClassName = value;
+          this._updateClassName();
         }
       },
       styleCss: {
         index: 100011,
         displayName: 'CSS Style',
         group: 'Advanced HTML',
-        type: { name: 'string', codeeditor: 'text', allowEditOnly: true },
+        // Was 'text' (no highlighting at all), then 'css' — but Monaco validates a
+        // 'css' model as a COMPLETE stylesheet, and a bare declaration list is a parse
+        // error there, so every correct property the user typed got a red squiggle.
+        // 'scss' is a CSS superset that also understands the '&' nesting styleCss
+        // supports (so bracket matching / folding / auto-indent work inside
+        // '&:hover { … }'), and it carries its OWN Monaco diagnostics options —
+        // CodeEditor/index.ts turns validation off for scss only, leaving the CSS
+        // Definition node's 'css' port fully validated. Highlighting and completion
+        // are unaffected. Still opted into the editor's 3-way source merge
+        // (NodeGraphNode.isSourceCodePort lists scss) so two branches editing the same
+        // node's CSS merge line-by-line instead of conflicting wholesale.
+        // No allowEditOnly: the port is connectable, so CSS can be driven from a
+        // String, Expression, Variable or JS Function output.
+        type: { name: 'string', codeeditor: 'scss' },
         // Was '/* background-color: red; */' — a leftover dev placeholder that
         // leaked into EVERY node's serialized styleCss, cluttering inspects and
         // repeatedly read by the AI as a real/leftover style (trace 1784051747260,
@@ -659,7 +836,10 @@ function createNodeFromReactComponent(def) {
 
         // Tolerant semantics: apply every valid declaration, report the bad
         // ones as a warning — one bad declaration no longer drops the block.
-        const { style, errors } = parseStyleCssDeclarations(params.content);
+        // Nested blocks are split off first: `&:hover { … }`, `> * { … }`,
+        // `@media … { … }` and `@keyframes … { … }` become real CSS rules scoped
+        // to this node, while the bare declarations around them stay inline.
+        const { style, blocks, errors } = parseStyleCss(params.content);
 
         // Unconditional application (parity with the pre-tolerant code):
         // when the parse yields zero keys (e.g. styleCss cleared to ''), the
@@ -670,12 +850,91 @@ function createNodeFromReactComponent(def) {
         this.setStyle(style);
         this.customCssStyles = style;
 
+        this.updateScopedCssRules(blocks, errors);
+
         if (errors.length) {
           this.context.editorConnection.sendWarning(this.nodeScope.componentOwner.name, this.id, 'css-parse-waring', { message: 'styleCss: ' + errors.length + ' declaration(s) skipped:<br>' + errors.join('<br>') });
         } else {
           this.context.editorConnection.clearWarning(this.nodeScope.componentOwner.name, this.id, 'css-parse-waring');
         }
       },
+
+      // The class the node's own rules are scoped under. Prefixed so it can never
+      // start with a digit, and sanitized because ids reach us as raw strings.
+      cssScopeClassName() {
+        return 'xg-css-' + String(this.id).replace(/[^A-Za-z0-9_-]/g, '-');
+      },
+
+      // props.className is the union of the user's CSS Class input and the
+      // generated scope class — either can change independently, so neither may
+      // overwrite the other.
+      _updateClassName() {
+        const parts = [];
+        if (this._cssUserClassName) parts.push(this._cssUserClassName);
+        if (this._cssScopeActive) parts.push(this.cssScopeClassName());
+        this.props.className = parts.join(' ');
+        this.forceUpdate();
+      },
+
+      updateScopedCssRules(blocks, errors) {
+        // SSR has no document to inject into and no DOM to class.
+        if (typeof document === 'undefined') return;
+
+        const scopeClass = this.cssScopeClassName();
+        const cssText = blocks && blocks.length ? renderScopedCssRules(blocks, '.' + scopeClass, errors) : '';
+
+        if (!cssText) {
+          this.releaseScopedCssRules();
+          return;
+        }
+
+        let entry = _scopedCssStyleElements.get(scopeClass);
+        if (!entry) {
+          const el = document.createElement('style');
+          el.type = 'text/css';
+          el.setAttribute('data-xg-css-scope', scopeClass);
+          document.head.appendChild(el);
+          entry = { el, refs: 0 };
+          _scopedCssStyleElements.set(scopeClass, entry);
+        }
+        entry.el.textContent = cssText;
+
+        if (!this._cssScopeRegistered) {
+          this._cssScopeRegistered = true;
+          entry.refs++;
+          if (!this._cssScopeDeleteListenerAdded) {
+            // The node can be torn down (For Each churn, page switch) without the
+            // input ever being cleared, so release on delete too.
+            this._cssScopeDeleteListenerAdded = true;
+            this.addDeleteListener(() => this.releaseScopedCssRules());
+          }
+        }
+
+        if (!this._cssScopeActive) {
+          this._cssScopeActive = true;
+          this._updateClassName();
+        }
+      },
+
+      releaseScopedCssRules() {
+        if (this._cssScopeRegistered) {
+          this._cssScopeRegistered = false;
+          const scopeClass = this.cssScopeClassName();
+          const entry = _scopedCssStyleElements.get(scopeClass);
+          if (entry) {
+            entry.refs--;
+            if (entry.refs <= 0) {
+              if (entry.el.parentNode) entry.el.parentNode.removeChild(entry.el);
+              _scopedCssStyleElements.delete(scopeClass);
+            }
+          }
+        }
+        if (this._cssScopeActive) {
+          this._cssScopeActive = false;
+          this._updateClassName();
+        }
+      },
+
       setChildIndex(index) {
         this.childIndex = index;
         this.flagOutputDirty('childIndex');
