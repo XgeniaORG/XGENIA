@@ -828,6 +828,11 @@ function generateNodeLibrary(nodeRegister) {
             'Upload File',
             'CloudFunction2',
             'DbConfig',
+            'CreateNewPlayer',
+            'UpdatePlayer',
+            'GetPlayer',
+            // Deprecated 2026-08, superseded by the three above; listed so an
+            // existing instance still resolves its category.
             'GetPlayerIdByName',
             'ListGameSessions',
             'SaveGameSession',
@@ -838,12 +843,17 @@ function generateNodeLibrary(nodeRegister) {
         {
           // Nodes that MOVE money on a player's RGS balance. Reading the balance
           // (GetBalanceByPlayerId) stays under Cloud Data — it changes nothing.
+          //
+          // ALL DEPRECATED 2026-08-04. Deposits, withdrawals and operator wallet
+          // top-ups are switched off across the RGS platform, so every node in this
+          // group is hidden from the picker and the search index. The category is
+          // kept, and they are all still listed, so an instance inside an
+          // already-published project still resolves where it belongs. A player's
+          // play money is set with Create New Player / Update Player now.
           name: 'Transactions',
           items: [
             'DepositBalance',
             'CreateDeposit',
-            // Deprecated, so the node picker hides it anyway; listed so an
-            // existing instance still resolves its category.
             'CreateStripeDeposit',
             'WithdrawBalance'
           ]

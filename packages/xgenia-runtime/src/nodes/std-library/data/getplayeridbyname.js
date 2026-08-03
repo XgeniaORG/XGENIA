@@ -23,6 +23,27 @@ const GetPlayerIdByNameNode = {
   displayNodeName: 'Get Player ID by Player Name',
   docs: 'https://docsapp.xgenia.com/nodes/data/cloud-data/get-player-id-by-name',
   category: 'Data',
+  // DEPRECATED 2026-08-04 — split into three nodes: Create New Player, Update
+  // Player and Get Player (createnewplayer.js / updateplayer.js / getplayer.js).
+  //
+  // Why it was split. This node does two jobs behind one name — look up OR create
+  // — so a graph can never just ask whether a player exists, and a typo silently
+  // registers somebody. The player it creates also starts on a zero balance, which
+  // only worked because Deposit Balance was there to follow it; deposits are now
+  // switched off platform-wide, so the opening balance has to be set at
+  // registration instead. Create New Player takes it.
+  //
+  // `deprecated` hides the node from the node picker and the search index
+  // (NodePicker.utils.ts) and refuses new instances with a message
+  // (componentmodel.ts canCreateNode), while leaving every EXISTING instance
+  // loading, running and publishing exactly as before. Nothing below is stubbed
+  // out and get_or_create_player_by_name is deliberately still live in the RGS
+  // database, so games already published against this keep working.
+  //
+  // Re-enabling is deleting this one line (plus a viewer-bundle rebuild, since the
+  // editor reads node metadata from src/external/viewer/xgenia.viewer.js, not from
+  // this file).
+  deprecated: true,
   color: 'data',
   // Calls the RGS platform itself (POST /rest/v1/rpc/get_or_create_player_by_name),
   // so it never routes to a generated backend edge function: no `isMath` toggle.

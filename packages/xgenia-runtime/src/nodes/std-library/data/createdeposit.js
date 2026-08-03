@@ -69,6 +69,22 @@ const CreateDepositNode = {
   displayNodeName: 'Create Deposit',
   docs: 'https://docsapp.xgenia.com/nodes/data/cloud-data/create-deposit',
   category: 'Data',
+  // DEPRECATED 2026-08-04 — deposits are switched off across the RGS platform, so
+  // all three providers behind this node are closed at once. It opens a deposit
+  // through `create-deposit-session`, which now returns 503 "payments are disabled"
+  // from its first line (functions/_shared/payments-disabled.ts), and the
+  // create_deposit_intent / settle_psp_deposit RPCs under it refuse regardless
+  // (XRGS migration 20260804120100_disable_payment_features). Nothing is credited
+  // by any route: demo cashier, Nuvei hosted page, or USDC on Base.
+  //
+  // What to use instead: a player's play money is set where the player is — the
+  // Initial Demo Balance on **Create New Player**, or the Demo Balance on **Update
+  // Player**.
+  //
+  // See depositbalance.js for what `deprecated` does and does not change. Note this
+  // node is the SUCCESSOR to CreateStripeDeposit, which was already deprecated —
+  // both are now off, and the whole Transactions category with them.
+  deprecated: true,
   color: 'data',
   // Calls the RGS platform directly (the create-deposit-session edge function
   // under /functions/v1) and then needs the browser to reach the payment page, so
