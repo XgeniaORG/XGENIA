@@ -2714,9 +2714,14 @@
       "relativePath": "private/xgenia-pro-nodes/src/maths/isaac-rng-array.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/isaac-rng-array",
-      "lineCount": 496,
-      "byteSize": 13119,
+      "lineCount": 573,
+      "byteSize": 15613,
       "inputFormatHints": {
+        "mode": {
+          "displayName": "Mode",
+          "type": "enum",
+          "group": "Configuration"
+        },
         "size": {
           "displayName": "Size",
           "type": "number",
@@ -2755,9 +2760,14 @@
       "relativePath": "private/xgenia-pro-nodes/src/maths/isaac-rng.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/isaac-rng",
-      "lineCount": 473,
-      "byteSize": 12718,
+      "lineCount": 546,
+      "byteSize": 14916,
       "inputFormatHints": {
+        "mode": {
+          "displayName": "Mode",
+          "type": "enum",
+          "group": "Configuration"
+        },
         "seed": {
           "displayName": "Seed",
           "type": "number",
@@ -10938,8 +10948,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-authenticate.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 191,
-      "byteSize": 5316,
+      "lineCount": 187,
+      "byteSize": 5046,
       "inputFormatHints": {
         "authenticate": {
           "displayName": "Authenticate",
@@ -11021,8 +11031,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-balance-update.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 65,
-      "byteSize": 1847,
+      "lineCount": 62,
+      "byteSize": 1663,
       "inputFormatHints": {},
       "outputFormatHints": {
         "updated": {
@@ -11053,8 +11063,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-balance.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 134,
-      "byteSize": 3833,
+      "lineCount": 130,
+      "byteSize": 3564,
       "inputFormatHints": {
         "refresh": {
           "displayName": "Refresh",
@@ -11101,8 +11111,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-display-amount.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 113,
-      "byteSize": 3103,
+      "lineCount": 110,
+      "byteSize": 2910,
       "inputFormatHints": {
         "balance": {
           "displayName": "Balance",
@@ -11139,8 +11149,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-end-round.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 159,
-      "byteSize": 4483,
+      "lineCount": 155,
+      "byteSize": 4216,
       "inputFormatHints": {
         "endRound": {
           "displayName": "End Round",
@@ -11202,8 +11212,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-event.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 137,
-      "byteSize": 3692,
+      "lineCount": 133,
+      "byteSize": 3432,
       "inputFormatHints": {
         "send": {
           "displayName": "Send",
@@ -11283,8 +11293,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-play.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 245,
-      "byteSize": 6652,
+      "lineCount": 241,
+      "byteSize": 6390,
       "inputFormatHints": {
         "play": {
           "displayName": "Play",
@@ -11386,8 +11396,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/stake-rgs/rgs-round-active.js",
       "category": "Stake Engine",
       "docs": "https://stake-engine.com/docs/rgs",
-      "lineCount": 50,
-      "byteSize": 1494,
+      "lineCount": 47,
+      "byteSize": 1312,
       "inputFormatHints": {},
       "outputFormatHints": {
         "changed": {
@@ -20246,6 +20256,48 @@
         "direction": "output"
       }
     ],
+    "mode": [
+      {
+        "node": "ISAAC Random Number Array Generator",
+        "direction": "input"
+      },
+      {
+        "node": "ISAAC Random Number Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Auto ML Predictor",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.CollisionDetector",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.GSAPPhysics",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.UIScaler",
+        "direction": "input"
+      },
+      {
+        "node": "stake.RGSPlay",
+        "direction": "input"
+      },
+      {
+        "node": "PageStackNavigate",
+        "direction": "input"
+      },
+      {
+        "node": "Repeater Loop",
+        "direction": "input"
+      }
+    ],
     "size": [
       {
         "node": "ISAAC Random Number Array Generator",
@@ -20639,40 +20691,6 @@
     "inputData": [
       {
         "node": "Auto ML Predictor",
-        "direction": "input"
-      }
-    ],
-    "mode": [
-      {
-        "node": "Auto ML Predictor",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.CollisionDetector",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.GSAPPhysics",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.RevoltFX",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.UIScaler",
-        "direction": "input"
-      },
-      {
-        "node": "stake.RGSPlay",
-        "direction": "input"
-      },
-      {
-        "node": "PageStackNavigate",
-        "direction": "input"
-      },
-      {
-        "node": "Repeater Loop",
         "direction": "input"
       }
     ],

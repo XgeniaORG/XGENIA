@@ -1,3 +1,37 @@
+// A DEAD STDOUT/STDERR PIPE MUST NOT KILL THE APP. Must be first — before any
+// require() can warn.
+//
+// (2026-08-02, user report) The editor died with the Electron crash dialog:
+//   Uncaught Exception: Error: write EPIPE
+//     at Writable.write → console.value → console.warn
+//     at IpcMainImpl.listener (src/floating-window.js:371)
+//
+// floating-window is not the bug, it is just the unlucky first writer. When the app is
+// launched from a terminal or npm script and that parent goes away, stdout/stderr become
+// broken pipes. Node reports a failed async write by THROWING on the process unless the
+// stream has an 'error' listener — so from that moment ANY console.warn / console.error
+// anywhere in the main process is a fatal crash. The block below noops log/debug/info and
+// deliberately keeps warn/error, which is exactly the set that can still reach the pipe.
+//
+// It surfaced during an AI-driven preview refresh because that is when the main process
+// warns in bursts, not because refreshing is special.
+//
+// Attaching an 'error' listener makes Node EMIT instead of THROW. Narrow on purpose: a
+// blanket process.on('uncaughtException') would also swallow real crashes and hide the
+// Electron dialog we actually want for those.
+for (const stream of [process.stdout, process.stderr]) {
+  try {
+    stream?.on?.('error', (err) => {
+      // EPIPE = the reader is gone. ERR_STREAM_DESTROYED / EBADF = same story, different
+      // race. Nothing to recover: the output has nowhere to go. Anything else is a real
+      // stream fault and is re-thrown on the next tick so it is not silently buried.
+      const code = err && (err.code || err.errno);
+      if (code === 'EPIPE' || code === 'ERR_STREAM_DESTROYED' || code === 'EBADF') return;
+      setImmediate(() => { throw err; });
+    });
+  } catch { /* a stream with no .on (rare packaging case) simply cannot be guarded */ }
+}
+
 // Disable console.log globally - must be first!
 const DISABLE_CONSOLE_LOGS = true;
 if (DISABLE_CONSOLE_LOGS) {

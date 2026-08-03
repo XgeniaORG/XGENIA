@@ -1927,7 +1927,7 @@ export class EditorBridge {
             return true;
         });
 
-        h('fs.remove', ([filePath]: [string]) => {
+        h('fs.remove', ([filePath, opts]: [string, { recursive?: boolean }?]) => {
             const fs = require('fs');
             const path = require('path');
             // Resolve relative paths against the project dir (same bug class as fs.readDirDetailed) — a raw
@@ -1936,9 +1936,22 @@ export class EditorBridge {
             const isAbsolute = filePath.startsWith('/') || filePath.includes(':');
             if (!isAbsolute && !projectDir) return false;
             const fullPath = isAbsolute ? filePath : path.join(projectDir, filePath);
-            if (fs.existsSync(fullPath)) {
-                fs.unlinkSync(fullPath);
+            if (!fs.existsSync(fullPath)) return true; // already gone — the caller's intent is satisfied
+
+            // unlink() on a DIRECTORY throws EPERM on macOS (EISDIR on Linux). This surfaced to the user
+            // as "EPERM: operation not permitted, unlink '.../.xgenia/skills/test-skill'": skills are
+            // stored as a FOLDER (<slug>/SKILL.md), so deleting one always hit a directory here and the
+            // folder was left behind. Branch on the real type instead of assuming every path is a file.
+            //
+            // Directories are removed NON-recursively BY DEFAULT: making fs.remove implicitly `rm -rf`
+            // would silently widen the blast radius of every existing caller. A caller that genuinely
+            // owns the tree opts in. lstat (not stat) so a symlink to a directory is unlinked, not walked.
+            if (fs.lstatSync(fullPath).isDirectory()) {
+                if (opts?.recursive) fs.rmSync(fullPath, { recursive: true, force: true });
+                else fs.rmdirSync(fullPath); // throws ENOTEMPTY if it still has contents — an honest failure
+                return true;
             }
+            fs.unlinkSync(fullPath);
             return true;
         });
 

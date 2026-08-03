@@ -181,7 +181,22 @@ export default {
         }
       }
 
-      if (transform) {
+      // (2026-08-01) `transform` here is built ONLY from centre-alignment — it gains
+      // 'translateX(-50%)' when alignX === 'center' and 'translateY(-50%)' when
+      // alignY === 'center', and nothing else. So for any node anchored left/right/top/bottom
+      // it stays '' and this branch used to skip entirely, silently DISCARDING the authored
+      // `style.transform`.
+      //
+      // Two real failures traced to exactly this. A slot's four corner ornaments were authored
+      // with transform: scaleX(-1) / scaleY(-1) / scale(-1) so each would face into its own
+      // corner; all four are anchored left/right + top/bottom, so all four rendered unmirrored
+      // and the frame looked wrong on every side. And a scale-to-fit wrapper carrying
+      // `transform: scale(var(--xg-canvas-fit))` never scaled at all, because a canvas centred
+      // by flexbox has no alignX of its own.
+      //
+      // Apply whenever EITHER source has something to say. Concatenation order is unchanged, so
+      // a centred node still gets its translate first and behaves exactly as before.
+      if (transform || style.transform) {
         safelySetStyle('transform', transform + (style.transform || ''));
       }
     } catch (e) {

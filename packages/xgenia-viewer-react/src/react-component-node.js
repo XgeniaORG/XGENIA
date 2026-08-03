@@ -366,6 +366,31 @@ class XgeniaReactComponent extends React.Component {
       if (nodeLabel) props['data-xgenia-node-label'] = nodeLabel;
     }
 
+    // (2026-08-02, export 1785709004449) …and ROUTE them to the element. Setting them on
+    // `props` alone did nothing: NO visual component spreads `...props`. Group, Text, Image,
+    // Circle, Columns and the charts each hand-pick what reaches the DOM —
+    //   React.createElement(Tag, { className, ...props.attrs, ...props.dom, ...pointer, style })
+    // — so every data-* written above was dropped on the floor. `attrs` only ever carried a
+    // hand-set data-testid and `dom` was never populated at all.
+    //
+    // Consequence, repo-wide: not one rendered element carried its node id or label, so
+    // get_rendered_output('@Group') always missed ("_domElementMissing"), the documented
+    // selector "[data-xgenia-node-id]" matched nothing, simulate_interaction could only
+    // target by visible TEXT, and the editor's own inspector (inspector.js reads
+    // data-xgenia-node-id) had nothing to read. The AI could change a container's layout
+    // and then had no way to measure the result — it concluded "container layout is not
+    // verifiable" and fell back to guessing from screenshots.
+    //
+    // Write into `attrs`/`dom` — the two channels components DO forward — without mutating
+    // the node's own shared attrs object.
+    const identityAttrs = {
+      'data-xgenia-node-id': props['data-xgenia-node-id'],
+      'data-xgenia-component': props['data-xgenia-component'],
+    };
+    if (props['data-xgenia-node-label']) identityAttrs['data-xgenia-node-label'] = props['data-xgenia-node-label'];
+    props.attrs = Object.assign({}, props.attrs, identityAttrs);
+    props.dom = Object.assign({}, props.dom, identityAttrs);
+
     xgeniaNode.renderedAtFrame = xgeniaNode.context.frameNumber;
 
     if (xgeniaNode.useFrame) {

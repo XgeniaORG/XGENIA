@@ -8,6 +8,7 @@ function FloatingWindow() {
   this.eventListeners = new Map(); // Store event listeners for cleanup
   this.isWindowReady = false; // Track if window is ready to receive messages
   this.queuedEvents = []; // Queue events until window is ready
+  this.queueFullWarned = false; // one warn per full-queue episode, not per dropped event
   this.MAX_QUEUED_EVENTS = 100; // REDUCED: Prevent memory leaks (was 100)
   
   // EMERGENCY FIX: Add throttling to prevent runaway loops
@@ -32,6 +33,7 @@ FloatingWindow.prototype.open = function ({ x, y, width, height, minWidth, minHe
   // Reset ready state
   this.isWindowReady = false;
   this.queuedEvents = [];
+  this.queueFullWarned = false;
 
   // Use the correct preload script for the floating window (not webview preload)
   let preloadPath = '';
@@ -251,6 +253,7 @@ FloatingWindow.prototype.close = function () {
   // Reset ready state
   this.isWindowReady = false;
   this.queuedEvents = [];
+  this.queueFullWarned = false;
   
   // EMERGENCY FIX: Reset throttling state
   this.lastEventTimes.clear();
@@ -368,7 +371,14 @@ FloatingWindow.prototype.forwardIpcEvents = function (events) {
           console.log(`[FloatingWindow] Queueing event '${eventName}' until window is ready`);
           this.queuedEvents.push({ eventName, args });
         } else {
-          console.warn(`[FloatingWindow] Event queue full for ${eventName}. Dropping event to prevent crash.`);
+          // Warn ONCE per full-queue episode, like the circuit breaker above. This fires per
+          // DROPPED EVENT, so a preview restart (which floods ipcMain before the window is
+          // ready) turned one condition into hundreds of writes a second — which is how a
+          // broken stdout pipe became a crash dialog here rather than anywhere else.
+          if (!this.queueFullWarned) {
+            this.queueFullWarned = true;
+            console.warn(`[FloatingWindow] Event queue full (${this.MAX_QUEUED_EVENTS}) — dropping '${eventName}' and further events until the window is ready.`);
+          }
         }
       }
     };
