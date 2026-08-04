@@ -1375,18 +1375,37 @@ export class EditorBridge {
                 const { mergeProject } = await import('@xgenia-utils/projectmerger');
                 const g = new Git(mergeProject);
                 await g.openRepository(pm._retainedProjectDirectory);
-                // Prefer a dedicated revert API when available; fall back to reset-hard.
-                const anyG: any = g as any;
-                if (typeof anyG.revertToCommit === 'function') {
-                    await anyG.revertToCommit(sha);
-                } else if (typeof anyG.resetHard === 'function') {
-                    await anyG.resetHard(sha);
-                } else if (typeof anyG.checkout === 'function') {
-                    await anyG.checkout(sha);
-                } else {
-                    return { success: false, error: 'No revert API available on Git instance' };
+                // (2026-08-03 pre-release audit) THIS PROBED THREE METHODS THAT DO NOT EXIST.
+                // `revertToCommit`, `resetHard` and `checkout` are not on the Git class, so every
+                // revert fell through to "No revert API available on Git instance" — while
+                // git_checkpoint had been telling the AI, on every checkpoint, "if something goes
+                // wrong, call git({action:'revert'}) to restore this state". The rollback the
+                // safety story rests on has never once worked.
+                //
+                // The real method is resetToCommitWithId (git.ts:357 — `reset --hard <id>` plus
+                // cleanUntrackedFiles).
+                if (typeof (g as any).resetToCommitWithId !== 'function') {
+                    return { success: false, error: 'This editor build has no resetToCommitWithId on its Git class — the revert cannot be performed. Do NOT treat the checkpoint as restorable.' };
                 }
-                return { success: true, sha };
+                await g.resetToCommitWithId(sha);
+
+                // VERIFY THE POSTCONDITION. A revert that reports success without landing is the
+                // worst possible lie in a rollback path — the user believes the bad state is gone.
+                let headAfter: string | null = null;
+                try { headAfter = await g.getHeadCommitId(); } catch { /* fall through to unverified */ }
+                if (headAfter && sha && !headAfter.startsWith(sha) && !sha.startsWith(headAfter)) {
+                    return {
+                        success: false,
+                        error: `Revert did not land: HEAD is ${headAfter}, expected ${sha}. Your project has NOT been restored.`,
+                        headAfter,
+                    };
+                }
+                return {
+                    success: true,
+                    sha,
+                    ...(headAfter ? { headAfter, verified: true } : { verified: false, note: 'HEAD could not be re-read, so the reset is UNCONFIRMED — check `git log` before relying on it.' }),
+                    warning: 'reset --hard also deleted UNTRACKED files in the project directory. Anything created since the checkpoint and never committed is gone.',
+                };
             } catch (e: any) {
                 return { success: false, error: e?.message || String(e) };
             }
