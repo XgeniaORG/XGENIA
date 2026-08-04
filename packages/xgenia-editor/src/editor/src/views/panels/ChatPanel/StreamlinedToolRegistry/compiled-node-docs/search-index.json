@@ -2064,8 +2064,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/simplejavascript.js",
       "category": "CustomCode",
       "docs": "https://docsapp.xgenia.com/nodes/javascript/function",
-      "lineCount": 506,
-      "byteSize": 14981,
+      "lineCount": 490,
+      "byteSize": 14443,
       "inputFormatHints": {
         "scriptInputs": {
           "type": "proplist",
@@ -2084,11 +2084,6 @@
           "displayName": "Run",
           "type": "signal",
           "group": "Actions"
-        },
-        "isMath": {
-          "displayName": "Is Math",
-          "type": "boolean",
-          "group": "Deployment"
         }
       },
       "outputFormatHints": {}
@@ -8718,14 +8713,9 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 1850,
-      "byteSize": 87996,
+      "lineCount": 1847,
+      "byteSize": 87929,
       "inputFormatHints": {
-        "isMath": {
-          "displayName": "Is Math",
-          "type": "boolean",
-          "group": "Deployment"
-        },
         "reelStrips": {
           "displayName": "Reel Strips",
           "type": "array",
@@ -19995,16 +19985,6 @@
     "functionScript": [
       {
         "node": "JavaScriptFunction",
-        "direction": "input"
-      }
-    ],
-    "isMath": [
-      {
-        "node": "JavaScriptFunction",
-        "direction": "input"
-      },
-      {
-        "node": "PixiReelController",
         "direction": "input"
       }
     ],
