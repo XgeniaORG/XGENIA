@@ -1458,6 +1458,32 @@ export function MathsPanel() {
                                 </div>
                             </Box>
                         )}
+
+                        {/* The two verbs. Test compiles the maths component you have open,
+                            uploads it and runs a stress test — stopping at `testing`.
+                            Promotion to live is a separate, deliberate act (below).
+
+                            This is the entry point 4565e24 removed. Its loss left
+                            handleUploadTestDeploy and the whole upload/stress-test pipeline
+                            in this file as dead code: nothing called
+                            setShowTestConfigModal(true), so the modal holding the button
+                            could not be opened and there was no way for a human to push
+                            maths to the RGS at all. Guarded by maths-sheet-mount.test.ts. */}
+                        {connected && selectedGame && (
+                            <Box hasBottomSpacing>
+                                <Tooltip content="Compile the maths component you have open, upload it and run a stress test. Stops before live.">
+                                    <PrimaryButton
+                                        icon={IconName.Play}
+                                        label={uploading ? (pipelineStep || 'Working…') : 'Test'}
+                                        size={PrimaryButtonSize.Small}
+                                        variant={PrimaryButtonVariant.MutedOnLowBg}
+                                        onClick={() => setShowTestConfigModal(true)}
+                                        isDisabled={uploading}
+                                        isGrowing
+                                    />
+                                </Tooltip>
+                            </Box>
+                        )}
                     </VStack>
                 </Box>
                 </div>
