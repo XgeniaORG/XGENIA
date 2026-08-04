@@ -98,15 +98,13 @@ const SimpleJavascriptNode = {
         this.scheduleRun();
       }
     },
-    // isMath: per-instance deployment-routing toggle (Compile feature). Custom
-    // Function nodes carry logic, so like every other non-visual node they can
-    // be extracted to a backend (RGS edge function) when the project is
-    // compiled. Declaring it here (rather than relying on the generic injection
-    // in nodelibraryexport.js) guarantees the property is always present on
-    // custom nodes with a default of true => Backend (RGS). Turn OFF to keep the
-    // node on the frontend (Vercel). `allowEditOnly` makes it an editable
-    // property, not a connectable port; the value is a compile-time flag only,
-    // so the setter is a no-op at runtime.
+    // isMath — WITHDRAWN (2026-08-05), along with the generic injection in
+    // nodelibraryexport.js. It was a compile-time deployment-routing toggle
+    // (Backend/RGS vs Frontend/Vercel). Publishing no longer compiles: a node is
+    // backend because it sits in a component under the editor's "Math Components"
+    // section, which is deployed to RGS as its own backend component. So this
+    // property no longer changes anything and is not shown.
+    /*
     isMath: {
       displayName: 'Is Math',
       plug: 'input',
@@ -123,6 +121,7 @@ const SimpleJavascriptNode = {
         // Deployment-routing flag only; no runtime behaviour.
       }
     }
+    */
   },
   outputs: {},
   methods: {

@@ -554,14 +554,18 @@ export class NodeGraphNode extends Model {
       // Start with type ports
       var ports = this.type.ports ? this.type.ports : [];
 
-      // isMath deployment toggle for custom LOGIC components (Compile feature).
-      // Native non-visual nodes carry this on their library type; custom
-      // components derive their ports from Component Inputs/Outputs gateways
-      // instead, so we inject it onto the instance here. Only logic components
-      // (no visual root that can act as a child) route to a backend, so visual
-      // components are skipped. Default true => backend (RGS); the user may flip
-      // it to false to keep this instance on the frontend (Vercel). `allowEditOnly`
-      // makes it an editable property rather than a connectable port.
+      // isMath deployment toggle for custom LOGIC components — WITHDRAWN
+      // (2026-08-05), matching the native-node side in
+      // xgenia-runtime/src/nodelibraryexport.js.
+      //
+      // It let the user route a component instance to the backend or the frontend
+      // at Compile time. That choice no longer exists: a component is a backend
+      // component because it lives in the editor's "Math Components" section and
+      // was deployed to RGS from there, and publishing does not compile. A stored
+      // `isMath` parameter on an existing instance stays in project.json and is
+      // simply not read — compile/util.ts, which does read it, is off the publish
+      // path.
+      /*
       if (
         this.type instanceof ComponentModel &&
         !this.type.allowAsChild &&
@@ -583,6 +587,7 @@ export class NodeGraphNode extends Model {
           }
         ]);
       }
+      */
 
       // Add instance ports from type
       // var instanceports = NodeLibrary.instance.getDynamicPortsForNode(this);

@@ -1,5 +1,19 @@
-// Turns a compiled logic component (`/#__cloud__/__Component_N__`) into a
-// deployable RGS edge-function artifact:
+// Turns a compiled logic component into a deployable RGS edge-function artifact.
+//
+// Two component shapes reach this, and they declare their public ports
+// differently:
+//   * `/#__cloud__/__Component_N__` — produced by the whole-project Compile
+//     feature. Ports live on `xgenia.cloud.request` / `xgenia.cloud.response`
+//     nodes as `params` + `pm-`prefixed dynamic ports.
+//   * `/#__maths__/<name>` — a Math Component the user authored by hand and
+//     deploys from the Maths RGS panel. Ports live on the ordinary
+//     `Component Inputs` / `Component Outputs` gateway nodes, which is also
+//     exactly what the generated script reads (`config[<port name>]`) and
+//     writes (`_componentOutputs[<port name>]`), so the payload/response keys
+//     ARE the gateway port names.
+// Both are handled below; everything downstream is identical.
+//
+// The artifact:
 //   * `script` — a sandbox-compatible evaluate(ctx) body (reuses the editor's
 //     CloudFunctionConverter.generateRgsScript(); executed by the `rgs-fn`
 //     dispatcher with ctx.config = the request payload).
@@ -11,7 +25,7 @@
 //     string port therefore MUST get a string example (""), not a number.
 
 export interface FunctionArtifact {
-  slug: string; // e.g. "__Component_1__"
+  slug: string; // e.g. "__Component_1__" (cloud) or "SlotMaths" (maths)
   functionName: string;
   script: string;
   payloadExample: Record<string, any>;
@@ -203,6 +217,52 @@ function collectParamFields(node: any, plug: 'input' | 'output'): ParamField[] {
   return order.map((n) => byName.get(n)!);
 }
 
+// Collect the public parameter fields of a `Component Inputs` / `Component
+// Outputs` gateway node — the maths-component counterpart of
+// collectParamFields.
+//
+// A gateway's ports are the component's own input/output ports, so there is no
+// `pm-` prefix and no `params` stringlist to union: the port list IS the
+// contract. Signal ports are dropped — a pulse is not a payload field, it is the
+// trigger that sends the request (the Aggregator turns it into `is<X>`), and
+// including it would publish a bogus `Do: 0` input in the API docs and RGS
+// Testing.
+//
+// `plug` is 'output' for Component Inputs (its ports feed the graph as outputs)
+// and 'input' for Component Outputs, mirroring collectParamFields.
+function collectGatewayFields(node: any, plug: 'input' | 'output'): ParamField[] {
+  // Real editor gateway nodes keep their ports on `node.ports`; hand-written
+  // fixtures put them under `parameters.ports`. Read both, same as the runtime
+  // converter's _readCompPorts.
+  const raw = [
+    ...(node?.ports || []),
+    ...(node?.dynamicports || []),
+    ...(node?.parameters?.ports || [])
+  ];
+
+  const byName = new Map<string, ParamField>();
+  const order: string[] = [];
+
+  for (const p of raw) {
+    if (!p || typeof p.name !== 'string') continue;
+    if (p.plug && p.plug !== plug) continue;
+    const declaredType = normalizePortType(p.type);
+    if (declaredType.toLowerCase() === 'signal') continue;
+    const clean = p.name.trim();
+    if (!clean) continue;
+    const existing = byName.get(clean);
+    if (!existing) {
+      order.push(clean);
+      byName.set(clean, { name: clean, declaredType, default: p.default });
+      continue;
+    }
+    if (!existing.declaredType && declaredType) existing.declaredType = declaredType;
+    if (existing.default === undefined && p.default !== undefined) existing.default = p.default;
+  }
+
+  return order.map((n) => byName.get(n)!);
+}
+
 function buildProjectContext(project: any) {
   const components = (project.getComponents?.() || project.components || []).map((c: any) => ({
     name: c.name,
@@ -220,13 +280,30 @@ export function generateFunctionArtifact(component: any, project: any): Function
   // Lazily require to avoid bundling the converter where it isn't needed.
   const { CloudFunctionConverter } = require('@xgenia/runtime/src/api/supabase-converter');
 
-  const slug = String(component.name).replace('/#__cloud__/', '');
+  // "/#__cloud__/__Component_1__" → "__Component_1__";
+  // "/#__maths__/Slot/SlotMaths" → "SlotMaths" (a maths component may be filed in
+  // folders, and only its leaf name is the endpoint's identity).
+  const rawName = String(component.name);
+  const slug = rawName.startsWith('/#__maths__/')
+    ? rawName.split('/').filter(Boolean).pop() || rawName
+    : rawName.replace('/#__cloud__/', '');
+
   const roots = component.graph?.roots || [];
   const requestNode = roots.find((r: any) => r.typename === 'xgenia.cloud.request');
   const responseNode = roots.find((r: any) => r.typename === 'xgenia.cloud.response');
 
-  const requestFields = collectParamFields(requestNode, 'output');
-  const responseFields = collectParamFields(responseNode, 'input');
+  // A maths component declares its contract on the Component Inputs / Outputs
+  // gateways instead. Prefer the cloud nodes when present so a compiled cloud
+  // component that happens to also carry gateways is unaffected.
+  const inputsNode = roots.find((r: any) => r.typename === 'Component Inputs');
+  const outputsNode = roots.find((r: any) => r.typename === 'Component Outputs');
+
+  const requestFields = requestNode
+    ? collectParamFields(requestNode, 'output')
+    : collectGatewayFields(inputsNode, 'output');
+  const responseFields = responseNode
+    ? collectParamFields(responseNode, 'input')
+    : collectGatewayFields(outputsNode, 'input');
 
   const payloadExample: Record<string, any> = {};
   requestFields.forEach((f) => (payloadExample[f.name] = exampleValueForField(f)));

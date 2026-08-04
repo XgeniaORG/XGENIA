@@ -8,12 +8,23 @@ import { ProjectModel } from '@xgenia-models/projectmodel';
 import { projectFromDirectory } from '@xgenia-models/projectmodel.editor';
 import { createEditorCompilation } from '@xgenia-utils/compilation/compilation.editor';
 import * as Exporter from '@xgenia-utils/exporter';
+// Publishing no longer compiles or deploys logic: Math Components are compiled and
+// deployed as backend components from the Maths RGS panel, so this tab only wires
+// the frontend to their live endpoints (see deployToRgsAndVercel).
+// compileProject / generateFunctionArtifact / createEdgeDeployment /
+// deployEdgeFunction are therefore unused here now, and kept imported alongside the
+// retained ComponentSetupDialog helpers so that flow is one edit away.
 import { compileProject } from '@xgenia-utils/compile';
-import { saveProject } from '@xgenia-utils/compile/duplicateProject';
+import { duplicateCurrentProject, saveProject } from '@xgenia-utils/compile/duplicateProject';
 import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import { generateFunctionArtifact } from '@xgenia-utils/rgs/generateFunctionArtifact';
 import { createEdgeDeployment, deployEdgeFunction, deleteEdgeDeployment } from '@xgenia-utils/rgs/deployEdgeFunction';
-import { getRgsSettings, getActiveGame, isRgsConnected, rgsHeaders, XRGS_URL } from '@xgenia-utils/rgs/rgsClient';
+import {
+  mathsEndpointsForGame,
+  swapDeployedMathsInstances,
+  undeployedMathsInstances
+} from '@xgenia-utils/rgs/deployMathsComponents';
+import { getRgsSettings, getActiveGame, isRgsConnected } from '@xgenia-utils/rgs/rgsClient';
 import { loadSharedDeployTokens } from '@xgenia-utils/rgs/deployTokens';
 
 import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
@@ -24,6 +35,7 @@ import { TextType } from '@xgenia-core-ui/components/typography/Text/Text';
 import { TextInput } from '@xgenia-core-ui/components/inputs/TextInput';
 
 import { NodeGraphContextTmp } from '@xgenia-contexts/NodeGraphContext/NodeGraphContext';
+import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
 
 import { ToastLayer } from '../../../ToastLayer/ToastLayer';
 import {
@@ -505,13 +517,15 @@ export function XgeniaDeployTab() {
   const [environmentId, setEnvironmentId] = useState(NO_ENVIRONMENT_VALUE);
 
   // ── XGENIA RGS backend target ──────────────────────────────────────────
-  // When "XGENIA RGS" is the selected cloud service, the backend (logic) is
-  // deployed to a specific RGS game. The game is chosen right here rather than
-  // read from a background store, so the deploy always targets exactly what the
-  // user picked. Defaults to the game selected in the Maths RGS panel.
-  const [rgsGames, setRgsGames] = useState<any[] | null>(null);
-  const [rgsGameId, setRgsGameId] = useState<string>(() => getActiveGame()?.id || '');
-  const [rgsGamesError, setRgsGamesError] = useState('');
+  // Which RGS game this frontend belongs to. Read from the Maths RGS panel, never
+  // picked here: a project's Math Components are deployed as backend components of
+  // ONE game, so that game is a fact about the project, not a publish-time choice.
+  // Offering a dropdown could only let the two disagree — publishing "to game B"
+  // while every endpoint baked into the build belongs to game A.
+  //
+  // Re-read when the popup opens and whenever the panel changes it, so a game
+  // selected without closing this popup is picked up.
+  const [rgsGame, setRgsGame] = useState(() => getActiveGame());
   const rgsSelected = environmentId === RGS_ENVIRONMENT_VALUE;
   const rgsConnected = isRgsConnected();
   const [domainName, setDomainName] = useState('');
@@ -607,48 +621,19 @@ export function XgeniaDeployTab() {
     return () => unsub();
   }, []);
 
-  // Load the RGS game list when "XGENIA RGS" is selected (and connected), so the
-  // Target Game dropdown can be populated. Defaults the selection to the game set
-  // in the Maths RGS panel if it still exists.
+  // Follow the Maths RGS panel's game selection. The panel emits `rgs.gameSelected`
+  // (see rgsClient.setActiveGame), so a game chosen while this popup is open is
+  // reflected here rather than leaving a stale name on screen.
+  //
+  // No games list is fetched any more: without a picker there is nothing to
+  // populate, and the selection already carries the id, slug and name that
+  // publishing needs.
   useEffect(() => {
-    if (!rgsSelected) return;
-    const rgs = getRgsSettings();
-    if (!rgs?.apiKey) return;
-    let cancelled = false;
-    setRgsGamesError('');
-    setRgsGames(null); // loading
-    (async () => {
-      try {
-        const r = await fetch(`${XRGS_URL}/maths-deployer`, {
-          method: 'POST',
-          headers: rgsHeaders(rgs.apiKey),
-          body: JSON.stringify({ action: 'list-games' }),
-        });
-        const data = await r.json();
-        if (cancelled) return;
-        if (!r.ok || data.error) {
-          setRgsGames([]);
-          setRgsGamesError(data.error || 'Failed to load games from XGENIA RGS.');
-          return;
-        }
-        const list = data.games || [];
-        setRgsGames(list);
-        // Keep the current pick if it still exists; otherwise default to the
-        // Maths RGS panel's active game; otherwise leave unselected.
-        setRgsGameId((cur) => {
-          if (cur && list.some((g: any) => g.id === cur)) return cur;
-          const active = getActiveGame()?.id;
-          return active && list.some((g: any) => g.id === active) ? active : '';
-        });
-      } catch (err) {
-        if (!cancelled) {
-          setRgsGames([]);
-          setRgsGamesError('Failed to load games from XGENIA RGS.');
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [rgsSelected]);
+    setRgsGame(getActiveGame());
+    const onSelected = () => setRgsGame(getActiveGame());
+    EventDispatcher.instance.on('rgs.gameSelected', onSelected, onSelected);
+    return () => { EventDispatcher.instance.off(onSelected); };
+  }, []);
 
   // Team info — falls back to XGENIA team when user has no personal Vercel account
   const teamInfo = { id: 'team_N25wk38vGG6CZAyu8JUhf1fe', slug: 'xgenia' };
@@ -1522,10 +1507,9 @@ export function XgeniaDeployTab() {
     }
   }
 
-  // Deploy logic to XGENIA RGS and only the UI to Vercel (decoupled).
-  // Remove the compiled "__<name>__" copy that Compile produced: drop it from
-  // the projects list AND delete its files from disk, so repeated deploys don't
-  // pile up __<name>__-1, __<name>__-2, … next to the original project.
+  // Remove the "__<name>__" copy that publishing made: drop it from the projects
+  // list AND delete its files from disk, so repeated deploys don't pile up
+  // __<name>__-1, __<name>__-2, … next to the original project.
   function cleanupCompiledCopy(compiledDir: string) {
     if (!compiledDir) return;
     try {
@@ -1543,10 +1527,32 @@ export function XgeniaDeployTab() {
     }
   }
 
+  /**
+   * Publish to XGENIA RGS + Vercel.
+   *
+   * NO COMPILATION. The backend/frontend split is not decided here any more — it
+   * was decided when the user put a component in "Math Components" and pressed
+   * Deploy, which compiled it (nested layers inlined) and made it a real backend
+   * component of a Server Version. So publishing has one job on the RGS side:
+   * point the frontend at those live endpoints. Nothing is extracted, no Server
+   * Version is opened, no component is deployed, and no post-compile setup card
+   * interrupts it.
+   *
+   * What this replaced (in git history, if it is ever wanted back): compileProject
+   * → extract each visual component's logic into /#__cloud__/__Component_N__ →
+   * name it and map its bet/win ports in ComponentSetupDialog →
+   * createEdgeDeployment + deployEdgeFunction → repoint each Aggregator at the URL
+   * that came back. The card's render and its helpers below are still here (the
+   * render commented out); only this routine changed.
+   */
   async function deployToRgsAndVercel(activityId: string) {
     const rgs = getRgsSettings();
-    // Deploy to exactly the game picked in this popup's Target Game dropdown.
-    const game = (rgsGames || []).find((g: any) => g.id === rgsGameId);
+    // Which RGS game this frontend belongs to. NOT picked here any more: the Math
+    // Components it calls were deployed into one specific game from the Maths RGS
+    // panel, so that panel's selected game IS the answer. A second, independent
+    // choice in this popup could only ever contradict it — publishing against
+    // game B while every endpoint in the build belongs to game A.
+    const game = getActiveGame();
     if (!rgs?.apiKey) {
       ToastLayer.hideActivity(activityId);
       ToastLayer.showError('Not connected to XGENIA RGS. Connect in the Maths RGS panel first.');
@@ -1554,185 +1560,97 @@ export function XgeniaDeployTab() {
     }
     if (!game?.id) {
       ToastLayer.hideActivity(activityId);
-      ToastLayer.showError('No target game selected. Choose a target game above.');
+      ToastLayer.showError('No game selected. Select one in the Maths RGS panel first.');
       return;
     }
 
-    // 1. Compile — produces the __<name>__ copy with cloud components + aggregators.
-    ToastLayer.showActivity('Compiling project...', activityId);
-    const { dir: compiledDir, origins } = await compileProject(ProjectModel.instance);
-    const copy: any = await new Promise((resolve, reject) => {
-      projectFromDirectory(
-        compiledDir,
-        (p?: any) => (p ? resolve(p) : reject(new Error('Failed to load compiled project'))),
-        { showUpgradeModal: false }
-      );
-    });
+    // 1. Copy the project on disk. Publishing rewrites node graphs below, and
+    //    that must never touch the project the user has open.
+    ToastLayer.showActivity('Preparing project...', activityId);
+    const { copy, destDir: publishDir } = await duplicateCurrentProject(ProjectModel.instance);
 
-    // 2. Turn each compiled logic component into a deployable artifact. This is
-    //    still "compilation" from the user's point of view — the script is
-    //    generated and the request/response ports are derived here — so it runs
-    //    before we ask them anything.
-    const cloudComponents = copy.components.filter((c: any) =>
-      String(c.name).startsWith('/#__cloud__/__Component_')
-    );
-    const artifacts = cloudComponents.map((comp: any) => ({
-      comp,
-      artifact: generateFunctionArtifact(comp, copy)
-    }));
-
-    // 3. Compilation is done — pause and let the user name each component and
-    //    say which port is the bet and which is the win, instead of shipping the
-    //    generated "__Component_N__" name and leaving RGS Testing to guess the
-    //    mapping. Cancelling here aborts the publish before anything is uploaded.
-    //    A UI-only project compiles to no logic components at all — nothing to
-    //    ask about, so don't interrupt it with an empty card.
-    let choices: Record<string, ComponentSetupChoice> = {};
-    if (artifacts.length > 0) {
-      ToastLayer.hideActivity(activityId);
-      // Names already handed out, lowercased. Two visual components in different
-      // folders can share a leaf name ("/Slot/GameScreen", "/Keno/GameScreen"),
-      // and the card refuses to continue on duplicates — so a name that is
-      // already taken falls back to the compiled slug rather than opening the
-      // card on a blocking error.
-      const usedNames = new Set<string>();
-      const picked = await requestComponentSetup(
-        artifacts.map(({ comp, artifact }) => {
-          // RGS stores the slug with XGENIA's wrapping underscores stripped
-          // ("__Component_1__" → "Component_1"), so that is the compiled slug
-          // the card falls back to.
-          const publicSlug = artifact.slug.replace(/^_+|_+$/g, '') || artifact.slug;
-          // Compile records which visual component each cloud component was
-          // extracted from, so the card can point at something recognisable.
-          const origin = (origins || []).find((o) => o.cloudName === comp.name);
-          // Default to the source component's own name — its last path segment
-          // ("/Components/Keno Dynasty" → "Keno Dynasty"), since the enclosing
-          // folders are the user's filing, not the component's identity. Beats
-          // "Component_1": it is what they will recognise in the RGS lists.
-          const leafName = leafComponentName(origin?.sourceComponentName);
-          const defaultName = leafName && !usedNames.has(leafName.toLowerCase()) ? leafName : publicSlug;
-          usedNames.add(defaultName.toLowerCase());
-          return {
-            componentName: comp.name,
-            defaultSlug: publicSlug,
-            defaultName,
-            numericInputs: numericPortNames(artifact.payloadExample),
-            numericOutputs: numericPortNames(artifact.responseExample),
-            sourceComponentName: origin?.sourceComponentName || '(unknown)',
-            logicNodeIds: origin?.logicNodeIds || []
-          };
-        })
-      );
-      if (!picked) {
-        // User backed out — leave no compiled copy behind, don't report failure.
-        cleanupCompiledCopy(compiledDir);
-        ToastLayer.showInteraction('Publish cancelled.');
-        return;
-      }
-      choices = picked;
-    }
-
-    // 4. Open a versioned deployment, then deploy each logic component into it
-    //    as a per-game RGS edge function. Every Publish becomes a new version,
-    //    so the game keeps full deploy history.
-    ToastLayer.showActivity('Deploying logic to XGENIA RGS...', activityId);
-    // Named rgsDeploymentId, not deploymentId: the Vercel deploy below returns an
-    // id by that name too, and the two must never be confused — this one is the
-    // Server Version that a later domain delete has to remove.
-    const { deploymentId: rgsDeploymentId, version: rgsVersion } = await createEdgeDeployment(
-      rgs.apiKey,
-      game.id,
-      copy.name
-    );
-    const urlByComponent: Record<string, string> = {};
-    for (const { comp, artifact } of artifacts) {
-      const choice = choices[comp.name];
-      const { url } = await deployEdgeFunction(rgs.apiKey, game.id, rgsDeploymentId, {
-        ...artifact,
-        // The user's name replaces the generated one, and the slug follows it —
-        // so this Publish's endpoint becomes /rgs-fn/<game>/<new slug>. The
-        // Aggregator nodes are repointed at whatever URL comes back (step 5), so
-        // the frontend built in THIS publish always calls the right one. An
-        // already-live frontend keeps calling the old slug, which keeps
-        // resolving to the older version's script — old builds stay pinned
-        // rather than breaking.
-        functionName: choice?.functionName || artifact.functionName,
-        slug: choice?.slug || artifact.slug,
-        betInputPort: choice?.betInputPort ?? '',
-        winOutputPort: choice?.winOutputPort ?? ''
-      });
-      urlByComponent[comp.name] = url;
-    }
-
-    // 5. Point each Aggregator node at its deployed function URL.
-    for (const comp of copy.components) {
-      for (const node of comp.graph.roots) {
-        if (node.typename !== 'Aggregator') continue;
-        const target = node.parameters?.targetComponent;
-        const url = target ? urlByComponent[target] : undefined;
-        if (url) node.parameters.url = url;
-      }
-    }
-
-    // 5b. Stamp the Target Game onto the copy, so the deployed game knows which RGS
-    //     game it IS. Aggregator logic gets this for free — its function URL carries
-    //     the game slug — but the cashier nodes (Deposit Balance, Withdraw Balance,
-    //     Create Deposit (Stripe)) call player-scoped RPCs that see only a player and
-    //     an amount, so without this their rows land on the platform's Transactions
-    //     page with no game at all. Read back at runtime by resolveRgsGame in
-    //     rgs-config.js. Stamped on the COPY, not ProjectModel.instance, so the
-    //     user's own project is left untouched and a deploy to a different target
-    //     game never leaves a stale id behind.
-    copy.setMetaData('rgsgame', { id: game.id, name: game.name, slug: game.slug });
-
-    await saveProject(copy, compiledDir);
-
-    // 6. Vercel-deploy the COPY — UI only (build excludes /#__cloud__/ components).
-    const tempDir = filesystem.join(os.tmpdir(), `xgenia-deploy-${Date.now()}`);
-    await filesystem.makeDirectory(tempDir);
     try {
-      ToastLayer.showActivity('Building UI bundle...', activityId);
-      // Logic components were already deployed to RGS above, so skip the built-in
-      // Supabase/Parse cloud-function pass — otherwise it errors with "No cloud
-      // service to deploy cloud functions to" since this build has no environment.
-      const compilation = createEditorCompilation(copy, { skipBuiltinCloudFunctionDeploy: true }).addProjectBuildScripts();
-      await compilation.deployToFolder(tempDir, { environment: undefined });
+      // 2. Point every instance of a DEPLOYED Math Component at its live
+      //    `/rgs-fn/<game>/<slug>` endpoint, by swapping the instance for an
+      //    Aggregator node — the existing frontend→backend caller, whose payload
+      //    and response shape is exactly the deployed script's contract.
+      ToastLayer.showActivity('Wiring Math Components to XGENIA RGS...', activityId);
+      const endpoints = await mathsEndpointsForGame(rgs.apiKey, game.id, copy);
+      const swapped = swapDeployedMathsInstances(copy, endpoints);
 
-      const files = await collectProjectFiles(tempDir);
-      if (files.length === 0) throw new Error('No files were generated during deployment');
+      // A Math Component that the UI uses but nobody deployed is now shipped
+      // as-is and RUNS IN THE BROWSER — there is no compile pass left to extract
+      // it. That is a real thing to know about a published game, so say it
+      // plainly instead of quietly building it.
+      const undeployed = undeployedMathsInstances(copy, endpoints);
+      if (undeployed.length > 0) {
+        const names = undeployed.map((n) => n.split('/').filter(Boolean).pop()).join(', ');
+        console.warn('[Deploy] Math Components used by the UI but not deployed:', undeployed);
+        ToastLayer.showError(
+          `Heads up: ${names} ${undeployed.length === 1 ? 'is' : 'are'} not deployed to ` +
+            `${game.name || 'this game'}, so ${undeployed.length === 1 ? 'its' : 'their'} maths will run in the ` +
+            `player's browser. Deploy ${undeployed.length === 1 ? 'it' : 'them'} from Maths RGS → Math Components.`
+        );
+      }
 
-      // GitHub upload — hide the bottom-right toast so no GitHub-related
-      // notification shows. Compile / RGS / build / Vercel messages stay intact.
-      // ToastLayer.hideActivity(activityId);
-      ToastLayer.showActivity('Preparing compiled project for deployment...', activityId);
-      const repositoryName = `${domainName.trim()}-${Date.now()}`;
-      const { repoOwner, repoName: actualRepoName } = await uploadToGitHub(files, repositoryName, isPrivate);
+      // 3. Stamp the game onto the copy, so the deployed frontend knows which RGS
+      //    game it IS. Aggregator calls get this for free — their function URL
+      //    carries the game slug — but the cashier nodes (Deposit Balance,
+      //    Withdraw Balance) call player-scoped RPCs that see only a player and an
+      //    amount, so without this their rows land on the platform's Transactions
+      //    page with no game at all. Read back at runtime by resolveRgsGame in
+      //    rgs-config.js. Stamped on the COPY, so the user's own project is left
+      //    untouched and switching games never leaves a stale id behind.
+      copy.setMetaData('rgsgame', { id: game.id, name: game.name, slug: game.slug });
 
-      ToastLayer.showActivity('Deploying to Vercel...', activityId);
-      const { deploymentId, aliasUrl } = await deployToVercel(repoOwner, actualRepoName, domainName.trim());
+      await saveProject(copy, publishDir);
 
-      ToastLayer.hideActivity(activityId);
-      const userFriendlyDomain = aliasUrl.replace(/^https?:\/\//, '');
-      ToastLayer.showSuccess(`Deployed UI to Vercel and logic to XGENIA RGS!\nLive URL: ${userFriendlyDomain}`);
-      setSuccessMessage(`Deployed to Vercel + XGENIA RGS. Live URL: ${userFriendlyDomain}`);
-      // Record which RGS Server Version this frontend talks to, so deleting the
-      // domain later can delete its backend instead of orphaning it.
-      saveDeployedDomain(domainName.trim(), deploymentId, aliasUrl, {
-        deploymentId: rgsDeploymentId,
-        gameId: game.id,
-        gameName: game.name,
-        version: rgsVersion
-      });
-      if (showDeployedDomains) await fetchDeployedDomains();
+      // 4. Build and Vercel-deploy the COPY.
+      const tempDir = filesystem.join(os.tmpdir(), `xgenia-deploy-${Date.now()}`);
+      await filesystem.makeDirectory(tempDir);
+      try {
+        ToastLayer.showActivity('Building UI bundle...', activityId);
+        // Skip the built-in Supabase/Parse cloud-function pass: this build has no
+        // cloud environment, and its backend is on RGS, so that pass would only
+        // error with "No cloud service to deploy cloud functions to".
+        const compilation = createEditorCompilation(copy, { skipBuiltinCloudFunctionDeploy: true }).addProjectBuildScripts();
+        await compilation.deployToFolder(tempDir, { environment: undefined });
 
-      try { filesystem.removeDirRecursive(tempDir); } catch (e) { /* ignore */ }
-      // Deploy is fully done (compiled → GitHub → Vercel): drop the compiled copy.
-      cleanupCompiledCopy(compiledDir);
-    } catch (err) {
-      try { filesystem.removeDirRecursive(tempDir); } catch (e) { /* ignore */ }
-      // Don't let failed attempts leave __<name>__ copies behind either.
-      cleanupCompiledCopy(compiledDir);
-      throw err;
+        const files = await collectProjectFiles(tempDir);
+        if (files.length === 0) throw new Error('No files were generated during deployment');
+
+        // GitHub upload — the toast deliberately says nothing about GitHub.
+        ToastLayer.showActivity('Preparing project for deployment...', activityId);
+        const repositoryName = `${domainName.trim()}-${Date.now()}`;
+        const { repoOwner, repoName: actualRepoName } = await uploadToGitHub(files, repositoryName, isPrivate);
+
+        ToastLayer.showActivity('Deploying to Vercel...', activityId);
+        const { deploymentId, aliasUrl } = await deployToVercel(repoOwner, actualRepoName, domainName.trim());
+
+        ToastLayer.hideActivity(activityId);
+        const userFriendlyDomain = aliasUrl.replace(/^https?:\/\//, '');
+        const wiring = swapped > 0
+          ? `${swapped} Math Component call${swapped === 1 ? '' : 's'} wired to ${game.name || 'XGENIA RGS'}`
+          : 'no Math Component calls to wire';
+        ToastLayer.showSuccess(`Deployed to Vercel — ${wiring}.\nLive URL: ${userFriendlyDomain}`);
+        setSuccessMessage(`Deployed to Vercel (${wiring}). Live URL: ${userFriendlyDomain}`);
+
+        // No RGS backend reference is recorded any more: this publish did not
+        // create a Server Version, and the ones it calls are managed in the Maths
+        // RGS panel and may be shared by several frontends. Deleting this domain
+        // must not delete them — deleteRgsBackends already no-ops on a record with
+        // none, and records written by the old flow keep their links.
+        saveDeployedDomain(domainName.trim(), deploymentId, aliasUrl);
+        if (showDeployedDomains) await fetchDeployedDomains();
+
+        try { filesystem.removeDirRecursive(tempDir); } catch (e) { /* ignore */ }
+      } catch (err) {
+        try { filesystem.removeDirRecursive(tempDir); } catch (e) { /* ignore */ }
+        throw err;
+      }
+    } finally {
+      // Success or failure, don't leave a __<name>__ copy behind.
+      cleanupCompiledCopy(publishDir);
     }
   }
 
@@ -1906,8 +1824,11 @@ export function XgeniaDeployTab() {
           />
         )}
 
-        {/* XGENIA RGS: pick the game the backend (logic) is deployed to. Shown
-            only when "XGENIA RGS" is the selected cloud service. */}
+        {/* XGENIA RGS. There is no "Target game" picker here any more: the game is
+            wherever the project's Math Components were deployed, which is chosen
+            once in the Maths RGS panel. Publishing reads that, so it can never
+            build a frontend for game B out of endpoints belonging to game A. Shown
+            read-only so it is still obvious what is about to be published. */}
         {rgsSelected && !rgsConnected && (
           <Text style={{ marginBottom: '12px', fontSize: '12px', color: '#f66' }}>
             Not connected to XGENIA RGS. Connect in the Maths RGS panel first.
@@ -1915,23 +1836,15 @@ export function XgeniaDeployTab() {
         )}
 
         {rgsSelected && rgsConnected && (
-          rgsGames === null ? (
+          rgsGame ? (
             <Text style={{ marginBottom: '12px', fontSize: '12px', color: '#999' }}>
-              Loading games…
-            </Text>
-          ) : rgsGames.length === 0 ? (
-            <Text style={{ marginBottom: '12px', fontSize: '12px', color: '#f66' }}>
-              {rgsGamesError || 'No games found. Create one in the Maths RGS panel first.'}
+              Backend: <span style={{ color: '#ddd' }}>{rgsGame.name || rgsGame.slug}</span> — the game
+              its Math Components are deployed to. Change it in the Maths RGS panel.
             </Text>
           ) : (
-            <Select
-              options={rgsGames.map((g: any) => ({ label: g.name, value: g.id }))}
-              onChange={(value: string) => setRgsGameId(String(value))}
-              placeholder="Select a target game…"
-              value={rgsGameId}
-              label="Target game"
-              hasBottomSpacing
-            />
+            <Text style={{ marginBottom: '12px', fontSize: '12px', color: '#f66' }}>
+              No game selected. Select one in the Maths RGS panel first.
+            </Text>
           )
         )}
 
@@ -1941,7 +1854,7 @@ export function XgeniaDeployTab() {
           isDisabled={
             isDeploying ||
             !domainName.trim() ||
-            (rgsSelected && (!rgsConnected || !rgsGameId))
+            (rgsSelected && (!rgsConnected || !rgsGame?.id))
           }
         />
 
@@ -2159,8 +2072,13 @@ export function XgeniaDeployTab() {
         )}
       </PopupSection>
 
-      {/* Post-compile setup card. Portalled to document.body, so it is centred
-          over the editor rather than anchored to the Publish popup. */}
+      {/* Post-compile setup card — REPLACED.
+          Belonged to the compile-and-deploy publish flow: it asked the user to name
+          each extracted logic component and map its bet/win ports. Publishing no
+          longer compiles or deploys anything, so nothing sets `setupRequest`.
+          Commented out with the flow itself; a Math Component is named by the user
+          in the component tree, and its bet/win mapping is set on the platform.
+
       {setupRequest && (
         <ComponentSetupDialog
           items={setupRequest.items}
@@ -2177,6 +2095,7 @@ export function XgeniaDeployTab() {
           }}
         />
       )}
+      */}
     </>
   );
 }

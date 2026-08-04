@@ -449,30 +449,37 @@ function generateNodeLibrary(nodeRegister) {
       });
     }
 
-    // --- isMath: per-instance deployment-routing toggle (Compile feature) ---
-    // Surface a boolean `isMath` on every NON-VISUAL native node so the user can
-    // choose where a node is deployed when the project is compiled:
-    //   * isMath === true  (default) -> Backend  (RGS edge function)
-    //   * isMath === false           -> Frontend (Vercel), kept in the page
-    // Default true preserves today's behaviour and keeps existing projects
-    // unchanged (a node with no stored value reads as true at Compile time).
-    // Visual/page/navigation nodes, the Component Inputs/Outputs gateways and the
-    // compile-internal Aggregator never route to a backend, so they don't get it.
-    // Neither do nodes that ALREADY call the RGS platform / backend services from
-    // their own implementation (`usesBackendServices`) — asking to deploy those as
-    // backend nodes is meaningless: they depend on those services either way, and
-    // most of them need a browser (session, launch URL, redirect, popup) to work.
-    // Re-emit the flag so the editor-side compiler can honour it (compile/util.ts).
-    // `allowEditOnly` makes it an editable property (not a connectable port).
+    // --- isMath: WITHDRAWN (2026-08-05) -------------------------------------
+    // `isMath` was a per-instance "Deployment" toggle surfaced on every non-visual
+    // node, so the user could say whether Compile should extract that node to the
+    // backend (RGS edge function) or leave it on the frontend (Vercel).
+    //
+    // It is no longer needed, and no longer shown. The backend/frontend split is
+    // not decided per node any more: a node is backend because it sits inside a
+    // component in the editor's "Math Components" section, which is compiled and
+    // deployed to RGS as its own backend component. Everything left in a visual
+    // component is frontend, by construction. Publishing does not compile, so
+    // there is nothing for a per-node routing flag to influence — leaving it on
+    // screen would advertise a choice that no longer changes anything.
+    //
+    // `usesBackendServices` is still re-emitted below: it is a property of the node
+    // (it talks to RGS from its own implementation), not a deployment choice, and
+    // compile/util.ts still reads it if the compile flow is ever re-enabled. That
+    // flow also still honours a stored `isMath` PARAMETER, so an existing project
+    // that set one keeps its meaning if compile comes back.
+    //
+    // ISMATH_NON_LOGIC_CATEGORIES (top of this file) is kept for the same reason.
+    var isBackendServiceNode = usesBackendServices(nodeMetadata);
+    if (isBackendServiceNode) {
+      nodeObj.usesBackendServices = true;
+    }
+
+    /*
     var isVisualNode =
       nodeMetadata.category === 'Visual' ||
       nodeMetadata.allowAsChild === true ||
       nodeMetadata.allowChildren === true;
     var alreadyHasIsMath = !!(nodeMetadata.inputs && nodeMetadata.inputs.isMath);
-    var isBackendServiceNode = usesBackendServices(nodeMetadata);
-    if (isBackendServiceNode) {
-      nodeObj.usesBackendServices = true;
-    }
     if (
       !isVisualNode &&
       !alreadyHasIsMath &&
@@ -493,6 +500,7 @@ function generateNodeLibrary(nodeRegister) {
           'Turn OFF to keep it on the frontend (Vercel) — e.g. logic that drives UI animations.'
       });
     }
+    */
   });
 
   const coreNodes = [

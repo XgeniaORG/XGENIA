@@ -23,8 +23,16 @@ import {
     deleteEdgeFunction
 } from '@xgenia-utils/rgs/deployEdgeFunction';
 import { AppRegistry } from '@xgenia-models/app_registry';
+import { ProjectModel } from '@xgenia-models/projectmodel';
 import { MathsComponentDocumentProvider } from '../../documents/MathsComponentDocument';
 import { MathsSimulateDocumentProvider } from '../../documents/MathsSimulateDocument';
+import { ComponentsPanel } from '../componentspanel';
+import {
+    deployMathsComponents,
+    createEmptyServerVersion,
+    listMathsComponents,
+    MathsDeployResult
+} from '@xgenia-utils/rgs/deployMathsComponents';
 
 
 // ─── RGS Connection ─────────────────────────────────────────
@@ -221,6 +229,19 @@ const MODAL_INPUT_STYLE: React.CSSProperties = { width: '100%', padding: '10px 1
 const VERSION_BTN_STYLE: React.CSSProperties = { fontSize: '11px', lineHeight: 1, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '4px', color: '#c0c0c0', padding: '3px 6px' };
 const VERSION_DELETE_BTN_STYLE: React.CSSProperties = { ...VERSION_BTN_STYLE, color: '#EF4444', borderColor: 'rgba(239,68,68,0.35)' };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// KEPT FOR THE COMMENTED-OUT "Components" SUB-SECTION.
+//
+// Everything from here to the end of this block — the two row styles,
+// isLiveComponent, and (further down) openComponentDoc / openComponentSimulate,
+// the per-component action state and handleRename/Download/DeleteComponent — is
+// used ONLY by the read-only "Components" list that used to sit at the bottom of
+// this panel. That list was replaced by the "Math Components" section (an
+// editable component tree with a Deploy button); its JSX and its two modals are
+// commented out in place rather than deleted, so uncommenting them restores the
+// old behaviour without having to rebuild any of this.
+// ─────────────────────────────────────────────────────────────────────────────
+
 // A component row in the Components sub-section: the name opens the component's
 // API docs + script inspector in the editor's main area, and the three-dot menu
 // on the far right holds its rename / simulate / download / delete actions.
@@ -311,6 +332,18 @@ export function MathsPanel() {
     const [renameError, setRenameError] = useState<string | null>(null);
     const [confirmDeleteFn, setConfirmDeleteFn] = useState<any | null>(null);
 
+    // ─── Math Components ────────────────────────────────────────
+    // `deployingComponents` disables the Deploy button while a run is in flight;
+    // `deployStep` is its per-component progress line ("Compiling SlotMaths (1/3)…").
+    // `mathsCount` is how many Math Components the project has right now — the
+    // tree below can add, rename and delete them while this panel is open, so it
+    // is kept in sync from ProjectModel rather than read once.
+    const [deployingComponents, setDeployingComponents] = useState(false);
+    const [deployStep, setDeployStep] = useState<string | null>(null);
+    const [mathsCount, setMathsCount] = useState(0);
+    // Creating a new (empty) Server Version from the Server Versions header.
+    const [creatingVersion, setCreatingVersion] = useState(false);
+
     // Upload, Test & Deploy modal state
     const [showTestConfigModal, setShowTestConfigModal] = useState(false);
     const [simCount, setSimCount] = useState(10000);
@@ -350,6 +383,19 @@ export function MathsPanel() {
     // as the studio "API docs" page.
     const selectedVersion =
         (versions || []).find((v: any) => v.id === selectedVersionId) || (versions || [])[0] || null;
+
+    // How many Math Components the project holds. Recounted on every add /
+    // remove / rename, because the Math Components tree in this same panel is
+    // what performs those — so the Deploy button must not describe a stale tree.
+    useEffect(() => {
+        const project = ProjectModel.instance;
+        const recount = () => setMathsCount(listMathsComponents(project).length);
+        recount();
+        if (!project) return;
+        const group = {};
+        project.on(['componentAdded', 'componentRemoved', 'componentRenamed'], recount, group);
+        return () => { project.off(group); };
+    }, []);
 
     // Open a component's API docs + script inspector in the editor's MAIN area
     // (an AppRegistry document, like the Component Diff view) — not in this
@@ -540,6 +586,90 @@ export function MathsPanel() {
         }
         setVersionActionId(null);
     }, [settings, renameVersion, versionNameInput, selectedGame, fetchVersions]);
+
+    // ─── Server Versions: create a new (empty) one ───────────────────
+    // A Server Version is the container a game's backend components are deployed
+    // into. Publish opens one per publish; this creates one up front and EMPTY, so
+    // the user can pick their target before deploying anything into it — step 3 of
+    // the Math Components flow. It lands on the RGS platform immediately (the
+    // version number is assigned server-side), and is then auto-selected so the
+    // Deploy button below is already aimed at it.
+    const handleCreateVersion = useCallback(async () => {
+        if (!settings?.apiKey || !selectedGame) return;
+        setCreatingVersion(true);
+        setUploadStatus(null);
+        try {
+            const game = (games || []).find((g: any) => g.id === selectedGame);
+            const { deploymentId, version } = await createEmptyServerVersion(
+                settings.apiKey,
+                selectedGame,
+                // Named after the open project, same as Publish does, so a version
+                // is recognisable in the RGS studio's Versions tab.
+                ProjectModel.instance?.name || game?.name || 'Server Version'
+            );
+            await fetchVersions();
+            setSelectedVersionId(deploymentId);
+            setUploadStatus({ type: 'success', message: `Created empty server version v${version}` });
+        } catch (e: any) {
+            setUploadStatus({ type: 'error', message: e?.message || 'Could not create a server version' });
+        }
+        setCreatingVersion(false);
+    }, [settings, selectedGame, games, fetchVersions]);
+
+    // ─── Math Components: Deploy ─────────────────────────────────────
+    // Deploys every Math Component in the open project into the SELECTED Server
+    // Version, one backend component each. Per component: compile (inline every
+    // nested layer into one) → deploy the compiled script → upload its authored
+    // project.json. See utils/rgs/deployMathsComponents.
+    const handleDeployMathsComponents = useCallback(async () => {
+        if (!settings?.apiKey || !selectedGame || !selectedVersion) return;
+
+        setDeployingComponents(true);
+        setUploadStatus(null);
+        setDeployStep(null);
+        try {
+            const project = ProjectModel.instance;
+            if (!project) throw new Error('No project is open.');
+
+            const results: MathsDeployResult[] = await deployMathsComponents(project, {
+                apiKey: settings.apiKey,
+                gameId: selectedGame,
+                deploymentId: selectedVersion.id,
+                version: selectedVersion.version,
+                onProgress: setDeployStep
+            });
+
+            await fetchVersions();
+
+            // A component whose script deployed but whose project.json didn't is a
+            // live backend with no readable graph stored — worth saying out loud
+            // rather than reporting a clean success. Same for a component whose
+            // bet/win mapping could not be derived: it is live, but it will see a
+            // stake of zero until the mapping is set.
+            const noProject = results.filter((r) => !r.projectUploaded);
+            const betWinIssue = results.find((r) => r.betWinWarning);
+            if (noProject.length > 0) {
+                setUploadStatus({
+                    type: 'error',
+                    message:
+                        `Deployed ${results.length} component${results.length === 1 ? '' : 's'} to v${selectedVersion.version}, but ` +
+                        `${noProject.length} project.json upload${noProject.length === 1 ? '' : 's'} failed: ` +
+                        (noProject[0].projectError || 'unknown error')
+                });
+            } else if (betWinIssue) {
+                setUploadStatus({ type: 'error', message: betWinIssue.betWinWarning! });
+            } else {
+                setUploadStatus({
+                    type: 'success',
+                    message: `Deployed ${results.length} component${results.length === 1 ? '' : 's'} to v${selectedVersion.version}`
+                });
+            }
+        } catch (e: any) {
+            setUploadStatus({ type: 'error', message: e?.message || 'Deploy failed' });
+        }
+        setDeployingComponents(false);
+        setDeployStep(null);
+    }, [settings, selectedGame, selectedVersion, fetchVersions]);
 
     // ─── Components: per-component actions (three-dot menu) ──────────
     // Rename one component's DISPLAY name. Its slug and URL are untouched, so
@@ -991,7 +1121,7 @@ export function MathsPanel() {
         <BasePanel title="Maths RGS" isFill>
             <Container direction={ContainerDirection.Vertical} isFill>
                 {/* RGS controls (connection, target game, server versions) — sized to content, capped so the
-                    components list below always has room. */}
+                    Math Components tree below always has room. */}
                 <div style={{ flexShrink: 0, maxHeight: '50%', overflowY: 'auto', overflowX: 'hidden' }}>
                 <Box hasXSpacing hasYSpacing>
                     <VStack>
@@ -1309,22 +1439,39 @@ export function MathsPanel() {
                                         {versionsLoading ? (
                                             <span style={{ fontSize: '10px', color: '#666' }}>Loading&#8230;</span>
                                         ) : (
-                                            // Re-runs list-edge-deployments. The Components
-                                            // sub-section follows automatically, since its
-                                            // `selectedVersion` is derived from this list.
-                                            <span
-                                                onClick={() => { void fetchVersions(); }}
-                                                style={{ fontSize: '10px', color: '#666', cursor: 'pointer', userSelect: 'none' as const }}
-                                                title="Refresh server versions list"
-                                            >
-                                                ↻ Refresh
-                                            </span>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                {/* Creates the version EMPTY on the RGS platform and
+                                                    selects it, so Math Components below can be
+                                                    deployed into it. */}
+                                                <span
+                                                    onClick={() => { if (!creatingVersion) void handleCreateVersion(); }}
+                                                    style={{
+                                                        fontSize: '10px',
+                                                        color: creatingVersion ? '#666' : '#67DE92',
+                                                        cursor: creatingVersion ? 'default' : 'pointer',
+                                                        userSelect: 'none' as const
+                                                    }}
+                                                    title="Create an empty server version on XGENIA RGS to deploy components into"
+                                                >
+                                                    {creatingVersion ? 'Creating…' : '+ New version'}
+                                                </span>
+                                                {/* Re-runs list-edge-deployments. The Math Components
+                                                    deploy target follows automatically, since its
+                                                    `selectedVersion` is derived from this list. */}
+                                                <span
+                                                    onClick={() => { void fetchVersions(); }}
+                                                    style={{ fontSize: '10px', color: '#666', cursor: 'pointer', userSelect: 'none' as const }}
+                                                    title="Refresh server versions list"
+                                                >
+                                                    ↻ Refresh
+                                                </span>
+                                            </div>
                                         )}
                                     </div>
 
                                     {versions && versions.length === 0 && !versionsLoading && (
                                         <div style={{ fontSize: '11px', color: '#666', padding: '8px 0' }}>
-                                            No edge functions deployed yet.
+                                            No server versions yet. Create one to deploy Math Components into.
                                         </div>
                                     )}
 
@@ -1396,10 +1543,102 @@ export function MathsPanel() {
                 </Box>
                 </div>
 
-                {/* Components — the deployed edge functions of the selected Server Version,
-                    shown API-docs style (mirrors the RGS studio "API docs" page). Clicking a
-                    version in "Server Versions" above drives this list; it defaults to the
-                    newest version. */}
+                {/* ═══ Math Components ═══════════════════════════════════════════
+                    Step 4-5 of the deploy flow: the project's OWN maths components,
+                    editable exactly as in the editor's main Components panel — create,
+                    folder, rename, duplicate, delete at any depth, and draggable into a
+                    graph as a node. It is literally that panel, locked to the
+                    `#__maths__` sheet (the same trick Cloud Functions uses for
+                    `#__cloud__`), so the two behave identically by construction rather
+                    than by imitation.
+
+                    Page and Visual Component are absent here for free: ComponentTemplates
+                    filters by runtime type, and both declare `runtimeTypes: ['browser']`
+                    — so a maths sheet is offered Maths Component, Logic Component and
+                    Folder only.
+
+                    What this panel adds on top is Deploy: every component in the tree
+                    becomes a backend component of the selected Server Version. */}
+                <div style={{ flexShrink: 0, borderTop: '1px solid rgba(255,255,255,0.08)', padding: '10px 12px 8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <span style={{ fontWeight: 600, fontSize: '12px', textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: '#a0a0b0' }}>
+                            Deploy target
+                        </span>
+                        {selectedVersion ? (
+                            <span style={{ fontSize: '10px', color: '#67DE92', fontFamily: 'monospace' }}>
+                                v{selectedVersion.version}
+                                {selectedVersion.name ? ` · ${selectedVersion.name}` : ''}
+                            </span>
+                        ) : (
+                            <span style={{ fontSize: '10px', color: '#666' }}>none</span>
+                        )}
+                    </div>
+
+                    <PrimaryButton
+                        icon={IconName.CloudUpload}
+                        label={
+                            deployingComponents
+                                ? 'Deploying…'
+                                : mathsCount > 0
+                                    ? `Deploy ${mathsCount} component${mathsCount === 1 ? '' : 's'}`
+                                    : 'Deploy'
+                        }
+                        size={PrimaryButtonSize.Small}
+                        variant={PrimaryButtonVariant.MutedOnLowBg}
+                        onClick={handleDeployMathsComponents}
+                        isGrowing
+                        isDisabled={!connected || !selectedGame || !selectedVersion || mathsCount === 0 || deployingComponents}
+                    />
+
+                    {/* Why the button is unavailable, rather than an inert control. */}
+                    {!deployingComponents && (
+                        <div style={{ fontSize: '10px', color: '#666', marginTop: '6px' }}>
+                            {!connected
+                                ? 'Connect to XGENIA RGS to deploy.'
+                                : !selectedGame
+                                    ? 'Select a game above.'
+                                    : !selectedVersion
+                                        ? 'Create a server version above to deploy into.'
+                                        : mathsCount === 0
+                                            ? 'Add a Math Component below to deploy.'
+                                            : `Compiles each component, deploys it into v${selectedVersion.version}, then uploads its project.json.`}
+                        </div>
+                    )}
+
+                    {/* Per-component progress — the run is sequential, so this names the
+                        component currently being worked on. */}
+                    {deployStep && (
+                        <div style={{ fontSize: '10px', color: '#67DE92', marginTop: '6px', fontFamily: 'monospace' }}>
+                            {deployStep}
+                        </div>
+                    )}
+                </div>
+
+                {/* The component tree itself. Renders its own "MATH COMPONENTS" header
+                    with the ＋ actions menu, so this only has to give it room. */}
+                <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <ComponentsPanel
+                        options={{
+                            showSheetList: false,
+                            lockCurrentSheetName: '__maths__',
+                            componentTitle: 'Math Components'
+                        }}
+                    />
+                </div>
+
+                {/* ═══ Components (REPLACED — kept for reference) ═══════════════════
+                    The deployed edge functions of the selected Server Version, shown
+                    API-docs style (mirrored the RGS studio "API docs" page): the name
+                    opened the component's API docs + script inspector in the editor's
+                    main area, and the three-dot menu held rename / simulate / download /
+                    delete. Superseded by the "Math Components" section above, which
+                    deploys components instead of only listing what is already deployed.
+
+                    Commented out rather than deleted, along with its two modals near the
+                    end of this file. Everything it calls is still present (see the
+                    "KEPT FOR THE COMMENTED-OUT Components SUB-SECTION" block at the top),
+                    so uncommenting all three restores it as-is.
+
                 <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                     <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px' }}>
                         <span style={{ fontWeight: 600, fontSize: '12px', textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: '#a0a0b0' }}>
@@ -1490,6 +1729,7 @@ export function MathsPanel() {
                         )}
                     </div>
                 </div>
+                ═══ end of the replaced "Components" sub-section ═══ */}
 
             </Container>
 
@@ -2139,7 +2379,10 @@ export function MathsPanel() {
                 </div>
             )}
 
-            {/* ─── Rename Component modal (Components three-dot menu) ─── */}
+            {/* ─── Rename Component modal (Components three-dot menu) — REPLACED ───
+                Belongs to the commented-out "Components" sub-section above; nothing
+                sets `renameFn` any more. Kept alongside it so both come back together.
+
             {renameFn && (
                 <div style={{
                     position: 'fixed', inset: 0, zIndex: 10000,
@@ -2208,8 +2451,12 @@ export function MathsPanel() {
                     </div>
                 </div>
             )}
+            ─── end of the replaced Rename Component modal ─── */}
 
-            {/* ─── Delete Component confirmation (Components three-dot menu) ─── */}
+            {/* ─── Delete Component confirmation (Components three-dot menu) — REPLACED ───
+                Belongs to the commented-out "Components" sub-section above; nothing
+                sets `confirmDeleteFn` any more.
+
             {confirmDeleteFn && (
                 <div style={{
                     position: 'fixed', inset: 0, zIndex: 10000,
@@ -2237,8 +2484,9 @@ export function MathsPanel() {
                             </div>
                         </div>
 
-                        {/* rgs-fn serves the newest active copy of a (game, slug) across ALL
-                            versions, so say what deleting this one actually does to players. */}
+                        NOTE (comment markers stripped — this whole modal is commented out):
+                        rgs-fn serves the newest active copy of a (game, slug) across ALL
+                        versions, so say what deleting this one actually does to players.
                         {selectedVersion && isLiveComponent(versions, selectedVersion.id, confirmDeleteFn.function_slug) && (
                             <div style={{ fontSize: '11px', color: '#E0B44A', marginBottom: '16px' }}>
                                 This is the copy the live endpoint currently serves. Deleting it promotes an older
@@ -2267,6 +2515,7 @@ export function MathsPanel() {
                     </div>
                 </div>
             )}
+            ─── end of the replaced Delete Component confirmation ─── */}
         </BasePanel>
     );
 }
