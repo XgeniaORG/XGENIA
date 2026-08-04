@@ -17,6 +17,8 @@
 import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { toFunctionSlug } from '@xgenia-utils/rgs/functionSlug';
+
 /** One compiled logic component, as offered to the user for configuration. */
 export interface ComponentSetupItem {
   /** Compiled component name, e.g. "/#__cloud__/__Component_1__". The key we map answers back on. */
@@ -48,26 +50,10 @@ export interface ComponentSetupChoice {
   winOutputPort: string;
 }
 
-/**
- * Turn a display name into the routing slug the function is deployed under.
- *
- * The slug becomes a path segment of the live endpoint
- * (`/rgs-fn/<game>/<slug>`), which `rgs-fn` matches against `function_slug`
- * EXACTLY — so it has to survive a URL round-trip untouched. Anything outside
- * [A-Za-z0-9_-] collapses to an underscore; case is preserved so the compiled
- * default ("Component_1") slugifies back to itself and a rename that only
- * changes the label doesn't silently change the endpoint.
- *
- * A name made entirely of punctuation leaves nothing to route on, so it falls
- * back to the compiled slug rather than producing an empty path segment.
- */
-export function toFunctionSlug(name: string, fallback: string): string {
-  const slug = String(name || '')
-    .trim()
-    .replace(/[^A-Za-z0-9_-]+/g, '_')
-    .replace(/^[_-]+|[_-]+$/g, '');
-  return slug || fallback;
-}
+// The slug rule moved to utils/rgs/functionSlug so the Math Components deploy can
+// share it without a util → view import. Re-exported here because this module was
+// its published home.
+export { toFunctionSlug };
 
 export interface ComponentSetupDialogProps {
   items: ComponentSetupItem[];

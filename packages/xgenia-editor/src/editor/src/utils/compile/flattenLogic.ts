@@ -153,7 +153,13 @@ export function captureBoundary(comp: any, logicRoots: any[]): Boundary {
 
 // Clone a set of root nodes (and their internal connections) with fresh ids,
 // returning the old->new id map so callers can rewire to the clones.
-function cloneRootsWithIdMap(
+//
+// Exported for the Maths Components deploy, which flattens one maths component
+// into its own graph and needs the same clone-then-rewire primitive (see
+// utils/rgs/deployMathsComponents.ts). That deploy is now this file's only
+// caller — whole-project extraction was turned off in compile/index.ts, which is
+// why nothing else imports it.
+export function cloneRootsWithIdMap(
   graph: any,
   roots: any[]
 ): { nodes: any[]; connections: any[]; idMap: Record<string, string> } {
@@ -256,7 +262,11 @@ function inlineOne(graph: any, inst: any): void {
 }
 
 // Repeatedly inline component-instance roots until none remain.
-function inlineAll(graph: any): void {
+//
+// This is the "unpack every nested integration layer into a single layer" step.
+// Exported so the Maths Components deploy can run the same flattening on ONE
+// component, without going through a whole-project compile.
+export function inlineAll(graph: any): void {
   let guard = 0;
   while (guard++ < 5000) {
     const instances = graph.roots.filter((n: any) => n.type instanceof ComponentModel);
