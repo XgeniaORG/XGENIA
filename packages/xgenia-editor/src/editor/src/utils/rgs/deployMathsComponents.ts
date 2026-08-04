@@ -1,0 +1,725 @@
+// Deploys the project's Math Components (`/#__maths__/…`) into one RGS Server
+// Version, one backend component each.
+//
+// This is the "Math Components → Deploy" button in the Maths RGS panel, and it
+// replaces the old route where a component only became a backend at Publish time
+// (whole-project Compile → extract logic → deploy). Here the user authors a
+// component in the tree, presses Deploy, and it IS a backend component from then
+// on — Publish just points the frontend at it.
+//
+// Per component, in order:
+//   1. COMPILE — clone its graph and inline every nested component instance, so
+//      what deploys is a single flat layer of primitive / custom nodes. Same
+//      transformation the whole-project Compile does (inlineAll), scoped to one
+//      component and run on a throwaway clone, so the user's project is never
+//      touched.
+//   2. DEPLOY — generate the evaluate(ctx) script + API examples from the flat
+//      graph and upsert it into the Server Version as its own component
+//      (maths-deployer `deploy-edge-function`).
+//   3. UPLOAD project.json — a separate call that stores the component AS
+//      AUTHORED (nested sub-components included, nothing inlined) alongside the
+//      deployed row, so the graph can be reopened and edited later. The compiled
+//      script is what runs; this is what a human reads.
+//
+// The HTTP contract of a deployed Math Component follows from the generated
+// script (see supabase-converter.generateRgsScript):
+//   request  { <Component Inputs port name>: value, … }   → ctx.config
+//   response { <Component Outputs port name>: value, … }   ← rgs-fn returns `data`
+// which is exactly what an Aggregator node speaks — see mathsEndpointsForGame /
+// swapDeployedMathsInstances, used by Publish.
+
+import { ComponentModel } from '@xgenia-models/componentmodel';
+import { NodeGraphModel, NodeGraphNode } from '@xgenia-models/nodegraphmodel';
+import { guid } from '@xgenia-utils/utils';
+
+import { cloneRootsWithIdMap, inlineAll } from '../compile/flattenLogic';
+import { toFunctionSlug } from './functionSlug';
+import { generateFunctionArtifact, FunctionArtifact } from './generateFunctionArtifact';
+import { createEdgeDeployment, deployEdgeFunction } from './deployEdgeFunction';
+import { XRGS_URL, rgsHeaders } from './rgsClient';
+
+/** Sheet every Math Component lives under. */
+export const MATHS_PREFIX = '/#__maths__/';
+
+export function isMathsComponentName(name: unknown): boolean {
+  return typeof name === 'string' && name.startsWith(MATHS_PREFIX);
+}
+
+/**
+ * Every Math Component in the project, in name order.
+ *
+ * Includes components filed in sub-folders of the sheet and "folder components"
+ * (a component that also has children) — anything under `/#__maths__/` is a
+ * component the user can deploy.
+ */
+export function listMathsComponents(project: any): any[] {
+  const all = project?.getComponents?.() || project?.components || [];
+  return all
+    .filter((c: any) => isMathsComponentName(c?.name))
+    .slice()
+    .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
+}
+
+/**
+ * The routing slug a Math Component deploys under: its LEAF name, slugified.
+ *
+ * Only the leaf is used — the folders in front are the user's filing, not the
+ * component's identity, and the slug becomes a path segment of
+ * `/rgs-fn/<game>/<slug>`. Two components with the same leaf name in different
+ * folders would therefore collide; the deploy refuses that up front rather than
+ * letting the second silently overwrite the first (the RGS upsert keys on
+ * (deployment_id, function_slug)).
+ */
+export function mathsComponentSlug(component: any): string {
+  const leaf = String(component?.name || '')
+    .split('/')
+    .filter(Boolean)
+    .pop();
+  return toFunctionSlug(leaf || '', 'Component');
+}
+
+/** Display name shown in the RGS lists — the leaf name, unslugified. */
+export function mathsComponentDisplayName(component: any): string {
+  return (
+    String(component?.name || '')
+      .split('/')
+      .filter(Boolean)
+      .pop() || 'Component'
+  );
+}
+
+/**
+ * Step 1 — the "small compilation": a single-layer copy of one component's graph.
+ *
+ * Clones the roots (fresh ids, so nothing aliases the live graph) into a
+ * detached NodeGraphModel and runs `inlineAll`, which splices each nested
+ * component-instance's definition in and short-circuits its Component
+ * Inputs/Outputs gateways until no instance roots remain. The component's OWN
+ * gateways are roots of this graph, not instances, so they survive — they are
+ * the deployed function's request/response contract.
+ *
+ * Returns a detached component-shaped object. It is deliberately NOT added to
+ * the project: `generateFunctionArtifact` only reads name/id/graph/metadata off
+ * it, and adding it would put a machine-generated flattened twin in the user's
+ * tree.
+ */
+export function compileMathsComponent(component: any): any {
+  const graph = new NodeGraphModel();
+
+  const { nodes, connections } = cloneRootsWithIdMap(component.graph, component.graph.roots);
+  nodes.forEach((n: any) => graph.addRoot(n));
+  connections.forEach((c: any) => graph.addConnection(c));
+
+  inlineAll(graph);
+
+  const flat = new ComponentModel({
+    name: component.name,
+    graph,
+    id: guid()
+  });
+  // Same guarantee buildCloudComponent gives its output: globally-unique ids
+  // after the inlining spliced in clones of other components' nodes.
+  flat.rekeyAllIds();
+  return flat;
+}
+
+/**
+ * Every project component this component depends on, transitively — the nested
+ * "integration layers" that step 1 inlines away.
+ *
+ * A component instance's `typename` IS the referenced component's full name (see
+ * supabase-converter, which filters roots by `typename.startsWith('/#__maths__/')`),
+ * so resolution is a name lookup. Children are walked too, not just roots: a
+ * component instance can sit inside a group.
+ */
+export function collectComponentDependencies(project: any, component: any): any[] {
+  const byName = new Map<string, any>();
+  const seen = new Set<string>();
+
+  const visit = (comp: any) => {
+    if (!comp || seen.has(comp.name)) return;
+    seen.add(comp.name);
+
+    (comp.graph?.roots || []).forEach((root: any) => {
+      root.forEach?.((node: any) => {
+        const dep = node?.typename ? project?.getComponentWithName?.(node.typename) : null;
+        if (!dep || dep === component || byName.has(dep.name)) return;
+        byName.set(dep.name, dep);
+        visit(dep);
+      });
+    });
+  };
+
+  visit(component);
+  return Array.from(byName.values()).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+
+/**
+ * Step 3's payload — a `project.json` for ONE component, as authored.
+ *
+ * Same shape ProjectModel.toJSON writes (so it loads as a project), holding the
+ * component plus every nested sub-component it uses, each with its graph
+ * untouched: nothing inlined, node ids preserved. That is the point — the
+ * deployed script is flat and machine-shaped, and unreadable as a graph; this is
+ * the document you reopen to see and edit how the nodes are wired.
+ *
+ * `settings` / `variants` are empty and there is no `rootNodeId`: a maths
+ * component has no visual root and no page/style surface, so carrying the host
+ * project's would describe something this document doesn't contain.
+ */
+export function buildComponentProjectJson(
+  project: any,
+  component: any,
+  extra?: { slug?: string; gameId?: string; deploymentId?: string; version?: number }
+): Record<string, any> {
+  const dependencies = collectComponentDependencies(project, component);
+
+  return {
+    name: mathsComponentDisplayName(component),
+    components: [component, ...dependencies].map((c: any) => c.toJSON()),
+    settings: {},
+    rootNodeId: undefined,
+    version: project?.version,
+    variants: [],
+    metadata: {
+      // Provenance, so a document pulled back out of RGS says where it came
+      // from and which endpoint it belongs to.
+      xgeniaMathsComponent: {
+        componentName: component.name,
+        slug: extra?.slug ?? mathsComponentSlug(component),
+        sourceProject: project?.name,
+        gameId: extra?.gameId,
+        deploymentId: extra?.deploymentId,
+        serverVersion: extra?.version,
+        dependencies: dependencies.map((c: any) => c.name)
+      }
+    }
+  };
+}
+
+/**
+ * Stores one component's authored `project.json` on its already-deployed row.
+ *
+ * A separate call from the deploy on purpose: the script is what RGS executes
+ * and must land first, and a project.json that fails to upload must not take the
+ * working deployment with it.
+ */
+export async function uploadComponentProject(
+  apiKey: string,
+  gameId: string,
+  deploymentId: string,
+  functionSlug: string,
+  projectJson: Record<string, any>
+): Promise<void> {
+  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+    method: 'POST',
+    headers: rgsHeaders(apiKey),
+    body: JSON.stringify({
+      action: 'upload-component-project',
+      game_id: gameId,
+      deployment_id: deploymentId,
+      function_slug: functionSlug,
+      project_json: projectJson
+    })
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const serverError = (data && data.error) || '';
+    if (
+      res.status === 400 &&
+      /invalid action/i.test(serverError) &&
+      !serverError.includes('upload-component-project')
+    ) {
+      throw new Error(
+        'XGENIA RGS backend is out of date — it does not store component project.json yet. ' +
+          'Apply the game_edge_functions.project_json migration and redeploy the `maths-deployer` ' +
+          'function to the RGS project, then Deploy again.'
+      );
+    }
+    throw new Error(serverError || `project.json upload failed (HTTP ${res.status})`);
+  }
+}
+
+// ─── bet / win port mapping ───────────────────────────────────────────────────
+//
+// The generated script and the `rgs-fn` dispatcher are coupled through two stored
+// column values, `bet_input_port` and `win_output_port`, and getting them wrong is
+// not cosmetic:
+//
+//   * `bet` — the converter compiles an input port named `betAmount` to the bare
+//     sandbox variable `bet`, NOT to `config.betAmount` (see supabase-converter
+//     `sourceValue = 'bet'`). The sandbox resolves that as
+//     `ctx.bet || config.bet || 0`, and rgs-fn fills `ctx.bet` from
+//     `payload[bet_input_port]`. So a component with a `betAmount` port that is
+//     deployed WITHOUT `bet_input_port` computes every call on a stake of zero.
+//
+//   * `win` — rgs-fn records a round when `bet_input_port || win_output_port` is
+//     set and the bet is above zero, reading the win from
+//     `data[win_output_port]`. With no win port it books the round at zero win.
+//
+// Both are therefore derived from the component's own declared ports, using the
+// compiler's own rules rather than a guess — and sent ONLY together. Bet alone
+// would fix the stake but under-report every win; win alone leaves the stake at
+// zero. When only one (or neither) can be identified, neither is sent and the
+// caller reports it, so the mapping is set deliberately on the platform instead of
+// half-applied here.
+
+/** The input port the generated script reads as `ctx.bet`, if the component has one. */
+function betPortFor(payloadExample: Record<string, any>): string | null {
+  return Object.keys(payloadExample || {}).find((k) => k.toLowerCase() === 'betamount') || null;
+}
+
+/**
+ * The output port the generated script's own `_win` derivation reports as the
+ * round's win, in that derivation's precedence order. Its nested `finalResult.*`
+ * fallbacks are deliberately not considered: a nested field is not a response
+ * port, so there would be nothing for rgs-fn to read `data[win_output_port]` from.
+ */
+const WIN_PORT_PRECEDENCE = ['win', 'winAmount', 'spinWinnings', 'totalPayout', 'totalWinnings'];
+
+function winPortFor(responseExample: Record<string, any>): string | null {
+  const keys = Object.keys(responseExample || {});
+  for (const candidate of WIN_PORT_PRECEDENCE) {
+    const hit = keys.find((k) => k === candidate) || keys.find((k) => k.toLowerCase() === candidate.toLowerCase());
+    if (hit) return hit;
+  }
+  return null;
+}
+
+export interface MathsDeployResult {
+  componentName: string;
+  slug: string;
+  functionName: string;
+  url: string;
+  /** False when the script deployed but its project.json upload failed. */
+  projectUploaded: boolean;
+  projectError?: string;
+  /**
+   * The bet/win mapping this deploy stored, or null when it could not identify
+   * both and stored neither (leaving whatever RGS already had). Null on a
+   * component that takes no bet is normal — a paytable lookup has no stake.
+   */
+  betInputPort: string | null;
+  winOutputPort: string | null;
+  /** Set when a `betAmount` port exists but no win port could be identified. */
+  betWinWarning?: string;
+}
+
+export interface MathsDeployOptions {
+  apiKey: string;
+  gameId: string;
+  /** The Server Version to deploy into. */
+  deploymentId: string;
+  version?: number;
+  /** Progress line for the panel, e.g. "Compiling SlotMaths (1/3)…". */
+  onProgress?: (message: string) => void;
+}
+
+/**
+ * Deploys every Math Component in the project into one Server Version.
+ *
+ * Per component: compile → deploy → upload project.json. Runs sequentially so a
+ * failure names the component that failed and nothing after it has run, and so
+ * the progress line means something.
+ *
+ * A project.json upload failure does NOT fail the component: the backend
+ * component is live at that point, and reporting the whole deploy as failed
+ * would be a lie. It comes back on the result as `projectUploaded: false` for the
+ * caller to surface.
+ */
+export async function deployMathsComponents(
+  project: any,
+  options: MathsDeployOptions
+): Promise<MathsDeployResult[]> {
+  const { apiKey, gameId, deploymentId, version, onProgress } = options;
+
+  const components = listMathsComponents(project);
+  if (components.length === 0) {
+    throw new Error('This project has no Math Components. Create one first.');
+  }
+
+  // Two components whose leaf names slugify the same would deploy to one
+  // endpoint, the second overwriting the first (the RGS upsert keys on
+  // (deployment_id, function_slug)). Refuse before anything is uploaded.
+  const bySlug = new Map<string, string[]>();
+  components.forEach((c: any) => {
+    const slug = mathsComponentSlug(c);
+    bySlug.set(slug, [...(bySlug.get(slug) || []), c.name]);
+  });
+  const collisions = Array.from(bySlug.entries()).filter(([, names]) => names.length > 1);
+  if (collisions.length > 0) {
+    const [slug, names] = collisions[0];
+    throw new Error(
+      `${names.join(' and ')} both deploy as "${slug}" — one would overwrite the other. ` +
+        'Rename one of them.'
+    );
+  }
+
+  const results: MathsDeployResult[] = [];
+
+  for (let i = 0; i < components.length; i++) {
+    const component = components[i];
+    const label = mathsComponentDisplayName(component);
+    const slug = mathsComponentSlug(component);
+    const position = `(${i + 1}/${components.length})`;
+
+    // 1. Compile: flatten every nested integration layer into one.
+    onProgress?.(`Compiling ${label} ${position}…`);
+    const flat = compileMathsComponent(component);
+    const artifact: FunctionArtifact = generateFunctionArtifact(flat, project);
+
+    if (!artifact.script || artifact.script.length < 50) {
+      throw new Error(`${label} compiled to an empty script. Check that its nodes are connected.`);
+    }
+    // Same guard the Maths panel's upload pipeline applies: catch a script that
+    // cannot even parse here, rather than after it is live.
+    try {
+      // eslint-disable-next-line no-new-func
+      new Function('ctx', artifact.script);
+    } catch (err: any) {
+      throw new Error(`${label} failed to compile: ${err?.message || err}`);
+    }
+
+    // 2. Deploy the compiled component into its parent Server Version.
+    //
+    // The bet/win mapping is derived from the component's own ports and sent only
+    // as a matched pair (see the block above betPortFor). When it can't be, the
+    // keys are omitted ENTIRELY rather than sent empty, so RGS keeps whatever the
+    // component already had instead of clearing a mapping someone set by hand.
+    const betInputPort = betPortFor(artifact.payloadExample);
+    const winOutputPort = winPortFor(artifact.responseExample);
+    const mapBoth = !!betInputPort && !!winOutputPort;
+    const betWinWarning = betInputPort && !winOutputPort
+      ? `${label} has a betAmount input but no recognisable win output ` +
+        `(${WIN_PORT_PRECEDENCE.join(', ')}), so its bet/win mapping was left unset. ` +
+        `Until it is set on the platform, the script sees a stake of 0 and no rounds are recorded.`
+      : undefined;
+
+    onProgress?.(`Deploying ${label} ${position}…`);
+    const { url } = await deployEdgeFunction(apiKey, gameId, deploymentId, {
+      ...artifact,
+      slug,
+      functionName: label,
+      ...(mapBoth ? { betInputPort: betInputPort!, winOutputPort: winOutputPort! } : {})
+    });
+
+    // 3. Upload the authored project.json for this component, separately.
+    let projectUploaded = true;
+    let projectError: string | undefined;
+    try {
+      onProgress?.(`Uploading ${label} project.json ${position}…`);
+      await uploadComponentProject(
+        apiKey,
+        gameId,
+        deploymentId,
+        slug,
+        buildComponentProjectJson(project, component, { slug, gameId, deploymentId, version })
+      );
+    } catch (err: any) {
+      projectUploaded = false;
+      projectError = err?.message || String(err);
+      console.error(`[MathsComponents] project.json upload failed for ${label}:`, err);
+    }
+
+    results.push({
+      componentName: component.name,
+      slug,
+      functionName: label,
+      url,
+      projectUploaded,
+      projectError,
+      betInputPort: mapBoth ? betInputPort : null,
+      winOutputPort: mapBoth ? winOutputPort : null,
+      betWinWarning
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Creates an EMPTY Server Version on RGS.
+ *
+ * Same call Publish makes, exposed on its own so "＋ New version" in the panel
+ * lands a real (component-less) version on the platform immediately, ready to
+ * receive the components a later Deploy puts in it.
+ */
+export async function createEmptyServerVersion(
+  apiKey: string,
+  gameId: string,
+  name: string
+): Promise<{ deploymentId: string; version: number }> {
+  return createEdgeDeployment(apiKey, gameId, name);
+}
+
+// ─── Publish support: point the frontend at already-deployed components ───────
+
+export interface MathsEndpoint {
+  slug: string;
+  url: string;
+}
+
+/**
+ * Which Math Components of this project are already deployed for `gameId`, and
+ * at what URL — keyed by COMPONENT NAME (e.g. "/#__maths__/SlotMaths").
+ *
+ * Resolution mirrors the public dispatcher rather than "highest version wins":
+ * `rgs-fn` serves the newest ACTIVE row by created_at for a (game, slug) across
+ * every version, so a component dropped from a later version stays live on its
+ * older row. Picking the newest version's row instead would hand Publish a URL
+ * that resolves to different code than the one it read.
+ */
+export async function mathsEndpointsForGame(
+  apiKey: string,
+  gameId: string,
+  project: any
+): Promise<Record<string, MathsEndpoint>> {
+  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+    method: 'POST',
+    headers: rgsHeaders(apiKey),
+    body: JSON.stringify({ action: 'list-edge-deployments', game_id: gameId })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data && data.error) || `Could not read deployed components (HTTP ${res.status})`);
+  }
+
+  // Newest active row per slug, by created_at.
+  const liveBySlug = new Map<string, { url: string; createdAt: string }>();
+  for (const deployment of data.deployments || []) {
+    for (const fn of deployment.functions || []) {
+      if (fn.status !== 'active' || !fn.function_url) continue;
+      const current = liveBySlug.get(fn.function_slug);
+      if (!current || String(fn.created_at) > current.createdAt) {
+        liveBySlug.set(fn.function_slug, { url: fn.function_url, createdAt: String(fn.created_at) });
+      }
+    }
+  }
+
+  const endpoints: Record<string, MathsEndpoint> = {};
+  for (const component of listMathsComponents(project)) {
+    const slug = mathsComponentSlug(component);
+    const live = liveBySlug.get(slug);
+    if (live) endpoints[component.name] = { slug, url: live.url };
+  }
+  return endpoints;
+}
+
+/**
+ * Math Components that are USED by the frontend but have no deployed backend —
+ * returned as component names.
+ *
+ * Publishing no longer compiles anything, so an instance with no endpoint to
+ * point at is not extracted or replaced: it ships inside the UI bundle and its
+ * maths runs in the player's browser. That is a real finding worth telling the
+ * user about, and it is exactly this set — a component sitting undeployed in the
+ * tree but never instantiated is simply unused, not a problem.
+ */
+export function undeployedMathsInstances(
+  project: any,
+  endpoints: Record<string, MathsEndpoint>
+): string[] {
+  const mathsNames = new Set(listMathsComponents(project).map((c: any) => c.name));
+  const used = new Set<string>();
+
+  for (const comp of project?.components || []) {
+    // Instances inside a maths component are that component's own nesting, which
+    // its deployed script already has inlined — not frontend usage.
+    if (isMathsComponentName(comp?.name)) continue;
+    (comp?.graph?.roots || []).forEach((root: any) =>
+      root.forEach?.((node: any) => {
+        if (node?.typename && mathsNames.has(node.typename)) used.add(node.typename);
+      })
+    );
+  }
+
+  return Array.from(used)
+    .filter((name) => !endpoints[name])
+    .sort();
+}
+
+/**
+ * A Math Component instance's frontend contract, read off the component it
+ * instantiates: which of its ports carry data, which are triggers, and which
+ * come back in the response.
+ *
+ * Deliberately read from the DEFINITION's gateway nodes rather than the
+ * instance's resolved ports: the gateway port names are the exact keys the
+ * generated script reads out of `ctx.config` and writes into its response, so
+ * they are what the Aggregator has to send and expect. Anything derived
+ * (humanised display names, camelCasing) would miss.
+ */
+function mathsInstanceContract(definition: any): {
+  dataInputs: string[];
+  triggers: string[];
+  outputs: string[];
+} {
+  const roots = definition?.graph?.roots || [];
+  const readPorts = (typename: string, plug: 'input' | 'output') => {
+    const node = roots.find((r: any) => r.typename === typename);
+    const raw = [...(node?.ports || []), ...(node?.dynamicports || [])];
+    return raw.filter((p: any) => p && typeof p.name === 'string' && (!p.plug || p.plug === plug));
+  };
+
+  const isSignal = (p: any) => p.type === 'signal' || (p.type && p.type.name === 'signal');
+  const inputs = readPorts('Component Inputs', 'output');
+  const outputs = readPorts('Component Outputs', 'input');
+
+  return {
+    dataInputs: inputs.filter((p: any) => !isSignal(p)).map((p: any) => p.name),
+    triggers: inputs.filter(isSignal).map((p: any) => p.name),
+    // A Component Outputs signal port ("Done") has no value in the response —
+    // rgs-fn returns the data object only — so it is not an out-<field>.
+    outputs: outputs.filter((p: any) => !isSignal(p)).map((p: any) => p.name)
+  };
+}
+
+/**
+ * Replaces every instance of an already-deployed Math Component, anywhere in
+ * `copy`, with an Aggregator node pointed at that component's live endpoint.
+ *
+ * This is what makes Publish skip compilation for Math Components: the component
+ * is ALREADY a backend, so the frontend needs a caller, not a rebuild. The
+ * Aggregator is the existing caller — it POSTs `{ <data field>: value, is<X>:
+ * true }` and fans the JSON response out over `out-<field>` ports, which is
+ * precisely the deployed script's contract.
+ *
+ * Field names are the gateway port names verbatim, NOT camelCased: the script
+ * reads `config["<port name>"]`.
+ *
+ * Runs on the compiled COPY before logic extraction, so `collectLogicRoots` never
+ * sees these instances and cannot extract them a second time. Aggregator itself
+ * is in the 'Cloud Functions' category, which that collector already treats as
+ * already-backed-by-a-service and leaves alone.
+ *
+ * Returns how many instances were rewired.
+ */
+export function swapDeployedMathsInstances(
+  copy: any,
+  endpoints: Record<string, MathsEndpoint>
+): number {
+  if (!copy || Object.keys(endpoints).length === 0) return 0;
+
+  let swapped = 0;
+
+  for (const comp of copy.components || []) {
+    // A maths component's own definition must keep its instances: it is not
+    // being published as a frontend, and its deployed script already has them
+    // inlined.
+    if (isMathsComponentName(comp?.name)) continue;
+
+    const graph = comp?.graph;
+    if (!graph) continue;
+
+    // Snapshot: the loop replaces roots as it goes.
+    const instances = (graph.roots || []).filter((n: any) => endpoints[n?.typename]);
+
+    // Labels are unique per graph, and two instances of the same component in one
+    // visual component would otherwise both want the component's name.
+    const takenLabels = new Set<string>();
+    (graph.roots || []).forEach((n: any) => n.label && takenLabels.add(String(n.label)));
+    const uniqueLabel = (base: string) => {
+      let name = base;
+      let i = 2;
+      while (takenLabels.has(name)) name = `${base} ${i++}`;
+      takenLabels.add(name);
+      return name;
+    };
+
+    for (const instance of instances) {
+      const endpoint = endpoints[instance.typename];
+      const definition = copy.getComponentWithName?.(instance.typename);
+      if (!definition) continue;
+
+      const { dataInputs, triggers, outputs } = mathsInstanceContract(definition);
+
+      // Only the ports this instance is actually wired to matter; declaring the
+      // rest would put dead ports on the node.
+      const incoming = (graph.connections || []).filter((c: any) => c.toId === instance.id);
+      const outgoing = (graph.connections || []).filter((c: any) => c.fromId === instance.id);
+      const usedData = dataInputs.filter((p) => incoming.some((c: any) => c.toProperty === p));
+      const usedTriggers = triggers.filter((p) => incoming.some((c: any) => c.toProperty === p));
+      const usedOutputs = outputs.filter((p) => outgoing.some((c: any) => c.fromProperty === p));
+
+      const aggId = guid();
+      const aggNode = NodeGraphNode.fromJSON({
+        id: aggId,
+        type: 'Aggregator',
+        x: instance.x,
+        y: instance.y,
+        label: uniqueLabel(mathsComponentDisplayName(definition)),
+        parameters: {
+          url: endpoint.url,
+          dataInputs: usedData.join(', '),
+          triggers: usedTriggers.join(', '),
+          outputs: usedOutputs.join(', '),
+          // Which component this aggregator stands in for. Publish's later
+          // "repoint each Aggregator" pass keys off this; the URL is already
+          // correct, and that pass only overwrites when it has a URL for the
+          // target, so it is a no-op here.
+          targetComponent: instance.typename
+        },
+        ports: [],
+        dynamicports: [
+          ...usedData.map((f) => ({
+            name: 'data-' + f,
+            displayName: f,
+            plug: 'input',
+            type: { name: '*', allowConnectionsOnly: true },
+            group: 'Data Inputs'
+          })),
+          ...usedTriggers.map((t) => ({
+            name: 'do-' + t,
+            displayName: 'Do ' + t,
+            plug: 'input',
+            type: 'signal',
+            group: 'Triggers'
+          })),
+          ...usedOutputs.map((f) => ({
+            name: 'out-' + f,
+            displayName: f,
+            plug: 'output',
+            type: { name: '*', allowConnectionsOnly: true },
+            group: 'Outputs'
+          }))
+        ],
+        children: []
+      } as any);
+
+      graph.addRoot(aggNode);
+
+      // Rewire: whatever fed a port of the instance now feeds the matching
+      // aggregator port, and whatever read an output now reads out-<field>.
+      incoming.forEach((c: any) => {
+        const port = usedData.includes(c.toProperty)
+          ? 'data-' + c.toProperty
+          : usedTriggers.includes(c.toProperty)
+            ? 'do-' + c.toProperty
+            : null;
+        if (!port) return;
+        graph.addConnection({
+          fromId: c.fromId,
+          fromProperty: c.fromProperty,
+          toId: aggId,
+          toProperty: port
+        });
+      });
+      outgoing.forEach((c: any) => {
+        if (!usedOutputs.includes(c.fromProperty)) return;
+        graph.addConnection({
+          fromId: aggId,
+          fromProperty: 'out-' + c.fromProperty,
+          toId: c.toId,
+          toProperty: c.toProperty
+        });
+      });
+
+      // Removes the instance and, with it, its own connections.
+      graph.removeNode(instance);
+      swapped++;
+    }
+  }
+
+  return swapped;
+}

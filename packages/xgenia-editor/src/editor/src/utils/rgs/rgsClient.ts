@@ -87,22 +87,29 @@ export function gameModesForOperatorMode(operatorMode: string | null | undefined
 
 /**
  * May this key EDIT and REDEPLOY an already-deployed component's script (the
- * Maths RGS panel → Components → a component → "Deployed script" editor)?
+ * Maths RGS panel → Deployed Functions → a component → "Deployed script" editor)?
  *
- * Internal only. A deployed script is the live maths a player's spin executes,
- * and overwriting it has no server-side undo, so hand-editing it is a platform
- * operation: demo and live keys get the same view (API docs + script) read-only.
- * Publishing from the editor is unaffected — that writes a NEW Server Version
- * rather than overwriting an existing component, and every mode may do it.
+ * Every mode may, as of 2026-08-05. This used to be internal-only, on the reading
+ * that overwriting a deployed component is a platform operation rather than an
+ * operator one. Two things changed:
  *
- * An unknown mode (operator-info not loaded or failed, or the key resolved to a
- * platform session) is treated as NOT allowed — the restrictive read, matching
- * gameModesForOperatorMode. This is the UI half of the rule only: the real gate
- * is in the RGS `maths-deployer` deploy-edge-function handler, which rejects an
- * overwrite from a non-internal key.
+ *   * Overwriting is now the ORDINARY path. "Maths Components → Deploy" re-deploys
+ *     an edited component into the same Server Version under the same slug, so a
+ *     mode gate here meant a demo or live key could deploy a component once and
+ *     then never edit it again.
+ *   * The server-side gate it mirrored is gone too (maths-deployer's withdrawn
+ *     deployed-script write guard). Leaving this one would only make the editor
+ *     refuse what the backend now accepts.
+ *
+ * Scope is enforced by OWNERSHIP instead: maths-deployer's assertGameAccess
+ * refuses any game the caller does not own, so a key can only ever reach
+ * components of its own games — which is the property that actually matters.
+ *
+ * Kept as a function rather than inlined so restoring the gate is a one-line
+ * change, and so callers keep threading the operator mode they already resolve.
  */
-export function canEditDeployedScript(operatorMode: string | null | undefined): boolean {
-  return operatorMode === 'internal';
+export function canEditDeployedScript(_operatorMode: string | null | undefined): boolean {
+  return true;
 }
 
 /**

@@ -107,6 +107,31 @@ const SimpleJavascriptNode = {
     // This was the one node that declared the toggle itself rather than
     // receiving it, so it survived the first pass and kept rendering a
     // "Deployment / Is Math" property with no compiler left to read it.
+    //
+    // isMath — WITHDRAWN (2026-08-05), along with the generic injection in
+    // nodelibraryexport.js. It was a compile-time deployment-routing toggle
+    // (Backend/RGS vs Frontend/Vercel). Publishing no longer compiles: a node is
+    // backend because it sits in a component under the editor's "Math Components"
+    // section, which is deployed to RGS as its own backend component. So this
+    // property no longer changes anything and is not shown.
+    /*
+    isMath: {
+      displayName: 'Is Math',
+      plug: 'input',
+      type: {
+        name: 'boolean',
+        allowEditOnly: true
+      },
+      group: 'Deployment',
+      default: true,
+      tooltip:
+        'When ON (default) this node is compiled to the backend (RGS edge function).\n' +
+        'Turn OFF to keep it on the frontend (Vercel) — e.g. logic that drives UI animations.',
+      set() {
+        // Deployment-routing flag only; no runtime behaviour.
+      }
+    }
+    */
   },
   outputs: {},
   methods: {

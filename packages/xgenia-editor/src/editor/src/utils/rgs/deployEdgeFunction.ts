@@ -155,6 +155,12 @@ export interface EdgeDeploymentBundle {
     script: string;
     payload_example: unknown;
     response_example: unknown;
+    /**
+     * The component's authored node graph, project.json-shaped — what the Math
+     * Components deploy uploads after the script. Null for components produced by
+     * the whole-project Compile path, which has no authored counterpart to store.
+     */
+    project_json?: Record<string, any> | null;
   }>;
 }
 
