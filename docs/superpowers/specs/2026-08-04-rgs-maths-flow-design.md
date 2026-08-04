@@ -69,6 +69,34 @@ we specify here and implement in XRGS.**
 
 ## 4. RNG design
 
+> ### ⚠ CORRECTED 2026-08-04 — most of this section is ALREADY BUILT
+>
+> This section was written without access to the XRGS repo. It is now at
+> `/Users/markfm/Documents/GitHub/backup/XGENIAMain/MarkPrivate/XRGS/XRGS` and is current
+> (last commit 2026-08-04). **The server already implements custom-RNG-by-URL, fail-closed
+> behaviour, and the pure-function property — with better reasoning than this spec had.**
+>
+> - `_shared/round-handler.ts:611-700` — `rngSource: 'isaac' | 'custom'`, fetches
+>   `ctx.rngProviderUrl` with a 5s `AbortController` timeout, **before the debit** so an
+>   unreachable RNG refuses the round for free.
+> - It **fails closed**: on any provider error it refuses the round and explicitly does NOT
+>   substitute ISAAC, because *"an uncertified round is not [recoverable]"*.
+> - It **validates without coercing**. A prior `Math.abs(v) % 1` "clamp" turned any
+>   integer-returning RNG into an all-zeros stream — every draw identical, no error raised.
+>   That is fixed and commented.
+> - `_shared/script-sandbox.ts` **blocks `Math.random()`** inside maths scripts and requires
+>   `ctx.rng`, "where it is counted and recorded" — so the determinism this design depends on
+>   is already enforced, not aspirational.
+>
+> **Therefore §4.4 below has been replaced with the contract that actually exists.** Do not
+> implement the invented one. What is genuinely missing is the **editor UI** to view and set
+> the provider, plus the sandbox tier (§5).
+>
+> **One correction to §4.2:** the provider is configured **per OPERATOR**
+> (`operators.rng_provider_url`, read in `_shared/operator-auth.ts:280`), not per game. The
+> "game-level, not per-node" argument still holds against per-node settings, but the real
+> granularity is the operator.
+
 ### 4.1 One source, filled before the round
 
 The RGS populates `ctx.rng` *before* the round opens and passes it in. The script stays a pure
@@ -104,55 +132,68 @@ nodes on the server and one not, with nothing to tell you.
 The editor preview always uses a **local seeded** generator, regardless of `rngSource`, and
 says so on screen (§8). Preview is for determinism and speed; it is never the live path.
 
-### 4.4 The custom-RNG contract
+### 4.4 The custom-RNG contract — AS IMPLEMENTED
 
-We define the shape. A fixed shape is what lets the Test-connection button validate honestly
-and keeps `ctx.rng` a plain array on our side.
+Source of truth: `_shared/round-handler.ts:616-700` in the XRGS repo. Documented here so the
+editor UI and the customer docs describe the real thing.
 
-**Request** — XGENIA RGS → customer endpoint, before the round opens:
+**Request** — XRGS → customer endpoint, before the debit:
 
 ```http
-POST <rngProviderUrl>
+POST <operators.rng_provider_url>
 Content-Type: application/json
-X-XGENIA-Signature: <hex HMAC-SHA256 of the raw body, shared secret>
-X-XGENIA-Timestamp: <unix seconds>
 ```
 ```json
 {
-  "request_id": "3f2a…",
-  "game_id": "…",
+  "count": 100,
   "round_id": "…",
-  "count": 64,
-  "range": { "min": 0, "max": 4294967295 }
+  "game_slug": "…",
+  "operator_id": "…"
 }
 ```
 
-**Response** — HTTP 200, within the timeout:
+`count` is `RNG_DRAWS_PER_ROUND = 100` (`round-handler.ts:29`). It is not negotiable per game:
+ISAAC rounds get 100 draws and certification measured 100. A custom provider previously got 30
+and `rgsRandom()` silently wrapped to index 0 after that, so the same 30 numbers repeated
+within a round and a game certified on one distribution ran on another. Wrapping is now a hard
+error.
+
+**Response** — HTTP 200, within 5000 ms:
 
 ```json
 {
-  "request_id": "3f2a…",
-  "values": [1837465002, 92847361, "… exactly `count` integers …"],
-  "certified": true,
-  "provider": "acme-rng"
+  "values": [0.8374650, 0.0928473, "… ≥ 100 floats …"],
+  "seed": "optional provider seed string"
 }
 ```
 
-**Rules, all enforced server-side:**
+**Rules, all enforced server-side, all fail-closed:**
 
-| Rule | On violation |
+| Rule | Behaviour on violation |
 |---|---|
-| Responds within `RNG_TIMEOUT_MS` (2000) | `ERR_RNG_PROVIDER_TIMEOUT` |
-| `request_id` echoes the request exactly | `ERR_RNG_PROVIDER_MISMATCH` |
-| `values.length === count` | `ERR_RNG_PROVIDER_SHAPE` |
-| every value an integer within `range` | `ERR_RNG_PROVIDER_RANGE` |
-| HTTP 200 | `ERR_RNG_PROVIDER_UNAVAILABLE` |
+| Responds within 5000 ms (`AbortController`) | round refused |
+| HTTP 200 | round refused — `RNG provider returned <status>` |
+| `values` is an array of length ≥ 100 | round refused, naming the count received |
+| **every value is a finite float in [0, 1)** | round refused, naming the index and value |
 
-**No retry inside a round.** A failure means the round does not open. Retrying mid-round is
-how you get a half-played spin, which is the failure mode this whole design exists to avoid.
+**Values must be floats in [0,1) — not integers.** The server validates rather than coerces,
+deliberately: the previous `Math.abs(v) % 1` mapped every integer to exactly 0, so a certified
+RNG returning 32-bit integers (which most do) became an all-zeros stream with no error
+anywhere. Guessing at another provider's numeric convention is not something to do with a
+player's stake.
 
-The timestamp header exists so customers can reject replayed requests; the signature so they
-can verify the caller is us.
+**Fail closed — never substitute ISAAC.** On any provider failure the round is refused. Quietly
+falling back to the built-in generator would produce rounds not attributable to the declared
+RNG, voiding certification for every round served during the outage, with nothing in the
+response saying so. Refusing a round is recoverable; an uncertified round is not.
+
+**Randomness is acquired before the debit,** so an unreachable provider costs the player
+nothing — fetched after the debit it would fail with the stake already taken, outside the
+rollback span.
+
+**Still to add (editor side):** a Test-connection button that performs this exact call and
+shows the returned sample, latency, and pass/fail per row above, with Save disabled until it
+passes. Nobody should be able to save a URL that does not work.
 
 ### 4.5 Saving a provider as a skill
 
@@ -325,8 +366,8 @@ Each phase is independently shippable and gets its own plan.
 |---|---|---|
 | **1 — Reachability** | Restore the trigger for `handleUploadTestDeploy` (`setShowTestConfigModal(true)` occurs **zero** times today, so the pipeline is dead code); wire Test / Promote as the two verbs; expose both as AI tools. | — |
 | **2 — Truthfulness** | Coverage report, the confirm-dialog gate, the hard-fail rule, and returning script + coverage to the AI. | 1 |
-| **3 — RNG source** | Game-level `rngSource`, the custom-provider contract, Test connection, save-as-skill, preview chip. | 1 |
-| **4 — Sandbox** | Demo-key gates, quota, provenance stamp, disclaimer. Mostly XRGS-side. | 3 |
+| **3 — RNG source** | **Mostly already built server-side (see §4 banner).** Remaining: editor UI to view/set `operators.rng_provider_url`, the Test-connection button, save-as-skill, and the preview chip. | 1 |
+| **4 — Sandbox** | Demo-key gates, quota, provenance, disclaimer. XRGS-side; `rng_seed` already records `custom:<url>` for custom providers, so part of the provenance exists. | 3 |
 
 ---
 
