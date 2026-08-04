@@ -1,6 +1,7 @@
 const Node = require('./node'),
   EdgeTriggeredInput = require('./edgetriggeredinput'),
   JavascriptNodeParser = require('./javascriptnodeparser'),
+  NodeScript = require('./nodescript'),
   { logJavaScriptNodeError } = require('./utils');
 
 function registerInput(object, metadata, name, input) {
@@ -121,88 +122,6 @@ function initializeDefaultValues(defaultValues, inputsMetadata) {
   });
 }
 
-function reconstructNodeSource(opts) {
-  try {
-    let code = `const ${opts.name || 'Node'} = {\n`;
-
-    // Name
-    if (opts.name) code += `  name: '${opts.name}',\n`;
-
-    // Category
-    if (opts.category) code += `  category: '${opts.category}',\n`;
-
-    // Docs
-    if (opts.docs) code += `  docs: '${opts.docs}',\n`;
-
-    // Initialize
-    if (opts.initialize) {
-      code += `  initialize: ${opts.initialize.toString()},\n`;
-    }
-
-    // Inputs
-    if (opts.inputs) {
-      code += `  inputs: {\n`;
-      for (const key in opts.inputs) {
-        const input = opts.inputs[key];
-        code += `    ${key}: {\n`;
-        for (const prop in input) {
-          const val = input[prop];
-          if (typeof val === 'function') {
-            code += `      ${prop}: ${val.toString()},\n`;
-          } else if (typeof val === 'string') {
-            code += `      ${prop}: '${val}',\n`;
-          } else {
-            code += `      ${prop}: ${JSON.stringify(val)},\n`;
-          }
-        }
-        code += `    },\n`;
-      }
-      code += `  },\n`;
-    }
-
-    // Outputs
-    if (opts.outputs) {
-      code += `  outputs: {\n`;
-      for (const key in opts.outputs) {
-        const output = opts.outputs[key];
-        code += `    ${key}: {\n`;
-        for (const prop in output) {
-          const val = output[prop];
-          if (typeof val === 'function') {
-            code += `      ${prop}: ${val.toString()},\n`;
-          } else if (typeof val === 'string') {
-            code += `      ${prop}: '${val}',\n`;
-          } else {
-            code += `      ${prop}: ${JSON.stringify(val)},\n`;
-          }
-        }
-        code += `    },\n`;
-      }
-      code += `  },\n`;
-    }
-
-    // Methods
-    const methods = opts.methods || opts.prototypeExtensions;
-    if (methods) {
-      code += `  methods: {\n`;
-      for (const key in methods) {
-        const val = methods[key];
-        if (typeof val === 'function') {
-          code += `    ${key}: ${val.toString()},\n`;
-        } else if (val && val.value && typeof val.value === 'function') {
-          code += `    ${key}: ${val.value.toString()},\n`;
-        }
-      }
-      code += `  }\n`;
-    }
-
-    code += `};\n`;
-    return code;
-  } catch (e) {
-    return '// Unable to reconstruct source: ' + e.message;
-  }
-}
-
 function defineNode(opts) {
   const isDebugMode = false; // Set to true for detailed node definition logging
   
@@ -227,8 +146,12 @@ function defineNode(opts) {
   // --- INJECT SCRIPT CAPABILITY START ---
   opts.inputs = opts.inputs || {};
   if (!opts.inputs.functionScript) {
-    // Generate source code from the node definition
-    const nodeSource = reconstructNodeSource(opts);
+    // The node's own definition, as editable source. Snapshot the pristine
+    // implementation first: an edited script is diffed against it so only the
+    // functions the user actually changed replace the built-in behaviour
+    // (see nodescript.js).
+    const nodeBaseline = NodeScript.snapshotDefinition(opts);
+    const nodeSource = NodeScript.reconstructNodeSource(opts);
 
     opts.inputs.functionScript = {
       displayName: 'Script',
@@ -240,18 +163,26 @@ function defineNode(opts) {
       },
       group: 'General',
       default: nodeSource,
+      //apply the script before the node's other stored parameters, so values
+      //land in the overridden setters rather than the original ones
+      inputPriority: 1000,
       set(script) {
-        if (script === undefined) {
-          this._internal.func = undefined;
-          return;
-        }
-
-        if (this.parseScript) {
-          this._internal.func = this.parseScript(script);
-          if (!this.isInputConnected('run') && this.scheduleRun) this.scheduleRun();
-        }
+        NodeScript.applyNodeScript(this, script, {
+          baseline: nodeBaseline,
+          defaultSource: nodeSource
+        });
       }
     };
+
+    if (!opts.prototypeExtensions) opts.prototypeExtensions = opts.methods || {};
+
+    //let a script (or other code) drop the override and go back to the built-in
+    //implementation without having to know how it was applied
+    if (!opts.prototypeExtensions.revertNodeScript) {
+      opts.prototypeExtensions.revertNodeScript = function () {
+        return NodeScript.revertNodeScript(this);
+      };
+    }
   }
 
   opts.prototypeExtensions = opts.methods || opts.prototypeExtensions || {};

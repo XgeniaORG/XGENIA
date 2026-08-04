@@ -217,6 +217,13 @@ export function CodeEditor({ model, initialSize, onSave, outEditor }: CodeEditor
       <div style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: '#3b3b3b' }}>
         <div style={{ display: 'flex', paddingLeft: gutterSize, alignItems: 'center' }}>
           <ToolbarButton
+            prefix={<Icon icon={IconName.Check} size={IconSize.Small} UNSAFE_style={{ paddingRight: '8px' }} />}
+            label="SAVE"
+            onClick={() => {
+              onSave && onSave();
+            }}
+          />
+          <ToolbarButton
             prefix={<Icon icon={IconName.Play} size={IconSize.Small} UNSAFE_style={{ paddingRight: '8px' }} />}
             label={testRunCodeLabel}
             onClick={() => {
