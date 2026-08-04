@@ -9,6 +9,7 @@ import { Container, ContainerDirection } from '@xgenia-core-ui/components/layout
 import { Label } from '@xgenia-core-ui/components/typography/Label';
 
 import { downloadEdgeDeployment, redeployEdgeFunctionScript } from '@xgenia-utils/rgs/deployEdgeFunction';
+import { canEditDeployedScript, fetchOperatorInfo } from '@xgenia-utils/rgs/rgsClient';
 import { formatScript } from '@xgenia-utils/rgs/formatScript';
 import { validateRgsScript } from '@xgenia-utils/rgs/validateRgsScript';
 
@@ -51,6 +52,14 @@ interface MathsComponentDocumentProps {
      * it can see every version's rows. Drives the confirm + success wording.
      */
     isLiveVersion?: boolean;
+    /**
+     * The connected operator key's MODE (`internal` | `demo` | `live`), which
+     * decides whether the deployed script is editable here: internal keys may
+     * edit and redeploy it, demo and live keys get it view-only. Passed by the
+     * Maths RGS panel from its operator-info lookup; null/undefined means "not
+     * known yet", and this document then resolves it itself rather than assuming.
+     */
+    operatorMode?: string | null;
     fn: MathsComponentDoc;
 }
 
@@ -59,6 +68,9 @@ const LABEL_STYLE: React.CSSProperties = { fontSize: '11px', fontWeight: 600, co
 const CODE_BLOCK_STYLE: React.CSSProperties = { display: 'block', fontSize: '12px', fontFamily: 'monospace', lineHeight: 1.5, color: '#e0e0e0', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', padding: '10px 12px', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowX: 'auto' };
 const METHOD_CHIP_STYLE: React.CSSProperties = { flexShrink: 0, fontSize: '11px', fontWeight: 700, fontFamily: 'monospace', padding: '3px 8px', borderRadius: '4px', background: 'rgba(103,222,146,0.1)', color: '#67DE92', border: '1px solid rgba(103,222,146,0.2)' };
 const SLUG_CHIP_STYLE: React.CSSProperties = { flexShrink: 0, fontSize: '11px', fontFamily: 'monospace', padding: '3px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', color: '#a0a0b0' };
+// Marks the script pane as frozen for a demo/live key. Neutral rather than a
+// warning colour: it is this key's normal state, not something that went wrong.
+const VIEW_ONLY_CHIP_STYLE: React.CSSProperties = { flexShrink: 0, fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', padding: '2px 7px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: '#a0a0b0', cursor: 'help' };
 
 const prettyJson = (v: unknown): string => {
     try {
@@ -69,10 +81,11 @@ const prettyJson = (v: unknown): string => {
 };
 
 // ─── Monaco script editor ───────────────────────────────────
-// Shows the deployed component's executable script. Editable so the script can
-// be corrected and redeployed over the live edge function; `onChange` reports
-// every keystroke so the parent can track the dirty state.
-function ScriptViewer({ value, onChange }: { value: string; onChange?: (next: string) => void }) {
+// Shows the deployed component's executable script. Editable — so the script
+// can be corrected and redeployed over the live edge function — only for an
+// internal operator key; `readOnly` carries that decision, and `onChange`
+// reports every keystroke so the parent can track the dirty state.
+function ScriptViewer({ value, onChange, readOnly }: { value: string; onChange?: (next: string) => void; readOnly?: boolean }) {
     const containerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
     // onChange is read from a ref so the editor is never recreated when the
@@ -86,7 +99,7 @@ function ScriptViewer({ value, onChange }: { value: string; onChange?: (next: st
             value,
             language: 'javascript',
             theme: getTheme(),
-            readOnly: false,
+            readOnly: !!readOnly,
             minimap: { enabled: false },
             fontSize: 13,
             wordWrap: 'on',
@@ -108,6 +121,13 @@ function ScriptViewer({ value, onChange }: { value: string; onChange?: (next: st
             editorRef.current = null;
         };
     }, []);
+
+    // Keep the created editor in step with a `readOnly` that resolves after
+    // mount (the operator's mode is fetched, so it can arrive late). Toggling
+    // the option in place preserves the buffer, scroll position and undo stack.
+    useEffect(() => {
+        editorRef.current?.updateOptions({ readOnly: !!readOnly });
+    }, [readOnly]);
 
     // Push externally-changed text in (initial load, or a revert). Guarded on
     // inequality so the user's own keystrokes don't round-trip back through
@@ -140,7 +160,7 @@ function MathsComponentTopbar({ title }: { title: string }) {
     );
 }
 
-function MathsComponentDocument({ apiKey, gameId, deploymentId, version, gameName, isLiveVersion, fn }: MathsComponentDocumentProps) {
+function MathsComponentDocument({ apiKey, gameId, deploymentId, version, gameName, isLiveVersion, operatorMode, fn }: MathsComponentDocumentProps) {
     const [script, setScript] = useState<string | null>(null);
     const [scriptError, setScriptError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
@@ -149,6 +169,34 @@ function MathsComponentDocument({ apiKey, gameId, deploymentId, version, gameNam
     const [deployedScript, setDeployedScript] = useState<string | null>(null);
     const [redeploying, setRedeploying] = useState(false);
     const [confirmRedeploy, setConfirmRedeploy] = useState(false);
+    // The connected key's mode, seeded from the panel. Only `internal` may edit
+    // and redeploy this script; anything else — including "not resolved yet" —
+    // is view-only, so the gate never opens on a missing lookup.
+    const [mode, setMode] = useState<string | null>(operatorMode ?? null);
+    const canEdit = canEditDeployedScript(mode);
+
+    // Resolve the mode ourselves when the caller could not supply it (its
+    // operator-info request had not landed, or failed). Without this the
+    // restrictive default would lock an internal key out of its own editor
+    // until the document was reopened.
+    useEffect(() => {
+        if (operatorMode) {
+            setMode(operatorMode);
+            return undefined;
+        }
+        let cancelled = false;
+        fetchOperatorInfo(apiKey)
+            .then((info) => {
+                if (!cancelled) setMode(info?.mode ?? null);
+            })
+            .catch((e: any) => {
+                console.error('[MathsComponentDocument] operator-info failed:', e);
+                if (!cancelled) setMode(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [apiKey, operatorMode]);
 
     // Fetch the version's full bundle (which includes scripts) and pick out this
     // component's script by slug. list-edge-deployments omits `script`, so this
@@ -183,8 +231,8 @@ function MathsComponentDocument({ apiKey, gameId, deploymentId, version, gameNam
 
     // Compared against the *formatted* baseline, so simply opening a component
     // and reformatting it does not count as an edit.
-    const isDirty = script !== null && deployedScript !== null && script !== deployedScript;
-    const canRedeploy = isDirty && !!gameId && !redeploying && !loading;
+    const isDirty = canEdit && script !== null && deployedScript !== null && script !== deployedScript;
+    const canRedeploy = canEdit && isDirty && !!gameId && !redeploying && !loading;
 
     const handleRevert = () => {
         setScript(deployedScript);
@@ -192,7 +240,9 @@ function MathsComponentDocument({ apiKey, gameId, deploymentId, version, gameNam
     };
 
     const handleRedeploy = async () => {
-        if (!gameId || script === null) return;
+        // Belt and braces: the button is not rendered without canEdit, and the
+        // RGS handler rejects a non-internal key's overwrite regardless.
+        if (!canEdit || !gameId || script === null) return;
 
         // Catch the failures that would otherwise only appear as a broken live
         // endpoint on the next spin — the RGS sandbox validates at execution
@@ -267,11 +317,27 @@ function MathsComponentDocument({ apiKey, gameId, deploymentId, version, gameNam
                             <span style={{ fontSize: '11px', color: '#F5A623' }}>Edited — not yet deployed</span>
                         )}
                         {redeploying && <span style={{ fontSize: '11px', color: '#666' }}>Redeploying&#8230;</span>}
+                        {/* Say why the buffer is frozen, rather than leaving the
+                            user to discover that typing does nothing. */}
+                        {!canEdit && !loading && (
+                            <span
+                                style={VIEW_ONLY_CHIP_STYLE}
+                                title={
+                                    mode
+                                        ? `This operator key is in ${mode} mode. Editing and redeploying a deployed script requires an internal-mode key.`
+                                        : 'The connected operator key could not be identified, so the script is shown read-only.'
+                                }
+                            >
+                                View only{mode ? ` · ${mode} key` : ''}
+                            </span>
+                        )}
 
                         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
                             {/* Overwriting a live endpoint is destructive and has no undo
-                                server-side, so the button arms a confirm step first. */}
-                            {confirmRedeploy ? (
+                                server-side, so the button arms a confirm step first.
+                                Nothing to arm at all for a demo/live key — its
+                                access to a deployed script is read-only. */}
+                            {!canEdit ? null : confirmRedeploy ? (
                                 <>
                                     <span style={{ fontSize: '11px', color: '#F5A623' }}>
                                         {isLiveVersion
@@ -310,9 +376,15 @@ function MathsComponentDocument({ apiKey, gameId, deploymentId, version, gameNam
                             )}
                         </div>
                     </div>
-                    {!gameId && !loading && (
+                    {canEdit && !gameId && !loading && (
                         <div style={{ flexShrink: 0, padding: '0 20px 8px', fontSize: '11px', color: '#666' }}>
                             Select a game in the Maths RGS panel to enable redeploying.
+                        </div>
+                    )}
+                    {!canEdit && !loading && (
+                        <div style={{ flexShrink: 0, padding: '0 20px 8px', fontSize: '11px', color: '#666' }}>
+                            Read-only: a deployed script can only be edited and redeployed with an internal-mode
+                            operator key. Publishing from the editor is unaffected — it creates a new Server Version.
                         </div>
                     )}
                     <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
@@ -326,7 +398,11 @@ function MathsComponentDocument({ apiKey, gameId, deploymentId, version, gameNam
                             /* Empty rather than a placeholder comment — the buffer is
                                now deployable, so nothing must appear in it that the
                                user did not write. The header notes the empty case. */
-                            <ScriptViewer value={script ?? ''} onChange={setScript} />
+                            <ScriptViewer
+                                value={script ?? ''}
+                                onChange={canEdit ? setScript : undefined}
+                                readOnly={!canEdit}
+                            />
                         )}
                     </div>
                 </div>

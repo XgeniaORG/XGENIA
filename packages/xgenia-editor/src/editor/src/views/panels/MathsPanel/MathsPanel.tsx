@@ -364,6 +364,12 @@ export function MathsPanel() {
             version: selectedVersion.version,
             gameName: (games || []).find((g: any) => g.id === selectedGame)?.name,
             isLiveVersion: isLiveComponent(versions, selectedVersion.id, fn.function_slug),
+            // Decides whether the script opens editable or view-only: internal
+            // keys may redeploy it, demo/live keys may only read it (see
+            // canEditDeployedScript). Passed as a seed — the document resolves
+            // the mode itself if this is still null, so an operator-info lookup
+            // that has not landed yet cannot silently lock an internal key out.
+            operatorMode: operatorInfo?.mode ?? null,
             fn: {
                 function_slug: fn.function_slug,
                 function_name: fn.function_name,

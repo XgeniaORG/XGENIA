@@ -86,6 +86,26 @@ export function gameModesForOperatorMode(operatorMode: string | null | undefined
 }
 
 /**
+ * May this key EDIT and REDEPLOY an already-deployed component's script (the
+ * Maths RGS panel → Components → a component → "Deployed script" editor)?
+ *
+ * Internal only. A deployed script is the live maths a player's spin executes,
+ * and overwriting it has no server-side undo, so hand-editing it is a platform
+ * operation: demo and live keys get the same view (API docs + script) read-only.
+ * Publishing from the editor is unaffected — that writes a NEW Server Version
+ * rather than overwriting an existing component, and every mode may do it.
+ *
+ * An unknown mode (operator-info not loaded or failed, or the key resolved to a
+ * platform session) is treated as NOT allowed — the restrictive read, matching
+ * gameModesForOperatorMode. This is the UI half of the rule only: the real gate
+ * is in the RGS `maths-deployer` deploy-edge-function handler, which rejects an
+ * overwrite from a non-internal key.
+ */
+export function canEditDeployedScript(operatorMode: string | null | undefined): boolean {
+  return operatorMode === 'internal';
+}
+
+/**
  * Fields the RGS platform's "New Operator" form collects, so the editor's
  * "Create operator & get key" popup can mirror it exactly.
  *
