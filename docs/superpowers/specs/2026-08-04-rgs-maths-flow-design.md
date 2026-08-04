@@ -276,6 +276,26 @@ The classification already exists at collection time; it simply is not returned.
 
 **Rules:**
 
+### 6.1 The stub inventory — audited 2026-08-04
+
+**31 stubs, all in `rgs-extra-node-converter.ts:85-119`.** `stubBody()` (`:220`) emits the
+node's declared outputs filled with type defaults — `number → 0`, `boolean → false`,
+`string → ""`, `array → []`, `object → {}` — *"so the response keeps the field instead of
+dropping it"*. Shape-preserving and **completely silent**: no warning at deploy, none at play.
+
+| Class | Count | Nodes | Rule |
+|---|---|---|---|
+| **Money / player state** | 12 | DepositBalance, WithdrawBalance, GetBalanceByPlayerId, CreateDeposit, CreateStripeDeposit, CreateNewPlayer, UpdatePlayer, GetPlayer, GetPlayerIdByName, SaveGameSession, LoadGameSession, ListGameSessions | **HARD FAIL** anywhere in a deployed maths component |
+| **Database / model** | 9 | DbModel2, Model2, NewModel, SetModelProperties, SetDbModelProperties, AddDbModelRelation, RemoveDbModelRelation, FilterDBModels, Cloud File | **HARD FAIL** on the bet→win path, warn otherwise |
+| **State / orchestration** | 4 | arrayStateManager, Convert Dict Keys to Ports, RunTasks, String Mapper | **HARD FAIL** on the bet→win path — `arrayStateManager` silently losing cross-spin state is a wrong-RTP bug that looks like nothing |
+| **Observability** | 3 | RTP Monitor, Hit Frequency Monitor, Volatility Monitor | **WARN** — a deployed game reads 0.00 RTP forever while preview shows the right number |
+| **Frontend-only** | 3 | Animation, Import from JSON file, Export to JSON file | **WARN** — correctly inert on a server |
+
+The money-class stubs are also the nodes `bd36675` excluded from extraction, so they are not
+*meant* to appear in a maths component. Nothing stops someone putting one there, and today
+that produces a green deploy on a game where the debit silently did nothing. That is the case
+the gate exists for.
+
 - `dropped ∩ betToWinPath ≠ ∅` → **hard-fail the deploy.** Money depends on that path.
 - `stubbed ≠ ∅` → **warn before the confirm**, naming each node. `RTP Monitor` and
   `Volatility Monitor` are `kind: 'stub'` today
