@@ -1503,6 +1503,55 @@ export function MathsPanel() {
                                 </Tooltip>
                             </Box>
                         )}
+
+                        {/* Maths Versions — the approval lifecycle (draft → testing →
+                            approved → live). A version must pass a Test run before it can
+                            go live; the server enforces that too (approve rejects an
+                            untested config), so this is the UI half of the rule.
+
+                            RTP shown is the MEASURED figure from the stress run, or
+                            "RTP unknown" — never the declared number. A declared RTP is
+                            what someone hoped for; showing it here would let a config that
+                            has never been measured look tested. */}
+                        {connected && selectedGame && mathsConfigs && mathsConfigs.length > 0 && (
+                            <Box hasBottomSpacing>
+                                <div style={{ fontWeight: 600, fontSize: '12px', textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: '#a0a0b0', marginBottom: '8px' }}>
+                                    Maths Versions
+                                </div>
+                                {mathsConfigs.map((c: any) => {
+                                    const rtp = c.stress_results?.tests?.rtp_compliance?.measured_rtp;
+                                    const canPromote = c.status === 'testing' || c.status === 'approved';
+                                    const justTested = testedConfigId === c.id;
+                                    return (
+                                        <div
+                                            key={c.id}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: '8px',
+                                                padding: '6px 8px', borderRadius: '4px', marginBottom: '4px',
+                                                backgroundColor: justTested ? 'rgba(103,222,146,0.12)' : 'rgba(255,255,255,0.03)',
+                                                border: `1px solid ${justTested ? 'rgba(103,222,146,0.35)' : 'transparent'}`,
+                                            }}
+                                        >
+                                            <span style={{ fontSize: '11px', fontWeight: 700, fontFamily: 'monospace', color: '#e0e0e0', minWidth: '24px' }}>v{c.version}</span>
+                                            <span style={{ fontSize: '10px', color: c.status === 'live' ? '#67DE92' : '#a0a0b0' }}>{c.status}</span>
+                                            <span style={{ flex: 1 }} />
+                                            <span style={{ fontSize: '10px', color: '#a0a0b0', fontFamily: 'monospace' }}>
+                                                {rtp != null ? `${rtp.toFixed(2)}%` : 'RTP unknown'}
+                                            </span>
+                                            {promotingId === c.id ? (
+                                                <span style={{ fontSize: '10px', color: '#666' }}>Working&#8230;</span>
+                                            ) : canPromote ? (
+                                                <button
+                                                    title="Approve this version and deploy it live"
+                                                    onClick={() => handlePromote(c.id)}
+                                                    style={VERSION_BTN_STYLE}
+                                                >Promote to Live</button>
+                                            ) : null}
+                                        </div>
+                                    );
+                                })}
+                            </Box>
+                        )}
                     </VStack>
                 </Box>
                 </div>
