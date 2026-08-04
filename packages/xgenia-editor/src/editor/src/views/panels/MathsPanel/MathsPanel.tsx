@@ -23,6 +23,8 @@ import {
     deleteEdgeFunction
 } from '@xgenia-utils/rgs/deployEdgeFunction';
 import { AppRegistry } from '@xgenia-models/app_registry';
+import { NodeGraphContextTmp } from '@xgenia-contexts/NodeGraphContext/NodeGraphContext';
+import { ComponentsPanel } from '../componentspanel';
 import { MathsComponentDocumentProvider } from '../../documents/MathsComponentDocument';
 import { MathsSimulateDocumentProvider } from '../../documents/MathsSimulateDocument';
 
@@ -94,9 +96,22 @@ function mergeRgsSettings(patch: Record<string, any>): void {
      * Generate an RGS evaluate(ctx) script from a maths component.
      * Uses the same CloudFunctionConverter as cloud deploy — same code, different wrapper.
      *
+     * WHICH component gets compiled, in order:
+     *   1. `componentName`, when given — and if that name does not resolve this
+     *      FAILS. It used to fall through to auto-discovery, so a typo'd or stale
+     *      name silently compiled and deployed a different component while every
+     *      status message named the one you asked for.
+     *   2. the maths component currently open in the node graph editor — "deploy
+     *      what I am looking at", which is what the edit→deploy→test loop means.
+     *   3. the only maths component, when the project has exactly one.
+     *   4. otherwise an error listing the candidates. Picking the first of several
+     *      is a coin flip that reports success either way; with the Maths
+     *      Components tree restored, projects hold more than one as a matter of
+     *      course (one per game, plus older revisions), so this case is normal
+     *      rather than exotic and must not be guessed at.
+     *
      * @param componentName - Full component name (e.g. '/#__maths__/Zeus Maths')
-     *                        If omitted, uses the first maths component found.
-     * @returns { script, configData } or { error }
+     * @returns { script, configData, componentName, nodeCount } or { error }
      */
     generateRgsScript: (componentName?: string) => {
         try {
@@ -106,18 +121,44 @@ function mergeRgsSettings(patch: Record<string, any>): void {
             const project = ProjectModel.instance;
             if (!project) return { error: 'No project loaded' };
 
+            const allComponents = project.getComponents?.() || [];
+            const mathsComponents = allComponents.filter((c: any) => c.name?.startsWith('/#__maths__/'));
+
             // Find the maths component
             let component;
             if (componentName) {
                 component = project.getComponentWithName?.(componentName);
+                if (!component) {
+                    return {
+                        error:
+                            `Maths component "${componentName}" not found. ` +
+                            (mathsComponents.length
+                                ? `Available: ${mathsComponents.map((c: any) => c.name).join(', ')}`
+                                : 'This project has no maths components yet.')
+                    };
+                }
             }
             if (!component) {
-                // Auto-discover first maths component
-                const allComponents = project.getComponents?.() || [];
-                component = allComponents.find((c: any) => c.name?.startsWith('/#__maths__/'));
+                if (mathsComponents.length === 0) {
+                    return { error: 'No maths component found. Create a maths component first.' };
+                }
+                // The component open in the node graph editor wins, so "Upload,
+                // Test & Deploy" ships the maths you are actually editing.
+                const activeName = NodeGraphContextTmp?.nodeGraph?.getActiveComponent?.()?.name;
+                component = mathsComponents.find((c: any) => c.name === activeName);
             }
             if (!component) {
-                return { error: 'No maths component found. Create a maths component first.' };
+                if (mathsComponents.length === 1) {
+                    component = mathsComponents[0];
+                } else {
+                    return {
+                        error:
+                            `This project has ${mathsComponents.length} maths components and none of them is open, ` +
+                            `so there is no way to tell which one you meant. Open the one you want in the Maths ` +
+                            `Components tree, then run this again. Candidates: ` +
+                            mathsComponents.map((c: any) => c.name).join(', ')
+                    };
+                }
             }
 
             // Build the project context — same pattern as handleExportFunctions in SupabaseEdgeFunctionsPanel
@@ -179,6 +220,27 @@ function mergeRgsSettings(patch: Record<string, any>): void {
 // ─── Component ──────────────────────────────────────────────
 
 export const MathsPanel_ID = 'maths-panel';
+
+// The project's own maths components — the `/#__maths__/` sheet, rendered as a
+// component tree exactly the way Cloud Functions renders `/#__cloud__/`
+// (CloudFunctionsPanel.tsx). This is where maths is AUTHORED: node graphs that
+// `CloudFunctionConverter.generateRgsScript()` (supabase-converter.ts) turns into
+// the `evaluate(ctx)` script that "Upload, Test & Deploy" ships to the RGS.
+//
+// This mount is load-bearing, not decorative. `router.setup.ts` passes
+// `hideSheets: ['__cloud__', '__maths__']` to the general Components panel on the
+// assumption that each of those sheets has its own dedicated panel. Between
+// 4386af9 (2026-07-22) and this restore that assumption was false for maths: the
+// mount was deleted but the hide rule stayed, so `/#__maths__/` components were
+// unreachable from every UI surface in the editor — you could neither open the
+// ones you had nor create a new one, while the converter went on compiling them
+// on upload. Do not remove this without also removing '__maths__' from that
+// hideSheets list. See mathsPanelMount guard test.
+const mathsPanelOptions = {
+    showSheetList: false,
+    lockCurrentSheetName: '__maths__',
+    componentTitle: 'Maths Components'
+};
 
 // Create-game form — mirrors the RGS platform's "Game Library" create form
 // (Game Name, Slug, Description, Mode), minus its Owner field: a game created from
@@ -969,9 +1031,13 @@ export function MathsPanel() {
             const rtpStr = rtpComp.measured_rtp ? `${rtpComp.measured_rtp.toFixed(2)}%` : '';
             const hitStr = rtpComp.hit_rate != null ? `${(rtpComp.hit_rate * 100).toFixed(1)}%` : '';
             const maxStr = (rtpComp.max_win || rtpComp.max_multiplier) != null ? `${rtpComp.max_win || rtpComp.max_multiplier}×` : '';
+            // Name the component that was actually compiled. A project can hold
+            // several maths components, so "v7 deployed live" on its own leaves you
+            // guessing which of them you just pushed.
+            const deployedName = String(result.componentName || '').replace('/#__maths__/', '') || 'maths';
             setUploadStatus({
                 type: 'success',
-                message: `v${version} deployed live! RTP ${rtpStr} · Hit ${hitStr} · Max ${maxStr}`,
+                message: `${deployedName} → v${version} deployed live! RTP ${rtpStr} · Hit ${hitStr} · Max ${maxStr}`,
             });
         } catch (e: any) {
             setUploadStatus({ type: 'error', message: e.message || 'Pipeline failed' });
@@ -1390,14 +1456,24 @@ export function MathsPanel() {
                 </Box>
                 </div>
 
-                {/* Components — the deployed edge functions of the selected Server Version,
+                {/* Maths Components — THIS project's `/#__maths__/` node-graph components,
+                    the ones you author and that get compiled to the RGS script on upload.
+                    Distinct from "Deployed Functions" below, which is what is already
+                    live on the server. Local (editable) above, remote (read-only) below. */}
+                <div style={{ flex: '1.5 1 0', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <ComponentsPanel options={mathsPanelOptions} />
+                </div>
+
+                {/* Deployed Functions — the edge functions of the selected Server Version,
                     shown API-docs style (mirrors the RGS studio "API docs" page). Clicking a
                     version in "Server Versions" above drives this list; it defaults to the
-                    newest version. */}
-                <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    newest version. Named "Deployed Functions", not "Components": these are
+                    server-side artifacts, and calling them "Components" made them read as
+                    the project's own maths components (the section directly above). */}
+                <div style={{ flex: '1 1 0', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                     <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px' }}>
                         <span style={{ fontWeight: 600, fontSize: '12px', textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: '#a0a0b0' }}>
-                            Components
+                            Deployed Functions
                         </span>
                         {selectedVersion && (
                             <span style={{ fontSize: '10px', color: '#666', fontFamily: 'monospace' }}>

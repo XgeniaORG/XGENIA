@@ -45,6 +45,7 @@ type CommandExecutor = (args: any[]) => any;
 export class EditorBridge {
     private iframes = new Map<string, HTMLIFrameElement>(); // pluginId -> iframe
     private iframe: HTMLIFrameElement | null = null; // Legacy: primary (AI chat) iframe
+    private _warnedUntrustedSource = false;
     private pluginOrigin = '*'; // Will be locked to plugin origin after handshake
     private commandHandlers = new Map<string, CommandExecutor>();
     private eventListeners = new Map<string, Set<(data: any) => void>>();
@@ -254,9 +255,44 @@ export class EditorBridge {
 
     // --- Internal ---
 
+    /**
+     * IS THIS MESSAGE FROM A WINDOW WE ACTUALLY LOADED?
+     *
+     * (2026-08-04 pre-release audit) handleMessage accepted every command from every window. It
+     * never compared event.origin or event.source to anything: the field that looks like the guard,
+     * `pluginOrigin`, is outbound-only AND is SET BY THE SENDER in the handshake branch. So any
+     * frame or window that could postMessage into the editor could drive the full privileged
+     * command surface — the fs handlers, the graph mutations, git.
+     *
+     * A message is accepted only when its source window is the contentWindow of an iframe currently
+     * in this document. That is the property that actually matters (we loaded it), and it holds for
+     * the AI panel and the image editor without needing to hardcode a Vercel URL that changes.
+     */
+    private isTrustedSource(event: MessageEvent): boolean {
+        try {
+            const src = event.source as Window | null;
+            if (!src) return false;
+            if (src === window) return true;   // same-document postMessage (our own plumbing)
+            const frames = Array.from(document.querySelectorAll('iframe')) as HTMLIFrameElement[];
+            return frames.some((f) => {
+                try { return f.contentWindow === src; } catch { return false; }
+            });
+        } catch { return false; }
+    }
+
     private handleMessage = (event: MessageEvent) => {
         const msg = event.data;
         if (!msg || typeof msg !== 'object') return;
+
+        // Reject anything that did not come from a frame this document owns. Silent by design —
+        // an attacker learns nothing — but logged once so a legitimate integration is debuggable.
+        if (!this.isTrustedSource(event)) {
+            if (!this._warnedUntrustedSource) {
+                this._warnedUntrustedSource = true;
+                console.warn('[EditorBridge] Ignoring a message from a window this document does not own:', event.origin);
+            }
+            return;
+        }
 
         // Handshake from plugin (AI chat or Image Editor)
         if (msg.type === 'handshake' && (msg.plugin === 'xgenia-ai' || msg.plugin === 'xgenia-image-editor')) {
@@ -1885,7 +1921,44 @@ export class EditorBridge {
         });
 
         // --- Filesystem commands ---
+        //
+        // PATH CONTAINMENT. (2026-08-04 pre-release audit — no handler had any.)
+        //
+        // Every fs handler below treated an ABSOLUTE path as authoritative:
+        //     const fullPath = filePath.startsWith('/') ? filePath : path.join(projectDir, filePath)
+        // and four of them (readJson / writeJson / rename / writeFileBinary) did not even join the
+        // project directory — they passed the caller's string straight to node's fs. So a script
+        // that reached this bridge could read ~/.ssh/id_rsa or write ~/.zshrc, and because the text
+        // classifier only ever looks at the CALL SPELLING, an absolute-path read was graded
+        // "read-only" and auto-ran with no prompt at all.
+        //
+        // Containment cannot live in a text classifier — it belongs here, where the real path is.
+        // resolve() collapses `..`; realpath (best-effort) closes the symlink escape. A path that
+        // does not exist yet is checked at its resolved location, which is what a create needs.
+        const assertInsideProject = (p: string, op: string): string => {
+            const path = require('path');
+            const fs = require('fs');
+            const projectDir = ProjectModel.instance._retainedProjectDirectory;
+            if (!projectDir) throw new Error(`FileSystem.${op} refused: no project is open, so nothing can be resolved safely.`);
+            const root = path.resolve(projectDir);
+            const resolved = path.resolve(root, p || '');
+            const within = (candidate: string) => candidate === root || candidate.startsWith(root + path.sep);
+            let check = resolved;
+            try {
+                // realpath the deepest EXISTING ancestor, so a symlinked parent cannot smuggle us out.
+                let probe = resolved;
+                while (probe !== path.dirname(probe) && !fs.existsSync(probe)) probe = path.dirname(probe);
+                const realProbe = fs.realpathSync(probe);
+                check = path.resolve(realProbe, path.relative(probe, resolved));
+            } catch { /* unreadable ancestor — fall back to the lexical check below */ }
+            if (!within(check) || !within(resolved)) {
+                throw new Error(`FileSystem.${op} refused: "${p}" resolves outside the project directory. The AI bridge may only touch files inside the open project.`);
+            }
+            return resolved;
+        };
+
         h('fs.readFile', async ([filePath, encoding]: [string, string?]) => {
+            filePath = assertInsideProject(filePath, 'readFile');
             const fs = require('fs');
             const path = require('path');
             const projectDir = ProjectModel.instance._retainedProjectDirectory;
@@ -1907,6 +1980,7 @@ export class EditorBridge {
         });
 
         h('fs.writeFile', async ([filePath, content, encoding]: [string, string, string?]) => {
+            filePath = assertInsideProject(filePath, 'writeFile');
             const fs = require('fs');
             const path = require('path');
             const projectDir = ProjectModel.instance._retainedProjectDirectory;
@@ -1924,6 +1998,7 @@ export class EditorBridge {
         });
 
         h('fs.exists', ([filePath]: [string]) => {
+            filePath = assertInsideProject(filePath, 'exists');
             const fs = require('fs');
             const path = require('path');
             const projectDir = ProjectModel.instance._retainedProjectDirectory;
@@ -1934,6 +2009,7 @@ export class EditorBridge {
         });
 
         h('fs.mkdir', ([dirPath]: [string]) => {
+            dirPath = assertInsideProject(dirPath, 'mkdir');
             const fs = require('fs');
             const path = require('path');
             const projectDir = ProjectModel.instance._retainedProjectDirectory;
@@ -1947,6 +2023,7 @@ export class EditorBridge {
         });
 
         h('fs.remove', ([filePath, opts]: [string, { recursive?: boolean }?]) => {
+            filePath = assertInsideProject(filePath, 'remove');
             const fs = require('fs');
             const path = require('path');
             // Resolve relative paths against the project dir (same bug class as fs.readDirDetailed) — a raw
@@ -1975,6 +2052,7 @@ export class EditorBridge {
         });
 
         h('fs.readDir', ([dirPath]: [string]) => {
+            dirPath = assertInsideProject(dirPath, 'readDir');
             const fs = require('fs');
             const path = require('path');
             const projectDir = ProjectModel.instance?._retainedProjectDirectory;
@@ -1986,12 +2064,14 @@ export class EditorBridge {
         });
 
         h('fs.readJson', async ([filePath]: [string]) => {
+            filePath = assertInsideProject(filePath, 'readJson');
             const fs = require('fs');
             const content = fs.readFileSync(filePath, 'utf-8');
             return JSON.parse(content);
         });
 
         h('fs.writeJson', async ([filePath, data]: [string, any]) => {
+            filePath = assertInsideProject(filePath, 'writeJson');
             const fs = require('fs');
             const path = require('path');
             const dir = path.dirname(filePath);
@@ -2003,12 +2083,15 @@ export class EditorBridge {
         });
 
         h('fs.rename', ([oldPath, newPath]: [string, string]) => {
+            oldPath = assertInsideProject(oldPath, 'rename');
+            newPath = assertInsideProject(newPath, 'rename');
             const fs = require('fs');
             fs.renameSync(oldPath, newPath);
             return true;
         });
 
         h('fs.writeFileBinary', async ([filePath, base64Data]: [string, string]) => {
+            filePath = assertInsideProject(filePath, 'writeFileBinary');
             const fs = require('fs');
             const path = require('path');
             const dir = path.dirname(filePath);
@@ -2054,6 +2137,7 @@ export class EditorBridge {
         });
 
         h('fs.stat', ([filePath]: [string]) => {
+            filePath = assertInsideProject(filePath, 'stat');
             const fs = require('fs');
             const path = require('path');
             const projectDir = ProjectModel.instance?._retainedProjectDirectory;
@@ -2066,6 +2150,7 @@ export class EditorBridge {
         });
 
         h('fs.readDirDetailed', ([dirPath]: [string]) => {
+            dirPath = assertInsideProject(dirPath, 'readDirDetailed');
             const fs = require('fs');
             const path = require('path');
             // BUG (trace 1781972390362): a relative dirPath like 'assets' was passed straight to

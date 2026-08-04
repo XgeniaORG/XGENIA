@@ -60,13 +60,41 @@ export class PluginLoader {
      *   - Probes localhost:3002. If reachable → loads local image editor (HMR).
      *   - If localhost:3002 is NOT reachable → falls back to Vercel (no blank screen).
      */
+
+    /**
+     * AM I IN DEVELOPMENT? — asked of the BUILD, not of the URL.
+     *
+     * (2026-08-04 pre-release audit) This used to answer yes for `window.location.protocol === 'file:'`
+     * — and main.js loads the renderer from `file://` in EVERY PACKAGED BUILD (`Config.devMode ?
+     * 'http://localhost:8080/…' : 'file:///' + appPath + '/…'`). So every real install was classified
+     * as dev, with three consequences on a machine that has never run this repo:
+     *   • the plugin control-plane was bypassed — `mergeDev` overwrites the server's URLs, so the
+     *     entitlements server can no longer pin a version or roll back a bad deploy for anyone;
+     *   • the "not entitled" upgrade screen could never render, because plugins are injected even
+     *     when the server replies `{plugins: [], tier: 'free'}` — a free user gets the full chat UI;
+     *   • the loader probes localhost:3002 on a stranger's machine and will iframe whatever answers
+     *     into a renderer that holds the privileged bridge.
+     *
+     * The dev signal is the environment the MAIN process sets before Electron starts
+     * (dev-main.js: `process.env.devMode = 'yes'`), which a packaged app never has. The
+     * webpack-dev-server host/port check is kept because that IS genuinely dev; the `file:`
+     * protocol check is gone, because that is genuinely production.
+     */
+    static isDevEnvironment(): boolean {
+        try {
+            const env: any = (typeof process !== 'undefined' && (process as any)?.env) || {};
+            if (env.devMode === 'yes' || env.NODE_ENV === 'development') return true;
+        } catch { /* no process in this context — fall through to the URL check */ }
+        try {
+            if (typeof window === 'undefined') return false;
+            const { hostname, port } = window.location;
+            // webpack-dev-server only. NOT `file:` — that is how a packaged build loads.
+            return (hostname === 'localhost' || hostname === '127.0.0.1') && (port === '8080' || port === '9080');
+        } catch { return false; }
+    }
+
     async getEntitledPlugins(): Promise<EntitlementsResponse> {
-        const isDev = typeof window !== 'undefined' &&
-            (window.location.hostname === 'localhost' ||
-                window.location.hostname === '127.0.0.1' ||
-                window.location.port === '8080' ||
-                window.location.port === '9080' ||
-                window.location.protocol === 'file:');
+        const isDev = PluginLoader.isDevEnvironment();
 
         // In dev mode skip the in-memory cache so we re-probe localhost on
         // every call (the local server may have started since the last check).

@@ -47,6 +47,17 @@ export class NodeGraphContextTmp {
     public static webview: Electron.WebviewTag | null = null;
 }
 
+// Publish the class as a global. Bridge-style consumers that cannot import editor
+// modules directly read it off `window` — EditorBridge.ts (`component.switchTo`,
+// the AI's "open this component") and NodeCreationService.ts both do. Neither
+// assignment existed, so both reads were permanently `undefined` and took their
+// fallback path: `component.switchTo` fell through to `setActiveComponent()`,
+// which its own comment describes as a "model-only switch (no UI update)" — the
+// AI would switch to a component and the editor would carry on showing the
+// previous one. The statics are assigned by the provider effect below, so this
+// exposes the live values, not a snapshot.
+(window as any).NodeGraphContextTmp = NodeGraphContextTmp;
+
 // ------------------------------
 // NodeGraphContextProvider Component
 // ------------------------------
