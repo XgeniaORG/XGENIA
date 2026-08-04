@@ -381,10 +381,31 @@ Each phase is independently shippable and gets its own plan.
 - **Contract tests** for the custom-RNG rules — one per row of the §4.4 table, each asserting
   the specific `ERR_` code.
 - **Parity harness:** the same graph through the editor evaluator and the generated script,
-  same seeded `rng`, asserting identical output over N spins. `generateISAACRNGLogic` is
-  commented *"Simplified ISAAC implementation for Edge Functions"* — a reimplementation, so
-  editor and server ISAAC may already diverge. For an RNG this is certification-grade and the
-  harness is the only durable answer.
+  same seeded `rng`, asserting identical output over N spins.
+
+  **RESOLVED 2026-08-04 for the RNG specifically — there is no ISAAC parity risk.** The worry
+  was that `generateISAACRNGLogic`'s *"Simplified ISAAC implementation for Edge Functions"* is
+  a reimplementation that might not match the editor's ISAAC bit-for-bit. It never runs.
+  `sanitize-for-sandbox.ts` **strips it before deploy**:
+  - §2b brace-counts out the entire inlined `class IsaacRNG` — *"RNG comes directly from the
+    server's Isaac"*;
+  - §2c rewrites `new IsaacRNG(seed, nonce)` to a no-op, `isaac.randomFloat(0, N)` →
+    `rgsRandom() * N`, and `isaac.random()` → `rgsRandom()`;
+  - §2 does the same for the `crypto.getRandomValues` / `Math.random()` fallback pair the TRNG
+    nodes emit.
+
+  `rgsRandom()` walks `ctx.rng` — the server's certified, counted, recorded stream. And
+  `script-sandbox.ts`'s `BLOCKED_PATTERNS` refuses `Math.random`, `crypto.getRandomValues` and
+  `crypto.randomUUID` **at deploy time as well as play time**, *"so a studio finds out when
+  they publish rather than when a regulator asks why a round cannot be re-derived"*. Anything
+  the sanitizer misses is refused, not silently shipped.
+
+  So exactly one RNG runs in a deployed round, and it is the recorded one. The editor's ISAAC
+  is preview-only. Preview and live will therefore produce different numbers **by design** —
+  which is precisely why the "Preview RNG: local seeded (deterministic)" chip in §8 matters.
+
+  A parity harness is still worth building for the **maths** (paytable/win evaluation), where
+  editor and RGS really are two implementations. It is no longer needed for randomness.
 - **Determinism test:** fixed `rng` array in, identical result out, twice. This is the property
   the whole design rests on; it should fail loudly if it ever stops holding.
 
