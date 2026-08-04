@@ -11,9 +11,6 @@
 //   3. Save the transformed copy.
 
 import { duplicateCurrentProject, isCompiledName, saveProject } from './duplicateProject';
-import { buildCloudComponent, captureBoundary } from './flattenLogic';
-import { insertAggregatorNode } from './aggregatorNode';
-import { CLOUD_PREFIX, collectLogicRoots, isVisualComponent } from './util';
 
 /**
  * Where one cloud component came from.
@@ -60,52 +57,30 @@ export async function compileProject(project: any): Promise<CompileResult> {
 
   const { copy, destDir, newName } = await duplicateCurrentProject(project);
 
-  // Snapshot the visual components up front — we add cloud components while looping.
-  const visualComponents = copy.components.filter((c: any) => isVisualComponent(c));
-
-  let componentCounter = 0;
-  let visited = 0;
+  // 2026-08-04: EXTRACTION IS OFF. Deployment is decided by LOCATION — a
+  // `/#__maths__/` component compiles to the RGS via
+  // CloudFunctionConverter.generateRgsScript(), and nothing else leaves the
+  // frontend. Compile now only duplicates the project so the Vercel build has a
+  // stable source tree.
+  //
+  // This replaced the per-node `isMath` tickbox, which asked the user to make a
+  // deployment decision on every node and defaulted to "extract to the backend".
+  // The two had to go together: typeIsMathDefault() returned true for any node
+  // type that declared nothing, so removing the tickbox while this loop still
+  // ran would have extracted PixiReelController — a WebGL renderer that is fed
+  // live pixi.ReelColumn references and cannot run in an edge function. With
+  // extraction off, that opt-out is unnecessary rather than load-bearing.
+  //
+  // Publish already tolerates this: XgeniaDeployTab skips the component setup
+  // card when nothing was extracted ("a UI-only project compiles to no logic
+  // components at all"), so a zero-component compile is an existing path, not a
+  // new one.
+  //
+  // flattenLogic.ts / aggregatorNode.ts are intentionally left on disk, unused.
+  // Removing them is a separate decision (see docs/RGS-RESTORATION-PLAN.md).
+  const componentCounter = 0;
+  const visited = 0;
   const origins: CompiledComponentOrigin[] = [];
-
-  for (const comp of visualComponents) {
-    const logicRoots = collectLogicRoots(comp);
-    if (logicRoots.length === 0) continue; // pure-UI component, nothing to extract
-    visited++;
-
-    componentCounter++;
-    let cloudName = `${CLOUD_PREFIX}__Component_${componentCounter}__`;
-    // Defensive: skip a name that somehow already exists.
-    while (copy.getComponentWithName(cloudName)) {
-      componentCounter++;
-      cloudName = `${CLOUD_PREFIX}__Component_${componentCounter}__`;
-    }
-
-    // Record the origin before anything is cloned or removed, so the ids are
-    // the ones the ORIGINAL project still uses. `root.forEach` walks the root
-    // and all of its descendants.
-    const logicNodeIds: string[] = [];
-    logicRoots.forEach((root: any) =>
-      root.forEach((n: any) => {
-        if (n.id) logicNodeIds.push(n.id);
-      })
-    );
-    origins.push({
-      cloudName,
-      sourceComponentName: comp.name,
-      logicNodeIds
-    });
-
-    const boundary = captureBoundary(comp, logicRoots);
-
-    // a. extract logic into the cloud component (clones the logic)
-    buildCloudComponent(copy, cloudName, comp, logicRoots, boundary);
-
-    // b. insert the aggregator + rewire UI -> aggregator
-    insertAggregatorNode(comp, cloudName, boundary);
-
-    // c. remove the original logic roots from the visual component
-    logicRoots.forEach((root: any) => comp.graph.removeNode(root));
-  }
 
   await saveProject(copy, destDir);
 

@@ -554,35 +554,9 @@ export class NodeGraphNode extends Model {
       // Start with type ports
       var ports = this.type.ports ? this.type.ports : [];
 
-      // isMath deployment toggle for custom LOGIC components (Compile feature).
-      // Native non-visual nodes carry this on their library type; custom
-      // components derive their ports from Component Inputs/Outputs gateways
-      // instead, so we inject it onto the instance here. Only logic components
-      // (no visual root that can act as a child) route to a backend, so visual
-      // components are skipped. Default true => backend (RGS); the user may flip
-      // it to false to keep this instance on the frontend (Vercel). `allowEditOnly`
-      // makes it an editable property rather than a connectable port.
-      if (
-        this.type instanceof ComponentModel &&
-        !this.type.allowAsChild &&
-        !some(ports, function (p) {
-          return p.name === 'isMath';
-        })
-      ) {
-        ports = ports.concat([
-          {
-            name: 'isMath',
-            type: { name: 'boolean', allowEditOnly: true },
-            plug: 'input',
-            group: 'Deployment',
-            displayName: 'Is Math',
-            default: true,
-            tooltip:
-              'When ON (default) this component is compiled to the backend (RGS edge function).\n' +
-              'Turn OFF to keep it on the frontend (Vercel).'
-          }
-        ]);
-      }
+      // The `isMath` deployment toggle was removed 2026-08-04. Deployment is
+      // decided by LOCATION: a `/#__maths__/` component compiles to the RGS,
+      // everything else stays on the frontend. Nothing is injected here now.
 
       // Add instance ports from type
       // var instanceports = NodeLibrary.instance.getDynamicPortsForNode(this);

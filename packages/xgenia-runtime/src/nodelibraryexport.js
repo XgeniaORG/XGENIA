@@ -449,49 +449,19 @@ function generateNodeLibrary(nodeRegister) {
       });
     }
 
-    // --- isMath: per-instance deployment-routing toggle (Compile feature) ---
-    // Surface a boolean `isMath` on every NON-VISUAL native node so the user can
-    // choose where a node is deployed when the project is compiled:
-    //   * isMath === true  (default) -> Backend  (RGS edge function)
-    //   * isMath === false           -> Frontend (Vercel), kept in the page
-    // Default true preserves today's behaviour and keeps existing projects
-    // unchanged (a node with no stored value reads as true at Compile time).
-    // Visual/page/navigation nodes, the Component Inputs/Outputs gateways and the
-    // compile-internal Aggregator never route to a backend, so they don't get it.
-    // Neither do nodes that ALREADY call the RGS platform / backend services from
-    // their own implementation (`usesBackendServices`) — asking to deploy those as
-    // backend nodes is meaningless: they depend on those services either way, and
-    // most of them need a browser (session, launch URL, redirect, popup) to work.
-    // Re-emit the flag so the editor-side compiler can honour it (compile/util.ts).
-    // `allowEditOnly` makes it an editable property (not a connectable port).
-    var isVisualNode =
-      nodeMetadata.category === 'Visual' ||
-      nodeMetadata.allowAsChild === true ||
-      nodeMetadata.allowChildren === true;
-    var alreadyHasIsMath = !!(nodeMetadata.inputs && nodeMetadata.inputs.isMath);
-    var isBackendServiceNode = usesBackendServices(nodeMetadata);
-    if (isBackendServiceNode) {
+    // The per-node `isMath` deployment tickbox was removed 2026-08-04.
+    // Deployment is decided by LOCATION: a `/#__maths__/` component compiles to
+    // the RGS, everything else stays on the frontend.
+    //
+    // The tickbox defaulted to TRUE ("compile me to the backend"), so front-facing
+    // logic became back-facing unless the user turned it off node by node —
+    // which is why it needed a category blocklist and a per-type opt-out on
+    // PixiReelController to contain it. Location routing inverts the default to
+    // "stays where you put it", so none of that scaffolding is needed.
+    //
+    // `usesBackendServices` is still re-emitted: other code reads it.
+    if (usesBackendServices(nodeMetadata)) {
       nodeObj.usesBackendServices = true;
-    }
-    if (
-      !isVisualNode &&
-      !alreadyHasIsMath &&
-      !isBackendServiceNode &&
-      !nodeMetadata.haveComponentPorts &&
-      !(nodeMetadata.category && ISMATH_NON_LOGIC_CATEGORIES[nodeMetadata.category]) &&
-      nodeMetadata.name !== 'Aggregator'
-    ) {
-      nodeObj.ports.push({
-        name: 'isMath',
-        type: { name: 'boolean', allowEditOnly: true },
-        plug: 'input',
-        group: 'Deployment',
-        displayName: 'Is Math',
-        default: true,
-        tooltip:
-          'When ON (default) this node is compiled to the backend (RGS edge function).\n' +
-          'Turn OFF to keep it on the frontend (Vercel) — e.g. logic that drives UI animations.'
-      });
     }
   });
 
