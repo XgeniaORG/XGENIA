@@ -98,31 +98,15 @@ const SimpleJavascriptNode = {
         this.scheduleRun();
       }
     },
-    // isMath: per-instance deployment-routing toggle (Compile feature). Custom
-    // Function nodes carry logic, so like every other non-visual node they can
-    // be extracted to a backend (RGS edge function) when the project is
-    // compiled. Declaring it here (rather than relying on the generic injection
-    // in nodelibraryexport.js) guarantees the property is always present on
-    // custom nodes with a default of true => Backend (RGS). Turn OFF to keep the
-    // node on the frontend (Vercel). `allowEditOnly` makes it an editable
-    // property, not a connectable port; the value is a compile-time flag only,
-    // so the setter is a no-op at runtime.
-    isMath: {
-      displayName: 'Is Math',
-      plug: 'input',
-      type: {
-        name: 'boolean',
-        allowEditOnly: true
-      },
-      group: 'Deployment',
-      default: true,
-      tooltip:
-        'When ON (default) this node is compiled to the backend (RGS edge function).\n' +
-        'Turn OFF to keep it on the frontend (Vercel) — e.g. logic that drives UI animations.',
-      set() {
-        // Deployment-routing flag only; no runtime behaviour.
-      }
-    }
+    // This node used to declare its own `isMath` deployment tickbox, opting out
+    // of the generic injection in nodelibraryexport.js so the property was
+    // always present on custom Function nodes. Removed 2026-08-04 with the
+    // tickbox itself: deployment is decided by LOCATION now — a `/#__maths__/`
+    // component compiles to the RGS, everything else stays on the frontend.
+    //
+    // This was the one node that declared the toggle itself rather than
+    // receiving it, so it survived the first pass and kept rendering a
+    // "Deployment / Is Math" property with no compiler left to read it.
   },
   outputs: {},
   methods: {
