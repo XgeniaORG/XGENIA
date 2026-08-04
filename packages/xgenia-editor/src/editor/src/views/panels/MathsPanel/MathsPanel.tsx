@@ -23,6 +23,7 @@ import {
     deleteEdgeFunction
 } from '@xgenia-utils/rgs/deployEdgeFunction';
 import { AppRegistry } from '@xgenia-models/app_registry';
+import { runMathsTest, promoteMathsToLive } from '@xgenia-utils/rgs/mathsPipeline';
 import { NodeGraphContextTmp } from '@xgenia-contexts/NodeGraphContext/NodeGraphContext';
 import { ComponentsPanel } from '../componentspanel';
 import { MathsComponentDocumentProvider } from '../../documents/MathsComponentDocument';
@@ -357,6 +358,17 @@ export function MathsPanel() {
     // `renameVersion` = the version whose rename modal is open.
     const [versionActionId, setVersionActionId] = useState<string | null>(null);
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+    // Maths configs (action:'versions') — the APPROVAL lifecycle: draft →
+    // testing → approved → live, each row carrying its stress results. Distinct
+    // from `versions` above, which lists deployed edge functions. The panel
+    // stopped calling 'versions' in 57ba2a6; the action stayed live server-side
+    // (the AI's rgs_get_versions still uses it), so nothing needed rebuilding —
+    // without it there is no way to promote a tested config after a reload.
+    const [mathsConfigs, setMathsConfigs] = useState<any[] | null>(null);
+    // The config most recently put through a Test run, so Promote has a target
+    // in this session before the list has refreshed.
+    const [testedConfigId, setTestedConfigId] = useState<string | null>(null);
+    const [promotingId, setPromotingId] = useState<string | null>(null);
     const [renameVersion, setRenameVersion] = useState<any | null>(null);
     const [versionNameInput, setVersionNameInput] = useState('');
     const [versionRenameError, setVersionRenameError] = useState<string | null>(null);
@@ -523,6 +535,45 @@ export function MathsPanel() {
     }, [settings, selectedGame]);
 
     useEffect(() => { fetchVersions(); }, [selectedGame, fetchVersions]);
+
+    // Maths configs — the approval lifecycle behind the Promote action.
+    const fetchMathsConfigs = useCallback(async () => {
+        if (!settings?.apiKey || !selectedGame) { setMathsConfigs(null); return; }
+        try {
+            const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+                method: 'POST',
+                headers: rgsHeaders(settings.apiKey),
+                body: JSON.stringify({ action: 'versions', game_id: selectedGame }),
+            });
+            const data = await res.json();
+            setMathsConfigs(data.versions || data.maths_configs || []);
+        } catch { setMathsConfigs([]); }
+    }, [settings, selectedGame]);
+
+    useEffect(() => { fetchMathsConfigs(); }, [selectedGame, fetchMathsConfigs]);
+
+    const handlePromote = useCallback(async (mathsConfigId: string) => {
+        if (!settings?.apiKey || !mathsConfigId) return;
+        setPromotingId(mathsConfigId);
+        const callAction = async (payload: any) => {
+            const r = await fetch(`${XRGS_URL}/maths-deployer`, {
+                method: 'POST',
+                headers: rgsHeaders(settings.apiKey),
+                body: JSON.stringify(payload),
+            });
+            return r.json();
+        };
+        const res = await promoteMathsToLive(callAction, mathsConfigId, setPipelineStep);
+        setUploadStatus(
+            res.ok
+                ? { type: 'success', message: 'Promoted to live.' }
+                : { type: 'error', message: res.error || 'Promote failed' }
+        );
+        setPromotingId(null);
+        setPipelineStep(null);
+        fetchMathsConfigs();
+        fetchVersions();
+    }, [settings, fetchMathsConfigs, fetchVersions]);
 
     // Clear the components selection when the game changes so the sub-section
     // re-defaults to the new game's newest version.
@@ -963,7 +1014,12 @@ export function MathsPanel() {
                 return;
             }
 
-            // 2. Sequential pipeline: upload → activate → stress-test → approve → deploy
+            // 2. Test pipeline: upload → activate → stress-test, STOPPING at
+            //    `testing`. Promotion to live is handlePromote, a separate act.
+            //    This used to run on to approve → deploy, so the one button here
+            //    pushed maths live with no stop — while the AI path already
+            //    defaulted to stopping. The boundary now lives in mathsPipeline.ts
+            //    where a test can hold it.
             const callAction = async (payload: any) => {
                 const r = await fetch(`${XRGS_URL}/maths-deployer`, {
                     method: 'POST',
@@ -973,77 +1029,40 @@ export function MathsPanel() {
                 return r.json();
             };
 
-            // Step 1: Upload
-            setPipelineStep('Uploading maths...');
-            const uploadData = await callAction({
-                action: 'upload',
-                game_id: selectedGame,
-                maths_mode: 'script',
+            const testRun = await runMathsTest({
+                callAction,
+                gameId: selectedGame,
                 script: result.script,
-                config_data: result.configData,
-                declared_rtp: game?.default_rtp || '96.00',
+                configData: result.configData,
+                declaredRtp: game?.default_rtp || '96.00',
+                numSpins: simCount,
+                onStep: setPipelineStep,
             });
-            if (uploadData.error) {
-                setUploadStatus({ type: 'error', message: `Upload failed: ${uploadData.error}` });
-                setUploading(false);
-                setPipelineStep(null);
-                return;
-            }
-            const mathsConfigId = uploadData.maths_config_id;
-            const version = uploadData.version;
 
-            // Step 2: Activate (draft → testing)
-            setPipelineStep('Activating for testing...');
-            const activateData = await callAction({ action: 'activate', maths_config_id: mathsConfigId });
-            if (activateData.error) {
-                setUploadStatus({ type: 'error', message: `Activate failed: ${activateData.error}` });
+            if (!testRun.ok) {
+                setUploadStatus({ type: 'error', message: testRun.error || 'Test failed' });
                 setUploading(false);
                 setPipelineStep(null);
                 return;
             }
 
-            // Step 3: Stress Test
-            setPipelineStep(`Running stress test (${(simCount / 1000).toFixed(0)}k spins)...`);
-            const stressData = await callAction({ action: 'stress-test', maths_config_id: mathsConfigId, num_spins: simCount });
-            if (stressData.error) {
-                setUploadStatus({ type: 'error', message: `Stress test failed: ${stressData.error}` });
-                setUploading(false);
-                setPipelineStep(null);
-                return;
-            }
+            // Keep the tested config so "Promote to Live" has something to act on
+            // in this session; the Maths Versions list supplies it after a reload.
+            setTestedConfigId(testRun.mathsConfigId || null);
+            fetchMathsConfigs();
 
-            // Step 4: Approve (testing → approved)
-            setPipelineStep('Approving...');
-            const approveData = await callAction({ action: 'approve', maths_config_id: mathsConfigId });
-            if (approveData.error) {
-                setUploadStatus({ type: 'error', message: `Approve failed: ${approveData.error}` });
-                setUploading(false);
-                setPipelineStep(null);
-                return;
-            }
-
-            // Step 5: Deploy (approved → live)
-            setPipelineStep('Deploying to live...');
-            const deployData = await callAction({ action: 'deploy', maths_config_id: mathsConfigId });
-            if (deployData.error) {
-                setUploadStatus({ type: 'error', message: `Deploy failed: ${deployData.error}` });
-                setUploading(false);
-                setPipelineStep(null);
-                return;
-            }
-
-            // Success — extract simulation metrics
-            const rtpComp = stressData.tests?.rtp_compliance || {};
+            const rtpComp = testRun.stress?.tests?.rtp_compliance || {};
             const rtpStr = rtpComp.measured_rtp ? `${rtpComp.measured_rtp.toFixed(2)}%` : '';
             const hitStr = rtpComp.hit_rate != null ? `${(rtpComp.hit_rate * 100).toFixed(1)}%` : '';
             const maxStr = (rtpComp.max_win || rtpComp.max_multiplier) != null ? `${rtpComp.max_win || rtpComp.max_multiplier}×` : '';
             // Name the component that was actually compiled. A project can hold
-            // several maths components, so "v7 deployed live" on its own leaves you
-            // guessing which of them you just pushed.
+            // several maths components, so "v7 tested" on its own leaves you
+            // guessing which of them you just pushed. "(not live)" is explicit
+            // because this pipeline used to end at live and muscle memory lingers.
             const deployedName = String(result.componentName || '').replace('/#__maths__/', '') || 'maths';
             setUploadStatus({
                 type: 'success',
-                message: `${deployedName} → v${version} deployed live! RTP ${rtpStr} · Hit ${hitStr} · Max ${maxStr}`,
+                message: `${deployedName} → v${testRun.version} tested (not live). RTP ${rtpStr} · Hit ${hitStr} · Max ${maxStr}`,
             });
         } catch (e: any) {
             setUploadStatus({ type: 'error', message: e.message || 'Pipeline failed' });
