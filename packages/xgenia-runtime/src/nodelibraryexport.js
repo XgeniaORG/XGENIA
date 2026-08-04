@@ -1,15 +1,8 @@
 'use strict';
 
-// Categories that are page/visual structure or navigation, not deployable
-// business logic. Mirrors NON_LOGIC_CATEGORIES in compile/util.ts so the
-// `isMath` deployment toggle is surfaced on exactly the nodes the compiler
-// would consider for backend extraction.
-var ISMATH_NON_LOGIC_CATEGORIES = {
-  Navigation: true,
-  Visual: true,
-  Visuals: true,
-  'Component Utilities': true
-};
+// ISMATH_NON_LOGIC_CATEGORIES lived here to decide which nodes got the `isMath`
+// deployment tickbox. Removed 2026-08-04 with the tickbox itself: deployment is
+// decided by LOCATION now, so there is no per-node category test to make.
 
 // Categories whose nodes ARE the backend / talk to it themselves: cloud function
 // gateways, the deployed-function caller, the cloud DB + auth + storage nodes.
