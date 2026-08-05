@@ -788,7 +788,7 @@ export class CloudFunctionConverter {
 
     // Transform Inputs.parameterName to inputs.sanitizedParameterName
     inputPorts.forEach((port) => {
-      const originalName = port.displayName;
+      const originalName = this.portScriptName(port);
       const sanitizedName = this.sanitizeParameterName(originalName);
       if (originalName !== sanitizedName) {
         script = script.replace(
@@ -803,7 +803,7 @@ export class CloudFunctionConverter {
     // Transform Outputs.parameterName = to let sanitizedParameterName =
     // Fix the variable mapping issue by ensuring proper variable names and scope
     outputPorts.forEach((port) => {
-      const originalName = port.displayName;
+      const originalName = this.portScriptName(port);
       const sanitizedName = this.sanitizeParameterName(originalName);
       if (originalName !== sanitizedName) {
         script = script.replace(
@@ -826,7 +826,7 @@ export class CloudFunctionConverter {
 
     // Get output port names for return statement (needed for early returns)
     // outputPorts is an array of port objects in Cloud Logic functions
-    const outputPortNames = outputPorts.map((p) => this.sanitizeParameterName(p.displayName));
+    const outputPortNames = outputPorts.map((p) => this.sanitizeParameterName(this.portScriptName(p)));
 
     // Declare all detected signals as booleans and include in outputs
     signalNames.forEach((name) => {
@@ -1904,7 +1904,15 @@ ${originalComponentStructure}
     // Transform Inputs.parameterName to inputs.sanitizedParameterName
     const inputPorts = node.dynamicports?.filter((p) => p.plug === 'input') || [];
     inputPorts.forEach((port) => {
-      const originalName = port.displayName;
+      // `displayName` is what the script writes (`Inputs.<displayName>`), but it is
+      // not guaranteed present — editor-model ports carry it, ports rehydrated from
+      // a project export or a fixture often carry only `name`. Reading it blindly
+      // threw "Cannot read properties of undefined (reading 'replace')" out of the
+      // middle of code generation, which surfaces as a failed compile with no clue
+      // which port caused it. Fall back to the port name, which is what the script
+      // would have referenced anyway.
+      const originalName = this.portScriptName(port);
+      if (!originalName) return;
       const sanitizedName = this.sanitizeParameterName(originalName);
       if (originalName !== sanitizedName) {
         transformedScript = transformedScript.replace(
@@ -1923,10 +1931,13 @@ ${originalComponentStructure}
     // Fix the variable mapping issue by ensuring proper variable names and scope
     outputPorts.forEach((portName) => {
       const originalPort = node.dynamicports?.find(
-        (p) => p.plug === 'output' && this.sanitizeParameterName(p.displayName) === portName
+        (p) => p.plug === 'output' && this.sanitizeParameterName(this.portScriptName(p)) === portName
       );
       if (originalPort) {
-        const originalName = originalPort.displayName;
+        // Same fallback as the input side above: `displayName` is absent on ports
+        // rehydrated from an export, and reading it blindly crashed code generation.
+        const originalName = this.portScriptName(originalPort);
+        if (!originalName) return;
 
         // Check if the variable is already declared as const in the script
         const isConstVariable = new RegExp(`const\\s+${portName}\\s*=`).test(transformedScript);
@@ -2160,7 +2171,7 @@ ${originalComponentStructure}
     if (!requestNode?.dynamicports) return [];
     return requestNode.dynamicports
       .filter((p) => p.plug === 'output')
-      .map((p) => this.sanitizeParameterName(p.displayName));
+      .map((p) => this.sanitizeParameterName(this.portScriptName(p)));
   }
 
   private generateFunctionInvocations(nodes: Node[], requestNode?: Node): string {
@@ -2400,7 +2411,7 @@ ${originalComponentStructure}
             requestNode.dynamicports
               .filter((p) => p.plug === 'output')
               .forEach((port) => {
-                const originalName = port.displayName;
+                const originalName = this.portScriptName(port);
                 const paramName = this.sanitizeParameterName(originalName);
                 if (!inputMappings.has(paramName)) {
                   // Use square bracket notation for parameters with spaces or special characters
@@ -3196,11 +3207,33 @@ ${originalComponentStructure}
     // loaded from disk before the editor materialised its derived out-* ports).
     return (node.dynamicports || [])
       .filter((p) => p.plug === 'output')
-      .map((p) => this.sanitizeParameterName(p.displayName));
+      .map((p) => this.sanitizeParameterName(this.portScriptName(p)));
+  }
+
+  /**
+   * The name a script uses for a port: `Inputs.<x>` / `Outputs.<x>`.
+   *
+   * Editor-model ports carry `displayName`; ports rehydrated from a project
+   * export or a fixture often carry only `name`, prefixed with its plug
+   * (`in-reels`, `out-finalResult`). Reading displayName blindly crashed code
+   * generation; falling back to the raw name emitted `let out-finalResult;`,
+   * which is not an identifier. Strip the plug prefix — that is exactly what
+   * displayName is, and the same convention this file already uses when it
+   * builds the Inputs/Outputs objects.
+   */
+  private portScriptName(port: { displayName?: string; name?: string } | undefined | null): string {
+    if (!port) return '';
+    if (port.displayName) return port.displayName;
+    return String(port.name || '').replace(/^(?:in|out)-/, '');
   }
 
   private findPort(nodeId: string, portName: string) {
-    return this.nodes.get(nodeId)?.dynamicports.find((p) => p.name === portName);
+    // `?.` guarded the node lookup but not `dynamicports`, so a node without that
+    // array threw "Cannot read properties of undefined (reading 'find')" out of a
+    // lookup whose whole contract is "return the port or undefined". Editor-model
+    // nodes always carry it; nodes rehydrated from an export or a test fixture do
+    // not, and those are exactly the inputs a harness feeds in.
+    return this.nodes.get(nodeId)?.dynamicports?.find((p) => p.name === portName);
   }
 
   private sanitizeForIdentifier(name: string): string {
