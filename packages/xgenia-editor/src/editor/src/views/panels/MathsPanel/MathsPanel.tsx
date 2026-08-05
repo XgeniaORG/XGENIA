@@ -19,6 +19,7 @@ import { Tabs, TabsVariant } from '@xgenia-core-ui/components/layout/Tabs';
 import { supabase } from '../../../supabaseInit';
 import {
     downloadEdgeDeployment,
+    deleteComponentEverywhere,
     deleteEdgeDeployment,
     renameEdgeDeployment,
     downloadEdgeFunction,
@@ -451,12 +452,11 @@ export function MathsPanel() {
     // The Deploy prompt: a commit needs a message, so Deploy asks for one first.
     const [commitPrompt, setCommitPrompt] = useState<{ message: string } | null>(null);
 
-    // What a Deploy would actually push. Deletions appear in Changed but are never
-    // pushed — taking a live endpoint down is the platform's deliberate action, not
-    // a side effect of deploying (see handleDeployMathsComponents).
-    const deployableCount = mathsStatus.changed.filter(
-        (c) => c.kind === 'added' || c.kind === 'modified'
-    ).length;
+    // Everything a Deploy applies — deletions included, since they are applied now
+    // (see handleDeployMathsComponents). Counting only the deploys would let the
+    // button read "Deploy 0 changes" while a removal was still pending.
+    const deployableCount = mathsStatus.changed.length;
+    const removalCount = mathsStatus.changed.filter((c) => c.kind === 'deleted').length;
 
     // Upload, Test & Deploy modal state
     const [showTestConfigModal, setShowTestConfigModal] = useState(false);
@@ -497,6 +497,23 @@ export function MathsPanel() {
     // as the studio "API docs" page.
     const selectedVersion =
         (versions || []).find((v: any) => v.id === selectedVersionId) || (versions || [])[0] || null;
+
+    /** The line under the Deploy button: why it is unavailable, or what it will do. */
+    const deployButtonHint = !connected
+        ? 'Connect to XGENIA RGS to deploy.'
+        : !selectedGame
+            ? 'Select a game above.'
+            : !selectedVersion
+                ? 'Create a server version above to deploy into.'
+                : deployableCount > 0
+                    ? `Applies ${deployableCount} change${deployableCount === 1 ? '' : 's'} to v${selectedVersion.version}` +
+                      (removalCount > 0
+                          ? `, removing ${removalCount} component${removalCount === 1 ? '' : 's'} from RGS`
+                          : '') +
+                      ', and records a commit.'
+                    : mathsCount === 0
+                        ? 'Add a Maths Component in Local to deploy.'
+                        : 'Nothing to deploy — every component matches what is live.';
 
     // ─── Deployed-function helpers ───────────────────────────────
     // These three (openComponentDoc, openComponentSimulate, and the handlers
@@ -895,10 +912,17 @@ export function MathsPanel() {
      * has nothing to send, and re-uploading it would put an identical snapshot in
      * the history and make every commit look like it touched everything.
      *
-     * Deletions are listed but never pushed. A component removed from the tree is
-     * still a live endpoint that a published game may be calling, and taking that
-     * down is not something a Deploy press should do implicitly — the platform's
-     * per-component delete is the deliberate way.
+     * Deletions ARE applied. A component deleted in Local is removed from the
+     * platform — every row it has, in every Server Version, because rgs-fn serves
+     * the newest active row for a (game, slug) across all of them and deleting only
+     * the selected version's copy would leave the endpoint answering with older
+     * code. That is the whole point: a component you deleted should stop being live.
+     *
+     * The order matters and is not arbitrary. Deploys first, then the commit —
+     * which carries the last-known script and graph of everything being deleted —
+     * and only then the deletions themselves. The platform rows are the only copy
+     * it holds, so the history has to exist before they go, or deleting a component
+     * would be the one irreversible thing this editor can do.
      */
     const handleDeployMathsComponents = useCallback(async (commitMessage: string) => {
         if (!settings?.apiKey || !selectedGame || !selectedVersion) return;
@@ -911,19 +935,22 @@ export function MathsPanel() {
             if (!project) throw new Error('No project is open.');
 
             const toDeploy = mathsStatus.changed.filter((c) => c.kind === 'added' || c.kind === 'modified');
+            const toDelete = mathsStatus.changed.filter((c) => c.kind === 'deleted');
             const onlySlugs = new Set(toDeploy.map((c) => c.slug));
-            if (onlySlugs.size === 0) {
+            if (onlySlugs.size === 0 && toDelete.length === 0) {
                 throw new Error('Nothing to deploy — every component matches what is already deployed.');
             }
 
-            const results: MathsDeployResult[] = await deployMathsComponents(project, {
-                apiKey: settings.apiKey,
-                gameId: selectedGame,
-                deploymentId: selectedVersion.id,
-                version: selectedVersion.version,
-                onlySlugs,
-                onProgress: setDeployStep
-            });
+            const results: MathsDeployResult[] = onlySlugs.size > 0
+                ? await deployMathsComponents(project, {
+                    apiKey: settings.apiKey,
+                    gameId: selectedGame,
+                    deploymentId: selectedVersion.id,
+                    version: selectedVersion.version,
+                    onlySlugs,
+                    onProgress: setDeployStep
+                })
+                : [];
 
             // Record what just happened. AFTER the deploy, never before: a commit
             // written up front would claim a deploy that might still fail. If this
@@ -937,6 +964,21 @@ export function MathsPanel() {
                 script: r.script,
                 project_json: r.projectJson
             }));
+
+            // Each deletion carries the component's last-known state, read from what
+            // we already fetched off the platform. This is what makes the removal
+            // recoverable — after the delete below, this commit is the only place
+            // the component's graph still exists.
+            toDelete.forEach((entry) => {
+                const live = mathsStatus.deployedBySlug.get(entry.slug);
+                files.push({
+                    function_slug: entry.slug,
+                    function_name: live?.functionName || entry.displayName,
+                    change_kind: 'deleted',
+                    ...(live?.component ? { project_json: { components: [live.component] } } : {})
+                });
+            });
+
             let commitWarning: string | null = null;
             try {
                 setDeployStep('Recording commit…');
@@ -953,15 +995,55 @@ export function MathsPanel() {
                 console.error('[MathsComponents] commit failed:', e);
             }
 
-            await fetchVersions();
-            await refreshDeployed();
-            await refreshCommits();
+            // The commit is the deletions' only backup, so a failed commit stops the
+            // deletions rather than proceeding without one. The deploys already
+            // happened and stay — reporting them as failed would be a lie — but
+            // nothing gets removed that we could not put back.
             if (commitWarning) {
+                await refreshDeployed();
+                await refreshCommits();
                 setUploadStatus({
                     type: 'error',
                     message:
                         `Deployed ${results.length} component${results.length === 1 ? '' : 's'}, but ` +
-                        `${commitWarning}. The components are live; only the history entry is missing.`
+                        `${commitWarning}. The components are live; only the history entry is missing.` +
+                        (toDelete.length > 0
+                            ? ` ${toDelete.length} deletion${toDelete.length === 1 ? ' was' : 's were'} skipped — ` +
+                              'without a commit to hold the graph, removing them could not be undone.'
+                            : '')
+                });
+                setDeployingComponents(false);
+                setDeployStep(null);
+                return;
+            }
+
+            // Now the removals. Every row the component has, in every Server Version
+            // — deleting only this version's copy would promote an older one and the
+            // endpoint would go on answering (see deleteComponentEverywhere).
+            const removed: string[] = [];
+            const alreadyGone: string[] = [];
+            const failedToRemove: string[] = [];
+            for (const entry of toDelete) {
+                try {
+                    setDeployStep(`Removing ${entry.displayName} from RGS…`);
+                    const { deleted } = await deleteComponentEverywhere(settings.apiKey, selectedGame, entry.slug);
+                    (deleted > 0 ? removed : alreadyGone).push(entry.displayName);
+                } catch (e: any) {
+                    failedToRemove.push(`${entry.displayName} (${e?.message || 'unknown error'})`);
+                }
+            }
+
+            await fetchVersions();
+            await refreshDeployed();
+            await refreshCommits();
+
+            if (failedToRemove.length > 0) {
+                setUploadStatus({
+                    type: 'error',
+                    message:
+                        `Committed ${files.length} change${files.length === 1 ? '' : 's'} to v${selectedVersion.version}, ` +
+                        `but could not remove ${failedToRemove.join(', ')}. ` +
+                        `${failedToRemove.length === 1 ? 'It is' : 'They are'} still live on RGS.`
                 });
                 setDeployingComponents(false);
                 setDeployStep(null);
@@ -986,19 +1068,17 @@ export function MathsPanel() {
             } else if (betWinIssue) {
                 setUploadStatus({ type: 'error', message: betWinIssue.betWinWarning! });
             } else {
-                // Deletions were listed in Changed but deliberately not pushed, so
-                // say so rather than letting a clean "Deployed N" imply the tree and
-                // the platform now match.
-                const stillLive = mathsStatus.changed.filter((c) => c.kind === 'deleted');
+                // Name the removals explicitly. "Committed 3 changes" would hide the
+                // fact that an endpoint just stopped answering, which is the one
+                // outcome of a deploy that can break a game already in the wild.
+                const parts = [
+                    results.length > 0 ? `${results.length} component${results.length === 1 ? '' : 's'} deployed` : '',
+                    removed.length > 0 ? `${removed.join(', ')} removed from RGS` : '',
+                    alreadyGone.length > 0 ? `${alreadyGone.join(', ')} already gone` : ''
+                ].filter(Boolean);
                 setUploadStatus({
                     type: 'success',
-                    message:
-                        `Committed ${results.length} component${results.length === 1 ? '' : 's'} to v${selectedVersion.version}` +
-                        (stillLive.length > 0
-                            ? ` — ${stillLive.map((c) => c.displayName).join(', ')} ${stillLive.length === 1 ? 'is' : 'are'} ` +
-                              'still live on RGS; delete from the platform to take ' +
-                              `${stillLive.length === 1 ? 'it' : 'them'} down.`
-                            : '')
+                    message: `v${selectedVersion.version}: ${parts.join(' · ')}`
                 });
             }
         } catch (e: any) {
@@ -1991,20 +2071,14 @@ export function MathsPanel() {
                         }
                     />
 
-                    {/* Why the button is unavailable, rather than an inert control. */}
+                    {/* Why the button is unavailable, rather than an inert control — and
+                        what pressing it will do when it is. `deployableCount` is checked
+                        before `mathsCount`: deleting every component locally leaves an
+                        empty tree with real removals still to apply, and "add a component"
+                        would be the wrong thing to say about that. */}
                     {!deployingComponents && (
                         <div style={{ fontSize: '10px', color: '#666', marginTop: '6px' }}>
-                            {!connected
-                                ? 'Connect to XGENIA RGS to deploy.'
-                                : !selectedGame
-                                    ? 'Select a game above.'
-                                    : !selectedVersion
-                                        ? 'Create a server version above to deploy into.'
-                                        : mathsCount === 0
-                                            ? 'Add a Maths Component below to deploy.'
-                                            : deployableCount === 0
-                                                ? 'Nothing to deploy — every component matches what is live.'
-                                                : `Compiles and deploys the ${deployableCount} changed component${deployableCount === 1 ? '' : 's'} into v${selectedVersion.version}, and records a commit.`}
+                            {deployButtonHint}
                         </div>
                     )}
 
@@ -2895,6 +2969,14 @@ export function MathsPanel() {
                                 Compiles and deploys the changed components, then records a commit so this
                                 version of each one stays readable after the next deploy overwrites it.
                             </div>
+                            {removalCount > 0 && (
+                                <div style={{ fontSize: '12px', color: '#EF4444', marginTop: '8px' }}>
+                                    {removalCount === 1 ? 'One component' : `${removalCount} components`} will be
+                                    REMOVED from RGS — every version, so the endpoint stops answering. Anything
+                                    already published that calls {removalCount === 1 ? 'it' : 'them'} will start
+                                    failing. The commit keeps a copy, so this can be put back by deploying again.
+                                </div>
+                            )}
                         </div>
 
                         <div style={{ marginBottom: '16px', maxHeight: '160px', overflowY: 'auto' }}>
@@ -2914,8 +2996,8 @@ export function MathsPanel() {
                                         {c.displayName}
                                     </span>
                                     {c.kind === 'deleted' && (
-                                        <span style={{ fontSize: '10px', color: '#666' }}>
-                                            — stays live on RGS
+                                        <span style={{ fontSize: '10px', color: '#EF4444' }}>
+                                            — will be removed from RGS
                                         </span>
                                     )}
                                 </div>

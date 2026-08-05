@@ -329,6 +329,52 @@ export async function deleteEdgeFunction(
 }
 
 /**
+ * Takes one Math Component off the platform entirely — every row it has, in every
+ * Server Version of this game.
+ *
+ * Distinct from `deleteEdgeFunction`, which deletes ONE row by id. That is not
+ * enough to stop a component answering: `rgs-fn` serves the newest ACTIVE row for
+ * a (game, slug) across all versions, so deleting the selected version's copy just
+ * promotes an older one and the endpoint keeps serving older code. This is what
+ * "the component is gone" actually requires.
+ *
+ * Irreversible on the platform, so the caller must record a commit carrying the
+ * component's last-known script and project_json FIRST — after this, the commit
+ * history is the only place it exists.
+ *
+ * A component that was already gone is not an error: `deleted: 0` comes back and
+ * the caller can report it as already removed rather than failing the deploy.
+ */
+export async function deleteComponentEverywhere(
+  apiKey: string,
+  gameId: string,
+  functionSlug: string
+): Promise<{ deleted: number; functionName: string | null }> {
+  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+    method: 'POST',
+    headers: rgsHeaders(apiKey),
+    body: JSON.stringify({
+      action: 'delete-component',
+      game_id: gameId,
+      function_slug: functionSlug
+    })
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const serverError = (data && data.error) || '';
+    if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes('delete-component')) {
+      throw new Error(
+        'XGENIA RGS backend is out of date — it cannot remove a component from every version yet. ' +
+          'Redeploy the `maths-deployer` function to the RGS project, then try again.'
+      );
+    }
+    throw new Error(serverError || `RGS component delete failed (HTTP ${res.status})`);
+  }
+  return { deleted: data.deleted ?? 0, functionName: data.function_name ?? null };
+}
+
+/**
  * Deletes one Server Version (deployment). Its component edge functions are
  * removed by the DB's ON DELETE CASCADE. Optionally scoped to gameId so a
  * mismatched deployment id can't delete another game's version.
