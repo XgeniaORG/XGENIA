@@ -48,9 +48,12 @@ export function isMathsComponentName(name: unknown): boolean {
 /**
  * Every Math Component in the project, in name order.
  *
- * Includes components filed in sub-folders of the sheet and "folder components"
- * (a component that also has children) — anything under `/#__maths__/` is a
- * component the user can deploy.
+ * Nesting is filing, not containment: a child ("/#__maths__/Adder/Add with 5")
+ * and a grandchild ("/#__maths__/Adder/Add with 5/…") are each their own
+ * ComponentModel with their own graph, so each is its own independent component
+ * here — compiled, deployed and counted separately from its parent, exactly like
+ * a sibling. Anything under `/#__maths__/` is in, at any depth: components filed
+ * in sub-folders, and "folder components" (a component that also has children).
  */
 export function listMathsComponents(project: any): any[] {
   const all = project?.getComponents?.() || project?.components || [];
@@ -61,31 +64,55 @@ export function listMathsComponents(project: any): any[] {
 }
 
 /**
- * The routing slug a Math Component deploys under: its LEAF name, slugified.
+ * A Math Component's path below the `/#__maths__/` sheet, segment by segment.
  *
- * Only the leaf is used — the folders in front are the user's filing, not the
- * component's identity, and the slug becomes a path segment of
- * `/rgs-fn/<game>/<slug>`. Two components with the same leaf name in different
- * folders would therefore collide; the deploy refuses that up front rather than
- * letting the second silently overwrite the first (the RGS upsert keys on
- * (deployment_id, function_slug)).
+ * "/#__maths__/Adder/Add with 5" → ['Adder', 'Add with 5']. Folders and parent
+ * components are indistinguishable in a component name — both are just path
+ * segments — so this is the whole of what identifies the component inside the
+ * sheet.
  */
-export function mathsComponentSlug(component: any): string {
-  const leaf = String(component?.name || '')
+export function mathsComponentPath(component: any): string[] {
+  const name = String(component?.name || '');
+  const body = name.startsWith(MATHS_PREFIX) ? name.slice(MATHS_PREFIX.length) : name;
+  return body
     .split('/')
-    .filter(Boolean)
-    .pop();
-  return toFunctionSlug(leaf || '', 'Component');
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
-/** Display name shown in the RGS lists — the leaf name, unslugified. */
+/**
+ * The routing slug a Math Component deploys under: its FULL path below the
+ * sheet, slugified — "Adder/Add with 5" → "Adder_Add_with_5".
+ *
+ * The path, not just the leaf, because every component in the tree deploys as
+ * its own endpoint regardless of depth, and the slug is what identifies it: it
+ * becomes a path segment of `/rgs-fn/<game>/<slug>` and the RGS upsert keys on
+ * (deployment_id, function_slug). On the leaf alone, "Adder/Add with 5" and
+ * "Substract/Add with 5" are one endpoint — the second would overwrite the
+ * first, so the deploy had to refuse the pair outright and demand a rename.
+ * Qualifying by path makes them two independent components, which is what the
+ * tree already says they are.
+ *
+ * A top-level component's slug is unchanged by this (its path IS its leaf), so
+ * everything deployed from a flat sheet keeps its endpoint. A component filed
+ * under a parent or folder deploys under a longer slug than it did when only the
+ * leaf counted; its old endpoint row is left alone (still active, still served)
+ * and Publish repoints the frontend at the new URL.
+ *
+ * Two different paths can still slugify the same ("Adder/Add" vs "Adder_Add"),
+ * so deployMathsComponents keeps its collision check.
+ */
+export function mathsComponentSlug(component: any): string {
+  return toFunctionSlug(mathsComponentPath(component).join('/'), 'Component');
+}
+
+/**
+ * Display name shown in the RGS lists — the path below the sheet, unslugified:
+ * "Adder / Add with 5". Nested components share leaf names freely, and a list of
+ * bare leaves gives no way to tell which "Add with 5" is which.
+ */
 export function mathsComponentDisplayName(component: any): string {
-  return (
-    String(component?.name || '')
-      .split('/')
-      .filter(Boolean)
-      .pop() || 'Component'
-  );
+  return mathsComponentPath(component).join(' / ') || 'Component';
 }
 
 /**
@@ -287,6 +314,22 @@ function winPortFor(responseExample: Record<string, any>): string | null {
   return null;
 }
 
+/**
+ * The bet/win mapping a deploy of this artifact WOULD store — the same two rules
+ * as the deploy, exposed so a simulation of an undeployed component stakes and
+ * scores its rounds the way the real endpoint will. Either half can be null when
+ * the component's ports don't name one.
+ */
+export function deriveBetWinPorts(artifact: {
+  payloadExample?: Record<string, any>;
+  responseExample?: Record<string, any>;
+}): { betInputPort: string | null; winOutputPort: string | null } {
+  return {
+    betInputPort: betPortFor(artifact.payloadExample || {}),
+    winOutputPort: winPortFor(artifact.responseExample || {})
+  };
+}
+
 export interface MathsDeployResult {
   componentName: string;
   slug: string;
@@ -318,6 +361,12 @@ export interface MathsDeployOptions {
 
 /**
  * Deploys every Math Component in the project into one Server Version.
+ *
+ * "Every" is depth-blind: a parent, its children and its grandchildren are each
+ * an independent component with its own graph, so each gets its own compile and
+ * its own endpoint. A child that the parent also INSTANTIATES is inlined into the
+ * parent's script as well (step 1) — that is the parent being self-contained, not
+ * the child being skipped.
  *
  * Per component: compile → deploy → upload project.json. Runs sequentially so a
  * failure names the component that failed and nothing after it has run, and so
@@ -370,7 +419,10 @@ export async function deployMathsComponents(
     const artifact: FunctionArtifact = generateFunctionArtifact(flat, project);
 
     if (!artifact.script || artifact.script.length < 50) {
-      throw new Error(`${label} compiled to an empty script. Check that its nodes are connected.`);
+      throw new Error(
+        `${label} compiled to an empty script. Check that its nodes are connected — or, if it only ` +
+          'exists to hold the components under it, make it a Folder instead of a component.'
+      );
     }
     // Same guard the Maths panel's upload pipeline applies: catch a script that
     // cannot even parse here, rather than after it is live.

@@ -9,6 +9,8 @@ import {
 import { Box } from '@xgenia-core-ui/components/layout/Box';
 import { Container, ContainerDirection } from '@xgenia-core-ui/components/layout/Container';
 import { VStack } from '@xgenia-core-ui/components/layout/Stack';
+// ContextMenu (and IconSize above) are used only by the commented-out "Deployed
+// Functions" list further down — kept so restoring it is a pure uncomment.
 import { ContextMenu } from '@xgenia-core-ui/components/popups/ContextMenu';
 import { Tooltip } from '@xgenia-core-ui/components/popups/Tooltip';
 import { BasePanel } from '@xgenia-core-ui/components/sidebar/BasePanel';
@@ -450,6 +452,12 @@ export function MathsPanel() {
     const selectedVersion =
         (versions || []).find((v: any) => v.id === selectedVersionId) || (versions || [])[0] || null;
 
+    // ─── Deployed-function helpers ───────────────────────────────
+    // These three (openComponentDoc, openComponentSimulate, and the handlers
+    // further down) drive the "Deployed Functions" list, which is currently
+    // commented out further down this file. Kept live so uncommenting that block is
+    // the only step needed to restore it.
+
     // Open a component's API docs + script inspector in the editor's MAIN area
     // (an AppRegistry document, like the Component Diff view) — not in this
     // sidebar. The document fetches the script itself via download-edge-deployment.
@@ -479,10 +487,16 @@ export function MathsPanel() {
         });
     };
 
-    // Open a component's Simulate view in the editor's MAIN area — the same
-    // Define Inputs → Simulate → Results flow as a game's Testing subsection in
-    // the RGS studio, run locally against the deployed script. The document
-    // fetches that script itself via download-edge-deployment.
+    // Open a DEPLOYED component's Simulate view in the editor's MAIN area — the
+    // same Define Inputs → Simulate → Results flow as a game's Testing subsection
+    // in the RGS studio, run locally against the deployed script, which the
+    // document fetches itself via download-edge-deployment.
+    //
+    // The Simulate people actually reach for now is the one on the Maths
+    // Components tree (ComponentsPanel.openMathsSimulate): it compiles the
+    // component you are authoring, so it needs neither a deploy nor a connection,
+    // and it works at any depth in the tree. This one measures what is already on
+    // the server and belongs to the commented-out Deployed Functions list.
     const openComponentSimulate = (fn: any) => {
         if (!settings?.apiKey || !selectedVersion) return;
         AppRegistry.instance.openDocument(MathsSimulateDocumentProvider.ID, {
@@ -1536,10 +1550,9 @@ export function MathsPanel() {
                                                 >
                                                     {creatingVersion ? 'Creating…' : '+ New version'}
                                                 </span>
-                                                {/* Re-runs list-edge-deployments. Both the Deployed
-                                                    Functions list and the Deploy target follow
-                                                    automatically, since their `selectedVersion` is
-                                                    derived from this list. */}
+                                                {/* Re-runs list-edge-deployments. The Deploy target
+                                                    follows automatically, since its
+                                                    `selectedVersion` is derived from this list. */}
                                                 <span
                                                     onClick={() => { void fetchVersions(); }}
                                                     style={{ fontSize: '10px', color: '#666', cursor: 'pointer', userSelect: 'none' as const }}
@@ -1564,7 +1577,7 @@ export function MathsPanel() {
                                             <div
                                                 key={v.id}
                                                 onClick={() => setSelectedVersionId(v.id)}
-                                                title="View this version's components"
+                                                title="Deploy Maths Components into this version"
                                                 style={{
                                                     display: 'flex', alignItems: 'center', gap: '8px',
                                                     padding: '6px 8px', borderRadius: '4px', marginBottom: '4px',
@@ -1708,6 +1721,12 @@ export function MathsPanel() {
                     this, Publish only has to point the frontend at its live endpoint, and
                     nothing is compiled at publish time.
 
+                    "Every" counts the tree, not its top level: a child and a grandchild
+                    are components in their own right and each gets its own compile and its
+                    own endpoint, so a sheet holding two parents with four descendants
+                    between them deploys 6 components. The count on the button is exactly
+                    that number (listMathsComponents).
+
                     Distinct from "Test" above: that moves ONE maths config through the
                     draft → testing → live approval lifecycle (maths_configs). This turns
                     each authored component into a callable endpoint (game_edge_functions).
@@ -1754,7 +1773,7 @@ export function MathsPanel() {
                                         ? 'Create a server version above to deploy into.'
                                         : mathsCount === 0
                                             ? 'Add a Maths Component below to deploy.'
-                                            : `Compiles each component, deploys it into v${selectedVersion.version}, then uploads its project.json.`}
+                                            : `Compiles every component in the tree below — parents, children and deeper — and deploys each into v${selectedVersion.version} as its own endpoint.`}
                         </div>
                     )}
 
@@ -1768,19 +1787,36 @@ export function MathsPanel() {
                 </div>
 
                 {/* Maths Components — THIS project's `/#__maths__/` node-graph components,
-                    the ones you author and that get compiled to the RGS script on upload.
-                    Distinct from "Deployed Functions" below, which is what is already
-                    live on the server. Local (editable) above, remote (read-only) below. */}
+                    the ones you author, compile and deploy. Every component in the tree is
+                    its own component at any depth: a child or grandchild has its own graph,
+                    compiles on its own and deploys to its own endpoint, exactly like a
+                    sibling. Its three-dot menu is where per-component actions live —
+                    including Simulate, which compiles that component on the spot and
+                    measures its RTP (see ComponentsPanel.openMathsSimulate). */}
                 <div style={{ flex: '1.5 1 0', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                     <ComponentsPanel options={mathsPanelOptions} />
                 </div>
 
-                {/* Deployed Functions — the edge functions of the selected Server Version,
-                    shown API-docs style (mirrors the RGS studio "API docs" page). Clicking a
-                    version in "Server Versions" above drives this list; it defaults to the
-                    newest version. Named "Deployed Functions", not "Components": these are
-                    server-side artifacts, and calling them "Components" made them read as
-                    the project's own maths components (the section directly above). */}
+                {/* Deployed Functions — COMMENTED OUT, deliberately kept rather than deleted.
+                    The edge functions of the selected Server Version, shown API-docs style
+                    (mirrors the RGS studio "API docs" page), driven by the version clicked in
+                    "Server Versions" above.
+
+                    Withdrawn from the panel because the one action people came here for —
+                    Simulate — now lives on the Maths Components tree above, where it runs
+                    against the component you are authoring instead of the copy that happens
+                    to be on the server. The rest of this list (API docs / rename / download /
+                    delete of a deployed function) is still reachable in the RGS studio.
+
+                    To bring it back, uncomment the JSX below. Everything it needs is still
+                    live in this file: openComponentDoc, openComponentSimulate,
+                    handleRenameComponent, handleDownloadComponent, handleDeleteComponent and
+                    the rename / delete modals at the bottom.
+
+                    NOTE for whoever restores or edits this: it is commented with a single
+                    JSX comment, so the block must not contain the characters that would close
+                    one. That is why the inner notes below are `//` line comments. */}
+                {/*
                 <div style={{ flex: '1 1 0', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                     <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px' }}>
                         <span style={{ fontWeight: 600, fontSize: '12px', textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: '#a0a0b0' }}>
@@ -1871,6 +1907,7 @@ export function MathsPanel() {
                         )}
                     </div>
                 </div>
+                */}
 
             </Container>
 

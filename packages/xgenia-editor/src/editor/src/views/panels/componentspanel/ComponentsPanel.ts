@@ -1,5 +1,6 @@
 import _ from 'underscore';
 
+import { AppRegistry } from '@xgenia-models/app_registry';
 import { ComponentModel } from '@xgenia-models/componentmodel';
 import { NodeGraphModel } from '@xgenia-models/nodegraphmodel';
 import { NodeLibrary } from '@xgenia-models/nodelibrary';
@@ -8,6 +9,13 @@ import { ProjectModel } from '@xgenia-models/projectmodel';
 import { getDefaultComponent } from '@xgenia-models/projectmodel.utils';
 import { UndoQueue, UndoActionGroup } from '@xgenia-models/undo-queue-model';
 import { WarningsModel } from '@xgenia-models/warningsmodel';
+import {
+  compileMathsComponent,
+  deriveBetWinPorts,
+  mathsComponentDisplayName,
+  mathsComponentSlug
+} from '@xgenia-utils/rgs/deployMathsComponents';
+import { generateFunctionArtifact } from '@xgenia-utils/rgs/generateFunctionArtifact';
 import { tracker } from '@xgenia-utils/tracker';
 import { guid } from '@xgenia-utils/utils';
 
@@ -992,6 +1000,74 @@ export class ComponentsPanelView extends View {
     evt.stopPropagation();
   }
 
+  /**
+   * The "Simulate" menu action for a Math Component, or null when this panel is
+   * not the maths sheet (a visual or cloud component has no RTP to measure).
+   *
+   * Offered on EVERY component in the maths tree, at any depth — a leaf, a
+   * parent that also has children (a "folder component"), or a grandchild. Each
+   * of those is its own ComponentModel with its own graph and its own endpoint,
+   * so each is its own thing to simulate. This is the action that used to sit on
+   * the deployed function's menu in the Maths RGS panel's "Deployed Functions"
+   * list; here it reaches the component you are authoring instead of the copy
+   * that happens to be on the server.
+   */
+  private mathsSimulateMenuItem(component: ComponentModel, evt): PopupMenuItem | null {
+    if (!component || this.getRuntimeType() !== 'maths') return null;
+
+    return {
+      icon: IconName.Play,
+      label: 'Simulate',
+      onClick: () => {
+        this.openMathsSimulate(component);
+        evt && evt.stopPropagation();
+      }
+    };
+  }
+
+  /**
+   * Compiles one Math Component and opens the Simulate view on the result.
+   *
+   * Compiled exactly the way Deploy compiles it — clone the graph, inline every
+   * nested component instance into one flat layer, then generate the
+   * evaluate(ctx) script (see utils/rgs/deployMathsComponents) — so what is
+   * simulated is the code a deploy would ship. Nothing is uploaded and no RGS
+   * connection is needed: a component authored a minute ago can be measured
+   * before it has ever been deployed.
+   */
+  private openMathsSimulate(component: ComponentModel) {
+    const label = mathsComponentDisplayName(component);
+
+    try {
+      const flat = compileMathsComponent(component);
+      const artifact = generateFunctionArtifact(flat, ProjectModel.instance);
+
+      // Required here rather than imported at the top: the Simulate document
+      // pulls in the editor's main-area document tree, which reaches back to this
+      // panel. A lazy require keeps that cycle out of module evaluation.
+      const { MathsSimulateDocumentProvider } = require('../../documents/MathsSimulateDocument');
+      const { betInputPort, winOutputPort } = deriveBetWinPorts(artifact);
+
+      AppRegistry.instance.openDocument(MathsSimulateDocumentProvider.ID, {
+        script: artifact.script,
+        sourceLabel: ProjectModel.instance?.name,
+        fn: {
+          function_slug: mathsComponentSlug(component),
+          function_name: label,
+          payload_example: artifact.payloadExample,
+          response_example: artifact.responseExample,
+          // The same mapping a deploy of this component would store, so the
+          // simulation stakes and scores its rounds the way the endpoint will.
+          bet_input_port: betInputPort,
+          win_output_port: winOutputPort
+        }
+      });
+    } catch (e) {
+      console.error('[ComponentsPanel] Could not compile', component?.name, 'for simulation:', e);
+      ToastLayer.showError(`Could not compile ${label} for simulation: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
   onComponentActionsClicked(scope, el, evt) {
     const _this = this;
 
@@ -1010,6 +1086,9 @@ export class ComponentsPanelView extends View {
     }));
 
     items.push({ type: 'divider' });
+
+    const simulate = this.mathsSimulateMenuItem(scope.comp, evt);
+    if (simulate) items.push(simulate);
 
     if (scope.comp.allowAsExportRoot) {
       items.push({
@@ -1109,6 +1188,12 @@ export class ComponentsPanelView extends View {
         type: 'divider'
       }
     ]);
+
+    // A "folder component" — a component that also has children — is still a
+    // component, so it gets the same Simulate action as a leaf. A plain folder has
+    // no graph and gets nothing.
+    const simulate = this.mathsSimulateMenuItem(scope.folder?.component, evt);
+    if (simulate) items.push(simulate);
 
     if (scope.canBecomeRoot) {
       items.push({
