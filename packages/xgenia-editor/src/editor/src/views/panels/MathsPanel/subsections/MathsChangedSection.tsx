@@ -1,19 +1,19 @@
-// "Changed" — the Maths Components panel's working-copy view.
+// "Changed" — what Local has that the platform does not.
 //
-// Source Control's Changes list, for Math Components: every component whose graph
-// differs from the version deployed in the selected Server Version, plus the ones
-// added since and the ones deployed but no longer in the tree. What is NOT here
-// is the point of it — a component that matches its deployment has nothing to say
-// and does not appear.
+// Source Control's Changes list, for Math Components: every component in LOCAL
+// whose graph differs from the version deployed in the selected Server Version,
+// plus the ones added since and the ones deployed but no longer in the tree. What
+// is NOT here is the point of it — a component that matches its deployment has
+// nothing to say and does not appear.
 //
-// Two things a row does:
-//   * click  — opens the same side-by-side graph diff the Version Control panel
-//     opens for a git change, deployed on one side and local on the other.
-//   * drag   — drops the LOCAL component instance, edits included, whose maths
-//     runs in the browser. Dragging the same component from Deployed drops an
-//     Aggregator calling the deployed version instead. That is the whole
-//     distinction between the two lists: this one gives you what you are working
-//     on, that one gives you what is live.
+// Read-only, and deliberately NOT draggable. It is a report about two other
+// tabs, not a third source of components: what it lists is Local's components, so
+// dragging one from here would be an alias for dragging it from Local, and a
+// second way to do the same thing is a way to get it wrong. Drag the local form
+// from Local and the backend form from Deployed.
+//
+// Clicking a row opens the same side-by-side graph diff the Version Control panel
+// opens for a git change — deployed on one side, local on the other.
 
 import React, { useState } from 'react';
 
@@ -32,7 +32,6 @@ import { Label } from '@xgenia-core-ui/components/typography/Label';
 
 import { ComponentDiffDocumentProvider } from '../../../documents/ComponentDiffDocument';
 import { EditorDocumentProvider } from '../../../documents/EditorDocument';
-import PopupLayer from '../../../popuplayer';
 
 export interface MathsChangedSectionProps {
   status: MathsStatus;
@@ -142,26 +141,6 @@ export function MathsChangedSection({ status, isReady, error }: MathsChangedSect
     NodeGraphContextTmp?.switchToComponent?.(component, { pushHistory: true });
   }
 
-  /**
-   * Drag a local component into a graph.
-   *
-   * No `mathsEndpointUrl` on the payload, deliberately: that field is what turns a
-   * drop into an Aggregator calling RGS, and this list is the working copy. What
-   * drops here is the component itself, running the edits that made it appear in
-   * this list in the first place.
-   */
-  function startDrag(entry: MathsComponentStatus) {
-    if (!entry.componentName) return; // deleted: nothing local left to drag
-    const component = ProjectModel.instance?.getComponentWithName?.(entry.componentName);
-    if (!component) return;
-
-    PopupLayer.instance.startDragging({
-      label: entry.displayName,
-      type: 'component',
-      component
-    });
-  }
-
   if (error) {
     return (
       <Section hasGutter variant={SectionVariant.PanelShy}>
@@ -188,40 +167,30 @@ export function MathsChangedSection({ status, isReady, error }: MathsChangedSect
 
   return (
     <VStack>
+      <Section hasGutter variant={SectionVariant.PanelShy}>
+        <Label>
+          {status.changed.length} change{status.changed.length === 1 ? '' : 's'} vs the deployed version ·
+          preview only
+        </Label>
+      </Section>
+
       {status.changed.map((entry) => {
         const { icon, iconVariant, hint } = iconFor(entry);
         return (
-          <div
+          <ListItem
             key={entry.slug}
-            title={`${hint} · ${entry.slug}`}
-            // Same gesture the components tree uses: press, move, and the drag
-            // begins. onMouseMove rather than HTML5 drag events because
-            // PopupLayer's drag layer is what the node graph listens to.
-            onMouseDown={(ev) => {
-              if (ev.button !== 0) return;
-              const start = { x: ev.clientX, y: ev.clientY };
-              const move = (e: MouseEvent) => {
-                if (Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) < 4) return;
-                cleanup();
-                startDrag(entry);
-              };
-              const cleanup = () => {
-                window.removeEventListener('mousemove', move);
-                window.removeEventListener('mouseup', cleanup);
-              };
-              window.addEventListener('mousemove', move);
-              window.addEventListener('mouseup', cleanup);
-            }}
-          >
-            <ListItem
-              text={entry.displayName}
-              icon={icon}
-              iconVariant={iconVariant}
-              variant={ListItemVariant.Default}
-              isActive={openSlug === entry.slug}
-              onClick={() => openDiff(entry)}
-            />
-          </div>
+            text={entry.displayName}
+            icon={icon}
+            iconVariant={iconVariant}
+            variant={ListItemVariant.Default}
+            isActive={openSlug === entry.slug}
+            onClick={() => openDiff(entry)}
+            affix={
+              <span style={{ fontSize: '10px', color: '#666', whiteSpace: 'nowrap' }} title={`${hint} · ${entry.slug}`}>
+                {entry.kind === 'added' ? 'new' : entry.kind === 'deleted' ? 'removed' : 'edited'}
+              </span>
+            }
+          />
         );
       })}
     </VStack>

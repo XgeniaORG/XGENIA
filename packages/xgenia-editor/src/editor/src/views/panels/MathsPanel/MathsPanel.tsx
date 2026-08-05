@@ -54,6 +54,7 @@ import { ComponentsPanel } from '../componentspanel';
 import { MathsComponentDocumentProvider } from '../../documents/MathsComponentDocument';
 import { MathsSimulateDocumentProvider } from '../../documents/MathsSimulateDocument';
 import { MathsChangedSection } from './subsections/MathsChangedSection';
+import { MathsDeployedSection } from './subsections/MathsDeployedSection';
 import { MathsCommitsSection } from './subsections/MathsCommitsSection';
 
 
@@ -267,7 +268,10 @@ export const MathsPanel_ID = 'maths-panel';
 const mathsPanelOptions = {
     showSheetList: false,
     lockCurrentSheetName: '__maths__',
-    componentTitle: 'Maths Components'
+    // This tree is the "Local" subsection now — the working copy you author in.
+    // The panel that holds it is already called Maths Components, so repeating
+    // that here would say nothing; naming it Local says which of the four it is.
+    componentTitle: 'Local Components'
 };
 
 // Create-game form — mirrors the RGS platform's "Game Library" create form
@@ -438,7 +442,7 @@ export function MathsPanel() {
     // All three are driven by one comparison, refreshed together — a split where
     // the tree's badges and the Changed list could disagree would be worse than
     // either being briefly stale.
-    const [activeSubsection, setActiveSubsection] = useState('deployed');
+    const [activeSubsection, setActiveSubsection] = useState('local');
     const [mathsStatus, setMathsStatus] = useState<MathsStatus>(() => emptyMathsStatus());
     const [statusError, setStatusError] = useState<string | null>(null);
     const [commits, setCommits] = useState<ComponentCommit[]>([]);
@@ -826,6 +830,15 @@ export function MathsPanel() {
 
     useEffect(() => { void refreshDeployed(); }, [refreshDeployed]);
     useEffect(() => { void refreshCommits(); }, [refreshCommits]);
+
+    // Deployed and Commits both describe the platform, which someone else can
+    // change from another editor or the RGS studio. Re-read when either tab is
+    // opened so a mirror is never quietly stale — on tab change only, so it costs
+    // one request when you go looking, not a poll.
+    useEffect(() => {
+        if (activeSubsection === 'deployed') void refreshDeployed();
+        if (activeSubsection === 'commits') void refreshCommits();
+    }, [activeSubsection]);
 
     /**
      * Re-compare the working copy against what was last read from the platform.
@@ -2004,25 +2017,37 @@ export function MathsPanel() {
                     )}
                 </div>
 
-                {/* Maths Components — THIS project's `/#__maths__/` node-graph components,
-                    in three views of the same thing, arranged the way Source Control is:
-                    what exists, what has changed, and what happened before.
+                {/* Maths Components — four views, split by WHERE a component lives rather
+                    than by what you want to do with it. The two that hold real components
+                    are the two you can drag from, and each drops the form that matches
+                    where it came from:
 
-                      Deployed — the tree, and the only place components are authored:
-                        create, Folder, rename, duplicate, delete, and the three-dot menu's
-                        Simulate. Every component in it is its own component at any depth —
-                        a child or grandchild has its own graph, compiles on its own and
-                        deploys to its own endpoint. Each row is badged by whether it is
-                        live, and dragging a live one into a graph drops an Aggregator
-                        calling its endpoint rather than a local copy of its logic.
+                      Local    — the project's `/#__maths__/` tree, and the only place
+                        components are authored: create, Folder, rename, duplicate, delete,
+                        and the three-dot menu's Simulate. Every component in it is its own
+                        component at any depth — a child or grandchild has its own graph,
+                        compiles on its own and deploys to its own endpoint. Dragging one
+                        drops the LOCAL component, whose maths runs in the browser, which is
+                        what makes it testable without deploying. Rows are badged with how
+                        they stand against the platform.
 
-                      Changed — the working copy against the platform: added, modified and
-                        deleted since the selected Server Version. Dragging from here drops
-                        the LOCAL component, edits included.
+                      Deployed — a read-only mirror of the selected Server Version: only
+                        what RGS is actually serving. Dragging one drops a BACKEND
+                        component, an Aggregator on its live endpoint. Nothing here is
+                        editable; it describes code already running.
 
-                      Commits — the deploy history. Not draggable: dropping a superseded
-                        version into a live graph is a way to ship yesterday's maths by
-                        accident. */}
+                      Changed  — Local measured against Deployed. A report, not a source:
+                        read-only and not draggable, because everything it lists is Local's,
+                        and a second way to drag the same component is a way to drag the
+                        wrong one.
+
+                      Commits  — the deploy history. Also not draggable: dropping a
+                        superseded version into a live graph is a way to ship yesterday's
+                        maths by accident.
+
+                    Tab labels stay bare — the sidebar variant gives each button a fixed
+                    quarter of the width, and a "(3)" suffix wraps. Counts live inside each
+                    section's header instead. */}
                 <div style={{ flex: '1.5 1 0', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                     <Tabs
                         variant={TabsVariant.Sidebar}
@@ -2035,15 +2060,27 @@ export function MathsPanel() {
                         onChange={(tab) => setActiveSubsection(tab)}
                         tabs={[
                             {
-                                id: 'deployed',
-                                label: 'Deployed',
+                                id: 'local',
+                                label: 'Local',
                                 content: <ComponentsPanel options={mathsPanelOptions} />
                             },
                             {
+                                id: 'deployed',
+                                label: 'Deployed',
+                                content: (
+                                    <MathsDeployedSection
+                                        deployed={deployedComponents}
+                                        versionLabel={selectedVersion
+                                            ? `v${selectedVersion.version}${selectedVersion.name ? ` · ${selectedVersion.name}` : ''}`
+                                            : null}
+                                        isReady={Boolean(connected && selectedGame && selectedVersion)}
+                                        error={statusError}
+                                    />
+                                )
+                            },
+                            {
                                 id: 'changed',
-                                label: mathsStatus.changed.length > 0
-                                    ? `Changed (${mathsStatus.changed.length})`
-                                    : 'Changed',
+                                label: 'Changed',
                                 content: (
                                     <MathsChangedSection
                                         status={mathsStatus}
@@ -2054,7 +2091,7 @@ export function MathsPanel() {
                             },
                             {
                                 id: 'commits',
-                                label: commits.length > 0 ? `Commits (${commits.length})` : 'Commits',
+                                label: 'Commits',
                                 content: (
                                     <MathsCommitsSection
                                         commits={commits}

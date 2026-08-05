@@ -509,8 +509,15 @@ export class ComponentsPanelView extends View {
   }
 
   /**
-   * How a Math Component stands relative to the platform, for the row template
-   * and for the drag payload.
+   * How a Math Component stands relative to the platform, for the row template's
+   * deploy badge.
+   *
+   * Informational only. This tree is the "Local" subsection — the working copy —
+   * so dragging a row out of it always drops the LOCAL component, whatever the
+   * badge says; the backend form is dragged from the Deployed subsection, which
+   * reads the platform directly (see MathsDeployedSection). The badge is here so
+   * you can see at a glance which of your components are live and which have
+   * edits waiting, without leaving the tree.
    *
    * Only ever populated in the maths sheet — this panel is also mounted for the
    * ordinary Components tree and for Cloud Functions, and a deploy badge there
@@ -523,7 +530,7 @@ export class ComponentsPanelView extends View {
    */
   private mathsDeployScope(component: TSFixme) {
     if (this.getRuntimeType() !== 'maths') {
-      return { isMathsLive: false, isMathsDirty: false, isMathsUndeployed: false, mathsEndpointUrl: undefined };
+      return { isMathsLive: false, isMathsDirty: false, isMathsUndeployed: false };
     }
 
     const status = mathsStatusForComponent(component?.name);
@@ -533,14 +540,12 @@ export class ComponentsPanelView extends View {
       // Deployed, but the local graph has moved on.
       isMathsDirty: !!status && status.kind === 'modified',
       // In the tree, never deployed.
-      isMathsUndeployed: !!status && status.kind === 'added',
-      mathsEndpointUrl: status?.url
+      isMathsUndeployed: !!status && status.kind === 'added'
     };
   }
 
   makeDraggable(el, type, args) {
     let mouseDownOnItem = false;
-    const _this = this;
 
     el.find('.drag-handle').on('mousedown', function (e) {
       mouseDownOnItem = true;
@@ -550,21 +555,11 @@ export class ComponentsPanelView extends View {
     });
     el.find('.drag-handle').on('mousemove', function (e) {
       if (mouseDownOnItem) {
-        // A component dragged out of the maths tree carries its live endpoint, so
-        // dropping it into a graph builds a caller for the deployed backend
-        // instead of a second local copy of its logic (see DragItem.mathsEndpointUrl).
-        // The drag TYPE stays 'component' either way — the same gesture also moves
-        // a component around this tree, and the tree's own drop rules key on it.
-        const maths = type === 'component' ? _this.mathsDeployScope(args.component) : null;
-
         PopupLayer.instance.startDragging({
           label: type === 'component' ? args.component.localName : args.folder.name,
           type: type,
           component: args.component,
-          folder: args.folder,
-          ...(maths && _this.getRuntimeType() === 'maths'
-            ? { mathsEndpointUrl: maths.mathsEndpointUrl, mathsBackendOnly: true }
-            : {})
+          folder: args.folder
         });
         mouseDownOnItem = false;
       }
