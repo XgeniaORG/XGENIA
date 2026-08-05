@@ -263,6 +263,44 @@ function collectGatewayFields(node: any, plug: 'input' | 'output'): ParamField[]
   return order.map((n) => byName.get(n)!);
 }
 
+// The maths-component counterpart of collectGatewayFields, asking the component
+// MODEL for its ports instead of scraping the gateway nodes' raw JSON.
+//
+// Same reason the Publish-time Aggregator swap does (see mathsComponentPorts in
+// deployMathsComponents): a gateway port carries no type of its own — both
+// component templates write `Do` as `type: '*'` — so only ComponentModel.getPorts(),
+// which derives each port's type from the port it is wired to inside the
+// component, can tell a trigger from a data field. Scraping the raw array
+// published `Do: 0` as a request field and `Success: 0` / `Failure: 0` as
+// response fields, which the RGS Testing page then showed as real numeric ports.
+//
+// The resolved types are also more accurate for the fields that DO belong here: a
+// port wired to a string input samples as `""` rather than falling through to the
+// name heuristic's `0`, and RGS infers a port's type from its example value.
+//
+// `plug` is instance-facing: 'input' for the component's inputs (Component
+// Inputs' ports), 'output' for its outputs. Returns null when the component
+// cannot answer — a fixture, or a plain object parsed from JSON — so the caller
+// falls back to the raw scan.
+function collectResolvedGatewayFields(component: any, plug: 'input' | 'output'): ParamField[] | null {
+  const ports = typeof component?.getPorts === 'function' ? component.getPorts() : null;
+  if (!ports || ports.length === 0) return null;
+
+  const fields: ParamField[] = [];
+  for (const p of ports) {
+    if (!p || typeof p.name !== 'string' || p.plug !== plug) continue;
+    const declaredType = normalizePortType(p.type);
+    // A pulse is not a payload field — it is the trigger that sends the request
+    // (the Aggregator turns it into `is<X>`) or, on the way back, the Aggregator's
+    // own success/failure signal.
+    if (declaredType.toLowerCase() === 'signal') continue;
+    const clean = p.name.trim();
+    if (!clean) continue;
+    fields.push({ name: clean, declaredType, default: p.default });
+  }
+  return fields;
+}
+
 function buildProjectContext(project: any) {
   const components = (project.getComponents?.() || project.components || []).map((c: any) => ({
     name: c.name,
@@ -298,12 +336,19 @@ export function generateFunctionArtifact(component: any, project: any): Function
   const inputsNode = roots.find((r: any) => r.typename === 'Component Inputs');
   const outputsNode = roots.find((r: any) => r.typename === 'Component Outputs');
 
+  // Ask the model for resolved port types only when the contract really is on the
+  // gateways. A cloud component declares its on `pm-`prefixed ports of the cloud
+  // request/response nodes, which getPorts() would report under those raw names.
+  const hasGateways = !!inputsNode || !!outputsNode;
+
   const requestFields = requestNode
     ? collectParamFields(requestNode, 'output')
-    : collectGatewayFields(inputsNode, 'output');
+    : (hasGateways ? collectResolvedGatewayFields(component, 'input') : null) ??
+      collectGatewayFields(inputsNode, 'output');
   const responseFields = responseNode
     ? collectParamFields(responseNode, 'input')
-    : collectGatewayFields(outputsNode, 'input');
+    : (hasGateways ? collectResolvedGatewayFields(component, 'output') : null) ??
+      collectGatewayFields(outputsNode, 'input');
 
   const payloadExample: Record<string, any> = {};
   requestFields.forEach((f) => (payloadExample[f.name] = exampleValueForField(f)));
