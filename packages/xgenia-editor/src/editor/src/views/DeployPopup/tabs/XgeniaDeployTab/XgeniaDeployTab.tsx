@@ -1576,7 +1576,22 @@ export function XgeniaDeployTab() {
       //    and response shape is exactly the deployed script's contract.
       ToastLayer.showActivity('Wiring Math Components to XGENIA RGS...', activityId);
       const endpoints = await mathsEndpointsForGame(rgs.apiKey, game.id, copy);
-      const swapped = swapDeployedMathsInstances(copy, endpoints);
+      const { swapped, untriggered } = swapDeployedMathsInstances(copy, endpoints);
+
+      // An Aggregator only POSTs when one of its `do-` inputs pulses. An instance
+      // whose trigger port is unwired therefore ships as a node that can never
+      // call its backend — the endpoint is live and correct, and the published UI
+      // simply never reaches it. Silent in the browser, so say it here.
+      if (untriggered.length > 0) {
+        const names = untriggered.map((n) => n.split('/').filter(Boolean).pop()).join(', ');
+        console.warn('[Deploy] Math Component instances with no trigger wired:', untriggered);
+        ToastLayer.showError(
+          `Heads up: nothing is wired to the trigger input of ${names}, so the published game ` +
+            `will never call ${untriggered.length === 1 ? 'it' : 'them'}. Connect a signal ` +
+            `(a button's Click, for example) to ${untriggered.length === 1 ? 'its' : 'their'} ` +
+            `Do port and publish again.`
+        );
+      }
 
       // A Math Component that the UI uses but nobody deployed is now shipped
       // as-is and RUNS IN THE BROWSER — there is no compile pass left to extract

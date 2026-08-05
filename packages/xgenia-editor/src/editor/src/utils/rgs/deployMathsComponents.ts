@@ -591,40 +591,99 @@ export function undeployedMathsInstances(
     .sort();
 }
 
+/** A port carries a pulse rather than a value. */
+function isSignalPort(port: any): boolean {
+  const t = port?.type;
+  return t === 'signal' || (!!t && t.name === 'signal');
+}
+
+/**
+ * The instance-facing ports of a Math Component, with each port's type RESOLVED.
+ *
+ * `ComponentModel.getPorts()` is the editor's own answer to this question and the
+ * only one that gets the types right. A gateway port has no type of its own: the
+ * Component Inputs node stores `Do` as `type: '*'` no matter what it is wired to
+ * (that is exactly what both component templates write), so getPorts() derives
+ * each port's type from the port it CONNECTS TO inside the component —
+ * `Multiplication.Do`, declared `signal` — and only falls back to the declared
+ * type when there is no connection to learn from. Port NAMES are unaffected by
+ * this: getPorts() keys them by the gateway port name verbatim, which is what the
+ * generated script reads out of `ctx.config` and writes into its response.
+ *
+ * Reading the raw gateway `ports` array instead — what this used to do — made
+ * every trigger look like a data field. `Do` came back as `'*'`, so the
+ * Aggregator that replaces the instance at Publish got a `data-Do` input instead
+ * of a `do-Do` one, and `doSend` is only ever reached from a `do-` input: the
+ * published game had nothing that could make it POST, and its backend components
+ * were never called. See the swap below.
+ *
+ * The raw scan survives as a fallback for anything that is not a live
+ * ComponentModel (a fixture, a plain object parsed from JSON), where the declared
+ * types are all there is to go on.
+ */
+function mathsComponentPorts(definition: any): any[] {
+  const resolved = typeof definition?.getPorts === 'function' ? definition.getPorts() : null;
+  if (resolved && resolved.length > 0) return resolved;
+
+  // A gateway's own plug is the mirror of the instance's — Component Inputs
+  // holds the component's INPUTS as `output` ports — so flip them onto the
+  // instance-facing convention getPorts() returns.
+  const roots = definition?.graph?.roots || [];
+  const read = (typename: string, gatewayPlug: 'input' | 'output', instancePlug: 'input' | 'output') => {
+    const node = roots.find((r: any) => r.typename === typename);
+    const raw = [...(node?.ports || []), ...(node?.dynamicports || [])];
+    return raw
+      .filter((p: any) => p && typeof p.name === 'string' && (!p.plug || p.plug === gatewayPlug))
+      .map((p: any) => ({ ...p, plug: instancePlug }));
+  };
+
+  return [
+    ...read('Component Inputs', 'output', 'input'),
+    ...read('Component Outputs', 'input', 'output')
+  ];
+}
+
 /**
  * A Math Component instance's frontend contract, read off the component it
- * instantiates: which of its ports carry data, which are triggers, and which
- * come back in the response.
- *
- * Deliberately read from the DEFINITION's gateway nodes rather than the
- * instance's resolved ports: the gateway port names are the exact keys the
- * generated script reads out of `ctx.config` and writes into its response, so
- * they are what the Aggregator has to send and expect. Anything derived
- * (humanised display names, camelCasing) would miss.
+ * instantiates: which of its ports carry data, which are triggers, which come
+ * back in the response, and which are signals the response cannot carry.
  */
 function mathsInstanceContract(definition: any): {
   dataInputs: string[];
   triggers: string[];
   outputs: string[];
+  outputSignals: string[];
 } {
-  const roots = definition?.graph?.roots || [];
-  const readPorts = (typename: string, plug: 'input' | 'output') => {
-    const node = roots.find((r: any) => r.typename === typename);
-    const raw = [...(node?.ports || []), ...(node?.dynamicports || [])];
-    return raw.filter((p: any) => p && typeof p.name === 'string' && (!p.plug || p.plug === plug));
-  };
-
-  const isSignal = (p: any) => p.type === 'signal' || (p.type && p.type.name === 'signal');
-  const inputs = readPorts('Component Inputs', 'output');
-  const outputs = readPorts('Component Outputs', 'input');
+  const ports = mathsComponentPorts(definition);
+  const inputs = ports.filter((p: any) => p.plug === 'input');
+  const outputs = ports.filter((p: any) => p.plug === 'output');
 
   return {
-    dataInputs: inputs.filter((p: any) => !isSignal(p)).map((p: any) => p.name),
-    triggers: inputs.filter(isSignal).map((p: any) => p.name),
+    dataInputs: inputs.filter((p: any) => !isSignalPort(p)).map((p: any) => p.name),
+    triggers: inputs.filter(isSignalPort).map((p: any) => p.name),
     // A Component Outputs signal port ("Done") has no value in the response —
-    // rgs-fn returns the data object only — so it is not an out-<field>.
-    outputs: outputs.filter((p: any) => !isSignal(p)).map((p: any) => p.name)
+    // rgs-fn returns the data object only — so it is not an out-<field>. It is
+    // answered by the Aggregator's own success/failure signals instead.
+    outputs: outputs.filter((p: any) => !isSignalPort(p)).map((p: any) => p.name),
+    outputSignals: outputs.filter(isSignalPort).map((p: any) => p.name)
   };
+}
+
+/**
+ * Which of the Aggregator's two built-in signal outputs stands in for a
+ * component signal output the response cannot carry.
+ *
+ * The component's own "Done"/"Success" pulse fires when its logic finishes; once
+ * that logic is an HTTPS call, the moment the caller can actually observe is the
+ * response arriving, which is the Aggregator's `success`. A port the author named
+ * for failure is the one case where `failure` is the closer match — that is the
+ * Aggregator's "the call did not come back" pulse, so anything wired to it still
+ * runs on the error path rather than never running at all.
+ */
+const FAILURE_SIGNAL_NAME = /^(failure|failed|fail|error|on\s*error|reject)/i;
+
+function aggregatorSignalFor(portName: string): 'success' | 'failure' {
+  return FAILURE_SIGNAL_NAME.test(String(portName).trim()) ? 'failure' : 'success';
 }
 
 /**
@@ -645,15 +704,19 @@ function mathsInstanceContract(definition: any): {
  * is in the 'Cloud Functions' category, which that collector already treats as
  * already-backed-by-a-service and leaves alone.
  *
- * Returns how many instances were rewired.
+ * Returns how many instances were rewired, and which components produced an
+ * Aggregator with no trigger wired to it — those are live endpoints that nothing
+ * in the published UI can call, so the caller reports them rather than shipping a
+ * game that silently never talks to its backend.
  */
 export function swapDeployedMathsInstances(
   copy: any,
   endpoints: Record<string, MathsEndpoint>
-): number {
-  if (!copy || Object.keys(endpoints).length === 0) return 0;
+): { swapped: number; untriggered: string[] } {
+  if (!copy || Object.keys(endpoints).length === 0) return { swapped: 0, untriggered: [] };
 
   let swapped = 0;
+  const untriggered = new Set<string>();
 
   for (const comp of copy.components || []) {
     // A maths component's own definition must keep its instances: it is not
@@ -684,7 +747,7 @@ export function swapDeployedMathsInstances(
       const definition = copy.getComponentWithName?.(instance.typename);
       if (!definition) continue;
 
-      const { dataInputs, triggers, outputs } = mathsInstanceContract(definition);
+      const { dataInputs, triggers, outputs, outputSignals } = mathsInstanceContract(definition);
 
       // Only the ports this instance is actually wired to matter; declaring the
       // rest would put dead ports on the node.
@@ -693,6 +756,13 @@ export function swapDeployedMathsInstances(
       const usedData = dataInputs.filter((p) => incoming.some((c: any) => c.toProperty === p));
       const usedTriggers = triggers.filter((p) => incoming.some((c: any) => c.toProperty === p));
       const usedOutputs = outputs.filter((p) => outgoing.some((c: any) => c.fromProperty === p));
+      const usedSignals = outputSignals.filter((p) => outgoing.some((c: any) => c.fromProperty === p));
+
+      // An Aggregator sends when a `do-` input pulses and at no other time, so an
+      // instance with no trigger wired becomes a node that can never call its
+      // endpoint. Record it — the deployed backend is fine, it is the UI that has
+      // no way to reach it.
+      if (usedTriggers.length === 0) untriggered.add(instance.typename);
 
       const aggId = guid();
       const aggNode = NodeGraphNode.fromJSON({
@@ -757,14 +827,30 @@ export function swapDeployedMathsInstances(
           toProperty: port
         });
       });
+      // Several component signal outputs collapse onto the same two Aggregator
+      // signals, so two of them wired to one target would otherwise become two
+      // connections firing the same input twice per call.
+      const signalEdges = new Set<string>();
+
       outgoing.forEach((c: any) => {
-        if (!usedOutputs.includes(c.fromProperty)) return;
-        graph.addConnection({
-          fromId: aggId,
-          fromProperty: 'out-' + c.fromProperty,
-          toId: c.toId,
-          toProperty: c.toProperty
-        });
+        if (usedOutputs.includes(c.fromProperty)) {
+          graph.addConnection({
+            fromId: aggId,
+            fromProperty: 'out-' + c.fromProperty,
+            toId: c.toId,
+            toProperty: c.toProperty
+          });
+          return;
+        }
+        // A signal output has no response field to arrive on; the Aggregator's
+        // own success/failure pulse is what the caller can observe instead.
+        if (usedSignals.includes(c.fromProperty)) {
+          const fromProperty = aggregatorSignalFor(c.fromProperty);
+          const edge = `${fromProperty}>${c.toId}.${c.toProperty}`;
+          if (signalEdges.has(edge)) return;
+          signalEdges.add(edge);
+          graph.addConnection({ fromId: aggId, fromProperty, toId: c.toId, toProperty: c.toProperty });
+        }
       });
 
       // Removes the instance and, with it, its own connections.
@@ -773,5 +859,5 @@ export function swapDeployedMathsInstances(
     }
   }
 
-  return swapped;
+  return { swapped, untriggered: Array.from(untriggered).sort() };
 }
