@@ -2064,8 +2064,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/simplejavascript.js",
       "category": "CustomCode",
       "docs": "https://docsapp.xgenia.com/nodes/javascript/function",
-      "lineCount": 490,
-      "byteSize": 14443,
+      "lineCount": 515,
+      "byteSize": 15407,
       "inputFormatHints": {
         "scriptInputs": {
           "type": "proplist",
