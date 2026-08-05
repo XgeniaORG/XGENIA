@@ -1880,6 +1880,45 @@ export class EditorBridge {
             }
         });
 
+        /**
+         * REFRESH IS THE OWNER'S JOB.
+         *
+         * (2026-08-05 — reported: "Invalid Refresh Token: Already Used", user signed out.)
+         *
+         * Supabase refresh tokens are single-use with rotation, and this editor client is the one
+         * configured with `persistSession: true` — it OWNS the stored session. The AI panel is a
+         * consumer in an iframe with `persistSession: false`; when it refreshed on its own, the
+         * server rotated the pair and the replacement went nowhere, leaving this client holding a
+         * spent token. One access-token lifetime later its own autoRefresh fired with that token,
+         * reuse-detection revoked the family, and the user was logged out of the app.
+         *
+         * So the panel asks US. One refresh, in the client that persists the result, with the
+         * same single-flight discipline the panel uses — two concurrent 401s must not double-spend.
+         */
+        h('auth.refreshJwt', async () => {
+            const g: any = window as any;
+            if (g.__xgeniaAuthRefreshInFlight) {
+                try { return await g.__xgeniaAuthRefreshInFlight; } catch { return null; }
+            }
+            const run = (async () => {
+                try {
+                    const { data, error } = await supabase.auth.refreshSession();
+                    if (error) {
+                        // "Already Used" means the family is revoked server-side — no client-side
+                        // retry can recover it, and adding one would only spend more tokens.
+                        console.warn('[EditorBridge] auth.refreshJwt failed:', error.message);
+                        return null;
+                    }
+                    return data?.session?.access_token || null;
+                } catch (e: any) {
+                    console.warn('[EditorBridge] auth.refreshJwt threw:', e?.message || e);
+                    return null;
+                }
+            })();
+            g.__xgeniaAuthRefreshInFlight = run;
+            try { return await run; } finally { g.__xgeniaAuthRefreshInFlight = null; }
+        });
+
         // --- XRGS (maths/RGS) bridge ---
         // The AI plugin runs in an iframe and cannot reach `window.__xrgs` (it lives on the editor
         // window, defined at MathsPanel module load — eagerly imported by router.setup.ts). These
