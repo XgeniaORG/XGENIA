@@ -1936,16 +1936,47 @@ export function MathsPanel() {
                             </Box>
                         )}
 
-                        {/* The two verbs. Test compiles the maths component you have open,
-                            uploads it and runs a stress test — stopping at `testing`.
-                            Promotion to live is a separate, deliberate act (below).
+                        {/* Test — COMMENTED OUT (2026-08-06), deliberately kept rather than
+                            deleted. It compiled the maths component you had open, uploaded it
+                            as a maths_config and ran the stress-test gauntlet, stopping at
+                            `testing`.
 
-                            This is the entry point 4565e24 removed. Its loss left
-                            handleUploadTestDeploy and the whole upload/stress-test pipeline
-                            in this file as dead code: nothing called
-                            setShowTestConfigModal(true), so the modal holding the button
-                            could not be opened and there was no way for a human to push
-                            maths to the RGS at all. Guarded by maths-sheet-mount.test.ts. */}
+                            Withdrawn because measuring a component's maths is now Simulate's
+                            job, on the Maths RGS panel's Deployed tab: it runs on RGS against
+                            the row rgs-fn actually serves, needs no upload and no second copy
+                            of the maths on the platform.
+
+                            READ THIS BEFORE ASSUMING THE TWO ARE INTERCHANGEABLE. They
+                            overlap on "measure the RTP on RGS" and differ everywhere else:
+
+                              * Simulate reports RTP / hit frequency / volatility for ONE
+                                deployed component. That is all it does.
+                              * Test also ran the certification gauntlet (bonus abuse, streak
+                                analysis, variance validation, edge-case fuzzing, max-win cap,
+                                analytical RTP) and, by moving a config to `testing`, was the
+                                ONLY thing that made "Promote to Live" reachable — the server
+                                refuses to approve a config that was never tested.
+
+                            So while this is commented out, NO NEW maths_config can ever
+                            become promotable. Configs already at `testing` or `approved` keep
+                            their Promote to Live button; nothing can join them. If the
+                            maths_configs lifecycle is wanted again, this button is the door
+                            back in.
+
+                            The pipeline it drives is untouched and now unreachable:
+                            handleUploadTestDeploy, runMathsTest / promoteMathsToLive
+                            (utils/rgs/mathsPipeline.ts, whose only caller is this file), the
+                            Test Configuration modal, simCount, showTestConfigModal. Restoring
+                            is a pure uncomment.
+
+                            History, and the reason it is commented rather than deleted: 4565e24
+                            removed this same entry point once before. Nothing else called
+                            setShowTestConfigModal(true), so the modal could not be opened and
+                            there was no way for a human to push maths to the RGS at all — it
+                            was rediscovered as dead code, not noticed as a missing feature.
+                            (The maths-sheet-mount.test.ts the old note cited as a guard does
+                            not exist in this repo, so nothing catches a repeat.) */}
+                        {/*
                         {connected && selectedGame && (
                             <Box hasBottomSpacing>
                                 <Tooltip content="Compile the maths component you have open, upload it and run a stress test. Stops before live.">
@@ -1961,16 +1992,42 @@ export function MathsPanel() {
                                 </Tooltip>
                             </Box>
                         )}
+                        */}
 
-                        {/* Maths Versions — the approval lifecycle (draft → testing →
-                            approved → live). A version must pass a Test run before it can
-                            go live; the server enforces that too (approve rejects an
-                            untested config), so this is the UI half of the rule.
+                        {/* Maths Versions — COMMENTED OUT (2026-08-06), deliberately kept
+                            rather than deleted. It listed the `maths_configs` approval
+                            lifecycle (draft → testing → approved → live) and carried the
+                            Promote to Live button.
 
-                            RTP shown is the MEASURED figure from the stress run, or
-                            "RTP unknown" — never the declared number. A declared RTP is
-                            what someone hoped for; showing it here would let a config that
-                            has never been measured look tested. */}
+                            Withdrawn with the Test button above, which fed it. Test was the
+                            only way a config could reach `testing`, and the server refuses to
+                            approve one that was never tested — so with Test gone this section
+                            could only ever show a frozen list nobody could add to. Two dead
+                            sections are worse than none: an operator reading a stale `live`
+                            row here would think it described the maths their game is running,
+                            when what a player actually hits is the Server Version's
+                            components in `game_edge_functions`. Those are a separate
+                            lifecycle, shown in Server Versions / Deployed above.
+
+                            WHAT THIS COSTS: the editor no longer has any UI for promoting a
+                            maths_config, and neither does the RGS studio — its maths page has
+                            no approve action. A config sitting at `testing` or `approved` can
+                            now only be promoted by calling maths-deployer directly
+                            (`action: "approve"`, then `"deploy"`). Uncomment this block AND
+                            the Test button to get the lifecycle back; this one is useless on
+                            its own.
+
+                            Still live and now unreachable: handlePromote, promoteMathsToLive,
+                            promotingId, testedConfigId, and the mathsConfigs loader — which
+                            still fetches the version list on every game selection. Left
+                            running deliberately, so restoring is a pure uncomment; it is one
+                            request against a list the panel already talks to.
+
+                            On the RTP column, if it comes back: it showed the MEASURED figure
+                            from the stress run, or "RTP unknown" — never the declared number.
+                            A declared RTP is what someone hoped for; showing it here would let
+                            a config that has never been measured look tested. */}
+                        {/*
                         {connected && selectedGame && mathsConfigs && mathsConfigs.length > 0 && (
                             <Box hasBottomSpacing>
                                 <div style={{ fontWeight: 600, fontSize: '12px', textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: '#a0a0b0', marginBottom: '8px' }}>
@@ -2010,6 +2067,7 @@ export function MathsPanel() {
                                 })}
                             </Box>
                         )}
+                        */}
                     </VStack>
                 </Box>
                 </div>
@@ -2028,10 +2086,12 @@ export function MathsPanel() {
                     between them deploys 6 components. The count on the button is exactly
                     that number (listMathsComponents).
 
-                    Distinct from "Test" above: that moves ONE maths config through the
-                    draft → testing → live approval lifecycle (maths_configs). This turns
-                    each authored component into a callable endpoint (game_edge_functions).
-                    Same game, independent lifecycles. */}
+                    Was distinct from "Test" above: that moved ONE maths config through the
+                    draft → testing → live approval lifecycle (maths_configs), while this
+                    turns each authored component into a callable endpoint
+                    (game_edge_functions). Same game, independent lifecycles — and since
+                    Test is now commented out, this is the only one of the two still
+                    reachable, which makes Deploy the single way maths gets onto RGS. */}
                 <div style={{ flexShrink: 0, borderTop: '1px solid rgba(255,255,255,0.08)', padding: '10px 12px 8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                         <span style={{ fontWeight: 600, fontSize: '12px', textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: '#a0a0b0' }}>

@@ -512,10 +512,47 @@ export function XgeniaDeployTab() {
   const cloudService = useModernModel(CloudService.instance);
   // Always offer "XGENIA RGS" here so the user can pick it and get a clear
   // "connect first" error when no operator key is set (see rgsError below).
+  // Feeds only the commented-out picker below; kept so restoring it is a pure
+  // uncomment.
   const environmentOptions = useEnvironmentsAsOptions(cloudService, { alwaysIncludeRgs: true });
   const { user } = useAuth();
 
-  const [environmentId, setEnvironmentId] = useState(NO_ENVIRONMENT_VALUE);
+  // ── PUBLISH TARGET — PINNED TO XGENIA RGS (2026-08-06) ────────────────
+  //
+  // This is not a preference. `onDeployToVercelClicked` branches on it, so it
+  // chooses which of two publish routines runs:
+  //
+  //   RGS_ENVIRONMENT_VALUE → deployToRgsAndVercel: duplicate the project, swap
+  //     every deployed Math Component instance for an Aggregator on its live
+  //     /rgs-fn/<game>/<slug> endpoint, repoint stale ones, stamp `rgsgame`,
+  //     then build. This is the only path that connects the published frontend
+  //     to the backend components.
+  //   anything else → the generic path, which bakes in a cloudService.backend
+  //     environment and does NONE of that wiring.
+  //
+  // Now that Math Components ARE the backend — deployed from the Maths RGS panel,
+  // living in game_edge_functions, already integrated — the second path can only
+  // ever be the wrong answer for this tab, so the picker below is commented out
+  // and this defaults to RGS.
+  //
+  // IT HAD TO DEFAULT HERE, not just be hidden. The old initial value was
+  // NO_ENVIRONMENT_VALUE, so hiding the dropdown on its own would have sent every
+  // Publish down the generic path: no Aggregator swap, no `rgsgame` stamp, and a
+  // published game whose maths silently runs in the player's browser while the
+  // deployed endpoints sit there uncalled. That failure is invisible — the build
+  // succeeds and the page loads.
+  //
+  // Note the two paths are already mutually exclusive: deployToRgsAndVercel calls
+  // deployToFolder with `environment: undefined` and skips the built-in cloud
+  // -function pass outright, so picking a cloud service and picking RGS never did
+  // anything together. Choosing RGS always meant ignoring the cloud service.
+  //
+  // COST OF THIS, stated plainly: a project can no longer be published without an
+  // RGS operator key and a selected game — the Deploy button below stays disabled
+  // until both exist. To publish a frontend-only project again, or to target a
+  // cloudService.backend environment, uncomment the picker and restore
+  // NO_ENVIRONMENT_VALUE here.
+  const [environmentId, setEnvironmentId] = useState(RGS_ENVIRONMENT_VALUE);
 
   // ── XGENIA RGS backend target ──────────────────────────────────────────
   // Which RGS game this frontend belongs to. Read from the Maths RGS panel, never
@@ -1847,6 +1884,28 @@ export function XgeniaDeployTab() {
           </Text>
         )}
 
+        {/* Connected cloud services — COMMENTED OUT (2026-08-06), deliberately kept
+            rather than deleted.
+
+            There is nothing left for it to choose. The backend of an XGENIA project
+            is now its Math Components, deployed to a game from the Maths RGS panel;
+            by the time anyone opens this popup they are already deployed, already
+            integrated, and the publish routine only has to point the frontend at
+            them. This dropdown's other options — "No cloud service" and any
+            cloudService.backend environment — all route to a publish that skips that
+            wiring entirely, so every one of them was a way to ship a broken game.
+
+            The target is pinned to XGENIA RGS at the `environmentId` useState above;
+            read the note there before touching either. Restoring this is a pure
+            uncomment PLUS putting NO_ENVIRONMENT_VALUE back as the initial value —
+            uncommenting alone leaves the dropdown showing "XGENIA RGS" preselected,
+            which is harmless, but restoring the initial value without uncommenting
+            is the silent-breakage case.
+
+            The cloud-service picker still exists on the other two deploy tabs
+            (DeployToFolderTab, DeployToStakeTab), so the feature is not gone from
+            the editor — only from the path that publishes to XGENIA RGS. */}
+        {/*
         {environmentOptions.length > 1 && (
           <Select
             options={environmentOptions}
@@ -1857,6 +1916,7 @@ export function XgeniaDeployTab() {
             hasBottomSpacing
           />
         )}
+        */}
 
         {/* XGENIA RGS. There is no "Target game" picker here any more: the game is
             wherever the project's Math Components were deployed, which is chosen
