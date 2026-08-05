@@ -16,6 +16,7 @@ import {
   mathsComponentSlug
 } from '@xgenia-utils/rgs/deployMathsComponents';
 import { generateFunctionArtifact } from '@xgenia-utils/rgs/generateFunctionArtifact';
+import { MATHS_DEPLOY_STATE_CHANGED, mathsStatusForComponent } from '@xgenia-utils/rgs/mathsDeployState';
 import { tracker } from '@xgenia-utils/tracker';
 import { guid } from '@xgenia-utils/utils';
 
@@ -409,6 +410,17 @@ export class ComponentsPanelView extends View {
       _this
     );
 
+    // Deploy state changed on the platform (a refresh, a Deploy, a different
+    // Server Version selected). Only the maths tree renders it, so only the maths
+    // tree needs to redraw — every other mount of this panel ignores it.
+    EventDispatcher.instance.on(
+      MATHS_DEPLOY_STATE_CHANGED,
+      function () {
+        if (_this.getRuntimeType() === 'maths') _this.scheduleRender();
+      },
+      _this
+    );
+
     EventDispatcher.instance.on(
       'ProjectModel.instanceHasChanged',
       (args) => {
@@ -496,8 +508,39 @@ export class ComponentsPanelView extends View {
     }
   }
 
+  /**
+   * How a Math Component stands relative to the platform, for the row template
+   * and for the drag payload.
+   *
+   * Only ever populated in the maths sheet — this panel is also mounted for the
+   * ordinary Components tree and for Cloud Functions, and a deploy badge there
+   * would mean nothing. Three mutually exclusive flags rather than one string,
+   * because the row template can only test truthiness.
+   *
+   * All three false is a real state and the right one: no game connected, no
+   * Server Version selected, or the status not fetched yet. The row then shows no
+   * badge, rather than claiming the component is undeployed.
+   */
+  private mathsDeployScope(component: TSFixme) {
+    if (this.getRuntimeType() !== 'maths') {
+      return { isMathsLive: false, isMathsDirty: false, isMathsUndeployed: false, mathsEndpointUrl: undefined };
+    }
+
+    const status = mathsStatusForComponent(component?.name);
+    return {
+      // Deployed and matching what is deployed.
+      isMathsLive: !!status && status.kind === 'unchanged' && !!status.url,
+      // Deployed, but the local graph has moved on.
+      isMathsDirty: !!status && status.kind === 'modified',
+      // In the tree, never deployed.
+      isMathsUndeployed: !!status && status.kind === 'added',
+      mathsEndpointUrl: status?.url
+    };
+  }
+
   makeDraggable(el, type, args) {
     let mouseDownOnItem = false;
+    const _this = this;
 
     el.find('.drag-handle').on('mousedown', function (e) {
       mouseDownOnItem = true;
@@ -507,11 +550,21 @@ export class ComponentsPanelView extends View {
     });
     el.find('.drag-handle').on('mousemove', function (e) {
       if (mouseDownOnItem) {
+        // A component dragged out of the maths tree carries its live endpoint, so
+        // dropping it into a graph builds a caller for the deployed backend
+        // instead of a second local copy of its logic (see DragItem.mathsEndpointUrl).
+        // The drag TYPE stays 'component' either way — the same gesture also moves
+        // a component around this tree, and the tree's own drop rules key on it.
+        const maths = type === 'component' ? _this.mathsDeployScope(args.component) : null;
+
         PopupLayer.instance.startDragging({
           label: type === 'component' ? args.component.localName : args.folder.name,
           type: type,
           component: args.component,
-          folder: args.folder
+          folder: args.folder,
+          ...(maths && _this.getRuntimeType() === 'maths'
+            ? { mathsEndpointUrl: maths.mathsEndpointUrl, mathsBackendOnly: true }
+            : {})
         });
         mouseDownOnItem = false;
       }
@@ -740,7 +793,8 @@ export class ComponentsPanelView extends View {
         isVisual: iconType === ComponentIconType.Visual,
         isComponentFolder: false,
         canBecomeRoot: c.allowAsExportRoot,
-        hasWarnings: WarningsModel.instance.hasComponentWarnings(c)
+        hasWarnings: WarningsModel.instance.hasComponentWarnings(c),
+        ...this.mathsDeployScope(c)
       };
 
       if (this.nodeGraphEditor?.getActiveComponent() === c) this.selectedScope = scope;
@@ -773,7 +827,11 @@ export class ComponentsPanelView extends View {
           ProjectModel.instance.getRootNode().owner.owner == f.component,
         isComponentFolder: Boolean(f.component),
         canBecomeRoot: Boolean(f.component) && f.component.allowAsExportRoot,
-        hasWarnings: Boolean(f.component) && WarningsModel.instance.hasComponentWarnings(f.component)
+        hasWarnings: Boolean(f.component) && WarningsModel.instance.hasComponentWarnings(f.component),
+        // A "folder component" — a folder that is also a component — deploys as
+        // its own endpoint like any other, so it carries the same badge. A plain
+        // folder has no component and all three flags stay false.
+        ...this.mathsDeployScope(f.component)
       };
 
       this.folderScopes[f.getPath()] = scope;

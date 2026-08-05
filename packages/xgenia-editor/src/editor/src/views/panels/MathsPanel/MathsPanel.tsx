@@ -14,6 +14,7 @@ import { VStack } from '@xgenia-core-ui/components/layout/Stack';
 import { ContextMenu } from '@xgenia-core-ui/components/popups/ContextMenu';
 import { Tooltip } from '@xgenia-core-ui/components/popups/Tooltip';
 import { BasePanel } from '@xgenia-core-ui/components/sidebar/BasePanel';
+import { Tabs, TabsVariant } from '@xgenia-core-ui/components/layout/Tabs';
 
 import { supabase } from '../../../supabaseInit';
 import {
@@ -33,10 +34,27 @@ import {
     listMathsComponents,
     MathsDeployResult
 } from '@xgenia-utils/rgs/deployMathsComponents';
+import {
+    computeMathsStatus,
+    DeployedComponent,
+    emptyMathsStatus,
+    MathsStatus,
+    readDeployedComponents
+} from '@xgenia-utils/rgs/mathsComponentStatus';
+import { setMathsDeployState } from '@xgenia-utils/rgs/mathsDeployState';
+import {
+    CommitFileInput,
+    ComponentCommit,
+    createComponentCommit,
+    listComponentCommits
+} from '@xgenia-utils/rgs/componentCommits';
 import { NodeGraphContextTmp } from '@xgenia-contexts/NodeGraphContext/NodeGraphContext';
+import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
 import { ComponentsPanel } from '../componentspanel';
 import { MathsComponentDocumentProvider } from '../../documents/MathsComponentDocument';
 import { MathsSimulateDocumentProvider } from '../../documents/MathsSimulateDocument';
+import { MathsChangedSection } from './subsections/MathsChangedSection';
+import { MathsCommitsSection } from './subsections/MathsCommitsSection';
 
 
 // ─── RGS Connection ─────────────────────────────────────────
@@ -412,6 +430,30 @@ export function MathsPanel() {
     // Creating a new (empty) Server Version from the Server Versions header.
     const [creatingVersion, setCreatingVersion] = useState(false);
 
+    // ─── Maths Components subsections ────────────────────────────
+    // The panel's three views of the same components, in the shape Source Control
+    // uses: Deployed is the tree (what exists, badged by whether it is live),
+    // Changed is the working copy against the platform, Commits is the history.
+    //
+    // All three are driven by one comparison, refreshed together — a split where
+    // the tree's badges and the Changed list could disagree would be worse than
+    // either being briefly stale.
+    const [activeSubsection, setActiveSubsection] = useState('deployed');
+    const [mathsStatus, setMathsStatus] = useState<MathsStatus>(() => emptyMathsStatus());
+    const [statusError, setStatusError] = useState<string | null>(null);
+    const [commits, setCommits] = useState<ComponentCommit[]>([]);
+    const [commitsLoading, setCommitsLoading] = useState(false);
+    const [commitsError, setCommitsError] = useState<string | null>(null);
+    // The Deploy prompt: a commit needs a message, so Deploy asks for one first.
+    const [commitPrompt, setCommitPrompt] = useState<{ message: string } | null>(null);
+
+    // What a Deploy would actually push. Deletions appear in Changed but are never
+    // pushed — taking a live endpoint down is the platform's deliberate action, not
+    // a side effect of deploying (see handleDeployMathsComponents).
+    const deployableCount = mathsStatus.changed.filter(
+        (c) => c.kind === 'added' || c.kind === 'modified'
+    ).length;
+
     // Upload, Test & Deploy modal state
     const [showTestConfigModal, setShowTestConfigModal] = useState(false);
     const [simCount, setSimCount] = useState(10000);
@@ -744,7 +786,108 @@ export function MathsPanel() {
     // overwriting a deployed component was withdrawn, so a component can be edited
     // and re-deployed into the same version as often as you like (ownership is
     // still enforced — assertGameAccess refuses games this key does not own).
-    const handleDeployMathsComponents = useCallback(async () => {
+    // ─── Maths Components: what is deployed, and how local differs ───
+    // One read of the platform feeds all three subsections AND the badges on the
+    // tree. Kept as two steps on purpose: `deployedComponents` is the expensive
+    // half (a network round trip), `mathsStatus` is the cheap half (a local
+    // comparison), so an edit in the graph re-compares without re-downloading.
+    const [deployedComponents, setDeployedComponents] = useState<DeployedComponent[]>([]);
+
+    const refreshDeployed = useCallback(async () => {
+        if (!settings?.apiKey || !selectedVersion) {
+            setDeployedComponents([]);
+            setStatusError(null);
+            return;
+        }
+        try {
+            setDeployedComponents(await readDeployedComponents(settings.apiKey, selectedVersion.id));
+            setStatusError(null);
+        } catch (e: any) {
+            setDeployedComponents([]);
+            setStatusError(e?.message || 'Could not read what is deployed');
+        }
+    }, [settings, selectedVersion]);
+
+    const refreshCommits = useCallback(async () => {
+        if (!settings?.apiKey || !selectedGame || !selectedVersion) {
+            setCommits([]);
+            return;
+        }
+        setCommitsLoading(true);
+        setCommitsError(null);
+        try {
+            setCommits(await listComponentCommits(settings.apiKey, selectedGame, selectedVersion.id));
+        } catch (e: any) {
+            setCommits([]);
+            setCommitsError(e?.message || 'Could not load commit history');
+        }
+        setCommitsLoading(false);
+    }, [settings, selectedGame, selectedVersion]);
+
+    useEffect(() => { void refreshDeployed(); }, [refreshDeployed]);
+    useEffect(() => { void refreshCommits(); }, [refreshCommits]);
+
+    /**
+     * Re-compare the working copy against what was last read from the platform.
+     *
+     * Local-only, so it is cheap enough to run on every project save — which is
+     * what makes Changed behave like Source Control's list: edit a component's
+     * graph, and it appears there without anyone pressing refresh.
+     *
+     * Also publishes to the shared deploy-state store, because the components tree
+     * is the legacy ComponentsPanel view and cannot be handed React state.
+     */
+    const recompareMaths = useCallback(() => {
+        const project = ProjectModel.instance;
+        if (!project || !selectedVersion) {
+            setMathsStatus(emptyMathsStatus());
+            setMathsDeployState(null);
+            return;
+        }
+        const status = computeMathsStatus(project, deployedComponents);
+        setMathsStatus(status);
+        setMathsDeployState(status);
+    }, [deployedComponents, selectedVersion]);
+
+    useEffect(() => { recompareMaths(); }, [recompareMaths]);
+
+    // The working copy changed. `projectSavedToDisk` is the same signal the
+    // Version Control panel diffs on — saves are debounced, so this fires once
+    // after a burst of edits rather than on every keystroke.
+    useEffect(() => {
+        const group = {};
+        EventDispatcher.instance.on(
+            ['ProjectModel.projectSavedToDisk', 'ProjectModel.instanceHasChanged'],
+            () => recompareMaths(),
+            group
+        );
+        const project = ProjectModel.instance;
+        if (project) {
+            project.on(['componentAdded', 'componentRemoved', 'componentRenamed'], recompareMaths, group);
+        }
+        return () => {
+            EventDispatcher.instance.off(group);
+            project?.off(group);
+        };
+    }, [recompareMaths]);
+
+    // Nothing else owns this store, so clear it when the panel goes away rather
+    // than leaving the tree badging rows against a game that is no longer selected.
+    useEffect(() => () => setMathsDeployState(null), []);
+
+    /**
+     * Deploy = commit.
+     *
+     * Only what CHANGED is pushed: a component that already matches its deployment
+     * has nothing to send, and re-uploading it would put an identical snapshot in
+     * the history and make every commit look like it touched everything.
+     *
+     * Deletions are listed but never pushed. A component removed from the tree is
+     * still a live endpoint that a published game may be calling, and taking that
+     * down is not something a Deploy press should do implicitly — the platform's
+     * per-component delete is the deliberate way.
+     */
+    const handleDeployMathsComponents = useCallback(async (commitMessage: string) => {
         if (!settings?.apiKey || !selectedGame || !selectedVersion) return;
 
         setDeployingComponents(true);
@@ -754,15 +897,63 @@ export function MathsPanel() {
             const project = ProjectModel.instance;
             if (!project) throw new Error('No project is open.');
 
+            const toDeploy = mathsStatus.changed.filter((c) => c.kind === 'added' || c.kind === 'modified');
+            const onlySlugs = new Set(toDeploy.map((c) => c.slug));
+            if (onlySlugs.size === 0) {
+                throw new Error('Nothing to deploy — every component matches what is already deployed.');
+            }
+
             const results: MathsDeployResult[] = await deployMathsComponents(project, {
                 apiKey: settings.apiKey,
                 gameId: selectedGame,
                 deploymentId: selectedVersion.id,
                 version: selectedVersion.version,
+                onlySlugs,
                 onProgress: setDeployStep
             });
 
+            // Record what just happened. AFTER the deploy, never before: a commit
+            // written up front would claim a deploy that might still fail. If this
+            // throws, the components are live and only the history entry is
+            // missing — worth saying, not worth calling the deploy failed.
+            const kindBySlug = new Map(mathsStatus.changed.map((c) => [c.slug, c.kind]));
+            const files: CommitFileInput[] = results.map((r) => ({
+                function_slug: r.slug,
+                function_name: r.functionName,
+                change_kind: kindBySlug.get(r.slug) === 'added' ? 'added' : 'modified',
+                script: r.script,
+                project_json: r.projectJson
+            }));
+            let commitWarning: string | null = null;
+            try {
+                setDeployStep('Recording commit…');
+                await createComponentCommit(
+                    settings.apiKey,
+                    selectedGame,
+                    selectedVersion.id,
+                    commitMessage,
+                    files,
+                    operatorInfo?.name || undefined
+                );
+            } catch (e: any) {
+                commitWarning = e?.message || 'the commit could not be recorded';
+                console.error('[MathsComponents] commit failed:', e);
+            }
+
             await fetchVersions();
+            await refreshDeployed();
+            await refreshCommits();
+            if (commitWarning) {
+                setUploadStatus({
+                    type: 'error',
+                    message:
+                        `Deployed ${results.length} component${results.length === 1 ? '' : 's'}, but ` +
+                        `${commitWarning}. The components are live; only the history entry is missing.`
+                });
+                setDeployingComponents(false);
+                setDeployStep(null);
+                return;
+            }
 
             // A component whose script deployed but whose project.json didn't is a
             // live backend with no readable graph stored — worth saying out loud
@@ -782,9 +973,19 @@ export function MathsPanel() {
             } else if (betWinIssue) {
                 setUploadStatus({ type: 'error', message: betWinIssue.betWinWarning! });
             } else {
+                // Deletions were listed in Changed but deliberately not pushed, so
+                // say so rather than letting a clean "Deployed N" imply the tree and
+                // the platform now match.
+                const stillLive = mathsStatus.changed.filter((c) => c.kind === 'deleted');
                 setUploadStatus({
                     type: 'success',
-                    message: `Deployed ${results.length} component${results.length === 1 ? '' : 's'} to v${selectedVersion.version}`
+                    message:
+                        `Committed ${results.length} component${results.length === 1 ? '' : 's'} to v${selectedVersion.version}` +
+                        (stillLive.length > 0
+                            ? ` — ${stillLive.map((c) => c.displayName).join(', ')} ${stillLive.length === 1 ? 'is' : 'are'} ` +
+                              'still live on RGS; delete from the platform to take ' +
+                              `${stillLive.length === 1 ? 'it' : 'them'} down.`
+                            : '')
                 });
             }
         } catch (e: any) {
@@ -792,7 +993,16 @@ export function MathsPanel() {
         }
         setDeployingComponents(false);
         setDeployStep(null);
-    }, [settings, selectedGame, selectedVersion, fetchVersions]);
+    }, [
+        settings,
+        selectedGame,
+        selectedVersion,
+        fetchVersions,
+        mathsStatus,
+        operatorInfo,
+        refreshDeployed,
+        refreshCommits
+    ]);
 
     // ─── Components: per-component actions (three-dot menu) ──────────
     // Rename one component's DISPLAY name. Its slug and URL are untouched, so
@@ -1746,20 +1956,26 @@ export function MathsPanel() {
                         )}
                     </div>
 
+                    {/* Deploy is a commit: it pushes what CHANGED and records what it
+                        pushed. The count is the changed set, not the whole tree — pressing
+                        it with nothing changed would put a duplicate snapshot in the
+                        history and make every commit look like it touched everything. */}
                     <PrimaryButton
                         icon={IconName.CloudUpload}
                         label={
                             deployingComponents
                                 ? 'Deploying…'
-                                : mathsCount > 0
-                                    ? `Deploy ${mathsCount} component${mathsCount === 1 ? '' : 's'}`
+                                : deployableCount > 0
+                                    ? `Deploy ${deployableCount} change${deployableCount === 1 ? '' : 's'}`
                                     : 'Deploy'
                         }
                         size={PrimaryButtonSize.Small}
                         variant={PrimaryButtonVariant.MutedOnLowBg}
-                        onClick={handleDeployMathsComponents}
+                        onClick={() => setCommitPrompt({ message: '' })}
                         isGrowing
-                        isDisabled={!connected || !selectedGame || !selectedVersion || mathsCount === 0 || deployingComponents}
+                        isDisabled={
+                            !connected || !selectedGame || !selectedVersion || deployableCount === 0 || deployingComponents
+                        }
                     />
 
                     {/* Why the button is unavailable, rather than an inert control. */}
@@ -1773,7 +1989,9 @@ export function MathsPanel() {
                                         ? 'Create a server version above to deploy into.'
                                         : mathsCount === 0
                                             ? 'Add a Maths Component below to deploy.'
-                                            : `Compiles every component in the tree below — parents, children and deeper — and deploys each into v${selectedVersion.version} as its own endpoint.`}
+                                            : deployableCount === 0
+                                                ? 'Nothing to deploy — every component matches what is live.'
+                                                : `Compiles and deploys the ${deployableCount} changed component${deployableCount === 1 ? '' : 's'} into v${selectedVersion.version}, and records a commit.`}
                         </div>
                     )}
 
@@ -1787,14 +2005,67 @@ export function MathsPanel() {
                 </div>
 
                 {/* Maths Components — THIS project's `/#__maths__/` node-graph components,
-                    the ones you author, compile and deploy. Every component in the tree is
-                    its own component at any depth: a child or grandchild has its own graph,
-                    compiles on its own and deploys to its own endpoint, exactly like a
-                    sibling. Its three-dot menu is where per-component actions live —
-                    including Simulate, which compiles that component on the spot and
-                    measures its RTP (see ComponentsPanel.openMathsSimulate). */}
+                    in three views of the same thing, arranged the way Source Control is:
+                    what exists, what has changed, and what happened before.
+
+                      Deployed — the tree, and the only place components are authored:
+                        create, Folder, rename, duplicate, delete, and the three-dot menu's
+                        Simulate. Every component in it is its own component at any depth —
+                        a child or grandchild has its own graph, compiles on its own and
+                        deploys to its own endpoint. Each row is badged by whether it is
+                        live, and dragging a live one into a graph drops an Aggregator
+                        calling its endpoint rather than a local copy of its logic.
+
+                      Changed — the working copy against the platform: added, modified and
+                        deleted since the selected Server Version. Dragging from here drops
+                        the LOCAL component, edits included.
+
+                      Commits — the deploy history. Not draggable: dropping a superseded
+                        version into a live graph is a way to ship yesterday's maths by
+                        accident. */}
                 <div style={{ flex: '1.5 1 0', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                    <ComponentsPanel options={mathsPanelOptions} />
+                    <Tabs
+                        variant={TabsVariant.Sidebar}
+                        // The tree is a legacy view with its own DOM and scroll state;
+                        // remounting it on every tab switch would lose the open folders and
+                        // the selection. Keeping the tabs alive also means the badge
+                        // subscription stays live while Changed or Commits is on screen.
+                        keepTabsAlive
+                        activeTab={activeSubsection}
+                        onChange={(tab) => setActiveSubsection(tab)}
+                        tabs={[
+                            {
+                                id: 'deployed',
+                                label: 'Deployed',
+                                content: <ComponentsPanel options={mathsPanelOptions} />
+                            },
+                            {
+                                id: 'changed',
+                                label: mathsStatus.changed.length > 0
+                                    ? `Changed (${mathsStatus.changed.length})`
+                                    : 'Changed',
+                                content: (
+                                    <MathsChangedSection
+                                        status={mathsStatus}
+                                        isReady={Boolean(connected && selectedGame && selectedVersion)}
+                                        error={statusError}
+                                    />
+                                )
+                            },
+                            {
+                                id: 'commits',
+                                label: commits.length > 0 ? `Commits (${commits.length})` : 'Commits',
+                                content: (
+                                    <MathsCommitsSection
+                                        commits={commits}
+                                        isLoading={commitsLoading}
+                                        error={commitsError}
+                                        apiKey={settings?.apiKey}
+                                    />
+                                )
+                            }
+                        ]}
+                    />
                 </div>
 
                 {/* Deployed Functions — COMMENTED OUT, deliberately kept rather than deleted.
@@ -2552,6 +2823,114 @@ export function MathsPanel() {
                                     cursor: versionActionId === renameVersion.id || !versionNameInput.trim() ? 'not-allowed' : 'pointer',
                                 }}
                             >{versionActionId === renameVersion.id ? 'Renaming…' : 'Rename'}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Deploy = commit: message prompt ───────────────────────
+                A commit with no message is a row in the history that says nothing, so
+                the message is required rather than defaulted. The list above it is the
+                exact set that will be pushed — including the deletions that will NOT
+                be, so nobody presses Deploy expecting an endpoint to come down. */}
+            {commitPrompt && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 10000,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: 'rgba(0,0,0,0.6)',
+                }} onClick={() => { if (!deployingComponents) setCommitPrompt(null); }}>
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: '460px',
+                            backgroundColor: '#1e1e2e',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: '12px',
+                            padding: '24px',
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                        }}
+                    >
+                        <div style={{ marginBottom: '20px' }}>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>
+                                Deploy to v{selectedVersion?.version}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#888' }}>
+                                Compiles and deploys the changed components, then records a commit so this
+                                version of each one stays readable after the next deploy overwrites it.
+                            </div>
+                        </div>
+
+                        <div style={{ marginBottom: '16px', maxHeight: '160px', overflowY: 'auto' }}>
+                            {mathsStatus.changed.map((c) => (
+                                <div key={c.slug} style={{
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    fontSize: '12px', padding: '3px 0',
+                                    color: c.kind === 'deleted' ? '#666' : '#d0d0d8'
+                                }}>
+                                    <span style={{
+                                        fontFamily: 'monospace', fontWeight: 700, width: '12px',
+                                        color: c.kind === 'added' ? '#67DE92' : c.kind === 'deleted' ? '#EF4444' : '#E5A83B'
+                                    }}>
+                                        {c.kind === 'added' ? 'A' : c.kind === 'deleted' ? 'D' : 'M'}
+                                    </span>
+                                    <span style={{ textDecoration: c.kind === 'deleted' ? 'line-through' : 'none' }}>
+                                        {c.displayName}
+                                    </span>
+                                    {c.kind === 'deleted' && (
+                                        <span style={{ fontSize: '10px', color: '#666' }}>
+                                            — stays live on RGS
+                                        </span>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={MODAL_LABEL_STYLE}>Commit message</label>
+                            <input
+                                type="text"
+                                placeholder="what changed, and why"
+                                value={commitPrompt.message}
+                                onChange={(e) => setCommitPrompt({ message: e.target.value })}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && commitPrompt.message.trim() && !deployingComponents) {
+                                        const message = commitPrompt.message.trim();
+                                        setCommitPrompt(null);
+                                        void handleDeployMathsComponents(message);
+                                    }
+                                }}
+                                style={MODAL_INPUT_STYLE}
+                                autoFocus
+                            />
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                            <button
+                                onClick={() => setCommitPrompt(null)}
+                                disabled={deployingComponents}
+                                style={{
+                                    padding: '8px 16px', borderRadius: '6px',
+                                    border: '1px solid rgba(255,255,255,0.12)', backgroundColor: 'transparent',
+                                    color: '#a0a0b0', fontSize: '13px',
+                                    cursor: deployingComponents ? 'not-allowed' : 'pointer',
+                                }}
+                            >Cancel</button>
+                            <button
+                                onClick={() => {
+                                    const message = commitPrompt.message.trim();
+                                    if (!message) return;
+                                    setCommitPrompt(null);
+                                    void handleDeployMathsComponents(message);
+                                }}
+                                disabled={deployingComponents || !commitPrompt.message.trim()}
+                                style={{
+                                    padding: '8px 20px', borderRadius: '6px', border: 'none',
+                                    backgroundColor: deployingComponents || !commitPrompt.message.trim() ? '#444' : '#67DE92',
+                                    color: deployingComponents || !commitPrompt.message.trim() ? '#888' : '#1a1a2e',
+                                    fontSize: '13px', fontWeight: 700,
+                                    cursor: deployingComponents || !commitPrompt.message.trim() ? 'not-allowed' : 'pointer',
+                                }}
+                            >{`Deploy ${deployableCount} change${deployableCount === 1 ? '' : 's'}`}</button>
                         </div>
                     </div>
                 </div>

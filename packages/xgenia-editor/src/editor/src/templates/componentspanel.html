@@ -33,6 +33,18 @@
       <div class="components-panel-warnings-icon" data-class="!hasWarnings:hidden,isSelected:components-panel-item-selected"></div>
     </div>
 
+    <!-- Deploy state, Maths Components only (see ComponentsPanel.mathsDeployScope).
+         All three hidden is the normal state everywhere else, and in the maths
+         tree before a Server Version has been read. -->
+    <div class="item-mode-default" style="position:absolute; right:66px; top:0; bottom:0; display:flex; align-items:center; pointer-events:none;">
+      <span data-class="!isMathsLive:hidden" data-tooltip="Deployed — drag to call it on RGS" data-tooltip-position="bottom"
+        style="width:7px; height:7px; border-radius:50%; background:#67DE92; pointer-events:auto;"></span>
+      <span data-class="!isMathsDirty:hidden" data-tooltip="Deployed — changes waiting to be deployed" data-tooltip-position="bottom"
+        style="width:7px; height:7px; border-radius:50%; background:#E5A83B; pointer-events:auto;"></span>
+      <span data-class="!isMathsUndeployed:hidden" data-tooltip="Not deployed yet" data-tooltip-position="bottom"
+        style="width:7px; height:7px; border-radius:50%; border:1px solid #6b6b7b; pointer-events:auto;"></span>
+    </div>
+
     <button type="button" class="item-mode-default components-panel-item-dropdown components-panel-item-show-on-hover"
       data-click="onComponentActionsClicked"><i class="fa fa-ellipsis-h"></i></button>
   </div>
@@ -73,6 +85,17 @@
 
       <div style="position:absolute; right:50px; top:1px; bottom:2px;" data-tooltip="This component has warnings">
         <div class="components-panel-warnings-icon" data-class="!hasWarnings:hidden,isSelected:components-panel-item-selected"></div>
+      </div>
+
+      <!-- Deploy state of a "folder component" — a folder that is also a
+           component, and so deploys as its own endpoint. Hidden on plain folders. -->
+      <div class="item-mode-default" style="position:absolute; right:66px; top:0; bottom:0; display:flex; align-items:center; pointer-events:none;">
+        <span data-class="!isMathsLive:hidden" data-tooltip="Deployed — drag to call it on RGS" data-tooltip-position="bottom"
+          style="width:7px; height:7px; border-radius:50%; background:#67DE92; pointer-events:auto;"></span>
+        <span data-class="!isMathsDirty:hidden" data-tooltip="Deployed — changes waiting to be deployed" data-tooltip-position="bottom"
+          style="width:7px; height:7px; border-radius:50%; background:#E5A83B; pointer-events:auto;"></span>
+        <span data-class="!isMathsUndeployed:hidden" data-tooltip="Not deployed yet" data-tooltip-position="bottom"
+          style="width:7px; height:7px; border-radius:50%; border:1px solid #6b6b7b; pointer-events:auto;"></span>
       </div>
 
       <button type="button"

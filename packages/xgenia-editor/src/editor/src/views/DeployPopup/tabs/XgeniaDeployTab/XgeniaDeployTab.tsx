@@ -21,6 +21,7 @@ import { generateFunctionArtifact } from '@xgenia-utils/rgs/generateFunctionArti
 import { createEdgeDeployment, deployEdgeFunction, deleteEdgeDeployment } from '@xgenia-utils/rgs/deployEdgeFunction';
 import {
   mathsEndpointsForGame,
+  repointMathsAggregators,
   swapDeployedMathsInstances,
   undeployedMathsInstances
 } from '@xgenia-utils/rgs/deployMathsComponents';
@@ -1578,6 +1579,15 @@ export function XgeniaDeployTab() {
       const endpoints = await mathsEndpointsForGame(rgs.apiKey, game.id, copy);
       const { swapped, untriggered } = swapDeployedMathsInstances(copy, endpoints);
 
+      // Aggregators the user placed themselves, by dragging a component out of
+      // Maths Components → Deployed, carry the endpoint they had at drag time.
+      // Renaming or refiling the component since then moved its slug, and the
+      // stale URL still resolves — to the OLD code. Re-aim them at the current one.
+      // Reported in the success toast rather than logged: this build strips every
+      // console.* call (TerserPlugin drop_console), so a log here would say nothing
+      // to anyone.
+      const repointed = repointMathsAggregators(copy, endpoints);
+
       // An Aggregator only POSTs when one of its `do-` inputs pulses. An instance
       // whose trigger port is unwired therefore ships as a node that can never
       // call its backend — the endpoint is live and correct, and the published UI
@@ -1644,8 +1654,17 @@ export function XgeniaDeployTab() {
 
         ToastLayer.hideActivity(activityId);
         const userFriendlyDomain = aliasUrl.replace(/^https?:\/\//, '');
-        const wiring = swapped > 0
-          ? `${swapped} Math Component call${swapped === 1 ? '' : 's'} wired to ${game.name || 'XGENIA RGS'}`
+        // Two ways a call reaches RGS in this build: an instance the publish swapped
+        // for an Aggregator, and an Aggregator the user dropped from Maths
+        // Components → Deployed, which was already one and only needed its endpoint
+        // confirmed. Both are worth reporting — a publish that repointed something
+        // silently changed which code the game runs.
+        const wiredParts = [
+          swapped > 0 ? `${swapped} Math Component call${swapped === 1 ? '' : 's'} wired` : '',
+          repointed > 0 ? `${repointed} repointed at ${repointed === 1 ? 'its' : 'their'} current endpoint` : ''
+        ].filter(Boolean);
+        const wiring = wiredParts.length > 0
+          ? `${wiredParts.join(', ')} to ${game.name || 'XGENIA RGS'}`
           : 'no Math Component calls to wire';
         ToastLayer.showSuccess(`Deployed to Vercel — ${wiring}.\nLive URL: ${userFriendlyDomain}`);
         setSuccessMessage(`Deployed to Vercel (${wiring}). Live URL: ${userFriendlyDomain}`);

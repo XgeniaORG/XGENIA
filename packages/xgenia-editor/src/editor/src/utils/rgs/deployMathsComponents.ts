@@ -347,6 +347,15 @@ export interface MathsDeployResult {
   winOutputPort: string | null;
   /** Set when a `betAmount` port exists but no win port could be identified. */
   betWinWarning?: string;
+  /**
+   * Exactly what was sent to the platform — the compiled script and the authored
+   * graph. Returned so the caller can snapshot this deploy into a commit without
+   * compiling everything a second time, and without re-reading it back over the
+   * network (which would record whatever is live at THAT moment, not what this
+   * deploy pushed).
+   */
+  script: string;
+  projectJson: Record<string, any>;
 }
 
 export interface MathsDeployOptions {
@@ -355,6 +364,16 @@ export interface MathsDeployOptions {
   /** The Server Version to deploy into. */
   deploymentId: string;
   version?: number;
+  /**
+   * Deploy only these slugs, instead of every Math Component in the project.
+   *
+   * This is how Deploy became a commit: only components that differ from what is
+   * deployed are pushed. Re-uploading an identical component would put a
+   * duplicate snapshot in the history and make every commit look like it touched
+   * the whole project. Omitted (or empty) deploys everything, which is what the
+   * button did before and what a first deploy still needs.
+   */
+  onlySlugs?: Set<string>;
   /** Progress line for the panel, e.g. "Compiling SlotMaths (1/3)…". */
   onProgress?: (message: string) => void;
 }
@@ -381,18 +400,20 @@ export async function deployMathsComponents(
   project: any,
   options: MathsDeployOptions
 ): Promise<MathsDeployResult[]> {
-  const { apiKey, gameId, deploymentId, version, onProgress } = options;
+  const { apiKey, gameId, deploymentId, version, onlySlugs, onProgress } = options;
 
-  const components = listMathsComponents(project);
-  if (components.length === 0) {
+  const allComponents = listMathsComponents(project);
+  if (allComponents.length === 0) {
     throw new Error('This project has no Math Components. Create one first.');
   }
 
   // Two components whose leaf names slugify the same would deploy to one
   // endpoint, the second overwriting the first (the RGS upsert keys on
-  // (deployment_id, function_slug)). Refuse before anything is uploaded.
+  // (deployment_id, function_slug)). Checked across the WHOLE tree, not just the
+  // subset being deployed: a collision between a component being pushed and one
+  // sitting still is just as destructive, and only shows up here.
   const bySlug = new Map<string, string[]>();
-  components.forEach((c: any) => {
+  allComponents.forEach((c: any) => {
     const slug = mathsComponentSlug(c);
     bySlug.set(slug, [...(bySlug.get(slug) || []), c.name]);
   });
@@ -403,6 +424,14 @@ export async function deployMathsComponents(
       `${names.join(' and ')} both deploy as "${slug}" — one would overwrite the other. ` +
         'Rename one of them.'
     );
+  }
+
+  const components =
+    onlySlugs && onlySlugs.size > 0
+      ? allComponents.filter((c: any) => onlySlugs.has(mathsComponentSlug(c)))
+      : allComponents;
+  if (components.length === 0) {
+    throw new Error('None of the components asked for are in this project any more.');
   }
 
   const results: MathsDeployResult[] = [];
@@ -457,17 +486,17 @@ export async function deployMathsComponents(
     });
 
     // 3. Upload the authored project.json for this component, separately.
+    const projectJson = buildComponentProjectJson(project, component, {
+      slug,
+      gameId,
+      deploymentId,
+      version
+    });
     let projectUploaded = true;
     let projectError: string | undefined;
     try {
       onProgress?.(`Uploading ${label} project.json ${position}…`);
-      await uploadComponentProject(
-        apiKey,
-        gameId,
-        deploymentId,
-        slug,
-        buildComponentProjectJson(project, component, { slug, gameId, deploymentId, version })
-      );
+      await uploadComponentProject(apiKey, gameId, deploymentId, slug, projectJson);
     } catch (err: any) {
       projectUploaded = false;
       projectError = err?.message || String(err);
@@ -483,7 +512,9 @@ export async function deployMathsComponents(
       projectError,
       betInputPort: mapBoth ? betInputPort : null,
       winOutputPort: mapBoth ? winOutputPort : null,
-      betWinWarning
+      betWinWarning,
+      script: artifact.script,
+      projectJson
     });
   }
 
@@ -644,11 +675,16 @@ function mathsComponentPorts(definition: any): any[] {
 }
 
 /**
- * A Math Component instance's frontend contract, read off the component it
- * instantiates: which of its ports carry data, which are triggers, which come
- * back in the response, and which are signals the response cannot carry.
+ * A Math Component's frontend contract, read off the component itself: which of
+ * its ports carry data, which are triggers, which come back in the response, and
+ * which are signals the response cannot carry.
+ *
+ * Exported because two places need the identical answer: Publish, swapping an
+ * instance for an Aggregator, and the Maths Components panel's Deployed tree,
+ * dragging a backend component straight into a graph. Both are the same node
+ * calling the same endpoint, so both must derive its ports the same way.
  */
-function mathsInstanceContract(definition: any): {
+export function mathsComponentContract(definition: any): {
   dataInputs: string[];
   triggers: string[];
   outputs: string[];
@@ -684,6 +720,34 @@ const FAILURE_SIGNAL_NAME = /^(failure|failed|fail|error|on\s*error|reject)/i;
 
 function aggregatorSignalFor(portName: string): 'success' | 'failure' {
   return FAILURE_SIGNAL_NAME.test(String(portName).trim()) ? 'failure' : 'success';
+}
+
+/**
+ * The parameters that make an Aggregator node call one deployed Math Component.
+ *
+ * The three port lists are comma-joined strings because that is what the node's
+ * `stringlist` inputs take, and the field names are the component's gateway port
+ * names VERBATIM — the deployed script reads `config["<port name>"]`, so
+ * humanising or camelCasing them would send keys it never looks at.
+ *
+ * `targetComponent` records which component the node stands in for. Publish's
+ * repoint pass keys off it, and it is what tells a reader of the graph that this
+ * Aggregator is a Math Component rather than a hand-wired HTTP call.
+ */
+export function mathsAggregatorParameters(args: {
+  url: string;
+  dataInputs: string[];
+  triggers: string[];
+  outputs: string[];
+  targetComponent: string;
+}): Record<string, string> {
+  return {
+    url: args.url,
+    dataInputs: args.dataInputs.join(', '),
+    triggers: args.triggers.join(', '),
+    outputs: args.outputs.join(', '),
+    targetComponent: args.targetComponent
+  };
 }
 
 /**
@@ -747,7 +811,7 @@ export function swapDeployedMathsInstances(
       const definition = copy.getComponentWithName?.(instance.typename);
       if (!definition) continue;
 
-      const { dataInputs, triggers, outputs, outputSignals } = mathsInstanceContract(definition);
+      const { dataInputs, triggers, outputs, outputSignals } = mathsComponentContract(definition);
 
       // Only the ports this instance is actually wired to matter; declaring the
       // rest would put dead ports on the node.
@@ -771,17 +835,16 @@ export function swapDeployedMathsInstances(
         x: instance.x,
         y: instance.y,
         label: uniqueLabel(mathsComponentDisplayName(definition)),
-        parameters: {
+        // Only the ports this instance actually used, so the swap does not put
+        // dead ports on the node — unlike a fresh drag, which has no connections
+        // yet and declares the component's whole contract.
+        parameters: mathsAggregatorParameters({
           url: endpoint.url,
-          dataInputs: usedData.join(', '),
-          triggers: usedTriggers.join(', '),
-          outputs: usedOutputs.join(', '),
-          // Which component this aggregator stands in for. Publish's later
-          // "repoint each Aggregator" pass keys off this; the URL is already
-          // correct, and that pass only overwrites when it has a URL for the
-          // target, so it is a no-op here.
+          dataInputs: usedData,
+          triggers: usedTriggers,
+          outputs: usedOutputs,
           targetComponent: instance.typename
-        },
+        }),
         ports: [],
         dynamicports: [
           ...usedData.map((f) => ({
@@ -860,4 +923,51 @@ export function swapDeployedMathsInstances(
   }
 
   return { swapped, untriggered: Array.from(untriggered).sort() };
+}
+
+/**
+ * Re-aims every Aggregator that stands in for a Math Component at that
+ * component's CURRENT endpoint.
+ *
+ * Needed because an Aggregator can now be created long before it is published:
+ * dragging a component out of the Deployed subsection drops one with the endpoint
+ * baked in. A slug is derived from the component's path, so renaming or refiling
+ * it afterwards moves the endpoint — and the node would go on calling the old
+ * one, which stays live and serves the OLD code. That failure is silent and looks
+ * exactly like the maths not having been updated.
+ *
+ * Keyed on `targetComponent`, the component name the Aggregator records, so it
+ * only ever touches nodes that stand in for a Math Component; a hand-wired
+ * Aggregator pointed at some other service has no such parameter and is left
+ * alone. Only overwrites when there IS a current endpoint — an Aggregator whose
+ * component is no longer deployed keeps its URL, which is still being served.
+ *
+ * Runs on the compiled COPY, after the instance swap (whose own Aggregators are
+ * already correct, so they are a no-op here).
+ */
+export function repointMathsAggregators(
+  copy: any,
+  endpoints: Record<string, MathsEndpoint>
+): number {
+  if (!copy || Object.keys(endpoints).length === 0) return 0;
+
+  let repointed = 0;
+
+  for (const comp of copy.components || []) {
+    (comp?.graph?.roots || []).forEach((root: any) =>
+      root.forEach?.((node: any) => {
+        if (node?.typename !== 'Aggregator') return;
+
+        const target = node.parameters?.targetComponent;
+        const endpoint = target ? endpoints[target] : undefined;
+        if (!endpoint || node.parameters.url === endpoint.url) return;
+
+        if (typeof node.setParameter === 'function') node.setParameter('url', endpoint.url);
+        else node.parameters.url = endpoint.url;
+        repointed++;
+      })
+    );
+  }
+
+  return repointed;
 }
