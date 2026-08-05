@@ -14,20 +14,27 @@ import { EditorDocumentProvider } from '../EditorDocument';
 import { SimulationCharts } from './SimulationCharts';
 
 /**
- * Simulate a deployed component's maths inside the editor.
+ * Simulate a component's maths inside the editor.
  *
  * Mirrors a game's Testing subsection in the RGS studio (Define Inputs →
  * Simulate → Simulation Results → convergence charts) so a maths author doesn't
  * have to leave the editor to see an RTP. Same engine, same statistics — see
  * @xgenia-utils/rgs/simulationEngine.
  *
- * Opened from the Maths RGS panel's Components menu ("Simulate") into the
- * editor's main area, beside the sidebar, and scrolls as one column.
+ * Two ways in, and they differ only in where the executable script comes from:
+ *   * LOCAL — the "Simulate" action on a component in the Maths Components tree.
+ *     The panel compiles that component on the spot and hands the script (plus
+ *     its port examples) straight in. No RGS connection, no deploy: you can
+ *     simulate a component you have only just authored, at any depth in the tree.
+ *   * DEPLOYED — a component of a Server Version, identified by slug. The script
+ *     is not in the versions list, so it is fetched with download-edge-deployment.
+ *
+ * Opens in the editor's main area, beside the sidebar, and scrolls as one column.
  */
 
-// The component being simulated. Every field comes from the Server Versions list
-// (list-edge-deployments); the executable `script` is not in that payload and is
-// fetched lazily below.
+// The component being simulated. On the deployed path every field comes from the
+// Server Versions list (list-edge-deployments); on the local path the panel fills
+// the same shape from the compiled artifact.
 export interface MathsSimulateDoc {
     function_slug: string;
     function_name: string;
@@ -44,10 +51,18 @@ export interface MathsSimulateDoc {
 }
 
 interface MathsSimulateDocumentProps {
-    apiKey: string;
-    deploymentId: string;
-    version: number;
+    /**
+     * The script to simulate, when the caller already has it — the local path
+     * (a freshly compiled Maths Component). Given this, nothing is downloaded and
+     * apiKey / deploymentId / version are not needed.
+     */
+    script?: string;
+    apiKey?: string;
+    deploymentId?: string;
+    version?: number;
     gameName?: string;
+    /** Shown in the title in place of a game + version, e.g. the project name. */
+    sourceLabel?: string;
     fn: MathsSimulateDoc;
 }
 
@@ -177,7 +192,15 @@ function MathsSimulateTopbar({ title }: { title: string }) {
     );
 }
 
-function MathsSimulateDocument({ apiKey, deploymentId, version, gameName, fn }: MathsSimulateDocumentProps) {
+function MathsSimulateDocument({
+    script: localScript,
+    apiKey,
+    deploymentId,
+    version,
+    gameName,
+    sourceLabel,
+    fn
+}: MathsSimulateDocumentProps) {
     const [script, setScript] = useState<string | null>(null);
     const [scriptError, setScriptError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
@@ -195,14 +218,29 @@ function MathsSimulateDocument({ apiKey, deploymentId, version, gameName, fn }: 
     const numericInputs = inputPorts.filter((p) => p.type === 'number');
     const numericOutputs = outputPorts.filter((p) => p.type === 'number');
 
-    // The executable script isn't in the versions list — pull the version bundle
-    // and pick this component out by slug (same call the API-docs document makes).
+    // Where the script comes from. A caller that compiled it locally passes it in
+    // and there is nothing to fetch; otherwise the executable script isn't in the
+    // versions list, so pull the version bundle and pick this component out by slug
+    // (same call the API-docs document makes).
     // Deliberately NOT run through Prettier: this text is compiled, not shown.
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
         setScript(null);
         setScriptError(null);
+
+        if (localScript !== undefined) {
+            setScript(localScript);
+            setLoading(false);
+            return;
+        }
+
+        if (!apiKey || !deploymentId) {
+            setScriptError('No script to simulate — this component has not been deployed.');
+            setLoading(false);
+            return;
+        }
+
         downloadEdgeDeployment(apiKey, deploymentId)
             .then((bundle) => {
                 if (cancelled) return;
@@ -218,7 +256,7 @@ function MathsSimulateDocument({ apiKey, deploymentId, version, gameName, fn }: 
         return () => {
             cancelled = true;
         };
-    }, [apiKey, deploymentId, fn.function_slug]);
+    }, [localScript, apiKey, deploymentId, fn.function_slug]);
 
     // Default the bet/win mapping to whatever the component was deployed with —
     // the author said so in the editor's post-compile setup card, and that beats
@@ -292,7 +330,15 @@ function MathsSimulateDocument({ apiKey, deploymentId, version, gameName, fn }: 
         }
     };
 
-    const titleParts = [gameName, `v${version}`, fn.function_name, 'Simulate'].filter(Boolean);
+    // Deployed: "<game> · v3 · <component> · Simulate".
+    // Local: "<project> · <component> · Simulate" — there is no version to name.
+    const titleParts = [
+        gameName,
+        sourceLabel,
+        version != null ? `v${version}` : null,
+        fn.function_name,
+        'Simulate'
+    ].filter(Boolean);
 
     return (
         <Container direction={ContainerDirection.Vertical} isFill>
@@ -306,7 +352,7 @@ function MathsSimulateDocument({ apiKey, deploymentId, version, gameName, fn }: 
                         <code style={TYPE_CHIP_STYLE}>{fn.function_slug}</code>
                         {loading && <span style={{ fontSize: '11px', color: '#666' }}>Loading script&#8230;</span>}
                         {!loading && script === '' && (
-                            <span style={{ fontSize: '11px', color: '#F5A623' }}>No script stored for this component — nothing to simulate.</span>
+                            <span style={{ fontSize: '11px', color: '#F5A623' }}>This component compiled to an empty script — nothing to simulate. Check that its nodes are connected.</span>
                         )}
                         {scriptError && <span style={{ fontSize: '11px', color: '#EF4444' }}>{scriptError}</span>}
                     </div>
