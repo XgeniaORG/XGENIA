@@ -552,14 +552,12 @@ export function MathsPanel() {
 
     // Open a DEPLOYED component's Simulate view in the editor's MAIN area — the
     // same Define Inputs → Simulate → Results flow as a game's Testing subsection
-    // in the RGS studio, run locally against the deployed script, which the
-    // document fetches itself via download-edge-deployment.
+    // in the RGS studio, with the rounds run on RGS against the deployed script.
     //
-    // The Simulate people actually reach for now is the one on the Maths
-    // Components tree (ComponentsPanel.openMathsSimulate): it compiles the
-    // component you are authoring, so it needs neither a deploy nor a connection,
-    // and it works at any depth in the tree. This one measures what is already on
-    // the server and belongs to the commented-out Deployed Functions list.
+    // Identical to what the Deployed tab's three-dot menu does
+    // (MathsDeployedSection.simulate), which is the route people actually take;
+    // this copy belongs to the commented-out Deployed Functions list below and is
+    // kept in step with it so restoring that block stays a pure uncomment.
     const openComponentSimulate = (fn: any) => {
         if (!settings?.apiKey || !selectedVersion) return;
         AppRegistry.instance.openDocument(MathsSimulateDocumentProvider.ID, {
@@ -2097,17 +2095,20 @@ export function MathsPanel() {
                     where it came from:
 
                       Local    — the project's `/#__maths__/` tree, and the only place
-                        components are authored: create, Folder, rename, duplicate, delete,
-                        and the three-dot menu's Simulate. Every component in it is its own
-                        component at any depth — a child or grandchild has its own graph,
-                        compiles on its own and deploys to its own endpoint. Dragging one
-                        drops the LOCAL component, whose maths runs in the browser, which is
-                        what makes it testable without deploying. Rows are badged with how
-                        they stand against the platform.
+                        components are authored: create, Folder, rename, duplicate, delete.
+                        Every component in it is its own component at any depth — a child or
+                        grandchild has its own graph, compiles on its own and deploys to its
+                        own endpoint. Dragging one drops the LOCAL component, whose maths
+                        runs in the browser, which is what makes it testable without
+                        deploying. Rows are badged with how they stand against the platform.
+                        No Simulate here — see Deployed.
 
                       Deployed — a read-only mirror of the selected Server Version: only
                         what RGS is actually serving. Dragging one drops a BACKEND
-                        component, an Aggregator on its live endpoint. Nothing here is
+                        component, an Aggregator on its live endpoint. Its three-dot menu
+                        holds Simulate, and this is the ONLY place that offers it: the
+                        rounds run on the platform against the row rgs-fn serves, so an
+                        RTP measured here is an RTP of the live maths. Nothing here is
                         editable; it describes code already running.
 
                       Changed  — Local measured against Deployed. A report, not a source:
@@ -2149,6 +2150,12 @@ export function MathsPanel() {
                                             : null}
                                         isReady={Boolean(connected && selectedGame && selectedVersion)}
                                         error={statusError}
+                                        // Simulate runs the rounds on RGS, so the section needs
+                                        // enough to name the caller and the Server Version.
+                                        apiKey={settings?.apiKey}
+                                        deploymentId={selectedVersion?.id}
+                                        version={selectedVersion?.version}
+                                        gameName={(games || []).find((g: any) => g.id === selectedGame)?.name}
                                     />
                                 )
                             },
@@ -2185,10 +2192,9 @@ export function MathsPanel() {
                     "Server Versions" above.
 
                     Withdrawn from the panel because the one action people came here for —
-                    Simulate — now lives on the Maths Components tree above, where it runs
-                    against the component you are authoring instead of the copy that happens
-                    to be on the server. The rest of this list (API docs / rename / download /
-                    delete of a deployed function) is still reachable in the RGS studio.
+                    Simulate — now lives on the Deployed tab above, on each row's three-dot
+                    menu. The rest of this list (API docs / rename / download / delete of a
+                    deployed function) is still reachable in the RGS studio.
 
                     To bring it back, uncomment the JSX below. Everything it needs is still
                     live in this file: openComponentDoc, openComponentSimulate,

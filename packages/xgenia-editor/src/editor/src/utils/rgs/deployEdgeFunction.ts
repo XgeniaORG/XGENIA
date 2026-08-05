@@ -153,8 +153,14 @@ export interface EdgeDeploymentBundle {
     function_name: string;
     function_url: string;
     script: string;
-    payload_example: unknown;
-    response_example: unknown;
+    payload_example: Record<string, any>;
+    response_example: Record<string, any>;
+    /**
+     * The bet/win mapping stored at deploy time. Null on a component deployed
+     * before the mapping existed, or one whose ports name neither.
+     */
+    bet_input_port?: string | null;
+    win_output_port?: string | null;
     /**
      * The component's authored node graph, project.json-shaped — what the Math
      * Components deploy uploads after the script. Null for components produced by

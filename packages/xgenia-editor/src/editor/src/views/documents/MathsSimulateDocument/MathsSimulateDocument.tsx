@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { AppRegistry, IDocumentProvider } from '@xgenia-models/app_registry';
 
@@ -7,34 +7,40 @@ import { PrimaryButton, PrimaryButtonVariant } from '@xgenia-core-ui/components/
 import { Container, ContainerDirection } from '@xgenia-core-ui/components/layout/Container';
 import { Label } from '@xgenia-core-ui/components/typography/Label';
 
-import { downloadEdgeDeployment } from '@xgenia-utils/rgs/deployEdgeFunction';
-import { runBatchSimulation, type BatchSimulationResult } from '@xgenia-utils/rgs/simulationEngine';
+import {
+    MAX_SIMULATION_ROUNDS,
+    simulateDeployedComponent,
+    type ComponentSimulationStats,
+    type SimulationSeriesPoint
+} from '@xgenia-utils/rgs/simulateComponent';
 
 import { EditorDocumentProvider } from '../EditorDocument';
 import { SimulationCharts } from './SimulationCharts';
 
 /**
- * Simulate a component's maths inside the editor.
+ * Simulate a DEPLOYED component's maths, on the RGS platform.
  *
  * Mirrors a game's Testing subsection in the RGS studio (Define Inputs →
  * Simulate → Simulation Results → convergence charts) so a maths author doesn't
- * have to leave the editor to see an RTP. Same engine, same statistics — see
- * @xgenia-utils/rgs/simulationEngine.
+ * have to leave the editor to see an RTP.
  *
- * Two ways in, and they differ only in where the executable script comes from:
- *   * LOCAL — the "Simulate" action on a component in the Maths Components tree.
- *     The panel compiles that component on the spot and hands the script (plus
- *     its port examples) straight in. No RGS connection, no deploy: you can
- *     simulate a component you have only just authored, at any depth in the tree.
- *   * DEPLOYED — a component of a Server Version, identified by slug. The script
- *     is not in the versions list, so it is fetched with download-edge-deployment.
+ * The rounds do NOT run here. This view configures the run and renders what
+ * comes back; the platform compiles the component's stored script through the
+ * same sandbox `rgs-fn` uses and does the counting. That is deliberate — the
+ * editor previously simulated a locally compiled copy, which could report an RTP
+ * for maths no player would ever hit. It is also why there is only one way in:
+ * the Deployed tab of the Maths RGS panel. An undeployed component has nothing
+ * on the platform to measure, so Simulate is not offered for one.
+ *
+ * A run of any size arrives in chunks (an edge isolate is CPU-killed near 2s),
+ * which is why there is a progress line and a Stop button — see
+ * @xgenia-utils/rgs/simulateComponent.
  *
  * Opens in the editor's main area, beside the sidebar, and scrolls as one column.
  */
 
-// The component being simulated. On the deployed path every field comes from the
-// Server Versions list (list-edge-deployments); on the local path the panel fills
-// the same shape from the compiled artifact.
+// The component being simulated — every field comes from the Server Version's
+// component list (download-edge-deployment / list-edge-deployments).
 export interface MathsSimulateDoc {
     function_slug: string;
     function_name: string;
@@ -51,18 +57,12 @@ export interface MathsSimulateDoc {
 }
 
 interface MathsSimulateDocumentProps {
-    /**
-     * The script to simulate, when the caller already has it — the local path
-     * (a freshly compiled Maths Component). Given this, nothing is downloaded and
-     * apiKey / deploymentId / version are not needed.
-     */
-    script?: string;
+    /** Operator key. Required — the rounds run on the platform. */
     apiKey?: string;
+    /** The Server Version holding this component; also what scopes the run to a game you own. */
     deploymentId?: string;
     version?: number;
     gameName?: string;
-    /** Shown in the title in place of a game + version, e.g. the project name. */
-    sourceLabel?: string;
     fn: MathsSimulateDoc;
 }
 
@@ -193,70 +193,41 @@ function MathsSimulateTopbar({ title }: { title: string }) {
 }
 
 function MathsSimulateDocument({
-    script: localScript,
     apiKey,
     deploymentId,
     version,
     gameName,
-    sourceLabel,
     fn
 }: MathsSimulateDocumentProps) {
-    const [script, setScript] = useState<string | null>(null);
-    const [scriptError, setScriptError] = useState<string | null>(null);
-    const [loading, setLoading] = useState(true);
-
     const [inputConfig, setInputConfig] = useState<Record<string, InputConfig>>({});
     const [betInputPort, setBetInputPort] = useState('');
     const [winOutputPort, setWinOutputPort] = useState('');
     const [simCount, setSimCount] = useState(10_000);
     const [running, setRunning] = useState(false);
     const [runError, setRunError] = useState<string | null>(null);
-    const [simResult, setSimResult] = useState<BatchSimulationResult | null>(null);
+    const [progress, setProgress] = useState<{ rounds: number; totalRounds: number } | null>(null);
+    const [simResult, setSimResult] = useState<{
+        stats: ComponentSimulationStats;
+        series: SimulationSeriesPoint[];
+        cancelled: boolean;
+    } | null>(null);
+
+    // Read inside the chunk loop, so pressing Stop takes effect at the next chunk
+    // boundary rather than at the next React render. A ref, not state, for the
+    // same reason: the running loop closed over its own copy of state.
+    const cancelRef = useRef(false);
+
+    // Nothing to configure without these — the platform is where the rounds run.
+    const notConnected = !apiKey || !deploymentId;
 
     const inputPorts = useMemo(() => portsFromExample(fn.payload_example), [fn.payload_example]);
     const outputPorts = useMemo(() => portsFromExample(fn.response_example), [fn.response_example]);
     const numericInputs = inputPorts.filter((p) => p.type === 'number');
     const numericOutputs = outputPorts.filter((p) => p.type === 'number');
 
-    // Where the script comes from. A caller that compiled it locally passes it in
-    // and there is nothing to fetch; otherwise the executable script isn't in the
-    // versions list, so pull the version bundle and pick this component out by slug
-    // (same call the API-docs document makes).
-    // Deliberately NOT run through Prettier: this text is compiled, not shown.
-    useEffect(() => {
-        let cancelled = false;
-        setLoading(true);
-        setScript(null);
-        setScriptError(null);
-
-        if (localScript !== undefined) {
-            setScript(localScript);
-            setLoading(false);
-            return;
-        }
-
-        if (!apiKey || !deploymentId) {
-            setScriptError('No script to simulate — this component has not been deployed.');
-            setLoading(false);
-            return;
-        }
-
-        downloadEdgeDeployment(apiKey, deploymentId)
-            .then((bundle) => {
-                if (cancelled) return;
-                const match = (bundle.functions || []).find((f) => f.function_slug === fn.function_slug);
-                setScript(match?.script || '');
-                setLoading(false);
-            })
-            .catch((e: any) => {
-                if (cancelled) return;
-                setScriptError(e?.message || 'Failed to load script');
-                setLoading(false);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [localScript, apiKey, deploymentId, fn.function_slug]);
+    // The script is never fetched. It stays on the platform and is compiled there
+    // for every chunk — this view only ever sees the component's port examples
+    // (which the Server Version listing already carries) and the resulting figures.
 
     // Default the bet/win mapping to whatever the component was deployed with —
     // the author said so in the editor's post-compile setup card, and that beats
@@ -278,15 +249,15 @@ function MathsSimulateDocument({
         }));
     };
 
-    const canRun = !!script && !loading && !running && !!betInputPort && !!winOutputPort;
+    const canRun = !notConnected && !running && !!betInputPort && !!winOutputPort;
 
     const handleRunSimulations = async () => {
-        if (!script || running) return;
+        if (notConnected || running) return;
+        cancelRef.current = false;
         setRunning(true);
         setRunError(null);
         setSimResult(null);
-        // Let the "Running…" state paint before the synchronous sim takes the thread.
-        await new Promise((r) => setTimeout(r, 20));
+        setProgress({ rounds: 0, totalRounds: Math.max(1, Math.min(simCount, MAX_SIMULATION_ROUNDS)) });
         try {
             const inputOverrides: Record<string, any> = {};
             const rngPorts: Record<string, { min: number; max: number }> = {};
@@ -310,31 +281,36 @@ function MathsSimulateDocument({
                 }
             }
 
-            const numRounds = Math.max(1, Math.min(simCount, 100_000_000));
-            const res = runBatchSimulation({
-                script,
-                numRounds,
+            const numRounds = Math.max(1, Math.min(simCount, MAX_SIMULATION_ROUNDS));
+            const res = await simulateDeployedComponent({
+                apiKey: apiKey as string,
+                deploymentId: deploymentId as string,
+                functionSlug: fn.function_slug,
+                totalRounds: numRounds,
                 betAmount: 1, // fallback; the bet port governs the actual stake
                 inputOverrides,
-                rngPorts: Object.keys(rngPorts).length > 0 ? rngPorts : undefined,
-                boolRngPorts: boolRngPorts.length > 0 ? boolRngPorts : undefined,
-                strRngPorts: strRngPorts.length > 0 ? strRngPorts : undefined,
-                betInputPort: betInputPort || undefined,
-                winOutputPort: winOutputPort || undefined
+                rngPorts,
+                boolRngPorts,
+                strRngPorts,
+                betInputPort: betInputPort || null,
+                winOutputPort: winOutputPort || null,
+                onProgress: (p) => setProgress({ rounds: p.rounds, totalRounds: p.totalRounds }),
+                shouldCancel: () => cancelRef.current
             });
-            setSimResult(res);
+            setSimResult({ stats: res.stats, series: res.series, cancelled: res.cancelled });
         } catch (e: any) {
             setRunError(e?.message || 'Simulation failed');
         } finally {
+            cancelRef.current = false;
             setRunning(false);
+            setProgress(null);
         }
     };
 
-    // Deployed: "<game> · v3 · <component> · Simulate".
-    // Local: "<project> · <component> · Simulate" — there is no version to name.
+    // "<game> · v3 · <component> · Simulate" — the Server Version is part of the
+    // identity here, because that is the copy being measured.
     const titleParts = [
         gameName,
-        sourceLabel,
         version != null ? `v${version}` : null,
         fn.function_name,
         'Simulate'
@@ -350,11 +326,12 @@ function MathsSimulateDocument({
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px', flexWrap: 'wrap' }}>
                         <span style={{ fontSize: '15px', fontWeight: 600, color: '#f0f0f0' }}>{fn.function_name}</span>
                         <code style={TYPE_CHIP_STYLE}>{fn.function_slug}</code>
-                        {loading && <span style={{ fontSize: '11px', color: '#666' }}>Loading script&#8230;</span>}
-                        {!loading && script === '' && (
-                            <span style={{ fontSize: '11px', color: '#F5A623' }}>This component compiled to an empty script — nothing to simulate. Check that its nodes are connected.</span>
+                        <span style={{ fontSize: '11px', color: '#7a7a8a' }}>runs on XGENIA RGS</span>
+                        {notConnected && (
+                            <span style={{ fontSize: '11px', color: '#EF4444' }}>
+                                Not connected to XGENIA RGS — open this from the Deployed tab of the Maths RGS panel.
+                            </span>
                         )}
-                        {scriptError && <span style={{ fontSize: '11px', color: '#EF4444' }}>{scriptError}</span>}
                     </div>
 
                     {/* ═══ 1. DEFINE INPUTS ═══ */}
@@ -542,17 +519,30 @@ function MathsSimulateDocument({
                                 <input
                                     type="number"
                                     min={1}
-                                    max={100_000_000}
+                                    max={MAX_SIMULATION_ROUNDS}
                                     style={{ ...INPUT_STYLE, width: '160px' }}
                                     value={simCount}
-                                    onChange={(e) => setSimCount(Math.max(1, Math.min(100_000_000, Number(e.target.value) || 1)))}
+                                    onChange={(e) => setSimCount(Math.max(1, Math.min(MAX_SIMULATION_ROUNDS, Number(e.target.value) || 1)))}
                                     disabled={running}
                                 />
                                 <div style={{ fontSize: '10px', color: '#7a7a8a', marginTop: '4px' }}>
-                                    1 – 100,000,000{simCount > 1_000_000 ? ' · large runs freeze the editor while they run' : ''}
+                                    {/* The ceiling is the platform's, not this field's: the rounds run on
+                                        RGS in chunks, and a long run is many calls rather than one long one. */}
+                                    1 – {MAX_SIMULATION_ROUNDS.toLocaleString()}
+                                    {simCount > 1_000_000 ? ' · a run this size takes several minutes of RGS time' : ''}
                                 </div>
                             </div>
                             <span style={{ flex: 1 }} />
+                            {running && (
+                                <PrimaryButton
+                                    label="Stop"
+                                    icon={IconName.Close}
+                                    variant={PrimaryButtonVariant.MutedOnLowBg}
+                                    // Takes effect at the next chunk boundary — the chunk in flight
+                                    // finishes, and its rounds are kept rather than thrown away.
+                                    onClick={() => { cancelRef.current = true; }}
+                                />
+                            )}
                             <PrimaryButton
                                 label={running ? 'Running…' : 'Run Simulations'}
                                 icon={IconName.Play}
@@ -562,7 +552,22 @@ function MathsSimulateDocument({
                                 onClick={handleRunSimulations}
                             />
                         </div>
-                        {(!betInputPort || !winOutputPort) && !loading && (
+                        {progress && (
+                            <div style={{ marginTop: '10px' }}>
+                                <div style={{ height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                                    <div style={{
+                                        height: '100%',
+                                        width: `${Math.min(100, (progress.rounds / Math.max(1, progress.totalRounds)) * 100)}%`,
+                                        background: '#67DE92',
+                                        transition: 'width 120ms linear'
+                                    }} />
+                                </div>
+                                <div style={{ fontSize: '10px', color: '#7a7a8a', marginTop: '4px', fontFamily: 'monospace' }}>
+                                    {progress.rounds.toLocaleString()} / {progress.totalRounds.toLocaleString()} rounds on RGS
+                                </div>
+                            </div>
+                        )}
+                        {(!betInputPort || !winOutputPort) && !notConnected && (
                             <div style={{ fontSize: '11px', color: '#F5A623', marginTop: '8px' }}>
                                 Select a numeric Bet input and Win output to run.
                             </div>
@@ -578,36 +583,44 @@ function MathsSimulateDocument({
                             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
                                 <div style={SECTION_TITLE_STYLE}>Simulation Results</div>
                                 <div style={{ fontSize: '10px', color: '#7a7a8a', fontFamily: 'monospace' }}>
-                                    {simResult.rounds.toLocaleString()} rounds · {simResult.roundsPerSecond.toLocaleString()} rounds/s
+                                    {simResult.stats.rounds.toLocaleString()} rounds · {simResult.stats.roundsPerSecond.toLocaleString()} rounds/s on RGS
                                 </div>
                             </div>
+
+                            {/* A stopped run is still a real measurement — of however many rounds it
+                                got through. Say so, so nobody reads a short sample as the full one. */}
+                            {simResult.cancelled && (
+                                <div style={{ fontSize: '11px', color: '#F5A623', marginBottom: '10px' }}>
+                                    Stopped early — these figures cover the {simResult.stats.rounds.toLocaleString()} rounds that ran.
+                                </div>
+                            )}
 
                             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                                 <div style={STAT_TILE_STYLE}>
                                     <div style={{ fontSize: '11px', color: '#8a8a9a' }}>Average RTP</div>
-                                    <div style={{ fontSize: '22px', fontWeight: 700, color: '#67DE92' }}>{(simResult.rtp * 100).toFixed(2)}%</div>
-                                    <div style={{ fontSize: '10px', color: '#7a7a8a' }}>house edge {simResult.houseEdge}</div>
+                                    <div style={{ fontSize: '22px', fontWeight: 700, color: '#67DE92' }}>{(simResult.stats.rtp * 100).toFixed(2)}%</div>
+                                    <div style={{ fontSize: '10px', color: '#7a7a8a' }}>house edge {simResult.stats.houseEdge}</div>
                                 </div>
                                 <div style={STAT_TILE_STYLE}>
                                     <div style={{ fontSize: '11px', color: '#8a8a9a' }}>Hit Frequency</div>
-                                    <div style={{ fontSize: '22px', fontWeight: 700, color: '#f0f0f5' }}>{simResult.hitRate.toFixed(2)}%</div>
+                                    <div style={{ fontSize: '22px', fontWeight: 700, color: '#f0f0f5' }}>{simResult.stats.hitRate.toFixed(2)}%</div>
                                     <div style={{ fontSize: '10px', color: '#7a7a8a' }}>non-zero wins ÷ rounds</div>
                                 </div>
                                 <div style={STAT_TILE_STYLE}>
                                     <div style={{ fontSize: '11px', color: '#8a8a9a' }}>Volatility</div>
-                                    <div style={{ fontSize: '22px', fontWeight: 700, color: '#f0f0f5' }}>{simResult.volatility.toFixed(2)}</div>
-                                    <div style={{ fontSize: '10px', color: '#7a7a8a', textTransform: 'capitalize' }}>{simResult.volatilityClass}</div>
+                                    <div style={{ fontSize: '22px', fontWeight: 700, color: '#f0f0f5' }}>{simResult.stats.volatility.toFixed(2)}</div>
+                                    <div style={{ fontSize: '10px', color: '#7a7a8a', textTransform: 'capitalize' }}>{simResult.stats.volatilityClass}</div>
                                 </div>
                             </div>
 
                             {/* Supporting figures — the three headline stats derive from these. */}
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '18px', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                                 {[
-                                    ['Total bet', Math.round(simResult.totalBet).toLocaleString()],
-                                    ['Total win', Math.round(simResult.totalWin).toLocaleString()],
-                                    ['Max multiplier', `${simResult.maxMultiplier.toFixed(2)}×`],
+                                    ['Total bet', Math.round(simResult.stats.totalBet).toLocaleString()],
+                                    ['Total win', Math.round(simResult.stats.totalWin).toLocaleString()],
+                                    ['Max multiplier', `${simResult.stats.maxMultiplier.toFixed(2)}×`],
                                     // Derived, not betAmount: on an RNG bet port the stake varies per round.
-                                    ['Avg bet / round', (simResult.totalBet / Math.max(1, simResult.rounds)).toFixed(2)]
+                                    ['Avg bet / round', (simResult.stats.totalBet / Math.max(1, simResult.stats.rounds)).toFixed(2)]
                                 ].map(([label, value]) => (
                                     <div key={label}>
                                         <div style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#7a7a8a' }}>{label}</div>

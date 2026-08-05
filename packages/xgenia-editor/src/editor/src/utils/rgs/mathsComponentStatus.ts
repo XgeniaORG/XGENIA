@@ -42,6 +42,24 @@ export interface DeployedComponent {
    * from being unchanged — see `comparable`.
    */
   component: any | null;
+  /**
+   * The component's port contract as the platform holds it — what Simulate's
+   * "Define Inputs" list is built from.
+   *
+   * Read off the same download-edge-deployment bundle as everything else here,
+   * rather than off the local component of the same name: this tab describes
+   * what is deployed, and a port added or renamed since would otherwise let
+   * someone configure a run against inputs the live script does not have.
+   */
+  payloadExample: Record<string, any>;
+  responseExample: Record<string, any>;
+  /**
+   * The bet/win mapping stored at deploy time. Null on a component deployed
+   * before that mapping existed, or one whose ports name neither; Simulate then
+   * falls back to the first numeric port of each kind.
+   */
+  betInputPort: string | null;
+  winOutputPort: string | null;
 }
 
 export interface MathsComponentStatus {
@@ -150,7 +168,11 @@ export async function readDeployedComponents(
     slug: fn.function_slug,
     functionName: fn.function_name || fn.function_slug,
     url: fn.function_url,
-    component: componentFromProjectJson(fn.project_json)
+    component: componentFromProjectJson(fn.project_json),
+    payloadExample: fn.payload_example || {},
+    responseExample: fn.response_example || {},
+    betInputPort: fn.bet_input_port ?? null,
+    winOutputPort: fn.win_output_port ?? null
   }));
 }
 

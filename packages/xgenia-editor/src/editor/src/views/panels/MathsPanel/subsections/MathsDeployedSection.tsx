@@ -11,7 +11,7 @@
 // what is deployed) or a live edit of production maths with no undo. Authoring
 // happens in Local, and Deploy is how a change gets here.
 //
-// Two things a row does:
+// Three things a row does:
 //   * click — opens the graph AS DEPLOYED, in the read-only node-graph view. This
 //     is the component's stored `project_json`, the graph its author wrote, not
 //     the flattened script that executes.
@@ -19,6 +19,17 @@
 //     component's live `/rgs-fn/<game>/<slug>` endpoint. Dragging the same
 //     component out of Local drops the local instance instead, whose maths runs
 //     in the browser. That difference is why both tabs exist.
+//   * ⋯ → Simulate — measures this component's RTP / hit frequency / volatility.
+//     The rounds run on RGS, against the row `rgs-fn` serves; see
+//     @xgenia-utils/rgs/simulateComponent.
+//
+// Simulate is offered HERE and nowhere else (2026-08-06). It used to sit on the
+// Local tree's three-dot menu, where it compiled the working copy in the renderer
+// and reported an RTP for a script that had never been near the platform — a
+// figure indistinguishable, on screen, from a measurement of the live maths.
+// Simulation is a property of the deployed artifact, so it belongs to the tab
+// that holds deployed artifacts. To simulate something you are still authoring,
+// deploy it first: that is now a deliberate step, not a missing feature.
 
 import React, { useState } from 'react';
 
@@ -27,14 +38,16 @@ import { ComponentModel } from '@xgenia-models/componentmodel';
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import { DeployedComponent } from '@xgenia-utils/rgs/mathsComponentStatus';
 
-import { IconName } from '@xgenia-core-ui/components/common/Icon';
+import { IconName, IconSize } from '@xgenia-core-ui/components/common/Icon';
 import { ListItem, ListItemVariant } from '@xgenia-core-ui/components/layout/ListItem';
 import { VStack } from '@xgenia-core-ui/components/layout/Stack';
+import { ContextMenu } from '@xgenia-core-ui/components/popups/ContextMenu';
 import { Section, SectionVariant } from '@xgenia-core-ui/components/sidebar/Section';
 import { Label } from '@xgenia-core-ui/components/typography/Label';
 
 import { ComponentDiffDocumentProvider } from '../../../documents/ComponentDiffDocument';
 import { EditorDocumentProvider } from '../../../documents/EditorDocument';
+import { MathsSimulateDocumentProvider } from '../../../documents/MathsSimulateDocument';
 import PopupLayer from '../../../popuplayer';
 
 export interface MathsDeployedSectionProps {
@@ -44,6 +57,12 @@ export interface MathsDeployedSectionProps {
   /** False when there is no game / Server Version selected yet. */
   isReady: boolean;
   error?: string | null;
+  /** Operator key — Simulate needs it, because the rounds run on the platform. */
+  apiKey?: string;
+  /** The Server Version these rows came from. Simulate names it when asking RGS to run. */
+  deploymentId?: string;
+  version?: number;
+  gameName?: string;
 }
 
 /**
@@ -67,9 +86,51 @@ function modelForDeployed(entry: DeployedComponent): ComponentModel | null {
   }
 }
 
-export function MathsDeployedSection({ deployed, versionLabel, isReady, error }: MathsDeployedSectionProps) {
+export function MathsDeployedSection({
+  deployed,
+  versionLabel,
+  isReady,
+  error,
+  apiKey,
+  deploymentId,
+  version,
+  gameName
+}: MathsDeployedSectionProps) {
   const [openSlug, setOpenSlug] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
+
+  /**
+   * Open the Simulate view on this component, in the editor's main area.
+   *
+   * Only the component's IDENTITY and port contract are handed over — the slug
+   * plus the payload/response examples. The script is never fetched: the platform
+   * compiles its own stored copy for every chunk of the run, so there is nothing
+   * here for a stale local copy to disagree with.
+   */
+  function simulate(entry: DeployedComponent) {
+    if (!apiKey || !deploymentId) {
+      setRowError('Not connected to a Server Version — select a game and version above, then try again.');
+      return;
+    }
+
+    setRowError(null);
+    AppRegistry.instance.openDocument(MathsSimulateDocumentProvider.ID, {
+      apiKey,
+      deploymentId,
+      version,
+      gameName,
+      fn: {
+        function_slug: entry.slug,
+        function_name: entry.functionName,
+        payload_example: entry.payloadExample,
+        response_example: entry.responseExample,
+        // The mapping this component was DEPLOYED with; the view defaults its
+        // Bet/Win pickers to these rather than guessing.
+        bet_input_port: entry.betInputPort,
+        win_output_port: entry.winOutputPort
+      }
+    });
+  }
 
   function openGraph(entry: DeployedComponent) {
     // Clicking the open row again closes the preview and returns to the editor.
@@ -171,6 +232,7 @@ export function MathsDeployedSection({ deployed, versionLabel, isReady, error }:
         <div
           key={entry.slug}
           title={`${entry.slug} — drag in to call it on RGS`}
+          style={{ display: 'flex', alignItems: 'center' }}
           // Same press-then-move gesture the components tree uses; PopupLayer's
           // drag layer is what the node graph listens to, not HTML5 drag events.
           onMouseDown={(ev) => {
@@ -189,13 +251,32 @@ export function MathsDeployedSection({ deployed, versionLabel, isReady, error }:
             window.addEventListener('mouseup', cleanup);
           }}
         >
-          <ListItem
-            text={entry.functionName}
-            icon={IconName.CloudUpload}
-            variant={ListItemVariant.Default}
-            isActive={openSlug === entry.slug}
-            onClick={() => openGraph(entry)}
-          />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <ListItem
+              text={entry.functionName}
+              icon={IconName.CloudUpload}
+              variant={ListItemVariant.Default}
+              isActive={openSlug === entry.slug}
+              onClick={() => openGraph(entry)}
+            />
+          </div>
+          {/* The menu must not start a drag: a press here is a click on the row's
+              actions, and the mousedown handler above is on the shared parent. */}
+          <div
+            style={{ flexShrink: 0, paddingRight: '4px' }}
+            onMouseDown={(ev) => ev.stopPropagation()}
+          >
+            <ContextMenu
+              size={IconSize.Tiny}
+              menuItems={[
+                {
+                  label: 'Simulate',
+                  icon: IconName.Play,
+                  onClick: () => simulate(entry)
+                }
+              ]}
+            />
+          </div>
         </div>
       ))}
     </VStack>

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { SimulationSeriesPoint } from '@xgenia-utils/rgs/simulationEngine';
+import type { SimulationSeriesPoint } from '@xgenia-utils/rgs/simulateComponent';
 
 /**
  * RTP / Hit Frequency / Volatility convergence charts for the Simulate view.
