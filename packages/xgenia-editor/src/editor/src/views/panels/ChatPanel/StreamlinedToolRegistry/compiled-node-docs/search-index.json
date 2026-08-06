@@ -8713,334 +8713,9 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 1847,
-      "byteSize": 87929,
-      "inputFormatHints": {
-        "reelStrips": {
-          "displayName": "Reel Strips",
-          "type": "array",
-          "group": "Data"
-        },
-        "stopPositions": {
-          "displayName": "Stop Positions",
-          "type": "array",
-          "group": "Data"
-        },
-        "symbolImages": {
-          "displayName": "Symbol Images",
-          "type": "array",
-          "group": "Data"
-        },
-        "symbolVideos": {
-          "displayName": "Symbol Videos",
-          "type": "array",
-          "group": "Data"
-        },
-        "videoReplaceImage": {
-          "displayName": "Video Replace Image",
-          "type": "boolean",
-          "group": "Data"
-        },
-        "videoSpeed": {
-          "displayName": "Video Speed",
-          "type": "number",
-          "group": "Data"
-        },
-        "playVideoOnWin": {
-          "displayName": "Play Video On Win",
-          "type": "boolean",
-          "group": "Data"
-        },
-        "spinResult": {
-          "displayName": "Spin Result",
-          "type": "object",
-          "group": "Data"
-        },
-        "numberOfSymbols": {
-          "displayName": "Number Of Symbols",
-          "type": "number",
-          "group": "Data"
-        },
-        "column0": {
-          "displayName": "Column 0",
-          "type": "node",
-          "group": "Columns"
-        },
-        "column1": {
-          "displayName": "Column 1",
-          "type": "node",
-          "group": "Columns"
-        },
-        "column2": {
-          "displayName": "Column 2",
-          "type": "node",
-          "group": "Columns"
-        },
-        "column3": {
-          "displayName": "Column 3",
-          "type": "node",
-          "group": "Columns"
-        },
-        "column4": {
-          "displayName": "Column 4",
-          "type": "node",
-          "group": "Columns"
-        },
-        "column5": {
-          "displayName": "Column 5",
-          "type": "node",
-          "group": "Columns"
-        },
-        "column6": {
-          "displayName": "Column 6",
-          "type": "node",
-          "group": "Columns"
-        },
-        "column7": {
-          "displayName": "Column 7",
-          "type": "node",
-          "group": "Columns"
-        },
-        "column8": {
-          "displayName": "Column 8",
-          "type": "node",
-          "group": "Columns"
-        },
-        "column9": {
-          "displayName": "Column 9",
-          "type": "node",
-          "group": "Columns"
-        },
-        "column10": {
-          "displayName": "Column 10",
-          "type": "node",
-          "group": "Columns"
-        },
-        "column11": {
-          "displayName": "Column 11",
-          "type": "node",
-          "group": "Columns"
-        },
-        "staggerDelay": {
-          "displayName": "Stagger Delay",
-          "type": "number",
-          "group": "Timing"
-        },
-        "spinDuration": {
-          "displayName": "Min Spin Duration",
-          "type": "number",
-          "group": "Timing"
-        },
-        "anticipation": {
-          "displayName": "Anticipation",
-          "type": "boolean",
-          "group": "Anticipation"
-        },
-        "anticipationDelay": {
-          "displayName": "Anticipation Delay",
-          "type": "number",
-          "group": "Anticipation"
-        },
-        "scatterSymbol": {
-          "displayName": "Scatter Symbol",
-          "type": "number",
-          "group": "Anticipation"
-        },
-        "scatterThreshold": {
-          "displayName": "Scatter Threshold",
-          "type": "number",
-          "group": "Anticipation"
-        },
-        "spin": {
-          "displayName": "Spin",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "canQuickSpin": {
-          "displayName": "Can Quick Spin",
-          "type": "boolean",
-          "group": "Actions"
-        },
-        "stop": {
-          "displayName": "Stop",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "cascade": {
-          "displayName": "Cascade",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "preloadTextures": {
-          "displayName": "Preload Textures",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "initialize": {
-          "displayName": "Initialize",
-          "type": "signal",
-          "group": "Actions"
-        },
-        "turboMode": {
-          "displayName": "Turbo Mode",
-          "type": "boolean",
-          "group": "Mode"
-        },
-        "autoLayout": {
-          "displayName": "Auto Layout",
-          "type": "boolean",
-          "group": "Auto Layout"
-        },
-        "columnCount": {
-          "displayName": "Columns",
-          "type": "number",
-          "group": "Auto Layout"
-        },
-        "rowCount": {
-          "displayName": "Rows",
-          "type": "number",
-          "group": "Auto Layout"
-        },
-        "cellWidth": {
-          "displayName": "Cell Width",
-          "type": "number",
-          "group": "Auto Layout"
-        },
-        "cellHeight": {
-          "displayName": "Cell Height",
-          "type": "number",
-          "group": "Auto Layout"
-        },
-        "columnPadding": {
-          "displayName": "Column Padding",
-          "type": "number",
-          "group": "Auto Layout"
-        },
-        "centerGrid": {
-          "displayName": "Center Grid",
-          "type": "boolean",
-          "group": "Auto Layout"
-        },
-        "fitMode": {
-          "displayName": "Fit Mode",
-          "type": "enum",
-          "group": "Auto Layout"
-        },
-        "fitPadding": {
-          "displayName": "Fit Padding",
-          "type": "number",
-          "group": "Auto Layout"
-        },
-        "celebrateWin": {
-          "displayName": "Celebrate Win",
-          "type": "signal",
-          "group": "Win Celebration"
-        },
-        "clearWin": {
-          "displayName": "Clear Win",
-          "type": "signal",
-          "group": "Win Celebration"
-        },
-        "celebrationStyle": {
-          "displayName": "Celebration Style",
-          "type": "enum",
-          "group": "Win Celebration"
-        },
-        "celebrationLoopMode": {
-          "displayName": "Final State",
-          "type": "enum",
-          "group": "Win Celebration"
-        },
-        "celebrationDuration": {
-          "displayName": "Duration (ms)",
-          "type": "number",
-          "group": "Win Celebration"
-        },
-        "celebrationDelay": {
-          "displayName": "Stagger Delay (ms)",
-          "type": "number",
-          "group": "Win Celebration"
-        },
-        "loopCelebration": {
-          "displayName": "Loop (Legacy)",
-          "type": "boolean",
-          "group": "Win Celebration"
-        },
-        "enablePayoutText": {
-          "type": "boolean",
-          "group": "Win Celebration: Payout"
-        },
-        "payoutFontFamily": {
-          "displayName": "Font Family",
-          "type": "string",
-          "group": "Win Celebration: Payout"
-        },
-        "payoutFontSize": {
-          "displayName": "Font Size",
-          "type": "number",
-          "group": "Win Celebration: Payout"
-        },
-        "payoutTextColor": {
-          "displayName": "Text Color",
-          "type": "color",
-          "group": "Win Celebration: Payout"
-        },
-        "payoutAnimation1": {
-          "displayName": "Text Animation 1",
-          "type": "enum",
-          "group": "Win Celebration: Payout"
-        },
-        "payoutAnimation2": {
-          "displayName": "Text Animation 2",
-          "type": "enum",
-          "group": "Win Celebration: Payout"
-        },
-        "winningCells": {
-          "displayName": "Winning Cells",
-          "type": "array",
-          "group": "Win Celebration: Data"
-        },
-        "winningLines": {
-          "displayName": "Winning Lines",
-          "type": "array",
-          "group": "Win Celebration: Data"
-        },
-        "positionOrder": {
-          "displayName": "Position Order",
-          "type": "enum",
-          "group": "Win Celebration: Data"
-        },
-        "isOneBased": {
-          "displayName": "Is 1-Based",
-          "type": "boolean",
-          "group": "Win Celebration: Data"
-        },
-        "enableCascade": {
-          "displayName": "Enable Cascade",
-          "type": "boolean",
-          "group": "Cascade"
-        },
-        "cascadeMode": {
-          "displayName": "Cascade Mode",
-          "type": "enum",
-          "group": "Cascade"
-        },
-        "cascadeStyle": {
-          "displayName": "Cascade Style",
-          "type": "enum",
-          "group": "Cascade"
-        },
-        "cascadeDuration": {
-          "displayName": "Cascade Duration (ms)",
-          "type": "number",
-          "group": "Cascade"
-        },
-        "autoCascade": {
-          "displayName": "Auto Cascade after Win",
-          "type": "boolean",
-          "group": "Cascade"
-        }
-      },
+      "lineCount": 1867,
+      "byteSize": 89053,
+      "inputFormatHints": {},
       "outputFormatHints": {
         "onSpinStart": {
           "displayName": "On Spin Start",
@@ -17182,10 +16857,6 @@
         "direction": "input"
       },
       {
-        "node": "PixiReelController",
-        "direction": "input"
-      },
-      {
         "node": "Sound",
         "direction": "input"
       },
@@ -24224,10 +23895,6 @@
       {
         "node": "pixi.ReelCell",
         "direction": "input"
-      },
-      {
-        "node": "PixiReelController",
-        "direction": "input"
       }
     ],
     "enableMipmap": [
@@ -24348,19 +24015,11 @@
       {
         "node": "pixi.ReelColumn",
         "direction": "input"
-      },
-      {
-        "node": "PixiReelController",
-        "direction": "input"
       }
     ],
     "cellWidth": [
       {
         "node": "pixi.ReelColumn",
-        "direction": "input"
-      },
-      {
-        "node": "PixiReelController",
         "direction": "input"
       }
     ],
@@ -24404,10 +24063,6 @@
       {
         "node": "pixi.ReelColumn",
         "direction": "input"
-      },
-      {
-        "node": "PixiReelController",
-        "direction": "input"
       }
     ],
     "targetSymbols": [
@@ -24425,10 +24080,6 @@
     "spin": [
       {
         "node": "pixi.ReelColumn",
-        "direction": "input"
-      },
-      {
-        "node": "PixiReelController",
         "direction": "input"
       },
       {
@@ -24510,10 +24161,6 @@
       {
         "node": "pixi.ReelColumn",
         "direction": "input"
-      },
-      {
-        "node": "PixiReelController",
-        "direction": "input"
       }
     ],
     "cascadeReels": [
@@ -24532,19 +24179,11 @@
       {
         "node": "pixi.ReelColumn",
         "direction": "input"
-      },
-      {
-        "node": "PixiReelController",
-        "direction": "input"
       }
     ],
     "cascadeDuration": [
       {
         "node": "pixi.ReelColumn",
-        "direction": "input"
-      },
-      {
-        "node": "PixiReelController",
         "direction": "input"
       }
     ],
@@ -24815,10 +24454,6 @@
     "fitMode": [
       {
         "node": "pixi.Spine",
-        "direction": "input"
-      },
-      {
-        "node": "PixiReelController",
         "direction": "input"
       }
     ],
@@ -25348,420 +24983,6 @@
         "direction": "output"
       }
     ],
-    "reelStrips": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      },
-      {
-        "node": "Generate Reel Strips",
-        "direction": "output"
-      },
-      {
-        "node": "Init Free Spins",
-        "direction": "input"
-      },
-      {
-        "node": "Init Free Spins",
-        "direction": "output"
-      },
-      {
-        "node": "Reel Strips Generator",
-        "direction": "output"
-      },
-      {
-        "node": "SlotMainEngine",
-        "direction": "output"
-      },
-      {
-        "node": "Slot Simulation",
-        "direction": "input"
-      },
-      {
-        "node": "Slot Spin",
-        "direction": "input"
-      },
-      {
-        "node": "Weighted Reels",
-        "direction": "input"
-      }
-    ],
-    "stopPositions": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      },
-      {
-        "node": "PixiReelController",
-        "direction": "output"
-      }
-    ],
-    "symbolVideos": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "videoReplaceImage": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "videoSpeed": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "spinResult": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "numberOfSymbols": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      },
-      {
-        "node": "Generate Symbol Weights",
-        "direction": "input"
-      },
-      {
-        "node": "Get Paytable",
-        "direction": "input"
-      },
-      {
-        "node": "Reel Ways Check Wins",
-        "direction": "input"
-      },
-      {
-        "node": "SlotMainEngine",
-        "direction": "input"
-      },
-      {
-        "node": "Symbol Frequency Tracker",
-        "direction": "input"
-      }
-    ],
-    "column0": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "column1": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "column2": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "column3": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "column4": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "column5": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "column6": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "column7": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "column8": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "column9": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "column10": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "column11": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "staggerDelay": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "spinDuration": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "anticipation": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "anticipationDelay": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "scatterSymbol": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "scatterThreshold": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "canQuickSpin": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "preloadTextures": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "initialize": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "turboMode": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "autoLayout": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "columnCount": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "rowCount": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "columnPadding": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "centerGrid": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "fitPadding": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "celebrateWin": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "clearWin": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "celebrationStyle": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "celebrationLoopMode": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "celebrationDuration": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "celebrationDelay": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "loopCelebration": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "enablePayoutText": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "payoutFontFamily": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "payoutFontSize": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "payoutTextColor": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "payoutAnimation1": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "payoutAnimation2": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "winningCells": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      },
-      {
-        "node": "PixiReelController",
-        "direction": "output"
-      },
-      {
-        "node": "Render Paylines Pixi",
-        "direction": "output"
-      },
-      {
-        "node": "Render Paylines",
-        "direction": "output"
-      }
-    ],
-    "winningLines": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      },
-      {
-        "node": "Calculate Winnings",
-        "direction": "input"
-      },
-      {
-        "node": "Check Wins",
-        "direction": "output"
-      },
-      {
-        "node": "Reel Ways Calculate Winnings",
-        "direction": "input"
-      },
-      {
-        "node": "Reel Ways Check Wins",
-        "direction": "output"
-      }
-    ],
-    "positionOrder": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "isOneBased": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "enableCascade": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "cascadeMode": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "autoCascade": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
     "onSpinStart": [
       {
         "node": "PixiReelController",
@@ -25853,6 +25074,26 @@
     "activeCellRow": [
       {
         "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "stopPositions": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "winningCells": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      },
+      {
+        "node": "Render Paylines Pixi",
+        "direction": "output"
+      },
+      {
+        "node": "Render Paylines",
         "direction": "output"
       }
     ],
@@ -26164,6 +25405,24 @@
         "direction": "output"
       }
     ],
+    "winningLines": [
+      {
+        "node": "Calculate Winnings",
+        "direction": "input"
+      },
+      {
+        "node": "Check Wins",
+        "direction": "output"
+      },
+      {
+        "node": "Reel Ways Calculate Winnings",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Ways Check Wins",
+        "direction": "output"
+      }
+    ],
     "wildSymbol": [
       {
         "node": "Calculate Winnings",
@@ -26422,6 +25681,40 @@
         "direction": "output"
       }
     ],
+    "reelStrips": [
+      {
+        "node": "Generate Reel Strips",
+        "direction": "output"
+      },
+      {
+        "node": "Init Free Spins",
+        "direction": "input"
+      },
+      {
+        "node": "Init Free Spins",
+        "direction": "output"
+      },
+      {
+        "node": "Reel Strips Generator",
+        "direction": "output"
+      },
+      {
+        "node": "SlotMainEngine",
+        "direction": "output"
+      },
+      {
+        "node": "Slot Simulation",
+        "direction": "input"
+      },
+      {
+        "node": "Slot Spin",
+        "direction": "input"
+      },
+      {
+        "node": "Weighted Reels",
+        "direction": "input"
+      }
+    ],
     "isLocked": [
       {
         "node": "Generate Reel Strips",
@@ -26438,6 +25731,28 @@
       {
         "node": "Weighted Reels",
         "direction": "output"
+      }
+    ],
+    "numberOfSymbols": [
+      {
+        "node": "Generate Symbol Weights",
+        "direction": "input"
+      },
+      {
+        "node": "Get Paytable",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Ways Check Wins",
+        "direction": "input"
+      },
+      {
+        "node": "SlotMainEngine",
+        "direction": "input"
+      },
+      {
+        "node": "Symbol Frequency Tracker",
+        "direction": "input"
       }
     ],
     "normalizedBaseWeights": [
