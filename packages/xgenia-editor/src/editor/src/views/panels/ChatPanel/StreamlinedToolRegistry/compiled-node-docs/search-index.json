@@ -1026,11 +1026,6 @@
           "type": "string",
           "group": "General"
         },
-        "firstItem": {
-          "displayName": "First Item",
-          "type": "object",
-          "group": "General"
-        },
         "count": {
           "displayName": "Count",
           "type": "number",
@@ -1401,14 +1396,6 @@
           "displayName": "Method",
           "type": "enum",
           "group": "Request"
-        },
-        "scriptInputs": {
-          "type": "proplist",
-          "group": "Inputs"
-        },
-        "scriptOutputs": {
-          "type": "proplist",
-          "group": "Outputs"
         },
         "requestScript": {
           "displayName": "Request",
@@ -1784,7 +1771,21 @@
       "docs": "https://docsapp.xgenia.com/nodes/utilities/system/import-from-json",
       "lineCount": 294,
       "byteSize": 8733,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "jsonKeys": {
+          "type": "string"
+        },
+        "Upload": {
+          "displayName": "Upload",
+          "type": "signal",
+          "group": "Control"
+        },
+        "Update": {
+          "displayName": "Update",
+          "type": "signal",
+          "group": "Control"
+        }
+      },
       "outputFormatHints": {
         "Done": {
           "displayName": "Done",
@@ -2332,21 +2333,6 @@
           "displayName": "Authenticated",
           "type": "boolean",
           "group": "General"
-        },
-        "loggedIn": {
-          "displayName": "Logged In",
-          "type": "signal",
-          "group": "Events"
-        },
-        "loggedOut": {
-          "displayName": "Logged Out",
-          "type": "signal",
-          "group": "Events"
-        },
-        "sessionLost": {
-          "displayName": "Session Lost",
-          "type": "signal",
-          "group": "Events"
         }
       }
     },
@@ -4803,11 +4789,6 @@
           "type": "number",
           "group": "Position"
         },
-        "alpha": {
-          "displayName": "Alpha",
-          "type": "number",
-          "group": "Appearance"
-        },
         "tint": {
           "displayName": "Tint",
           "type": "color",
@@ -4897,96 +4878,6 @@
           "displayName": "Resolution",
           "type": "number",
           "group": "Filters | Blur"
-        },
-        "enableColorMatrixFilter": {
-          "displayName": "Enable Color Matrix",
-          "type": "boolean",
-          "group": "Filters | Color Matrix"
-        },
-        "cmAlpha": {
-          "displayName": "Filter Alpha",
-          "type": "number",
-          "group": "Filters | Color Matrix"
-        },
-        "cmMatrix": {
-          "displayName": "Matrix (20 vals)",
-          "type": "array",
-          "group": "Color Matrix (Adv)"
-        },
-        "cmBrightness": {
-          "displayName": "Brightness",
-          "type": "number",
-          "group": "Filters | Color Matrix | Effects"
-        },
-        "cmContrast": {
-          "displayName": "Contrast",
-          "type": "number",
-          "group": "Filters | Color Matrix | Effects"
-        },
-        "cmSaturate": {
-          "displayName": "Saturation",
-          "type": "number",
-          "group": "Filters | Color Matrix | Effects"
-        },
-        "cmHue": {
-          "displayName": "Hue (deg)",
-          "type": "number",
-          "group": "Filters | Color Matrix | Effects"
-        },
-        "cmGreyscale": {
-          "displayName": "Greyscale",
-          "type": "number",
-          "group": "Filters | Color Matrix | Effects"
-        },
-        "cmBlackAndWhite": {
-          "displayName": "Black & White",
-          "type": "boolean",
-          "group": "Filters | Color Matrix | Effects"
-        },
-        "cmSepia": {
-          "displayName": "Sepia",
-          "type": "boolean",
-          "group": "Filters | Color Matrix | Effects"
-        },
-        "cmNegative": {
-          "displayName": "Negative",
-          "type": "boolean",
-          "group": "Filters | Color Matrix | Effects"
-        },
-        "cmTechnicolor": {
-          "displayName": "Technicolor",
-          "type": "boolean",
-          "group": "Filters | Color Matrix | Effects"
-        },
-        "cmBrowni": {
-          "displayName": "Browni",
-          "type": "boolean",
-          "group": "Filters | Color Matrix | Effects"
-        },
-        "cmKodachrome": {
-          "displayName": "Kodachrome",
-          "type": "boolean",
-          "group": "Filters | Color Matrix | Effects"
-        },
-        "cmLsd": {
-          "displayName": "LSD",
-          "type": "boolean",
-          "group": "Filters | Color Matrix | Effects"
-        },
-        "cmPolaroid": {
-          "displayName": "Polaroid",
-          "type": "boolean",
-          "group": "Filters | Color Matrix | Effects"
-        },
-        "cmReset": {
-          "displayName": "Reset Matrix",
-          "type": "signal",
-          "group": "Filters | Color Matrix | Actions"
-        },
-        "enableDisplacementFilter": {
-          "displayName": "Enable Displacement",
-          "type": "boolean",
-          "group": "Filters | Displacement"
         },
         "dispMapSpriteNode": {
           "displayName": "Map Sprite Node",
@@ -8715,7 +8606,332 @@
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
       "lineCount": 1867,
       "byteSize": 89053,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "reelStrips": {
+          "displayName": "Reel Strips",
+          "type": "array",
+          "group": "Data"
+        },
+        "stopPositions": {
+          "displayName": "Stop Positions",
+          "type": "array",
+          "group": "Data"
+        },
+        "symbolImages": {
+          "displayName": "Symbol Images",
+          "type": "array",
+          "group": "Data"
+        },
+        "symbolVideos": {
+          "displayName": "Symbol Videos",
+          "type": "array",
+          "group": "Data"
+        },
+        "videoReplaceImage": {
+          "displayName": "Video Replace Image",
+          "type": "boolean",
+          "group": "Data"
+        },
+        "videoSpeed": {
+          "displayName": "Video Speed",
+          "type": "number",
+          "group": "Data"
+        },
+        "playVideoOnWin": {
+          "displayName": "Play Video On Win",
+          "type": "boolean",
+          "group": "Data"
+        },
+        "spinResult": {
+          "displayName": "Spin Result",
+          "type": "object",
+          "group": "Data"
+        },
+        "numberOfSymbols": {
+          "displayName": "Number Of Symbols",
+          "type": "number",
+          "group": "Data"
+        },
+        "column0": {
+          "displayName": "Column 0",
+          "type": "node",
+          "group": "Columns"
+        },
+        "column1": {
+          "displayName": "Column 1",
+          "type": "node",
+          "group": "Columns"
+        },
+        "column2": {
+          "displayName": "Column 2",
+          "type": "node",
+          "group": "Columns"
+        },
+        "column3": {
+          "displayName": "Column 3",
+          "type": "node",
+          "group": "Columns"
+        },
+        "column4": {
+          "displayName": "Column 4",
+          "type": "node",
+          "group": "Columns"
+        },
+        "column5": {
+          "displayName": "Column 5",
+          "type": "node",
+          "group": "Columns"
+        },
+        "column6": {
+          "displayName": "Column 6",
+          "type": "node",
+          "group": "Columns"
+        },
+        "column7": {
+          "displayName": "Column 7",
+          "type": "node",
+          "group": "Columns"
+        },
+        "column8": {
+          "displayName": "Column 8",
+          "type": "node",
+          "group": "Columns"
+        },
+        "column9": {
+          "displayName": "Column 9",
+          "type": "node",
+          "group": "Columns"
+        },
+        "column10": {
+          "displayName": "Column 10",
+          "type": "node",
+          "group": "Columns"
+        },
+        "column11": {
+          "displayName": "Column 11",
+          "type": "node",
+          "group": "Columns"
+        },
+        "staggerDelay": {
+          "displayName": "Stagger Delay",
+          "type": "number",
+          "group": "Timing"
+        },
+        "spinDuration": {
+          "displayName": "Min Spin Duration",
+          "type": "number",
+          "group": "Timing"
+        },
+        "anticipation": {
+          "displayName": "Anticipation",
+          "type": "boolean",
+          "group": "Anticipation"
+        },
+        "anticipationDelay": {
+          "displayName": "Anticipation Delay",
+          "type": "number",
+          "group": "Anticipation"
+        },
+        "scatterSymbol": {
+          "displayName": "Scatter Symbol",
+          "type": "number",
+          "group": "Anticipation"
+        },
+        "scatterThreshold": {
+          "displayName": "Scatter Threshold",
+          "type": "number",
+          "group": "Anticipation"
+        },
+        "spin": {
+          "displayName": "Spin",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "canQuickSpin": {
+          "displayName": "Can Quick Spin",
+          "type": "boolean",
+          "group": "Actions"
+        },
+        "stop": {
+          "displayName": "Stop",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "cascade": {
+          "displayName": "Cascade",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "preloadTextures": {
+          "displayName": "Preload Textures",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "initialize": {
+          "displayName": "Initialize",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "turboMode": {
+          "displayName": "Turbo Mode",
+          "type": "boolean",
+          "group": "Mode"
+        },
+        "autoLayout": {
+          "displayName": "Auto Layout",
+          "type": "boolean",
+          "group": "Auto Layout"
+        },
+        "columnCount": {
+          "displayName": "Columns",
+          "type": "number",
+          "group": "Auto Layout"
+        },
+        "rowCount": {
+          "displayName": "Rows",
+          "type": "number",
+          "group": "Auto Layout"
+        },
+        "cellWidth": {
+          "displayName": "Cell Width",
+          "type": "number",
+          "group": "Auto Layout"
+        },
+        "cellHeight": {
+          "displayName": "Cell Height",
+          "type": "number",
+          "group": "Auto Layout"
+        },
+        "columnPadding": {
+          "displayName": "Column Padding",
+          "type": "number",
+          "group": "Auto Layout"
+        },
+        "centerGrid": {
+          "displayName": "Center Grid",
+          "type": "boolean",
+          "group": "Auto Layout"
+        },
+        "fitMode": {
+          "displayName": "Fit Mode",
+          "type": "enum",
+          "group": "Auto Layout"
+        },
+        "fitPadding": {
+          "displayName": "Fit Padding",
+          "type": "number",
+          "group": "Auto Layout"
+        },
+        "celebrateWin": {
+          "displayName": "Celebrate Win",
+          "type": "signal",
+          "group": "Win Celebration"
+        },
+        "clearWin": {
+          "displayName": "Clear Win",
+          "type": "signal",
+          "group": "Win Celebration"
+        },
+        "celebrationStyle": {
+          "displayName": "Celebration Style",
+          "type": "enum",
+          "group": "Win Celebration"
+        },
+        "celebrationLoopMode": {
+          "displayName": "Final State",
+          "type": "enum",
+          "group": "Win Celebration"
+        },
+        "celebrationDuration": {
+          "displayName": "Duration (ms)",
+          "type": "number",
+          "group": "Win Celebration"
+        },
+        "celebrationDelay": {
+          "displayName": "Stagger Delay (ms)",
+          "type": "number",
+          "group": "Win Celebration"
+        },
+        "loopCelebration": {
+          "displayName": "Loop (Legacy)",
+          "type": "boolean",
+          "group": "Win Celebration"
+        },
+        "enablePayoutText": {
+          "type": "boolean",
+          "group": "Win Celebration: Payout"
+        },
+        "payoutFontFamily": {
+          "displayName": "Font Family",
+          "type": "string",
+          "group": "Win Celebration: Payout"
+        },
+        "payoutFontSize": {
+          "displayName": "Font Size",
+          "type": "number",
+          "group": "Win Celebration: Payout"
+        },
+        "payoutTextColor": {
+          "displayName": "Text Color",
+          "type": "color",
+          "group": "Win Celebration: Payout"
+        },
+        "payoutAnimation1": {
+          "displayName": "Text Animation 1",
+          "type": "enum",
+          "group": "Win Celebration: Payout"
+        },
+        "payoutAnimation2": {
+          "displayName": "Text Animation 2",
+          "type": "enum",
+          "group": "Win Celebration: Payout"
+        },
+        "winningCells": {
+          "displayName": "Winning Cells",
+          "type": "array",
+          "group": "Win Celebration: Data"
+        },
+        "winningLines": {
+          "displayName": "Winning Lines",
+          "type": "array",
+          "group": "Win Celebration: Data"
+        },
+        "positionOrder": {
+          "displayName": "Position Order",
+          "type": "enum",
+          "group": "Win Celebration: Data"
+        },
+        "isOneBased": {
+          "displayName": "Is 1-Based",
+          "type": "boolean",
+          "group": "Win Celebration: Data"
+        },
+        "enableCascade": {
+          "displayName": "Enable Cascade",
+          "type": "boolean",
+          "group": "Cascade"
+        },
+        "cascadeMode": {
+          "displayName": "Cascade Mode",
+          "type": "enum",
+          "group": "Cascade"
+        },
+        "cascadeStyle": {
+          "displayName": "Cascade Style",
+          "type": "enum",
+          "group": "Cascade"
+        },
+        "cascadeDuration": {
+          "displayName": "Cascade Duration (ms)",
+          "type": "number",
+          "group": "Cascade"
+        },
+        "autoCascade": {
+          "displayName": "Auto Cascade after Win",
+          "type": "boolean",
+          "group": "Cascade"
+        }
+      },
       "outputFormatHints": {
         "onSpinStart": {
           "displayName": "On Spin Start",
@@ -11300,7 +11516,13 @@
           "group": "General"
         }
       },
-      "outputFormatHints": {}
+      "outputFormatHints": {
+        "onClick": {
+          "displayName": "Click",
+          "type": "signal",
+          "group": "Events"
+        }
+      }
     },
     "net.xgenia.controls.checkbox": {
       "name": "net.xgenia.controls.checkbox",
@@ -11374,6 +11596,16 @@
           "type": "string",
           "group": "Advanced HTML"
         },
+        "placeholder": {
+          "displayName": "Placeholder",
+          "type": "string",
+          "group": "Placeholder"
+        },
+        "placeholderOpacity": {
+          "displayName": "Placeholder opacity",
+          "type": "number",
+          "group": "Placeholder"
+        },
         "enabled": {
           "displayName": "Enabled",
           "type": "boolean",
@@ -11411,6 +11643,16 @@
           "displayName": "Test ID Attribute",
           "type": "string",
           "group": "Advanced HTML"
+        },
+        "value": {
+          "displayName": "Value",
+          "type": "string",
+          "group": "General"
+        },
+        "fillSpacing": {
+          "displayName": "Fill Spacing",
+          "type": "number",
+          "group": "Fill Style"
         },
         "enabled": {
           "displayName": "Enabled",
@@ -11482,6 +11724,56 @@
           "displayName": "Test ID Attribute",
           "type": "string",
           "group": "Advanced HTML"
+        },
+        "min": {
+          "displayName": "Min",
+          "type": "number",
+          "group": "General"
+        },
+        "max": {
+          "displayName": "Max",
+          "type": "number",
+          "group": "General"
+        },
+        "step": {
+          "displayName": "Step",
+          "type": "number",
+          "group": "General"
+        },
+        "width": {
+          "displayName": "Width",
+          "type": "number",
+          "group": "Dimensions"
+        },
+        "thumbWidth": {
+          "displayName": "Width",
+          "type": "number",
+          "group": "Thumb Style"
+        },
+        "thumbHeight": {
+          "displayName": "Height",
+          "type": "number",
+          "group": "Thumb Style"
+        },
+        "thumbColor": {
+          "displayName": "Color",
+          "type": "color",
+          "group": "Thumb Style"
+        },
+        "trackHeight": {
+          "displayName": "Height",
+          "type": "number",
+          "group": "Track Style"
+        },
+        "trackColor": {
+          "displayName": "Inactive Color",
+          "type": "color",
+          "group": "Track Style"
+        },
+        "trackActiveColor": {
+          "displayName": "Active Color",
+          "type": "color",
+          "group": "Track Style"
         },
         "enabled": {
           "displayName": "Enabled",
@@ -11683,6 +11975,21 @@
           "type": "string",
           "group": "Advanced HTML"
         },
+        "type": {
+          "displayName": "Type",
+          "type": "enum",
+          "group": "Text"
+        },
+        "placeholder": {
+          "displayName": "Placeholder",
+          "type": "string",
+          "group": "Text"
+        },
+        "maxLength": {
+          "displayName": "Max length",
+          "type": "number",
+          "group": "Text"
+        },
         "enabled": {
           "displayName": "Enabled",
           "type": "boolean",
@@ -11694,6 +12001,16 @@
           "displayName": "Text Changed",
           "type": "signal",
           "group": "General"
+        },
+        "onTextChanged": {
+          "displayName": "Text",
+          "type": "string",
+          "group": "General"
+        },
+        "onEnter": {
+          "displayName": "On Enter",
+          "type": "signal",
+          "group": "Events"
         }
       }
     },
@@ -11826,11 +12143,6 @@
           "displayName": "Priority",
           "type": "enum",
           "group": "Properties"
-        },
-        "linkedFromTheme": {
-          "displayName": "From Theme",
-          "type": "signal",
-          "group": "Connections In"
         }
       },
       "outputFormatHints": {
@@ -12302,11 +12614,6 @@
           "type": "string",
           "group": "General"
         },
-        "startPage": {
-          "displayName": "Start Page",
-          "type": "component",
-          "group": "General"
-        },
         "useRoutes": {
           "displayName": "Use Routes",
           "type": "boolean",
@@ -12370,10 +12677,6 @@
       "lineCount": 221,
       "byteSize": 6392,
       "inputFormatHints": {
-        "onPageReady": {
-          "displayName": "Page Ready",
-          "type": "signal"
-        },
         "sitemapIncluded": {
           "displayName": "Included",
           "type": "boolean",
@@ -12388,10 +12691,6 @@
           "displayName": "Priority",
           "type": "number",
           "group": "Experimental Sitemap"
-        },
-        "sitemapScript": {
-          "displayName": "Script",
-          "group": "Sitemap"
         }
       },
       "outputFormatHints": {}
@@ -13456,29 +13755,10 @@
           "type": "stringlist",
           "group": "Parameters"
         },
-        "results": {
-          "type": "stringlist",
-          "group": "Result"
-        },
-        "beforeCallScript": {
-          "displayName": "Before Call",
-          "type": "string",
-          "group": "Scripts"
-        },
-        "afterCallScript": {
-          "displayName": "After Call",
-          "type": "string",
-          "group": "Scripts"
-        },
         "call": {
           "displayName": "Call",
           "type": "signal",
           "group": "Actions"
-        },
-        "convertArraysAndObjects": {
-          "displayName": "Convert Objects",
-          "type": "boolean",
-          "group": "Advanced"
         }
       },
       "outputFormatHints": {
@@ -13886,11 +14166,6 @@
           "type": "string",
           "group": "General"
         },
-        "firstItem": {
-          "displayName": "First Item",
-          "type": "object",
-          "group": "General"
-        },
         "count": {
           "displayName": "Count",
           "type": "number",
@@ -13959,14 +14234,6 @@
           "displayName": "Remove Completed",
           "type": "boolean",
           "group": "Events"
-        },
-        "itemActions": {
-          "type": "stringlist",
-          "group": "Actions"
-        },
-        "itemActionParameters": {
-          "type": "stringlist",
-          "group": "Action Parameters"
         }
       },
       "outputFormatHints": {
@@ -15301,7 +15568,53 @@
       "docs": "https://docsapp.xgenia.com/nodes/basic-elements/circle",
       "lineCount": 136,
       "byteSize": 3022,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "size": {
+          "displayName": "Size",
+          "type": "number",
+          "group": "Dimension"
+        },
+        "fillEnabled": {
+          "displayName": "Fill",
+          "type": "boolean",
+          "group": "Fill"
+        },
+        "fillColor": {
+          "displayName": "Fill Color",
+          "type": "color",
+          "group": "Fill"
+        },
+        "strokeEnabled": {
+          "displayName": "Stroke",
+          "type": "boolean",
+          "group": "Stroke"
+        },
+        "strokeWidth": {
+          "displayName": "Stroke Width",
+          "type": "number",
+          "group": "Stroke"
+        },
+        "strokeColor": {
+          "displayName": "Stroke Color",
+          "type": "color",
+          "group": "Stroke"
+        },
+        "strokeLineCap": {
+          "displayName": "Line Cap",
+          "type": "enum",
+          "group": "Stroke"
+        },
+        "startAngle": {
+          "displayName": "Start Angle",
+          "type": "number",
+          "group": "Style"
+        },
+        "endAngle": {
+          "displayName": "End Angle",
+          "type": "number",
+          "group": "Style"
+        }
+      },
       "outputFormatHints": {
         "nodeReference": {
           "displayName": "Node Reference",
@@ -15328,6 +15641,31 @@
           "displayName": "Test ID Attribute",
           "type": "string",
           "group": "Advanced HTML"
+        },
+        "marginX": {
+          "displayName": "Horizontal Gap",
+          "type": "number",
+          "group": "Layout Settings"
+        },
+        "marginY": {
+          "displayName": "Vertical Gap",
+          "type": "number",
+          "group": "Layout Settings"
+        },
+        "minWidth": {
+          "displayName": "Min Column Width",
+          "type": "number",
+          "group": "Constraints"
+        },
+        "direction": {
+          "displayName": "Layout Direction",
+          "type": "enum",
+          "group": "Layout Settings"
+        },
+        "justifyContent": {
+          "displayName": "Justify Content",
+          "type": "enum",
+          "group": "Justify Content"
         }
       },
       "outputFormatHints": {
@@ -15368,6 +15706,16 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "reels": {
+          "displayName": "Reels",
+          "type": "array",
+          "group": "Data"
+        },
+        "winningLinesDetails": {
+          "displayName": "Winning Lines Details",
+          "type": "array",
+          "group": "Data"
         }
       },
       "outputFormatHints": {}
@@ -15407,6 +15755,46 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "mean": {
+          "displayName": "Mean (μ)",
+          "type": "number",
+          "group": "Data"
+        },
+        "stdDev": {
+          "displayName": "Std Dev (σ)",
+          "type": "number",
+          "group": "Data"
+        },
+        "variance": {
+          "displayName": "Variance (σ²)",
+          "type": "number",
+          "group": "Data"
+        },
+        "amplitude": {
+          "displayName": "Amplitude",
+          "type": "number",
+          "group": "Data"
+        },
+        "lineColor": {
+          "displayName": "Line Color",
+          "type": "color",
+          "group": "Chart Settings"
+        },
+        "title": {
+          "displayName": "Chart Title",
+          "type": "string",
+          "group": "Chart Settings"
+        },
+        "xLabel": {
+          "displayName": "X Axis Label",
+          "type": "string",
+          "group": "Chart Settings"
+        },
+        "yLabel": {
+          "displayName": "Y Axis Label",
+          "type": "string",
+          "group": "Chart Settings"
         }
       },
       "outputFormatHints": {}
@@ -15449,9 +15837,72 @@
           "displayName": "Duration",
           "type": "number",
           "group": "Snap To Position Y"
+        },
+        "enabled": {
+          "displayName": "Enabled",
+          "type": "boolean",
+          "group": "Drag"
+        },
+        "axis": {
+          "displayName": "Axis",
+          "type": "enum",
+          "group": "Drag"
+        },
+        "useParentBounds": {
+          "displayName": "Constrain to parent",
+          "type": "boolean",
+          "group": "Drag"
+        },
+        "inputPositionX": {
+          "displayName": "Start Drag X",
+          "type": "number"
+        },
+        "inputPositionY": {
+          "displayName": "Start Drag Y",
+          "type": "number"
+        },
+        "scale": {
+          "displayName": "Scale",
+          "type": "number"
         }
       },
-      "outputFormatHints": {}
+      "outputFormatHints": {
+        "onStart": {
+          "displayName": "Drag Started",
+          "type": "signal",
+          "group": "Signals"
+        },
+        "onStop": {
+          "displayName": "Drag Ended",
+          "type": "signal",
+          "group": "Signals"
+        },
+        "onDrag": {
+          "displayName": "Drag Moved",
+          "type": "signal",
+          "group": "Signals"
+        },
+        "positionX": {
+          "displayName": "Drag X",
+          "type": "number",
+          "group": "Values"
+        },
+        "positionY": {
+          "displayName": "Drag Y",
+          "type": "number",
+          "group": "Values"
+        },
+        "deltaX": {
+          "displayName": "Delta X",
+          "type": "number",
+          "group": "Values"
+        },
+        "deltaY": {
+          "displayName": "Delta Y",
+          "type": "number",
+          "group": "Values"
+        }
+      }
     },
     "Group": {
       "name": "Group",
@@ -15531,6 +15982,46 @@
           "displayName": "Navigate",
           "type": "signal",
           "group": "Navigation"
+        },
+        "clip": {
+          "displayName": "Clip Content",
+          "type": "boolean",
+          "group": "Layout"
+        },
+        "scrollEnabled": {
+          "displayName": "Enable Scroll",
+          "type": "boolean",
+          "group": "Scroll"
+        },
+        "scrollSnapEnabled": {
+          "displayName": "Snap",
+          "type": "boolean",
+          "group": "Scroll"
+        },
+        "scrollSnapToEveryItem": {
+          "displayName": "Snap To Every Item",
+          "type": "boolean",
+          "group": "Scroll"
+        },
+        "showScrollbar": {
+          "displayName": "Show Scrollbar",
+          "type": "boolean",
+          "group": "Scroll"
+        },
+        "scrollBounceEnabled": {
+          "displayName": "Bounce at boundaries",
+          "type": "boolean",
+          "group": "Scroll"
+        },
+        "nativeScroll": {
+          "displayName": "Native platform scroll",
+          "type": "boolean",
+          "group": "Scroll"
+        },
+        "as": {
+          "displayName": "Tag",
+          "type": "enum",
+          "group": "Advanced HTML"
         }
       },
       "outputFormatHints": {
@@ -15548,6 +16039,21 @@
           "displayName": "Focus Lost",
           "type": "signal",
           "group": "Focus"
+        },
+        "onScrollPositionChanged": {
+          "displayName": "Scroll Position",
+          "type": "number",
+          "group": "Scroll"
+        },
+        "onScrollStart": {
+          "displayName": "Scroll Start",
+          "type": "signal",
+          "group": "Scroll"
+        },
+        "onScrollEnd": {
+          "displayName": "Scroll End",
+          "type": "signal",
+          "group": "Scroll"
         }
       }
     },
@@ -15564,6 +16070,46 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "binSize": {
+          "displayName": "Bin Size",
+          "type": "number",
+          "group": "Data"
+        },
+        "minRange": {
+          "displayName": "Min Range",
+          "type": "number",
+          "group": "Data"
+        },
+        "maxRange": {
+          "displayName": "Max Range",
+          "type": "number",
+          "group": "Data"
+        },
+        "valueList": {
+          "displayName": "Values",
+          "type": "array",
+          "group": "Data"
+        },
+        "barColor": {
+          "displayName": "Bar Color",
+          "type": "color",
+          "group": "Chart Settings"
+        },
+        "title": {
+          "displayName": "Chart Title",
+          "type": "string",
+          "group": "Chart Settings"
+        },
+        "xLabel": {
+          "displayName": "X Axis Label",
+          "type": "string",
+          "group": "Chart Settings"
+        },
+        "yLabel": {
+          "displayName": "Y Axis Label",
+          "type": "string",
+          "group": "Chart Settings"
         }
       },
       "outputFormatHints": {}
@@ -15603,6 +16149,15 @@
           "displayName": "Test ID Attribute",
           "type": "string",
           "group": "Advanced HTML"
+        },
+        "srcSet": {
+          "displayName": "Source Set",
+          "type": "string",
+          "group": "Image"
+        },
+        "alt": {
+          "displayName": "Alternate text",
+          "type": "string"
         }
       },
       "outputFormatHints": {
@@ -15610,6 +16165,16 @@
           "displayName": "Node Reference",
           "type": "node",
           "group": "General"
+        },
+        "onLoad": {
+          "displayName": "On Load",
+          "type": "signal",
+          "group": "Events"
+        },
+        "onError": {
+          "displayName": "On Error",
+          "type": "signal",
+          "group": "Events"
         }
       }
     },
@@ -15626,6 +16191,31 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "dataset": {
+          "displayName": "Dataset",
+          "type": "array",
+          "group": "Data"
+        },
+        "lineColor": {
+          "displayName": "Line Color",
+          "type": "color",
+          "group": "Chart Settings"
+        },
+        "title": {
+          "displayName": "Chart Title",
+          "type": "string",
+          "group": "Chart Settings"
+        },
+        "xLabel": {
+          "displayName": "X Axis Label",
+          "type": "string",
+          "group": "Chart Settings"
+        },
+        "yLabel": {
+          "displayName": "Y Axis Label",
+          "type": "string",
+          "group": "Chart Settings"
         }
       },
       "outputFormatHints": {}
@@ -15819,6 +16409,21 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "reelStrips": {
+          "displayName": "Reel Strips",
+          "type": "array",
+          "group": "Data"
+        },
+        "rows": {
+          "displayName": "Rows",
+          "type": "number",
+          "group": "Data"
+        },
+        "stopPosList": {
+          "displayName": "Stop Positions",
+          "type": "array",
+          "group": "Data"
         }
       },
       "outputFormatHints": {}
@@ -15845,6 +16450,21 @@
         "testId": {
           "displayName": "Test ID Attribute",
           "type": "string",
+          "group": "Advanced HTML"
+        },
+        "text": {
+          "displayName": "Text",
+          "type": "string",
+          "group": "Text"
+        },
+        "allowHTML": {
+          "displayName": "Allow HTML",
+          "type": "boolean",
+          "group": "Text"
+        },
+        "as": {
+          "displayName": "Tag",
+          "type": "enum",
           "group": "Advanced HTML"
         }
       },
@@ -15899,6 +16519,41 @@
           "displayName": "Poster",
           "type": "image",
           "group": "Video"
+        },
+        "autoplay": {
+          "displayName": "Autoplay",
+          "type": "boolean",
+          "group": "Video"
+        },
+        "controls": {
+          "displayName": "Controls",
+          "type": "boolean",
+          "group": "Video"
+        },
+        "volume": {
+          "displayName": "Volume",
+          "type": "number",
+          "group": "Video"
+        },
+        "muted": {
+          "displayName": "Muted",
+          "type": "boolean",
+          "group": "Video"
+        },
+        "loop": {
+          "displayName": "Loop",
+          "type": "boolean",
+          "group": "Video"
+        },
+        "objectPositionX": {
+          "displayName": "Video Position X",
+          "type": "number",
+          "group": "Video Layout"
+        },
+        "objectPositionY": {
+          "displayName": "Video Position Y",
+          "type": "number",
+          "group": "Video Layout"
         }
       },
       "outputFormatHints": {
@@ -15906,6 +16561,40 @@
           "displayName": "Node Reference",
           "type": "node",
           "group": "General"
+        },
+        "onCanPlay": {
+          "displayName": "On Can Play",
+          "type": "signal",
+          "group": "Events"
+        },
+        "onTimeUpdate": {
+          "displayName": "Playback Position",
+          "type": "number",
+          "group": "Playback"
+        },
+        "onPlay": {
+          "displayName": "On Play",
+          "type": "signal",
+          "group": "Events"
+        },
+        "onPause": {
+          "displayName": "On Pause",
+          "type": "signal",
+          "group": "Events"
+        },
+        "onVideoElementCreated": {
+          "displayName": "DOM Element",
+          "type": "domelement"
+        },
+        "videoWidth": {
+          "displayName": "Video Width",
+          "type": "number",
+          "group": "Playback"
+        },
+        "videoHeight": {
+          "displayName": "Video Height",
+          "type": "number",
+          "group": "Playback"
         }
       }
     },
@@ -16857,6 +17546,10 @@
         "direction": "input"
       },
       {
+        "node": "PixiReelController",
+        "direction": "input"
+      },
+      {
         "node": "Sound",
         "direction": "input"
       },
@@ -16924,6 +17617,10 @@
       },
       {
         "node": "net.xgenia.gsapAnimator",
+        "direction": "output"
+      },
+      {
+        "node": "Drag",
         "direction": "output"
       }
     ],
@@ -18093,6 +18790,10 @@
         "direction": "output"
       },
       {
+        "node": "net.xgenia.controls.textinput",
+        "direction": "input"
+      },
+      {
         "node": "Static Data",
         "direction": "input"
       },
@@ -19013,6 +19714,10 @@
       {
         "node": "Event Receiver",
         "direction": "input"
+      },
+      {
+        "node": "Drag",
+        "direction": "input"
       }
     ],
     "filter": [
@@ -19023,16 +19728,6 @@
       {
         "node": "Filter Collection",
         "direction": "input"
-      }
-    ],
-    "firstItem": [
-      {
-        "node": "FilterDBModels",
-        "direction": "output"
-      },
-      {
-        "node": "Filter Collection",
-        "direction": "output"
       }
     ],
     "modified": [
@@ -19207,34 +19902,6 @@
         "direction": "input"
       }
     ],
-    "scriptInputs": [
-      {
-        "node": "REST2",
-        "direction": "input"
-      },
-      {
-        "node": "JavaScriptFunction",
-        "direction": "input"
-      },
-      {
-        "node": "Javascript2",
-        "direction": "input"
-      }
-    ],
-    "scriptOutputs": [
-      {
-        "node": "REST2",
-        "direction": "input"
-      },
-      {
-        "node": "JavaScriptFunction",
-        "direction": "input"
-      },
-      {
-        "node": "Javascript2",
-        "direction": "input"
-      }
-    ],
     "requestScript": [
       {
         "node": "REST2",
@@ -19401,6 +20068,10 @@
       {
         "node": "Date To String",
         "direction": "output"
+      },
+      {
+        "node": "Image",
+        "direction": "output"
       }
     ],
     "expression": [
@@ -19451,6 +20122,24 @@
         "direction": "output"
       }
     ],
+    "jsonKeys": [
+      {
+        "node": "Import from JSON file",
+        "direction": "input"
+      }
+    ],
+    "Upload": [
+      {
+        "node": "Import from JSON file",
+        "direction": "input"
+      }
+    ],
+    "Update": [
+      {
+        "node": "Import from JSON file",
+        "direction": "input"
+      }
+    ],
     "value": [
       {
         "node": "Inverter",
@@ -19495,6 +20184,10 @@
       {
         "node": "net.xgenia.controls.options",
         "direction": "output"
+      },
+      {
+        "node": "net.xgenia.controls.radiobutton",
+        "direction": "input"
       },
       {
         "node": "Radio Button Group",
@@ -19653,6 +20346,26 @@
         "direction": "output"
       }
     ],
+    "scriptInputs": [
+      {
+        "node": "JavaScriptFunction",
+        "direction": "input"
+      },
+      {
+        "node": "Javascript2",
+        "direction": "input"
+      }
+    ],
+    "scriptOutputs": [
+      {
+        "node": "JavaScriptFunction",
+        "direction": "input"
+      },
+      {
+        "node": "Javascript2",
+        "direction": "input"
+      }
+    ],
     "functionScript": [
       {
         "node": "JavaScriptFunction",
@@ -19798,24 +20511,6 @@
       }
     ],
     "authenticated": [
-      {
-        "node": "net.xgenia.user.User",
-        "direction": "output"
-      }
-    ],
-    "loggedIn": [
-      {
-        "node": "net.xgenia.user.User",
-        "direction": "output"
-      }
-    ],
-    "loggedOut": [
-      {
-        "node": "net.xgenia.user.User",
-        "direction": "output"
-      }
-    ],
-    "sessionLost": [
       {
         "node": "net.xgenia.user.User",
         "direction": "output"
@@ -20209,6 +20904,10 @@
       {
         "node": "Fill-Generated Array",
         "direction": "input"
+      },
+      {
+        "node": "Circle",
+        "direction": "input"
       }
     ],
     "seed": [
@@ -20363,11 +21062,19 @@
       {
         "node": "Validate Outcome",
         "direction": "input"
+      },
+      {
+        "node": "Histogram Chart",
+        "direction": "input"
       }
     ],
     "minRange": [
       {
         "node": "Validate Outcome",
+        "direction": "input"
+      },
+      {
+        "node": "Histogram Chart",
         "direction": "input"
       }
     ],
@@ -20433,6 +21140,10 @@
       {
         "node": "Volatility Estimator",
         "direction": "output"
+      },
+      {
+        "node": "Distribution Chart",
+        "direction": "input"
       }
     ],
     "variance": [
@@ -20443,6 +21154,10 @@
       {
         "node": "Volatility Estimator",
         "direction": "output"
+      },
+      {
+        "node": "Distribution Chart",
+        "direction": "input"
       }
     ],
     "amplitude": [
@@ -20453,6 +21168,10 @@
       {
         "node": "Volatility Estimator",
         "direction": "output"
+      },
+      {
+        "node": "Distribution Chart",
+        "direction": "input"
       }
     ],
     "analyze": [
@@ -21019,6 +21738,10 @@
       {
         "node": "Sound",
         "direction": "input"
+      },
+      {
+        "node": "Video",
+        "direction": "input"
       }
     ],
     "autoPlay": [
@@ -21140,10 +21863,6 @@
     "alpha": [
       {
         "node": "pixi.BitmapText",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Container",
         "direction": "input"
       },
       {
@@ -21679,6 +22398,10 @@
       {
         "node": "pixi.Text",
         "direction": "input"
+      },
+      {
+        "node": "Text",
+        "direction": "input"
       }
     ],
     "fontSize": [
@@ -21767,10 +22490,6 @@
         "direction": "input"
       },
       {
-        "node": "pixi.Container",
-        "direction": "input"
-      },
-      {
         "node": "pixi.Graphics",
         "direction": "input"
       },
@@ -21782,10 +22501,6 @@
     "cmAlpha": [
       {
         "node": "pixi.BitmapText",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Container",
         "direction": "input"
       },
       {
@@ -21803,10 +22518,6 @@
         "direction": "input"
       },
       {
-        "node": "pixi.Container",
-        "direction": "input"
-      },
-      {
         "node": "pixi.Graphics",
         "direction": "input"
       },
@@ -21818,10 +22529,6 @@
     "enableDisplacementFilter": [
       {
         "node": "pixi.BitmapText",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Container",
         "direction": "input"
       },
       {
@@ -22425,6 +23132,10 @@
       {
         "node": "pixi.CollisionDetector",
         "direction": "output"
+      },
+      {
+        "node": "net.xgenia.controls.textinput",
+        "direction": "output"
       }
     ],
     "onStay": [
@@ -22500,6 +23211,10 @@
       },
       {
         "node": "pixi.TilingSprite",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.range",
         "direction": "input"
       },
       {
@@ -22584,154 +23299,6 @@
       }
     ],
     "blurResolution": [
-      {
-        "node": "pixi.Container",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Graphics",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Sprite",
-        "direction": "input"
-      }
-    ],
-    "cmMatrix": [
-      {
-        "node": "pixi.Container",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Graphics",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Sprite",
-        "direction": "input"
-      }
-    ],
-    "cmContrast": [
-      {
-        "node": "pixi.Container",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Sprite",
-        "direction": "input"
-      }
-    ],
-    "cmSaturate": [
-      {
-        "node": "pixi.Container",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Sprite",
-        "direction": "input"
-      }
-    ],
-    "cmHue": [
-      {
-        "node": "pixi.Container",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Sprite",
-        "direction": "input"
-      }
-    ],
-    "cmGreyscale": [
-      {
-        "node": "pixi.Container",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Sprite",
-        "direction": "input"
-      }
-    ],
-    "cmBlackAndWhite": [
-      {
-        "node": "pixi.Container",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Sprite",
-        "direction": "input"
-      }
-    ],
-    "cmSepia": [
-      {
-        "node": "pixi.Container",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Sprite",
-        "direction": "input"
-      }
-    ],
-    "cmNegative": [
-      {
-        "node": "pixi.Container",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Sprite",
-        "direction": "input"
-      }
-    ],
-    "cmTechnicolor": [
-      {
-        "node": "pixi.Container",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Sprite",
-        "direction": "input"
-      }
-    ],
-    "cmBrowni": [
-      {
-        "node": "pixi.Container",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Sprite",
-        "direction": "input"
-      }
-    ],
-    "cmKodachrome": [
-      {
-        "node": "pixi.Container",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Sprite",
-        "direction": "input"
-      }
-    ],
-    "cmLsd": [
-      {
-        "node": "pixi.Container",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Sprite",
-        "direction": "input"
-      }
-    ],
-    "cmPolaroid": [
-      {
-        "node": "pixi.Container",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Sprite",
-        "direction": "input"
-      }
-    ],
-    "cmReset": [
       {
         "node": "pixi.Container",
         "direction": "input"
@@ -23363,6 +23930,10 @@
       {
         "node": "net.xgenia.controls.radiobutton",
         "direction": "input"
+      },
+      {
+        "node": "Circle",
+        "direction": "input"
       }
     ],
     "fillAlpha": [
@@ -23388,6 +23959,14 @@
     "lineColor": [
       {
         "node": "pixi.Graphics",
+        "direction": "input"
+      },
+      {
+        "node": "Distribution Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Line Chart",
         "direction": "input"
       }
     ],
@@ -23454,6 +24033,26 @@
     "clearGraphics": [
       {
         "node": "pixi.Graphics",
+        "direction": "input"
+      }
+    ],
+    "cmMatrix": [
+      {
+        "node": "pixi.Graphics",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
+      }
+    ],
+    "cmReset": [
+      {
+        "node": "pixi.Graphics",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Sprite",
         "direction": "input"
       }
     ],
@@ -23895,6 +24494,10 @@
       {
         "node": "pixi.ReelCell",
         "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
       }
     ],
     "enableMipmap": [
@@ -24015,11 +24618,19 @@
       {
         "node": "pixi.ReelColumn",
         "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
       }
     ],
     "cellWidth": [
       {
         "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
         "direction": "input"
       }
     ],
@@ -24063,6 +24674,10 @@
       {
         "node": "pixi.ReelColumn",
         "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
       }
     ],
     "targetSymbols": [
@@ -24080,6 +24695,10 @@
     "spin": [
       {
         "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
         "direction": "input"
       },
       {
@@ -24161,6 +24780,10 @@
       {
         "node": "pixi.ReelColumn",
         "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
       }
     ],
     "cascadeReels": [
@@ -24179,11 +24802,19 @@
       {
         "node": "pixi.ReelColumn",
         "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
       }
     ],
     "cascadeDuration": [
       {
         "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
         "direction": "input"
       }
     ],
@@ -24373,6 +25004,10 @@
       {
         "node": "pixi.UIScaler",
         "direction": "output"
+      },
+      {
+        "node": "Drag",
+        "direction": "input"
       }
     ],
     "spawnEffect": [
@@ -24454,6 +25089,10 @@
     "fitMode": [
       {
         "node": "pixi.Spine",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
         "direction": "input"
       }
     ],
@@ -24593,6 +25232,78 @@
       {
         "node": "pixi.Spine",
         "direction": "output"
+      }
+    ],
+    "cmContrast": [
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
+      }
+    ],
+    "cmSaturate": [
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
+      }
+    ],
+    "cmHue": [
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
+      }
+    ],
+    "cmGreyscale": [
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
+      }
+    ],
+    "cmBlackAndWhite": [
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
+      }
+    ],
+    "cmSepia": [
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
+      }
+    ],
+    "cmNegative": [
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
+      }
+    ],
+    "cmTechnicolor": [
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
+      }
+    ],
+    "cmBrowni": [
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
+      }
+    ],
+    "cmKodachrome": [
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
+      }
+    ],
+    "cmLsd": [
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
+      }
+    ],
+    "cmPolaroid": [
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
       }
     ],
     "enableDropShadowFilter": [
@@ -24983,6 +25694,424 @@
         "direction": "output"
       }
     ],
+    "reelStrips": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      },
+      {
+        "node": "Generate Reel Strips",
+        "direction": "output"
+      },
+      {
+        "node": "Init Free Spins",
+        "direction": "input"
+      },
+      {
+        "node": "Init Free Spins",
+        "direction": "output"
+      },
+      {
+        "node": "Reel Strips Generator",
+        "direction": "output"
+      },
+      {
+        "node": "SlotMainEngine",
+        "direction": "output"
+      },
+      {
+        "node": "Slot Simulation",
+        "direction": "input"
+      },
+      {
+        "node": "Slot Spin",
+        "direction": "input"
+      },
+      {
+        "node": "Weighted Reels",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Visualizer",
+        "direction": "input"
+      }
+    ],
+    "stopPositions": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "symbolVideos": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "videoReplaceImage": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "videoSpeed": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "spinResult": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "numberOfSymbols": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      },
+      {
+        "node": "Generate Symbol Weights",
+        "direction": "input"
+      },
+      {
+        "node": "Get Paytable",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Ways Check Wins",
+        "direction": "input"
+      },
+      {
+        "node": "SlotMainEngine",
+        "direction": "input"
+      },
+      {
+        "node": "Symbol Frequency Tracker",
+        "direction": "input"
+      }
+    ],
+    "column0": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "column1": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "column2": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "column3": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "column4": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "column5": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "column6": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "column7": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "column8": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "column9": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "column10": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "column11": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "staggerDelay": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "spinDuration": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipation": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationDelay": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "scatterSymbol": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "scatterThreshold": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "canQuickSpin": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "preloadTextures": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "initialize": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "turboMode": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "autoLayout": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "columnCount": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "rowCount": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "columnPadding": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "centerGrid": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "fitPadding": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "celebrateWin": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "clearWin": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "celebrationStyle": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "celebrationLoopMode": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "celebrationDuration": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "celebrationDelay": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "loopCelebration": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "enablePayoutText": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "payoutFontFamily": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "payoutFontSize": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "payoutTextColor": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "payoutAnimation1": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "payoutAnimation2": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "winningCells": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      },
+      {
+        "node": "Render Paylines Pixi",
+        "direction": "output"
+      },
+      {
+        "node": "Render Paylines",
+        "direction": "output"
+      }
+    ],
+    "winningLines": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      },
+      {
+        "node": "Calculate Winnings",
+        "direction": "input"
+      },
+      {
+        "node": "Check Wins",
+        "direction": "output"
+      },
+      {
+        "node": "Reel Ways Calculate Winnings",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Ways Check Wins",
+        "direction": "output"
+      }
+    ],
+    "positionOrder": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "isOneBased": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "enableCascade": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "cascadeMode": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "autoCascade": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
     "onSpinStart": [
       {
         "node": "PixiReelController",
@@ -25077,26 +26206,6 @@
         "direction": "output"
       }
     ],
-    "stopPositions": [
-      {
-        "node": "PixiReelController",
-        "direction": "output"
-      }
-    ],
-    "winningCells": [
-      {
-        "node": "PixiReelController",
-        "direction": "output"
-      },
-      {
-        "node": "Render Paylines Pixi",
-        "direction": "output"
-      },
-      {
-        "node": "Render Paylines",
-        "direction": "output"
-      }
-    ],
     "winningLinesDetails": [
       {
         "node": "Render Paylines Pixi",
@@ -25120,6 +26229,10 @@
       },
       {
         "node": "Spin Result",
+        "direction": "input"
+      },
+      {
+        "node": "Debug Panel Visual",
         "direction": "input"
       }
     ],
@@ -25405,24 +26518,6 @@
         "direction": "output"
       }
     ],
-    "winningLines": [
-      {
-        "node": "Calculate Winnings",
-        "direction": "input"
-      },
-      {
-        "node": "Check Wins",
-        "direction": "output"
-      },
-      {
-        "node": "Reel Ways Calculate Winnings",
-        "direction": "input"
-      },
-      {
-        "node": "Reel Ways Check Wins",
-        "direction": "output"
-      }
-    ],
     "wildSymbol": [
       {
         "node": "Calculate Winnings",
@@ -25509,6 +26604,10 @@
       {
         "node": "Weighted Reels",
         "direction": "output"
+      },
+      {
+        "node": "Debug Panel Visual",
+        "direction": "input"
       }
     ],
     "symbolWeights": [
@@ -25597,6 +26696,10 @@
       {
         "node": "Slot Spin",
         "direction": "input"
+      },
+      {
+        "node": "Reel Visualizer",
+        "direction": "input"
       }
     ],
     "columns": [
@@ -25681,40 +26784,6 @@
         "direction": "output"
       }
     ],
-    "reelStrips": [
-      {
-        "node": "Generate Reel Strips",
-        "direction": "output"
-      },
-      {
-        "node": "Init Free Spins",
-        "direction": "input"
-      },
-      {
-        "node": "Init Free Spins",
-        "direction": "output"
-      },
-      {
-        "node": "Reel Strips Generator",
-        "direction": "output"
-      },
-      {
-        "node": "SlotMainEngine",
-        "direction": "output"
-      },
-      {
-        "node": "Slot Simulation",
-        "direction": "input"
-      },
-      {
-        "node": "Slot Spin",
-        "direction": "input"
-      },
-      {
-        "node": "Weighted Reels",
-        "direction": "input"
-      }
-    ],
     "isLocked": [
       {
         "node": "Generate Reel Strips",
@@ -25731,28 +26800,6 @@
       {
         "node": "Weighted Reels",
         "direction": "output"
-      }
-    ],
-    "numberOfSymbols": [
-      {
-        "node": "Generate Symbol Weights",
-        "direction": "input"
-      },
-      {
-        "node": "Get Paytable",
-        "direction": "input"
-      },
-      {
-        "node": "Reel Ways Check Wins",
-        "direction": "input"
-      },
-      {
-        "node": "SlotMainEngine",
-        "direction": "input"
-      },
-      {
-        "node": "Symbol Frequency Tracker",
-        "direction": "input"
       }
     ],
     "normalizedBaseWeights": [
@@ -25939,6 +26986,10 @@
       {
         "node": "Weighted Reels",
         "direction": "output"
+      },
+      {
+        "node": "Reel Visualizer",
+        "direction": "input"
       }
     ],
     "currentCapital": [
@@ -26601,6 +27652,12 @@
         "direction": "input"
       }
     ],
+    "onClick": [
+      {
+        "node": "net.xgenia.controls.button",
+        "direction": "output"
+      }
+    ],
     "checked": [
       {
         "node": "net.xgenia.controls.checkbox",
@@ -26645,6 +27702,28 @@
         "direction": "output"
       }
     ],
+    "placeholder": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.textinput",
+        "direction": "input"
+      }
+    ],
+    "placeholderOpacity": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
+    "fillSpacing": [
+      {
+        "node": "net.xgenia.controls.radiobutton",
+        "direction": "input"
+      }
+    ],
     "flexDirection": [
       {
         "node": "Radio Button Group",
@@ -26652,6 +27731,60 @@
       },
       {
         "node": "Group",
+        "direction": "input"
+      }
+    ],
+    "min": [
+      {
+        "node": "net.xgenia.controls.range",
+        "direction": "input"
+      }
+    ],
+    "max": [
+      {
+        "node": "net.xgenia.controls.range",
+        "direction": "input"
+      }
+    ],
+    "step": [
+      {
+        "node": "net.xgenia.controls.range",
+        "direction": "input"
+      }
+    ],
+    "thumbWidth": [
+      {
+        "node": "net.xgenia.controls.range",
+        "direction": "input"
+      }
+    ],
+    "thumbHeight": [
+      {
+        "node": "net.xgenia.controls.range",
+        "direction": "input"
+      }
+    ],
+    "thumbColor": [
+      {
+        "node": "net.xgenia.controls.range",
+        "direction": "input"
+      }
+    ],
+    "trackHeight": [
+      {
+        "node": "net.xgenia.controls.range",
+        "direction": "input"
+      }
+    ],
+    "trackColor": [
+      {
+        "node": "net.xgenia.controls.range",
+        "direction": "input"
+      }
+    ],
+    "trackActiveColor": [
+      {
+        "node": "net.xgenia.controls.range",
         "direction": "input"
       }
     ],
@@ -26670,6 +27803,10 @@
     "volume": [
       {
         "node": "Sound",
+        "direction": "input"
+      },
+      {
+        "node": "Video",
         "direction": "input"
       }
     ],
@@ -26799,7 +27936,19 @@
         "direction": "input"
       }
     ],
+    "maxLength": [
+      {
+        "node": "net.xgenia.controls.textinput",
+        "direction": "input"
+      }
+    ],
     "textChanged": [
+      {
+        "node": "net.xgenia.controls.textinput",
+        "direction": "output"
+      }
+    ],
+    "onTextChanged": [
       {
         "node": "net.xgenia.controls.textinput",
         "direction": "output"
@@ -26858,6 +28007,18 @@
       },
       {
         "node": "hyve.GoalNode",
+        "direction": "input"
+      },
+      {
+        "node": "Distribution Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Histogram Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Line Chart",
         "direction": "input"
       }
     ],
@@ -26938,12 +28099,6 @@
       }
     ],
     "priority": [
-      {
-        "node": "hyve.GoalNode",
-        "direction": "input"
-      }
-    ],
-    "linkedFromTheme": [
       {
         "node": "hyve.GoalNode",
         "direction": "input"
@@ -27109,12 +28264,6 @@
         "direction": "output"
       }
     ],
-    "brokenDownIntoTasks": [
-      {
-        "node": "hyve.UserStoryNode",
-        "direction": "output"
-      }
-    ],
     "actionName": [
       {
         "node": "pixi.InputAction",
@@ -27209,10 +28358,6 @@
       {
         "node": "PageStackNavigateBack",
         "direction": "input"
-      },
-      {
-        "node": "Cloud Function",
-        "direction": "input"
       }
     ],
     "closeActions": [
@@ -27301,12 +28446,6 @@
         "direction": "output"
       }
     ],
-    "startPage": [
-      {
-        "node": "Page Stack",
-        "direction": "input"
-      }
-    ],
     "useRoutes": [
       {
         "node": "Page Stack",
@@ -27320,6 +28459,10 @@
       },
       {
         "node": "Router",
+        "direction": "input"
+      },
+      {
+        "node": "Group",
         "direction": "input"
       }
     ],
@@ -27357,12 +28500,6 @@
         "direction": "input"
       }
     ],
-    "onPageReady": [
-      {
-        "node": "Page",
-        "direction": "input"
-      }
-    ],
     "sitemapIncluded": [
       {
         "node": "Page",
@@ -27376,12 +28513,6 @@
       }
     ],
     "sitemapPriority": [
-      {
-        "node": "Page",
-        "direction": "input"
-      }
-    ],
-    "sitemapScript": [
       {
         "node": "Page",
         "direction": "input"
@@ -28197,18 +29328,6 @@
         "direction": "input"
       }
     ],
-    "beforeCallScript": [
-      {
-        "node": "Cloud Function",
-        "direction": "input"
-      }
-    ],
-    "afterCallScript": [
-      {
-        "node": "Cloud Function",
-        "direction": "input"
-      }
-    ],
     "call": [
       {
         "node": "Cloud Function",
@@ -28216,12 +29335,6 @@
       },
       {
         "node": "CloudFunction2",
-        "direction": "input"
-      }
-    ],
-    "convertArraysAndObjects": [
-      {
-        "node": "Cloud Function",
         "direction": "input"
       }
     ],
@@ -28326,18 +29439,6 @@
       }
     ],
     "removeCompleted": [
-      {
-        "node": "For Each Actions",
-        "direction": "input"
-      }
-    ],
-    "itemActions": [
-      {
-        "node": "For Each Actions",
-        "direction": "input"
-      }
-    ],
-    "itemActionParameters": [
       {
         "node": "For Each Actions",
         "direction": "input"
@@ -28787,7 +29888,79 @@
         "direction": "output"
       }
     ],
+    "fillEnabled": [
+      {
+        "node": "Circle",
+        "direction": "input"
+      }
+    ],
+    "strokeEnabled": [
+      {
+        "node": "Circle",
+        "direction": "input"
+      }
+    ],
+    "strokeWidth": [
+      {
+        "node": "Circle",
+        "direction": "input"
+      }
+    ],
+    "strokeColor": [
+      {
+        "node": "Circle",
+        "direction": "input"
+      }
+    ],
+    "strokeLineCap": [
+      {
+        "node": "Circle",
+        "direction": "input"
+      }
+    ],
+    "startAngle": [
+      {
+        "node": "Circle",
+        "direction": "input"
+      }
+    ],
+    "endAngle": [
+      {
+        "node": "Circle",
+        "direction": "input"
+      }
+    ],
     "layoutString": [
+      {
+        "node": "net.xgenia.visual.columns",
+        "direction": "input"
+      }
+    ],
+    "marginX": [
+      {
+        "node": "net.xgenia.visual.columns",
+        "direction": "input"
+      }
+    ],
+    "marginY": [
+      {
+        "node": "net.xgenia.visual.columns",
+        "direction": "input"
+      }
+    ],
+    "minWidth": [
+      {
+        "node": "net.xgenia.visual.columns",
+        "direction": "input"
+      }
+    ],
+    "direction": [
+      {
+        "node": "net.xgenia.visual.columns",
+        "direction": "input"
+      }
+    ],
+    "justifyContent": [
       {
         "node": "net.xgenia.visual.columns",
         "direction": "input"
@@ -28796,6 +29969,40 @@
     "style": [
       {
         "node": "CSS Definition",
+        "direction": "input"
+      }
+    ],
+    "stdDev": [
+      {
+        "node": "Distribution Chart",
+        "direction": "input"
+      }
+    ],
+    "xLabel": [
+      {
+        "node": "Distribution Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Histogram Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Line Chart",
+        "direction": "input"
+      }
+    ],
+    "yLabel": [
+      {
+        "node": "Distribution Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Histogram Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Line Chart",
         "direction": "input"
       }
     ],
@@ -28833,6 +30040,66 @@
       {
         "node": "Drag",
         "direction": "input"
+      }
+    ],
+    "axis": [
+      {
+        "node": "Drag",
+        "direction": "input"
+      }
+    ],
+    "useParentBounds": [
+      {
+        "node": "Drag",
+        "direction": "input"
+      }
+    ],
+    "inputPositionX": [
+      {
+        "node": "Drag",
+        "direction": "input"
+      }
+    ],
+    "inputPositionY": [
+      {
+        "node": "Drag",
+        "direction": "input"
+      }
+    ],
+    "onStop": [
+      {
+        "node": "Drag",
+        "direction": "output"
+      }
+    ],
+    "onDrag": [
+      {
+        "node": "Drag",
+        "direction": "output"
+      }
+    ],
+    "positionX": [
+      {
+        "node": "Drag",
+        "direction": "output"
+      }
+    ],
+    "positionY": [
+      {
+        "node": "Drag",
+        "direction": "output"
+      }
+    ],
+    "deltaX": [
+      {
+        "node": "Drag",
+        "direction": "output"
+      }
+    ],
+    "deltaY": [
+      {
+        "node": "Drag",
+        "direction": "output"
       }
     ],
     "scrollToIndex.do": [
@@ -28883,6 +30150,52 @@
         "direction": "input"
       }
     ],
+    "scrollEnabled": [
+      {
+        "node": "Group",
+        "direction": "input"
+      }
+    ],
+    "scrollSnapEnabled": [
+      {
+        "node": "Group",
+        "direction": "input"
+      }
+    ],
+    "scrollSnapToEveryItem": [
+      {
+        "node": "Group",
+        "direction": "input"
+      }
+    ],
+    "showScrollbar": [
+      {
+        "node": "Group",
+        "direction": "input"
+      }
+    ],
+    "scrollBounceEnabled": [
+      {
+        "node": "Group",
+        "direction": "input"
+      }
+    ],
+    "nativeScroll": [
+      {
+        "node": "Group",
+        "direction": "input"
+      }
+    ],
+    "as": [
+      {
+        "node": "Group",
+        "direction": "input"
+      },
+      {
+        "node": "Text",
+        "direction": "input"
+      }
+    ],
     "focused": [
       {
         "node": "Group",
@@ -28895,6 +30208,42 @@
         "direction": "output"
       }
     ],
+    "onScrollPositionChanged": [
+      {
+        "node": "Group",
+        "direction": "output"
+      }
+    ],
+    "onScrollStart": [
+      {
+        "node": "Group",
+        "direction": "output"
+      }
+    ],
+    "onScrollEnd": [
+      {
+        "node": "Group",
+        "direction": "output"
+      }
+    ],
+    "binSize": [
+      {
+        "node": "Histogram Chart",
+        "direction": "input"
+      }
+    ],
+    "valueList": [
+      {
+        "node": "Histogram Chart",
+        "direction": "input"
+      }
+    ],
+    "barColor": [
+      {
+        "node": "Histogram Chart",
+        "direction": "input"
+      }
+    ],
     "src": [
       {
         "node": "Image",
@@ -28902,6 +30251,30 @@
       },
       {
         "node": "Video",
+        "direction": "input"
+      }
+    ],
+    "srcSet": [
+      {
+        "node": "Image",
+        "direction": "input"
+      }
+    ],
+    "alt": [
+      {
+        "node": "Image",
+        "direction": "input"
+      }
+    ],
+    "onLoad": [
+      {
+        "node": "Image",
+        "direction": "output"
+      }
+    ],
+    "dataset": [
+      {
+        "node": "Line Chart",
         "direction": "input"
       }
     ],
@@ -29049,6 +30422,12 @@
         "direction": "input"
       }
     ],
+    "allowHTML": [
+      {
+        "node": "Text",
+        "direction": "input"
+      }
+    ],
     "srcObject": [
       {
         "node": "Video",
@@ -29059,6 +30438,78 @@
       {
         "node": "Video",
         "direction": "input"
+      }
+    ],
+    "autoplay": [
+      {
+        "node": "Video",
+        "direction": "input"
+      }
+    ],
+    "controls": [
+      {
+        "node": "Video",
+        "direction": "input"
+      }
+    ],
+    "muted": [
+      {
+        "node": "Video",
+        "direction": "input"
+      }
+    ],
+    "objectPositionX": [
+      {
+        "node": "Video",
+        "direction": "input"
+      }
+    ],
+    "objectPositionY": [
+      {
+        "node": "Video",
+        "direction": "input"
+      }
+    ],
+    "onCanPlay": [
+      {
+        "node": "Video",
+        "direction": "output"
+      }
+    ],
+    "onTimeUpdate": [
+      {
+        "node": "Video",
+        "direction": "output"
+      }
+    ],
+    "onPlay": [
+      {
+        "node": "Video",
+        "direction": "output"
+      }
+    ],
+    "onPause": [
+      {
+        "node": "Video",
+        "direction": "output"
+      }
+    ],
+    "onVideoElementCreated": [
+      {
+        "node": "Video",
+        "direction": "output"
+      }
+    ],
+    "videoWidth": [
+      {
+        "node": "Video",
+        "direction": "output"
+      }
+    ],
+    "videoHeight": [
+      {
+        "node": "Video",
+        "direction": "output"
       }
     ],
     "allowNoAuth": [

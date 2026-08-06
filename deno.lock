@@ -1,0 +1,559 @@
+{
+  "version": "5",
+  "specifiers": {
+    "jsr:@supabase/functions-js@*": "2.110.8"
+  },
+  "jsr": {
+    "@supabase/functions-js@2.110.8": {
+      "integrity": "79de9d9de83149576cce2ff4b4d1bf2e1f40df472c04de413c67dc1ce1549220"
+    }
+  },
+  "redirects": {
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.112.1",
+    "https://esm.sh/iceberg-js@^0.8.1?target=denonext": "https://esm.sh/iceberg-js@0.8.1?target=denonext"
+  },
+  "remote": {
+    "https://esm.sh/@supabase/auth-js@2.112.1/denonext/auth-js.mjs": "0a6548b2193536749bac8bdc311930557fc418447d7579c16a1db1ff0e17788c",
+    "https://esm.sh/@supabase/functions-js@2.112.1/denonext/functions-js.mjs": "148a13081414a9bca1e6879d7220ae0affcd92150adc08e3eecb63fec794d9a1",
+    "https://esm.sh/@supabase/phoenix@0.4.5/denonext/phoenix.mjs": "40bd2a70829cd847848baac58e635bacd83fd62188f6624b44e2c295341004eb",
+    "https://esm.sh/@supabase/postgrest-js@2.112.1/denonext/postgrest-js.mjs": "b25d2037ec88c744bbcd1ca51d21110b6d4bde16ad5d4ef7ff5d8c00183a5c78",
+    "https://esm.sh/@supabase/realtime-js@2.112.1/denonext/realtime-js.mjs": "71971e0bd579cb6d8c2600ba1726c7472a9d7b4fa84f8b350fd3dd1dd86e51a2",
+    "https://esm.sh/@supabase/storage-js@2.112.1/denonext/storage-js.mjs": "c19d2448362f0186f92876fa53296bd43a564a48e1500a9d48fc89956ff13235",
+    "https://esm.sh/@supabase/supabase-js@2.112.1": "497e1884f2e760ee816b6081f8e9497f453d35d0b5fb10c0bb898b0debeee58d",
+    "https://esm.sh/@supabase/supabase-js@2.112.1/denonext/dist/tracingRegistry.mjs": "a5c249913461920ffde2a35911d3d0819c66aa672ce533d17ae15dbaea75a704",
+    "https://esm.sh/@supabase/supabase-js@2.112.1/denonext/supabase-js.mjs": "472091d54b6ffec5b452e227d6ff0a3cfbbbd11dd61b08604fde8b3322971f35",
+    "https://esm.sh/iceberg-js@0.8.1/denonext/iceberg-js.mjs": "d839d81a2e3966500ca2cdd0c1cb458e9608bacfc91f7bb67a69b2e878dcdb4f",
+    "https://esm.sh/iceberg-js@0.8.1?target=denonext": "58c849d7fe2bf4eca4a84eb501e83c161a7d8c34ca1bec15a962b3bec3062633",
+    "https://esm.sh/tslib@2.8.1/denonext/tslib.mjs": "c38da5dd6da6281964435002ce204cd586634fe3bdfb24a0ee116f48cf3292e9"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@anthropic-ai/sdk@0.39",
+        "npm:@aws-sdk/client-s3@^3.812.0",
+        "npm:@babel/preset-react@^7.26.3",
+        "npm:@fal-ai/client@^1.9.4",
+        "npm:@ianvs/prettier-plugin-sort-imports@^3.7.1",
+        "npm:@microlink/react-json-view@^1.26.2",
+        "npm:@storybook/react@8.5.6",
+        "npm:@types/electron@^1.4.38",
+        "npm:@types/keyv@3.1.4",
+        "npm:@types/node@^18.19.100",
+        "npm:@typescript-eslint/eslint-plugin@^5.62.0",
+        "npm:@typescript-eslint/parser@^5.49.0",
+        "npm:@vitejs/plugin-react@^4.4.1",
+        "npm:ajv-keywords@^3.5.2",
+        "npm:ajv@^6.12.6",
+        "npm:assert@^2.1.0",
+        "npm:browserify-zlib@0.2",
+        "npm:buffer@^6.0.3",
+        "npm:copy-webpack-plugin@12.0.2",
+        "npm:dotenv@^16.4.5",
+        "npm:dugite@^2.7.1",
+        "npm:electron-notarize@^1.2.2",
+        "npm:eslint-plugin-react@^7.32.2",
+        "npm:eslint@^8.33.0",
+        "npm:fs-extra@10",
+        "npm:html-to-image@^1.11.13",
+        "npm:https-browserify@1",
+        "npm:keytar@^7.9.0",
+        "npm:lerna@^8.2.0",
+        "npm:lucide-react@0.503",
+        "npm:passport@0.7.0",
+        "npm:path-browserify@^1.0.1",
+        "npm:process@~0.11.10",
+        "npm:react-hot-toast@^2.5.2",
+        "npm:react-markdown@^10.1.0",
+        "npm:rimraf@^3.0.2",
+        "npm:sass-loader@^16.0.5",
+        "npm:sass@^1.85.0",
+        "npm:stream-browserify@3",
+        "npm:stream-http@^3.2.0",
+        "npm:ts-node@^10.9.1",
+        "npm:typescript@^4.9.5",
+        "npm:url@~0.11.4",
+        "npm:util@~0.12.5",
+        "npm:vite@^6.4.1",
+        "npm:webpack-cli@^5.1.1",
+        "npm:webpack-dev-server@^4.15.0",
+        "npm:webpack@^5.84.1"
+      ],
+      "overrides": {
+        "revolt-fx": {
+          "pixi.js": "^8.0.0"
+        }
+      }
+    },
+    "members": {
+      "packages/xgenia-core-ui": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@storybook/addon-a11y@8.5.6",
+            "npm:@storybook/addon-actions@8.5.6",
+            "npm:@storybook/addon-docs@8.5.6",
+            "npm:@storybook/addon-essentials@8.5.6",
+            "npm:@storybook/addon-interactions@8.5.6",
+            "npm:@storybook/addon-links@8.5.6",
+            "npm:@storybook/addon-measure@8.5.6",
+            "npm:@storybook/addon-themes@8.5.6",
+            "npm:@storybook/components@8.5.6",
+            "npm:@storybook/csf@~0.1.13",
+            "npm:@storybook/manager-api@8.5.6",
+            "npm:@storybook/node-logger@8.5.6",
+            "npm:@storybook/preview-api@8.5.6",
+            "npm:@storybook/react-webpack5@8.5.6",
+            "npm:@storybook/react@8.5.6",
+            "npm:@storybook/test-runner@0.21",
+            "npm:@storybook/theming@8.5.6",
+            "npm:@types/jest@^27.5.2",
+            "npm:@types/node@^16.11.42",
+            "npm:@types/react-dom@19.1.0",
+            "npm:@types/react@19.1.0",
+            "npm:@vitejs/plugin-react@1.3.2",
+            "npm:babel-plugin-named-exports-order@^0.0.2",
+            "npm:classnames@^2.3.1",
+            "npm:copy-webpack-plugin@12.0.2",
+            "npm:dugite@2.7.1",
+            "npm:lerna@8.2.0",
+            "npm:mkdirp@0.5.6",
+            "npm:passport@0.7.0",
+            "npm:prop-types@^15.8.1",
+            "npm:sass@^1.85.0",
+            "npm:ts-loader@^9.3.1",
+            "npm:typescript@^4.9.5",
+            "npm:web-vitals@^3.0.3",
+            "npm:webpack@^5.74.0",
+            "npm:websocket-stream@5.3.0"
+          ]
+        }
+      },
+      "packages/xgenia-editor": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@babel/runtime@^7.16.7",
+            "npm:@electron/notarize@^2.1.0",
+            "npm:@electron/packager@^18.4.2",
+            "npm:@electron/remote@^2.1.2",
+            "npm:@fal-ai/client@^1.9.4",
+            "npm:@google/genai@1.0.0",
+            "npm:@hugeicons/core-free-icons@^3.1.1",
+            "npm:@hugeicons/react@^1.1.5",
+            "npm:@intercom/messenger-js-sdk@^0.0.17",
+            "npm:@jaames/iro@^5.5.2",
+            "npm:@microlink/react-json-view@^1.26.1",
+            "npm:@microsoft/fetch-event-source@^2.0.1",
+            "npm:@modelcontextprotocol/inspector@0.15",
+            "npm:@modelcontextprotocol/sdk@^1.17.0",
+            "npm:@storybook/addon-actions@8.5.6",
+            "npm:@storybook/addon-backgrounds@^8.5.6",
+            "npm:@storybook/addon-docs@8.5.6",
+            "npm:@storybook/addon-essentials@8.5.6",
+            "npm:@storybook/addon-interactions@8.5.6",
+            "npm:@storybook/addon-links@8.5.6",
+            "npm:@storybook/addon-measure@8.5.6",
+            "npm:@storybook/addon-onboarding@^8.5.6",
+            "npm:@storybook/addons@^7.6.17",
+            "npm:@storybook/blocks@^8.5.6",
+            "npm:@storybook/manager-api@^8.5.6",
+            "npm:@storybook/node-logger@8.5.6",
+            "npm:@storybook/react-vite@8.5.6",
+            "npm:@storybook/react@8.5.6",
+            "npm:@storybook/test@8.5.6",
+            "npm:@storybook/theming@8.5.6",
+            "npm:@storybook/types@^8.5.6",
+            "npm:@supabase/supabase-js@^2.49.8",
+            "npm:@svgr/webpack@^6.4.0",
+            "npm:@tanstack/react-query@^5.85.5",
+            "npm:@types/electron@^1.4.38",
+            "npm:@types/jest@^27.5.2",
+            "npm:@types/jquery@^3.5.16",
+            "npm:@types/node@^18.8.3",
+            "npm:@types/react-dom@19.1.0",
+            "npm:@types/react@19.1.0",
+            "npm:@vitejs/plugin-react@^1.3.2",
+            "npm:about-window@^1.15.2",
+            "npm:algoliasearch@^4.14.2",
+            "npm:archiver@^5.3.0",
+            "npm:assert@^2.1.0",
+            "npm:async@^3.2.4",
+            "npm:autoprefixer@^10.4.16",
+            "npm:babel-plugin-named-exports-order@^0.0.2",
+            "npm:bcryptjs@^3.0.2",
+            "npm:body-parser@^2.2.0",
+            "npm:bowser@^2.11.0",
+            "npm:browserify-zlib@0.2",
+            "npm:class-variance-authority@~0.7.1",
+            "npm:classnames@^2.3.2",
+            "npm:clsx@^2.1.1",
+            "npm:connect-flash@~0.1.1",
+            "npm:cookie-session@^2.1.0",
+            "npm:copy-webpack-plugin@12.0.2",
+            "npm:diff3@0.0.4",
+            "npm:double-ended-queue@^2.1.0-0",
+            "npm:dugite@2.7.1",
+            "npm:electron-builder@^24.9.1",
+            "npm:electron-log@^5.4.3",
+            "npm:electron-progressbar@^2.2.1",
+            "npm:electron-store@^8.1.0",
+            "npm:electron-updater@^6.1.7",
+            "npm:electron@31.3.1",
+            "npm:eslint-plugin-react-hooks@^4.6.0",
+            "npm:eslint-plugin-react@^7.32.2",
+            "npm:eslint@^8.33.0",
+            "npm:express@^4.17.3",
+            "npm:fabric@^6.7.1",
+            "npm:fast-xml-parser@^5.2.5",
+            "npm:file-loader@^6.2.0",
+            "npm:highlight.js@^11.5.1",
+            "npm:html-loader@^4.2.0",
+            "npm:html-to-image@^1.11.13",
+            "npm:https-browserify@1",
+            "npm:idb-keyval@^6.2.2",
+            "npm:idb@^8.0.3",
+            "npm:isbinaryfile@5",
+            "npm:jquery@^3.7.1",
+            "npm:jszip@^3.10.1",
+            "npm:konva@^9.3.22",
+            "npm:lerna@8.2.0",
+            "npm:lucide-react@0.514",
+            "npm:md5-file@5",
+            "npm:md5@^2.3.0",
+            "npm:mixpanel-browser@^2.45.0",
+            "npm:mkdirp-sync@0.0.2",
+            "npm:mkdirp@~0.5.6",
+            "npm:monaco-editor-webpack-plugin@^7.0.1",
+            "npm:monaco-editor@0.34",
+            "npm:openai@4",
+            "npm:otpauth@^9.4.0",
+            "npm:passport-local@1",
+            "npm:passport@0.7.0",
+            "npm:postcss-loader@^8.2.0",
+            "npm:postcss@^8.4.38",
+            "npm:prettier@^3.8.1",
+            "npm:prop-types@^15.8.1",
+            "npm:react-dom@19.1.1",
+            "npm:react-hot-toast@^2.4.0",
+            "npm:react-instantsearch@7.15.3",
+            "npm:react-konva@^18.2.10",
+            "npm:react-markdown@^6.0.3",
+            "npm:react-rnd@^10.3.7",
+            "npm:react@19.1.1",
+            "npm:remarkable@^2.0.1",
+            "npm:sass@^1.85.0",
+            "npm:scheduler@0.26",
+            "npm:split2@^4.2.0",
+            "npm:stream-http@^3.2.0",
+            "npm:string.prototype.matchall@^4.0.7",
+            "npm:tailwind-merge@^3.3.1",
+            "npm:tailwindcss@^3.4.3",
+            "npm:tslib@^2.8.1",
+            "npm:typescript@4.9.5",
+            "npm:underscore@^1.13.6",
+            "npm:undici@^6.21.3",
+            "npm:uuid@^11.1.0",
+            "npm:vite-tsconfig-paths@^4.3.1",
+            "npm:vite@^5.0.12",
+            "npm:web-vitals@^3.0.3",
+            "npm:webpack-cli@^4.10.0",
+            "npm:webpack-dev-server@^4.11.1",
+            "npm:webpack-merge@^5.8.0",
+            "npm:webpack@^5.74.0",
+            "npm:websocket-stream@^5.3.0",
+            "npm:ws@^8.9.0",
+            "npm:zod-to-json-schema@3.23.2",
+            "npm:zod@3.23.8",
+            "npm:zustand@^5.0.8"
+          ]
+        }
+      },
+      "packages/xgenia-git": {
+        "packageJson": {
+          "dependencies": [
+            "npm:copy-webpack-plugin@12.0.2",
+            "npm:double-ended-queue@^2.1.0-0",
+            "npm:dugite@^2.7.1",
+            "npm:passport@0.7.0",
+            "npm:split2@^4.1.0"
+          ]
+        }
+      },
+      "packages/xgenia-mcp": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@modelcontextprotocol/inspector@0.15",
+            "npm:@modelcontextprotocol/sdk@1",
+            "npm:@types/electron@^1.4.38",
+            "npm:@types/keytar@^4.4.0",
+            "npm:keytar@^7.9.0",
+            "npm:typescript@^5.9.3"
+          ]
+        }
+      },
+      "packages/xgenia-mcp-server": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@modelcontextprotocol/sdk@1",
+            "npm:@types/node@^18.19.100",
+            "npm:playwright-core@^1.50.1",
+            "npm:typescript@^5.9.3",
+            "npm:zod@^3.23.8"
+          ]
+        }
+      },
+      "packages/xgenia-parse-dashboard": {
+        "packageJson": {
+          "dependencies": [
+            "npm:bcryptjs@2.4.3",
+            "npm:connect-flash@0.1.1",
+            "npm:cookie-session@2.0.0",
+            "npm:express@^4.18.1",
+            "npm:keyv@^4.5.1",
+            "npm:lodash@^4.17.21",
+            "npm:otpauth@^7.1.3",
+            "npm:package-json@7.0.0",
+            "npm:passport-local@1.0.0",
+            "npm:passport@0.7",
+            "npm:semver@^7.3.7"
+          ]
+        }
+      },
+      "packages/xgenia-platform-node": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@types/jest@^29.0.1",
+            "npm:fs-extra@^10.0.1",
+            "npm:jest@^29.0.3",
+            "npm:jszip@^3.10.1",
+            "npm:mkdirp-sync@0.0.2",
+            "npm:open@8.4.2",
+            "npm:rimraf@^3.0.2",
+            "npm:ts-jest@29"
+          ]
+        }
+      },
+      "packages/xgenia-runtime": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@modelcontextprotocol/sdk@1",
+            "npm:@supabase/supabase-js@^2.49.8",
+            "npm:@types/estree@^1.0.8",
+            "npm:cors@^2.8.5",
+            "npm:express@^4.18.2",
+            "npm:jest@^28.1.0",
+            "npm:lodash.difference@^4.5.0",
+            "npm:lodash.isequal@^4.5.0",
+            "npm:mathjs@^14.0.1",
+            "npm:terminal-link@^2.1.1"
+          ]
+        }
+      },
+      "packages/xgenia-viewer-cloud": {
+        "packageJson": {
+          "dependencies": [
+            "npm:clean-webpack-plugin@4",
+            "npm:copy-webpack-plugin@^12.0.2",
+            "npm:generate-json-webpack-plugin@2",
+            "npm:passport@0.7.0",
+            "npm:ts-loader@^9.3.1",
+            "npm:typescript@^4.7.4",
+            "npm:webpack-cli@^6.0.1",
+            "npm:webpack-merge@^6.0.1",
+            "npm:webpack@^5.104.1"
+          ]
+        }
+      },
+      "packages/xgenia-viewer-react": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@babel/core@^7.14.0",
+            "npm:@babel/plugin-proposal-class-properties@^7.18.6",
+            "npm:@babel/plugin-proposal-object-rest-spread@^7.18.9",
+            "npm:@babel/plugin-transform-arrow-functions@^7.25.9",
+            "npm:@babel/plugin-transform-destructuring@^7.25.9",
+            "npm:@babel/preset-env@^7.14.1",
+            "npm:@babel/preset-react@^7.18.6",
+            "npm:@better-scroll/core@^2.0.0-beta.6",
+            "npm:@better-scroll/mouse-wheel@^2.0.0-beta.6",
+            "npm:@better-scroll/nested-scroll@^2.4.2",
+            "npm:@better-scroll/scroll-bar@^2.0.0-beta.6",
+            "npm:@esotericsoftware/spine-pixi-v8@^4.2.89",
+            "npm:@microlink/react-json-view@^1.27.0",
+            "npm:@types/jest@^27.5.1",
+            "npm:@types/node@^22.13.10",
+            "npm:babel-loader@^8.2.2",
+            "npm:babel-plugin-transform-remove-console@^6.9.4",
+            "npm:bezier-easing@^1.1.1",
+            "npm:buffer@^6.0.3",
+            "npm:chart.js@^4.4.9",
+            "npm:clean-webpack-plugin@4",
+            "npm:copy-webpack-plugin@^12.0.2",
+            "npm:core-js@^3.12.1",
+            "npm:css-loader@5",
+            "npm:events@^3.3.0",
+            "npm:gsap@^3.13.0",
+            "npm:html-webpack-plugin@^5.6.3",
+            "npm:jest@^28.1.0",
+            "npm:lodash.difference@^4.5.0",
+            "npm:lodash.isequal@^4.5.0",
+            "npm:passport@0.7.0",
+            "npm:path-browserify@^1.0.1",
+            "npm:performance-now@^2.1.0",
+            "npm:pixi.js@8",
+            "npm:react-chartjs-2@^5.3.0",
+            "npm:react-dom@19.1.1",
+            "npm:react-draggable@^4.4.5",
+            "npm:react-rnd@^10.3.7",
+            "npm:react@19.1.1",
+            "npm:stake-engine@~0.1.32",
+            "npm:stats.js@0.17",
+            "npm:stream-browserify@3",
+            "npm:style-loader@2",
+            "npm:timers-browserify@^2.0.12",
+            "npm:ts-jest@^28.0.3",
+            "npm:ts-loader@^9.4.3",
+            "npm:typescript@^4.9.5",
+            "npm:use-sound@5",
+            "npm:webfontloader@^1.6.28",
+            "npm:webpack-bundle-analyzer@^4.4.2",
+            "npm:webpack-cli@^5.1.4",
+            "npm:webpack-dev-server@^4.15.0",
+            "npm:webpack-merge@^5.7.3",
+            "npm:webpack@^5.74.0"
+          ]
+        }
+      },
+      "private/xgenia-agent-nodes": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@babel/cli@^7.26.4",
+            "npm:@babel/core@^7.26.0",
+            "npm:@babel/preset-env@^7.26.0",
+            "npm:babel-plugin-module-resolver@^5.0.2",
+            "npm:zod@^3.22.4"
+          ]
+        }
+      },
+      "private/xgenia-ai": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@hugeicons/core-free-icons@^3.3.0",
+            "npm:@hugeicons/react@^1.1.5",
+            "npm:@supabase/supabase-js@^2.103.0",
+            "npm:grammy@^1.40.1",
+            "npm:openai@^6.34.0",
+            "npm:remark-gfm@^4.0.1",
+            "npm:sax@^1.6.0",
+            "npm:uuid@13",
+            "npm:vitest@4.1.5",
+            "npm:zod-to-json-schema@^3.25.2"
+          ]
+        }
+      },
+      "private/xgenia-ai-app": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@anthropic-ai/sdk@0.78",
+            "npm:@fal-ai/client@^1.9.5",
+            "npm:@hugeicons/core-free-icons@^3.3.0",
+            "npm:@hugeicons/react@^1.1.5",
+            "npm:@supabase/supabase-js@^2.103.0",
+            "npm:@types/react-dom@^19.1.0",
+            "npm:@types/react@^19.1.0",
+            "npm:@vercel/node@^5.6.16",
+            "npm:@vitejs/plugin-react@^4.4.1",
+            "npm:@vitest/ui@^4.1.5",
+            "npm:eventemitter3@^5.0.4",
+            "npm:jsdom@^29.0.2",
+            "npm:lodash@^4.17.23",
+            "npm:lucide-react@0.576",
+            "npm:openai@^6.34.0",
+            "npm:react-dom@^19.1.0",
+            "npm:react-markdown@^10.1.0",
+            "npm:react@^19.1.0",
+            "npm:remark-gfm@^4.0.1",
+            "npm:sax@^1.6.0",
+            "npm:typescript@^5.6.0",
+            "npm:uuid@13",
+            "npm:vite@^6.4.1",
+            "npm:vitest@^4.1.5",
+            "npm:zod-to-json-schema@^3.25.2",
+            "npm:zod@^3.25.0"
+          ]
+        }
+      },
+      "private/xgenia-image-editor": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@fal-ai/client@^1.9.4",
+            "npm:lucide-react@0.503",
+            "npm:perfect-freehand@^1.2.3"
+          ]
+        }
+      },
+      "private/xgenia-image-editor-app": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@fal-ai/client@^1.9.4",
+            "npm:@hugeicons/core-free-icons@^3.3.0",
+            "npm:@hugeicons/react@^1.1.6",
+            "npm:@supabase/supabase-js@^2.99.2",
+            "npm:@tailwindcss/postcss@^4.2.2",
+            "npm:@tanstack/react-query@5",
+            "npm:@types/react-dom@^19.1.0",
+            "npm:@types/react@^19.1.0",
+            "npm:@vitejs/plugin-react@^4.4.1",
+            "npm:autoprefixer@^10.4.27",
+            "npm:clsx@^2.1.1",
+            "npm:html-to-image@^1.11.11",
+            "npm:idb@8",
+            "npm:lucide-react@0.503",
+            "npm:perfect-freehand@^1.2.3",
+            "npm:postcss@^8.5.8",
+            "npm:react-dom@^19.1.0",
+            "npm:react-konva@^19.0.7",
+            "npm:react@^19.1.0",
+            "npm:tailwind-merge@^2.5.5",
+            "npm:tailwindcss@^4.2.2",
+            "npm:typescript@^5.6.0",
+            "npm:vite@^6.4.1",
+            "npm:zustand@5"
+          ]
+        }
+      },
+      "private/xgenia-models": {
+        "packageJson": {
+          "dependencies": [
+            "npm:typescript@^4.9.5"
+          ]
+        }
+      },
+      "private/xgenia-pro-nodes": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@babel/cli@^7.26.4",
+            "npm:@babel/core@^7.26.0",
+            "npm:@babel/preset-env@^7.26.0",
+            "npm:@babel/preset-react@^7.26.3",
+            "npm:babel-plugin-module-resolver@^5.0.2",
+            "npm:bezier-easing@^2.1.0",
+            "npm:mathjs@^14.0.1",
+            "npm:revolt-fx@^1.3.1"
+          ]
+        }
+      },
+      "private/xgenia-telegram": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@types/node@22",
+            "npm:@types/ws@^8.5.14",
+            "npm:dotenv@^16.4.7",
+            "npm:grammy@^1.35.0",
+            "npm:tsx@^4.19.0",
+            "npm:typescript@^5.6.0",
+            "npm:ws@^8.18.0"
+          ]
+        }
+      }
+    }
+  }
+}
