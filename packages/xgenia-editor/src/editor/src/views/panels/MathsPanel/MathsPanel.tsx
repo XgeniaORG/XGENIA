@@ -1976,7 +1976,21 @@ export function MathsPanel() {
                             was rediscovered as dead code, not noticed as a missing feature.
                             (The maths-sheet-mount.test.ts the old note cited as a guard does
                             not exist in this repo, so nothing catches a repeat.) */}
-                        {/*
+                        {/* RE-ENABLED 2026-08-06 (owner): creating a draft game and TESTING
+                            must work. Promotion to live stays off — see the Maths Versions
+                            block below, restored WITHOUT its Promote button.
+
+                            GUARDS (they exist, and they are not in this repo): the note that
+                            was here said "the maths-sheet-mount.test.ts the old note cited as
+                            a guard does not exist in this repo, so nothing catches a repeat."
+                            It does exist — in the `private` SUBMODULE, which is where the whole
+                            AI test suite lives:
+                              private/xgenia-ai-app/tests/maths-sheet-mount.test.ts
+                              private/xgenia-ai-app/tests/maths-pipeline.test.ts
+                            Run them with: cd private/xgenia-ai-app && npx vitest run
+                            Commenting this button out fails the first; adding a Promote control
+                            back fails the second. Grepping only the parent repo makes both look
+                            fictional. */}
                         {connected && selectedGame && (
                             <Box hasBottomSpacing>
                                 <Tooltip content="Compile the maths component you have open, upload it and run a stress test. Stops before live.">
@@ -1992,7 +2006,6 @@ export function MathsPanel() {
                                 </Tooltip>
                             </Box>
                         )}
-                        */}
 
                         {/* Maths Versions — COMMENTED OUT (2026-08-06), deliberately kept
                             rather than deleted. It listed the `maths_configs` approval
@@ -2027,15 +2040,33 @@ export function MathsPanel() {
                             from the stress run, or "RTP unknown" — never the declared number.
                             A declared RTP is what someone hoped for; showing it here would let
                             a config that has never been measured look tested. */}
-                        {/*
+                        {/* Maths Versions — the maths_configs TEST lifecycle. Restored
+                            2026-08-06 (owner: draft + testing must work), but WITHOUT the
+                            Promote to Live button: promotion stays deliberately off.
+
+                            This is NOT what players hit. A player's spin runs the Server
+                            Version's components in game_edge_functions, shown under Server
+                            Versions above — a separate lifecycle. A `live` row here means a
+                            maths_config was once promoted, not that it is what is running,
+                            which is why the header says so.
+
+                            RTP shown is the MEASURED figure from the stress run, or
+                            "RTP unknown" — never the declared number. A declared RTP is what
+                            someone hoped for; showing it would let an unmeasured config look
+                            tested. */}
                         {connected && selectedGame && mathsConfigs && mathsConfigs.length > 0 && (
                             <Box hasBottomSpacing>
-                                <div style={{ fontWeight: 600, fontSize: '12px', textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: '#a0a0b0', marginBottom: '8px' }}>
-                                    Maths Versions
+                                <div style={{ fontWeight: 600, fontSize: '12px', textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: '#a0a0b0', marginBottom: '2px' }}>
+                                    Maths Versions <span style={{ fontWeight: 400, textTransform: 'none' as const }}>(test only)</span>
+                                </div>
+                                {/* Says what these rows are NOT, because a `live` row here reads as
+                                    "this is what my game runs" and it is not — players hit the Server
+                                    Version's components above. */}
+                                <div style={{ fontSize: '10px', color: '#666', marginBottom: '8px' }}>
+                                    Test lifecycle only — not what players run.
                                 </div>
                                 {mathsConfigs.map((c: any) => {
                                     const rtp = c.stress_results?.tests?.rtp_compliance?.measured_rtp;
-                                    const canPromote = c.status === 'testing' || c.status === 'approved';
                                     const justTested = testedConfigId === c.id;
                                     return (
                                         <div
@@ -2053,21 +2084,14 @@ export function MathsPanel() {
                                             <span style={{ fontSize: '10px', color: '#a0a0b0', fontFamily: 'monospace' }}>
                                                 {rtp != null ? `${rtp.toFixed(2)}%` : 'RTP unknown'}
                                             </span>
-                                            {promotingId === c.id ? (
-                                                <span style={{ fontSize: '10px', color: '#666' }}>Working&#8230;</span>
-                                            ) : canPromote ? (
-                                                <button
-                                                    title="Approve this version and deploy it live"
-                                                    onClick={() => handlePromote(c.id)}
-                                                    style={VERSION_BTN_STYLE}
-                                                >Promote to Live</button>
-                                            ) : null}
+                                            {/* No Promote control, deliberately. Promotion to live is
+                                                off; this list is here so a Test run's result is
+                                                visible, not so a config can be shipped from it. */}
                                         </div>
                                     );
                                 })}
                             </Box>
                         )}
-                        */}
                     </VStack>
                 </Box>
                 </div>

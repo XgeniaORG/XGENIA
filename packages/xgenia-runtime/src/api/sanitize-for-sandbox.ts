@@ -230,6 +230,29 @@ export function sanitizeForSandbox(script: string): string {
     //     Pattern: `isaac.randomInt(min, max)` → `rgsRandomInt(min, max)`
     s = s.replace(/isaac\.randomInt\s*\(/g, 'rgsRandomInt(');
 
+    // 2d. Any remaining bare Math.random → rgsRandom.
+    //
+    // §2 above only rewrites the `if (typeof crypto …) { … } else { … }` block the
+    // TRNG nodes emit. Other emitters produce Math.random in shapes it never
+    // matched — notably the Weighted Reels dynamic path,
+    //   `const rand = colRng ? colRng.nextFloat() : Math.random();`
+    // (slot-game-node-converter), a TERNARY fallback for when per-column seeds are
+    // absent.
+    //
+    // Two reasons this must go. Correctness: unseeded randomness in server maths is
+    // unrecorded, so the round cannot be re-derived — the same provably-fair hole
+    // the seeded path already fixed, left open on the fallback branch. Mechanics:
+    // the RGS blocklist is a TEXT scan, so the token is refused even sitting in a
+    // branch that never executes. Upload fails with "Blocked: scripts cannot use
+    // restricted APIs or language features" and no indication of which token.
+    //
+    // rgsRandom() is in scope for the whole body (the sandbox preamble defines it
+    // before the user script) and draws from the counted, recorded ctx.rng, so this
+    // is a strict improvement rather than an appeasement. Covers the call form and
+    // the `random=Math.random` alias std-library-node-converter puts in its
+    // formula preamble.
+    s = s.replace(/\bMath\s*\.\s*random\b/g, 'rgsRandom');
+
     // 3. Replace eval() calls with safe fallback values
     //    Scripts should not contain eval() — replace with 0
     //    (Defense-in-depth only: nothing we emit uses eval anymore. If a rule here
