@@ -39,8 +39,10 @@ if (AI_LOAD_STRATEGY === 'iframe') {
 } else {
   console.log('[XGENIA] AI Chat panel running in open-source mode (shell)');
 }
-import { CloudFunctionsPanel } from './views/panels/CloudFunctionsPanel/CloudFunctionsPanel';
-import { CloudServicePanel } from './views/panels/CloudServicePanel/CloudServicePanel';
+// Cloud Functions panel disabled — see the commented-out register() call below.
+// import { CloudFunctionsPanel } from './views/panels/CloudFunctionsPanel/CloudFunctionsPanel';
+// Cloud Services panel disabled — see the commented-out register() call below.
+// import { CloudServicePanel } from './views/panels/CloudServicePanel/CloudServicePanel';
 import { ComponentPortsComponent } from './views/panels/componentports';
 import { ComponentsPanel } from './views/panels/componentspanel';
 import { DesignTokenPanel } from './views/panels/DesignTokenPanel/DesignTokenPanel';
@@ -67,6 +69,11 @@ export interface SetupEditorOptions {
   isLesson: boolean;
 }
 
+// `isLesson` currently has no live reader: its only two uses were the
+// `isDisabled` flags on the Cloud Services and Cloud Functions registrations,
+// both commented out below. Kept destructured so uncommenting either one
+// compiles as-is.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function installSidePanel({ isLesson }: SetupEditorOptions) {
   const appRegistry = AppRegistry.instance;
 
@@ -180,25 +187,72 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
   //   panel: MemoryPanel
   // });
 
-  SidebarModel.instance.register({
-    id: 'cloudservice',
-    name: 'Cloud Services',
-    isDisabled: isLesson === true,
-    order: 6,
-    placement: 'bottom',
-    icon: IconName.CloudData,
-    panel: CloudServicePanel
-  });
+  // Cloud Services - Commented out (2026-08-06), together with Cloud Functions
+  // below. The two go together: the environment this panel connects (a Supabase
+  // cloud service) was what Cloud Functions deployed `/#__cloud__/` components
+  // to, and the Maths RGS panel reaches the RGS backend by its own route
+  // (operator key + maths-deployer), not through a cloud-service environment.
+  //
+  // Nothing else in the editor navigates here — no `SidebarModel.switch(
+  // 'cloudservice')` anywhere — so withdrawing the sidebar entry is the whole
+  // change. `'cloudservice'` is left in SidePanel.tsx's `bottomIds` set and
+  // `iconMap`; both are keyed lookups over registered items, so a stale entry is
+  // inert.
+  //
+  // What is no longer reachable while this is off: listing, creating (
+  // CloudServiceCreateModal) and activating environments. Environments already
+  // stored in a project still exist and are still listed by the "Connected cloud
+  // services" dropdowns on DeployToFolderTab / DeployToStakeTab, and the
+  // deploy-supabase-edge-functions compile pass still fires for whichever one is
+  // active — this hides the management UI, it does not clear the setting.
+  //
+  // Publish (XgeniaDeployTab) is unaffected: its own "Connected cloud services"
+  // picker was commented out earlier and its state pinned to
+  // RGS_ENVIRONMENT_VALUE, so Publish takes the RGS path regardless of what any
+  // cloud service says. Do not "fix" that pinning by restoring
+  // NO_ENVIRONMENT_VALUE without also restoring that picker — see the comment at
+  // XgeniaDeployTab.tsx:1887.
+  //
+  // SidebarModel.instance.register({
+  //   id: 'cloudservice',
+  //   name: 'Cloud Services',
+  //   isDisabled: isLesson === true,
+  //   order: 6,
+  //   placement: 'bottom',
+  //   icon: IconName.CloudData,
+  //   panel: CloudServicePanel
+  // });
 
-  SidebarModel.instance.register({
-    id: 'cloud-functions',
-    name: 'Cloud Functions',
-    isDisabled: isLesson === true,
-    order: 7,
-    placement: 'bottom',
-    icon: IconName.CloudFunction,
-    panel: CloudFunctionsPanel
-  });
+  // Cloud Functions - Commented out (2026-08-06).
+  //
+  // Superseded by the Maths RGS panel: maths is authored in `/#__maths__/` and
+  // shipped to the RGS from there, so the `/#__cloud__/` authoring surface this
+  // panel provided is no longer part of the workflow. The panel itself
+  // (CloudFunctionsPanel.tsx) and every `__cloud__` code path — the compile
+  // passes, the converter, the search-panel labelling — are left intact; only
+  // the sidebar entry is withdrawn, so re-enabling is a matter of uncommenting
+  // this block (plus the import above and the switch in NodeGraphContext.tsx).
+  //
+  // Consequence while this is off: '__cloud__' stays in the `hideSheets` list of
+  // the general Components panel above, and no other panel locks to that sheet,
+  // so `/#__cloud__/` components have no UI surface at all. That is intended
+  // here (the sheet is unused, and Publish's machine-generated
+  // `/#__cloud__/__Component_N__` entries were never meant to be browsed), but
+  // it is exactly the condition maths-sheet-mount.test.ts test 1 exists to
+  // catch — that test reads source text, so it keeps passing on the
+  // still-uncommented `lockCurrentSheetName: '__cloud__'` in the panel file. If
+  // `/#__cloud__/` ever needs to be reachable again, either uncomment this
+  // registration or drop '__cloud__' from that hideSheets list.
+  //
+  // SidebarModel.instance.register({
+  //   id: 'cloud-functions',
+  //   name: 'Cloud Functions',
+  //   isDisabled: isLesson === true,
+  //   order: 7,
+  //   placement: 'bottom',
+  //   icon: IconName.CloudFunction,
+  //   panel: CloudFunctionsPanel
+  // });
 
   SidebarModel.instance.register({
     id: 'settings',
