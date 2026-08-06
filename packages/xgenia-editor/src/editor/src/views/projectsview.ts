@@ -147,13 +147,24 @@ export class ProjectsView extends View {
     const $email = $userSection.find('.user-info .email');
     let $plan = $userSection.find('.user-info .plan');
 
+    // The profiles row carries the name as first_name/last_name (with name/surname as
+    // aliases); full_name is not a column, so resolve it from whatever is present.
+    const profileName = [
+      this.userProfile?.full_name,
+      [this.userProfile?.first_name, this.userProfile?.last_name].filter(Boolean).join(' '),
+      [this.userProfile?.name, this.userProfile?.surname].filter(Boolean).join(' ')
+    ]
+      .map((n) => (typeof n === 'string' ? n.trim() : ''))
+      .find((n) => n.length > 0);
+
+    const emailPrefix = this.currentUser.email ? this.currentUser.email.split('@')[0] : '';
+    const displayName = profileName || emailPrefix || 'User';
+
     // Update avatar with first letter of name or email
-    const displayName = this.userProfile?.full_name || this.currentUser.email || 'User';
-    const avatarLetter = displayName.charAt(0).toUpperCase();
-    $avatar.text(avatarLetter);
+    $avatar.text(displayName.charAt(0).toUpperCase());
 
     // Update name
-    $name.text(this.userProfile?.full_name || (this.currentUser.email ? this.currentUser.email.split('@')[0] : 'User'));
+    $name.text(displayName);
 
     // Update email
     $email.text(this.currentUser.email || 'No email');
@@ -163,18 +174,37 @@ export class ProjectsView extends View {
       $plan = $('<div class="plan"/>').appendTo($userSection.find('.user-info'));
     }
 
-    // Set plan text and color
-    const subscriptionStatus = (this.userProfile?.subscription_status || 'free').toLowerCase();
+    // Set plan text and color. The tier lives in membership_level (with plan as the
+    // human-readable label); subscription_status is the legacy column name and is
+    // absent on current rows, so it is only a last-resort fallback.
+    const tier = [this.userProfile?.membership_level, this.userProfile?.plan, this.userProfile?.subscription_status]
+      .map((v) => (typeof v === 'string' ? v.trim() : ''))
+      .find((v) => v.length > 0);
+
+    const subscriptionStatus = (tier || 'free').toLowerCase();
     let planDisplay = subscriptionStatus.charAt(0).toUpperCase() + subscriptionStatus.slice(1);
     let planColor = 'rgba(255, 255, 255, 0.5)';
+    let isPaidPlan = false;
     if (subscriptionStatus === 'pro') {
-      planDisplay = '✨ Pro';
+      planDisplay = 'Pro';
       planColor = '#67DE92';
+      isPaidPlan = true;
     } else if (subscriptionStatus === 'enterprise') {
-      planDisplay = '💎 Enterprise';
+      planDisplay = 'Enterprise';
       planColor = '#67DE92';
+      isPaidPlan = true;
     }
     $plan.text(planDisplay).css('color', planColor);
+
+    // Nothing to upgrade to on a paid plan
+    const $upgrade = $userSection.find('.sidebar-upgrade');
+    if ($upgrade.length) {
+      if (isPaidPlan) {
+        $upgrade.hide();
+      } else {
+        $upgrade.show();
+      }
+    }
   }
 
   attachBackgroundUpdateListener() {
