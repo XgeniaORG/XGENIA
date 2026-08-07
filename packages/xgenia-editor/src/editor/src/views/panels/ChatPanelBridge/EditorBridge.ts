@@ -740,6 +740,11 @@ export class EditorBridge {
             if (typeof newParent.addChild !== 'function') {
                 throw new Error(`Target parent (id=${newParentId}, type=${newParent.type?.name || newParent.typename}) is not a container — cannot accept children.`);
             }
+            // Whether the node is a MODEL root right now decides which view event the
+            // canvas needs below — read it BEFORE the detach sweep destroys the evidence.
+            const graphModelForRootCheck: any = (graph as any).model || graph;
+            const wasModelRoot = Array.isArray(graphModelForRootCheck.roots)
+                && graphModelForRootCheck.roots.some((r: any) => r === node || r?.id === node.id);
             // 2026-05-25: defensive detach. The previous implementation only
             // checked `node.parent` and called `oldParent.removeChild(node)`.
             // When create_nodes_batch sets up parent-child via addChild but
@@ -852,30 +857,94 @@ export class EditorBridge {
             } catch (detachErr: any) {
                 console.warn('[EditorBridge] reparent detach phase non-fatal error:', detachErr?.message);
             }
+            // ════════════════════════════════════════════════════════════════════
+            // 2026-08-07 (debug export 1786095426879 — user: "my pixi stage isn't
+            // connected to the ui node … but when I close the project and open it
+            // again it's already in the ui node").
+            //
+            // The re-attach below used to be a bare newParent.addChild(node), and
+            // NodeGraphNode.addChild fires 'nodeAdded'. The canvas's nodeAdded handler
+            // (nodegrapheditor.ts) UNCONDITIONALLY builds a brand-new
+            // NodeGraphEditorNode and inserts it under the parent — it never checks
+            // whether a visual node for that id already exists. Meanwhile the detach
+            // sweep above only touched the MODEL, so the node's original visual box was
+            // still sitting in nodegrapheditor.roots. Result: the model was correct, the
+            // canvas showed the node still detached at the root (plus a duplicate box
+            // under the new parent, and a second bindNodeModel on the same model), and
+            // only reopening the project — which rebuilds the view from the model —
+            // "fixed" it. That is exactly the reported ReelStage-vs-ReelArea symptom.
+            //
+            // The reparent-aware events are 'nodeDetached' / 'nodeAttached': their canvas
+            // handlers MOVE the existing visual node instead of creating one. So go
+            // through NodeGraphModel.attachNode, whose precondition is "child is in
+            // graph.roots" — which IS the model's canonical detached state, and what the
+            // sweep above has (almost) produced.
+            // ════════════════════════════════════════════════════════════════════
+            const graphModelForAttach: any = (graph as any).model || graph;
+            const childCountBefore = Array.isArray(newParent.children) ? newParent.children.length : 0;
+            const targetIndex = (typeof index === 'number' && index >= 0)
+                ? Math.max(0, Math.min(index, childCountBefore))
+                : childCountBefore;
+            const nodeIsInModelRoots = () => Array.isArray(graphModelForAttach.roots)
+                && graphModelForAttach.roots.some((r: any) => r === node || r?.id === node.id);
+            let attachedViaModel = false;
+            let pushedToRoots = false;
             try {
-                if (typeof index === 'number' && index >= 0) {
-                    // (2026-06-23, trace 1782197236224 issue #16) NodeGraphNode's real
-                    // index-insert method is `insertChild(child, index)` — there is NO
-                    // `addChildAt`. The old probe checked for the non-existent addChildAt
-                    // and ALWAYS fell through to addChild (append), silently dropping the
-                    // index. That's why change_node_parent's position_index was a no-op
-                    // ("only gives end of list") and why reorder had no working bridge path.
-                    // Prefer insertChild; keep addChildAt for any alternate model that has it.
-                    if (typeof (newParent as any).insertChild === 'function') {
-                        (newParent as any).insertChild(node, index);
-                    } else if (typeof (newParent as any).addChildAt === 'function') {
-                        (newParent as any).addChildAt(node, index);
+                if (typeof graphModelForAttach.attachNode === 'function' && Array.isArray(graphModelForAttach.roots)) {
+                    // If the node used to be a CHILD, its visual box is still under the
+                    // old visual parent — tell the view to detach it first (that handler
+                    // moves the box into the visual roots). Skip when it was already a
+                    // root: nodeDetached would push a SECOND entry into
+                    // nodegrapheditor.roots, and removeRoot only ever splices one.
+                    if (!wasModelRoot && typeof graphModelForAttach.notifyListeners === 'function') {
+                        try { graphModelForAttach.notifyListeners('nodeDetached', { model: node }); }
+                        catch (e: any) { console.warn('[EditorBridge] nodeDetached notify failed (non-fatal):', e?.message); }
+                    }
+                    if (!nodeIsInModelRoots()) {
+                        graphModelForAttach.roots.push(node);
+                        pushedToRoots = true;
+                    }
+                    try { (node as any).parent = undefined; } catch { /* read-only in some models */ }
+                    graphModelForAttach.attachNode(newParent, node, targetIndex);
+                    attachedViaModel = Array.isArray(newParent.children)
+                        && newParent.children.some((c: any) => c === node || c?.id === node.id);
+                }
+            } catch (attachErr: any) {
+                console.warn('[EditorBridge] attachNode path failed, falling back to addChild:', attachErr?.message);
+            }
+
+            if (!attachedViaModel) {
+                // FALLBACK: the original raw path, for any model without attachNode.
+                // Undo our roots push first so the fallback can't leave a duplicate root.
+                if (pushedToRoots && Array.isArray(graphModelForAttach.roots)) {
+                    const undoIdx = graphModelForAttach.roots.findIndex((r: any) => r === node || r?.id === node.id);
+                    if (undoIdx >= 0) graphModelForAttach.roots.splice(undoIdx, 1);
+                }
+                try {
+                    if (typeof index === 'number' && index >= 0) {
+                        // (2026-06-23, trace 1782197236224 issue #16) NodeGraphNode's real
+                        // index-insert method is `insertChild(child, index)` — there is NO
+                        // `addChildAt`. The old probe checked for the non-existent addChildAt
+                        // and ALWAYS fell through to addChild (append), silently dropping the
+                        // index. That's why change_node_parent's position_index was a no-op
+                        // ("only gives end of list") and why reorder had no working bridge path.
+                        // Prefer insertChild; keep addChildAt for any alternate model that has it.
+                        if (typeof (newParent as any).insertChild === 'function') {
+                            (newParent as any).insertChild(node, index);
+                        } else if (typeof (newParent as any).addChildAt === 'function') {
+                            (newParent as any).addChildAt(node, index);
+                        } else {
+                            newParent.addChild(node);
+                        }
                     } else {
                         newParent.addChild(node);
                     }
-                } else {
-                    newParent.addChild(node);
+                } catch (e: any) {
+                    throw new Error(`addChild on new parent failed: ${e?.message || e}`);
                 }
-            } catch (e: any) {
-                throw new Error(`addChild on new parent failed: ${e?.message || e}`);
+                // Also update the node.parent backref if the framework didn't.
+                try { (node as any).parent = newParent; } catch { /* read-only in some models */ }
             }
-            // Also update the node.parent backref if the framework didn't.
-            try { (node as any).parent = newParent; } catch { /* read-only in some models */ }
 
             // 2026-06-02 (R35): real verification. The previous code returned
             // { success: true } based on addChild not throwing. That missed
@@ -911,7 +980,7 @@ export class EditorBridge {
                 }
             })();
 
-            console.log(`[EditorBridge] Reparented ${nodeId} → ${newParentId}`, verification);
+            console.log(`[EditorBridge] Reparented ${nodeId} → ${newParentId}`, { ...verification, attachedViaModel, wasModelRoot });
             if (!verification.ok) {
                 // Don't silently lie about success. The AI needs to know.
                 throw new Error(
@@ -920,7 +989,19 @@ export class EditorBridge {
                     `then delete the orphan copies before continuing.`
                 );
             }
-            return { success: true, verified: true, verification };
+            return {
+                success: true,
+                verified: true,
+                verification,
+                // Did the CANVAS get told to move the node, or did we only mutate the
+                // model? On the fallback path the node-graph view keeps drawing the old
+                // hierarchy until the project is reopened — say so instead of implying
+                // the visible graph matches.
+                viewSynced: attachedViaModel,
+                ...(attachedViaModel ? {} : {
+                    _viewMayBeStale: 'Model updated, but the node-graph canvas was not sent a move event (attachNode unavailable on this model). Reopen the component to see the new nesting.',
+                }),
+            };
         });
 
         h('graph.getConnections', () => {
