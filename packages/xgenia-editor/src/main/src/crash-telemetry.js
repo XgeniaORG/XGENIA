@@ -25,9 +25,21 @@
  */
 const { app, crashReporter } = require('electron');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const CRASH_LOG_FILENAME = 'crash-log.jsonl';
+
+// Same project the rest of the app already talks to (see supabaseInit.ts) —
+// hardcoded rather than read from process.env because the main-process
+// bundle gets no build-time env injection (that's a renderer-only webpack
+// DefinePlugin step) and no .env file ships with the packaged app.
+const SUPABASE_URL = 'https://pcrghrjikkcmelflwiys.supabase.co';
+const CRASH_REPORT_ENDPOINT = `${SUPABASE_URL}/functions/v1/crash-report`;
+// Not a secret — it ships inside the app. Only stops drive-by scanners that
+// find the public function URL from filling the table with junk. Must match
+// the TELEMETRY_INGEST_KEY secret set on the crash-report edge function.
+const TELEMETRY_INGEST_KEY = '30c04e9fca790f46855dadf9932f10a5c63d3bc907f99450';
 
 // Reasons that are NOT crashes: 'clean-exit' fires on normal renderer
 // teardown (navigation, window close); 'killed' means something external
@@ -56,6 +68,35 @@ function start() {
 }
 
 /**
+ * Fire the crash record at the crash-report edge function. Best-effort and
+ * fully async — the caller does not (and must not) await this, since it runs
+ * on the same path as the crash dialog and a slow/offline network must not
+ * delay or block that. Never throws.
+ */
+function upload(entry) {
+  try {
+    const payload = {
+      ...entry,
+      platform: process.platform,
+      osRelease: os.release()
+    };
+    fetch(CRASH_REPORT_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-telemetry-key': TELEMETRY_INGEST_KEY
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(5000)
+    }).catch((e) => {
+      console.error('[CrashTelemetry] Failed to upload crash record:', e && e.message);
+    });
+  } catch (e) {
+    console.error('[CrashTelemetry] Failed to start crash record upload:', e && e.message);
+  }
+}
+
+/**
  * Persist one process-gone event. `source` names the webContents that died
  * (e.g. 'editor-window', 'floating-window'); `details` is Electron's
  * render-process-gone details ({ reason, exitCode }).
@@ -75,15 +116,20 @@ function record(source, details) {
   // console.error survives the global console.log no-op in main.js.
   console.error('[CrashTelemetry] Renderer process gone:', JSON.stringify(entry));
 
+  // Skip clean exits so the local log and the remote table both stay
+  // signal-only (normal window closes would otherwise flood them).
+  // Unexpected 'killed' events ARE recorded, to both.
+  if (entry.reason === 'clean-exit') return entry;
+
   try {
-    // Skip clean exits so the log stays signal-only (normal window closes
-    // would otherwise flood it). Unexpected 'killed' events ARE recorded.
-    if (entry.reason === 'clean-exit') return entry;
     const logPath = path.join(app.getPath('userData'), CRASH_LOG_FILENAME);
     fs.appendFileSync(logPath, JSON.stringify(entry) + '\n');
   } catch (e) {
     console.error('[CrashTelemetry] Failed to persist crash record:', e && e.message);
   }
+
+  upload(entry);
+
   return entry;
 }
 
