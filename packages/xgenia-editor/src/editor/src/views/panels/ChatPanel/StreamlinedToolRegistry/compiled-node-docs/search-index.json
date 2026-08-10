@@ -8604,8 +8604,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 1867,
-      "byteSize": 89053,
+      "lineCount": 1900,
+      "byteSize": 91432,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",

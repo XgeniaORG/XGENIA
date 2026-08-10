@@ -1238,7 +1238,7 @@ export class CanvasView extends View {
             } else {
               console.warn('[CanvasView] XgeniaEditorInspectorAPI not available');
             }
-          } catch (e: any) {
+          } catch (e) {
             console.warn('[CanvasView] Error calling XgeniaEditorInspectorAPI.setEnabled:', e.message);
           }
         })();
@@ -1251,7 +1251,7 @@ export class CanvasView extends View {
             } else {
               console.warn('[CanvasView] XgeniaEditorHighlightAPI not available');
             }
-          } catch (e: any) {
+          } catch (e) {
             console.warn('[CanvasView] Error calling XgeniaEditorHighlightAPI.selectNode:', e.message);
           }
         })();
@@ -1270,7 +1270,7 @@ export class CanvasView extends View {
             } else {
               console.warn('[CanvasView] XgeniaEditorHighlightAPI not available');
             }
-          } catch (e: any) {
+          } catch (e) {
             console.warn('[CanvasView] Error calling XgeniaEditorHighlightAPI.selectNode:', e.message);
           }
         })();
