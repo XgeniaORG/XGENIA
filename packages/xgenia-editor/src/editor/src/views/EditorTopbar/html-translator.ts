@@ -261,10 +261,27 @@ function hexToRgba(hex: string, alpha: number): string {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+/**
+ * The document's own type scale and spacing scale, for the translation in flight.
+ *
+ * Module state rather than another two positional parameters: `parseTailwindClasses` and
+ * `translateNode` are already threaded through ~30 call sites with five optional params each,
+ * and adding two more to every one of them is a parameter-order bug waiting to happen. This
+ * file already resets `_warnings` and `_stateRuleCache` per translation; these join them, and
+ * translateHtmlToXgeniaXmlWithReport clears them the same way.
+ */
+let _customFontSizes: Record<string, CustomFontSize> = {};
+let _customSpacing: Record<string, number> = {};
+
 function resolveSpacing(value: string): number | undefined {
     // Arbitrary: [24px] → 24
     const arbMatch = value.match(/^\[(\d+)px\]$/);
     if (arbMatch) return parseInt(arbMatch[1]);
+
+    // The document's OWN scale first. `p-container-padding` and `gap-gutter` are not in the
+    // stock table, and before this they resolved to undefined — so a screen authored on a
+    // clean 8px system arrived with none of its rhythm.
+    if (_customSpacing[value] !== undefined) return _customSpacing[value];
 
     // Scale value
     return SPACING[value];
@@ -778,6 +795,19 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
 
         // ─── Font ───────────────────────────
         // text-SIZE (font size)
+        // The document's OWN type scale first — see extractCustomFontSizes for what its
+        // absence cost. The companion values travel with it: a 120px headline set at the
+        // default line-height is a different design from the one that was written.
+        const customSizeMatch = rawCls.match(/^text-([\w-]+)$/);
+        if (customSizeMatch && _customFontSizes[customSizeMatch[1]]) {
+            const cs = _customFontSizes[customSizeMatch[1]];
+            styles.fontSize = cs.px;
+            if (cs.lineHeight) styles.styleCss = (styles.styleCss || '') + `line-height: ${cs.lineHeight};`;
+            if (cs.letterSpacing) styles.styleCss = (styles.styleCss || '') + `letter-spacing: ${cs.letterSpacing};`;
+            if (cs.fontWeight) styles.styleCss = (styles.styleCss || '') + `font-weight: ${cs.fontWeight};`;
+            continue;
+        }
+
         const textSizeMatch = rawCls.match(/^text-(xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl)$/);
         if (textSizeMatch) { styles.fontSize = FONT_SIZE[textSizeMatch[1]]; continue; }
 
@@ -1743,9 +1773,38 @@ function cssLenToPx(value: string): number | null {
     return Math.round(num);
 }
 
+/**
+ * Split a CSS declaration list on the semicolons that actually END a declaration.
+ *
+ * (2026-08-08, found by scripts/emulate-ui-build.mjs) A plain `.split(';')` cuts a data URI
+ * in half — `background-image: url(data:image/svg+xml;base64,PHN2Zy…)` becomes
+ * `background-image: url(data:image/svg+xml` followed by a nonsense fragment, and the
+ * backdrop vanishes with no warning. Specialists inline SVG backdrops as data URIs often
+ * enough for this to be a real loss, and the same cut applies to any `url()` or quoted
+ * value carrying a semicolon (font stacks, content strings, multi-stop gradients).
+ *
+ * Semicolons inside parentheses or quotes belong to the value.
+ */
+function splitCssDeclarations(styleStr: string): string[] {
+    const out: string[] = [];
+    let depth = 0;
+    let quote: string | null = null;
+    let start = 0;
+    for (let i = 0; i < styleStr.length; i++) {
+        const ch = styleStr[i];
+        if (quote) { if (ch === quote && styleStr[i - 1] !== '\\') quote = null; continue; }
+        if (ch === '"' || ch === "'") { quote = ch; continue; }
+        if (ch === '(') { depth++; continue; }
+        if (ch === ')') { if (depth > 0) depth--; continue; }
+        if (ch === ';' && depth === 0) { out.push(styleStr.slice(start, i)); start = i + 1; }
+    }
+    out.push(styleStr.slice(start));
+    return out.filter(d => d.trim());
+}
+
 function parseInlineStyle(styleStr: string): ParsedStyles {
     const styles: ParsedStyles = {};
-    const declarations = styleStr.split(';').filter(d => d.trim());
+    const declarations = splitCssDeclarations(styleStr);
 
     for (const decl of declarations) {
         const [prop, ...valParts] = decl.split(':');
@@ -2430,6 +2489,103 @@ function extractCustomFonts(html: string): Record<string, string> {
 }
 
 /**
+ * Extract the custom TYPE SCALE from Tailwind config's theme.extend.fontSize.
+ *
+ * (2026-08-08) Its absence was the single biggest fidelity loss in the translator. The stock
+ * FONT_SIZE table above covers Tailwind's built-in xs…9xl and nothing else, so a document
+ * that defines its own scale — which every serious design system does — had every size class
+ * resolve to `undefined` and get swallowed by the `continue` that follows it.
+ *
+ * Measured on a real pasted document (a Tailwind bonus-round screen), source render vs
+ * translated render:
+ *
+ *     Bonus Round       120px  ->  32px
+ *     Pick Your Prize    24px  ->  16px
+ *     Picks Left         12px  ->  16px
+ *     3                  20px  ->  28px
+ *
+ * Eight of eight text elements differed, and the translator reported no warning at all. That
+ * is also where the recurring `hero-below-display-scale` and `flat-type-hierarchy` findings
+ * on real screens come from: the type scale the designer wrote never arrived.
+ *
+ * Tailwind allows two shapes, and both appear in the wild:
+ *     "label-caps": "12px"
+ *     "win-display-xl": ["120px", { "lineHeight": "110px", "letterSpacing": "0.02em", "fontWeight": "400" }]
+ * The companion values matter as much as the size — a 120px headline set at its default
+ * line-height is a different design.
+ */
+export interface CustomFontSize { px: number; lineHeight?: string; letterSpacing?: string; fontWeight?: string }
+
+function toPx(v: string): number | undefined {
+    const m = String(v).trim().match(/^(-?[\d.]+)(px|rem|em)?$/);
+    if (!m) return undefined;
+    const n = parseFloat(m[1]);
+    if (isNaN(n)) return undefined;
+    return m[2] === 'rem' || m[2] === 'em' ? Math.round(n * 16) : Math.round(n);
+}
+
+function extractCustomFontSizes(html: string): Record<string, CustomFontSize> {
+    const out: Record<string, CustomFontSize> = {};
+    const configMatch = html.match(/tailwind\.config\s*=\s*\{[\s\S]*?\}\s*;?\s*<\/script>/);
+    if (!configMatch) return out;
+    // Balanced scan from `fontSize:` — a regex to the first `}` stops inside the first
+    // entry's own options object, which is exactly the shape this has to read.
+    const at = configMatch[0].search(/["']?fontSize["']?\s*:\s*\{/);
+    if (at < 0) return out;
+    const src = configMatch[0];
+    let i = src.indexOf('{', at), depth = 0, end = i;
+    for (; i < src.length; i++) {
+        if (src[i] === '{') depth++;
+        else if (src[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
+    }
+    const block = src.slice(src.indexOf('{', at) + 1, end);
+
+    // Each entry: "name": "20px"  |  "name": ["120px", { ... }]
+    const entryRe = /["']?([\w-]+)["']?\s*:\s*(\[[^\]]*\]|["'][^"']*["'])/g;
+    let m: RegExpExecArray | null;
+    while ((m = entryRe.exec(block)) !== null) {
+        const name = m[1];
+        const raw = m[2];
+        if (raw.startsWith('[')) {
+            const size = raw.match(/["']([^"']+)["']/);
+            const px = size ? toPx(size[1]) : undefined;
+            if (px === undefined) continue;
+            const lh = raw.match(/lineHeight["']?\s*:\s*["']([^"']+)["']/);
+            const ls = raw.match(/letterSpacing["']?\s*:\s*["']([^"']+)["']/);
+            const fw = raw.match(/fontWeight["']?\s*:\s*["']?([\w]+)["']?/);
+            out[name] = { px, lineHeight: lh?.[1], letterSpacing: ls?.[1], fontWeight: fw?.[1] };
+        } else {
+            const px = toPx(raw.replace(/["']/g, ''));
+            if (px !== undefined) out[name] = { px };
+        }
+    }
+    return out;
+}
+
+/**
+ * Extract the custom SPACING scale from theme.extend.spacing.
+ *
+ * Same failure as the type scale and the same cause: `p-container-padding`, `gap-gutter` and
+ * `px-gutter` are not in the stock SPACING table, so they resolved to undefined and the
+ * document's rhythm was replaced by whatever the defaults happened to be. This is also one
+ * source of the `spacing-off-grid` finding — a screen authored on a clean 8px system arrives
+ * with none of it.
+ */
+function extractCustomSpacing(html: string): Record<string, number> {
+    const out: Record<string, number> = {};
+    const configMatch = html.match(/tailwind\.config\s*=\s*\{[\s\S]*?\}\s*;?\s*<\/script>/);
+    if (!configMatch) return out;
+    const block = configMatch[0].match(/["']?spacing["']?\s*:\s*\{([\s\S]*?)\}/);
+    if (!block) return out;
+    const entries = block[1].matchAll(/["']?([\w-]+)["']?\s*:\s*["']([^"']+)["']/g);
+    for (const e of entries) {
+        const px = toPx(e[2]);
+        if (px !== undefined) out[e[1]] = px;
+    }
+    return out;
+}
+
+/**
  * Extract custom box-shadow definitions from Tailwind config's theme.extend.boxShadow.
  * Maps shadow key names (e.g. "glow", "glow-strong") to their CSS box-shadow value.
  */
@@ -2517,7 +2673,9 @@ function extractCssClassStyles(html: string): Record<string, Record<string, stri
             const className = match[1];
             const declarations = match[2];
             const props: Record<string, string> = {};
-            for (const decl of declarations.split(';')) {
+            // Same reason as parseInlineStyle: a class rule can hold a data URI or a
+            // gradient whose value contains its own semicolons.
+            for (const decl of splitCssDeclarations(declarations)) {
                 const [p, ...vParts] = decl.split(':');
                 if (p && vParts.length > 0) {
                     props[p.trim()] = vParts.join(':').trim();
@@ -2573,6 +2731,45 @@ function extractKeyframesRules(html: string): Map<string, string> {
 // <hr> handler in translateNode so AI-generated UIs get visible separators between sections.
 // <source> and <track> are skipped because they're metadata children of <picture>/<video>
 // — the actual renderable content is the <img> fallback inside <picture>.
+/**
+ * Properties a <style> class rule carries that DO reach the graph.
+ *
+ * (2026-08-09) Before this, a class rule contributed only `border`, `background-color` and
+ * `box-shadow`; everything else was reported as dropped and lost. Writing a stylesheet is a
+ * completely ordinary thing for the specialist to do — on one generated slot screen it cost
+ * 25 dropped properties, including the `background-image` on every reel symbol, and the
+ * fifteen cells rendered as empty boxes.
+ *
+ * Each entry maps the CSS property to the XGENIA port that already exists for it, or keeps it
+ * as CSS where no single port can hold it. Anything not listed is still REPORTED, never
+ * silently discarded.
+ */
+const STYLE_RULE_NATIVE: Array<[string, (out: any, v: string) => void]> = [
+    ['border-radius', (o, v) => { const n = parseFloat(v); if (!isNaN(n)) o.borderRadius = n; }],
+    ['color', (o, v) => { o.color = v; }],
+    ['font-size', (o, v) => { const n = parseFloat(v); if (!isNaN(n)) o.fontSize = /rem|em/.test(v) ? Math.round(n * 16) : n; }],
+    ['font-family', (o, v) => { o.fontFamily = v; }],
+    ['font-weight', (o, v) => { o.fontWeight = v; }],
+    ['line-height', (o, v) => { o.lineHeight = v; }],
+    ['letter-spacing', (o, v) => { o.letterSpacing = v; }],
+    ['text-align', (o, v) => { o.textAlign = v; }],
+    ['text-transform', (o, v) => { o.textTransform = v; }],
+    ['opacity', (o, v) => { const n = parseFloat(v); if (!isNaN(n)) o.opacity = n; }],
+    // Kept as CSS: no single port, and the shorthand may carry one to four values.
+    ['padding', (o, v) => { o.styleCss = (o.styleCss || '') + `padding: ${v};`; }],
+    ['margin', (o, v) => { o.styleCss = (o.styleCss || '') + `margin: ${v};`; }],
+    ['text-shadow', (o, v) => { o.styleCss = (o.styleCss || '') + `text-shadow: ${v};`; }],
+    ['transition', (o, v) => { o.styleCss = (o.styleCss || '') + `transition: ${v};`; }],
+    ['overflow', (o, v) => { o.styleCss = (o.styleCss || '') + `overflow: ${v};`; }],
+    ['cursor', (o, v) => { o.styleCss = (o.styleCss || '') + `cursor: ${v};`; }],
+];
+
+/** Everything handled above, plus the three that already were. */
+const STYLE_RULE_EXTRACTED = new Set<string>([
+    'border', 'background-color', 'box-shadow',
+    ...STYLE_RULE_NATIVE.map(([p]) => p),
+]);
+
 const SKIP_TAGS = new Set([
     'head', 'script', 'style', 'meta', 'link', 'title', 'noscript', 'br',
     'source', 'track', 'col', 'colgroup', 'option', 'param', 'wbr',
@@ -2642,6 +2839,27 @@ export function detectExternalDependencies(html: string): DetectedDependency[] {
             continue;
         }
 
+        // Material Icons / Material Symbols FIRST: these are served from
+        // fonts.googleapis.com too, so the general Google-Fonts branch below used to
+        // claim them and report an icon dependency as "Google Fonts: Material Icons"
+        // with category 'font'. The tag was still injected, so nothing broke — but the
+        // dependency report named the wrong kind of thing, and category is what a
+        // consumer branches on. (2026-08-08, found by scripts/emulate-ui-build.mjs.)
+        // Case-insensitive: the canonical URL is
+        // https://fonts.googleapis.com/icon?family=Material+Icons — capital M, capital I.
+        // A case-sensitive includes('material') never matched it, so this branch was dead
+        // for the exact URL everyone writes.
+        const hrefLower = href.toLowerCase();
+        if (hrefLower.includes('material') && (hrefLower.includes('icon') || hrefLower.includes('symbol'))) {
+            const isSymbols = hrefLower.includes('symbol');
+            addDep({
+                name: isSymbols ? 'Material Symbols' : 'Material Icons',
+                category: 'icon',
+                tag: fullTag,
+                detectPattern: isSymbols ? 'Material+Symbols' : 'Material+Icons'
+            });
+            continue;
+        }
         // Google Fonts
         if (href.includes('fonts.googleapis.com')) {
             // Fix malformed google font URLs that have spaces like "wght@400; 700" or %20
@@ -2666,17 +2884,6 @@ export function detectExternalDependencies(html: string): DetectedDependency[] {
             continue;
         }
 
-        // Material Icons / Material Symbols
-        if (href.includes('material') && (href.includes('icons') || href.includes('symbols'))) {
-            const isSymbols = href.includes('symbols');
-            addDep({
-                name: isSymbols ? 'Material Symbols' : 'Material Icons',
-                category: 'icon',
-                tag: fullTag,
-                detectPattern: isSymbols ? 'Material+Symbols' : 'Material+Icons'
-            });
-            continue;
-        }
 
         // Font Awesome
         if (href.includes('font-awesome') || href.includes('fontawesome')) {
@@ -2977,6 +3184,8 @@ export function translateHtmlToXgeniaXml(html: string, options?: { omitRootWrapp
 export function translateHtmlToXgeniaXmlWithReport(html: string, options?: { omitRootWrapper?: boolean }): { xml: string; warnings: string[] } {
     _warnings = [];
     _stateRuleCache.clear();
+    _customFontSizes = {};
+    _customSpacing = {};
     const xml = doTranslateHtmlToXgeniaXml(html, options);
     return { xml, warnings: [...new Set(_warnings)].slice(0, 40) };
 }
@@ -2990,6 +3199,15 @@ function doTranslateHtmlToXgeniaXml(html: string, options?: { omitRootWrapper?: 
     const customShadows = extractCustomShadows(html);
     // Extract custom Tailwind background images (gradient-radial, metallic-rim, etc.)
     const customBackgroundImages = extractCustomBackgroundImages(html);
+    // The document's own type scale and spacing scale. Until 2026-08-08 these were the only
+    // parts of theme.extend the translator did not read, and they are the two that decide
+    // how a screen actually looks: a 120px headline arrived as 32px and a 32px page padding
+    // as whatever the default was.
+    _customFontSizes = extractCustomFontSizes(html);
+    _customSpacing = extractCustomSpacing(html);
+    if (Object.keys(_customFontSizes).length > 0) {
+        console.debug('[HTMLTranslator] Custom type scale:', _customFontSizes);
+    }
     // Extract CSS class styles
     const cssClassStyles = extractCssClassStyles(html);
 
@@ -3415,8 +3633,20 @@ function translateNode(
             if (cssClassStyles[cls]) {
                 const props = cssClassStyles[cls];
                 // Determine if this class needs a CSS Definition node
+                // (2026-08-09, live harness) `background-image` was missing from this list.
+                // A <style> rule like `.symDoubloon { background-image: url('assets/…') }` is
+                // not "complex" by the test below, so it fell to the simple branch, which
+                // extracts only border / background-color / box-shadow — and the artwork was
+                // dropped with a warning nobody was reading. On a real generated slot that was
+                // fifteen reel symbols rendering as empty boxes.
+                //
+                // Routing it through a CSS Definition preserves the whole rule verbatim, which
+                // is what the mechanism is for.
                 const hasComplexCss = props['background'] || props['backdrop-filter'] ||
                     props['-webkit-backdrop-filter'] || props['animation'] ||
+                    props['background-image'] || props['background-size'] ||
+                    props['background-position'] || props['background-repeat'] ||
+                    props['mask-image'] || props['-webkit-mask-image'] ||
                     props['background-clip'] || props['-webkit-background-clip'] ||
                     props['-webkit-text-fill-color'];
 
@@ -3433,7 +3663,7 @@ function translateNode(
                     // Only border/background-color/box-shadow are extracted below —
                     // report the class-rule properties that do NOT make it through.
                     for (const p of Object.keys(props)) {
-                        if (p === 'border' || p === 'background-color' || p === 'box-shadow') continue;
+                        if (STYLE_RULE_EXTRACTED.has(p)) continue;
                         reportDrop(`dropped: <style> .${cls} property '${p}' (not extracted; use inline style or Tailwind)`);
                     }
                 }
@@ -3457,6 +3687,15 @@ function translateNode(
                 // box-shadow stays in styleCss (no native equivalent)
                 if (props['box-shadow'] && !hasComplexCss) {
                     cssStyles.styleCss = (cssStyles.styleCss || '') + `box-shadow: ${props['box-shadow']};`;
+                }
+                // (2026-08-09) Everything else in STYLE_RULE_EXTRACTED. These are ordinary
+                // properties with real XGENIA ports, and a <style> rule is a perfectly normal
+                // way to write them — the specialist does it constantly. They used to be
+                // dropped, so a class-styled screen lost its radii, padding, type and colour
+                // and arrived as grey boxes.
+                for (const [prop, apply] of STYLE_RULE_NATIVE) {
+                    const v = props[prop];
+                    if (v !== undefined) apply(cssStyles, v);
                 }
             }
             // Class has a :hover/:focus/:active rule in <style> — keep the class
@@ -3576,16 +3815,10 @@ function translateNode(
             attrs.push('nodeLabel="SVG Graphic"');
             attrs.push(`src="${dataUri}"`);
 
-            // Layout
-            if (styles.width) attrs.push(`width="${styles.width}"`);
-            if (styles.height) attrs.push(`height="${styles.height}"`);
-            if (!styles.width && !styles.height) {
-                // Default to 100% if no size specified, to fill container
-                attrs.push('width="100%"');
-                attrs.push('height="100%"');
-            }
-
-            attrs.push('objectFit="contain"');
+            // Layout. An inlined SVG becomes an Image node, so its width and height are
+            // gated on sizeMode exactly like any other image — see addGatedSizing, which
+            // also emits objectFit where that port exists.
+            addGatedSizing(styles, attrs, 'image');
             if (styles.opacity !== undefined) attrs.push(`opacity="${styles.opacity}"`);
             addPositionAttrs(styles, attrs);
             if (styles.styleCss) attrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
@@ -3605,12 +3838,9 @@ function translateNode(
         attrs.push(`nodeLabel="${escapeXml(alt || 'Image')}"`);
         const src = el.getAttribute('src') || '';
         attrs.push(`src="${escapeXml(src)}"`);
-        if (styles.width) attrs.push(`width="${styles.width}"`);
-        if (styles.height) attrs.push(`height="${styles.height}"`);
-        if (!styles.width && !styles.height) {
-            attrs.push('width="100%"');
-        }
-        if (styles.objectFit) attrs.push(`objectFit="${styles.objectFit}"`);
+        // sizeMode FIRST — see addImageSizing for why an image without it renders at its
+        // full intrinsic resolution no matter what width you write.
+        addGatedSizing(styles, attrs, 'image');
         addBorderRadiusAttrs(styles, attrs);
         if (styles.opacity !== undefined) attrs.push(`opacity="${styles.opacity}"`);
         addPositionAttrs(styles, attrs);
@@ -3641,11 +3871,14 @@ function translateNode(
         const alt = el.getAttribute('data-alt') || el.getAttribute('aria-label') || 'Background Image';
         attrs.push(`nodeLabel="${escapeXml(alt)}"`);
         attrs.push(`src="${escapeXml(styles.backgroundImage)}"`);
+        // A backdrop covers its box on BOTH axes, so this branch is always `explicit`.
+        // objectFit is a dynamic port gated on `sizeMode = explicit` (image.js dynamicports):
+        // emitted without it, as it was until 2026-08-08, the port does not exist and
+        // `cover` is silently dropped — the one property that makes a backdrop a backdrop.
+        attrs.push('sizeMode="explicit"');
+        attrs.push(`width="${styles.width || '100%'}"`);
+        attrs.push(`height="${styles.height || '100%'}"`);
         attrs.push('objectFit="cover"');
-        if (styles.width) attrs.push(`width="${styles.width}"`);
-        if (styles.height) attrs.push(`height="${styles.height}"`);
-        if (!styles.width) attrs.push('width="100%"');
-        if (!styles.height) attrs.push('height="100%"');
         addBorderRadiusAttrs(styles, attrs);
         if (styles.opacity !== undefined) attrs.push(`opacity="${styles.opacity}"`);
         addPositionAttrs(styles, attrs);
@@ -4667,6 +4900,77 @@ function createTextNode(el: HTMLElement, tag: string, text: string, styles: Pars
 }
 
 /**
+ * Size an Image or a control node — and declare the sizeMode that makes the size REAL.
+ *
+ * ─── the bug this exists to end ─────────────────────────────────────────────
+ * (2026-08-08, export 1786162963547) A "Pirates in Space" lobby came back with 31 of its
+ * 62 elements rendering entirely outside the viewport and 8 more cut off by it. Measured:
+ *
+ *     @Image                       1024×1024  — 763px below the fold
+ *     net.xgenia.visual.columns     303×1036  — 767px below the fold
+ *
+ * 1024×1024 is the symbol PNG's own resolution. The image was rendering at its intrinsic
+ * size inside a 148px cell, which made the symbol strip 1036px tall, which pushed three
+ * quarters of the screen below the fold.
+ *
+ * The HTML was fine. The translator emitted `width="100%"` — and it did nothing, because
+ * `width` and `height` on an Image are DYNAMIC ports:
+ *
+ *     ImageNode: addDimensions(ImageNode, { defaultSizeMode: 'contentSize' })
+ *       widthCondition  = 'sizeMode = explicit OR sizeMode = contentHeight'
+ *       heightCondition = 'sizeMode = explicit OR sizeMode = contentWidth'
+ *
+ * With `defaultSizeMode: 'contentSize'` the `OR sizeMode NOT SET` clause is never added,
+ * so with sizeMode unset NEITHER PORT EXISTS. The attribute was written to a port that
+ * was not there and dropped without a word. `layout.js` then matched none of its
+ * explicit/contentWidth/contentHeight branches and set no size at all, leaving the
+ * browser to use the image's natural dimensions.
+ *
+ * Groups never showed this because Group's addDimensions() defaults to 'explicit', which
+ * DOES add `OR sizeMode NOT SET`. Image is the one node in the pipeline where sizing is
+ * conditional on a gatekeeper the translator never set — and images are the only elements
+ * whose intrinsic size is measured in thousands of pixels.
+ *
+ * So: declare the mode, always, and pick the one that matches which axes were authored.
+ * `explicit` fills a missing axis from the port default (100%), which is why one-axis
+ * images use the per-axis mode instead — an authored width with `explicit` would stretch
+ * the image to full parent height and squash it.
+ */
+function addGatedSizing(styles: ParsedStyles, attrs: string[], kind: 'image' | 'control'): void {
+    const hasW = !!styles.width;
+    const hasH = !!styles.height;
+    const isImage = kind === 'image';
+
+    if (hasW && hasH) {
+        attrs.push('sizeMode="explicit"');
+        attrs.push(`width="${styles.width}"`);
+        attrs.push(`height="${styles.height}"`);
+        // objectFit is itself gated on `sizeMode = explicit`, so it can only be honoured
+        // here. Default to `contain`: a fixed box with no fit rule distorts the artwork.
+        if (isImage) attrs.push(`objectFit="${styles.objectFit || 'contain'}"`);
+        return;
+    }
+    if (hasW) {
+        // Width authored, height from the content (an image's aspect ratio, a control's label).
+        attrs.push('sizeMode="contentHeight"');
+        attrs.push(`width="${styles.width}"`);
+        return;
+    }
+    if (hasH) {
+        attrs.push('sizeMode="contentWidth"');
+        attrs.push(`height="${styles.height}"`);
+        return;
+    }
+    // Neither authored. An image fills the parent's width and takes its height from the
+    // aspect — what the old bare `width="100%"` was reaching for and never achieved. A
+    // control with no authored size should hug its content, which contentSize already does.
+    if (isImage) {
+        attrs.push('sizeMode="contentHeight"');
+        attrs.push('width="100%"');
+    }
+}
+
+/**
  * Emit border-radius attributes — both uniform and per-corner.
  * Uses native XGENIA properties (borderTopLeftRadius, etc.) instead of styleCss.
  */
@@ -5284,8 +5588,12 @@ function createButtonNode(
     }
 
     // ─── Dimensions ──────────────────────────────────────────
-    if (styles.width) attrs.push(`width="${styles.width}"`);
-    if (styles.height) attrs.push(`height="${styles.height}"`);
+    // (2026-08-08) These used to be bare, and every one of them was dropped: Button's
+    // addDimensions defaults to `contentSize`, so its width/height ports do not exist
+    // until sizeMode says otherwise. The emulator reported it as
+    //     SPIN: width="220px" never landed
+    // which is why authored button sizes were being ignored in favour of hugging the label.
+    addGatedSizing(styles, attrs, 'control');
     if (styles.minWidth) attrs.push(`minWidth="${styles.minWidth}"`);
     if (styles.maxWidth) attrs.push(`maxWidth="${styles.maxWidth}"`);
     if (styles.minHeight) attrs.push(`minHeight="${styles.minHeight}"`);

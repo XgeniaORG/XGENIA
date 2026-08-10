@@ -2305,14 +2305,11 @@ export class EditorBridge {
         });
 
         // --- Warnings model ---
-        h('warnings.get', () => {
-            try {
-                const { WarningsModel } = require('@xgenia-models/warningsmodel');
-                return WarningsModel.instance || null;
-            } catch {
-                return null;
-            }
-        });
+        // (2026-08-07) The duplicate `warnings.get` that used to live here returned
+        // `WarningsModel.instance` — a live class instance, which cannot survive the postMessage
+        // bridge. See the real handler further down (search "Editor warnings"); it is registered
+        // later and therefore won this key anyway. Removed rather than left as a second definition
+        // of the same route.
 
         // --- Project Style commands ---
         h('style.getBaseUrl', () => {
@@ -2403,13 +2400,68 @@ export class EditorBridge {
         });
 
         // --- Editor warnings ---
-        h('warnings.get', () => {
+        //
+        // (2026-08-07) THIS HANDLER HAS NEVER RETURNED A WARNING. It called
+        // `getWarnings?.()` with no argument, but the signature is `getWarnings(ref: WarningRef)` —
+        // so it resolved a ref of `undefined`, got nothing back, and the `|| []` turned that into a
+        // clean empty array. Meanwhile the caller passes a COMPONENT NAME, which neither this nor
+        // the duplicate above ever accepted.
+        //
+        // The effect: the editor draws a red triangle on a broken node and shows the reason on
+        // hover, `getWarningsForNode()` returns [] to the AI every time, and the AI reports the
+        // node as verified working. Observed on a pixi.Graphics node reading
+        // "Invalid array — SyntaxError: Unexpected number" while the QA pass called polyPoints
+        // confirmed-working in the same breath.
+        //
+        // Returns PLAIN OBJECTS — the previous shape was un-serialisable across postMessage, so
+        // even a correct lookup would have arrived empty.
+        h('warnings.get', ([componentName]: [string?] = [] as any) => {
             try {
                 const { WarningsModel } = require('@xgenia-models/warningsmodel');
-                const warnings = WarningsModel.instance;
-                if (!warnings) return [];
-                return warnings.getWarnings?.() || [];
-            } catch {
+                const model = WarningsModel.instance;
+                if (!model) return [];
+
+                // getAllWarningsForComponent only ever reads `.name`, so a bare {name} is a valid ref.
+                const namesToRead: string[] = [];
+                if (componentName) {
+                    namesToRead.push(componentName);
+                } else {
+                    try {
+                        const comps = (ProjectModel.instance as any)?.getComponents?.() || [];
+                        for (const c of comps) if (c?.name) namesToRead.push(c.name);
+                    } catch { /* fall through to the active component below */ }
+                    if (namesToRead.length === 0) {
+                        const active = (ProjectModel.instance as any)?.getActiveComponent?.();
+                        if (active?.name) namesToRead.push(active.name);
+                    }
+                }
+
+                const out: any[] = [];
+                for (const name of namesToRead) {
+                    let raw: any[] = [];
+                    try { raw = model.getAllWarningsForComponent({ name }, undefined) || []; } catch { raw = []; }
+                    for (const entry of raw) {
+                        const node = entry?.ref?.node;
+                        const connection = entry?.ref?.connection;
+                        out.push({
+                            component: name,
+                            key: entry?.ref?.key ?? null,
+                            nodeId: node?.id ?? null,
+                            nodeLabel: node?.label ?? node?.parameters?.nodeLabel ?? null,
+                            // `type` is a NodeType MODEL, not a string — sending it raw produced
+                            // "WARNING on @Polygon ([object Object])" in the first warning that ever
+                            // reached the AI (2026-08-08, export 1786160157171).
+                            nodeType: (typeof node?.type === 'string' ? node.type : (node?.type?.name ?? node?.type?.fullName ?? null)),
+                            connectionId: connection?.id ?? null,
+                            level: entry?.warning?.level === 'error' ? 'error' : 'warning',
+                            type: entry?.warning?.type ?? null,
+                            message: String(entry?.warning?.message ?? '').replace(/<br\s*\/?>/gi, ' | '),
+                        });
+                    }
+                }
+                return out;
+            } catch (e: any) {
+                console.warn('[EditorBridge] warnings.get failed:', e?.message || e);
                 return [];
             }
         });
