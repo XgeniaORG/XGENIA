@@ -16,6 +16,12 @@ import { NodeLibrary } from './nodelibrary';
 import { listProjectModules, ProjectModule, ProjectModuleManifest, readProjectModules } from './projectmodel.modules';
 import { VariantModel } from './VariantModel';
 
+// Makes every project save write to its own tmp file. Two saves that overlap
+// (the 1s autosave can fire again while a previous save is still verifying)
+// used to share one fixed 'project-tmp.json' and clobber each other.
+const saveTmpPrefix = Date.now().toString(36);
+let saveSequence = 0;
+
 export interface CloudServiceMetadata {
   id: string;
   endpoint: string;
@@ -659,7 +665,26 @@ export class ProjectModel extends Model {
     //reduces the amount of differences between versions _alot_ as well
     stripNodeChildPositions(projectJson);
 
-    const tmpProjectPath = retainedProjectDirectory + '/project-tmp.json';
+    // The tmp path is unique per save. When it was the fixed 'project-tmp.json',
+    // two overlapping saves shared it: the first to finish renamed it away, and
+    // the second one's verify step then read a file that no longer existed and
+    // reported a save failure even though the project was written correctly.
+    // The name still starts with 'project-tmp.json' so the .gitignore entry matches.
+    const tmpProjectPath = `${retainedProjectDirectory}/project-tmp.json.${saveTmpPrefix}-${++saveSequence}`;
+
+    const fail = (error?: any) => {
+      const detail = error && (error.message || String(error));
+      // Report the underlying reason. Collapsing every failure into one constant
+      // string is why these save errors were undiagnosable.
+      callback &&
+        callback({
+          result: 'failure',
+          message: detail ? `Error writing project file: ${detail}` : 'Error writing project file.'
+        });
+    };
+
+    // Never let cleanup of the tmp file turn into an unhandled rejection.
+    const discardTmpFile = () => filesystem.removeFile(tmpProjectPath).catch(() => {});
 
     filesystem
       .writeJson(tmpProjectPath, projectJson)
@@ -667,17 +692,13 @@ export class ProjectModel extends Model {
       .then(() => verifyJsonFile(tmpProjectPath))
       .then((validJson) => {
         if (!validJson) {
-          callback &&
-            callback({
-              result: 'failure',
-              message: 'Error writing project file.'
-            });
-          filesystem.removeFile(tmpProjectPath);
+          fail(new Error('the written project file did not verify as valid JSON'));
+          discardTmpFile();
           return;
         }
 
         // Move tmp file to project.json
-        filesystem
+        return filesystem
           .renameFile(tmpProjectPath, retainedProjectDirectory + '/project.json')
           .then(() => {
             callback &&
@@ -685,20 +706,14 @@ export class ProjectModel extends Model {
                 result: 'success'
               });
           })
-          .catch(() => {
-            callback &&
-              callback({
-                result: 'failure',
-                message: 'Error writing project file.'
-              });
+          .catch((error) => {
+            fail(error);
+            discardTmpFile();
           });
       })
-      .catch(() => {
-        callback &&
-          callback({
-            result: 'failure',
-            message: 'Error writing project file.'
-          });
+      .catch((error) => {
+        fail(error);
+        discardTmpFile();
       });
   }
 
@@ -1314,6 +1329,16 @@ function stripNodeChildPositions(json) {
 // Project saver, saves current project when a change to a model occurs
 let saveOnModelChange = true;
 let saveTimeout;
+// A save is asynchronous (write tmp -> verify in a forked process -> rename), so
+// the debounce timer below only spaces out when saves *start*. Without these two
+// flags a new save could begin while the previous one was still running.
+let saveIsRunning = false;
+let savePendingWhileRunning = false;
+// Watchdog so a save that never reports back (a hung verify child, say) cannot
+// leave saveIsRunning stuck and silently stop autosaving altogether.
+let saveWatchdog;
+let saveToken = 0;
+const saveWatchdogTimeout = 30000;
 const ignoreEvents = [
   'Model.thumbnailChanged',
   'Model.inspectorAdded',
@@ -1354,10 +1379,36 @@ function saveProject() {
 
   if (ProjectModel.instance._retainedProjectDirectory) {
     // Project is loaded from directory, save it
+    if (saveIsRunning) {
+      // Coalesce. Anything that changed while this save was in flight is picked
+      // up by the follow-up save scheduled when the running one completes.
+      savePendingWhileRunning = true;
+      return;
+    }
+
+    saveIsRunning = true;
+    const token = ++saveToken;
+
+    clearTimeout(saveWatchdog);
+    saveWatchdog = setTimeout(function () {
+      if (saveToken !== token) return;
+      console.log('Project save did not report back within 30s, releasing the save lock');
+      saveToken++; // any late callback from that save is now stale and ignored
+      saveIsRunning = false;
+      savePendingWhileRunning = false;
+      clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(saveProject, 1000);
+    }, saveWatchdogTimeout);
+
     ProjectModel.instance.toDirectory(ProjectModel.instance._retainedProjectDirectory, function (r) {
+      if (saveToken !== token) return; // superseded by the watchdog
+      clearTimeout(saveWatchdog);
+      saveIsRunning = false;
+
       if (r.result !== 'success') {
         console.log(r.message);
         //retry in 3 seconds
+        savePendingWhileRunning = false;
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(saveProject, 3000);
         EventDispatcher.instance.emit('ProjectModel.saveFailedRetryScheduled');
@@ -1365,6 +1416,12 @@ function saveProject() {
         console.log('Project saved ' + new Date()); // Project is saved to disk, start the watch timer
         EventDispatcher.instance.emit('ProjectModel.projectSavedToDisk');
         //startWatchTimeOut();
+
+        if (savePendingWhileRunning) {
+          savePendingWhileRunning = false;
+          clearTimeout(saveTimeout);
+          saveTimeout = setTimeout(saveProject, 0);
+        }
       }
     });
   } else {

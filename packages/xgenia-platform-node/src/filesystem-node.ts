@@ -5,6 +5,10 @@ import fse, { mkdirp } from 'fs-extra';
 import JSZip from 'jszip';
 import { FileBlob, FileInfo, FileStat, IFileSystem, OpenDialogOptions } from '@xgenia/platform';
 
+// Two writeJson calls to the same path within the same millisecond would
+// otherwise derive the same tmp file name and clobber each other.
+let writeJsonSequence = 0;
+
 export class FileSystemNode implements IFileSystem {
   resolve(...paths: string[]): string {
     return nodePath.resolve(...paths);
@@ -100,7 +104,7 @@ export class FileSystemNode implements IFileSystem {
   }
 
   async writeJson(path: string, obj: any): Promise<void> {
-    const tmpFileName = path + '.tmp-' + Date.now();
+    const tmpFileName = path + '.tmp-' + Date.now() + '-' + ++writeJsonSequence;
 
     let jsonText = '';
 
@@ -115,8 +119,11 @@ export class FileSystemNode implements IFileSystem {
       await fs.promises.writeFile(tmpFileName, jsonText);
       await fs.promises.rename(tmpFileName, path);
     } catch (error: any) {
-      await fs.promises.unlink(tmpFileName);
+      // Log the real failure before cleaning up: the unlink can itself throw
+      // (the tmp file may never have been created), which previously replaced
+      // the underlying error with a misleading ENOENT and skipped this log.
       console.log('Error writing json file', error);
+      await fs.promises.unlink(tmpFileName).catch(() => {});
       throw error;
     }
   }
