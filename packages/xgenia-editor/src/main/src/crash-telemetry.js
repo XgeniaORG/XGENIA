@@ -73,14 +73,15 @@ function start() {
  * on the same path as the crash dialog and a slow/offline network must not
  * delay or block that. Never throws.
  */
-function upload(entry) {
+async function upload(entry) {
   try {
     const payload = {
       ...entry,
       platform: process.platform,
       osRelease: os.release()
     };
-    fetch(CRASH_REPORT_ENDPOINT, {
+    console.error('PAYLOAD',payload)
+    const res = await fetch(CRASH_REPORT_ENDPOINT, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -88,9 +89,24 @@ function upload(entry) {
       },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(5000)
-    }).catch((e) => {
-      console.error('[CrashTelemetry] Failed to upload crash record:', e && e.message);
-    });
+    })
+    if(res.ok) {
+      console.error('[CrashTelemetry] Crash record uploaded to Supabase.');
+    } else {
+      console.error('[CrashTelemetry] Upload rejected by server:', res.status, res.statusText);
+    }
+    //   .then((res) => {
+    //   // fetch() only rejects on network-level failure — a 401/500 resolves
+    //   // normally with no error, so without this check a bad key or a wrong
+    //   // URL fails completely silently, forever.
+    //   if (!res.ok) {
+    //     console.error('[CrashTelemetry] Upload rejected by server:', res.status, res.statusText);
+    //     return;
+    //   }
+    //   console.error('[CrashTelemetry] Crash record uploaded to Supabase.');
+    // }).catch((e) => {
+    //   console.error('[CrashTelemetry] Failed to upload crash record:', e && e.message);
+    // });
   } catch (e) {
     console.error('[CrashTelemetry] Failed to start crash record upload:', e && e.message);
   }
@@ -102,7 +118,7 @@ function upload(entry) {
  * render-process-gone details ({ reason, exitCode }).
  * Never throws — this runs on the crash path where nothing else may fail.
  */
-function record(source, details) {
+async function record(source, details) {
   const entry = {
     timestamp: new Date().toISOString(),
     source: source,
@@ -127,8 +143,9 @@ function record(source, details) {
   } catch (e) {
     console.error('[CrashTelemetry] Failed to persist crash record:', e && e.message);
   }
+  console.error('CRASH log entry', entry);
 
-  upload(entry);
+  await upload(entry);
 
   return entry;
 }

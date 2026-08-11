@@ -228,7 +228,7 @@ function launchApp() {
     if (!gotTheLock) {
       console.log(`
 -------------------------------
-   XGENIA is already running.   
+   XGENIA is already running.
 -------------------------------
 
 `);
@@ -912,12 +912,17 @@ function launchApp() {
         }
       });
 
-      win.webContents.on('render-process-gone', (event, details) => {
+      win.webContents.on('render-process-gone', async (event, details) => {
         // (debug-export 1783408275898) Persist reason/exitCode BEFORE any
         // recovery. The 2026-07-07 crash left zero forensics: details was
         // discarded, console.log is no-op'd in main, and no minidumps
         // existed — the post-restart debug export had no crash evidence.
-        CrashTelemetry.record('editor-window', details);
+        // Must be awaited: the dialog below is synchronous and blocks this
+        // process's event loop until dismissed, which starves the in-flight
+        // upload's fetch of any chance to complete — the report never made
+        // it out. Bounded to 5s by upload()'s own AbortSignal.timeout, so
+        // this can't hang the crash dialog indefinitely.
+        await CrashTelemetry.record('editor-window', details);
 
         // Recover from EVERY unexpected renderer death, not just the literal
         // 'crashed' — the old check left the user staring at a dead window
