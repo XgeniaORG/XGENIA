@@ -6,24 +6,30 @@ import { ProjectModel } from '@xgenia-models/projectmodel';
 
 import { IconName } from '@xgenia-core-ui/components/common/Icon';
 import { PrimaryButton, PrimaryButtonSize, PrimaryButtonVariant } from '@xgenia-core-ui/components/inputs/PrimaryButton';
-import { BasePanel } from '@xgenia-core-ui/components/sidebar/BasePanel';
+import { Box } from '@xgenia-core-ui/components/layout/Box';
 import { Section } from '@xgenia-core-ui/components/sidebar/Section';
+import { Text, TextSize } from '@xgenia-core-ui/components/typography/Text';
 
 import View from '../../../../../shared/view';
 import { Frame } from '../../common/Frame';
 import { Ports } from '../propertyeditor/DataTypes/Ports';
 import { ProjectSettingsModel } from './ProjectSettingsModel';
 import { DeploySection } from './sections/DeploySection';
-import { ExperimentalSection } from './sections/ExperimentalSection';
 import { GeneralSection } from './sections/GeneralSection';
+import { LayoutSection } from './sections/LayoutSection';
 import { RepeaterSection } from './sections/RepeaterSection';
 import { SitemapSection } from './sections/SitemapSection';
 
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface ProjectSettingsPanelProps {}
-
-// eslint-disable-next-line no-empty-pattern
-export function ProjectSettingsPanel({}: ProjectSettingsPanelProps) {
+/**
+ * Project-scoped settings — the "Project" tab of the Settings panel.
+ *
+ * Everything here is written to `ProjectModel.settings`, which `toJSON()` puts
+ * in project.json: it is committed, shared with everyone who opens the project,
+ * and read by the compiler at deploy time and by the runtime in the deployed
+ * app. That is the whole reason this is a separate tab from Editor — see
+ * EditorSettingsTab, whose settings never leave the current machine.
+ */
+export function ProjectSettingsTab() {
   const [propertyView, setPropertyView] = useState<View | null>(null);
   const [renderIndex, triggerRerender] = useTriggerRerenderState();
 
@@ -57,8 +63,12 @@ export function ProjectSettingsPanel({}: ProjectSettingsPanelProps) {
   }, [propertyView, renderIndex]);
 
   return (
-    <BasePanel title="Project Settings" hasContentScroll>
+    <>
       <Section hasGutter hasVisibleOverflow>
+        <Box hasBottomSpacing>
+          <Text size={TextSize.Medium}>Saved in project.json — shared with your team and used by the deployed app.</Text>
+        </Box>
+
         <PrimaryButton
           icon={IconName.FolderOpen}
           size={PrimaryButtonSize.Small}
@@ -72,10 +82,10 @@ export function ProjectSettingsPanel({}: ProjectSettingsPanelProps) {
       <Frame instance={propertyView} refresh={renderIndex} />
 
       <GeneralSection />
-      <ExperimentalSection />
+      <LayoutSection />
       <RepeaterSection />
       <SitemapSection />
       <DeploySection />
-    </BasePanel>
+    </>
   );
 }
