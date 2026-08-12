@@ -2806,9 +2806,32 @@ export class NodeGraphEditor extends View {
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     // --- Draw Background Dots ---
-    const gridSize = 20; // Spacing between dots
-    const dotRadius = 1; // Size of the dots
+    //
+    // 2026-08-12 perf audit. This block used to issue one beginPath + arc + fill
+    // PER DOT on a fixed 20px world grid. The world area it covers grows as
+    // 1/scale in both axes, so the cost is quadratic in zoom-out: at a 1600x900
+    // viewport it is ~3,600 draw calls at 1:1, ~57,000 at 0.25, and a large graph
+    // may zoom out to well under 0.1 (see updateZoomLevel — minScale is derived
+    // from the graph's own bounds, not floored at 0.33), which is hundreds of
+    // thousands of draw calls on EVERY repaint. Panning such a graph is a repaint
+    // per frame, which is why a big graph zoomed out froze the editor.
+    //
+    // Two fixes. The grid coarsens by powers of two so its ON-SCREEN spacing
+    // never drops below a readable minimum — that bounds the dot count by the
+    // viewport instead of by the zoom, and it also stops the dots merging into
+    // grey mush when zoomed out. And every dot now goes into ONE path that is
+    // filled once, rather than a path and a fill each. Square rather than round:
+    // the dot is ~2 device pixels at any zoom (the radius is divided by scale and
+    // then multiplied by it again by the transform), where an arc and a rect are
+    // the same handful of pixels, and `arc` tessellates a circle per dot.
+    const dotRadius = 1; // Size of the dots, in screen pixels at any zoom
     const dotColor = 'rgba(255, 255, 255, 0.2)'; // Light white, semi-transparent
+    const MIN_DOT_SPACING_ON_SCREEN = 10;
+
+    let gridSize = 20; // Spacing between dots, in world units
+    if (scale > 0) {
+      while (gridSize * scale < MIN_DOT_SPACING_ON_SCREEN) gridSize *= 2;
+    }
 
     // Calculate the visible range in world coordinates
     const viewMinX = Math.floor(-panAndScale.x / gridSize) * gridSize;
@@ -2816,20 +2839,25 @@ export class NodeGraphEditor extends View {
     const viewMaxX = Math.ceil((this.canvas.width / (this.canvas.ratio * scale) - panAndScale.x) / gridSize) * gridSize;
     const viewMaxY = Math.ceil((this.canvas.height / (this.canvas.ratio * scale) - panAndScale.y) / gridSize) * gridSize;
 
-    ctx.fillStyle = dotColor;
-    ctx.save();
-    // Apply the main transform so dots align with world coords
-    ctx.scale(this.canvas.ratio * scale, this.canvas.ratio * scale);
-    ctx.translate(panAndScale.x, panAndScale.y);
+    if (scale > 0 && isFinite(viewMaxX) && isFinite(viewMaxY)) {
+      const dotHalf = dotRadius / scale;
+      const dotSize = dotHalf * 2;
 
-    for (let x = viewMinX; x < viewMaxX; x += gridSize) {
-      for (let y = viewMinY; y < viewMaxY; y += gridSize) {
-        ctx.beginPath();
-        ctx.arc(x, y, dotRadius / scale, 0, Math.PI * 2, true); // Scale dot radius inversely with zoom
-        ctx.fill();
+      ctx.fillStyle = dotColor;
+      ctx.save();
+      // Apply the main transform so dots align with world coords
+      ctx.scale(this.canvas.ratio * scale, this.canvas.ratio * scale);
+      ctx.translate(panAndScale.x, panAndScale.y);
+
+      ctx.beginPath();
+      for (let x = viewMinX; x < viewMaxX; x += gridSize) {
+        for (let y = viewMinY; y < viewMaxY; y += gridSize) {
+          ctx.rect(x - dotHalf, y - dotHalf, dotSize, dotSize);
+        }
       }
+      ctx.fill();
+      ctx.restore(); // Restore from dot drawing transform
     }
-    ctx.restore(); // Restore from dot drawing transform
     // --- End Draw Background Dots ---
 
     if (!NodeLibrary.instance.isLoaded()) {

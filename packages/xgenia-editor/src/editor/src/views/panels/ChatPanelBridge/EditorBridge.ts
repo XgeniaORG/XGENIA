@@ -11,7 +11,7 @@
 // GPL model imports (this file intentionally lives in GPL code)
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import ThumbnailCache from '@xgenia-utils/thumbnailcache';
-import { isBloatPort, isTooLargeToSerialize, unwrapValueUnit } from './serialize-param-guard';
+import { isBloatPort, isTooLargeToSerialize, unwrapValueUnit, portUnitInfo } from './serialize-param-guard';
 import { NodeLibrary } from '@xgenia-models/nodelibrary';
 import { UndoQueue, UndoActionGroup } from '@xgenia-models/undo-queue-model';
 import { SidebarModel } from '@xgenia-models/sidebar';
@@ -59,7 +59,14 @@ export class EditorBridge {
 
     constructor() {
         this.registerCommands();
-        window.addEventListener('message', this.handleMessage.bind(this));
+        // NOT `.bind(this)`. `handleMessage` is already an arrow property, so it
+        // is bound; wrapping it in `bind` produced a fresh function here and
+        // ANOTHER fresh one in `destroy`, so `removeEventListener` was handed a
+        // function that had never been added and the listener outlived the
+        // bridge. Every destroyed bridge left a live `message` handler on the
+        // window, each one re-running the full command dispatch for every
+        // postMessage the editor receives.
+        window.addEventListener('message', this.handleMessage);
         // Listen for active component changes from the NodeGraphEditor
         this.listenForComponentChanges();
         // Forward viewer console output into the plugin iframe
@@ -248,7 +255,7 @@ export class EditorBridge {
 
     /** Destroy the bridge */
     destroy() {
-        window.removeEventListener('message', this.handleMessage.bind(this));
+        window.removeEventListener('message', this.handleMessage);
         this.iframe = null;
         this.connected = false;
     }
@@ -2997,7 +3004,7 @@ ${autoReturnCode}
                 try {
                     const v = typeof node.getParameter === 'function' ? node.getParameter(p.name) : undefined;
                     if (v !== undefined && v !== null && !isTooLargeToSerialize(v)) {
-                        params[p.name] = unwrapValueUnit(v, portTypeName);
+                        params[p.name] = unwrapValueUnit(v, portTypeName, portUnitInfo(p));
                     }
                 } catch { /* skip ports that error on read */ }
             }
@@ -3008,7 +3015,7 @@ ${autoReturnCode}
                 const portTypeName = (p.type?.name || p.type || '').toString().toLowerCase();
                 if (portTypeName === 'signal') continue;
                 if (params[p.name] !== undefined && params[p.name] !== null) {
-                    params[p.name] = unwrapValueUnit(params[p.name], portTypeName);
+                    params[p.name] = unwrapValueUnit(params[p.name], portTypeName, portUnitInfo(p));
                 }
             }
         } catch { /* defensive: never let serializer throw */ }

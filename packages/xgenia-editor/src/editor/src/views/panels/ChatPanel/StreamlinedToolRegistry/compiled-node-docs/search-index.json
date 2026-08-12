@@ -11493,7 +11493,43 @@
       "docs": null,
       "lineCount": 1600,
       "byteSize": 45855,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "sizeMode": {
+          "displayName": "Size Mode",
+          "type": "enum",
+          "group": "Dimensions"
+        },
+        "width": {
+          "displayName": "Width",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "height": {
+          "displayName": "Height",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "minWidth": {
+          "displayName": "Min Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxWidth": {
+          "displayName": "Max Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "minHeight": {
+          "displayName": "Min Height",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxHeight": {
+          "displayName": "Max Height",
+          "type": "number",
+          "group": "Dimension Constraints"
+        }
+      },
       "outputFormatHints": {}
     },
     "net.xgenia.controls.button": {
@@ -11514,6 +11550,41 @@
           "displayName": "Enabled",
           "type": "boolean",
           "group": "General"
+        },
+        "sizeMode": {
+          "displayName": "Size Mode",
+          "type": "enum",
+          "group": "Dimensions"
+        },
+        "width": {
+          "displayName": "Width",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "height": {
+          "displayName": "Height",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "minWidth": {
+          "displayName": "Min Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxWidth": {
+          "displayName": "Max Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "minHeight": {
+          "displayName": "Min Height",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxHeight": {
+          "displayName": "Max Height",
+          "type": "number",
+          "group": "Dimension Constraints"
         }
       },
       "outputFormatHints": {
@@ -11610,6 +11681,41 @@
           "displayName": "Enabled",
           "type": "boolean",
           "group": "General"
+        },
+        "sizeMode": {
+          "displayName": "Size Mode",
+          "type": "enum",
+          "group": "Dimensions"
+        },
+        "width": {
+          "displayName": "Width",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "height": {
+          "displayName": "Height",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "minWidth": {
+          "displayName": "Min Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxWidth": {
+          "displayName": "Max Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "minHeight": {
+          "displayName": "Min Height",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxHeight": {
+          "displayName": "Max Height",
+          "type": "number",
+          "group": "Dimension Constraints"
         }
       },
       "outputFormatHints": {
@@ -11691,6 +11797,41 @@
           "displayName": "Enabled",
           "type": "boolean",
           "group": "General"
+        },
+        "sizeMode": {
+          "displayName": "Size Mode",
+          "type": "enum",
+          "group": "Dimensions"
+        },
+        "width": {
+          "displayName": "Width",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "height": {
+          "displayName": "Height",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "minWidth": {
+          "displayName": "Min Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxWidth": {
+          "displayName": "Max Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "minHeight": {
+          "displayName": "Min Height",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxHeight": {
+          "displayName": "Max Height",
+          "type": "number",
+          "group": "Dimension Constraints"
         }
       },
       "outputFormatHints": {
@@ -11994,6 +12135,41 @@
           "displayName": "Enabled",
           "type": "boolean",
           "group": "General"
+        },
+        "sizeMode": {
+          "displayName": "Size Mode",
+          "type": "enum",
+          "group": "Dimensions"
+        },
+        "width": {
+          "displayName": "Width",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "height": {
+          "displayName": "Height",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "minWidth": {
+          "displayName": "Min Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxWidth": {
+          "displayName": "Max Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "minHeight": {
+          "displayName": "Min Height",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxHeight": {
+          "displayName": "Max Height",
+          "type": "number",
+          "group": "Dimension Constraints"
         }
       },
       "outputFormatHints": {
@@ -15716,6 +15892,41 @@
           "displayName": "Winning Lines Details",
           "type": "array",
           "group": "Data"
+        },
+        "sizeMode": {
+          "displayName": "Size Mode",
+          "type": "enum",
+          "group": "Dimensions"
+        },
+        "width": {
+          "displayName": "Width",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "height": {
+          "displayName": "Height",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "minWidth": {
+          "displayName": "Min Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxWidth": {
+          "displayName": "Max Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "minHeight": {
+          "displayName": "Min Height",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxHeight": {
+          "displayName": "Max Height",
+          "type": "number",
+          "group": "Dimension Constraints"
         }
       },
       "outputFormatHints": {}
@@ -15738,6 +15949,41 @@
           "displayName": "Data",
           "type": "*",
           "group": "Data"
+        },
+        "sizeMode": {
+          "displayName": "Size Mode",
+          "type": "enum",
+          "group": "Dimensions"
+        },
+        "width": {
+          "displayName": "Width",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "height": {
+          "displayName": "Height",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "minWidth": {
+          "displayName": "Min Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxWidth": {
+          "displayName": "Max Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "minHeight": {
+          "displayName": "Min Height",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxHeight": {
+          "displayName": "Max Height",
+          "type": "number",
+          "group": "Dimension Constraints"
         }
       },
       "outputFormatHints": {}
@@ -15795,6 +16041,41 @@
           "displayName": "Y Axis Label",
           "type": "string",
           "group": "Chart Settings"
+        },
+        "sizeMode": {
+          "displayName": "Size Mode",
+          "type": "enum",
+          "group": "Dimensions"
+        },
+        "width": {
+          "displayName": "Width",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "height": {
+          "displayName": "Height",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "minWidth": {
+          "displayName": "Min Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxWidth": {
+          "displayName": "Max Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "minHeight": {
+          "displayName": "Min Height",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxHeight": {
+          "displayName": "Max Height",
+          "type": "number",
+          "group": "Dimension Constraints"
         }
       },
       "outputFormatHints": {}
@@ -16022,6 +16303,41 @@
           "displayName": "Tag",
           "type": "enum",
           "group": "Advanced HTML"
+        },
+        "sizeMode": {
+          "displayName": "Size Mode",
+          "type": "enum",
+          "group": "Dimensions"
+        },
+        "width": {
+          "displayName": "Width",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "height": {
+          "displayName": "Height",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "minWidth": {
+          "displayName": "Min Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxWidth": {
+          "displayName": "Max Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "minHeight": {
+          "displayName": "Min Height",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxHeight": {
+          "displayName": "Max Height",
+          "type": "number",
+          "group": "Dimension Constraints"
         }
       },
       "outputFormatHints": {
@@ -16110,6 +16426,41 @@
           "displayName": "Y Axis Label",
           "type": "string",
           "group": "Chart Settings"
+        },
+        "sizeMode": {
+          "displayName": "Size Mode",
+          "type": "enum",
+          "group": "Dimensions"
+        },
+        "width": {
+          "displayName": "Width",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "height": {
+          "displayName": "Height",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "minWidth": {
+          "displayName": "Min Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxWidth": {
+          "displayName": "Max Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "minHeight": {
+          "displayName": "Min Height",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxHeight": {
+          "displayName": "Max Height",
+          "type": "number",
+          "group": "Dimension Constraints"
         }
       },
       "outputFormatHints": {}
@@ -16158,6 +16509,41 @@
         "alt": {
           "displayName": "Alternate text",
           "type": "string"
+        },
+        "sizeMode": {
+          "displayName": "Size Mode",
+          "type": "enum",
+          "group": "Dimensions"
+        },
+        "width": {
+          "displayName": "Width",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "height": {
+          "displayName": "Height",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "minWidth": {
+          "displayName": "Min Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxWidth": {
+          "displayName": "Max Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "minHeight": {
+          "displayName": "Min Height",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxHeight": {
+          "displayName": "Max Height",
+          "type": "number",
+          "group": "Dimension Constraints"
         }
       },
       "outputFormatHints": {
@@ -16216,6 +16602,41 @@
           "displayName": "Y Axis Label",
           "type": "string",
           "group": "Chart Settings"
+        },
+        "sizeMode": {
+          "displayName": "Size Mode",
+          "type": "enum",
+          "group": "Dimensions"
+        },
+        "width": {
+          "displayName": "Width",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "height": {
+          "displayName": "Height",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "minWidth": {
+          "displayName": "Min Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxWidth": {
+          "displayName": "Max Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "minHeight": {
+          "displayName": "Min Height",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxHeight": {
+          "displayName": "Max Height",
+          "type": "number",
+          "group": "Dimension Constraints"
         }
       },
       "outputFormatHints": {}
@@ -16371,6 +16792,41 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "sizeMode": {
+          "displayName": "Size Mode",
+          "type": "enum",
+          "group": "Dimensions"
+        },
+        "width": {
+          "displayName": "Width",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "height": {
+          "displayName": "Height",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "minWidth": {
+          "displayName": "Min Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxWidth": {
+          "displayName": "Max Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "minHeight": {
+          "displayName": "Min Height",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxHeight": {
+          "displayName": "Max Height",
+          "type": "number",
+          "group": "Dimension Constraints"
         }
       },
       "outputFormatHints": {
@@ -16424,6 +16880,41 @@
           "displayName": "Stop Positions",
           "type": "array",
           "group": "Data"
+        },
+        "sizeMode": {
+          "displayName": "Size Mode",
+          "type": "enum",
+          "group": "Dimensions"
+        },
+        "width": {
+          "displayName": "Width",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "height": {
+          "displayName": "Height",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "minWidth": {
+          "displayName": "Min Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxWidth": {
+          "displayName": "Max Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "minHeight": {
+          "displayName": "Min Height",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxHeight": {
+          "displayName": "Max Height",
+          "type": "number",
+          "group": "Dimension Constraints"
         }
       },
       "outputFormatHints": {}
@@ -16466,6 +16957,41 @@
           "displayName": "Tag",
           "type": "enum",
           "group": "Advanced HTML"
+        },
+        "sizeMode": {
+          "displayName": "Size Mode",
+          "type": "enum",
+          "group": "Dimensions"
+        },
+        "width": {
+          "displayName": "Width",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "height": {
+          "displayName": "Height",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "minWidth": {
+          "displayName": "Min Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxWidth": {
+          "displayName": "Max Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "minHeight": {
+          "displayName": "Min Height",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxHeight": {
+          "displayName": "Max Height",
+          "type": "number",
+          "group": "Dimension Constraints"
         }
       },
       "outputFormatHints": {
@@ -16554,6 +17080,41 @@
           "displayName": "Video Position Y",
           "type": "number",
           "group": "Video Layout"
+        },
+        "sizeMode": {
+          "displayName": "Size Mode",
+          "type": "enum",
+          "group": "Dimensions"
+        },
+        "width": {
+          "displayName": "Width",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "height": {
+          "displayName": "Height",
+          "type": "dimension",
+          "group": "Dimensions"
+        },
+        "minWidth": {
+          "displayName": "Min Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxWidth": {
+          "displayName": "Max Width",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "minHeight": {
+          "displayName": "Min Height",
+          "type": "number",
+          "group": "Dimension Constraints"
+        },
+        "maxHeight": {
+          "displayName": "Max Height",
+          "type": "number",
+          "group": "Dimension Constraints"
         }
       },
       "outputFormatHints": {
@@ -22442,6 +23003,70 @@
       {
         "node": "pixi.BitmapText",
         "direction": "input"
+      },
+      {
+        "node": "enum",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.button",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      },
+      {
+        "node": "Radio Button Group",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.textinput",
+        "direction": "input"
+      },
+      {
+        "node": "Debug Panel Visual",
+        "direction": "input"
+      },
+      {
+        "node": "Object Viewer",
+        "direction": "input"
+      },
+      {
+        "node": "Distribution Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Group",
+        "direction": "input"
+      },
+      {
+        "node": "Histogram Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Image",
+        "direction": "input"
+      },
+      {
+        "node": "Line Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Project Version Tag",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Visualizer",
+        "direction": "input"
+      },
+      {
+        "node": "Text",
+        "direction": "input"
+      },
+      {
+        "node": "Video",
+        "direction": "input"
       }
     ],
     "enableBlurFilter": [
@@ -23214,12 +23839,76 @@
         "direction": "input"
       },
       {
+        "node": "enum",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.button",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      },
+      {
+        "node": "Radio Button Group",
+        "direction": "input"
+      },
+      {
         "node": "net.xgenia.controls.range",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.textinput",
         "direction": "input"
       },
       {
         "node": "Screen Resolution",
         "direction": "output"
+      },
+      {
+        "node": "Debug Panel Visual",
+        "direction": "input"
+      },
+      {
+        "node": "Object Viewer",
+        "direction": "input"
+      },
+      {
+        "node": "Distribution Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Group",
+        "direction": "input"
+      },
+      {
+        "node": "Histogram Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Image",
+        "direction": "input"
+      },
+      {
+        "node": "Line Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Project Version Tag",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Visualizer",
+        "direction": "input"
+      },
+      {
+        "node": "Text",
+        "direction": "input"
+      },
+      {
+        "node": "Video",
+        "direction": "input"
       }
     ],
     "height": [
@@ -23268,8 +23957,72 @@
         "direction": "input"
       },
       {
+        "node": "enum",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.button",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      },
+      {
+        "node": "Radio Button Group",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.textinput",
+        "direction": "input"
+      },
+      {
         "node": "Screen Resolution",
         "direction": "output"
+      },
+      {
+        "node": "Debug Panel Visual",
+        "direction": "input"
+      },
+      {
+        "node": "Object Viewer",
+        "direction": "input"
+      },
+      {
+        "node": "Distribution Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Group",
+        "direction": "input"
+      },
+      {
+        "node": "Histogram Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Image",
+        "direction": "input"
+      },
+      {
+        "node": "Line Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Project Version Tag",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Visualizer",
+        "direction": "input"
+      },
+      {
+        "node": "Text",
+        "direction": "input"
+      },
+      {
+        "node": "Video",
+        "direction": "input"
       }
     ],
     "maskNode": [
@@ -27610,6 +28363,274 @@
         "direction": "output"
       }
     ],
+    "sizeMode": [
+      {
+        "node": "enum",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.button",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      },
+      {
+        "node": "Radio Button Group",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.textinput",
+        "direction": "input"
+      },
+      {
+        "node": "Debug Panel Visual",
+        "direction": "input"
+      },
+      {
+        "node": "Object Viewer",
+        "direction": "input"
+      },
+      {
+        "node": "Distribution Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Group",
+        "direction": "input"
+      },
+      {
+        "node": "Histogram Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Image",
+        "direction": "input"
+      },
+      {
+        "node": "Line Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Project Version Tag",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Visualizer",
+        "direction": "input"
+      },
+      {
+        "node": "Text",
+        "direction": "input"
+      },
+      {
+        "node": "Video",
+        "direction": "input"
+      }
+    ],
+    "minWidth": [
+      {
+        "node": "enum",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.button",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      },
+      {
+        "node": "Radio Button Group",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.textinput",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.visual.columns",
+        "direction": "input"
+      },
+      {
+        "node": "Debug Panel Visual",
+        "direction": "input"
+      },
+      {
+        "node": "Object Viewer",
+        "direction": "input"
+      },
+      {
+        "node": "Distribution Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Group",
+        "direction": "input"
+      },
+      {
+        "node": "Histogram Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Image",
+        "direction": "input"
+      },
+      {
+        "node": "Line Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Project Version Tag",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Visualizer",
+        "direction": "input"
+      },
+      {
+        "node": "Text",
+        "direction": "input"
+      },
+      {
+        "node": "Video",
+        "direction": "input"
+      }
+    ],
+    "minHeight": [
+      {
+        "node": "enum",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.button",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      },
+      {
+        "node": "Radio Button Group",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.textinput",
+        "direction": "input"
+      },
+      {
+        "node": "Debug Panel Visual",
+        "direction": "input"
+      },
+      {
+        "node": "Object Viewer",
+        "direction": "input"
+      },
+      {
+        "node": "Distribution Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Group",
+        "direction": "input"
+      },
+      {
+        "node": "Histogram Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Image",
+        "direction": "input"
+      },
+      {
+        "node": "Line Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Project Version Tag",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Visualizer",
+        "direction": "input"
+      },
+      {
+        "node": "Text",
+        "direction": "input"
+      },
+      {
+        "node": "Video",
+        "direction": "input"
+      }
+    ],
+    "maxHeight": [
+      {
+        "node": "enum",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.button",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      },
+      {
+        "node": "Radio Button Group",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.textinput",
+        "direction": "input"
+      },
+      {
+        "node": "Debug Panel Visual",
+        "direction": "input"
+      },
+      {
+        "node": "Object Viewer",
+        "direction": "input"
+      },
+      {
+        "node": "Distribution Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Group",
+        "direction": "input"
+      },
+      {
+        "node": "Histogram Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Image",
+        "direction": "input"
+      },
+      {
+        "node": "Line Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Project Version Tag",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Visualizer",
+        "direction": "input"
+      },
+      {
+        "node": "Text",
+        "direction": "input"
+      },
+      {
+        "node": "Video",
+        "direction": "input"
+      }
+    ],
     "testId": [
       {
         "node": "net.xgenia.controls.button",
@@ -29943,12 +30964,6 @@
       }
     ],
     "marginY": [
-      {
-        "node": "net.xgenia.visual.columns",
-        "direction": "input"
-      }
-    ],
-    "minWidth": [
       {
         "node": "net.xgenia.visual.columns",
         "direction": "input"

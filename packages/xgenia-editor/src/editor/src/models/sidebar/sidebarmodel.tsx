@@ -23,6 +23,23 @@ export interface SidebarItem<TProps = Record<string, unknown>> {
    */
   transient?: boolean;
 
+  /**
+   * Unmount this panel while another one is showing, instead of keeping it
+   * mounted and hidden.
+   *
+   * SidePanel keeps opened panels alive so switching back is instant and their
+   * state survives — but a hidden panel still runs its timers and still
+   * reconciles on every model event it subscribes to, for the rest of the
+   * session. Set this on a panel whose state is cheap to rebuild and whose
+   * background cost is not.
+   *
+   * Prefer `usePanelActive()` where the panel can simply idle: it gets the same
+   * saving without throwing the panel's state away.
+   *
+   * Default: false
+   */
+  unmountWhenHidden?: boolean;
+
   placement?: 'top' | 'bottom';
 
   isDisabled?: boolean /** Default: false */;

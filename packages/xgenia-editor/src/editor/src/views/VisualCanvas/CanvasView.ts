@@ -7,6 +7,25 @@ import View from '../../../../shared/view';
 import { InlineElementChat } from './InlineElementChat';
 import { VisualCanvas } from './VisualCanvas';
 
+/**
+ * Chatter from the running preview, off by default.
+ *
+ * 2026-08-12 perf audit: every `console-message` the preview emitted and every
+ * `ipc-message` it sent was logged here unconditionally, the IPC one twice and
+ * the second time as a whole object literal. A preview that logs per frame — a
+ * spinning slot, say — therefore paid a console write per frame IN THE EDITOR's
+ * renderer, and objects logged to a console are retained rather than collected
+ * while DevTools is attached. Set `localStorage.xgeniaDebugWebview = '1'` and
+ * reload to get it back.
+ */
+const DEBUG_WEBVIEW = (() => {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem('xgeniaDebugWebview') === '1';
+  } catch {
+    return false;
+  }
+})();
+
 // Interface for the thumbnail capture result
 interface ThumbnailResult {
   width: number;
@@ -234,15 +253,19 @@ export class CanvasView extends View {
       }
     });
 
-    webview.addEventListener('console-message', (e) => {
-      console.log('[Webview Console]', e.message);
-    });
+    if (DEBUG_WEBVIEW) {
+      webview.addEventListener('console-message', (e) => {
+        console.log('[Webview Console]', e.message);
+      });
+    }
 
     // Listen for inspector messages from the webview
     webview.addEventListener('ipc-message', (event: any) => {
       const message = event.args && event.args[0];
-      console.log('[CanvasView] 📨 IPC message received - Channel:', event.channel, 'Message:', message);
-      console.log('[CanvasView] 📨 Full event:', { channel: event.channel, args: event.args, type: typeof event });
+      if (DEBUG_WEBVIEW) {
+        console.log('[CanvasView] 📨 IPC message received - Channel:', event.channel, 'Message:', message);
+        console.log('[CanvasView] 📨 Full event:', { channel: event.channel, args: event.args, type: typeof event });
+      }
 
       if (event.channel === 'inspector-node-found') {
         console.log('[CanvasView] Inspector found node:', message);

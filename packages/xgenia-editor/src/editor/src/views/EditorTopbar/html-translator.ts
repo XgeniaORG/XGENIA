@@ -421,10 +421,12 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         // ─── Layout ─────────────────────────
         if (rawCls === 'flex' || rawCls === 'inline-flex') {
             styles._hasFlex = true;
+            clearHiddenDisplay(styles);
             if (rawCls === 'inline-flex') styles._isInlineFlex = true;
             continue;
         }
-        if (rawCls === 'grid' || rawCls === 'inline-grid') { styles._hasFlex = true; continue; }
+        if (rawCls === 'grid' || rawCls === 'inline-grid') { styles._hasFlex = true; clearHiddenDisplay(styles); continue; }
+        if (rawCls === 'block' || rawCls === 'inline-block' || rawCls === 'inline') { clearHiddenDisplay(styles); continue; }
         // grid-cols-N → convert to flexbox row wrap with N columns
         const gridColsMatch = rawCls.match(/^grid-cols-(\d+)$/);
         if (gridColsMatch) { styles._gridCols = parseInt(gridColsMatch[1]); styles._hasFlex = true; continue; }
@@ -491,6 +493,7 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
 
         // Visibility / display toggles
         if (rawCls === 'hidden') {
+            // See clearHiddenDisplay: a later `md:flex` (or any display class) undoes this.
             styles.styleCss = (styles.styleCss || '') + 'display: none;';
             continue;
         }
@@ -2419,6 +2422,24 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
     return styles;
 }
 
+/**
+ * `hidden md:flex` must not vanish.
+ *
+ * (2026-08-11) Two real imported pages lost whole regions this way. A nav declared
+ * `class="hidden md:flex gap-6"`; `hidden` appended `display: none` to styleCss, the later
+ * `flex` set `_hasFlex` and never took it back, and the links rendered as 0x0 boxes inside a
+ * 0x0 parent — five nav items simply absent from the screen.
+ *
+ * The surrounding loop already strips responsive prefixes and relies on "later class wins",
+ * which is right: XGENIA renders at a measured DESKTOP surface, so the `md:`+ variant is the
+ * one that describes the target. `display` was the one property where the earlier class won
+ * anyway, because it was written into a string instead of a field.
+ */
+function clearHiddenDisplay(styles: ParsedStyles): void {
+    if (!styles.styleCss) return;
+    styles.styleCss = styles.styleCss.replace(/display:\s*none;?/g, '');
+}
+
 // ─── Custom Colors Extractor ────────────────────────────────
 
 function extractCustomColors(html: string): Record<string, string> {
@@ -2426,7 +2447,16 @@ function extractCustomColors(html: string): Record<string, string> {
     // Look for tailwind.config with custom colors
     const configMatch = html.match(/tailwind\.config\s*=\s*\{[\s\S]*?\}\s*;?\s*<\/script>/);
     if (configMatch) {
-        const colorBlock = configMatch[0].match(/colors\s*:\s*\{([\s\S]*?)\}/);
+        // QUOTED KEYS. (2026-08-11) A real imported page — a Tailwind landing page with a
+        // full Material-style token set — declared `"colors": { … }`. `colors\s*:` requires
+        // `colors` to be followed by whitespace or a colon, and a quoted key puts a `"` there,
+        // so NOTHING was extracted: every `text-on-surface` / `bg-surface` class went unresolved
+        // and the Text default (white) applied. The page rendered white-on-white — 8 headings
+        // present in the DOM, laid out correctly, and completely invisible.
+        //
+        // `spacing` already allowed the quotes and `fontSize` uses a balanced scan; these two
+        // were simply never updated. Any generator that emits JSON-style config hits this.
+        const colorBlock = configMatch[0].match(/["']?colors["']?\s*:\s*\{([\s\S]*?)\}/);
         if (colorBlock) {
             // Match both quoted keys ("primary": "#hex") and unquoted keys (primary: "#hex")
             const pairs = colorBlock[1].matchAll(/["']?([\w-]+)["']?\s*:\s*["'](#[0-9a-fA-F]+)["']/g);
@@ -2465,7 +2495,7 @@ function extractCustomFonts(html: string): Record<string, string> {
     const fonts: Record<string, string> = {};
     const configMatch = html.match(/tailwind\.config\s*=\s*\{[\s\S]*?\}\s*;?\s*<\/script>/);
     if (configMatch) {
-        const fontBlock = configMatch[0].match(/fontFamily\s*:\s*\{([\s\S]*?)\}/);
+        const fontBlock = configMatch[0].match(/["']?fontFamily["']?\s*:\s*\{([\s\S]*?)\}/);
         if (fontBlock) {
             // Match entries like: "display": ["Be Vietnam Pro", "sans-serif"],
             // or "spooky": ["Creepster", "cursive"],
@@ -2593,7 +2623,7 @@ function extractCustomShadows(html: string): Record<string, string> {
     const shadows: Record<string, string> = {};
     const configMatch = html.match(/tailwind\.config\s*=\s*\{[\s\S]*?\}\s*;?\s*<\/script>/);
     if (configMatch) {
-        const shadowBlock = configMatch[0].match(/boxShadow\s*:\s*\{([\s\S]*?)\}/);
+        const shadowBlock = configMatch[0].match(/["']?boxShadow["']?\s*:\s*\{([\s\S]*?)\}/);
         if (shadowBlock) {
             // Match entries like: 'glow': '0 0 20px 5px rgba(127, 19, 236, 0.5)',
             const entries = shadowBlock[1].matchAll(/["']?([\w-]+)["']?\s*:\s*["']([^"']+)["']/g);
@@ -2615,7 +2645,7 @@ function extractCustomBackgroundImages(html: string): Record<string, string> {
     const configMatch = html.match(/tailwind\.config\s*=\s*\{[\s\S]*?\}\s*;?\s*<\/script>/);
     if (!configMatch) return result;
     const config = configMatch[0];
-    const sectionRegex = /backgroundImage\s*:\s*\{/g;
+    const sectionRegex = /["']?backgroundImage["']?\s*:\s*\{/g;
     const sec = sectionRegex.exec(config);
     if (!sec) return result;
     // Brace-aware scan to find the matching `}` of the section, since values
@@ -2762,6 +2792,14 @@ const STYLE_RULE_NATIVE: Array<[string, (out: any, v: string) => void]> = [
     ['transition', (o, v) => { o.styleCss = (o.styleCss || '') + `transition: ${v};`; }],
     ['overflow', (o, v) => { o.styleCss = (o.styleCss || '') + `overflow: ${v};`; }],
     ['cursor', (o, v) => { o.styleCss = (o.styleCss || '') + `cursor: ${v};`; }],
+    // (2026-08-10) Material Symbols carry their weight, fill, grade and optical size on this
+    // one property. A Stitch-style import declares `.material-symbols-outlined
+    // { font-variation-settings: 'FILL' 0, 'wght' 400, … }` in a <style> block, and dropping
+    // it renders every icon at the font's default axes — so a filled "home" tab icon comes
+    // through unfilled and the icon set looks subtly wrong everywhere.
+    ['font-variation-settings', (o, v) => { o.styleCss = (o.styleCss || '') + `font-variation-settings: ${v};`; }],
+    ['font-feature-settings', (o, v) => { o.styleCss = (o.styleCss || '') + `font-feature-settings: ${v};`; }],
+    ['-webkit-font-smoothing', (o, v) => { o.styleCss = (o.styleCss || '') + `-webkit-font-smoothing: ${v};`; }],
 ];
 
 /** Everything handled above, plus the three that already were. */
@@ -4529,13 +4567,52 @@ ${indent}</group>`;
         if (styles._gridCols && styles._gridCols > 0) {
             const gridCols = styles._gridCols;
 
-            // Collect col-span values for each child
+            // ─── AN ABSOLUTE CHILD IS NOT A GRID ITEM ───────────────────────────
+            // (2026-08-11, export 1786484389484, user: "the reels in the middle were the
+            // wrong size") A slot screen declared `grid grid-cols-5` holding five reels AND
+            // four `absolute` separator strips. In CSS an absolutely-positioned child of a
+            // grid is out of flow and occupies NO cell — which is why the source renders as
+            // one row of five. This chunker counted all nine, so 9 children / 5 columns gave
+            //
+            //     layoutString "1 1 1 1 1"   then   "1 1 1 1"
+            //
+            // — two rows of reel/separator/reel/separator/reel, and the reel strip collapsed.
+            //
+            // In-flow children decide the tracks; the absolute ones are hung on the wrapper
+            // group below, which carries the container's `position: relative` and so remains
+            // their containing block.
+            const isAbsoluteChild = (childEl: HTMLElement): boolean => {
+                const cls = childEl.getAttribute('class') || '';
+                if (/(?:^|\s)(?:sm:|md:|lg:|xl:|2xl:)?(?:absolute|fixed)(?=\s|$)/.test(cls)) return true;
+                const inline = childEl.getAttribute('style') || '';
+                return /position\s*:\s*(?:absolute|fixed)/i.test(inline);
+            };
+            const flowIdx: number[] = [];
+            const absoluteIdx: number[] = [];
+            Array.from(el.children).forEach((childNode, i) => {
+                (isAbsoluteChild(childNode as HTMLElement) ? absoluteIdx : flowIdx).push(i);
+            });
+
+            // Collect col-span values for each IN-FLOW child
             const childSpans: number[] = [];
-            for (const childNode of Array.from(el.children)) {
-                const childEl = childNode as HTMLElement;
+            for (const i of flowIdx) {
+                const childEl = el.children[i] as HTMLElement;
                 const childClasses = (childEl.getAttribute('class') || '');
-                const spanMatch = childClasses.match(/(?:^|\s)(?:sm:|md:|lg:|xl:|2xl:)?col-span-(\d+)(?:\s|$)/);
-                childSpans.push(spanMatch ? parseInt(spanMatch[1]) : 1);
+                // LAST match, not first. (2026-08-11) A real imported page declared
+                // `col-span-1 md:col-span-8` — 1 column on mobile, 8 on desktop. Matching the
+                // first occurrence took the MOBILE value, so a 12-column bento grid with
+                // 8/4/4/8 spans came out as `layoutString="1 1 1 1"`: four equal cards in one
+                // row, 807px of horizontal overflow, and every card's text clipped.
+                //
+                // Mobile-first ordering means the larger breakpoint appears later, so the last
+                // match is the desktop value — the same rule parseTailwindClasses already
+                // applies when it strips prefixes and lets later classes win. This collector
+                // reads the RAW class attribute and so never got that treatment.
+                // The trailing check is a LOOKAHEAD, not a consuming group: `(?:\s|$)` would eat
+                // the separator, so in `col-span-1 md:col-span-8` the second class could never
+                // match its own leading `(?:^|\s)` and only the mobile value was ever seen.
+                const spans = [...childClasses.matchAll(/(?:^|\s)(?:sm:|md:|lg:|xl:|2xl:)?col-span-(\d+)(?=\s|$)/g)];
+                childSpans.push(spans.length > 0 ? parseInt(spans[spans.length - 1][1]) : 1);
             }
 
             // ─── Chunk children into rows based on gridCols ──────
@@ -4544,8 +4621,10 @@ ${indent}</group>`;
             let currentRow: { childIndices: number[]; spans: number[] } = { childIndices: [], spans: [] };
             let currentRowSpan = 0;
 
-            for (let i = 0; i < children.length; i++) {
-                const span = i < childSpans.length ? childSpans[i] : 1;
+            for (let k = 0; k < flowIdx.length; k++) {
+                const i = flowIdx[k];
+                if (i >= children.length) continue;   // a child that produced no node
+                const span = k < childSpans.length ? childSpans[k] : 1;
                 if (currentRowSpan + span > gridCols && currentRow.childIndices.length > 0) {
                     // Start a new row
                     rows.push(currentRow);
@@ -4573,12 +4652,13 @@ ${indent}</group>`;
             };
 
             // ─── Single row: emit a single <columns> (no wrapper needed) ──
-            if (rows.length <= 1) {
+            const outOfFlowXml = absoluteIdx.filter(i => i < children.length).map(i => children[i]);
+            if (rows.length <= 1 && outOfFlowXml.length === 0) {
                 // fr-ratio tracks (grid-template-columns: 2fr 1fr) → proportional
                 // layoutString "2 1". Only when no explicit col-span overrides.
                 const frTracks = styles._gridTracks;
                 const allFr = !!frTracks && frTracks.length > 0 && frTracks.every(t => /^[\d.]+fr$/.test(t));
-                const spansAllDefault = childSpans.every(s => s === 1);
+                const spansAllDefault = childSpans.every(sp => sp === 1);
                 const layoutString = (allFr && spansAllDefault)
                     ? normalizeFrRatios(frTracks!.map(t => parseFloat(t))).join(' ')
                     : childSpans.length > 0
@@ -4653,7 +4733,11 @@ ${indent}</group>`;
                 }
             }
 
-            return `${indent}<group ${wrapperAttrs.join(' ')}>\n${rowXmls.join('\n')}\n${indent}</group>`;
+            // The out-of-flow children ride on the wrapper, not inside a track. The wrapper
+            // carries the container's position/border/background, so an `absolute` separator
+            // still positions against the same box it did in the source.
+            const wrapperChildren = [...rowXmls, ...outOfFlowXml];
+            return `${indent}<group ${wrapperAttrs.join(' ')}>\n${wrapperChildren.join('\n')}\n${indent}</group>`;
         }
 
         return `${indent}<group ${attrs.join(' ')}>${'\n'}${children.join('\n')}${'\n'}${indent}</group>`;
@@ -5172,6 +5256,42 @@ function addContainerAttrs(styles: ParsedStyles, attrs: string[]): void {
         // fills the MISSING axis from the engine's port default (height defaults to
         // 100%), so a width-only container becomes full-parent-height and centers its
         // children with huge gaps. Use the per-axis mode so the unset axis hugs content.
+        //
+        // ─── BUT THE TWO AXES ARE NOT SYMMETRIC IN CSS ──────────────────────────
+        // (2026-08-10, export 1786410845480, user: "it sets the width to explicit height
+        // instead of width based")
+        //
+        //     <div id="ControlDeck" class="flex flex-col" style="height:288px">   ← no width
+        //
+        // came out `sizeMode="contentWidth"` — a full-bleed bottom control deck that hugs
+        // its content instead of spanning the screen. In CSS an unset CROSS size plus the
+        // default `align-items: stretch` FILLS the parent, which is why the same markup is
+        // correct in a browser. Only the MAIN axis is content-sized when unset.
+        //
+        //   • width authored, height absent  → `height: auto` = content height. contentHeight
+        //     is right, in either direction.
+        //   • height authored, width absent  → in a COLUMN parent CSS stretches the width;
+        //     only in a ROW parent (where width is the main axis) is it content-sized.
+        //
+        // XGENIA's Group.alignItems enum has no `stretch`, so the stretch cannot be expressed
+        // by aligning — it has to become an explicit width="100%".
+        //
+        // ─── WHY THAT CORRECTION IS NOT MADE HERE ───────────────────────────────
+        // It needs the PARENT's flex-direction, and `addContainerAttrs(styles, attrs)` has no
+        // parent context — `styles` describes this element alone. So the correction lives
+        // downstream in the plugin's `fixPerAxisSizeMode` (HTMLUICreationTool.ts), which walks
+        // a tag stack and therefore knows what each node is nested in.
+        //
+        // THE TRAP, and the reason this comment is long: that function keys on
+        // `sizeMode="explicit"`, because when it was written THIS branch emitted `explicit`
+        // and it did the per-axis split itself. Teaching this line to emit the per-axis mode
+        // directly silently switched the downstream correction off, and export 1786410845480
+        // came back with a full-bleed control deck hugging its content. It now normalises
+        // `contentWidth`-with-no-width back to `explicit` before applying the rule, so the two
+        // layers agree again.
+        //
+        // If you change what this line emits, change `fixPerAxisSizeMode` in the same commit —
+        // or thread parent direction into this function and move the whole rule here.
         attrs.push(styles.width ? 'sizeMode="contentHeight"' : 'sizeMode="contentWidth"');
     }
     // Native commonUIParams (dimension constraints)
@@ -5575,7 +5695,24 @@ function createButtonNode(
         attrs.push(`iconIconSource='${iconSourceObj}'`);
         attrs.push(`iconPlacement="${iconInfo.placement}"`);
         attrs.push(`iconSize="${iconInfo.iconSize}"`);
-        if (iconInfo.iconColor) attrs.push(`iconColor="${iconInfo.iconColor}"`);
+        if (iconInfo.iconColor) {
+            attrs.push(`iconColor="${iconInfo.iconColor}"`);
+        } else if (styles.color) {
+            // INHERIT THE BUTTON'S TEXT COLOUR. (2026-08-11, export 1786483119240) A real page put a
+            // Material icon inside `<button class="text-primary …">`. The button resolved its
+            // own colour correctly — `color: "#bc0100"` — and then emitted no `iconColor` at
+            // all, so the port DEFAULT applied and the graph came out:
+            //
+            //     "color": "#bc0100",  "iconColor": "#FFFFFF"
+            //
+            // A white glyph on a white pill: the search and score icons were simply not there.
+            // In CSS the icon inherits `color` from the button, which is why the source looks
+            // right in a browser.
+            //
+            // The vertical icon+text path above ALREADY does this. This branch — the ordinary
+            // horizontal button, which is most of them — was the one missing it.
+            attrs.push(`iconColor="${styles.color}"`);
+        }
     }
 
     // (export 1784496045678) A button with NO text and NO icon used to emit neither

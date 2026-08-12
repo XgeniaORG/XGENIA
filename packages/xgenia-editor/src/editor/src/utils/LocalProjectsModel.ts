@@ -62,6 +62,28 @@ export class LocalProjectsModel extends Model {
     name: 'recently_opened_project'
   });
 
+  /**
+   * How much of a project's thumbnail we are willing to keep in this file.
+   *
+   * 2026-08-12. `recently_opened_project.json` is a settings file, and it was
+   * holding a full-resolution PNG data URL per project, forever. Measured on
+   * real profiles: 7.7MB across 21 entries packaged, and **120MB across 272
+   * entries** in dev — 99.9% and 100% `thumbURI` respectively. electron-store is
+   * backed by `conf`, which has no cache: `get store()` is a bare `readFileSync`,
+   * so a single `set()` is a full read + parse + stringify + atomic whole-file
+   * write, synchronously, on the renderer's main thread. Driven by a 20-second
+   * thumbnail interval, that is a multi-second freeze three times a minute.
+   *
+   * A thumbnail bigger than this is dropped rather than stored. The list falls
+   * back to a placeholder, which is enormously better than freezing the editor.
+   * The durable fix is to write thumbnails to `userData/thumbs/<id>.png` and keep
+   * a path here; this cap is what stops the file growing in the meantime.
+   */
+  private static readonly MAX_THUMB_BYTES = 96 * 1024;
+
+  /** Whether `projectEntries` differs from what is on disk. */
+  private dirty = false;
+
   async fetch() {
     // Fetch projects from local storage and verify project folders
     const folders = (this.recentProjectsStore.get('recentProjects') || []) as ProjectItem[];
@@ -72,6 +94,7 @@ export class LocalProjectsModel extends Model {
 
     if (!this.projectEntries || (this.projectEntries && !isEqual(this.projectEntries, existingFolders))) {
       this.projectEntries = existingFolders;
+      this.markDirty();
       this.store();
 
       this.notifyListeners('myProjectsChanged');
@@ -81,7 +104,24 @@ export class LocalProjectsModel extends Model {
   // Store model to local storage
   store() {
     if (!this.projectEntries) return; // Don't store if projects are not loaded
+
+    // Every write is a full read + parse + stringify + atomic rewrite of the
+    // whole file (see MAX_THUMB_BYTES). Callers fire this from event handlers
+    // that often change nothing, so the cheapest correct thing is not to write.
+    if (!this.dirty) return;
+    this.dirty = false;
+
     this.recentProjectsStore.set('recentProjects', this.projectEntries);
+  }
+
+  /** Mark the entries as needing a write. Anything that mutates them must call this. */
+  private markDirty() {
+    this.dirty = true;
+  }
+
+  /** A thumbnail small enough to belong in a settings file, or none at all. */
+  private static cappedThumb(uri: string | undefined): string {
+    return uri && uri.length <= LocalProjectsModel.MAX_THUMB_BYTES ? uri : '';
   }
 
   containsProjectWithId(id) {
@@ -100,6 +140,7 @@ export class LocalProjectsModel extends Model {
   // Update latests accessed time for project
   touchProject(projectEntry: ProjectItem) {
     projectEntry.latestAccessed = Date.now();
+    this.markDirty();
     this.store();
     this.notifyListeners('myProjectsChanged');
   }
@@ -148,7 +189,16 @@ export class LocalProjectsModel extends Model {
         'thumbnailChanged',
         () => {
           const projectdir = this.getProjectEntryWithId(project.id);
-          if (projectdir) projectdir.thumbURI = project.getThumbnailURI();
+          // `this.store()` used to sit OUTSIDE this guard, so a thumbnail change
+          // for a project that has no entry here still rewrote the whole file.
+          if (!projectdir) return;
+
+          // Oversized thumbnails are what turned this settings file into 120MB.
+          const thumb = LocalProjectsModel.cappedThumb(project.getThumbnailURI());
+
+          if (projectdir.thumbURI === thumb) return; // nothing changed; don't rewrite
+          projectdir.thumbURI = thumb;
+          this.markDirty();
           this.store();
         },
         this
@@ -160,6 +210,7 @@ export class LocalProjectsModel extends Model {
     if (!projectEntry) return;
 
     projectEntry.name = name;
+    this.markDirty();
     this.store();
     this.notifyListeners('myProjectsChanged');
   }
@@ -175,13 +226,14 @@ export class LocalProjectsModel extends Model {
       latestAccessed: Date.now(),
       id: id, // Generate a new project id (will be used internally to store project specific local settings)
       name: project.name ? project.name : 'Untitled',
-      thumbURI: project.getThumbnailURI()
+      thumbURI: LocalProjectsModel.cappedThumb(project.getThumbnailURI())
     });
     project.id = id;
 
     // Store the project model
     this.bindProject(project);
 
+    this.markDirty();
     this.store();
     this.notifyListeners('myProjectsChanged');
   }
@@ -190,6 +242,7 @@ export class LocalProjectsModel extends Model {
     const idx = this.projectEntries.findIndex((p) => p.id === projectId);
     if (idx !== -1) {
       this.projectEntries.splice(idx, 1);
+      this.markDirty();
       this.store();
       this.notifyListeners('myProjectsChanged');
     }

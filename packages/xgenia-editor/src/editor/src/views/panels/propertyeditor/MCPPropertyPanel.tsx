@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 
 import { Icon, IconName, IconSize } from '@xgenia-core-ui/components/common/Icon';
 
@@ -253,63 +253,54 @@ export function MCPPropertyPanel({ model, onUpdated }: MCPPropertyPanelProps) {
     }
   };
 
+  // What is on screen, readable from the poll below without the poll having to
+  // DEPEND on it — a dependency there restarts the interval on every result.
+  const lastExecutionRef = useRef<ExecutionResult | null>(null);
+  lastExecutionRef.current = lastExecution;
+
   // Monitor external executions (e.g., from button triggers)
   useEffect(() => {
     if (!model) return;
 
     const checkForExternalExecution = () => {
       const internal = model._internal || {};
-      const lastExecution = internal.lastExecution;
-      const isExecuting = internal.isExecuting || false;
+      const executedAt = internal.lastExecution;
 
-      // Update node execution state
-      setNodeExecuting(isExecuting);
+      // Update node execution state. Same boolean on most ticks, which React
+      // bails out of without re-rendering.
+      setNodeExecuting(internal.isExecuting || false);
 
-      // If we have a new execution result, update the display
-      if (lastExecution && (!lastExecution || lastExecution > (lastExecution?.timestamp || 0))) {
-        const executionResult: ExecutionResult = {
-          success: internal.lastError === null,
-          result: internal.lastResult,
-          error: internal.lastError,
-          timestamp: lastExecution
-        };
-        setLastExecution(executionResult);
-      }
+      // Only when the node has actually run since whatever is displayed.
+      //
+      // 2026-08-12 perf audit. The old test was
+      //   `lastExecution && (!lastExecution || lastExecution > (lastExecution?.timestamp || 0))`
+      // against a LOCAL `lastExecution` that shadowed the state of the same name.
+      // `x && !x` is never true, so the middle clause was dead, and the last
+      // compared a timestamp NUMBER against a property of itself — `undefined`,
+      // so `|| 0`, so the whole thing reduced to "has this node ever run". It
+      // therefore built a fresh ExecutionResult object ten times a second, and
+      // since `lastExecution` was in this effect's dependency list, each one also
+      // tore down and rebuilt the interval. A 10Hz re-render loop for as long as
+      // an MCP node was selected, displaying a result that never changed.
+      if (!executedAt || executedAt === lastExecutionRef.current?.timestamp) return;
+
+      setLastExecution({
+        success: internal.lastError === null,
+        result: internal.lastResult,
+        error: internal.lastError,
+        timestamp: executedAt
+      });
     };
 
-    // Check immediately
+    // Check immediately, then poll. This also covers a result that already
+    // existed when the panel opened, which used to need a second interval of its
+    // own running the same check at 500ms.
     checkForExternalExecution();
 
-    // Set up interval to check for external executions
-    const interval = setInterval(checkForExternalExecution, 100);
+    const interval = setInterval(checkForExternalExecution, 250);
 
     return () => clearInterval(interval);
-  }, [model, lastExecution]);
-
-  // Check for existing execution results when component mounts
-  useEffect(() => {
-    if (!model) return;
-
-    // Check if there are already execution results available
-    const checkExistingResults = () => {
-      const internal = model._internal || {};
-      if (internal.lastExecution && !lastExecution) {
-        const executionResult: ExecutionResult = {
-          success: internal.lastError === null,
-          result: internal.lastResult,
-          error: internal.lastError,
-          timestamp: internal.lastExecution
-        };
-        setLastExecution(executionResult);
-        console.log('[MCP Property Panel] Found existing execution results:', executionResult);
-      }
-    };
-
-    // Check immediately and then periodically
-    checkExistingResults();
-    const interval = setInterval(checkExistingResults, 500);
-    return () => clearInterval(interval);
-  }, [model, lastExecution]);
+  }, [model]);
 
   if (!tool) {
     return (

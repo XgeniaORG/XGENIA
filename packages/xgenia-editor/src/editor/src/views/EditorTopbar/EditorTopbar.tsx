@@ -103,7 +103,6 @@ export function EditorTopbar({
   const [isRouteListVisible, setIsRouteListVisible] = useState(false);
   const currentScreenSize = getScreenSizeObjectFromMeasurements(previewSize.width, previewSize.height);
   const [routeTextInputValue, setRouteTextInputValue] = useState('');
-  const [glowIntensity, setGlowIntensity] = useState(0);
   const [isLeftPanelVisible, setIsLeftPanelVisible] = useState(true);
 
   // Right panel tab state — only visible when an AI node is selected
@@ -188,6 +187,9 @@ export function EditorTopbar({
     setRouteTextInputValue(routeWithoutQuery);
   }, [navigationState?.route]);
 
+  // Mounted once. Without the dependency array this tore down and rebuilt the
+  // WarningsModel subscription after EVERY render of the topbar, which is the
+  // most-rendered component in the editor.
   useEffect(() => {
     const eventGroup = {};
     WarningsModel.instance.on('warningsChanged', () => triggerRerender(), eventGroup);
@@ -195,20 +197,13 @@ export function EditorTopbar({
     return () => {
       WarningsModel.instance.off(eventGroup);
     };
-  });
-
-  useEffect(() => {
-    const animateGlow = () => {
-      setGlowIntensity((prev) => {
-        const next = prev + 0.005;
-        if (next > 0.4) return 0.2;
-        return next;
-      });
-    };
-
-    const interval = setInterval(animateGlow, 60);
-    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 2026-08-12 perf audit: a `glowIntensity` state was advanced by a 60ms
+  // interval — ~17 re-renders per second of the always-mounted topbar, forever —
+  // and the value was never read anywhere in this file. Deleted outright rather
+  // than throttled: there is no glow to animate.
 
   function showWarnings(e) {
     setIsWarningsDialogVisible(true);

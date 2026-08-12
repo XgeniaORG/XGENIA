@@ -33,41 +33,111 @@ export function isTooLargeToSerialize(value: unknown, maxStringLen = 20000): boo
   return typeof value === 'string' && value.length > maxStringLen;
 }
 
+/** Unit metadata off the port's declared type, when the caller has it. */
+export interface PortUnitInfo {
+  /** `type.units` — the engine's OWN discriminator for a unit-bearing port. */
+  units?: string[];
+  /** `type.defaultUnit` — what a value with no unit means on THIS port. */
+  defaultUnit?: string;
+}
+
+/** The engine's dimension defaultUnit when the port metadata never reached us. */
+const DIMENSION_FALLBACK_UNIT = '%';
+
 /**
- * Flatten an editor-model `{value, unit}` dimension wrap to what the runtime
- * actually sees, WITHOUT losing the unit.
+ * Pull the unit metadata off a live editor port descriptor.
  *
- * Traces 1784010250453 / 1784051747260 (the "width: 100" phantom): collapsing
- * every {value, unit} to the bare number made {value:100, unit:'%'},
- * {value:100, unit:'vw'} and {value:100, unit:'px'} all read back as 100. The
- * AI-side unit doctrine says a bare Group dimension is PIXELS, so the AI
- * mis-read healthy responsive dims as 100px, "fixed" them to "100%", read back
- * 100 again, and looped on phantom "my width isn't persisting" bugs.
- *
- * Rules (unit set MUST stay identical to the xgenia-ai twin
- * preserveDimensionUnit in StreamlinedToolRegistry/utils/coerce-dim.ts — see
- * regression-lock/unwrap-value-unit.test.ts, which locks both):
- *   - object/array-typed ports → return the wrap untouched ({value, unit}
- *     could be a genuine user value there, not dimension storage)
- *   - responsive units (%, vh, vw, em, rem) → joined CSS string ("100vw") —
- *     the runtime-effective value on HTML dimension ports. "100%" does NOT
- *     trip verify_logic_correctness CHECK 24 (malformed_dimension_param); that
- *     check flags only the raw {value, unit} OBJECT form.
- *   - px / unitless / exotic units (deg, vmin, …) → bare number. Exotic units
- *     stay numeric on purpose: operation-verification's string parser only
- *     knows px|%|em|rem|vw|vh, so a "45deg" readback would mis-compare and
- *     spawn new VERIFICATION_FAILEDs.
- *   - non-numeric value / anything that isn't a {value, unit} wrap → unchanged
+ * The engine's own discriminator is `input.type.units` (react-component-node.js
+ * defineRegularInputProp), so read it from the same place rather than guessing
+ * from the type NAME — `minWidth` is declared `{ name:'number', units:[…],
+ * defaultUnit:'%' }` while a pixi `width` is declared `type:'number'` with no
+ * units at all. Keying on the name would put both in the same bucket.
  */
-export function unwrapValueUnit(val: any, portType: string): any {
+export function portUnitInfo(port: any): PortUnitInfo | undefined {
+  const t = port?.type;
+  if (!t || typeof t !== 'object') return undefined;
+  const units = Array.isArray(t.units) ? t.units : undefined;
+  const defaultUnit = typeof t.defaultUnit === 'string' ? t.defaultUnit : undefined;
+  if (!units && !defaultUnit) return undefined;
+  return { units, defaultUnit };
+}
+
+/**
+ * True when this port stores a `{value, unit}` dimension — i.e. when the runtime
+ * takes the `input.type.units` branch of defineRegularInputProp.
+ */
+function isUnitPort(portType: string, info?: PortUnitInfo): boolean {
+  if (portType === 'object' || portType === 'array') return false;
+  if (info && Array.isArray(info.units) && info.units.length > 0) return true;
+  if (info && typeof info.defaultUnit === 'string' && info.defaultUnit) return true;
+  // `dimension` is only ever declared WITH units, so the name alone is proof.
+  return portType === 'dimension';
+}
+
+/**
+ * Render an editor-model dimension as the AI must see it: ALWAYS carrying its unit.
+ *
+ * WHY (debug export 1786550989048, the "100% / 90px" trace). One get_app_xml
+ * document emitted four encodings of the same port family — `100%`, `90px`,
+ * `480` (pixels) and `100` (percent). `480` and `100` are the same token with
+ * opposite meanings, so the AI could not tell a 480px frame from a 100% one, and
+ * a pure read→write round-trip silently converted a 100%-wide Text into a
+ * 100px-wide one.
+ *
+ * Two producers put bare numbers in front of the AI, and this function was one:
+ *   1. the px branch below collapsed {value:480, unit:'px'} to 480;
+ *   2. an UNSET port reads back as its raw declared default — `100` — with the
+ *      defaultUnit still sitting in the port TYPE, never applied to the value.
+ *
+ * ENGINE TRUTH — node-shared-port-definitions.js addDimensions (~line 598):
+ *     width: { type: { name:'dimension', units:['%','px','vw','vh'],
+ *                      defaultUnit:'%' }, default: 100 }
+ * and react-component-node.js:358 (defineRegularInputProp):
+ *     if (input.type.units) { … props[name] = value.value + value.unit;
+ *                             else delete props[name] }
+ * So on a unit-bearing port `{value, unit}` is the ONLY shape the runtime can
+ * apply, the declared default `100` carries defaultUnit `'%'`, and a bare number
+ * means neither px nor % — it DELETES the prop.
+ *
+ * Rules (kept identical to the xgenia-ai twin preserveDimensionUnit in
+ * StreamlinedToolRegistry/utils/coerce-dim.ts — regression-lock/
+ * dimension-default-unit.test.ts locks both):
+ *   - object/array-typed ports → untouched ({value, unit} could be a genuine
+ *     user value there, not dimension storage)
+ *   - UNIT-BEARING ports (type.units present, or type name `dimension`):
+ *       {value, unit} → joined CSS string, px included ("480px", "100%")
+ *       bare finite number → joined with the port's defaultUnit ("100%")
+ *     Never a bare number. That is the whole invariant.
+ *   - ports with NO units (pixi.* `type:'number'`, plain numbers) → legacy
+ *     behaviour: unwrap a stray {value, unit} to the bare number PIXI needs.
+ *   - non-numeric value / anything that isn't a dimension → unchanged
+ *
+ * The joined string does not trip verify_logic_correctness CHECK 24
+ * (malformed_dimension_param); that check flags the raw {value, unit} OBJECT.
+ */
+export function unwrapValueUnit(val: any, portType: string, info?: PortUnitInfo): any {
+  const unitPort = isUnitPort(portType, info);
+
   if (val && typeof val === 'object' && !Array.isArray(val) &&
       val.value !== undefined && val.unit !== undefined) {
     if (portType === 'object' || portType === 'array') return val;
     const num = typeof val.value === 'number' ? val.value : parseFloat(String(val.value));
     if (!isFinite(num)) return val; // garbage in → keep as-is
     const unit = String(val.unit || '').trim();
+    if (unitPort) return unit ? `${num}${unit}` : `${num}${info?.defaultUnit || DIMENSION_FALLBACK_UNIT}`;
+    // Non-unit port (pixi number): keep the historical unwrap. Responsive units
+    // still join, because a "%"-carrying value on a number port is a bug the AI
+    // must be able to SEE rather than a pixel count.
     const responsive = unit === '%' || unit === 'vh' || unit === 'vw' || unit === 'em' || unit === 'rem';
     return responsive ? `${num}${unit}` : num;
   }
+
+  // A BARE value on a unit-bearing port: this is the port default (or a legacy
+  // un-normalised write). Resolve it against the port's defaultUnit so the AI
+  // never receives a number whose unit it has to guess.
+  if (unitPort && typeof val === 'number' && isFinite(val)) {
+    return `${val}${info?.defaultUnit || DIMENSION_FALLBACK_UNIT}`;
+  }
+
   return val;
 }
