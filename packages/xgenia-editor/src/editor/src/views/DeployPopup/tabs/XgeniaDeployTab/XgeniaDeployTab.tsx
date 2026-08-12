@@ -630,16 +630,24 @@ export function XgeniaDeployTab() {
   const [vercelToken, setVercelToken] = useState<string | null>(null);
   const [githubToken, setGithubToken] = useState<string | null>(null);
   const [tokensLoaded, setTokensLoaded] = useState(false);
+  // Why the shared deploy tokens are missing, when they are. Held so every entry
+  // point can say the actual reason ("not connected to XGENIA RGS") instead of
+  // failing later on a null token — which is what produced the two useless
+  // errors this replaced: "Project compilation error" on publish, and
+  // "Cannot read properties of null (reading 'projects')" on delete.
+  const [tokenError, setTokenError] = useState<string>('');
 
   // Load tokens from ConnectionStore on mount
   useEffect(() => {
     const loadTokens = async () => {
       const store = ConnectionStore.getInstance();
       await store.initialize();
-      // Ensure the shared deploy tokens from the RGS DB are installed on
-      // window.__XGENIA_DEFAULT_TOKENS__ before we read them (idempotent — the
-      // network request is shared with the startup warm-call in index.ts).
-      await loadSharedDeployTokens();
+      // Ensure the shared deploy tokens from RGS are installed on
+      // window.__XGENIA_DEFAULT_TOKENS__ before we read them (idempotent on
+      // success; a failure is retried on the next open, since the usual cause is
+      // an operator key the user can connect without restarting the editor).
+      const shared = await loadSharedDeployTokens();
+      setTokenError(shared.ok ? '' : shared.message);
       const vToken = await store.getToken('vercel');
       const gToken = await store.getToken('github');
       setVercelToken(vToken);
@@ -705,6 +713,29 @@ export function XgeniaDeployTab() {
   const vercel = vercelToken ? new VercelSDKWrapper({
     bearerToken: vercelToken,
   }) : null;
+
+  /**
+   * Are the deploy credentials actually here?
+   *
+   * `vercel` is null whenever the Vercel token is missing, and every call below
+   * is `vercel.<something>` — so without this check the first one throws
+   * "Cannot read properties of null (reading 'projects')" at the user, naming
+   * nothing they can act on. Publishing fails just as opaquely on the GitHub
+   * side, as GENERIC_DEPLOY_ERROR ("Project compilation error") thrown out of
+   * uploadToGitHub, which is not a compilation error and never was.
+   *
+   * Both really mean one thing: the shared tokens did not load. Say that, with
+   * the reason loadSharedDeployTokens gave.
+   *
+   * @returns an error message, or '' when the credentials are present.
+   */
+  function deployCredentialError(): string {
+    if (!tokensLoaded) return 'Still loading deploy credentials — try again in a moment.';
+    if (vercelToken && githubToken) return '';
+    if (tokenError) return tokenError;
+    const missing = [!vercelToken && 'Vercel', !githubToken && 'GitHub'].filter(Boolean).join(' and ');
+    return `No ${missing} deploy token is available, so this cannot run.`;
+  }
 
   // Validate domain name
   function validateDomain(domain: string): boolean {
@@ -1501,6 +1532,16 @@ export function XgeniaDeployTab() {
   // rather than pulling the logic out from under a frontend that is still live.
   async function deleteDomain(domain: DeployedDomain) {
     const { id: domainId, name: domainName } = domain;
+
+    // Without a Vercel token there is no client to call, and the record must stay
+    // listed: dropping it here would strand a live project with nothing pointing
+    // at it, which is the same reason a failed Vercel delete keeps the record.
+    const credentialError = deployCredentialError();
+    if (credentialError) {
+      ToastLayer.showError(`Cannot delete ${domainName}.vercel.app. ${credentialError}`);
+      return;
+    }
+
     setDeletingDomains(prev => new Set([...prev, domainId]));
 
     try {
@@ -1733,6 +1774,16 @@ export function XgeniaDeployTab() {
 
     if (!validateDomain(domainName.trim())) {
       ToastLayer.showError('Domain must contain only lowercase letters, numbers, and hyphens');
+      return;
+    }
+
+    // Before any heavy work: a missing token cannot be recovered from mid-publish,
+    // and failing here costs the user nothing. Failing later costs a compile, an
+    // RGS deploy and a repo — and reports it as "Project compilation error".
+    const credentialError = deployCredentialError();
+    if (credentialError) {
+      setDomainError(credentialError);
+      ToastLayer.showError(credentialError);
       return;
     }
 
