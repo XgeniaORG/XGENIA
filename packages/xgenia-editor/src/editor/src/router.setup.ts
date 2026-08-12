@@ -6,7 +6,6 @@ import { SidebarModel } from '@xgenia-models/sidebar';
 
 import { IconName } from '@xgenia-core-ui/components/common/Icon';
 
-import config from '../../shared/config/config';
 import { ComponentDiffDocumentProvider } from './views/documents/ComponentDiffDocument';
 import { EditorDocumentProvider } from './views/documents/EditorDocument';
 import { MathsComponentDocumentProvider } from './views/documents/MathsComponentDocument';
@@ -45,17 +44,14 @@ if (AI_LOAD_STRATEGY === 'iframe') {
 // import { CloudServicePanel } from './views/panels/CloudServicePanel/CloudServicePanel';
 import { ComponentPortsComponent } from './views/panels/componentports';
 import { ComponentsPanel } from './views/panels/componentspanel';
-import { DesignTokenPanel } from './views/panels/DesignTokenPanel/DesignTokenPanel';
 import { EditorSettingsPanel } from './views/panels/EditorSettingsPanel/EditorSettingsPanel';
 import { FeedbackPanel, FeedbackPanel_ID } from './views/panels/FeedbackPanel';
-import { FileExplorerPanel } from './views/panels/FileExplorerPanel';
 import MemoryPanel from './views/panels/MemoryPanel/MemoryPanel';
 import { NodeReferencesPanel_ID } from './views/panels/NodeReferencesPanel';
 import { NodeReferencesPanel } from './views/panels/NodeReferencesPanel/NodeReferencesPanel';
 import { ProjectSettingsPanel } from './views/panels/ProjectSettingsPanel/ProjectSettingsPanel';
 import { PropertyEditor } from './views/panels/propertyeditor';
 import { SearchPanel } from './views/panels/search-panel/search-panel';
-import { UndoQueuePanel } from './views/panels/UndoQueuePanel/UndoQueuePanel';
 import { VersionControlPanel_ID } from './views/panels/VersionControlPanel';
 import { VersionControlPanel } from './views/panels/VersionControlPanel/VersionControlPanel';
 import { ImageEditorPanel } from './views/panels/ImageEditorPanel';
@@ -263,34 +259,20 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     panel: ProjectSettingsPanel
   });
 
-  if (config.devMode) {
-    SidebarModel.instance.register({
-      experimental: true,
-      id: 'file-explorer',
-      name: 'File Explorer',
-      order: 19,
-      icon: IconName.FolderOpen,
-      panel: FileExplorerPanel
-    });
-
-    SidebarModel.instance.register({
-      experimental: true,
-      id: 'design-tokens',
-      name: 'Design Tokens',
-      order: 20,
-      icon: IconName.Palette,
-      panel: DesignTokenPanel
-    });
-
-    SidebarModel.instance.register({
-      experimental: true,
-      id: 'undo-queue',
-      name: 'Undo Queue',
-      order: 21,
-      icon: IconName.Reset,
-      panel: UndoQueuePanel
-    });
-  }
+  // Removed (2026-08-12): the three `config.devMode` experimental panels —
+  // File Explorer, Design Tokens and Undo Queue. All three were unfinished
+  // mockups rather than features: File Explorer rendered the literal string
+  // "Files"; Design Tokens listed colours read-only behind a placeholder
+  // context menu ("Another Action" / "Success" / "Danger") and dumped
+  // `JSON.stringify(textStyle)` for typography; Undo Queue rendered history
+  // entries as buttons with no onClick and never marked the current position.
+  //
+  // They were `devMode`-only (config-dev.js, loaded by dev-main.js), so they
+  // never appeared in packaged builds and nothing outside these registrations
+  // referenced them. The shared infrastructure they leaned on is untouched and
+  // still used elsewhere: UndoQueue/UndoActionGroup (@xgenia-models/undo-queue-model)
+  // back the editor's real undo, and ProjectDesignTokenContext is still
+  // provided by EditorPage.
 
   SidebarModel.instance.register({
     experimental: true,

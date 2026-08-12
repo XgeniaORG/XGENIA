@@ -28,12 +28,6 @@ import Brain01Icon from '@hugeicons/core-free-icons/Brain01Icon';
 // @ts-ignore
 import Telescope01Icon from '@hugeicons/core-free-icons/Telescope01Icon';
 // @ts-ignore
-import Folder01Icon from '@hugeicons/core-free-icons/Folder01Icon';
-// @ts-ignore
-import PaintBoardIcon from '@hugeicons/core-free-icons/PaintBoardIcon';
-// @ts-ignore
-import ArrowTurnBackwardIcon from '@hugeicons/core-free-icons/ArrowTurnBackwardIcon';
-// @ts-ignore
 import Link01Icon from '@hugeicons/core-free-icons/Link01Icon';
 // @ts-ignore
 import Comment01Icon from '@hugeicons/core-free-icons/Comment01Icon';
@@ -86,11 +80,8 @@ export const SideCloudFunctions = makeIcon(FlashIcon, 'SideCloudFunctions');
 export const SideSettings = makeIcon(Folder02Icon, 'SideSettings');
 export const SideChatPanel = makeIcon(Brain01Icon, 'SideChatPanel');
 export const SideAiPanel = makeIcon(Telescope01Icon, 'SideAiPanel');
-export const SideFileExplorer = makeIcon(Folder01Icon, 'SideFileExplorer');
-export const SideDesignTokens = makeIcon(PaintBoardIcon, 'SideDesignTokens');
 export const SideProjectStyles = makeIcon(PaintBrush01Icon, 'SideProjectStyles');
 
-export const SideUndoQueue = makeIcon(ArrowTurnBackwardIcon, 'SideUndoQueue');
 export const SideNodeReferences = makeIcon(Link01Icon, 'SideNodeReferences');
 export const SideFeedback = makeIcon(Comment01Icon, 'SideFeedback');
 export const SideImageEditor = makeIcon(Image01Icon, 'SideImageEditor');

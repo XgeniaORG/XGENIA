@@ -1,6 +1,4 @@
-import React, { useState } from 'react';
-
-import { ProjectModel } from '@xgenia-models/projectmodel';
+import React from 'react';
 
 import { Box } from '@xgenia-core-ui/components/layout/Box';
 import { PropertyPanelCheckbox } from '@xgenia-core-ui/components/property-panel/PropertyPanelCheckbox';
@@ -10,25 +8,12 @@ import { CollapsableSection } from '@xgenia-core-ui/components/sidebar/Collapsab
 import { ExperimentalFlag, ExperimentalFlagVariant } from '@xgenia-core-ui/components/sidebar/ExperimentalFlag';
 import { Text } from '@xgenia-core-ui/components/typography/Text';
 
+import { useProjectSetting } from '../useProjectSetting';
+
 export function DeploySection() {
-  const [enabledDeployDate, setEnabledDeployDate] = useState(!!ProjectModel.instance.settings['deployEnvDate']);
-  const [enabledGitStats, setEnabledGitStats] = useState(!!ProjectModel.instance.settings['deployEnvGitStats']);
-  const [baseUrl, setBaseUrl] = useState<string>(ProjectModel.instance.settings['baseUrl']);
-
-  function handleBaseUrl(value: string) {
-    setBaseUrl(value);
-    ProjectModel.instance.setSetting('baseUrl', value);
-  }
-
-  function handleEnableDeployDate(value: boolean) {
-    setEnabledDeployDate(value);
-    ProjectModel.instance.setSetting('deployEnvDate', value);
-  }
-
-  function handleEnableGitStats(value: boolean) {
-    setEnabledGitStats(value);
-    ProjectModel.instance.setSetting('deployEnvGitStats', value);
-  }
+  const [baseUrl, setBaseUrl] = useProjectSetting('baseUrl', '');
+  const [enabledDeployDate, setEnabledDeployDate] = useProjectSetting('deployEnvDate', false);
+  const [enabledGitStats, setEnabledGitStats] = useProjectSetting('deployEnvGitStats', false);
 
   return (
     <CollapsableSection title="Experimental features - Deploy Settings" hasGutter hasVisibleOverflow isClosed>
@@ -40,13 +25,13 @@ export function DeploySection() {
         <Text>The Base Url.</Text>
       </Box>
       <PropertyPanelRow label="Custom Base Url">
-        <PropertyPanelTextInput value={baseUrl} onChange={handleBaseUrl} />
+        <PropertyPanelTextInput value={baseUrl} onChange={setBaseUrl} />
       </PropertyPanelRow>
       <PropertyPanelRow label="Deploy Date">
-        <PropertyPanelCheckbox value={enabledDeployDate} onChange={handleEnableDeployDate} />
+        <PropertyPanelCheckbox value={enabledDeployDate} onChange={setEnabledDeployDate} />
       </PropertyPanelRow>
       <PropertyPanelRow label="Git Stats">
-        <PropertyPanelCheckbox value={enabledGitStats} onChange={handleEnableGitStats} />
+        <PropertyPanelCheckbox value={enabledGitStats} onChange={setEnabledGitStats} />
       </PropertyPanelRow>
     </CollapsableSection>
   );

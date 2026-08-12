@@ -12,16 +12,13 @@ import { CollapsableSection } from '@xgenia-core-ui/components/sidebar/Collapsab
 import { ExperimentalFlag, ExperimentalFlagVariant } from '@xgenia-core-ui/components/sidebar/ExperimentalFlag';
 import { Text, TextSize } from '@xgenia-core-ui/components/typography/Text';
 
-import { AIProviderSection } from './sections/AIProviderSection';
-import { XMLCreationSection } from './sections/XMLCreationSection';
-
 export function EditorSettingsPanel() {
   // @ts-expect-error Model is yeah, not great!
   useModel(EditorSettings.instance, ['updated']);
 
   const experimentalPanels = SidebarModel.instance.getExperimentalItems();
 
-  const experimentalFeautures = [
+  const experimentalFeatures = [
     {
       id: 'nodeGraphEditor.snapToGrid',
       settingsKey: 'nodeGraphEditor.snapToGrid',
@@ -33,36 +30,36 @@ export function EditorSettingsPanel() {
 
   return (
     <BasePanel title="Editor Settings" hasContentScroll>
+      {/* Only the panel list depends on there being experimental panels registered.
+          The feature toggles below are independent — they used to share this guard,
+          which meant unregistering the last experimental panel silently hid them. */}
       {Boolean(experimentalPanels.length) && (
-        <>
-          <CollapsableSection title="Experimental panels" isClosed>
-            <ExperimentalFlag variant={ExperimentalFlagVariant.Small} />
-            <Box hasXSpacing hasTopSpacing={1} hasBottomSpacing={5}>
-              <VStack hasSpacing>
-                {experimentalPanels.map((item) => (
-                  <ExperimentalFeautureItem key={item.id} {...item} labelPrefix="Enable " />
-                ))}
-              </VStack>
-            </Box>
-          </CollapsableSection>
-          <CollapsableSection title="Experimental features" isClosed>
-            <Box hasXSpacing hasTopSpacing={1} hasBottomSpacing={5}>
-              <VStack hasSpacing>
-                {experimentalFeautures.map((item) => (
-                  <ExperimentalFeautureItem key={item.id} {...item} />
-                ))}
-              </VStack>
-            </Box>
-          </CollapsableSection>
-          {/* <AIProviderSection /> */}
-          <XMLCreationSection />
-        </>
+        <CollapsableSection title="Experimental panels" isClosed>
+          <ExperimentalFlag variant={ExperimentalFlagVariant.Small} />
+          <Box hasXSpacing hasTopSpacing={1} hasBottomSpacing={5}>
+            <VStack hasSpacing>
+              {experimentalPanels.map((item) => (
+                <ExperimentalFeatureItem key={item.id} {...item} labelPrefix="Enable " />
+              ))}
+            </VStack>
+          </Box>
+        </CollapsableSection>
       )}
+
+      <CollapsableSection title="Experimental features" isClosed>
+        <Box hasXSpacing hasTopSpacing={1} hasBottomSpacing={5}>
+          <VStack hasSpacing>
+            {experimentalFeatures.map((item) => (
+              <ExperimentalFeatureItem key={item.id} {...item} />
+            ))}
+          </VStack>
+        </Box>
+      </CollapsableSection>
     </BasePanel>
   );
 }
 
-function ExperimentalFeautureItem(item) {
+function ExperimentalFeatureItem(item) {
   return (
     <Box>
       <Checkbox

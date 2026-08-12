@@ -1,34 +1,28 @@
-import React, { useState } from 'react';
+import React from 'react';
 
-import { ProjectModel } from '@xgenia-models/projectmodel';
-
-import { Box } from '@xgenia-core-ui/components/layout/Box';
 import { PropertyPanelCheckbox } from '@xgenia-core-ui/components/property-panel/PropertyPanelCheckbox';
 import { PropertyPanelRow } from '@xgenia-core-ui/components/property-panel/PropertyPanelInput';
 import { CollapsableSection } from '@xgenia-core-ui/components/sidebar/CollapsableSection';
-import { Text } from '@xgenia-core-ui/components/typography/Text';
+
+import { useProjectSetting } from '../useProjectSetting';
 
 export function RepeaterSection() {
-  const [disabledWhenUnmounted, setDisabledWhenUnmounted] = useState(!!ProjectModel.instance.settings['repeaterDisabledWhenUnmounted']);
-  const [createComponentsAsync, setCreateComponentsAsync] = useState(!!ProjectModel.instance.settings['repeaterCreateComponentsAsync']);
-
-  function handleDisabledWhenUnmounted(value: boolean) {
-    setDisabledWhenUnmounted(value);
-    ProjectModel.instance.setSetting('repeaterDisabledWhenUnmounted', value);
-  }
-
-  function handleCreateComponentsAsync(value: boolean) {
-    setCreateComponentsAsync(value);
-    ProjectModel.instance.setSetting('repeaterCreateComponentsAsync', value);
-  }
+  const [disabledWhenUnmounted, setDisabledWhenUnmounted] = useProjectSetting(
+    'repeaterDisabledWhenUnmounted',
+    false
+  );
+  const [createComponentsAsync, setCreateComponentsAsync] = useProjectSetting(
+    'repeaterCreateComponentsAsync',
+    false
+  );
 
   return (
     <CollapsableSection title="Experimental features - Repeater" hasGutter hasVisibleOverflow hasTopDivider isClosed>
       <PropertyPanelRow label="Disable when unmounted">
-        <PropertyPanelCheckbox value={disabledWhenUnmounted} onChange={handleDisabledWhenUnmounted} />
+        <PropertyPanelCheckbox value={disabledWhenUnmounted} onChange={setDisabledWhenUnmounted} />
       </PropertyPanelRow>
       <PropertyPanelRow label="Create asynchronously">
-        <PropertyPanelCheckbox value={createComponentsAsync} onChange={handleCreateComponentsAsync} />
+        <PropertyPanelCheckbox value={createComponentsAsync} onChange={setCreateComponentsAsync} />
       </PropertyPanelRow>
     </CollapsableSection>
   );

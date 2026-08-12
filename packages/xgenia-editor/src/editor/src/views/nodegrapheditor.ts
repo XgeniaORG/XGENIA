@@ -302,38 +302,22 @@ export class NodeGraphEditor extends View {
         type: 'up'
       },
       {
-        handler: () => {
-          for (const node of this.selector.nodes) {
-            this.nudgeNode(node, node.x + SnapSpacing, node.y);
-          }
-        },
+        handler: () => this.nudgeSelectedNodes(SnapSpacing, 0),
         keybinding: KeyCode.RightArrow,
         type: 'down'
       },
       {
-        handler: () => {
-          for (const node of this.selector.nodes) {
-            this.nudgeNode(node, node.x - SnapSpacing, node.y);
-          }
-        },
+        handler: () => this.nudgeSelectedNodes(-SnapSpacing, 0),
         keybinding: KeyCode.LeftArrow,
         type: 'down'
       },
       {
-        handler: () => {
-          for (const node of this.selector.nodes) {
-            this.nudgeNode(node, node.x, node.y - SnapSpacing);
-          }
-        },
+        handler: () => this.nudgeSelectedNodes(0, -SnapSpacing),
         keybinding: KeyCode.UpArrow,
         type: 'down'
       },
       {
-        handler: () => {
-          for (const node of this.selector.nodes) {
-            this.nudgeNode(node, node.x, node.y + SnapSpacing);
-          }
-        },
+        handler: () => this.nudgeSelectedNodes(0, SnapSpacing),
         keybinding: KeyCode.DownArrow,
         type: 'down'
       }
@@ -1943,10 +1927,17 @@ export class NodeGraphEditor extends View {
     });
   }
 
+  /**
+   * Animate a node to (x, y). Purely visual — it does not touch `node.model`, so
+   * callers are responsible for persisting (see `nudgeSelectedNodes` and
+   * `commitMoveNode`).
+   *
+   * This used to bail out unless the `nodeGraphEditor.snapToGrid` experimental
+   * flag was on, which also disabled arrow-key nudging (the arrow handlers route
+   * through here) for everyone who had not opted in. The flag belongs on
+   * snapping only, so it now lives in `snapNodeToGrid` alone.
+   */
   nudgeNode(node: NodeGraphEditorNode, x: number, y: number) {
-    const enabled = EditorSettings.instance.get('nodeGraphEditor.snapToGrid');
-    if (!enabled) return;
-
     //nodes with parent's don't use their x and y coords, so just bail out
     if (node.parent || (node.x === x && node.y === y)) return;
 
@@ -1968,6 +1959,45 @@ export class NodeGraphEditor extends View {
     };
 
     requestAnimationFrame(anim);
+  }
+
+  /**
+   * Move every selected node by (dx, dy) — the arrow-key nudge.
+   *
+   * Positions are taken from and written back to `node.model`, so the move is
+   * saved and undoable. `nudgeNode` on its own only animates the editor node,
+   * which is why arrow-key moves used to be lost on reload.
+   */
+  nudgeSelectedNodes(dx: number, dy: number) {
+    if (this.readOnly) return;
+
+    // Nodes with a parent are laid out by the parent and ignore their own x/y.
+    const nodes = this.selector.nodes.filter((node) => !node.parent);
+    if (!nodes.length) return;
+
+    const moves = nodes.map((node) => {
+      const from = { x: node.model.x, y: node.model.y };
+      return { node, from, to: { x: from.x + dx, y: from.y + dy } };
+    });
+
+    const apply = (key: 'from' | 'to') => {
+      for (const move of moves) {
+        const position = move[key];
+        move.node.model.set({ x: position.x, y: position.y });
+        this.nudgeNode(move.node, position.x, position.y);
+      }
+
+      this.relayout();
+      this.repaint();
+    };
+
+    const undoGroup = new UndoActionGroup({ label: 'nudge nodes' });
+    undoGroup.pushAndDo({
+      do: () => apply('to'),
+      undo: () => apply('from')
+    });
+
+    UndoQueue.instance.push(undoGroup);
   }
 
   snapNodeToGrid(node: NodeGraphEditorNode) {

@@ -1,36 +1,19 @@
-import React, { useState } from 'react';
-
-import { ProjectModel } from '@xgenia-models/projectmodel';
+import React from 'react';
 
 import { PropertyPanelCheckbox } from '@xgenia-core-ui/components/property-panel/PropertyPanelCheckbox';
 import { PropertyPanelRow } from '@xgenia-core-ui/components/property-panel/PropertyPanelInput';
 import { CollapsableSection } from '@xgenia-core-ui/components/sidebar/CollapsableSection';
 
+import { useProjectSetting } from '../useProjectSetting';
+
 export function SitemapSection() {
-  const [enabled, setEnabled] = useState(!!ProjectModel.instance.settings['sitemap.enabled']);
-
-  function handleEnable(value: boolean) {
-    setEnabled(value);
-    ProjectModel.instance.setSetting('sitemap.enabled', value);
-  }
-
-  // function handlePreviewSitemap() {
-  //   // TODO: Show sitemap
-  // }
+  const [enabled, setEnabled] = useProjectSetting('sitemap.enabled', false);
 
   return (
     <CollapsableSection title="Experimental features - Sitemap" hasGutter hasVisibleOverflow hasTopDivider isClosed>
       <PropertyPanelRow label="Enable">
-        <PropertyPanelCheckbox value={enabled} onChange={handleEnable} />
+        <PropertyPanelCheckbox value={enabled} onChange={setEnabled} />
       </PropertyPanelRow>
-
-      {/* <PrimaryButton
-        size={PrimaryButtonSize.Small}
-        label="Preview Sitemap"
-        variant={PrimaryButtonVariant.MutedOnLowBg}
-        onClick={handlePreviewSitemap}
-        isGrowing
-      /> */}
     </CollapsableSection>
   );
 }
