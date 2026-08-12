@@ -16,7 +16,7 @@ export function DeploySection() {
   const [enabledGitStats, setEnabledGitStats] = useProjectSetting('deployEnvGitStats', false);
 
   return (
-    <CollapsableSection title="Experimental features - Deploy Settings" hasGutter hasVisibleOverflow isClosed>
+    <CollapsableSection title="Deploy" hasGutter hasVisibleOverflow isClosed>
       <ExperimentalFlag
         variant={ExperimentalFlagVariant.NoPadding}
         text="All these settings are temporary and will be moved to another place in a future version."

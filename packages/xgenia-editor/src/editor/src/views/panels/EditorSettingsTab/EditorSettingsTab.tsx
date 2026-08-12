@@ -7,12 +7,19 @@ import { EditorSettings } from '@xgenia-utils/editorsettings';
 import { Checkbox, CheckboxVariant } from '@xgenia-core-ui/components/inputs/Checkbox';
 import { Box } from '@xgenia-core-ui/components/layout/Box';
 import { VStack } from '@xgenia-core-ui/components/layout/Stack';
-import { BasePanel } from '@xgenia-core-ui/components/sidebar/BasePanel';
 import { CollapsableSection } from '@xgenia-core-ui/components/sidebar/CollapsableSection';
 import { ExperimentalFlag, ExperimentalFlagVariant } from '@xgenia-core-ui/components/sidebar/ExperimentalFlag';
+import { Section } from '@xgenia-core-ui/components/sidebar/Section';
 import { Text, TextSize } from '@xgenia-core-ui/components/typography/Text';
 
-export function EditorSettingsPanel() {
+/**
+ * Editor-scoped settings — the "Editor" tab of the Settings panel.
+ *
+ * Everything here goes to `EditorSettings`, which persists to JSONStorage under
+ * the `editorSettings` key: it is per-machine, never enters project.json and
+ * never reaches the deployed app. See ProjectSettingsTab for the other scope.
+ */
+export function EditorSettingsTab() {
   // @ts-expect-error Model is yeah, not great!
   useModel(EditorSettings.instance, ['updated']);
 
@@ -29,7 +36,11 @@ export function EditorSettingsPanel() {
   ];
 
   return (
-    <BasePanel title="Editor Settings" hasContentScroll>
+    <>
+      <Section hasGutter hasVisibleOverflow>
+        <Text size={TextSize.Medium}>Applies to this machine only — not saved in the project.</Text>
+      </Section>
+
       {/* Only the panel list depends on there being experimental panels registered.
           The feature toggles below are independent — they used to share this guard,
           which meant unregistering the last experimental panel silently hid them. */}
@@ -55,7 +66,7 @@ export function EditorSettingsPanel() {
           </VStack>
         </Box>
       </CollapsableSection>
-    </BasePanel>
+    </>
   );
 }
 

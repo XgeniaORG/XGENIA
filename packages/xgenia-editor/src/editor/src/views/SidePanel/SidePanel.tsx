@@ -23,7 +23,6 @@ import { Container, ContainerDirection } from '@xgenia-core-ui/components/layout
 import {
   SideComponents,
   SideSearch,
-  SideEditorSettings,
   SideVersionControl,
   SideCloud,
   SideCloudFunctions,
@@ -47,7 +46,6 @@ import css from './SidePanel.model.scss';
 const iconMap: Record<string, React.ElementType> = {
   'components': SideComponents,
   'search': SideSearch,
-  'editor-settings': SideEditorSettings,
   'versioncontrol': SideVersionControl,
   'cloudservice': SideCloud,
   'cloud-functions': SideCloudFunctions,
@@ -175,7 +173,6 @@ export function SidePanel() {
           const bottomIds = new Set([
             'project-styles',
             'versioncontrol',
-            'editor-settings',
             'cloudservice',
             'settings',
             'feedback-panel'

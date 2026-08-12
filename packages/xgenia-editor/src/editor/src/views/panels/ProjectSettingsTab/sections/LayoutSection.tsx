@@ -6,11 +6,11 @@ import { CollapsableSection } from '@xgenia-core-ui/components/sidebar/Collapsab
 
 import { useProjectSetting } from '../useProjectSetting';
 
-export function ExperimentalSection() {
+export function LayoutSection() {
   const [bodyScroll, setBodyScroll] = useProjectSetting('bodyScroll', false);
 
   return (
-    <CollapsableSection title="Experimental features" hasGutter hasVisibleOverflow hasTopDivider isClosed>
+    <CollapsableSection title="Layout" hasGutter hasVisibleOverflow hasTopDivider isClosed>
       <PropertyPanelRow label="Body Scroll">
         <PropertyPanelCheckbox value={bodyScroll} onChange={setBodyScroll} />
       </PropertyPanelRow>

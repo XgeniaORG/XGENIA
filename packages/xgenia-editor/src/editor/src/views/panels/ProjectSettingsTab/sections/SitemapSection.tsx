@@ -10,7 +10,7 @@ export function SitemapSection() {
   const [enabled, setEnabled] = useProjectSetting('sitemap.enabled', false);
 
   return (
-    <CollapsableSection title="Experimental features - Sitemap" hasGutter hasVisibleOverflow hasTopDivider isClosed>
+    <CollapsableSection title="Sitemap" hasGutter hasVisibleOverflow hasTopDivider isClosed>
       <PropertyPanelRow label="Enable">
         <PropertyPanelCheckbox value={enabled} onChange={setEnabled} />
       </PropertyPanelRow>

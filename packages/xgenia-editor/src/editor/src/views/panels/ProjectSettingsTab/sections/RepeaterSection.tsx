@@ -17,7 +17,7 @@ export function RepeaterSection() {
   );
 
   return (
-    <CollapsableSection title="Experimental features - Repeater" hasGutter hasVisibleOverflow hasTopDivider isClosed>
+    <CollapsableSection title="Repeater" hasGutter hasVisibleOverflow hasTopDivider isClosed>
       <PropertyPanelRow label="Disable when unmounted">
         <PropertyPanelCheckbox value={disabledWhenUnmounted} onChange={setDisabledWhenUnmounted} />
       </PropertyPanelRow>
