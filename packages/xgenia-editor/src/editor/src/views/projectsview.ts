@@ -55,6 +55,8 @@ export class ProjectsView extends View {
   private userProfile: any = null;
   private currentUser: any = null;
   private authSubscription: any = null;
+  /** Lowercased membership tier ('free' | 'pro' | 'enterprise'), drives the sidebar membership button. */
+  private membershipTier: string = 'free';
 
   constructor({ from }: { from: string }) {
     super();
@@ -69,67 +71,82 @@ export class ProjectsView extends View {
   }
 
   private async initializeUserData() {
+    // Subscribe before reading the session: onAuthStateChange replays the initial
+    // session to new subscribers, so this both closes the window where a session
+    // restored mid-await would be missed and covers a getSession() that hangs or
+    // throws, either of which used to leave the sidebar user island empty until the
+    // next reload.
+    if (!this.authSubscription) {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+        if (newSession?.user) {
+          this.applySignedInUser(newSession.user);
+        } else {
+          this.currentUser = null;
+          this.userProfile = null;
+          this.membershipTier = 'free';
+          this.setSidebarUserVisible(false);
+        }
+      });
+      this.authSubscription = subscription;
+    }
+
     try {
       // Quickly load from session cache to avoid UI delay
       const { data: { session } } = await supabase.auth.getSession();
 
       if (session?.user) {
-        this.currentUser = session.user;
-        this.updateSidebarUserInfo();
-        const $userSection = this.$('.sidebar-user');
-        if ($userSection && $userSection.length) {
-          $userSection.show();
-        }
-        // Asynchronously fetch extra subscription data
-        this.fetchExtendedUserProfile(session.user.id);
-      } else {
-        const $userSection = this.$('.sidebar-user');
-        if ($userSection && $userSection.length) {
-          $userSection.hide();
-        }
-      }
-
-      // Hook up an auth subscription to react instantly to any state changes in the app
-      if (!this.authSubscription) {
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-          if (newSession?.user) {
-            const isNewUser = !this.currentUser || this.currentUser.id !== newSession.user.id;
-            this.currentUser = newSession.user;
-            this.updateSidebarUserInfo();
-            const $userSection = this.$('.sidebar-user');
-            if ($userSection && $userSection.length) {
-              $userSection.show();
-            }
-            if (isNewUser) {
-              this.fetchExtendedUserProfile(newSession.user.id);
-            }
-          } else {
-            this.currentUser = null;
-            this.userProfile = null;
-            const $userSection = this.$('.sidebar-user');
-            if ($userSection && $userSection.length) {
-              $userSection.hide();
-            }
-          }
-        });
-        this.authSubscription = subscription;
+        this.applySignedInUser(session.user);
+      } else if (!this.currentUser) {
+        this.setSidebarUserVisible(false);
       }
     } catch (error: any) {
       console.error('Error initializing user data:', error);
       // Fall back to basic user info if available
       if (this.currentUser) {
-        this.updateSidebarUserInfo();
-        const $userSection = this.$('.sidebar-user');
-        if ($userSection && $userSection.length) {
-          $userSection.show();
-        }
+        this.applySignedInUser(this.currentUser);
       }
     }
   }
 
+  /**
+   * Populate and reveal the sidebar user island for `user`. Safe to call repeatedly —
+   * the profile is only refetched when it is for a different user or when a previous
+   * fetch left us without one (otherwise a failed fetch was never retried, leaving the
+   * plan line and membership button stuck on their defaults).
+   */
+  private applySignedInUser(user: any) {
+    const isNewUser = !this.currentUser || this.currentUser.id !== user.id;
+    if (isNewUser) {
+      this.userProfile = null;
+      this.membershipTier = 'free';
+    }
+    this.currentUser = user;
+
+    // Fill in name/email/plan first so the island is never revealed blank
+    this.updateSidebarUserInfo();
+    this.setSidebarUserVisible(true);
+
+    if (isNewUser || !this.userProfile) {
+      this.fetchExtendedUserProfile(user.id);
+    }
+  }
+
+  /**
+   * The island's display rule is !important, so jQuery show()/hide() cannot move it —
+   * visibility has to go through this class. See projectsview.html.
+   */
+  private setSidebarUserVisible(visible: boolean) {
+    const $userSection = this.$('.sidebar-user');
+    if (!$userSection || !$userSection.length) return;
+    $userSection.toggleClass('is-signed-in', visible);
+  }
+
   private async fetchExtendedUserProfile(userId: string) {
     try {
-      this.userProfile = await getUserProfile(userId);
+      const profile = await getUserProfile(userId);
+      // The signed-in user may have changed while the request was in flight
+      if (!this.currentUser || this.currentUser.id !== userId) return;
+      this.userProfile = profile;
       this.updateSidebarUserInfo();
     } catch (error) {
       console.error('Failed to grab extended user profile:', error);
@@ -184,27 +201,54 @@ export class ProjectsView extends View {
     const subscriptionStatus = (tier || 'free').toLowerCase();
     let planDisplay = subscriptionStatus.charAt(0).toUpperCase() + subscriptionStatus.slice(1);
     let planColor = 'rgba(255, 255, 255, 0.5)';
-    let isPaidPlan = false;
     if (subscriptionStatus === 'pro') {
       planDisplay = 'Pro';
       planColor = '#67DE92';
-      isPaidPlan = true;
     } else if (subscriptionStatus === 'enterprise') {
       planDisplay = 'Enterprise';
       planColor = '#67DE92';
-      isPaidPlan = true;
     }
     $plan.text(planDisplay).css('color', planColor);
 
-    // Nothing to upgrade to on a paid plan
+    this.membershipTier = subscriptionStatus;
+
+    // The button stays visible on every tier, but there is nothing to upgrade to on a
+    // paid plan — pro/enterprise get a plan-management action instead of the upgrade CTA.
     const $upgrade = $userSection.find('.sidebar-upgrade');
     if ($upgrade.length) {
-      if (isPaidPlan) {
-        $upgrade.hide();
+      const action = this.getMembershipAction(subscriptionStatus);
+      const $label = $upgrade.find('.sidebar-upgrade-label');
+      if ($label.length) {
+        $label.text(action.label);
       } else {
-        $upgrade.show();
+        $upgrade.text(action.label);
       }
+      $upgrade.attr('title', action.title);
+      $upgrade.toggleClass('is-manage-plan', action.isPaidPlan);
     }
+  }
+
+  /**
+   * Label/tooltip/target for the sidebar membership button. Free accounts are asked to
+   * upgrade; paid tiers (pro/enterprise) get their account settings instead, since there
+   * is nothing to upgrade to.
+   */
+  private getMembershipAction(subscriptionStatus: string) {
+    if (subscriptionStatus === 'pro' || subscriptionStatus === 'enterprise') {
+      return {
+        label: 'Account settings',
+        title: 'Manage your XGENIA account',
+        url: 'https://primora.xgenia.ai/user-panel',
+        isPaidPlan: true
+      };
+    }
+
+    return {
+      label: 'Upgrade',
+      title: 'See XGENIA plans and pricing',
+      url: 'https://xgenia.ai/pricing',
+      isPaidPlan: false
+    };
   }
 
   attachBackgroundUpdateListener() {
@@ -349,7 +393,7 @@ export class ProjectsView extends View {
     platform.openExternal('https://xgenia.ai/help');
   }
   onSidebarUpgradeClicked() {
-    platform.openExternal('https://xgenia.ai/pricing');
+    platform.openExternal(this.getMembershipAction(this.membershipTier).url);
   }
 
   onUserProfileClicked() {

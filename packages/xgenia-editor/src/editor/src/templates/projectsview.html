@@ -234,6 +234,14 @@
       padding-top: 12px !important;
       margin-top: auto !important;
       padding-bottom: 0 !important;
+      display: none !important;
+    }
+
+    /* Visibility is driven by the .is-signed-in class, not jQuery show()/hide():
+       the display rule above is !important, so it outranks the inline display that
+       show()/hide() write and those calls would silently do nothing. The island stays
+       hidden until ProjectsView has populated the user's name/email. */
+    .projects-left-sidebar .sidebar-user.is-signed-in {
       display: block !important;
     }
 
@@ -293,6 +301,20 @@
 
     .sidebar-upgrade:hover {
       background: rgba(103, 222, 146, 0.15) !important;
+    }
+
+    /* Paid tiers (pro/enterprise) get a neutral "manage plan" button rather than
+       the green upgrade call to action. */
+    .projects-left-sidebar .sidebar-upgrade.is-manage-plan {
+      background: rgba(255, 255, 255, 0.06) !important;
+      color: rgba(255, 255, 255, 0.7) !important;
+      box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.08) !important;
+      font-weight: 500 !important;
+    }
+
+    .sidebar-upgrade.is-manage-plan:hover {
+      background: rgba(255, 255, 255, 0.10) !important;
+      color: #fff !important;
     }
 
     /* Additional Components */
@@ -682,7 +704,7 @@
       </nav>
     </div>
 
-    <div class="sidebar-user" style="display:none;">
+    <div class="sidebar-user">
       <div class="user-profile-area" data-click="onUserProfileClicked"
         style="display: flex; align-items: center; margin-bottom: 2px; cursor: pointer; padding: 8px; border-radius: 8px; transition: all 0.2s ease; position: relative;">
         <div class="avatar"></div>
@@ -703,7 +725,10 @@
         </div>
       </div>
       <div style="margin-top: 1rem; padding-bottom: 1rem;">
-        <button class="sidebar-upgrade" data-click="onSidebarUpgradeClicked">Upgrade</button>
+        <!-- Label/target are set per membership tier in updateSidebarUserInfo() -->
+        <button class="sidebar-upgrade" data-click="onSidebarUpgradeClicked">
+          <span class="sidebar-upgrade-label">Upgrade</span>
+        </button>
       </div>
     </div>
   </div>
