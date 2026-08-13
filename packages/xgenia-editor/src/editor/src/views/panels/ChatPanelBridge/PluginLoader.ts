@@ -192,6 +192,23 @@ export class PluginLoader {
         return this.entitlements?.tier || 'free';
     }
 
+    /**
+     * The tier we can name RIGHT NOW, without waiting for the network.
+     *
+     * `getTier()` answers 'free' before the first fetch resolves, which is
+     * indistinguishable from a genuine free account — harmless for logging,
+     * wrong for deciding what to paint on a panel's first frame. This returns
+     * null when nothing is known yet, so a caller can tell "not loaded yet"
+     * apart from "not entitled" and show a checking state instead of guessing.
+     *
+     * The localStorage copy may be past its TTL; that is deliberate. It is only
+     * ever used to pick the first frame, and every caller confirms against
+     * `getEntitledPlugins()` immediately after.
+     */
+    getCachedTier(): string | null {
+        return this.entitlements?.tier || this.loadCache()?.tier || null;
+    }
+
     /** Listen for entitlement changes */
     onChange(listener: (e: EntitlementsResponse | null) => void): () => void {
         this.listeners.push(listener);

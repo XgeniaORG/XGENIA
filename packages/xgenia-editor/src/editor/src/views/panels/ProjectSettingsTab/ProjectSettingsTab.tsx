@@ -79,7 +79,15 @@ export function ProjectSettingsTab() {
         />
       </Section>
 
-      <Frame instance={propertyView} refresh={renderIndex} />
+      {/*
+        isContentSize is the prop that matters here: Frame forces
+        height: 100% on anything that does NOT set it (Frame.tsx), and
+        isFitWidth only overrides the width, so this view — empty unless a
+        module contributes settings ports — was reserving a whole panel of
+        blank space between the button above and the sections below.
+        isFitWidth then puts the full width back.
+      */}
+      <Frame instance={propertyView} refresh={renderIndex} isContentSize isFitWidth />
 
       <GeneralSection />
       <LayoutSection />
