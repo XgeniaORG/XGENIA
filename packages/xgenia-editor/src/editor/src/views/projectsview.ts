@@ -378,7 +378,7 @@ export class ProjectsView extends View {
     this.$('#start-pane-feed-big').hide();
   }
   onTopDocsClicked() {
-    platform.openExternal('https://docs.xgenia.ai');
+    platform.openExternal('https://docsapp.xgenia.com');
   }
   onTopCommunityClicked() {
     platform.openExternal('https://discord.com/invite/n4P5zkpvFE');

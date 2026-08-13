@@ -4215,9 +4215,9 @@
       "file": "PixiAnimatedSprite.js",
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiAnimatedSprite.js",
       "category": "Pixi|Animation",
-      "docs": "https://pixijs.download/release/docs/PIXI.AnimatedSprite.html",
+      "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-animated-sprite",
       "lineCount": 450,
-      "byteSize": 17848,
+      "byteSize": 17851,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -5171,9 +5171,9 @@
       "file": "PixiGSAPInertiaNode.js",
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiGSAPInertiaNode.js",
       "category": "Pixi|Animation",
-      "docs": "https://greensock.com/docs/v3/Plugins/InertiaPlugin",
+      "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-gsap-inertia",
       "lineCount": 331,
-      "byteSize": 13293,
+      "byteSize": 13303,
       "inputFormatHints": {
         "target": {
           "displayName": "Target Node",
@@ -5354,9 +5354,9 @@
       "file": "PixiGSAPPhysicsNode.js",
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiGSAPPhysicsNode.js",
       "category": "Pixi|Animation",
-      "docs": "https://greensock.com/docs/v3/Plugins/Physics2DPlugin",
+      "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-gsap-physics",
       "lineCount": 305,
-      "byteSize": 11711,
+      "byteSize": 11719,
       "inputFormatHints": {
         "target": {
           "displayName": "Target Node",
@@ -5820,9 +5820,9 @@
       "file": "PixiHTMLText.js",
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiHTMLText.js",
       "category": "Pixi|Text",
-      "docs": "https://pixijs.download/release/docs/scene.HTMLText.html",
+      "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-html-text",
       "lineCount": 74,
-      "byteSize": 4282,
+      "byteSize": 4284,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -6192,9 +6192,9 @@
       "file": "PixiNineSlicePlane.js",
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiNineSlicePlane.js",
       "category": "Pixi|UI",
-      "docs": "https://pixijs.download/release/docs/scene.NineSlicePlane.html",
+      "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-nine-slice-plane",
       "lineCount": 182,
-      "byteSize": 9366,
+      "byteSize": 9369,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -8574,9 +8574,9 @@
       "file": "PixiGameLoop.js",
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/_quarantine/PixiGameLoop.js",
       "category": "pixi-visual",
-      "docs": "https://docs.xgenia.com/nodes/pixi-gameloop",
+      "docs": "https://docsapp.xgenia.com/nodes/pixi-gameloop",
       "lineCount": 81,
-      "byteSize": 2224,
+      "byteSize": 2227,
       "inputFormatHints": {
         "active": {
           "displayName": "Active",
@@ -12195,9 +12195,9 @@
       "file": "DataModelNode.js",
       "relativePath": "hyve-mind/DataModelNode.js",
       "category": "Hyve Mind",
-      "docs": null,
+      "docs": "https://docsapp.xgenia.com/nodes/hyve-mind/data-model",
       "lineCount": 83,
-      "byteSize": 2348,
+      "byteSize": 2401,
       "inputFormatHints": {
         "name": {
           "displayName": "Name",
@@ -12248,9 +12248,9 @@
       "file": "FeatureNode.js",
       "relativePath": "hyve-mind/FeatureNode.js",
       "category": "Hyve Mind",
-      "docs": null,
+      "docs": "https://docsapp.xgenia.com/nodes/hyve-mind/feature",
       "lineCount": 112,
-      "byteSize": 3155,
+      "byteSize": 3205,
       "inputFormatHints": {
         "title": {
           "displayName": "Title",
@@ -12301,9 +12301,9 @@
       "file": "GoalNode.js",
       "relativePath": "hyve-mind/GoalNode.js",
       "category": "Hyve Mind",
-      "docs": null,
+      "docs": "https://docsapp.xgenia.com/nodes/hyve-mind/goal",
       "lineCount": 88,
-      "byteSize": 2399,
+      "byteSize": 2446,
       "inputFormatHints": {
         "title": {
           "displayName": "Title",
@@ -12349,9 +12349,9 @@
       "file": "TaskNode.js",
       "relativePath": "hyve-mind/TaskNode.js",
       "category": "Hyve Mind",
-      "docs": null,
+      "docs": "https://docsapp.xgenia.com/nodes/hyve-mind/task",
       "lineCount": 111,
-      "byteSize": 3285,
+      "byteSize": 3332,
       "inputFormatHints": {
         "description": {
           "displayName": "Description",
@@ -12422,9 +12422,9 @@
       "file": "UINode.js",
       "relativePath": "hyve-mind/UINode.js",
       "category": "Hyve Mind",
-      "docs": null,
+      "docs": "https://docsapp.xgenia.com/nodes/hyve-mind/ui-element",
       "lineCount": 116,
-      "byteSize": 3520,
+      "byteSize": 3573,
       "inputFormatHints": {
         "name": {
           "displayName": "Name",
@@ -12500,9 +12500,9 @@
       "file": "UserStoryNode.js",
       "relativePath": "hyve-mind/UserStoryNode.js",
       "category": "Hyve Mind",
-      "docs": null,
+      "docs": "https://docsapp.xgenia.com/nodes/hyve-mind/user-story",
       "lineCount": 115,
-      "byteSize": 3513,
+      "byteSize": 3566,
       "inputFormatHints": {
         "role": {
           "displayName": "As a...",
@@ -12573,9 +12573,9 @@
       "file": "PixiInputActionNode.js",
       "relativePath": "input/PixiInputActionNode.js",
       "category": "Input",
-      "docs": null,
-      "lineCount": 518,
-      "byteSize": 15068,
+      "docs": "https://docsapp.xgenia.com/nodes/logic/input-action",
+      "lineCount": 519,
+      "byteSize": 15131,
       "inputFormatHints": {
         "actionName": {
           "displayName": "Action Name",
@@ -13079,9 +13079,9 @@
       "file": "AdvancedTimerNode.js",
       "relativePath": "std-library/AdvancedTimerNode.js",
       "category": "Utilities",
-      "docs": null,
-      "lineCount": 364,
-      "byteSize": 9016,
+      "docs": "https://docsapp.xgenia.com/nodes/utilities/advanced-timer",
+      "lineCount": 365,
+      "byteSize": 9085,
       "inputFormatHints": {
         "duration": {
           "displayName": "Duration (ms)",
@@ -16646,9 +16646,9 @@
       "file": "loader.js",
       "relativePath": "visual/loader.js",
       "category": "Utilities",
-      "docs": "https://docs.xgenia.com/nodes/utilities/loader",
+      "docs": "https://docsapp.xgenia.com/nodes/utilities/loader",
       "lineCount": 690,
-      "byteSize": 19158,
+      "byteSize": 19161,
       "inputFormatHints": {
         "loadingText": {
           "displayName": "Loading Text",

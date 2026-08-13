@@ -4,7 +4,7 @@ const FeatureNode = {
   name: 'hyve.FeatureNode', // Updated unique name
   displayName: 'Feature',
   category: 'Hyve Mind', // Updated category name
-  docs: '', // Add link to docs later if needed
+  docs: 'https://docsapp.xgenia.com/nodes/hyve-mind/feature', // Add link to docs later if needed
   // --- Update Label Configuration ---
   usePortAsLabel: 'title',
   portLabelTruncationMode: 'length',

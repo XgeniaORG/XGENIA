@@ -485,6 +485,7 @@
         "packageJson": {
           "dependencies": [
             "npm:@fal-ai/client@^1.9.4",
+            "npm:ag-psd@^31.0.2",
             "npm:lucide-react@0.503",
             "npm:perfect-freehand@^1.2.3"
           ]
@@ -502,6 +503,7 @@
             "npm:@types/react-dom@^19.1.0",
             "npm:@types/react@^19.1.0",
             "npm:@vitejs/plugin-react@^4.4.1",
+            "npm:ag-psd@^31.0.2",
             "npm:autoprefixer@^10.4.27",
             "npm:clsx@^2.1.1",
             "npm:html-to-image@^1.11.11",

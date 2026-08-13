@@ -4,7 +4,7 @@ const UINode = {
   name: 'hyve.UINode',
   displayName: 'UI Element',
   category: 'Hyve Mind',
-  docs: '',
+  docs: 'https://docsapp.xgenia.com/nodes/hyve-mind/ui-element',
   initialize() {
     this._internal = {
       name: this.inputs.name || 'New UI Element',

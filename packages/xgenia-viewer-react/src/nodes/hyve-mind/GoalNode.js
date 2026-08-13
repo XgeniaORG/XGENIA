@@ -4,7 +4,7 @@ const GoalNode = {
   name: 'hyve.GoalNode',
   displayName: 'Goal',
   category: 'Hyve Mind',
-  docs: '',
+  docs: 'https://docsapp.xgenia.com/nodes/hyve-mind/goal',
   initialize() {
     this._internal = {
       title: this.inputs.title || 'New Goal',

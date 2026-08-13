@@ -4,6 +4,7 @@ const PixiInputActionNode = {
   displayNodeName: 'Input Action',
   category: 'Input',
   color: 'input',
+  docs: 'https://docsapp.xgenia.com/nodes/logic/input-action',
   initialize() {
     this._internal = {
       // Action properties
