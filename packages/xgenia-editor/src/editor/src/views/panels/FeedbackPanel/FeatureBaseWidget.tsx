@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { platform } from '@xgenia/platform';
 import { ActivityIndicator } from '@xgenia-core-ui/components/common/ActivityIndicator';
-import { PrimaryButton, PrimaryButtonSize, PrimaryButtonVariant } from '@xgenia-core-ui/components/inputs/PrimaryButton';
 import { Text, TextSize, TextType } from '@xgenia-core-ui/components/typography/Text';
 
 import { PluginLoader } from '../ChatPanelBridge/PluginLoader';
@@ -49,24 +47,20 @@ export function FeatureBaseWidget() {
   return <EntitledFeatureBaseBoard />;
 }
 
+/**
+ * The wording is fixed — it mirrors the notice Featurebase itself serves for
+ * this workspace, so the two cannot drift apart. Do not reword it.
+ */
 function EmbedUnavailableNotice() {
   return (
     <div className={css['stateContainer']}>
-      <Text size={TextSize.Medium} isCentered hasBottomSpacing>
-        Not available with the free plan
+      <Text size={TextSize.Medium} isCentered>
+        Not available with the free plan.
       </Text>
 
-      <Text textType={TextType.Shy} isCentered hasBottomSpacing>
-        The feedback board is embedded from Featurebase, and embedding it in the editor needs their Starter plan.
-        The board itself still works in a browser.
+      <Text textType={TextType.Shy} isCentered>
+        Please upgrade your account to Starter to use this feature.
       </Text>
-
-      <PrimaryButton
-        size={PrimaryButtonSize.Small}
-        label="Open feedback board in browser"
-        variant={PrimaryButtonVariant.MutedOnLowBg}
-        onClick={() => platform.openExternal(FEATUREBASE_BOARD_URL)}
-      />
     </div>
   );
 }
