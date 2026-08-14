@@ -91,6 +91,19 @@
         "easing": {
           "displayName": "Easing",
           "type": "enum",
+          "enums": [
+            "linear",
+            "easeOut",
+            "easeIn",
+            "easeInOut",
+            "anticipate",
+            "backOut",
+            "backIn",
+            "backInOut",
+            "circOut",
+            "circIn",
+            "circInOut"
+          ],
           "group": "Timing"
         },
         "fromX": {
@@ -151,6 +164,11 @@
         "repeatType": {
           "displayName": "Repeat Type",
           "type": "enum",
+          "enums": [
+            "loop",
+            "reverse",
+            "mirror"
+          ],
           "group": "Advanced"
         },
         "delay": {
@@ -888,6 +906,10 @@
         "idSource": {
           "displayName": "Id Source",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "foreach"
+          ],
           "group": "General"
         },
         "modelId": {
@@ -1291,6 +1313,10 @@
         "idSource": {
           "displayName": "Get Id from",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "foreach"
+          ],
           "group": "General"
         },
         "modelId": {
@@ -1395,6 +1421,13 @@
         "method": {
           "displayName": "Method",
           "type": "enum",
+          "enums": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE"
+          ],
           "group": "Request"
         },
         "requestScript": {
@@ -1501,11 +1534,19 @@
         "storeProperties": {
           "displayName": "Properties to  store",
           "type": "enum",
+          "enums": [
+            "specified",
+            "all"
+          ],
           "group": "General"
         },
         "storeType": {
           "displayName": "Store to",
           "type": "enum",
+          "enums": [
+            "cloud",
+            "local"
+          ],
           "group": "General"
         }
       },
@@ -3899,6 +3940,10 @@
         "mode": {
           "displayName": "Inference Mode",
           "type": "enum",
+          "enums": [
+            "serverless",
+            "endpoint"
+          ],
           "group": "Configuration"
         },
         "endpointUrl": {
@@ -3992,6 +4037,13 @@
         "taskType": {
           "displayName": "Task Type",
           "type": "enum",
+          "enums": [
+            "tabular-classification",
+            "tabular-regression",
+            "text-classification",
+            "image-classification",
+            "llm-finetuning"
+          ],
           "group": "Configuration"
         },
         "baseModel": {
@@ -4463,6 +4515,11 @@
         "align": {
           "displayName": "Align",
           "type": "enum",
+          "enums": [
+            "left",
+            "center",
+            "right"
+          ],
           "group": "Text"
         },
         "letterSpacing": {
@@ -4538,6 +4595,15 @@
         "animationType": {
           "displayName": "Animation Type",
           "type": "enum",
+          "enums": [
+            "none",
+            "rotate",
+            "pulse",
+            "blink",
+            "moveX",
+            "moveY",
+            "custom"
+          ],
           "group": "Animation"
         },
         "customAnimationCode": {
@@ -4724,6 +4790,10 @@
         "mode": {
           "displayName": "Mode",
           "type": "enum",
+          "enums": [
+            "aabb",
+            "circle"
+          ],
           "group": "Detection"
         },
         "radiusA": {
@@ -4797,6 +4867,25 @@
         "blendMode": {
           "displayName": "Blend Mode",
           "type": "enum",
+          "enums": [
+            "normal",
+            "add",
+            "multiply",
+            "screen",
+            "overlay",
+            "darken",
+            "lighten",
+            "color-dodge",
+            "color-burn",
+            "hard-light",
+            "soft-light",
+            "difference",
+            "exclusion",
+            "hue",
+            "saturation",
+            "color",
+            "luminosity"
+          ],
           "group": "Appearance"
         },
         "rotation": {
@@ -4927,6 +5016,15 @@
         "animationType": {
           "displayName": "Animation Type",
           "type": "enum",
+          "enums": [
+            "none",
+            "rotate",
+            "pulse",
+            "blink",
+            "moveX",
+            "moveY",
+            "custom"
+          ],
           "group": "Animation"
         },
         "customAnimationCode": {
@@ -4990,6 +5088,13 @@
         "position": {
           "displayName": "Position",
           "type": "enum",
+          "enums": [
+            "top-left",
+            "top-right",
+            "bottom-left",
+            "bottom-right",
+            "custom"
+          ],
           "group": "Display"
         },
         "customX": {
@@ -5323,6 +5428,13 @@
         "overwrite": {
           "displayName": "Overwrite",
           "type": "enum",
+          "enums": [
+            "auto",
+            "false",
+            "true",
+            "concurrent",
+            "all"
+          ],
           "group": "Advanced"
         },
         "requestRenderOnUpdate": {
@@ -5416,6 +5528,13 @@
         "overwrite": {
           "displayName": "Overwrite",
           "type": "enum",
+          "enums": [
+            "auto",
+            "false",
+            "true",
+            "concurrent",
+            "all"
+          ],
           "group": "Advanced"
         },
         "xProp": {
@@ -5431,6 +5550,10 @@
         "mode": {
           "displayName": "Mode",
           "type": "enum",
+          "enums": [
+            "angleVelocity",
+            "components"
+          ],
           "group": "Physics"
         },
         "angle": {
@@ -5574,6 +5697,25 @@
         "blendMode": {
           "displayName": "Blend Mode",
           "type": "enum",
+          "enums": [
+            "normal",
+            "add",
+            "multiply",
+            "screen",
+            "overlay",
+            "darken",
+            "lighten",
+            "color-dodge",
+            "color-burn",
+            "hard-light",
+            "soft-light",
+            "difference",
+            "exclusion",
+            "hue",
+            "saturation",
+            "color",
+            "luminosity"
+          ],
           "group": "Appearance"
         },
         "drawingCommands": {
@@ -5584,6 +5726,13 @@
         "shapeType": {
           "displayName": "Shape",
           "type": "enum",
+          "enums": [
+            "none",
+            "rect",
+            "circle",
+            "polygon",
+            "line"
+          ],
           "group": "Simple Shape"
         },
         "fillColor": {
@@ -5739,6 +5888,15 @@
         "animationType": {
           "displayName": "Animation Type",
           "type": "enum",
+          "enums": [
+            "none",
+            "rotate",
+            "pulse",
+            "blink",
+            "moveX",
+            "moveY",
+            "custom"
+          ],
           "group": "Animation"
         },
         "customAnimationCode": {
@@ -6063,6 +6221,16 @@
         "animationType": {
           "displayName": "Animation Type",
           "type": "enum",
+          "enums": [
+            "none",
+            "rotate",
+            "pulse",
+            "blink",
+            "moveX",
+            "moveY",
+            "wavePoints",
+            "custom"
+          ],
           "group": "Animation"
         },
         "customAnimationCode": {
@@ -6412,6 +6580,16 @@
         "animationType": {
           "displayName": "Animation Type",
           "type": "enum",
+          "enums": [
+            "none",
+            "rotate",
+            "pulse",
+            "blink",
+            "moveX",
+            "moveY",
+            "particleWave",
+            "custom"
+          ],
           "group": "Animation"
         },
         "customAnimationCode": {
@@ -6550,6 +6728,18 @@
         "presetConfig": {
           "displayName": "Preset Config",
           "type": "enum",
+          "enums": [
+            "custom",
+            "fire",
+            "sparkle",
+            "smoke",
+            "explosion",
+            "rain",
+            "coinBurst",
+            "confetti",
+            "snow",
+            "trail"
+          ],
           "group": "Emitter Config"
         }
       },
@@ -6678,6 +6868,14 @@
         "winAnimation": {
           "displayName": "Win Animation",
           "type": "enum",
+          "enums": [
+            "none",
+            "bounce",
+            "pop",
+            "shake",
+            "spin",
+            "glitch"
+          ],
           "group": "Win Animation"
         },
         "winCustomCode": {
@@ -6816,11 +7014,21 @@
         "anchorX": {
           "displayName": "Anchor X",
           "type": "enum",
+          "enums": [
+            "left",
+            "center",
+            "right"
+          ],
           "group": "Layout"
         },
         "anchorY": {
           "displayName": "Anchor Y",
           "type": "enum",
+          "enums": [
+            "top",
+            "center",
+            "bottom"
+          ],
           "group": "Layout"
         },
         "propagateSizeToChildren": {
@@ -7097,6 +7305,10 @@
         "mode": {
           "displayName": "Load Mode",
           "type": "enum",
+          "enums": [
+            "url",
+            "local"
+          ],
           "group": "Bundle"
         },
         "autoLoad": {
@@ -7315,6 +7527,13 @@
         "fitMode": {
           "displayName": "Fit Mode",
           "type": "enum",
+          "enums": [
+            "none",
+            "contain",
+            "cover",
+            "fillWidth",
+            "fillHeight"
+          ],
           "group": "Dimensions"
         },
         "preserveAspect": {
@@ -7330,6 +7549,13 @@
         "eventMode": {
           "displayName": "Event Mode",
           "type": "enum",
+          "enums": [
+            "none",
+            "auto",
+            "passive",
+            "static",
+            "dynamic"
+          ],
           "group": "Interaction"
         },
         "interactiveChildren": {
@@ -7365,6 +7591,20 @@
         "currentAnimation": {
           "displayName": "Animation Name",
           "type": "enum",
+          "enums": [
+            "aim",
+            "death",
+            "hoverboard",
+            "idle",
+            "idle-turn",
+            "jump",
+            "portal",
+            "run",
+            "run-to-idle",
+            "shoot",
+            "walk",
+            "__custom__"
+          ],
           "group": "Animation"
         },
         "customAnimation": {
@@ -7623,6 +7863,15 @@
         "animationType": {
           "displayName": "Animation Type",
           "type": "enum",
+          "enums": [
+            "none",
+            "rotate",
+            "pulse",
+            "blink",
+            "moveX",
+            "moveY",
+            "custom"
+          ],
           "group": "Animation"
         },
         "customAnimationCode": {
@@ -8054,6 +8303,13 @@
         "animationType": {
           "displayName": "Animation Type",
           "type": "enum",
+          "enums": [
+            "none",
+            "pulseBackground",
+            "colorCycleBackground",
+            "stageEffects",
+            "custom"
+          ],
           "group": "Animation"
         },
         "customAnimationCode": {
@@ -8182,6 +8438,11 @@
         "align": {
           "displayName": "Align",
           "type": "enum",
+          "enums": [
+            "left",
+            "center",
+            "right"
+          ],
           "group": "Text Style"
         },
         "stroke": {
@@ -8217,16 +8478,40 @@
         "fontWeight": {
           "displayName": "Font Weight",
           "type": "enum",
+          "enums": [
+            "normal",
+            "bold",
+            "bolder",
+            "lighter",
+            "100",
+            "200",
+            "300",
+            "400",
+            "500",
+            "600",
+            "700",
+            "800",
+            "900"
+          ],
           "group": "Text Style"
         },
         "fontStyle": {
           "displayName": "Font Style",
           "type": "enum",
+          "enums": [
+            "normal",
+            "italic",
+            "oblique"
+          ],
           "group": "Text Style"
         },
         "fontVariant": {
           "displayName": "Font Variant",
           "type": "enum",
+          "enums": [
+            "normal",
+            "small-caps"
+          ],
           "group": "Text Style"
         },
         "dropShadow": {
@@ -8282,6 +8567,15 @@
         "animationType": {
           "displayName": "Animation Type",
           "type": "enum",
+          "enums": [
+            "none",
+            "rotate",
+            "pulse",
+            "blink",
+            "moveX",
+            "moveY",
+            "custom"
+          ],
           "group": "Animation"
         },
         "customAnimationCode": {
@@ -8460,6 +8754,15 @@
         "animationType": {
           "displayName": "Animation Type",
           "type": "enum",
+          "enums": [
+            "none",
+            "rotate",
+            "pulse",
+            "blink",
+            "moveX",
+            "moveY",
+            "custom"
+          ],
           "group": "Animation"
         },
         "customAnimationCode": {
@@ -8528,6 +8831,12 @@
         "mode": {
           "displayName": "Mode",
           "type": "enum",
+          "enums": [
+            "contain",
+            "cover",
+            "width",
+            "height"
+          ],
           "group": "Mode"
         },
         "pixelPerfect": {
@@ -8820,6 +9129,11 @@
         "fitMode": {
           "displayName": "Fit Mode",
           "type": "enum",
+          "enums": [
+            "none",
+            "fit",
+            "fill"
+          ],
           "group": "Auto Layout"
         },
         "fitPadding": {
@@ -8840,11 +9154,21 @@
         "celebrationStyle": {
           "displayName": "Celebration Style",
           "type": "enum",
+          "enums": [
+            "all-at-once",
+            "sequential",
+            "per-line"
+          ],
           "group": "Win Celebration"
         },
         "celebrationLoopMode": {
           "displayName": "Final State",
           "type": "enum",
+          "enums": [
+            "loop",
+            "stay-last",
+            "hide-after"
+          ],
           "group": "Win Celebration"
         },
         "celebrationDuration": {
@@ -8884,11 +9208,23 @@
         "payoutAnimation1": {
           "displayName": "Text Animation 1",
           "type": "enum",
+          "enums": [
+            "none",
+            "pop",
+            "pulse",
+            "count-up"
+          ],
           "group": "Win Celebration: Payout"
         },
         "payoutAnimation2": {
           "displayName": "Text Animation 2",
           "type": "enum",
+          "enums": [
+            "none",
+            "pop",
+            "pulse",
+            "count-up"
+          ],
           "group": "Win Celebration: Payout"
         },
         "winningCells": {
@@ -8904,6 +9240,10 @@
         "positionOrder": {
           "displayName": "Position Order",
           "type": "enum",
+          "enums": [
+            "row-col",
+            "col-row"
+          ],
           "group": "Win Celebration: Data"
         },
         "isOneBased": {
@@ -8919,11 +9259,21 @@
         "cascadeMode": {
           "displayName": "Cascade Mode",
           "type": "enum",
+          "enums": [
+            "random",
+            "reel-strip"
+          ],
           "group": "Cascade"
         },
         "cascadeStyle": {
           "displayName": "Cascade Style",
           "type": "enum",
+          "enums": [
+            "drop",
+            "shrink",
+            "explode",
+            "fade"
+          ],
           "group": "Cascade"
         },
         "cascadeDuration": {
@@ -11502,6 +11852,12 @@
         "sizeMode": {
           "displayName": "Size Mode",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "contentWidth",
+            "contentHeight",
+            "contentSize"
+          ],
           "group": "Dimensions"
         },
         "width": {
@@ -11559,6 +11915,12 @@
         "sizeMode": {
           "displayName": "Size Mode",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "contentWidth",
+            "contentHeight",
+            "contentSize"
+          ],
           "group": "Dimensions"
         },
         "width": {
@@ -11690,6 +12052,12 @@
         "sizeMode": {
           "displayName": "Size Mode",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "contentWidth",
+            "contentHeight",
+            "contentSize"
+          ],
           "group": "Dimensions"
         },
         "width": {
@@ -11791,6 +12159,10 @@
         "flexDirection": {
           "displayName": "Layout",
           "type": "enum",
+          "enums": [
+            "column",
+            "row"
+          ],
           "group": "Layout"
         },
         "value": {
@@ -11806,6 +12178,12 @@
         "sizeMode": {
           "displayName": "Size Mode",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "contentWidth",
+            "contentHeight",
+            "contentSize"
+          ],
           "group": "Dimensions"
         },
         "width": {
@@ -12114,6 +12492,11 @@
         "textAlignX": {
           "displayName": "Text Horizontal Align",
           "type": "enum",
+          "enums": [
+            "left",
+            "center",
+            "right"
+          ],
           "group": "Text Alignment"
         },
         "testId": {
@@ -12124,6 +12507,14 @@
         "type": {
           "displayName": "Type",
           "type": "enum",
+          "enums": [
+            "text",
+            "textArea",
+            "email",
+            "number",
+            "password",
+            "url"
+          ],
           "group": "Text"
         },
         "placeholder": {
@@ -12144,6 +12535,12 @@
         "sizeMode": {
           "displayName": "Size Mode",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "contentWidth",
+            "contentHeight",
+            "contentSize"
+          ],
           "group": "Dimensions"
         },
         "width": {
@@ -12270,6 +12667,12 @@
         "status": {
           "displayName": "Status",
           "type": "enum",
+          "enums": [
+            "Planned",
+            "In Progress",
+            "Blocked",
+            "Done"
+          ],
           "group": "Properties"
         },
         "parentGoalIdInput": {
@@ -12297,6 +12700,12 @@
         "statusOutput": {
           "displayName": "Status",
           "type": "enum",
+          "enums": [
+            "Planned",
+            "In Progress",
+            "Blocked",
+            "Done"
+          ],
           "group": "Properties Out"
         }
       }
@@ -12323,6 +12732,12 @@
         "priority": {
           "displayName": "Priority",
           "type": "enum",
+          "enums": [
+            "Low",
+            "Medium",
+            "High",
+            "Critical"
+          ],
           "group": "Properties"
         }
       },
@@ -12340,6 +12755,12 @@
         "priorityOutput": {
           "displayName": "Priority",
           "type": "enum",
+          "enums": [
+            "Low",
+            "Medium",
+            "High",
+            "Critical"
+          ],
           "group": "Properties Out"
         },
         "goalIdOutput": {
@@ -12376,6 +12797,13 @@
         "status": {
           "displayName": "Status",
           "type": "enum",
+          "enums": [
+            "To Do",
+            "In Progress",
+            "Blocked",
+            "Done",
+            "Archived"
+          ],
           "group": "Properties"
         },
         "parentFeatureIdInput": {
@@ -12418,6 +12846,13 @@
         "statusOutput": {
           "displayName": "Status",
           "type": "enum",
+          "enums": [
+            "To Do",
+            "In Progress",
+            "Blocked",
+            "Done",
+            "Archived"
+          ],
           "group": "Properties Out"
         }
       }
@@ -12449,6 +12884,12 @@
         "status": {
           "displayName": "Status",
           "type": "enum",
+          "enums": [
+            "Wireframe",
+            "Mockup",
+            "Implemented",
+            "Needs Review"
+          ],
           "group": "Properties"
         },
         "requiredByFeatureIdInput": {
@@ -12491,6 +12932,12 @@
         "statusOutput": {
           "displayName": "Status",
           "type": "enum",
+          "enums": [
+            "Wireframe",
+            "Mockup",
+            "Implemented",
+            "Needs Review"
+          ],
           "group": "Properties Out"
         },
         "leadsToUIIdOutput": {
@@ -12532,6 +12979,12 @@
         "status": {
           "displayName": "Status",
           "type": "enum",
+          "enums": [
+            "Planned",
+            "In Progress",
+            "Blocked",
+            "Done"
+          ],
           "group": "Properties"
         },
         "parentFeatureIdInput": {
@@ -12569,6 +13022,12 @@
         "statusOutput": {
           "displayName": "Status",
           "type": "enum",
+          "enums": [
+            "Planned",
+            "In Progress",
+            "Blocked",
+            "Done"
+          ],
           "group": "Properties Out"
         }
       }
@@ -12765,6 +13224,10 @@
         "mode": {
           "displayName": "Mode",
           "type": "enum",
+          "enums": [
+            "push",
+            "replace"
+          ],
           "group": "General"
         },
         "navigate": {
@@ -12866,6 +13329,15 @@
         "sitemapChangefreq": {
           "displayName": "Change Freq",
           "type": "enum",
+          "enums": [
+            "always",
+            "hourly",
+            "daily",
+            "weekly",
+            "monthly",
+            "yearly",
+            "never"
+          ],
           "group": "Experimental Sitemap"
         },
         "sitemapPriority": {
@@ -12931,6 +13403,11 @@
         "clip": {
           "displayName": "Clip Behavior",
           "type": "enum",
+          "enums": [
+            "contentHeight",
+            "scroll",
+            "clip"
+          ],
           "group": "Layout"
         },
         "reset": {
@@ -13262,6 +13739,12 @@
         "easingCurve": {
           "displayName": "Easing Curve",
           "type": "enum",
+          "enums": [
+            "easeOut",
+            "easeIn",
+            "linear",
+            "easeInOut"
+          ],
           "group": "Parameters"
         }
       },
@@ -13335,6 +13818,12 @@
         "gsapConfigSource": {
           "displayName": "Config Source",
           "type": "enum",
+          "enums": [
+            "properties",
+            "json",
+            "timeline",
+            "targetBased"
+          ],
           "group": "Animation (GSAP) | Configuration"
         },
         "gsapAutoStart": {
@@ -13370,6 +13859,39 @@
         "gsapEase": {
           "displayName": "Ease",
           "type": "enum",
+          "enums": [
+            "none",
+            "power1.out",
+            "power1.in",
+            "power1.inOut",
+            "power2.out",
+            "power2.in",
+            "power2.inOut",
+            "power3.out",
+            "power3.in",
+            "power3.inOut",
+            "power4.out",
+            "power4.in",
+            "power4.inOut",
+            "back.out",
+            "back.in",
+            "back.inOut",
+            "elastic.out",
+            "elastic.in",
+            "elastic.inOut",
+            "bounce.out",
+            "bounce.in",
+            "bounce.inOut",
+            "sine.out",
+            "sine.in",
+            "sine.inOut",
+            "expo.out",
+            "expo.in",
+            "expo.inOut",
+            "circ.out",
+            "circ.in",
+            "circ.inOut"
+          ],
           "group": "Animation (GSAP) | Properties"
         },
         "gsapTargetX": {
@@ -13480,11 +14002,22 @@
         "gsapPathType": {
           "displayName": "Path Type",
           "type": "enum",
+          "enums": [
+            "linear",
+            "curved",
+            "cubic"
+          ],
           "group": "Animation (GSAP) | Path"
         },
         "gsapPathAlign": {
           "displayName": "Path Align",
           "type": "enum",
+          "enums": [
+            "self",
+            "start",
+            "end",
+            "center"
+          ],
           "group": "Animation (GSAP) | Path"
         },
         "gsapPathAutoRotate": {
@@ -13500,6 +14033,34 @@
         "gsapAdvancedEase": {
           "displayName": "Advanced Ease",
           "type": "enum",
+          "enums": [
+            "none",
+            "custom",
+            "back.in",
+            "back.out",
+            "back.inOut",
+            "elastic.in",
+            "elastic.out",
+            "elastic.inOut",
+            "bounce.in",
+            "bounce.out",
+            "bounce.inOut",
+            "rough",
+            "slow",
+            "steps",
+            "power1.in",
+            "power1.out",
+            "power1.inOut",
+            "power2.in",
+            "power2.out",
+            "power2.inOut",
+            "power3.in",
+            "power3.out",
+            "power3.inOut",
+            "power4.in",
+            "power4.out",
+            "power4.inOut"
+          ],
           "group": "Animation (GSAP) | Easing"
         },
         "gsapCustomEase": {
@@ -13510,6 +14071,13 @@
         "gsapOverwrite": {
           "displayName": "Overwrite Mode",
           "type": "enum",
+          "enums": [
+            "auto",
+            "all",
+            "concurrent",
+            "preexisting",
+            "none"
+          ],
           "group": "Animation (GSAP) | Performance"
         },
         "gsapLazy": {
@@ -14376,6 +14944,10 @@
         "templateType": {
           "displayName": "Template Type",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "dynamic"
+          ],
           "group": "Appearance"
         },
         "template": {
@@ -14452,6 +15024,10 @@
         "templateType": {
           "displayName": "Template Type",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "dynamic"
+          ],
           "group": "Appearance"
         },
         "template": {
@@ -14467,6 +15043,10 @@
         "mode": {
           "displayName": "Mode",
           "type": "enum",
+          "enums": [
+            "incremental",
+            "rebuild"
+          ],
           "group": "Behavior"
         },
         "delay": {
@@ -14736,6 +15316,16 @@
         "setWith": {
           "displayName": "Set as",
           "type": "enum",
+          "enums": [
+            "string",
+            "boolean",
+            "number",
+            "emptyString",
+            "date",
+            "object",
+            "array",
+            "*"
+          ],
           "group": "General"
         },
         "do": {
@@ -14828,6 +15418,10 @@
         "type": {
           "displayName": "Type",
           "type": "enum",
+          "enums": [
+            "csv",
+            "json"
+          ],
           "group": "General"
         },
         "csv": {
@@ -14917,7 +15511,11 @@
         },
         "consume": {
           "displayName": "Consume",
-          "type": "enum"
+          "type": "enum",
+          "enums": [
+            "never",
+            "always"
+          ]
         },
         "channelName": {
           "displayName": "Channel",
@@ -14952,6 +15550,12 @@
         "propagation": {
           "displayName": "Send to",
           "type": "enum",
+          "enums": [
+            "global",
+            "parent",
+            "children",
+            "siblings"
+          ],
           "group": "Settings"
         },
         "payload": {
@@ -15048,6 +15652,10 @@
         "useExternalFile": {
           "displayName": "Use External File",
           "type": "enum",
+          "enums": [
+            "yes",
+            "no"
+          ],
           "group": "Code"
         },
         "code": {
@@ -15783,6 +16391,10 @@
         "strokeLineCap": {
           "displayName": "Line Cap",
           "type": "enum",
+          "enums": [
+            "butt",
+            "round"
+          ],
           "group": "Stroke"
         },
         "startAngle": {
@@ -15841,11 +16453,20 @@
         "direction": {
           "displayName": "Layout Direction",
           "type": "enum",
+          "enums": [
+            "row",
+            "column"
+          ],
           "group": "Layout Settings"
         },
         "justifyContent": {
           "displayName": "Justify Content",
           "type": "enum",
+          "enums": [
+            "flex-start",
+            "flex-end",
+            "center"
+          ],
           "group": "Justify Content"
         }
       },
@@ -15901,6 +16522,12 @@
         "sizeMode": {
           "displayName": "Size Mode",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "contentWidth",
+            "contentHeight",
+            "contentSize"
+          ],
           "group": "Dimensions"
         },
         "width": {
@@ -15958,6 +16585,12 @@
         "sizeMode": {
           "displayName": "Size Mode",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "contentWidth",
+            "contentHeight",
+            "contentSize"
+          ],
           "group": "Dimensions"
         },
         "width": {
@@ -16050,6 +16683,12 @@
         "sizeMode": {
           "displayName": "Size Mode",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "contentWidth",
+            "contentHeight",
+            "contentSize"
+          ],
           "group": "Dimensions"
         },
         "width": {
@@ -16132,6 +16771,11 @@
         "axis": {
           "displayName": "Axis",
           "type": "enum",
+          "enums": [
+            "x",
+            "y",
+            "both"
+          ],
           "group": "Drag"
         },
         "useParentBounds": {
@@ -16202,6 +16846,11 @@
         "flexDirection": {
           "displayName": "Layout",
           "type": "enum",
+          "enums": [
+            "none",
+            "column",
+            "row"
+          ],
           "group": "Layout"
         },
         "scrollToIndex.do": {
@@ -16307,11 +16956,28 @@
         "as": {
           "displayName": "Tag",
           "type": "enum",
+          "enums": [
+            "div",
+            "section",
+            "article",
+            "aside",
+            "nav",
+            "header",
+            "footer",
+            "main",
+            "span"
+          ],
           "group": "Advanced HTML"
         },
         "sizeMode": {
           "displayName": "Size Mode",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "contentWidth",
+            "contentHeight",
+            "contentSize"
+          ],
           "group": "Dimensions"
         },
         "width": {
@@ -16435,6 +17101,12 @@
         "sizeMode": {
           "displayName": "Size Mode",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "contentWidth",
+            "contentHeight",
+            "contentSize"
+          ],
           "group": "Dimensions"
         },
         "width": {
@@ -16518,6 +17190,12 @@
         "sizeMode": {
           "displayName": "Size Mode",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "contentWidth",
+            "contentHeight",
+            "contentSize"
+          ],
           "group": "Dimensions"
         },
         "width": {
@@ -16611,6 +17289,12 @@
         "sizeMode": {
           "displayName": "Size Mode",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "contentWidth",
+            "contentHeight",
+            "contentSize"
+          ],
           "group": "Dimensions"
         },
         "width": {
@@ -16801,6 +17485,12 @@
         "sizeMode": {
           "displayName": "Size Mode",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "contentWidth",
+            "contentHeight",
+            "contentSize"
+          ],
           "group": "Dimensions"
         },
         "width": {
@@ -16889,6 +17579,12 @@
         "sizeMode": {
           "displayName": "Size Mode",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "contentWidth",
+            "contentHeight",
+            "contentSize"
+          ],
           "group": "Dimensions"
         },
         "width": {
@@ -16936,11 +17632,21 @@
         "textAlignX": {
           "displayName": "Text Horizontal Align",
           "type": "enum",
+          "enums": [
+            "left",
+            "center",
+            "right"
+          ],
           "group": "Text Alignment"
         },
         "textAlignY": {
           "displayName": "Text Vertical Align",
           "type": "enum",
+          "enums": [
+            "top",
+            "center",
+            "bottom"
+          ],
           "group": "Text Alignment"
         },
         "testId": {
@@ -16961,11 +17667,29 @@
         "as": {
           "displayName": "Tag",
           "type": "enum",
+          "enums": [
+            "div",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "p",
+            "span",
+            "a"
+          ],
           "group": "Advanced HTML"
         },
         "sizeMode": {
           "displayName": "Size Mode",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "contentWidth",
+            "contentHeight",
+            "contentSize"
+          ],
           "group": "Dimensions"
         },
         "width": {
@@ -17089,6 +17813,12 @@
         "sizeMode": {
           "displayName": "Size Mode",
           "type": "enum",
+          "enums": [
+            "explicit",
+            "contentWidth",
+            "contentHeight",
+            "contentSize"
+          ],
           "group": "Dimensions"
         },
         "width": {
@@ -17227,6 +17957,10 @@
         "status": {
           "displayName": "Status",
           "type": "enum",
+          "enums": [
+            "success",
+            "failure"
+          ],
           "group": "General"
         }
       },
