@@ -5863,6 +5863,29 @@ function addPositionAttrs(styles: ParsedStyles, attrs: string[]): void {
         if (cssProp === 'bottom') hasBottom = true;
 
         const str = String(val);
+        // ─── A PERCENTAGE MARGIN IS NOT A PERCENTAGE OFFSET ─────────────────
+        // (2026-08-14, export 1786676064449, found by the AI's own report) In CSS, a percentage
+        // margin resolves against the containing block's WIDTH — on BOTH axes. `margin-top: 81.3%`
+        // on a 995px-wide stage is 809px, not 81.3% of its height. `top: 81.3%` on the same stage
+        // is 524px. So converting a percentage `top` into `marginTop` displaces it by exactly the
+        // parent's aspect ratio, and the error grows with the percentage: elements near the top
+        // look about right and anything near the bottom is flung off the screen.
+        //
+        // That is the layout fault behind every scattered screen in this run — a control bar at
+        // top:81.3% landed 164px below a 645px viewport, and ui_layout_map reported 17 elements
+        // off-screen. It compounds with, and is larger than, the key-art aspect problem.
+        //
+        // LEFT AND RIGHT ARE FINE and deliberately unchanged: CSS `left: X%` and `margin-left: X%`
+        // both resolve against width, so the conversion is exact there. vh/vw are fine too — a
+        // viewport unit means the same thing in either property. Only the VERTICAL percentage is
+        // wrong, so only it is rerouted, into real CSS where the browser resolves it correctly.
+        const isVerticalPercent = (cssProp === 'top' || cssProp === 'bottom') && str.trim().endsWith('%');
+        if (isVerticalPercent) {
+            styles.styleCss = (styles.styleCss || '') + `${cssProp}: ${str};`;
+            // No margin emitted: writing both would apply the offset twice.
+            (styles as any)[xgeniaProp] = undefined;
+            continue;
+        }
         if (str.includes('%') || str.includes('vh') || str.includes('vw')) {
             // Percentage/viewport values → emit as native margin with unit
             attrs.push(`${xgeniaProp}="${str}"`);
