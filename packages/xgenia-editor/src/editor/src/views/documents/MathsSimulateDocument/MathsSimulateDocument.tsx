@@ -13,6 +13,19 @@ import {
     type ComponentSimulationStats,
     type SimulationSeriesPoint
 } from '@xgenia-utils/rgs/simulateComponent';
+import {
+    buildSimulationInputs,
+    defaultConfigFor,
+    describeInputConfig,
+    inferBetInputPort,
+    inferWinOutputPort,
+    isComplexType,
+    portsFromExample,
+    seedStakeIfZero,
+    type InputConfig,
+    type InputMode,
+    type PortInfo
+} from '@xgenia-utils/rgs/simulationPorts';
 
 import { EditorDocumentProvider } from '../EditorDocument';
 import { SimulationCharts } from './SimulationCharts';
@@ -49,8 +62,8 @@ export interface MathsSimulateDoc {
     /**
      * The bet / win mapping this component was DEPLOYED with — chosen in the
      * post-compile setup card at publish time. Null on components deployed
-     * before that card existed, and on any whose author skipped the choice;
-     * those fall back to the first-numeric-port guess.
+     * before that card existed, and on any whose author skipped the choice —
+     * which is most of them, so see simulationPorts for what happens then.
      */
     bet_input_port?: string | null;
     win_output_port?: string | null;
@@ -66,74 +79,10 @@ interface MathsSimulateDocumentProps {
     fn: MathsSimulateDoc;
 }
 
-// ─── Port model (mirrors the studio Testing page) ────────────
-type PortType = 'number' | 'boolean' | 'string' | 'object' | 'array';
-
-interface PortInfo {
-    name: string;
-    type: PortType;
-    /** The raw example value — seeds the fixed (JSON) default for complex ports. */
-    example?: any;
-}
-
-// number → rng | fixed ; boolean → random | true | false ; string → random | fixed
-// object / array → fixed (JSON valueStr)
-type InputMode = 'rng' | 'fixed' | 'random' | 'true' | 'false';
-
-interface InputConfig {
-    mode: InputMode;
-    value: number;
-    valueStr: string;
-    rngMin: number;
-    rngMax: number;
-}
-
-function portTypeOf(v: unknown): PortType {
-    if (Array.isArray(v)) return 'array';
-    const t = typeof v;
-    if (t === 'number') return 'number';
-    if (t === 'boolean') return 'boolean';
-    if (t === 'object' && v !== null) return 'object';
-    return 'string';
-}
-
-// Arrays and records can't be RNG-sampled or used as the bet/win port — they're
-// passed through the simulation as a fixed (JSON) value.
-function isComplexType(t: PortType): boolean {
-    return t === 'object' || t === 'array';
-}
-
-function safeJsonStringify(v: any): string {
-    try {
-        return JSON.stringify(v);
-    } catch {
-        return '';
-    }
-}
-
-function parseJsonOr(raw: string, fallback: any): any {
-    if (!raw || !raw.trim()) return fallback;
-    try {
-        return JSON.parse(raw);
-    } catch {
-        return fallback;
-    }
-}
-
-function portsFromExample(example: any): PortInfo[] {
-    if (!example || typeof example !== 'object') return [];
-    return Object.entries(example).map(([name, v]) => ({ name, type: portTypeOf(v), example: v }));
-}
-
-function defaultConfigFor(type: PortType, example?: any): InputConfig {
-    return {
-        mode: type === 'number' ? 'rng' : type === 'boolean' ? 'random' : type === 'string' ? 'random' : 'fixed',
-        value: 0,
-        valueStr: isComplexType(type) && example !== undefined ? safeJsonStringify(example) : '',
-        rngMin: 1,
-        rngMax: 100
-    };
-}
+// The port model, the input defaults and the bet/win inference all live in
+// @xgenia-utils/rgs/simulationPorts, which mirrors the RGS studio's own copy —
+// this view and the studio's Testing tab configure the same run against the same
+// platform runner, so they cannot be allowed to disagree about what a port means.
 
 // ─── Styles ─────────────────────────────────────────────────
 const SECTION_STYLE: React.CSSProperties = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '14px 16px', marginBottom: '12px' };
@@ -154,26 +103,6 @@ const INPUT_STYLE: React.CSSProperties = { ...CONTROL_STYLE, fontFamily: 'monosp
 const PORT_ROW_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '6px', padding: '8px 10px', marginBottom: '6px' };
 const TYPE_CHIP_STYLE: React.CSSProperties = { flexShrink: 0, fontSize: '9px', fontFamily: 'monospace', padding: '2px 5px', borderRadius: '3px', background: 'rgba(255,255,255,0.06)', color: '#8a8a9a' };
 const STAT_TILE_STYLE: React.CSSProperties = { flex: 1, minWidth: '140px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', padding: '12px', textAlign: 'center' };
-
-/** One-line recap of what a port feeds the simulation. */
-function describeInputConfig(port: PortInfo, config: InputConfig): string {
-    if (port.type === 'number') {
-        return config.mode === 'fixed'
-            ? `fixed ${config.valueStr !== '' ? config.valueStr : config.value}`
-            : `RNG ${Math.floor(config.rngMin)} – ${Math.floor(config.rngMax)}`;
-    }
-    if (port.type === 'boolean') {
-        if (config.mode === 'true') return 'always true';
-        if (config.mode === 'false') return 'always false';
-        return 'random 50/50';
-    }
-    if (isComplexType(port.type)) {
-        const raw = config.valueStr?.trim();
-        if (!raw) return port.type === 'array' ? 'fixed []' : 'fixed {}';
-        return `fixed ${raw.length > 24 ? `${raw.slice(0, 24)}…` : raw}`;
-    }
-    return config.mode === 'fixed' ? `fixed "${config.valueStr}"` : 'random name';
-}
 
 // ─── Topbar (title + Exit) ──────────────────────────────────
 function MathsSimulateTopbar({ title }: { title: string }) {
@@ -202,6 +131,8 @@ function MathsSimulateDocument({
     const [inputConfig, setInputConfig] = useState<Record<string, InputConfig>>({});
     const [betInputPort, setBetInputPort] = useState('');
     const [winOutputPort, setWinOutputPort] = useState('');
+    /** Stake per round when no input port carries the bet. */
+    const [flatStake, setFlatStake] = useState(1);
     const [simCount, setSimCount] = useState(10_000);
     const [running, setRunning] = useState(false);
     const [runError, setRunError] = useState<string | null>(null);
@@ -229,27 +160,55 @@ function MathsSimulateDocument({
     // for every chunk — this view only ever sees the component's port examples
     // (which the Server Version listing already carries) and the resulting figures.
 
-    // Default the bet/win mapping to whatever the component was deployed with —
-    // the author said so in the editor's post-compile setup card, and that beats
-    // guessing. Falls back to the first numeric port when the stored name is
-    // missing or no longer matches a numeric port (a later publish can rename or
-    // retype one).
+    // Seed the input configuration and the bet/win mapping for this component.
+    //
+    // Every port starts at the value the component was DEPLOYED with. It used to
+    // start at noise — numbers on a 1–100 draw, booleans on a coin flip — which
+    // on a component declaring ~150 UI toggles (`isDoubleBet`, `isDoClear`,
+    // `isToStartAutoBet`) meant every round fired a fistful of contradictory
+    // interface events at the maths.
+    //
+    // The bet/win mapping still prefers whatever the component was deployed with
+    // — the author said so in the post-compile setup card, and that beats
+    // guessing — but the fallback is now a port actually NAMED like a stake or a
+    // win, not whichever happens to sort first. See simulationPorts for why that
+    // matters on the real library.
     useEffect(() => {
-        const storedBet = fn.bet_input_port;
-        const storedWin = fn.win_output_port;
-        setBetInputPort((storedBet && numericInputs.some((p) => p.name === storedBet) ? storedBet : numericInputs[0]?.name) || '');
-        setWinOutputPort((storedWin && numericOutputs.some((p) => p.name === storedWin) ? storedWin : numericOutputs[0]?.name) || '');
+        const bet = inferBetInputPort(numericInputs, fn.bet_input_port);
+        const win = inferWinOutputPort(numericOutputs, fn.win_output_port);
+
+        let seeded: Record<string, InputConfig> = {};
+        for (const port of inputPorts) seeded[port.name] = defaultConfigFor(port.type, port.example);
+        seeded = seedStakeIfZero(seeded, bet, inputPorts);
+
+        setInputConfig(seeded);
+        setBetInputPort(bet);
+        setWinOutputPort(win);
+        setSimResult(null);
+        setRunError(null);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [fn.function_slug]);
 
-    const updateInputConfig = (portName: string, type: PortType, field: Partial<InputConfig>) => {
+    const updateInputConfig = (port: PortInfo, field: Partial<InputConfig>) => {
         setInputConfig((prev) => ({
             ...prev,
-            [portName]: { ...(prev[portName] || defaultConfigFor(type)), ...field }
+            [port.name]: { ...(prev[port.name] || defaultConfigFor(port.type, port.example)), ...field }
         }));
     };
 
-    const canRun = !notConnected && !running && !!betInputPort && !!winOutputPort;
+    const handleBetPortChange = (name: string) => {
+        setBetInputPort(name);
+        setInputConfig((prev) => seedStakeIfZero(prev, name, inputPorts));
+    };
+
+    const configFor = (port: PortInfo): InputConfig =>
+        inputConfig[port.name] || defaultConfigFor(port.type, port.example);
+
+    // No longer gated on picking a Win Output: for a component whose response
+    // ports are UI elements there is no correct port to pick, and the right
+    // answer — the win evaluate() itself returns, which is what rgs-fn pays — is
+    // what an empty mapping means.
+    const canRun = !notConnected && !running;
 
     const handleRunSimulations = async () => {
         if (notConnected || running) return;
@@ -259,27 +218,10 @@ function MathsSimulateDocument({
         setSimResult(null);
         setProgress({ rounds: 0, totalRounds: Math.max(1, Math.min(simCount, MAX_SIMULATION_ROUNDS)) });
         try {
-            const inputOverrides: Record<string, any> = {};
-            const rngPorts: Record<string, { min: number; max: number }> = {};
-            const boolRngPorts: string[] = [];
-            const strRngPorts: string[] = [];
-
-            for (const port of inputPorts) {
-                const cfg = inputConfig[port.name] || defaultConfigFor(port.type, port.example);
-                if (port.type === 'number') {
-                    if (cfg.mode === 'fixed') inputOverrides[port.name] = cfg.value;
-                    else rngPorts[port.name] = { min: cfg.rngMin ?? 1, max: cfg.rngMax ?? 100 };
-                } else if (port.type === 'boolean') {
-                    if (cfg.mode === 'true') inputOverrides[port.name] = true;
-                    else if (cfg.mode === 'false') inputOverrides[port.name] = false;
-                    else boolRngPorts.push(port.name);
-                } else if (isComplexType(port.type)) {
-                    inputOverrides[port.name] = parseJsonOr(cfg.valueStr, port.type === 'array' ? [] : {});
-                } else {
-                    if (cfg.mode === 'fixed') inputOverrides[port.name] = cfg.valueStr ?? '';
-                    else strRngPorts.push(port.name);
-                }
-            }
+            const { inputOverrides, rngPorts, boolRngPorts, strRngPorts } = buildSimulationInputs(
+                inputPorts,
+                inputConfig
+            );
 
             const numRounds = Math.max(1, Math.min(simCount, MAX_SIMULATION_ROUNDS));
             const res = await simulateDeployedComponent({
@@ -287,7 +229,9 @@ function MathsSimulateDocument({
                 deploymentId: deploymentId as string,
                 functionSlug: fn.function_slug,
                 totalRounds: numRounds,
-                betAmount: 1, // fallback; the bet port governs the actual stake
+                // Used on rounds where the bet port supplies no number — and on
+                // every round when no bet port is mapped at all.
+                betAmount: Math.max(1, flatStake) || 1,
                 inputOverrides,
                 rngPorts,
                 boolRngPorts,
@@ -342,10 +286,11 @@ function MathsSimulateDocument({
                         ) : (
                             <>
                                 <div style={{ ...HINT_STYLE, marginBottom: '10px' }}>
-                                    Every round feeds these values to the component. RNG ports are redrawn each round.
+                                    Every round feeds these values to the component. Defaults are the values this
+                                    component was deployed with; switch a port to RNG or Random to sweep it.
                                 </div>
                                 {inputPorts.map((port) => {
-                                    const config = inputConfig[port.name] || defaultConfigFor(port.type, port.example);
+                                    const config = configFor(port);
                                     return (
                                         <div key={port.name} style={PORT_ROW_STYLE}>
                                             <span style={{ flexShrink: 0, width: '8px', height: '8px', borderRadius: '50%', background: '#4FD1C5' }} />
@@ -358,21 +303,21 @@ function MathsSimulateDocument({
                                                     <select
                                                         style={{ ...SELECT_STYLE, minWidth: '110px' }}
                                                         value={config.mode}
-                                                        onChange={(e) => updateInputConfig(port.name, port.type, { mode: e.target.value as InputMode })}
+                                                        onChange={(e) => updateInputConfig(port, { mode: e.target.value as InputMode })}
                                                     >
-                                                        <option style={OPTION_STYLE} value="rng">RNG Value</option>
                                                         <option style={OPTION_STYLE} value="fixed">Fixed Value</option>
+                                                        <option style={OPTION_STYLE} value="rng">RNG Value</option>
                                                     </select>
                                                     {config.mode === 'fixed' ? (
                                                         <input
                                                             type="number"
                                                             style={{ ...INPUT_STYLE, width: '96px' }}
                                                             placeholder="0"
-                                                            value={config.valueStr || (config.value === 0 ? '' : String(config.value))}
+                                                            value={config.valueStr}
                                                             onChange={(e) => {
                                                                 const raw = e.target.value;
                                                                 const num = raw === '' || raw === '-' ? 0 : Number(raw);
-                                                                updateInputConfig(port.name, port.type, { value: num, valueStr: raw });
+                                                                updateInputConfig(port, { value: Number.isFinite(num) ? num : 0, valueStr: raw });
                                                             }}
                                                         />
                                                     ) : (
@@ -382,14 +327,14 @@ function MathsSimulateDocument({
                                                                 type="number"
                                                                 style={{ ...INPUT_STYLE, width: '72px' }}
                                                                 value={config.rngMin}
-                                                                onChange={(e) => updateInputConfig(port.name, port.type, { rngMin: Math.floor(Number(e.target.value) || 0) })}
+                                                                onChange={(e) => updateInputConfig(port, { rngMin: Math.floor(Number(e.target.value) || 0) })}
                                                             />
                                                             <span style={{ fontSize: '10px', color: '#8a8a9a' }}>Max</span>
                                                             <input
                                                                 type="number"
                                                                 style={{ ...INPUT_STYLE, width: '72px' }}
                                                                 value={config.rngMax}
-                                                                onChange={(e) => updateInputConfig(port.name, port.type, { rngMax: Math.floor(Number(e.target.value) || 0) })}
+                                                                onChange={(e) => updateInputConfig(port, { rngMax: Math.floor(Number(e.target.value) || 0) })}
                                                             />
                                                         </span>
                                                     )}
@@ -400,11 +345,11 @@ function MathsSimulateDocument({
                                                 <select
                                                     style={{ ...SELECT_STYLE, minWidth: '130px' }}
                                                     value={config.mode}
-                                                    onChange={(e) => updateInputConfig(port.name, port.type, { mode: e.target.value as InputMode })}
+                                                    onChange={(e) => updateInputConfig(port, { mode: e.target.value as InputMode })}
                                                 >
-                                                    <option style={OPTION_STYLE} value="random">Random (50/50)</option>
-                                                    <option style={OPTION_STYLE} value="true">Always true</option>
                                                     <option style={OPTION_STYLE} value="false">Always false</option>
+                                                    <option style={OPTION_STYLE} value="true">Always true</option>
+                                                    <option style={OPTION_STYLE} value="random">Random (50/50)</option>
                                                 </select>
                                             )}
 
@@ -413,18 +358,18 @@ function MathsSimulateDocument({
                                                     <select
                                                         style={{ ...SELECT_STYLE, minWidth: '110px' }}
                                                         value={config.mode}
-                                                        onChange={(e) => updateInputConfig(port.name, port.type, { mode: e.target.value as InputMode })}
+                                                        onChange={(e) => updateInputConfig(port, { mode: e.target.value as InputMode })}
                                                     >
-                                                        <option style={OPTION_STYLE} value="random">Random Name</option>
                                                         <option style={OPTION_STYLE} value="fixed">Fixed Value</option>
+                                                        <option style={OPTION_STYLE} value="random">Random Name</option>
                                                     </select>
-                                                    {config.mode === 'fixed' && (
+                                                    {config.mode !== 'random' && (
                                                         <input
                                                             type="text"
                                                             style={{ ...INPUT_STYLE, width: '160px' }}
                                                             placeholder="value"
                                                             value={config.valueStr}
-                                                            onChange={(e) => updateInputConfig(port.name, port.type, { valueStr: e.target.value })}
+                                                            onChange={(e) => updateInputConfig(port, { valueStr: e.target.value })}
                                                         />
                                                     )}
                                                 </>
@@ -438,7 +383,7 @@ function MathsSimulateDocument({
                                                         style={{ ...INPUT_STYLE, flex: 1, minWidth: '140px' }}
                                                         placeholder={port.type === 'array' ? '[]' : '{}'}
                                                         value={config.valueStr}
-                                                        onChange={(e) => updateInputConfig(port.name, port.type, { valueStr: e.target.value })}
+                                                        onChange={(e) => updateInputConfig(port, { valueStr: e.target.value })}
                                                     />
                                                 </span>
                                             )}
@@ -462,16 +407,31 @@ function MathsSimulateDocument({
                                 <select
                                     style={{ ...SELECT_STYLE, width: '100%' }}
                                     value={betInputPort}
-                                    onChange={(e) => setBetInputPort(e.target.value)}
+                                    onChange={(e) => handleBetPortChange(e.target.value)}
+                                    disabled={running}
                                 >
-                                    <option style={OPTION_STYLE} value="">— Select input port —</option>
+                                    <option style={OPTION_STYLE} value="">— Flat stake (no input port) —</option>
                                     {numericInputs.map((p) => (
                                         <option style={OPTION_STYLE} key={p.name} value={p.name}>{p.name} ({p.type})</option>
                                     ))}
                                 </select>
-                                <div style={{ fontSize: '10px', color: '#7a7a8a', marginTop: '4px' }}>
-                                    Each round is staked at this port&#39;s value from Define Inputs.
-                                </div>
+                                {betInputPort ? (
+                                    <div style={{ fontSize: '10px', color: '#7a7a8a', marginTop: '4px' }}>
+                                        Each round is staked at this port&#39;s value from Define Inputs.
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}>
+                                        <span style={{ fontSize: '10px', color: '#8a8a9a', whiteSpace: 'nowrap' }}>Stake per round</span>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            style={{ ...INPUT_STYLE, width: '96px' }}
+                                            value={flatStake}
+                                            onChange={(e) => setFlatStake(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                                            disabled={running}
+                                        />
+                                    </div>
+                                )}
                             </div>
                             <div style={{ flex: 1, minWidth: '200px' }}>
                                 <label style={FIELD_LABEL_STYLE}>Win Output</label>
@@ -479,12 +439,23 @@ function MathsSimulateDocument({
                                     style={{ ...SELECT_STYLE, width: '100%' }}
                                     value={winOutputPort}
                                     onChange={(e) => setWinOutputPort(e.target.value)}
+                                    disabled={running}
                                 >
-                                    <option style={OPTION_STYLE} value="">— Select output port —</option>
+                                    {/* An empty mapping is a correct, working answer, not a
+                                        missing one: the platform then reads the win evaluate()
+                                        itself returns, which is the figure rgs-fn pays the
+                                        player. For a component whose response ports are UI
+                                        elements there is nothing else to pick. */}
+                                    <option style={OPTION_STYLE} value="">— Use the win the script returns —</option>
                                     {numericOutputs.map((p) => (
                                         <option style={OPTION_STYLE} key={p.name} value={p.name}>{p.name} ({p.type})</option>
                                     ))}
                                 </select>
+                                <div style={{ fontSize: '10px', color: '#7a7a8a', marginTop: '4px' }}>
+                                    {winOutputPort
+                                        ? "Each round's win is read from this port."
+                                        : 'The value evaluate() returns — the same figure rgs-fn pays the player.'}
+                                </div>
                             </div>
                         </div>
 
@@ -492,7 +463,7 @@ function MathsSimulateDocument({
                         {inputPorts.length > 0 && (
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
                                 {inputPorts.map((port) => {
-                                    const config = inputConfig[port.name] || defaultConfigFor(port.type, port.example);
+                                    const config = configFor(port);
                                     const isBet = port.name === betInputPort;
                                     return (
                                         <span
@@ -567,13 +538,26 @@ function MathsSimulateDocument({
                                 </div>
                             </div>
                         )}
-                        {(!betInputPort || !winOutputPort) && !notConnected && (
-                            <div style={{ fontSize: '11px', color: '#F5A623', marginTop: '8px' }}>
-                                Select a numeric Bet input and Win output to run.
-                            </div>
-                        )}
+                        {/* The platform names the construct and the line when a script trips a
+                            sandbox rule — 43 of the 125 deployed components do — so give the
+                            message room to be read rather than clipping it to one line. */}
                         {runError && (
-                            <div style={{ fontSize: '11px', color: '#EF4444', marginTop: '8px' }}>{runError}</div>
+                            <div
+                                style={{
+                                    marginTop: '10px',
+                                    padding: '10px 12px',
+                                    borderRadius: '6px',
+                                    background: 'rgba(239,68,68,0.08)',
+                                    border: '1px solid rgba(239,68,68,0.35)'
+                                }}
+                            >
+                                <div style={{ fontSize: '11px', fontWeight: 600, color: '#EF4444', marginBottom: '4px' }}>
+                                    Simulation failed
+                                </div>
+                                <div style={{ fontSize: '11px', color: '#e0a0a0', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5 }}>
+                                    {runError}
+                                </div>
+                            </div>
                         )}
                     </div>
 
@@ -583,7 +567,11 @@ function MathsSimulateDocument({
                             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
                                 <div style={SECTION_TITLE_STYLE}>Simulation Results</div>
                                 <div style={{ fontSize: '10px', color: '#7a7a8a', fontFamily: 'monospace' }}>
-                                    {simResult.stats.rounds.toLocaleString()} rounds · {simResult.stats.roundsPerSecond.toLocaleString()} rounds/s on RGS
+                                    {simResult.stats.rounds.toLocaleString()} rounds
+                                    {simResult.stats.roundsEvaluated > simResult.stats.rounds
+                                        ? ` · ${simResult.stats.roundsEvaluated.toLocaleString()} evaluated`
+                                        : ''}
+                                    {' '}· {simResult.stats.roundsPerSecond.toLocaleString()} rounds/s on RGS
                                 </div>
                             </div>
 
@@ -592,6 +580,18 @@ function MathsSimulateDocument({
                             {simResult.cancelled && (
                                 <div style={{ fontSize: '11px', color: '#F5A623', marginBottom: '10px' }}>
                                     Stopped early — these figures cover the {simResult.stats.rounds.toLocaleString()} rounds that ran.
+                                </div>
+                            )}
+
+                            {/* A feature the platform had to break out of is a defect in the
+                                component, not in the run — and every figure below was measured
+                                against a bonus that never ends, so it needs saying. */}
+                            {simResult.stats.featureCapHits > 0 && (
+                                <div style={{ fontSize: '11px', color: '#F5A623', marginBottom: '10px', lineHeight: 1.5 }}>
+                                    {simResult.stats.featureCapHits.toLocaleString()} feature
+                                    {simResult.stats.featureCapHits === 1 ? ' was' : 's were'} cut short at 500 free rounds —
+                                    this component never clears <code style={TYPE_CHIP_STYLE}>state.in_feature</code>, so its
+                                    bonus does not end on its own.
                                 </div>
                             )}
 
@@ -604,7 +604,11 @@ function MathsSimulateDocument({
                                 <div style={STAT_TILE_STYLE}>
                                     <div style={{ fontSize: '11px', color: '#8a8a9a' }}>Hit Frequency</div>
                                     <div style={{ fontSize: '22px', fontWeight: 700, color: '#f0f0f5' }}>{simResult.stats.hitRate.toFixed(2)}%</div>
-                                    <div style={{ fontSize: '10px', color: '#7a7a8a' }}>non-zero wins ÷ rounds</div>
+                                    {/* Paid rounds, counted WITH the free rounds they bought — a
+                                        stake that pays out through its bonus is one hit, not ten.
+                                        Scoring each free round separately is what used to put this
+                                        figure above 100%. */}
+                                    <div style={{ fontSize: '10px', color: '#7a7a8a' }}>paid rounds that returned a win</div>
                                 </div>
                                 <div style={STAT_TILE_STYLE}>
                                     <div style={{ fontSize: '11px', color: '#8a8a9a' }}>Volatility</div>
@@ -628,6 +632,25 @@ function MathsSimulateDocument({
                                     </div>
                                 ))}
                             </div>
+
+                            {/* Only when the component actually has a feature — on the current
+                                library nothing sets in_feature, and four empty tiles would read
+                                as a broken measurement rather than an absent bonus. */}
+                            {simResult.stats.bonusTriggers > 0 && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '18px', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                                    {[
+                                        ['Bonus frequency', simResult.stats.bonusFrequency],
+                                        ['Free rounds played', simResult.stats.bonusRoundsPlayed.toLocaleString()],
+                                        ['Bonus RTP', `${(simResult.stats.bonusRtp * 100).toFixed(2)}%`],
+                                        ['Avg bonus win', simResult.stats.avgBonusWin.toLocaleString()]
+                                    ].map(([label, value]) => (
+                                        <div key={label}>
+                                            <div style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#7a7a8a' }}>{label}</div>
+                                            <div style={{ fontSize: '13px', fontFamily: 'monospace', color: '#e0e0e0' }}>{value}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
 
