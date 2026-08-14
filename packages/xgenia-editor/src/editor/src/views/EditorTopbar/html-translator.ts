@@ -3614,6 +3614,35 @@ function generateTextLabel(text: string): string {
 }
 
 
+
+/**
+ * `cover` or `contain` for a piece of art that was authored as a background-image.
+ *
+ * (2026-08-13, user: "buttons and things should scale down not be cut off, setting buttons and
+ * stuff as scale down is much more ideal than anything else".)
+ *
+ * Both defaults here were `cover`, and `cover` CROPS. That is exactly right for a backdrop — a
+ * scene has to fill its box on both axes or you see the page behind it — and exactly wrong for
+ * everything else. A spin button whose art is 1:1 dropped into a 3:1 slot loses its top and
+ * bottom; a title logo loses its ends. The piece is not too big, it is being cut.
+ *
+ * The asymmetry decides the default. Letterboxing is a spacing imperfection you can see and
+ * adjust; cropping destroys the art and reads as a broken asset. So `contain` unless the thing is
+ * actually a backdrop.
+ *
+ * An explicitly authored `background-size` always wins — both call sites check for one first —
+ * and the UI specialist is already taught to write `background-size: contain` for art slots
+ * (SubAgentDispatcher.ts:655). Until now the translator quietly overrode it on the branch where
+ * the author wrote none, so the tool contradicted its own instruction.
+ */
+const BACKDROP_SRC = /\b(background|backdrop|bg|scene|sky|wallpaper|panorama)\b/i;
+function fitForArt(src: string | undefined, alt: string | undefined): 'cover' | 'contain' {
+    // Named as a backdrop by its own filename or label — the only case where filling the box on
+    // both axes is what was wanted.
+    if (BACKDROP_SRC.test(String(src || '')) || BACKDROP_SRC.test(String(alt || ''))) return 'cover';
+    return 'contain';
+}
+
 function translateNode(
     node: Node,
     depth: number,
@@ -3873,7 +3902,28 @@ function translateNode(
     if (tag === 'img') {
         const attrs: string[] = [];
         const alt = el.getAttribute('alt') || el.getAttribute('data-alt') || '';
-        attrs.push(`nodeLabel="${escapeXml(alt || 'Image')}"`);
+        // IDENTITY IS DECLARED. (2026-08-14, export 1786664368554) This was the one element type
+        // that never asked generateNodeLabel — it read `alt` and fell back to the literal 'Image',
+        // so `id` was ignored on every image in the document.
+        //
+        // Decorative art is SUPPOSED to carry alt="" (that is the accessible way to write it), so
+        // the more correct the HTML, the worse the outcome: a key-art build whose <img> tags were
+        // id="CabinetShell" / id="TitleLockup" / id="WheelOrnament" landed in the graph as Image,
+        // Image 2 … Image 7. Every named control beside them (ReelArea, SpinButton, BalanceText)
+        // kept its name, because those go through the normal path.
+        //
+        // The cost is not cosmetic. apply_design_delta refused the whole set on the next pass —
+        // "SKIPPED — 1 label(s) are not unique (Image). The translator numbers repeats by
+        // position, so a label like these can point at a different node in each document; writing
+        // to one would be a coin flip" — so two refine passes could not touch a single piece of
+        // art, and the AI had no @-ref to set_node_parameters on either. The screen was
+        // unfixable by every route the system has.
+        //
+        // declaredControlLabel, not generateNodeLabel: an <img> has no children and decorative
+        // art has no alt, which lands in generateNodeLabel's decorative branch and would name the
+        // cabinet "#f4a7c1 panel" or "dot" — worse than Image, and just as un-targetable. Only the
+        // DECLARED half of the chain applies to an image; alt stays the fallback it always was.
+        attrs.push(`nodeLabel="${escapeXml(declaredControlLabel(el) || alt || 'Image')}"`);
         const src = el.getAttribute('src') || '';
         attrs.push(`src="${escapeXml(src)}"`);
         // sizeMode FIRST — see addImageSizing for why an image without it renders at its
@@ -3897,7 +3947,9 @@ function translateNode(
         // an explicit background-size/position must not be overridden.
         const authored = styles.styleCss || '';
         let bgCss = `background-image: url(${styles.backgroundImage});`;
-        if (!/background-size\s*:/i.test(authored)) bgCss += ' background-size: cover;';
+        if (!/background-size\s*:/i.test(authored)) {
+            bgCss += ` background-size: ${fitForArt(styles.backgroundImage, el.getAttribute('aria-label') || undefined)};`;
+        }
         if (!/background-position\s*:/i.test(authored)) bgCss += ' background-position: center;';
         styles.styleCss = authored + bgCss;
         styles.backgroundImage = undefined;
@@ -3909,14 +3961,13 @@ function translateNode(
         const alt = el.getAttribute('data-alt') || el.getAttribute('aria-label') || 'Background Image';
         attrs.push(`nodeLabel="${escapeXml(alt)}"`);
         attrs.push(`src="${escapeXml(styles.backgroundImage)}"`);
-        // A backdrop covers its box on BOTH axes, so this branch is always `explicit`.
         // objectFit is a dynamic port gated on `sizeMode = explicit` (image.js dynamicports):
-        // emitted without it, as it was until 2026-08-08, the port does not exist and
-        // `cover` is silently dropped — the one property that makes a backdrop a backdrop.
+        // emitted without it, as it was until 2026-08-08, the port does not exist and the fit is
+        // silently dropped — the one property that decides whether art is cropped or scaled.
         attrs.push('sizeMode="explicit"');
         attrs.push(`width="${styles.width || '100%'}"`);
         attrs.push(`height="${styles.height || '100%'}"`);
-        attrs.push('objectFit="cover"');
+        attrs.push(`objectFit="${fitForArt(styles.backgroundImage, alt)}"`);
         addBorderRadiusAttrs(styles, attrs);
         if (styles.opacity !== undefined) attrs.push(`opacity="${styles.opacity}"`);
         addPositionAttrs(styles, attrs);

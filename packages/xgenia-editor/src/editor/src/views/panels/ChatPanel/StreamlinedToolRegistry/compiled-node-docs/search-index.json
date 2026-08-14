@@ -6587,8 +6587,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelCell.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-cell",
-      "lineCount": 763,
-      "byteSize": 31561,
+      "lineCount": 769,
+      "byteSize": 32240,
       "inputFormatHints": {
         "width": {
           "displayName": "Width",
@@ -6601,7 +6601,7 @@
           "group": "Cell"
         },
         "padding": {
-          "displayName": "Padding",
+          "displayName": "Padding (inset around the symbol)",
           "type": "number",
           "group": "Cell"
         },
@@ -8604,8 +8604,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 1900,
-      "byteSize": 91432,
+      "lineCount": 1953,
+      "byteSize": 95954,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
@@ -8803,7 +8803,12 @@
           "group": "Auto Layout"
         },
         "columnPadding": {
-          "displayName": "Column Padding",
+          "displayName": "Column Padding (gap between reels)",
+          "type": "number",
+          "group": "Auto Layout"
+        },
+        "cellPadding": {
+          "displayName": "Cell Padding (gap between rows)",
           "type": "number",
           "group": "Auto Layout"
         },
@@ -25390,6 +25395,10 @@
     "cellPadding": [
       {
         "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
         "direction": "input"
       }
     ],
