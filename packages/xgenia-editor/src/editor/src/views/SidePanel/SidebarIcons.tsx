@@ -14,7 +14,7 @@ import DashboardSquare01Icon from '@hugeicons/core-free-icons/DashboardSquare01I
 // @ts-ignore
 import Search01Icon from '@hugeicons/core-free-icons/Search01Icon';
 // @ts-ignore
-import TestTube01Icon from '@hugeicons/core-free-icons/TestTube01Icon';
+import Settings01Icon from '@hugeicons/core-free-icons/Settings01Icon';
 // @ts-ignore
 import GitBranchIcon from '@hugeicons/core-free-icons/GitBranchIcon';
 // @ts-ignore
@@ -74,8 +74,8 @@ export const SideSearch = makeIcon(Search01Icon, 'SideSearch');
 export const SideVersionControl = makeIcon(GitBranchIcon, 'SideVersionControl');
 export const SideCloud = makeIcon(CloudIcon, 'SideCloud');
 export const SideCloudFunctions = makeIcon(FlashIcon, 'SideCloudFunctions');
-/** Conical flask — the merged Project/Editor Settings panel. */
-export const SideSettings = makeIcon(TestTube01Icon, 'SideSettings');
+/** Gear — the merged Project/Editor Settings panel. */
+export const SideSettings = makeIcon(Settings01Icon, 'SideSettings');
 export const SideChatPanel = makeIcon(Brain01Icon, 'SideChatPanel');
 export const SideAiPanel = makeIcon(Telescope01Icon, 'SideAiPanel');
 export const SideProjectStyles = makeIcon(PaintBrush01Icon, 'SideProjectStyles');

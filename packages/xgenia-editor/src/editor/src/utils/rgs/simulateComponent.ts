@@ -61,6 +61,16 @@ export interface ComponentSimulationStats {
   bonusTriggers: number;
   bonusFrequency: string;
   avgBonusWin: number;
+  /** Free rounds played across the whole run. */
+  bonusRoundsPlayed: number;
+  /**
+   * Features the platform had to cut short at its 500-free-round backstop.
+   *
+   * Non-zero means the component never clears `state.in_feature`, so its bonus
+   * does not end on its own — worth saying out loud, because every figure below
+   * was then measured against a feature the runner had to break out of.
+   */
+  featureCapHits: number;
   /** Round-loop time on the platform, summed across chunks — excludes network. */
   elapsedMs: number;
   roundsPerSecond: number;
@@ -138,6 +148,7 @@ export async function simulateDeployedComponent(
   let carry: any = undefined;
   let last: any = null;
   let chunks = 0;
+  let lastEvaluated = 0;
 
   for (;;) {
     if (opts.shouldCancel?.()) {
@@ -179,9 +190,17 @@ export async function simulateDeployedComponent(
     // A chunk that advanced nothing would loop for ever. The platform runs at
     // least one round per call, so this only fires if the contract is broken —
     // but an editor that hangs on a spinner is a worse way to find that out.
-    if (!(data.rounds_run > 0)) {
+    //
+    // Measured on evaluate() CALLS, not on requested rounds: a free round does
+    // not consume a requested round, so a component with a long feature can
+    // legitimately spend a whole 1.4s chunk inside one and report rounds_run: 0.
+    // Watching the requested count would abort a perfectly healthy run and
+    // blame the platform for it.
+    const evaluated = data.stats?.rounds_evaluated ?? 0;
+    if (!(evaluated > lastEvaluated)) {
       throw new Error('The platform returned no progress for this simulation — stopping rather than retrying for ever.');
     }
+    lastEvaluated = evaluated;
 
     carry = data.carry;
     opts.onProgress?.({ rounds: data.stats?.rounds ?? 0, totalRounds, chunks });
@@ -216,6 +235,8 @@ function toResult(
       bonusTriggers: s.bonus_triggers ?? 0,
       bonusFrequency: s.bonus_frequency ?? '1 in ∞',
       avgBonusWin: s.avg_bonus_win ?? 0,
+      bonusRoundsPlayed: s.bonus_rounds_played ?? 0,
+      featureCapHits: s.feature_cap_hits ?? 0,
       elapsedMs: s.elapsed_ms ?? 0,
       roundsPerSecond: s.rounds_per_second ?? 0,
       portTotals: s.port_totals ?? {}
