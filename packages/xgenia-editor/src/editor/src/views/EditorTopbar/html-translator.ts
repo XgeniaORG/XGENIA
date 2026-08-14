@@ -5875,12 +5875,31 @@ function addPositionAttrs(styles: ParsedStyles, attrs: string[]): void {
         // top:81.3% landed 164px below a 645px viewport, and ui_layout_map reported 17 elements
         // off-screen. It compounds with, and is larger than, the key-art aspect problem.
         //
-        // LEFT AND RIGHT ARE FINE and deliberately unchanged: CSS `left: X%` and `margin-left: X%`
-        // both resolve against width, so the conversion is exact there. vh/vw are fine too — a
-        // viewport unit means the same thing in either property. Only the VERTICAL percentage is
-        // wrong, so only it is rerouted, into real CSS where the browser resolves it correctly.
-        const isVerticalPercent = (cssProp === 'top' || cssProp === 'bottom') && str.trim().endsWith('%');
-        if (isVerticalPercent) {
+        // ─── AND THE ENGINE SUBTRACTS THE MARGIN FROM THE SIZE ──────────────
+        // (2026-08-14, export 1786678999496, again from the AI's own report) The first version of
+        // this fix rerouted only top/bottom, on the reasoning that CSS `left: X%` and
+        // `margin-left: X%` both resolve against width so the horizontal conversion was exact.
+        // That reasoning was about CSS. The engine does not use CSS margin semantics:
+        //
+        //   packages/xgenia-viewer-react/src/layout.js, size(), position !== 'relative':
+        //     if (isPercentage(style.width))  width  = calc(width  - marginLeft - marginRight)
+        //     if (isPercentage(style.height)) height = calc(height - marginTop  - marginBottom)
+        //
+        // A percentage margin is SUBTRACTED FROM THE SIZE. So `width:20%` with `marginLeft:70%`
+        // becomes `calc(-50%)` and the element is 0px wide. Measured live in that export:
+        // `@ZeusCharacter width: calc(-33%)` rendering 0×580, and `@HudPlate height: calc(-65%)`
+        // rendering 526×0 at y=932.
+        //
+        // So every percentage inset is rerouted, both axes. styleCss is the faithful route — it is
+        // what the author wrote — and it wins over the engine's default `left:0`/`top:0` for
+        // absolute elements, verified in real Chromium (an element at top:95% clips at the bottom
+        // of the viewport rather than sitting at the top).
+        //
+        // px and vh/vw are deliberately untouched. They feed the same subtraction, so `calc(30% -
+        // 24px)` is also slightly wrong — but that is a shrink of a fixed amount, not a collapse to
+        // zero, and px offsets are load-bearing all over existing projects. Separate change.
+        const isPercentInset = str.trim().endsWith('%');
+        if (isPercentInset) {
             styles.styleCss = (styles.styleCss || '') + `${cssProp}: ${str};`;
             // No margin emitted: writing both would apply the offset twice.
             (styles as any)[xgeniaProp] = undefined;
