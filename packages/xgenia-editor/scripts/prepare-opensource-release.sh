@@ -123,7 +123,7 @@ Contributions are welcome! Please read our contributing guidelines before submit
 ## Links
 
 - [XGENIA Website](https://xgenia.ai)
-- [Documentation](https://docs.xgenia.ai)
+- [Documentation](https://docsapp.xgenia.com)
 - [Original Noodl](https://github.com/noodlapp/noodl)
 EOF
 
