@@ -6978,8 +6978,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelColumn.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-column",
-      "lineCount": 1659,
-      "byteSize": 70485,
+      "lineCount": 1703,
+      "byteSize": 73596,
       "inputFormatHints": {
         "visibleRows": {
           "displayName": "Visible Rows",
@@ -8242,21 +8242,21 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiStage.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-stage/",
-      "lineCount": 749,
-      "byteSize": 34276,
+      "lineCount": 818,
+      "byteSize": 38842,
       "inputFormatHints": {
         "width": {
-          "displayName": "Width",
+          "displayName": "Design Width",
           "type": "number",
-          "group": "Dimensions"
+          "group": "Scaling"
         },
         "height": {
-          "displayName": "Height",
+          "displayName": "Design Height",
           "type": "number",
-          "group": "Dimensions"
+          "group": "Scaling"
         },
         "fitMode": {
-          "displayName": "Fit Mode",
+          "displayName": "Scale Content",
           "type": "enum",
           "enums": [
             "none",
@@ -8264,22 +8264,7 @@
             "fill",
             "stretch"
           ],
-          "group": "Dimensions"
-        },
-        "designWidth": {
-          "displayName": "Design Width",
-          "type": "number",
-          "group": "Dimensions"
-        },
-        "designHeight": {
-          "displayName": "Design Height",
-          "type": "number",
-          "group": "Dimensions"
-        },
-        "fitPadding": {
-          "displayName": "Fit Padding (fraction per side)",
-          "type": "number",
-          "group": "Dimensions"
+          "group": "Scaling"
         },
         "backgroundColor": {
           "displayName": "Bg Color",
@@ -8292,7 +8277,7 @@
           "group": "Appearance"
         },
         "transparentBackground": {
-          "displayName": "Transparent Background",
+          "displayName": "Transparent",
           "type": "boolean",
           "group": "Appearance"
         },
@@ -8307,7 +8292,7 @@
           "group": "Rendering"
         },
         "forceCanvas": {
-          "displayName": "Force Canvas Renderer",
+          "displayName": "Force Canvas",
           "type": "boolean",
           "group": "Rendering"
         },
@@ -8339,7 +8324,7 @@
           "group": "Animation"
         },
         "customAnimationCode": {
-          "displayName": "Custom Animation Code",
+          "displayName": "Custom Code",
           "type": "code",
           "group": "Animation"
         }
@@ -8939,8 +8924,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 2157,
-      "byteSize": 110092,
+      "lineCount": 2224,
+      "byteSize": 114426,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
@@ -27021,36 +27006,6 @@
         "direction": "output"
       }
     ],
-    "designWidth": [
-      {
-        "node": "pixi.Stage",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.UIScaler",
-        "direction": "input"
-      }
-    ],
-    "designHeight": [
-      {
-        "node": "pixi.Stage",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.UIScaler",
-        "direction": "input"
-      }
-    ],
-    "fitPadding": [
-      {
-        "node": "pixi.Stage",
-        "direction": "input"
-      },
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
     "transparentBackground": [
       {
         "node": "pixi.Stage",
@@ -27180,6 +27135,18 @@
     "tileScaleY": [
       {
         "node": "pixi.TilingSprite",
+        "direction": "input"
+      }
+    ],
+    "designWidth": [
+      {
+        "node": "pixi.UIScaler",
+        "direction": "input"
+      }
+    ],
+    "designHeight": [
+      {
+        "node": "pixi.UIScaler",
         "direction": "input"
       }
     ],
@@ -27498,6 +27465,12 @@
       }
     ],
     "centerGrid": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "fitPadding": [
       {
         "node": "PixiReelController",
         "direction": "input"
