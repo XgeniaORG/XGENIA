@@ -8242,8 +8242,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiStage.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-stage/",
-      "lineCount": 561,
-      "byteSize": 25364,
+      "lineCount": 749,
+      "byteSize": 34276,
       "inputFormatHints": {
         "width": {
           "displayName": "Width",
@@ -8252,6 +8252,32 @@
         },
         "height": {
           "displayName": "Height",
+          "type": "number",
+          "group": "Dimensions"
+        },
+        "fitMode": {
+          "displayName": "Fit Mode",
+          "type": "enum",
+          "enums": [
+            "none",
+            "fit",
+            "fill",
+            "stretch"
+          ],
+          "group": "Dimensions"
+        },
+        "designWidth": {
+          "displayName": "Design Width",
+          "type": "number",
+          "group": "Dimensions"
+        },
+        "designHeight": {
+          "displayName": "Design Height",
+          "type": "number",
+          "group": "Dimensions"
+        },
+        "fitPadding": {
+          "displayName": "Fit Padding (fraction per side)",
           "type": "number",
           "group": "Dimensions"
         },
@@ -8815,8 +8841,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiUIScaler.js",
       "category": "Pixi|Camera",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-uiscaler/",
-      "lineCount": 131,
-      "byteSize": 5294,
+      "lineCount": 147,
+      "byteSize": 6768,
       "inputFormatHints": {
         "designWidth": {
           "displayName": "Design Width",
@@ -8913,8 +8939,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 1953,
-      "byteSize": 95954,
+      "lineCount": 2157,
+      "byteSize": 110092,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
@@ -9187,6 +9213,7 @@
           "group": "Win Celebration"
         },
         "enablePayoutText": {
+          "displayName": "Enable Payout Text",
           "type": "boolean",
           "group": "Win Celebration: Payout"
         },
@@ -26588,6 +26615,10 @@
         "direction": "input"
       },
       {
+        "node": "pixi.Stage",
+        "direction": "input"
+      },
+      {
         "node": "PixiReelController",
         "direction": "input"
       }
@@ -26990,6 +27021,36 @@
         "direction": "output"
       }
     ],
+    "designWidth": [
+      {
+        "node": "pixi.Stage",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.UIScaler",
+        "direction": "input"
+      }
+    ],
+    "designHeight": [
+      {
+        "node": "pixi.Stage",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.UIScaler",
+        "direction": "input"
+      }
+    ],
+    "fitPadding": [
+      {
+        "node": "pixi.Stage",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
     "transparentBackground": [
       {
         "node": "pixi.Stage",
@@ -27119,18 +27180,6 @@
     "tileScaleY": [
       {
         "node": "pixi.TilingSprite",
-        "direction": "input"
-      }
-    ],
-    "designWidth": [
-      {
-        "node": "pixi.UIScaler",
-        "direction": "input"
-      }
-    ],
-    "designHeight": [
-      {
-        "node": "pixi.UIScaler",
         "direction": "input"
       }
     ],
@@ -27449,12 +27498,6 @@
       }
     ],
     "centerGrid": [
-      {
-        "node": "PixiReelController",
-        "direction": "input"
-      }
-    ],
-    "fitPadding": [
       {
         "node": "PixiReelController",
         "direction": "input"
