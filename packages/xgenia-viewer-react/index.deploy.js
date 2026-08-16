@@ -1,6 +1,6 @@
 // Disable console.log in production - must be first!
 (function () {
-  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'production') {
+  if (typeof window !== 'undefined' && !window.XgeniaLogCaptureInitialized && process.env.NODE_ENV === 'production') {
     console.log = function () { };
     console.debug = function () { };
     console.info = function () { };
