@@ -484,14 +484,23 @@ class XgeniaReactComponent extends React.Component {
 
     const { xgeniaNode, style, ...otherProps } = this.props;
 
-    let finalStyle = xgeniaNode.style;
-
-    if (style) {
-      finalStyle = {
-        ...xgeniaNode.style,
-        ...style
-      };
-    }
+    // ─── NEVER HAND Layout THE NODE'S OWN STYLE OBJECT (2026-08-15) ──────────────
+    // Layout.size/align MUTATE what they are given — flexShrink, flexGrow, position,
+    // calc() widths. On the no-style-prop path this used to be `xgeniaNode.style`
+    // itself, so every render wrote its computed layout back into the node's shared
+    // style and the next render started from a polluted baseline. It also produced the
+    // runtime warning the console capture surfaced on 2026-08-15:
+    //   "Cannot set style property 'flexShrink' to '0'. Property might be read-only."
+    // — Layout's own try/catch reporting that the object it was handed was frozen.
+    //
+    // Same lesson the attrs/dom channels below already learned ("without mutating the
+    // node's own shared attrs object"); style just never got the same treatment. Nothing
+    // reads the layout output back off a node's style, so a fresh object each render is
+    // a straight fix rather than a behaviour change.
+    const finalStyleBase = style
+      ? { ...xgeniaNode.style, ...style }
+      : { ...xgeniaNode.style };
+    let finalStyle = finalStyleBase;
 
     const props = {
       ref: (ref) => {
