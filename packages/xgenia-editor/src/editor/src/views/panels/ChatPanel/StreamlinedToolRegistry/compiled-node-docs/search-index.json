@@ -4257,8 +4257,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/components/PixiAssetManager.jsx",
       "category": null,
       "docs": null,
-      "lineCount": 236,
-      "byteSize": 10287,
+      "lineCount": 254,
+      "byteSize": 11584,
       "inputFormatHints": {},
       "outputFormatHints": {}
     },
@@ -6978,8 +6978,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelColumn.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-column",
-      "lineCount": 1703,
-      "byteSize": 73596,
+      "lineCount": 1745,
+      "byteSize": 76494,
       "inputFormatHints": {
         "visibleRows": {
           "displayName": "Visible Rows",
@@ -8189,8 +8189,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiSpritesheetManager.js",
       "category": "Pixi|Assets",
       "docs": "https://pixijs.download/release/docs/assets.Spritesheet.html",
-      "lineCount": 84,
-      "byteSize": 3766,
+      "lineCount": 85,
+      "byteSize": 3823,
       "inputFormatHints": {
         "url": {
           "displayName": "Spritesheet URL",
@@ -8242,8 +8242,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiStage.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-stage/",
-      "lineCount": 818,
-      "byteSize": 38842,
+      "lineCount": 828,
+      "byteSize": 39756,
       "inputFormatHints": {
         "width": {
           "displayName": "Design Width",
@@ -8924,8 +8924,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 2224,
-      "byteSize": 114426,
+      "lineCount": 2265,
+      "byteSize": 116767,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
@@ -10043,8 +10043,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/reel-strips-generator.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/reel-strips-generator",
-      "lineCount": 244,
-      "byteSize": 7806,
+      "lineCount": 264,
+      "byteSize": 9106,
       "inputFormatHints": {
         "symbolWeights": {
           "displayName": "Symbol Weights",
@@ -11858,8 +11858,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/utils/node-shared-port-definitions.js",
       "category": null,
       "docs": null,
-      "lineCount": 1600,
-      "byteSize": 45855,
+      "lineCount": 1601,
+      "byteSize": 45832,
       "inputFormatHints": {
         "sizeMode": {
           "displayName": "Size Mode",
@@ -16852,8 +16852,8 @@
       "relativePath": "visual/group.js",
       "category": null,
       "docs": "https://docsapp.xgenia.com/nodes/basic-elements/group",
-      "lineCount": 561,
-      "byteSize": 15527,
+      "lineCount": 562,
+      "byteSize": 15588,
       "inputFormatHints": {
         "flexDirection": {
           "displayName": "Layout",

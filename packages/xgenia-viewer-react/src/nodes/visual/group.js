@@ -1,5 +1,6 @@
 // Import as named export to match how it's exported
 import { Group as GroupComponent } from '../../components/visual/Group';
+import { joinDimensionValue } from '../../dimension-value';
 import { flexDirectionValues } from '../../constants/flex';
 import NodeSharedPortDefinitions from '../../node-shared-port-definitions';
 import { createNodeFromReactComponent } from '../../react-component-node';
@@ -212,7 +213,7 @@ const GroupNode = {
       default: 5,
       allowVisualStates: true,
       set(value) {
-        this._internal.blurAmount = value.value + value.unit;
+        this._internal.blurAmount = joinDimensionValue(value);
         this._updateBlur();
       }
     },

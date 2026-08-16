@@ -1,6 +1,7 @@
 'use strict';
 
 import React from 'react';
+import { joinDimensionValue } from './dimension-value';
 
 // CHANGE 1: Enhanced React 18/19 compatibility and patching
 if (typeof window !== 'undefined') {
@@ -358,8 +359,44 @@ function defineRegularInputProp(input, name) {
     input.set = function (value) {
       const props = input.propPath ? this.props[input.propPath] : this.props;
       if (value && value.value !== undefined) {
-        props[name] = value.value + value.unit;
+        // ─── THE VALUE MAY ALREADY CARRY A UNIT (2026-08-15) ──────────────────────
+        // (user: "it did not set 800% — it set 800PX, and % was the type")
+        // A dimension is stored as {value, unit} and applied by concatenation, so a
+        // value that already has a unit produces "800px" + "%" = "800px%". That is not
+        // a CSS length, so the browser drops the declaration entirely and the box
+        // collapses to auto — while the stored parameter still LOOKS well-formed to
+        // every check that inspects its shape.
+        //
+        // Trust the unit written into the value: someone who typed "800px" meant 800px,
+        // and the unit dropdown is the field they did not touch. Repairing here rather
+        // than only auditing means an already-corrupted project renders correctly on
+        // the next frame instead of needing a migration.
+        props[name] = joinDimensionValue(value);
+      } else if (typeof value === 'string' && /[a-z%)]$/i.test(value.trim())) {
+        // ─── A VALID CSS STRING WAS BEING THROWN AWAY (2026-08-15) ────────────────
+        // This branch used to delete the prop for anything that was not a
+        // {value, unit} object — including "50%", "800px" and "calc(100% - 20px)",
+        // which are complete CSS lengths that need no assembly at all. The port then
+        // had NO value, the element fell back to its default size, and nothing said
+        // so: the parameter reads back exactly as it was set.
+        props[name] = value.trim();
       } else {
+        // Still dropped — a bare number is genuinely ambiguous here (the port's
+        // declared default is the bare 100 and means 100%, while an authored bare
+        // number conventionally means px), so guessing would be worse than refusing.
+        // But refusing SILENTLY is what made this class invisible for so long: say it,
+        // now that viewer warnings actually reach a console.
+        if (value !== undefined && value !== null && value !== '') {
+          if (!this._warnedUnusableDim) this._warnedUnusableDim = {};
+          if (!this._warnedUnusableDim[name]) {
+            this._warnedUnusableDim[name] = true;
+            console.warn('[' + (this.name || 'node') + '] "' + name + '" was set to '
+              + JSON.stringify(value) + ', which is not a usable CSS length, so the property '
+              + 'has been REMOVED and this element falls back to its default size. Pass an '
+              + 'explicit unit as a string — "800px", "100%", "50vh". A bare number is '
+              + 'ambiguous on this port: its declared default is 100 meaning 100%.');
+          }
+        }
         delete props[name];
       }
       if (input.onChange) {
@@ -1445,7 +1482,7 @@ function createNodeFromReactComponent(def) {
     if (input.type.units) {
       input.set = function (value) {
         if (typeof value !== 'object' && input.type.defaultUnit) value = { value, unit: input.type.defaultUnit };
-        if (typeof value === 'object' && value.value !== undefined) this.setStyle({ [styleTargetName]: value.value + value.unit }, input.styleTag);
+        if (typeof value === 'object' && value.value !== undefined) this.setStyle({ [styleTargetName]: joinDimensionValue(value) }, input.styleTag);
         else if (value !== undefined) this.setStyle({ [styleTargetName]: value }, input.styleTag);
         else this.removeStyle([styleTargetName], input.styleTag);
         if (input.onChange) input.onChange.call(this, value);

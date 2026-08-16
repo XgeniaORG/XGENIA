@@ -1,4 +1,5 @@
 import { getAbsoluteUrl } from '@xgenia/runtime/src/utils';
+import { joinDimensionValue } from './dimension-value';
 
 import FontLoader from './fontloader';
 import { createTooltip } from './tooltips';
@@ -264,7 +265,7 @@ export default {
         },
         set(value) {
           if (!this.transforms) this.transforms = {};
-          this.transforms.x = value.value + value.unit;
+          this.transforms.x = joinDimensionValue(value);
           this.updateTransform();
         }
       },
@@ -281,7 +282,7 @@ export default {
         },
         set(value) {
           if (!this.transforms) this.transforms = {};
-          this.transforms.y = value.value + value.unit;
+          this.transforms.y = joinDimensionValue(value);
           this.updateTransform();
         }
       },
@@ -298,7 +299,7 @@ export default {
         },
         set(value) {
           if (!this.transforms) this.transforms = {};
-          this.transforms.rotation = value.value + value.unit;
+          this.transforms.rotation = joinDimensionValue(value);
           this.updateTransform();
         }
       },
@@ -329,7 +330,7 @@ export default {
         },
         default: '50',
         set(value) {
-          this.transformOriginX = value.value + value.unit;
+          this.transformOriginX = joinDimensionValue(value);
           this.updateTransformOrigin();
         }
       },
@@ -345,7 +346,7 @@ export default {
         },
         default: '50',
         set(value) {
-          this.transformOriginY = value.value + value.unit;
+          this.transformOriginY = joinDimensionValue(value);
           this.updateTransformOrigin();
         }
       }
@@ -712,7 +713,7 @@ export default {
           tab,
           set(value) {
             this._internal.borderRadius[radiusName] =
-              value.value === undefined ? Number(value) + 'px' : value.value + value.unit;
+              joinDimensionValue(value, 'px');
 
             this._updateCornerRadii();
           }
@@ -824,7 +825,7 @@ export default {
           tab,
           set(value) {
             this._internal.borders[widthName] =
-              value.value === undefined ? Number(value) + 'px' : value.value + value.unit;
+              joinDimensionValue(value, 'px');
             this._updateBorders();
           }
         },
@@ -928,7 +929,7 @@ export default {
         },
         allowVisualStates: true,
         set(value) {
-          this._internal.boxShadowOffsetX = value.value + value.unit;
+          this._internal.boxShadowOffsetX = joinDimensionValue(value);
           this._updateBoxShadow();
         }
       },
@@ -944,7 +945,7 @@ export default {
         },
         allowVisualStates: true,
         set(value) {
-          this._internal.boxShadowOffsetY = value.value + value.unit;
+          this._internal.boxShadowOffsetY = joinDimensionValue(value);
           this._updateBoxShadow();
         }
       },
@@ -960,7 +961,7 @@ export default {
         },
         allowVisualStates: true,
         set(value) {
-          this._internal.boxShadowBlurRadius = value.value + value.unit;
+          this._internal.boxShadowBlurRadius = joinDimensionValue(value);
           this._updateBoxShadow();
         }
       },
@@ -976,7 +977,7 @@ export default {
         },
         allowVisualStates: true,
         set(value) {
-          this._internal.boxShadowSpreadRadius = value.value + value.unit;
+          this._internal.boxShadowSpreadRadius = joinDimensionValue(value);
           this._updateBoxShadow();
         }
       },
