@@ -1955,16 +1955,67 @@ export class EditorBridge {
 
         // --- Auth commands (for AI proxy mode) ---
         h('auth.getJwt', async () => {
+            // ─── getSession() CAN BLOCK, AND SILENCE IS THE WORST ANSWER (2026-08-16) ────────
+            // (debug export 1786926487499) This awaited getSession() with no bound. supabase-js
+            // v2 takes an auth lock around refresh, and getSession() queues behind it — so when
+            // the editor's own refresh was failing (`token?grant_type=refresh_token 400`), this
+            // handler simply never returned. The panel saw:
+            //
+            //   Command 'auth.getJwt' timed out after 30s
+            //   Editor-bridge getJwt attempt 1 failed: timed out after 10s
+            //   Editor-bridge getJwt attempt 2 failed: timed out after 10s
+            //   refreshSession failed: Auth session missing!
+            //   All token recovery paths failed — the user must log in again
+            //
+            // The build was going fine; it died mid-turn on a 401 because the one call that could
+            // have answered was stuck behind a lock. A handler whose failure mode is SILENCE gives
+            // the caller nothing to distinguish "bridge is dead" from "bridge is busy" — and this
+            // codebase has spent the day removing exactly that ambiguity elsewhere.
+            //
+            // So: bound it, and on timeout read the persisted session directly. This client is the
+            // one configured with persistSession: true — it OWNS that storage — so reading it is
+            // reading our own state, not guessing. A slightly-stale access token is a far better
+            // answer than none: the caller already handles 401 by asking us to refresh, whereas
+            // silence ends the turn.
+            const readPersistedToken = (): string | null => {
+                try {
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (!key || !/^sb-.*-auth-token$/.test(key)) continue;
+                        const raw = localStorage.getItem(key);
+                        if (!raw) continue;
+                        const parsed = JSON.parse(raw);
+                        const token = parsed?.access_token || parsed?.currentSession?.access_token;
+                        if (token) return token;
+                    }
+                } catch { /* storage unreadable — fall through to null */ }
+                return null;
+            };
+
             try {
-                const { data: { session }, error } = await supabase.auth.getSession();
+                const timeout = new Promise<'__timeout'>((resolve) => setTimeout(() => resolve('__timeout'), 3000));
+                const result = await Promise.race([supabase.auth.getSession(), timeout]);
+
+                if (result === '__timeout') {
+                    const fallback = readPersistedToken();
+                    console.warn(
+                        `[EditorBridge] auth.getJwt: getSession() did not return within 3s — it is almost `
+                        + `certainly queued behind an in-flight token refresh. ${fallback
+                            ? 'Answering from the persisted session instead (may be near expiry; a 401 will trigger auth.refresh).'
+                            : 'No persisted session to fall back on, so returning null — the user needs to sign in again.'}`,
+                    );
+                    return fallback;
+                }
+
+                const { data: { session } = { session: null }, error } = (result as any) || {};
                 if (error) {
                     console.warn('[EditorBridge] auth.getJwt: getSession error:', error.message);
-                    return null;
+                    return readPersistedToken();
                 }
-                return session?.access_token || null;
+                return session?.access_token || readPersistedToken();
             } catch (e: any) {
                 console.warn('[EditorBridge] auth.getJwt failed:', e.message);
-                return null;
+                return readPersistedToken();
             }
         });
 
