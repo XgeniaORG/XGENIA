@@ -92,6 +92,25 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
   }
 
   /**
+   * ─── THE REF MUST OUTLIVE THE BRANCH (2026-08-17) ────────────────────────────────────────
+   * uiScaleOuterRef used to be attached ONLY on the scaled render path, and that path is
+   * reached only once state.uiScaleBox exists — which the ResizeObserver sets, and the observer
+   * can only attach once the ref is populated. So nothing ever measured anything and the whole
+   * feature was inert: `.xgenia-ui-canvas` was never created, at any viewport, in any mode.
+   *
+   * It survived review because the code reads correctly in isolation; the cycle only shows up
+   * when something actually renders it. emulate-resize.mjs caught it on its first run, having
+   * reported `scaled=false` for a case whose entire purpose was to be scaled.
+   *
+   * One callback ref, assigned on BOTH branches, breaks the cycle: the element is known from the
+   * first mount, so the observer attaches, measures, and the second render is the scaled one.
+   */
+  private setOuterRef = (el: HTMLElement | null) => {
+    (this.scrollRef as React.MutableRefObject<ScrollRef | null>).current = el as ScrollRef | null;
+    (this.uiScaleOuterRef as React.MutableRefObject<HTMLElement | null>).current = el;
+  };
+
+  /**
    * Watch the outer box so the scale factor follows the viewport.
    *
    * (2026-08-17) This is the half that makes UI scaling worth having. A factor computed once is
@@ -559,7 +578,7 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
           ...props.dom,
           ...PointerListeners(props),
           style: style,
-          ref: this.uiScaleOuterRef
+          ref: this.setOuterRef
         },
         React.createElement(
           UiScaleContext.Provider,
@@ -578,7 +597,7 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
         ...props.dom,
         ...PointerListeners(props),
         style: style,
-        ref: this.scrollRef
+        ref: this.setOuterRef
       },
       children
     );
