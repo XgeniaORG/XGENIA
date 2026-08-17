@@ -57,7 +57,25 @@ export interface GroupProps extends XGENIA.ReactProps {
 
 type ScrollRef = HTMLDivElement & { xgeniaNode?: XGENIA.ReactProps['xgeniaNode'] };
 
+/**
+ * Is an ancestor already scaling the UI?
+ *
+ * (2026-08-17) Three separate times in one session a user switched UI scaling on inside a Group
+ * that was ALREADY inside a scaled Group — on the root, then on a 200x200 readout plate, then on
+ * the wrapper again. Each time it compounded silently: two letterbox canvases render the content
+ * at 0.75x with bars inside bars, and a scaler on a 200x200 box lays its children out in a
+ * 1920x1080 design space and crushes them to a tenth of their size.
+ *
+ * Nesting is not forbidden — a genuine sub-canvas is a real thing to want — but it must not be
+ * INVISIBLE. Same rule as the two fitModes on pixi.Stage and PixiReelController: the compounding
+ * is fine, the silence is not.
+ */
+const UiScaleContext = React.createContext<boolean>(false);
+
 export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: number; height: number } }> {
+  static contextType = UiScaleContext;
+  declare context: React.ContextType<typeof UiScaleContext>;
+
   scrollNeedsToInit: boolean;
   scrollRef: React.RefObject<ScrollRef | null>;
   iScroll?: BScroll;
@@ -108,7 +126,39 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
     measure();
   }
 
+  /**
+   * Say the two things that are configured-but-inert, or configured-twice.
+   *
+   * Warned once per mount rather than per render: these are authoring mistakes, and a message
+   * repeated on every resize tick is one nobody reads.
+   */
+  private warnUiScaleSetup() {
+    const mode = this.props.uiScaleMode;
+    const on = !!mode && mode !== 'none';
+    const label = this.props.xgeniaNode?.name || this.props.xgeniaNode?.id || 'a Group';
+
+    // A scaler inside a scaler. The sizes compound; see UiScaleContext.
+    if (on && this.context === true) {
+      console.warn(
+        `[UI Scaling] "${label}" has Scale Mode "${mode}" but an ANCESTOR Group is already scaling. ` +
+        `The two compound — the design box is scaled twice, so the content ends up smaller than either ` +
+        `setting implies and is letterboxed twice. Usually only the OUTERMOST group should scale; set ` +
+        `this one's Scale Mode to Off unless you deliberately want a sub-canvas.`
+      );
+    }
+
+    // A design size that decides nothing, because the mode is off. Reads as configured.
+    if (!on && (this.props.designWidth !== undefined || this.props.designHeight !== undefined)) {
+      console.warn(
+        `[UI Scaling] "${label}" has Design Width/Height set but Scale Mode is "Off", so they do ` +
+        `NOTHING — nothing is scaled and the numbers are inert. Set Scale Mode to Fit or Letterbox ` +
+        `for them to take effect.`
+      );
+    }
+  }
+
   componentDidMount() {
+    this.warnUiScaleSetup();
     this.syncUiScaleObserver();
 
     if (this.props.scrollEnabled && this.props.nativeScroll !== true) {
@@ -511,7 +561,11 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
           style: style,
           ref: this.uiScaleOuterRef
         },
-        React.createElement('div', { className: 'xgenia-ui-canvas', style: canvasStyle }, children)
+        React.createElement(
+          UiScaleContext.Provider,
+          { value: true },
+          React.createElement('div', { className: 'xgenia-ui-canvas', style: canvasStyle }, children)
+        )
       );
     }
 
