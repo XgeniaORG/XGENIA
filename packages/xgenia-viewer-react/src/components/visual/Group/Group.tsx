@@ -43,7 +43,7 @@ export interface GroupProps extends XGENIA.ReactProps {
    * UI SCALING — Unity's CanvasScaler. See the long note on group.js's uiScaleMode port.
    * 'none' (default) renders exactly as before.
    */
-  uiScaleMode?: 'none' | 'expand' | 'shrink' | 'matchWidth' | 'matchHeight';
+  uiScaleMode?: 'none' | 'expand' | 'shrink' | 'matchWidth' | 'matchHeight' | 'letterbox';
   designWidth?: number;
   designHeight?: number;
   dom;
@@ -360,16 +360,33 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
   /**
    * The scale factor, by Unity's CanvasScaler rules.
    *
-   *   expand      min(w/refW, h/refH) — nothing is cropped. Unity calls this Expand; it is what
-   *               people mean by "fit".
-   *   shrink      max(...)            — covers the box and crops the overflow.
+   *   expand      min(w/refW, h/refH) — Unity's Expand.
+   *   shrink      max(...)            — Unity's Shrink; the design overflows and is clipped.
    *   matchWidth  w/refW              — width is exact, height follows.
    *   matchHeight h/refH              — height is exact, width follows.
+   *   letterbox   min(...)            — like expand, but the canvas stays EXACTLY the reference
+   *                                     size, so a mismatched aspect shows bars.
+   *
+   * ─── THE CANVAS GROWS; IT DOES NOT LEAVE BARS (2026-08-17, corrected) ────────────────────
+   * The first version pinned the canvas at exactly refW x refH for every mode and called that
+   * "expand". That is contain-with-letterbox, not Unity's Expand, and the user saw the
+   * difference immediately: a design whose aspect did not match the window shrank into the
+   * middle with dead space around it.
+   *
+   * Unity's actual rule is "expand the canvas area either horizontally or vertically, so the
+   * size of the canvas will never be smaller than the reference". The scale is still min(), but
+   * the CANVAS then grows to `box / scale`, which after scaling covers the box exactly. You get
+   * extra DESIGN SPACE in the unmatched axis instead of empty screen — so a child anchored to
+   * the bottom sits on the real bottom edge at every aspect ratio, which is the entire point of
+   * anchors.
+   *
+   * `box / scale` is the general rule for every mode; only the scale formula differs. letterbox
+   * is the one deliberate exception, for art that must never gain extra space.
    *
    * Returns null when scaling is off or the box has not been measured yet, so the caller renders
    * exactly what it always did.
    */
-  private getUiScale(): number | null {
+  private getUiLayout(): { scale: number; canvasW: number; canvasH: number } | null {
     const mode = this.props.uiScaleMode;
     if (!mode || mode === 'none') return null;
     const box = this.state?.uiScaleBox;
@@ -378,13 +395,20 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
     const refH = this.props.designHeight && this.props.designHeight > 0 ? this.props.designHeight : 1080;
     const sx = box.width / refW;
     const sy = box.height / refH;
+
+    let scale: number;
     switch (mode) {
-      case 'shrink': return Math.max(sx, sy);
-      case 'matchWidth': return sx;
-      case 'matchHeight': return sy;
+      case 'shrink': scale = Math.max(sx, sy); break;
+      case 'matchWidth': scale = sx; break;
+      case 'matchHeight': scale = sy; break;
+      case 'letterbox':
       case 'expand':
-      default: return Math.min(sx, sy);
+      default: scale = Math.min(sx, sy); break;
     }
+    if (!isFinite(scale) || scale <= 0) return null;
+
+    if (mode === 'letterbox') return { scale, canvasW: refW, canvasH: refH };
+    return { scale, canvasW: box.width / scale, canvasH: box.height / scale };
   }
 
   render() {
@@ -431,10 +455,9 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
     // The inner box is the design size at scale 1 and is then transformed, so every descendant
     // (offsets, font sizes, borders, the lot) scales uniformly. transformOrigin is the centre so
     // the letterboxing is symmetric.
-    const uiScale = this.getUiScale();
-    if (uiScale !== null) {
-      const refW = props.designWidth && props.designWidth > 0 ? props.designWidth : 1920;
-      const refH = props.designHeight && props.designHeight > 0 ? props.designHeight : 1080;
+    const uiLayout = this.getUiLayout();
+    if (uiLayout !== null) {
+      const { scale: uiScale, canvasW: refW, canvasH: refH } = uiLayout;
 
       // THE INNER BOX IS THE ONE CHILDREN LAY OUT IN, so it must carry the Group's LAYOUT — its
       // flex direction, alignment, wrapping, gaps and padding. Moving those to the outer element

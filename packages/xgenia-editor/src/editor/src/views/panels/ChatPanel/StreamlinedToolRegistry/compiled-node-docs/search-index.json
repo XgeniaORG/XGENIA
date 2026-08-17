@@ -16852,8 +16852,8 @@
       "relativePath": "visual/group.js",
       "category": null,
       "docs": "https://docsapp.xgenia.com/nodes/basic-elements/group",
-      "lineCount": 630,
-      "byteSize": 18888,
+      "lineCount": 631,
+      "byteSize": 19006,
       "inputFormatHints": {
         "uiScaleMode": {
           "displayName": "Scale Mode",
@@ -16862,6 +16862,7 @@
             "none",
             "expand",
             "shrink",
+            "letterbox",
             "matchWidth",
             "matchHeight"
           ],

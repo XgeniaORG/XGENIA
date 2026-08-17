@@ -87,8 +87,9 @@ const GroupNode = {
         name: 'enum',
         enums: [
           { label: 'Off', value: 'none' },
-          { label: 'Fit — show all of it', value: 'expand' },
+          { label: 'Fit — fills the screen, grows the canvas', value: 'expand' },
           { label: 'Fill — cover, crop edges', value: 'shrink' },
+          { label: 'Letterbox — exact aspect, bars if it does not match', value: 'letterbox' },
           { label: 'Match width', value: 'matchWidth' },
           { label: 'Match height', value: 'matchHeight' }
         ]
