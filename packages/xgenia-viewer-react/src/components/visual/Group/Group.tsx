@@ -79,9 +79,16 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
   scrollNeedsToInit: boolean;
   scrollRef: React.RefObject<ScrollRef | null>;
   iScroll?: BScroll;
+  /**
+   * The element BScroll was actually handed. Kept so componentDidUpdate can notice when the scroll
+   * host MOVES — it does, on the second commit, when the design canvas appears underneath.
+   */
+  private iScrollHost?: HTMLElement;
   /** The OUTER element when UI scaling is on — the window whose size decides the scale factor. */
   uiScaleOuterRef: React.RefObject<HTMLElement | null>;
   private uiScaleObserver?: ResizeObserver;
+  /** Last message emitted per warning key, so only TRANSITIONS reach the editor/console. */
+  private uiScaleWarningsSent: Record<string, string | null> = {};
 
   constructor(props: GroupProps) {
     super(props);
@@ -146,10 +153,58 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
   }
 
   /**
-   * Say the two things that are configured-but-inert, or configured-twice.
+   * One warning, on the channel the user can actually see.
    *
-   * Warned once per mount rather than per render: these are authoring mistakes, and a message
-   * repeated on every resize tick is one nobody reads.
+   * (2026-08-17) The first version of this feature wrote every warning to console.warn. For the
+   * no-code user this feature exists for, that is the same as not warning at all — and the editor
+   * has had a channel that pins a message ON the node all along: group.js:155 already reports an
+   * invalid Layout value through editorConnection.sendWarning. console.warn is the DEPLOYED
+   * fallback, where there is no editor to talk to, not the primary route.
+   *
+   * Only transitions are emitted, and the message is CLEARED when its condition goes away, so this
+   * is safe to call from componentDidUpdate — which it must be: flipping Scale Mode in the editor
+   * is a forceUpdate, i.e. a setState on the live instance (group.js:98-101 →
+   * react-component-node.js:1083), so componentDidMount never re-runs and a mount-only warning is
+   * silent on the exact path that causes the problem.
+   */
+  private uiScaleWarning(key: string, message: string | null) {
+    if ((this.uiScaleWarningsSent[key] ?? null) === message) return;
+    this.uiScaleWarningsSent[key] = message;
+
+    const node = this.props.xgeniaNode as any;
+    const connection = node?.context?.editorConnection;
+    const owner = node?.nodeScope?.componentOwner?.name;
+    if (connection && owner && node?.id) {
+      if (message) connection.sendWarning(owner, node.id, key, { message });
+      else connection.clearWarning(owner, node.id, key);
+      return;
+    }
+
+    if (message) console.warn(`[UI Scaling] ${message}`);
+  }
+
+  /**
+   * The scale factor this Group carries on its OWN transform port, or null when absent or 1.
+   *
+   * Read from props.style — which is what the transformScale setter wrote
+   * (node-shared-port-definitions.js:365) — and deliberately NOT from the local `style` in
+   * render(): Layout.align() composes an anchor translate into that one, so every centred Group
+   * would read as carrying an authored transform.
+   */
+  private ownTransform(): { scale: number | null; translated: boolean } {
+    const t = this.props.style?.transform;
+    if (typeof t !== 'string' || t.length === 0) return { scale: null, translated: false };
+    const m = /scale\(\s*(-?[\d.]+)/.exec(t);
+    const s = m ? Number(m[1]) : NaN;
+    return {
+      scale: isFinite(s) && Math.abs(s - 1) > 1e-6 ? s : null,
+      translated: /translate(X|Y)?\(/.test(t)
+    };
+  }
+
+  /**
+   * Say what is configured-but-inert, configured-twice, or configured in a combination the engine
+   * cannot honour exactly. Each one is a WARNING: nothing here rewrites the user's ports.
    */
   private warnUiScaleSetup() {
     const mode = this.props.uiScaleMode;
@@ -157,23 +212,68 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
     const label = this.props.xgeniaNode?.name || this.props.xgeniaNode?.id || 'a Group';
 
     // A scaler inside a scaler. The sizes compound; see UiScaleContext.
-    if (on && this.context === true) {
-      console.warn(
-        `[UI Scaling] "${label}" has Scale Mode "${mode}" but an ANCESTOR Group is already scaling. ` +
-        `The two compound — the design box is scaled twice, so the content ends up smaller than either ` +
-        `setting implies and is letterboxed twice. Usually only the OUTERMOST group should scale; set ` +
-        `this one's Scale Mode to Off unless you deliberately want a sub-canvas.`
-      );
-    }
+    this.uiScaleWarning(
+      'ui-scale-nested',
+      on && this.context === true
+        ? `"${label}" has Scale Mode "${mode}" but an ANCESTOR Group is already scaling. ` +
+          `The two compound — the design box is scaled twice, so the content ends up smaller than either ` +
+          `setting implies and is letterboxed twice. Usually only the OUTERMOST group should scale; set ` +
+          `this one's Scale Mode to Off unless you deliberately want a sub-canvas.`
+        : null
+    );
 
     // A design size that decides nothing, because the mode is off. Reads as configured.
-    if (!on && (this.props.designWidth !== undefined || this.props.designHeight !== undefined)) {
-      console.warn(
-        `[UI Scaling] "${label}" has Design Width/Height set but Scale Mode is "Off", so they do ` +
-        `NOTHING — nothing is scaled and the numbers are inert. Set Scale Mode to Fit or Letterbox ` +
-        `for them to take effect.`
-      );
-    }
+    this.uiScaleWarning(
+      'ui-scale-inert-design-size',
+      !on && (this.props.designWidth !== undefined || this.props.designHeight !== undefined)
+        ? `"${label}" has Design Width/Height set but Scale Mode is "Off", so they do ` +
+          `NOTHING — nothing is scaled and the numbers are inert. Set Scale Mode to Fit or Letterbox ` +
+          `for them to take effect.`
+        : null
+    );
+
+    // ─── THE MIGRATION CASE, NOT A HYPOTHETICAL ──────────────────────────────────────────────
+    // group.js:72-74 records that the user who prompted this feature "had discovered the need and
+    // hand-set `transformScale: 1.2` on their root — the fit factor, computed by hand, for one
+    // screen size". Switching that same root to Scale Mode leaves the 1.2 in place: the fit factor
+    // lands on the INNER canvas, the hand-set one stays on the OUTER element, and they multiply.
+    // The result is the verbatim symptom the feature was built to cure, with no diagnostic.
+    const own = this.ownTransform();
+    const carries: string[] = [];
+    if (own.scale !== null) carries.push(`Scale ${own.scale}`);
+    if (own.translated) carries.push('Transform X/Y');
+    this.uiScaleWarning(
+      'ui-scale-own-transform',
+      on && carries.length > 0
+        ? `"${label}" has Scale Mode "${mode}" AND its own Placement transform (${carries.join(' + ')}). ` +
+          `Scale Mode puts the fit factor on the INNER canvas while your transform stays on the OUTER ` +
+          `element, so they MULTIPLY` +
+          (own.scale !== null
+            ? ` — the UI renders at ${own.scale}× the fit, overflows the box it was just fitted to and sits off-centre. ` +
+              `A hand-set Scale was the workaround BEFORE Scale Mode existed; set it back to 1 and let the mode compute the factor.`
+            : `. Transform X/Y move the whole window in raw screen pixels, not design pixels, so they do not scale with the canvas.`)
+        : null
+    );
+
+    // ─── SCROLL + SCALING IS SUPPORTED, BUT ONLY EXACTLY ON THE NATIVE PATH ──────────────────
+    // The scroll now runs on the canvas, so a gesture no longer throws away scale(fit) (that was
+    // the "UI snaps to 1:1 design pixels on the first wheel" defect). What is still not exact is
+    // BetterScroll's ratio: it reads pointer movement in SCREEN pixels and writes its translate in
+    // the content's own DESIGN pixels, and its core exposes no scale option to reconcile the two.
+    // Say so rather than let a user discover a scroll that does not track their finger.
+    this.uiScaleWarning(
+      'ui-scale-scroll',
+      // Same predicate render() uses to pick the BScroll tree, so the warning cannot describe a
+      // configuration the component did not actually take.
+      on && this.props.scrollEnabled && !this.props.nativeScroll
+        ? `"${label}" has Scale Mode "${mode}" with Enable Scroll on and "Native platform scroll" OFF. ` +
+          `The scroll runs on the design canvas so the scale survives, but BetterScroll measures a drag in ` +
+          `screen pixels and moves the content in design pixels — so it tracks the pointer at the canvas's ` +
+          `scale factor, not 1:1. Turn Native platform scroll ON for an exact scroll under UI scaling. ` +
+          `Snap, Show Scrollbar and Scroll To Index/Element are BetterScroll-only, so keep it off only if ` +
+          `you need those.`
+        : null
+    );
   }
 
   componentDidMount() {
@@ -215,6 +315,7 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
     if (this.iScroll) {
       this.iScroll.destroy();
       this.iScroll = undefined;
+      this.iScrollHost = undefined;
     }
 
     this.props.xgeniaNode.context.setNodeFocused(this.props.xgeniaNode, false);
@@ -223,6 +324,22 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
   componentDidUpdate(prevProps: GroupProps) {
     // Keep the resize watcher in step with the uiScaleMode port being switched on or off.
     this.syncUiScaleObserver();
+    // …and the warnings too: the editor toggle is a setState, so mount never re-runs.
+    this.warnUiScaleSetup();
+
+    // ─── THE SCROLL HOST MOVES ONE COMMIT AFTER MOUNT ───────────────────────────────────────
+    // With scaling on, the first commit has no canvas yet (the ResizeObserver has to measure
+    // first), so a BScroll created at mount is attached to the outer element. refresh() would
+    // KEEP that wrapper and re-derive its content as wrapper.children[0] — which is by then the
+    // canvas, i.e. the element carrying scale(fit), and every BScroll translate writes
+    // style.transform wholesale. That is the "UI snaps to raw 1:1 design pixels on the first
+    // wheel" defect. Re-seat BScroll on the new host instead of refreshing onto it.
+    if (this.iScroll && this.iScrollHost !== this.getScrollHost()) {
+      this.iScroll.destroy();
+      this.iScroll = undefined;
+      this.iScrollHost = undefined;
+      this.scrollNeedsToInit = this.props.scrollEnabled && !this.props.nativeScroll;
+    }
 
     if (this.scrollNeedsToInit) {
       this.setupIScroll();
@@ -267,14 +384,44 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
     }
   }
 
+  /**
+   * The element that actually scrolls.
+   *
+   * ─── SCROLL BELONGS TO THE CANVAS, NOT TO THE WINDOW (2026-08-17) ───────────────────────────
+   * With UI scaling on, this Group renders as a pair: the outer element is the WINDOW (it takes
+   * whatever box the layout gives it, clips and centres) and `.xgenia-ui-canvas` is the design box.
+   * A transform does not shrink a layout box, so the canvas's layout box is designWidth ×
+   * designHeight regardless of the fit factor. Scrolling the OUTER element therefore scrolls a
+   * range measured in unscaled design pixels against a scaled, centre-origin'd visual — which is
+   * why simply letting `overflowY: auto` survive the later `overflow: hidden` write is not the
+   * fix, only a second wrong state. The canvas is where children lay out, so the canvas is where
+   * the scroll belongs; both ends of the measurement are then in the same units.
+   *
+   * BScroll gets the same treatment for a sharper reason: it takes `wrapper.children[0]` as its
+   * content and writes `style.transform` on it wholesale on every translate. Handed the outer
+   * element, that content IS the canvas — so the first wheel or touch threw away `scale(fit)` and
+   * the UI snapped to raw 1:1 design pixels and stayed there.
+   *
+   * `:scope >` is load-bearing: a bare '.xgenia-ui-canvas' query on an UNSCALED Group would find a
+   * nested scaler's canvas several levels down and scroll that instead.
+   */
+  private getScrollHost(): HTMLElement | null {
+    const outer = this.scrollRef.current;
+    if (!outer) return null;
+    return (outer.querySelector(':scope > .xgenia-ui-canvas') as HTMLElement | null) || outer;
+  }
+
   scrollToIndex(index, duration) {
-    if (this.iScroll && this.scrollRef.current) {
-      const child = this.scrollRef.current.children[0]?.children[index] as HTMLElement;
+    // Children live inside the canvas when scaling is on. The depth is stated once, in
+    // getScrollHost(), instead of being assumed by a children[0] hop here.
+    const host = this.getScrollHost();
+    if (this.iScroll && host) {
+      const child = host.children[0]?.children[index] as HTMLElement;
       if (child) {
         this.iScroll.scrollToElement(child, duration, 0, 0);
       }
-    } else if (this.scrollRef.current) {
-      const child = this.scrollRef.current.children[index];
+    } else if (host) {
+      const child = host.children[index];
       child &&
         child.scrollIntoView({
           behavior: 'smooth'
@@ -306,8 +453,10 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
       loop: false
     };
 
-    const domElement = this.scrollRef.current;
+    // The canvas when UI scaling is on, the outer element otherwise — see getScrollHost().
+    const domElement = this.getScrollHost();
     if (!domElement) return;
+    this.iScrollHost = domElement;
 
     this.iScroll = new BScroll(domElement, {
       bounceTime: 500,
@@ -377,6 +526,7 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
       if (this.iScroll) {
         this.iScroll.destroy();
         this.iScroll = undefined;
+        this.iScrollHost = undefined;
       }
 
       this.scrollNeedsToInit = nextProps.scrollEnabled && !nextProps.nativeScroll;
@@ -494,15 +644,22 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
       style.overflowY = 'hidden';
     }
 
+    // ─── THE SCROLL GOES ON THE SCROLL HOST, WHICH IS NOT ALWAYS THIS ELEMENT ────────────────
+    // Held aside rather than written straight into `style`, because with UI scaling on the host is
+    // the design canvas and not the window. Writing it here and letting the scaled branch's
+    // `overflow: hidden` land on top was the original defect — turning UI scaling on killed
+    // scrolling outright, silently, while the Scroll ports still read as enabled. See
+    // getScrollHost() for why re-ordering those two writes would only produce a second wrong state.
+    const scrollOverflow: React.CSSProperties = {};
     if (props.scrollEnabled && props.nativeScroll) {
       const scrollDirection = this.getScrollDirection();
       if (scrollDirection === 'y') {
-        style.overflowY = 'auto';
+        scrollOverflow.overflowY = 'auto';
       } else if (scrollDirection === 'x') {
-        style.overflowX = 'auto';
+        scrollOverflow.overflowX = 'auto';
       } else if (scrollDirection === 'both') {
-        style.overflowX = 'auto';
-        style.overflowY = 'auto';
+        scrollOverflow.overflowX = 'auto';
+        scrollOverflow.overflowY = 'auto';
       }
     }
 
@@ -562,12 +719,22 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
       // The Group's own display defaults to flex; the inner box keeps that contract.
       if (canvasStyle.display === undefined) canvasStyle.display = 'flex';
 
+      // Scrolling belongs to the canvas: its layout box IS the design box, so the scroll range and
+      // the children that overflow it are measured in the same design pixels.
+      Object.assign(canvasStyle, scrollOverflow);
+
       // The outer box is the window: it takes whatever the layout gave it, clips the letterbox,
       // and centres the canvas. Its background still paints the full window, which is what a
       // letterboxed design wants behind the bars.
       style.display = 'flex';
       style.alignItems = 'center';
       style.justifyContent = 'center';
+      // ONE authority for the window's clipping. The longhands go first so the ORDER of the
+      // shorthand can never decide the outcome again — a shorthand inserted after a longhand
+      // resets it, and that is precisely how `overflow: hidden` here silently killed the
+      // `overflowY: auto` written above.
+      delete (style as any).overflowX;
+      delete (style as any).overflowY;
       style.overflow = 'hidden';
 
       return React.createElement(
@@ -587,6 +754,10 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
         )
       );
     }
+
+    // Scaling is off, so this element IS the scroll host and the overflow lands on it, exactly as
+    // it always did.
+    Object.assign(style, scrollOverflow);
 
     // Using a more explicit approach to avoid TypeScript errors with component props
     return React.createElement(
