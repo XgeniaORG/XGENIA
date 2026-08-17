@@ -16852,9 +16852,31 @@
       "relativePath": "visual/group.js",
       "category": null,
       "docs": "https://docsapp.xgenia.com/nodes/basic-elements/group",
-      "lineCount": 562,
-      "byteSize": 15588,
+      "lineCount": 630,
+      "byteSize": 18888,
       "inputFormatHints": {
+        "uiScaleMode": {
+          "displayName": "Scale Mode",
+          "type": "enum",
+          "enums": [
+            "none",
+            "expand",
+            "shrink",
+            "matchWidth",
+            "matchHeight"
+          ],
+          "group": "UI Scaling"
+        },
+        "designWidth": {
+          "displayName": "Design Width",
+          "type": "number",
+          "group": "UI Scaling"
+        },
+        "designHeight": {
+          "displayName": "Design Height",
+          "type": "number",
+          "group": "UI Scaling"
+        },
         "flexDirection": {
           "displayName": "Layout",
           "type": "enum",
@@ -27142,11 +27164,19 @@
       {
         "node": "pixi.UIScaler",
         "direction": "input"
+      },
+      {
+        "node": "Group",
+        "direction": "input"
       }
     ],
     "designHeight": [
       {
         "node": "pixi.UIScaler",
+        "direction": "input"
+      },
+      {
+        "node": "Group",
         "direction": "input"
       }
     ],
@@ -31874,6 +31904,12 @@
       {
         "node": "Drag",
         "direction": "output"
+      }
+    ],
+    "uiScaleMode": [
+      {
+        "node": "Group",
+        "direction": "input"
       }
     ],
     "scrollToIndex.do": [

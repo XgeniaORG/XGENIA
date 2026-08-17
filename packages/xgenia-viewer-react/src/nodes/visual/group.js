@@ -57,6 +57,74 @@ const GroupNode = {
     flexDirection: 'column'
   },
   inputs: {
+    // ─── UI SCALING — UNITY'S CanvasScaler (2026-08-17) ──────────────────────────────────
+    // WHY. A user reported, verbatim: "things are very hard and very confusing… balance plate
+    // when moving resolutions moves out of place… things do not scale according to width and
+    // height". Their graph explained it exactly: every element was `position:absolute` with an
+    // alignX/alignY anchor and a PIXEL offset — TitleLogo transformY -469px, ControlShelf -243px,
+    // BalancePlate +590px, SpinButton transformX -475px. The anchor is a PERCENTAGE and the
+    // offset is PIXELS, so when the viewport changes the anchor moves and the offset does not,
+    // and everything drifts. Nested offsets compound, which is why the plates drifted worst.
+    //
+    // That authoring style is not a mistake — it is Unity's RectTransform, and XGENIA already has
+    // both halves of it: alignX/alignY ARE the nine anchor presets, transformX/transformY ARE
+    // anchoredPosition. The only missing piece was Unity's CanvasScaler: one uniform scale factor,
+    // recomputed on resize, so those pixel offsets scale together. The user had discovered the
+    // need and hand-set `transformScale: 1.2` on their root — the fit factor, computed by hand,
+    // for one screen size.
+    //
+    // utils/design-canvas.ts in the AI panel already specified this model down to the structure
+    // ("author at one resolution, one wrapper scales the whole thing"). It had no consumers: a
+    // single importer that itself had none. The design existed and nothing reached it.
+    //
+    // Default 'none' so no existing project changes. Scaling belongs on Group rather than a new
+    // node type precisely so an existing root can become a canvas by setting two numbers.
+    uiScaleMode: {
+      index: 6,
+      displayName: 'Scale Mode',
+      group: 'UI Scaling',
+      type: {
+        name: 'enum',
+        enums: [
+          { label: 'Off', value: 'none' },
+          { label: 'Fit — show all of it', value: 'expand' },
+          { label: 'Fill — cover, crop edges', value: 'shrink' },
+          { label: 'Match width', value: 'matchWidth' },
+          { label: 'Match height', value: 'matchHeight' }
+        ]
+      },
+      default: 'none',
+      set(value) {
+        this.props.uiScaleMode = value || 'none';
+        this.forceUpdate();
+      }
+    },
+    designWidth: {
+      index: 7,
+      displayName: 'Design Width',
+      group: 'UI Scaling',
+      type: 'number',
+      default: 1920,
+      tooltip: 'The width you design at, in pixels. Children are positioned in these units and the whole group is scaled to fit. Only used when Scale Mode is on.',
+      set(value) {
+        const n = Number(value);
+        this.props.designWidth = isFinite(n) && n > 0 ? n : 1920;
+        this.forceUpdate();
+      }
+    },
+    designHeight: {
+      index: 8,
+      displayName: 'Design Height',
+      group: 'UI Scaling',
+      type: 'number',
+      default: 1080,
+      tooltip: 'The height you design at, in pixels. Only used when Scale Mode is on.',
+      set(value) {
+        const n = Number(value);
+        this.props.designHeight = isFinite(n) && n > 0 ? n : 1080;
+        this.forceUpdate();
+      }
+    },
     flexDirection: {
       //don't rename for backwards compat
       index: 12,

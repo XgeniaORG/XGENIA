@@ -38,6 +38,14 @@ export interface GroupProps extends XGENIA.ReactProps {
   clip: boolean;
 
   layout: 'none' | 'row' | 'column';
+
+  /**
+   * UI SCALING — Unity's CanvasScaler. See the long note on group.js's uiScaleMode port.
+   * 'none' (default) renders exactly as before.
+   */
+  uiScaleMode?: 'none' | 'expand' | 'shrink' | 'matchWidth' | 'matchHeight';
+  designWidth?: number;
+  designHeight?: number;
   dom;
 
   children?: ReactNode;
@@ -49,18 +57,60 @@ export interface GroupProps extends XGENIA.ReactProps {
 
 type ScrollRef = HTMLDivElement & { xgeniaNode?: XGENIA.ReactProps['xgeniaNode'] };
 
-export class Group extends React.Component<GroupProps> {
+export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: number; height: number } }> {
   scrollNeedsToInit: boolean;
   scrollRef: React.RefObject<ScrollRef | null>;
   iScroll?: BScroll;
+  /** The OUTER element when UI scaling is on — the window whose size decides the scale factor. */
+  uiScaleOuterRef: React.RefObject<HTMLElement | null>;
+  private uiScaleObserver?: ResizeObserver;
 
   constructor(props: GroupProps) {
     super(props);
     this.scrollNeedsToInit = false;
     this.scrollRef = React.createRef<ScrollRef>();
+    this.uiScaleOuterRef = React.createRef<HTMLElement>();
+    this.state = {};
+  }
+
+  /**
+   * Watch the outer box so the scale factor follows the viewport.
+   *
+   * (2026-08-17) This is the half that makes UI scaling worth having. A factor computed once is
+   * exactly the `transformScale: 1.2` a user hand-set on their root — correct for the screen they
+   * were looking at and wrong for every other. pixi.Stage has had a ResizeObserver driving
+   * _onCanvasResized since 2026-08-14; the DOM tree had no equivalent, which is why a DOM UI could
+   * not be authored at a design resolution at all.
+   */
+  private syncUiScaleObserver() {
+    const wants = !!this.props.uiScaleMode && this.props.uiScaleMode !== 'none';
+    const el = this.uiScaleOuterRef.current;
+    if (!wants || !el) {
+      if (this.uiScaleObserver) { this.uiScaleObserver.disconnect(); this.uiScaleObserver = undefined; }
+      return;
+    }
+    if (this.uiScaleObserver) return;
+    const measure = () => {
+      const node = this.uiScaleOuterRef.current;
+      if (!node) return;
+      const width = node.clientWidth;
+      const height = node.clientHeight;
+      const prev = this.state.uiScaleBox;
+      // Guard the setState: a ResizeObserver that re-renders on every identical measurement is a
+      // render loop, and the transform we apply can itself trigger the observer.
+      if (prev && prev.width === width && prev.height === height) return;
+      this.setState({ uiScaleBox: { width, height } });
+    };
+    try {
+      this.uiScaleObserver = new ResizeObserver(measure);
+      this.uiScaleObserver.observe(el);
+    } catch { /* no ResizeObserver — the one measurement below is still better than nothing */ }
+    measure();
   }
 
   componentDidMount() {
+    this.syncUiScaleObserver();
+
     if (this.props.scrollEnabled && this.props.nativeScroll !== true) {
       this.setupIScroll();
     }
@@ -89,6 +139,10 @@ export class Group extends React.Component<GroupProps> {
   }
 
   componentWillUnmount() {
+    if (this.uiScaleObserver) {
+      this.uiScaleObserver.disconnect();
+      this.uiScaleObserver = undefined;
+    }
     if (this.iScroll) {
       this.iScroll.destroy();
       this.iScroll = undefined;
@@ -98,6 +152,9 @@ export class Group extends React.Component<GroupProps> {
   }
 
   componentDidUpdate(prevProps: GroupProps) {
+    // Keep the resize watcher in step with the uiScaleMode port being switched on or off.
+    this.syncUiScaleObserver();
+
     if (this.scrollNeedsToInit) {
       this.setupIScroll();
       this.scrollNeedsToInit = false;
@@ -300,6 +357,36 @@ export class Group extends React.Component<GroupProps> {
     return this.props.layout === 'row' ? 'x' : 'y';
   }
 
+  /**
+   * The scale factor, by Unity's CanvasScaler rules.
+   *
+   *   expand      min(w/refW, h/refH) — nothing is cropped. Unity calls this Expand; it is what
+   *               people mean by "fit".
+   *   shrink      max(...)            — covers the box and crops the overflow.
+   *   matchWidth  w/refW              — width is exact, height follows.
+   *   matchHeight h/refH              — height is exact, width follows.
+   *
+   * Returns null when scaling is off or the box has not been measured yet, so the caller renders
+   * exactly what it always did.
+   */
+  private getUiScale(): number | null {
+    const mode = this.props.uiScaleMode;
+    if (!mode || mode === 'none') return null;
+    const box = this.state?.uiScaleBox;
+    if (!box || !(box.width > 0) || !(box.height > 0)) return null;
+    const refW = this.props.designWidth && this.props.designWidth > 0 ? this.props.designWidth : 1920;
+    const refH = this.props.designHeight && this.props.designHeight > 0 ? this.props.designHeight : 1080;
+    const sx = box.width / refW;
+    const sy = box.height / refH;
+    switch (mode) {
+      case 'shrink': return Math.max(sx, sy);
+      case 'matchWidth': return sx;
+      case 'matchHeight': return sy;
+      case 'expand':
+      default: return Math.min(sx, sy);
+    }
+  }
+
   render() {
     const { as: Tag = 'div', ...props } = this.props;
 
@@ -328,6 +415,81 @@ export class Group extends React.Component<GroupProps> {
 
     if (style.opacity === 0) {
       style.pointerEvents = 'none';
+    }
+
+    // ─── UI SCALING (2026-08-17) ───────────────────────────────────────────────────────────
+    // When on, this Group becomes the pair described in the AI panel's design-canvas.ts:
+    //
+    //   OUTER (this element)  takes whatever box the layout gives it, clips, and centres.
+    //   INNER (added here)    is EXACTLY designWidth x designHeight px and is scaled to fit.
+    //
+    // Children then lay out in design pixels — an absolute anchor plus a pixel offset, which is
+    // Unity's RectTransform and the thing authors and models both do naturally — and the whole
+    // composition scales as ONE, so a nested pixel offset can no longer drift away from the
+    // percentage anchor it was measured against.
+    //
+    // The inner box is the design size at scale 1 and is then transformed, so every descendant
+    // (offsets, font sizes, borders, the lot) scales uniformly. transformOrigin is the centre so
+    // the letterboxing is symmetric.
+    const uiScale = this.getUiScale();
+    if (uiScale !== null) {
+      const refW = props.designWidth && props.designWidth > 0 ? props.designWidth : 1920;
+      const refH = props.designHeight && props.designHeight > 0 ? props.designHeight : 1080;
+
+      // THE INNER BOX IS THE ONE CHILDREN LAY OUT IN, so it must carry the Group's LAYOUT — its
+      // flex direction, alignment, wrapping, gaps and padding. Moving those to the outer element
+      // (which only exists to clip and centre) would silently drop every relative child out of
+      // flex and stack it as a block. Absolutely-positioned children are unaffected either way,
+      // which is exactly why the mistake would have survived a slot-game smoke test and shown up
+      // later on someone's ordinary row of buttons.
+      //
+      // Padding moves with the layout: it is authored in DESIGN pixels like everything else, so it
+      // belongs inside the scaled box, not on the window.
+      const LAYOUT_KEYS = [
+        'display', 'flexDirection', 'alignItems', 'justifyContent', 'alignContent', 'flexWrap',
+        'gap', 'rowGap', 'columnGap',
+        'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'
+      ] as const;
+
+      const canvasStyle: React.CSSProperties = {
+        position: 'relative',
+        width: `${refW}px`,
+        height: `${refH}px`,
+        flexShrink: 0,
+        flexGrow: 0,
+        transform: `scale(${uiScale})`,
+        transformOrigin: 'center center'
+      };
+      for (const key of LAYOUT_KEYS) {
+        const v = (style as any)[key];
+        if (v !== undefined) {
+          (canvasStyle as any)[key] = v;
+          delete (style as any)[key];
+        }
+      }
+      // The Group's own display defaults to flex; the inner box keeps that contract.
+      if (canvasStyle.display === undefined) canvasStyle.display = 'flex';
+
+      // The outer box is the window: it takes whatever the layout gave it, clips the letterbox,
+      // and centres the canvas. Its background still paints the full window, which is what a
+      // letterboxed design wants behind the bars.
+      style.display = 'flex';
+      style.alignItems = 'center';
+      style.justifyContent = 'center';
+      style.overflow = 'hidden';
+
+      return React.createElement(
+        Tag,
+        {
+          className: props.className,
+          ...props.attrs,
+          ...props.dom,
+          ...PointerListeners(props),
+          style: style,
+          ref: this.uiScaleOuterRef
+        },
+        React.createElement('div', { className: 'xgenia-ui-canvas', style: canvasStyle }, children)
+      );
     }
 
     // Using a more explicit approach to avoid TypeScript errors with component props
