@@ -581,20 +581,27 @@
         "dataInputs": {
           "displayName": "Data Inputs",
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Configuration"
         },
         "triggers": {
           "displayName": "Triggers",
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Configuration"
         },
         "outputs": {
           "displayName": "Outputs",
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Configuration"
         }
       },
-      "outputFormatHints": {}
+      "outputFormatHints": {
+        "type": {
+          "notConnectable": true
+        }
+      }
     },
     "Cloud File": {
       "name": "Cloud File",
@@ -921,11 +928,13 @@
             "explicit",
             "foreach"
           ],
+          "notConnectable": true,
           "group": "General"
         },
         "modelId": {
           "displayName": "Id",
           "type": "string",
+          "notSettableAsParameter": true,
           "group": "General",
           "gatedBy": [
             "idSource"
@@ -1369,6 +1378,7 @@
             "explicit",
             "foreach"
           ],
+          "notConnectable": true,
           "group": "General"
         },
         "modelId": {
@@ -1383,6 +1393,7 @@
         "properties": {
           "displayName": "Properties",
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Properties"
         },
         "fetch": {
@@ -1459,6 +1470,7 @@
         "sourceObjectId": {
           "displayName": "Source Object Id",
           "type": "string",
+          "notSettableAsParameter": true,
           "group": "General"
         }
       },
@@ -1522,11 +1534,13 @@
         "requestScript": {
           "displayName": "Request",
           "type": "string",
+          "notConnectable": true,
           "group": "Scripts"
         },
         "responseScript": {
           "displayName": "Response",
           "type": "string",
+          "notConnectable": true,
           "group": "Scripts"
         },
         "fetch": {
@@ -1861,6 +1875,7 @@
         "expression": {
           "displayName": "Expression",
           "type": "string",
+          "notConnectable": true,
           "group": "General"
         },
         "run": {
@@ -2242,15 +2257,18 @@
       "inputFormatHints": {
         "scriptInputs": {
           "type": "proplist",
+          "notConnectable": true,
           "group": "Script Inputs"
         },
         "scriptOutputs": {
           "type": "proplist",
+          "notConnectable": true,
           "group": "Script Outputs"
         },
         "functionScript": {
           "displayName": "Script",
           "type": "string",
+          "notConnectable": true,
           "group": "General"
         },
         "run": {
@@ -4446,6 +4464,7 @@
         "textureUrls": {
           "displayName": "Texture URLs",
           "type": "string",
+          "notConnectable": true,
           "group": "Textures"
         },
         "textureFiles": {
@@ -4456,11 +4475,13 @@
         "frameRange": {
           "displayName": "Frame Range",
           "type": "string",
+          "notConnectable": true,
           "group": "Animation"
         },
         "frameSequence": {
           "displayName": "Frame Sequence",
           "type": "string",
+          "notConnectable": true,
           "group": "Animation"
         },
         "playing": {
@@ -5871,6 +5892,7 @@
         "drawingCommands": {
           "displayName": "Drawing Commands (JSON)",
           "type": "string",
+          "notConnectable": true,
           "group": "Drawing"
         },
         "shapeType": {
@@ -12713,6 +12735,7 @@
             "contentHeight",
             "contentSize"
           ],
+          "notConnectable": true,
           "group": "Dimensions"
         },
         "width": {
@@ -12818,6 +12841,7 @@
             "contentHeight",
             "contentSize"
           ],
+          "notConnectable": true,
           "group": "Dimensions"
         },
         "width": {
@@ -15153,6 +15177,7 @@
             "contentHeight",
             "contentSize"
           ],
+          "notConnectable": true,
           "group": "Dimensions"
         },
         "width": {
@@ -17514,6 +17539,7 @@
             "contentHeight",
             "contentSize"
           ],
+          "notConnectable": true,
           "group": "Dimensions"
         },
         "width": {
@@ -17724,6 +17750,7 @@
             "%"
           ],
           "defaultUnit": "px",
+          "notConnectable": true,
           "group": "Thumb Style"
         },
         "thumbHeight": {
@@ -17735,11 +17762,13 @@
             "%"
           ],
           "defaultUnit": "px",
+          "notConnectable": true,
           "group": "Thumb Style"
         },
         "thumbColor": {
           "displayName": "Color",
           "type": "color",
+          "notConnectable": true,
           "group": "Thumb Style"
         },
         "trackHeight": {
@@ -17751,16 +17780,19 @@
             "%"
           ],
           "defaultUnit": "px",
+          "notConnectable": true,
           "group": "Track Style"
         },
         "trackColor": {
           "displayName": "Inactive Color",
           "type": "color",
+          "notConnectable": true,
           "group": "Track Style"
         },
         "trackActiveColor": {
           "displayName": "Active Color",
           "type": "color",
+          "notConnectable": true,
           "group": "Track Style"
         },
         "enabled": {
@@ -18005,6 +18037,7 @@
             "contentHeight",
             "contentSize"
           ],
+          "notConnectable": true,
           "group": "Dimensions"
         },
         "width": {
@@ -19763,10 +19796,12 @@
       "inputFormatHints": {
         "results": {
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Results"
         },
         "closeActions": {
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Close Actions"
         },
         "close": {
@@ -19793,10 +19828,12 @@
         },
         "results": {
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Results"
         },
         "backActions": {
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Back Actions"
         }
       },
@@ -19819,6 +19856,7 @@
         "queryNames": {
           "displayName": "Query",
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Query"
         },
         "openInNewTab": {
@@ -19951,6 +19989,7 @@
         "sitemapIncluded": {
           "displayName": "Included",
           "type": "boolean",
+          "notConnectable": true,
           "group": "Experimental Sitemap"
         },
         "sitemapChangefreq": {
@@ -19965,11 +20004,13 @@
             "yearly",
             "never"
           ],
+          "notConnectable": true,
           "group": "Experimental Sitemap"
         },
         "sitemapPriority": {
           "displayName": "Priority",
           "type": "number",
+          "notConnectable": true,
           "group": "Experimental Sitemap"
         }
       },
@@ -20020,6 +20061,7 @@
         "pages": {
           "displayName": "Pages",
           "type": "themped overpages",
+          "notConnectable": true,
           "group": "Pages"
         },
         "urlPath": {
@@ -20298,6 +20340,7 @@
         "methodsJSON": {
           "displayName": "Methods (JSON)",
           "type": "string",
+          "notConnectable": true,
           "group": "General"
         },
         "setMethod": {
@@ -20463,6 +20506,7 @@
         "gsapVars": {
           "displayName": "Main Animation (JSON)",
           "type": "string",
+          "notConnectable": true,
           "group": "Animation (GSAP) | Advanced",
           "gatedBy": [
             "enableCustomJSON"
@@ -20620,6 +20664,7 @@
         "gsapTimelineSteps": {
           "displayName": "Timeline Steps (JSON)",
           "type": "string",
+          "notConnectable": true,
           "group": "Animation (GSAP) | Advanced",
           "gatedBy": [
             "enableCustomJSON"
@@ -20634,6 +20679,7 @@
         "gsapPathPoints": {
           "displayName": "Path Points (JSON)",
           "type": "string",
+          "notConnectable": true,
           "group": "Animation (GSAP) | Path",
           "gatedBy": [
             "enableCustomJSON"
@@ -20779,6 +20825,7 @@
         "target1AnimationVars": {
           "displayName": "Target 1 Animation (JSON)",
           "type": "string",
+          "notConnectable": true,
           "group": "Target 1 Animation",
           "gatedBy": [
             "enableTargetBasedAnimations",
@@ -20799,6 +20846,7 @@
         "target1TimelineSteps": {
           "displayName": "Timeline Steps (JSON)",
           "type": "string",
+          "notConnectable": true,
           "group": "Target 1 Animation",
           "gatedBy": [
             "enableTargetBasedAnimations",
@@ -20818,6 +20866,7 @@
         "target2AnimationVars": {
           "displayName": "Target 2 Animation (JSON)",
           "type": "string",
+          "notConnectable": true,
           "group": "Target 2 Animation",
           "gatedBy": [
             "enableTargetBasedAnimations",
@@ -20838,6 +20887,7 @@
         "target2TimelineSteps": {
           "displayName": "Timeline Steps (JSON)",
           "type": "string",
+          "notConnectable": true,
           "group": "Target 2 Animation",
           "gatedBy": [
             "enableTargetBasedAnimations",
@@ -20857,6 +20907,7 @@
         "target3AnimationVars": {
           "displayName": "Target 3 Animation (JSON)",
           "type": "string",
+          "notConnectable": true,
           "group": "Target 3 Animation",
           "gatedBy": [
             "enableTargetBasedAnimations",
@@ -20877,6 +20928,7 @@
         "target3TimelineSteps": {
           "displayName": "Timeline Steps (JSON)",
           "type": "string",
+          "notConnectable": true,
           "group": "Target 3 Animation",
           "gatedBy": [
             "enableTargetBasedAnimations",
@@ -20896,6 +20948,7 @@
         "target4AnimationVars": {
           "displayName": "Target 4 Animation (JSON)",
           "type": "string",
+          "notConnectable": true,
           "group": "Target 4 Animation",
           "gatedBy": [
             "enableTargetBasedAnimations",
@@ -20916,6 +20969,7 @@
         "target4TimelineSteps": {
           "displayName": "Timeline Steps (JSON)",
           "type": "string",
+          "notConnectable": true,
           "group": "Target 4 Animation",
           "gatedBy": [
             "enableTargetBasedAnimations",
@@ -20935,6 +20989,7 @@
         "target5AnimationVars": {
           "displayName": "Target 5 Animation (JSON)",
           "type": "string",
+          "notConnectable": true,
           "group": "Target 5 Animation",
           "gatedBy": [
             "enableTargetBasedAnimations",
@@ -20955,6 +21010,7 @@
         "target5TimelineSteps": {
           "displayName": "Timeline Steps (JSON)",
           "type": "string",
+          "notConnectable": true,
           "group": "Target 5 Animation",
           "gatedBy": [
             "enableTargetBasedAnimations",
@@ -21623,6 +21679,7 @@
         "properties": {
           "displayName": "Properties",
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Properties"
         },
         "store": {
@@ -21651,6 +21708,7 @@
         "properties": {
           "displayName": "Properties",
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Properties"
         },
         "fetch": {
@@ -21684,6 +21742,7 @@
         "properties": {
           "displayName": "Properties",
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Properties"
         },
         "fetch": {
@@ -21743,6 +21802,7 @@
         },
         "params": {
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Parameters"
         },
         "call": {
@@ -21820,6 +21880,7 @@
         "modifyId": {
           "displayName": "Object Id",
           "type": "string",
+          "notSettableAsParameter": true,
           "group": "Modify"
         },
         "add": {
@@ -21888,6 +21949,7 @@
         "modifyId": {
           "displayName": "Object Id",
           "type": "string",
+          "notSettableAsParameter": true,
           "group": "Modify"
         },
         "remove": {
@@ -22210,6 +22272,7 @@
         "templateScript": {
           "displayName": "Script",
           "type": "string",
+          "notConnectable": true,
           "group": "Appearance",
           "gatedBy": [
             "templateType"
@@ -22298,6 +22361,7 @@
         "removeCompleted": {
           "displayName": "Remove Completed",
           "type": "boolean",
+          "notSettableAsParameter": true,
           "group": "Events"
         }
       },
@@ -22354,6 +22418,7 @@
         "templateScript": {
           "displayName": "Script",
           "type": "string",
+          "notConnectable": true,
           "group": "Appearance",
           "gatedBy": [
             "templateType"
@@ -22598,7 +22663,8 @@
         },
         "mapScript": {
           "displayName": "Script",
-          "type": "string"
+          "type": "string",
+          "notConnectable": true
         }
       },
       "outputFormatHints": {
@@ -22706,6 +22772,7 @@
             "array",
             "*"
           ],
+          "notConnectable": true,
           "group": "General"
         },
         "do": {
@@ -22802,11 +22869,13 @@
             "csv",
             "json"
           ],
+          "notConnectable": true,
           "group": "General"
         },
         "csv": {
           "displayName": "CSV",
           "type": "string",
+          "notConnectable": true,
           "group": "General",
           "gatedBy": [
             "type"
@@ -22816,6 +22885,7 @@
         "json": {
           "displayName": "JSON",
           "type": "string",
+          "notConnectable": true,
           "group": "General",
           "gatedBy": [
             "type"
@@ -22990,6 +23060,7 @@
         "channelName": {
           "displayName": "Channel Name",
           "type": "string",
+          "notConnectable": true,
           "group": "Settings"
         },
         "propagation": {
@@ -23005,6 +23076,7 @@
         },
         "payload": {
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Payload"
         }
       },
@@ -23089,10 +23161,12 @@
       "inputFormatHints": {
         "scriptInputs": {
           "type": "proplist",
+          "notConnectable": true,
           "group": "Script Inputs"
         },
         "scriptOutputs": {
           "type": "proplist",
+          "notConnectable": true,
           "group": "Script Outputs"
         },
         "useExternalFile": {
@@ -23102,11 +23176,13 @@
             "yes",
             "no"
           ],
+          "notConnectable": true,
           "group": "Code"
         },
         "code": {
           "displayName": "Code",
           "type": "string",
+          "notConnectable": true,
           "group": "Code",
           "gatedBy": [
             "useExternalFile"
@@ -23116,6 +23192,7 @@
         "externalFile": {
           "displayName": "File Path",
           "type": "source",
+          "notConnectable": true,
           "group": "Code",
           "gatedBy": [
             "useExternalFile"
@@ -23185,12 +23262,13 @@
       "relativePath": "std-library/numberremapper.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/number-remapper",
-      "lineCount": 134,
-      "byteSize": 3388,
+      "lineCount": 137,
+      "byteSize": 3667,
       "inputFormatHints": {
         "inputValue": {
           "displayName": "Input Value",
           "type": "number",
+          "notSettableAsParameter": true,
           "group": "Value to Remap"
         },
         "minInputValue": {
@@ -23216,6 +23294,7 @@
         "clamp": {
           "displayName": "Clamp Output",
           "type": "boolean",
+          "notConnectable": true,
           "group": "Output Parameters"
         }
       },
@@ -23321,11 +23400,13 @@
         "states": {
           "displayName": "States",
           "type": "stringlist",
+          "notConnectable": true,
           "group": "States"
         },
         "values": {
           "displayName": "Values",
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Values"
         },
         "toggle": {
@@ -24692,6 +24773,7 @@
         "style": {
           "displayName": "Style",
           "type": "string",
+          "notConnectable": true,
           "group": "Content"
         }
       },
@@ -24730,6 +24812,7 @@
             "contentHeight",
             "contentSize"
           ],
+          "notConnectable": true,
           "group": "Dimensions"
         },
         "width": {
@@ -24940,6 +25023,7 @@
             "contentHeight",
             "contentSize"
           ],
+          "notConnectable": true,
           "group": "Dimensions"
         },
         "width": {
@@ -25185,6 +25269,7 @@
             "contentHeight",
             "contentSize"
           ],
+          "notConnectable": true,
           "group": "Dimensions"
         },
         "width": {
@@ -25717,6 +25802,7 @@
             "contentHeight",
             "contentSize"
           ],
+          "notConnectable": true,
           "group": "Dimensions"
         },
         "width": {
@@ -27132,6 +27218,7 @@
             "contentHeight",
             "contentSize"
           ],
+          "notConnectable": true,
           "group": "Dimensions"
         },
         "width": {
@@ -27502,6 +27589,7 @@
             "contentHeight",
             "contentSize"
           ],
+          "notConnectable": true,
           "group": "Dimensions"
         },
         "width": {
@@ -28409,6 +28497,7 @@
             "contentHeight",
             "contentSize"
           ],
+          "notConnectable": true,
           "group": "Dimensions"
         },
         "width": {
@@ -28783,6 +28872,7 @@
             "contentHeight",
             "contentSize"
           ],
+          "notConnectable": true,
           "group": "Dimensions"
         },
         "width": {
@@ -29016,6 +29106,7 @@
             "contentHeight",
             "contentSize"
           ],
+          "notConnectable": true,
           "group": "Dimensions"
         },
         "width": {
@@ -29268,6 +29359,7 @@
             "contentHeight",
             "contentSize"
           ],
+          "notConnectable": true,
           "group": "Dimensions"
         },
         "width": {
@@ -29550,6 +29642,7 @@
             "contentHeight",
             "contentSize"
           ],
+          "notConnectable": true,
           "group": "Dimensions"
         },
         "width": {
@@ -30276,6 +30369,7 @@
         },
         "params": {
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Parameters"
         }
       },
@@ -30308,6 +30402,7 @@
       "inputFormatHints": {
         "params": {
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Parameters",
           "gatedBy": [
             "status"
@@ -30408,6 +30503,7 @@
         "aggregates": {
           "displayName": "Aggregates",
           "type": "stringlist",
+          "notConnectable": true,
           "group": "Aggregates"
         }
       },
