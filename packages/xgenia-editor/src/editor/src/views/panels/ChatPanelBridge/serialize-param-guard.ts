@@ -115,6 +115,24 @@ function isUnitPort(portType: string, info?: PortUnitInfo): boolean {
  * The joined string does not trip verify_logic_correctness CHECK 24
  * (malformed_dimension_param); that check flags the raw {value, unit} OBJECT.
  */
+/**
+ * The unit to append when a value carries none.
+ *
+ * (2026-08-18, trace 1787027583089 — QA BUG 5) `info?.defaultUnit || DIMENSION_FALLBACK_UNIT`
+ * cannot tell a port that DECLARES itself unitless ('') from one with no metadata at all,
+ * because '' is falsy. lineHeight is declared `units: ['', 'px', '%'], defaultUnit: ''` — CSS
+ * line-height: 2 means two times the font size — so a correct `lineHeight: 2` was serialised
+ * to the AI as "2%" while the live CSS said `line-height: 2`. An AI that "fixes" the 2%
+ * breaks working text.
+ *
+ * Kept rule-for-rule identical to the xgenia-ai twin fallbackUnitFor in
+ * StreamlinedToolRegistry/utils/coerce-dim.ts.
+ */
+function fallbackUnitFor(info?: PortUnitInfo): string {
+  if (info && typeof info.defaultUnit === 'string') return info.defaultUnit; // '' means BARE
+  return DIMENSION_FALLBACK_UNIT;
+}
+
 export function unwrapValueUnit(val: any, portType: string, info?: PortUnitInfo): any {
   const unitPort = isUnitPort(portType, info);
 
@@ -124,7 +142,7 @@ export function unwrapValueUnit(val: any, portType: string, info?: PortUnitInfo)
     const num = typeof val.value === 'number' ? val.value : parseFloat(String(val.value));
     if (!isFinite(num)) return val; // garbage in → keep as-is
     const unit = String(val.unit || '').trim();
-    if (unitPort) return unit ? `${num}${unit}` : `${num}${info?.defaultUnit || DIMENSION_FALLBACK_UNIT}`;
+    if (unitPort) return unit ? `${num}${unit}` : `${num}${fallbackUnitFor(info)}`;
     // Non-unit port (pixi number): keep the historical unwrap. Responsive units
     // still join, because a "%"-carrying value on a number port is a bug the AI
     // must be able to SEE rather than a pixel count.
@@ -136,7 +154,9 @@ export function unwrapValueUnit(val: any, portType: string, info?: PortUnitInfo)
   // un-normalised write). Resolve it against the port's defaultUnit so the AI
   // never receives a number whose unit it has to guess.
   if (unitPort && typeof val === 'number' && isFinite(val)) {
-    return `${val}${info?.defaultUnit || DIMENSION_FALLBACK_UNIT}`;
+    const u = fallbackUnitFor(info);
+    // A port DECLARED unitless renders BARE — that is what unitless means.
+    return u ? `${val}${u}` : val;
   }
 
   return val;

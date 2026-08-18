@@ -23,17 +23,51 @@ function getSizeWithMargins(size, startMargin, endMargin) {
   return css;
 }
 
+  // (2026-08-17, trace 1787010262432 — QA BUG-5 / BUG-21) AUTHOR INTENT OUTRANKS THE
+  // DERIVED DEFAULT. `authoredStyle` is the node's parsed styleCss declarations
+  // (react-component-node stores them as `customCssStyles`). Layout runs AFTER styleCss
+  // has been merged into the style object, so the percentage-to-weight conversion below
+  // silently overwrote an explicit `flex-grow` on every render — making the ONE method
+  // create_ui_from_xml documents for "fill remaining space" inoperative on any node with
+  // a percentage width, which is the default node.
+  //
+  // Scoped deliberately to flexGrow/flexShrink: those have NO native port, so styleCss is
+  // the only way to express them and clobbering them leaves the author no recourse. Every
+  // other property Layout writes either has a port or is a rewrite of the author's own
+  // value (e.g. the calc() margin adjustment), and those still apply.
+  const AUTHOR_OWNED = ['flexGrow', 'flexShrink'];
+  function makeSafeSetter(style, authoredStyle, props) {
+    // (2026-08-18) READ THE AUTHORED SET FROM THE NODE WHEN THE CALLER DID NOT PASS IT.
+    //
+    // The first version of this guard only worked for react-component-node, which threads the
+    // set in explicitly. But 25 components (Group.tsx, Text.tsx, Image.tsx, Button.tsx, …) call
+    // `Layout.size(style, props)` THEMSELVES, on a style object that already carries the
+    // authored declarations — so the guard held at one layer and was undone one layer down:
+    //     const style = { ...props.style };   // authored flex-grow preserved here
+    //     Layout.size(style, props);          // …and derived over here
+    // Falling back to props.xgeniaNode.customCssStyles fixes every call site at once, including
+    // ones written later, instead of threading an argument through 25 files and missing one.
+    const fromProps = props && props.xgeniaNode ? props.xgeniaNode.customCssStyles : null;
+    const picked = authoredStyle !== undefined && authoredStyle !== null ? authoredStyle : fromProps;
+    const authored = picked && typeof picked === 'object' ? picked : null;
+    return function safelySetStyle(key, value) {
+      if (authored && AUTHOR_OWNED.indexOf(key) !== -1 && Object.prototype.hasOwnProperty.call(authored, key)) {
+        return; // the author declared this explicitly — do not derive over it
+      }
+      try {
+        style[key] = value;
+      } catch (e) {
+        console.warn(`Cannot set style property '${key}' to '${value}'. Property might be read-only.`);
+      }
+    };
+  }
+
 export default {
-  size(style, props) {
+  size(style, props, authoredStyle) {
     try {
-      // Handle case where style object might be frozen or have read-only properties
-      const safelySetStyle = (key, value) => {
-        try {
-          style[key] = value;
-        } catch (e) {
-          console.warn(`Cannot set style property '${key}' to '${value}'. Property might be read-only.`);
-        }
-      };
+      // Handle case where style object might be frozen or have read-only properties.
+      // See makeSafeSetter: an explicitly authored flex-grow/flex-shrink is never derived over.
+      const safelySetStyle = makeSafeSetter(style, authoredStyle, props);
 
       if (props.parentLayout === 'none') {
         safelySetStyle('position', 'absolute');
@@ -80,16 +114,11 @@ export default {
       console.error("Error in layout.size:", e);
     }
   },
-  align(style, props) {
+  align(style, props, authoredStyle) {
     try {
-      // Handle case where style object might be frozen or have read-only properties
-      const safelySetStyle = (key, value) => {
-        try {
-          style[key] = value;
-        } catch (e) {
-          console.warn(`Cannot set style property '${key}' to '${value}'. Property might be read-only.`);
-        }
-      };
+      // Handle case where style object might be frozen or have read-only properties.
+      // See makeSafeSetter: an explicitly authored flex-grow/flex-shrink is never derived over.
+      const safelySetStyle = makeSafeSetter(style, authoredStyle, props);
 
       const { position } = style;
       let { alignX, alignY } = props;

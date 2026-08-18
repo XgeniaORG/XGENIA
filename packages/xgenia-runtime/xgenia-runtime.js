@@ -279,8 +279,32 @@ xgeniaRuntime.prototype._setupEditorCommunication = function (args) {
 
   // 🔧 AI Signal Simulation - trigger signals on runtime nodes
   this.editorConnection.on('triggerSignal', (args) => {
-    const { nodeId, portName, data } = args;
-    console.log('[XgeniaRuntime] Received triggerSignal:', nodeId, portName, data);
+    const { nodeId, portName, data, isInput, id } = args;
+    console.log('[XgeniaRuntime] Received triggerSignal:', nodeId, portName, data, 'isInput=' + !!isInput);
+
+    // Whatever happens below, the caller is told. Reporting only into the
+    // console made every failure here look like a success to the tool that
+    // asked: the editor returned `{success:true}` the moment the message was
+    // SENT, so a signal fired at a port that does not exist came back as proof
+    // the thing worked. That is how "the reels spin now" gets written about a
+    // graph that never received a spin.
+    const reply = (ok, detail) => {
+      if (!ok) console.error('[XgeniaRuntime] triggerSignal FAILED:', detail);
+      else console.log('[XgeniaRuntime] triggerSignal ok:', detail);
+      if (id && this.editorConnection && typeof this.editorConnection.send === 'function') {
+        this.editorConnection.send({
+          cmd: 'triggerSignalResult',
+          type: 'viewer',
+          id,
+          success: !!ok,
+          nodeId,
+          portName,
+          isInput: !!isInput,
+          error: ok ? undefined : detail,
+          detail: ok ? detail : undefined
+        });
+      }
+    };
 
     // Use the correct method to find nodes - via rootComponent's nodeScope
     let node = null;
@@ -289,27 +313,55 @@ xgeniaRuntime.prototype._setupEditorCommunication = function (args) {
       node = nodes && nodes.length > 0 ? nodes[0] : null;
     }
 
-    if (node) {
-      console.log('[XgeniaRuntime] Found node:', node.name || node.id);
-      // Try various trigger methods
-      if (typeof node.sendSignalOnOutput === 'function') {
-        node.sendSignalOnOutput(portName);
-        console.log('[XgeniaRuntime] Signal triggered via sendSignalOnOutput');
-      } else if (typeof node.triggerOutput === 'function') {
-        node.triggerOutput(portName, data);
-        console.log('[XgeniaRuntime] Signal triggered via triggerOutput');
-      } else if (node.outputs && node.outputs[portName] && typeof node.outputs[portName].trigger === 'function') {
-        node.outputs[portName].trigger(data);
-        console.log('[XgeniaRuntime] Signal triggered via output.trigger');
-      } else if (typeof node.emit === 'function') {
-        node.emit(portName, data);
-        console.log('[XgeniaRuntime] Signal triggered via emit');
-      } else {
-        console.warn('[XgeniaRuntime] No trigger method found for node:', nodeId, 'port:', portName);
-        console.log('[XgeniaRuntime] Available methods:', Object.keys(node).filter(k => typeof node[k] === 'function'));
+    if (!node) {
+      reply(false, 'No node with id ' + nodeId + ' is running. Nothing received the signal.');
+      return;
+    }
+
+    const label = node.name || node.id;
+    console.log('[XgeniaRuntime] Found node:', label);
+
+    // An INPUT is not an output, and firing the wrong one is not a near miss.
+    //
+    // `isInput` was being dropped on the way here and every request fired an
+    // OUTPUT, so asking a maths node to receive a spin instead asked it to
+    // EMIT one — which it has no port for, so nothing happened at all.
+    if (isInput) {
+      if (typeof node.hasInput === 'function' && node.hasInput(portName) === false) {
+        reply(false, 'Node "' + label + '" has no INPUT named "' + portName + '".');
+        return;
       }
+      if (typeof node.queueInput !== 'function') {
+        reply(false, 'Node "' + label + '" cannot receive input signals from here.');
+        return;
+      }
+      // A signal on the wire is a true then a false — the same pulse a real
+      // connection delivers. Sending only the true leaves the port latched high
+      // and the next genuine signal does nothing.
+      node.queueInput(portName, true);
+      node.queueInput(portName, false);
+      reply(true, 'Delivered signal to input "' + portName + '" on "' + label + '".');
+      return;
+    }
+
+    if (typeof node.sendSignalOnOutput === 'function') {
+      if (typeof node.hasOutput === 'function' && node.hasOutput(portName) === false) {
+        reply(false, 'Node "' + label + '" has no OUTPUT named "' + portName + '".');
+        return;
+      }
+      node.sendSignalOnOutput(portName);
+      reply(true, 'Fired output "' + portName + '" on "' + label + '".');
+    } else if (typeof node.triggerOutput === 'function') {
+      node.triggerOutput(portName, data);
+      reply(true, 'Fired output "' + portName + '" via triggerOutput.');
+    } else if (node.outputs && node.outputs[portName] && typeof node.outputs[portName].trigger === 'function') {
+      node.outputs[portName].trigger(data);
+      reply(true, 'Fired output "' + portName + '" via output.trigger.');
+    } else if (typeof node.emit === 'function') {
+      node.emit(portName, data);
+      reply(true, 'Emitted "' + portName + '".');
     } else {
-      console.warn('[XgeniaRuntime] Node not found for signal trigger:', nodeId);
+      reply(false, 'Node "' + label + '" exposes no way to trigger "' + portName + '".');
     }
   });
 

@@ -2525,18 +2525,71 @@ export class EditorBridge {
         });
 
         // --- ViewerConnection bridge (runtime signal triggering) ---
+        // Waits for the runtime to say what actually happened.
+        //
+        // This used to return `{success:true}` the instant the message was sent,
+        // which only ever proved the editor could talk to itself. Every real
+        // failure downstream — no such node, no such port, wrong direction —
+        // came back to the AI as success, and the AI wrote prose to match.
+        // Export 1786997975677: a spin fired at an INPUT named "Spin" hit
+        // `Node /#__maths__/LuckyCherryMaths doesn't have a output named Spin`
+        // and was still reported as delivered, which is what tripped the
+        // fabrication detector at the end of that turn.
         h('viewer.triggerSignal', ([nodeId, portName, data, isInput]: [string, string, any?, boolean?]) => {
-            try {
-                const { ViewerConnection } = require('../../../ViewerConnection');
-                const vc = ViewerConnection.instance;
-                if (!vc) throw new Error('ViewerConnection instance not available');
-                vc.sendTriggerSignal(nodeId, portName, data, isInput);
-                console.log(`[EditorBridge] viewer.triggerSignal: sent to ${nodeId}.${portName} (isInput=${!!isInput})`);
-                return { success: true, nodeId, portName };
-            } catch (e: any) {
-                console.error('[EditorBridge] viewer.triggerSignal failed:', e.message);
-                throw e;
+            const { ViewerConnection } = require('../../../ViewerConnection');
+            const vc = ViewerConnection.instance;
+            if (!vc) {
+                throw new Error('Cannot trigger a signal: the game preview is not running (ViewerConnection unavailable). Start the preview first.');
             }
+
+            const sigId = `sig_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            return new Promise<any>((resolve) => {
+                let settled = false;
+                const finish = (result: any) => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    EventDispatcher.instance.off(sigId);
+                    resolve(result);
+                };
+
+                // An older viewer does not know how to answer. Resolving as
+                // "unconfirmed" rather than as success keeps the honest shape:
+                // the caller can see the difference between "it worked" and
+                // "nobody told me", which is the whole point of this change.
+                const timer = setTimeout(() => {
+                    finish({
+                        success: false,
+                        unconfirmed: true,
+                        nodeId,
+                        portName,
+                        isInput: !!isInput,
+                        error: 'The running preview did not acknowledge the signal within 5s. It may be an older viewer build, or nothing is running. Treat this as UNVERIFIED, not as a successful trigger.'
+                    });
+                }, 5000);
+
+                // Group-keyed on this request's id, the same way the eval path
+                // does it, so two signals in flight cannot resolve each other
+                // and `off(sigId)` detaches only this one.
+                EventDispatcher.instance.on(
+                    'Viewer.triggerSignalResult',
+                    (msg: any) => {
+                        if (!msg || msg.id !== sigId) return;
+                        finish({
+                            success: !!msg.success,
+                            nodeId,
+                            portName,
+                            isInput: !!isInput,
+                            detail: msg.detail,
+                            error: msg.error
+                        });
+                    },
+                    sigId
+                );
+
+                vc.sendTriggerSignal(nodeId, portName, data, isInput, sigId);
+                console.log(`[EditorBridge] viewer.triggerSignal: sent to ${nodeId}.${portName} (isInput=${!!isInput}) awaiting ${sigId}`);
+            });
         });
 
         // --- ViewerConnection bridge (code execution in Viewer game engine) ---

@@ -570,9 +570,25 @@ class XgeniaReactComponent extends React.Component {
     // lookups against the rendered HTML always failed and fell back to the UUID. Without
     // this, the AI can't map a DOM node back to its @label.
     if (!props['data-xgenia-node-label']) {
+      // AUTHORED LABEL ONLY — never the type. (2026-08-18, traces 1787010262432 /
+      // 1787027583089) `xgeniaNode.name` is the node TYPE, so using it as a silent fallback
+      // published data-xgenia-node-label="Group" for every Group and
+      // "net.xgenia.controls.button" for every Button. Consumers then could not find a node
+      // by the name it was given, which is exactly what the attribute exists for: the
+      // documented selector matched nothing, and ui_layout_map reported unaddressable
+      // "@Group" culprits. Emitting NOTHING when there is no authored label is honest —
+      // the type is already on data-xgenia-component for anyone who wants it.
+      // (2026-08-18, trace 1787071170156) THE MODEL is where the label actually lives.
+      // The previous fix taught NodeModel.createFromExportData to keep `label`, but
+      // Node.setNodeModel only does `this.model = nodeModel` — it never copies the label onto
+      // the node — so `xgeniaNode.label` stayed undefined and the DOM attribute never appeared.
+      // The QA pass caught it immediately: [data-xgenia-node-label='TestProbe'] still matched 0.
+      // Read through the model as well.
       const nodeLabel = xgeniaNode.label
+        || (xgeniaNode.model && xgeniaNode.model.label)
         || (xgeniaNode.parameters && (xgeniaNode.parameters.nodeLabel || xgeniaNode.parameters.label))
-        || xgeniaNode.name;
+        || (xgeniaNode.model && xgeniaNode.model.parameters
+            && (xgeniaNode.model.parameters.nodeLabel || xgeniaNode.model.parameters.label));
       if (nodeLabel) props['data-xgenia-node-label'] = nodeLabel;
     }
 
@@ -607,8 +623,11 @@ class XgeniaReactComponent extends React.Component {
       if (props.textStyle !== undefined) {
         props.style = finalStyle = Object.assign({}, props.textStyle, finalStyle);
       }
-      Layout.size(finalStyle, props);
-      Layout.align(finalStyle, props);
+      // Hand Layout the declarations the AUTHOR wrote in styleCss (updateAdvancedStyle
+      // stores the parsed set as customCssStyles) so it cannot derive over an explicit
+      // flex-grow/flex-shrink. See layout.js AUTHOR_OWNED — trace 1787010262432.
+      Layout.size(finalStyle, props, xgeniaNode.customCssStyles);
+      Layout.align(finalStyle, props, xgeniaNode.customCssStyles);
     }
 
     const TargetComponent = xgeniaNode.reactComponent;
