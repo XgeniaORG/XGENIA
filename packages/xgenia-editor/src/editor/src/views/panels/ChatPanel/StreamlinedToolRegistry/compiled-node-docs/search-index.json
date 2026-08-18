@@ -12718,31 +12718,73 @@
         "width": {
           "displayName": "Width",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions"
         },
         "height": {
           "displayName": "Height",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions"
         },
         "minWidth": {
           "displayName": "Min Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxWidth": {
           "displayName": "Max Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "minHeight": {
           "displayName": "Min Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxHeight": {
           "displayName": "Max Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         }
       },
@@ -12781,6 +12823,13 @@
         "width": {
           "displayName": "Width",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -12790,6 +12839,13 @@
         "height": {
           "displayName": "Height",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -12799,21 +12855,49 @@
         "minWidth": {
           "displayName": "Min Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxWidth": {
           "displayName": "Max Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "minHeight": {
           "displayName": "Min Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxHeight": {
           "displayName": "Max Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "label": {
@@ -15074,6 +15158,13 @@
         "width": {
           "displayName": "Width",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -15083,6 +15174,13 @@
         "height": {
           "displayName": "Height",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -15092,21 +15190,49 @@
         "minWidth": {
           "displayName": "Min Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxWidth": {
           "displayName": "Max Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "minHeight": {
           "displayName": "Min Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxHeight": {
           "displayName": "Max Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "iconSourceType": {
@@ -16303,6 +16429,12 @@
         "fillSpacing": {
           "displayName": "Fill Spacing",
           "type": "number",
+          "units": [
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "px",
           "group": "Fill Style"
         },
         "enabled": {
@@ -17387,6 +17519,13 @@
         "width": {
           "displayName": "Width",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -17396,6 +17535,13 @@
         "height": {
           "displayName": "Height",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -17405,21 +17551,49 @@
         "minWidth": {
           "displayName": "Min Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxWidth": {
           "displayName": "Max Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "minHeight": {
           "displayName": "Min Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxHeight": {
           "displayName": "Max Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         }
       },
@@ -17533,16 +17707,34 @@
         "width": {
           "displayName": "Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions"
         },
         "thumbWidth": {
           "displayName": "Width",
           "type": "number",
+          "units": [
+            "px",
+            "vw",
+            "%"
+          ],
+          "defaultUnit": "px",
           "group": "Thumb Style"
         },
         "thumbHeight": {
           "displayName": "Height",
           "type": "number",
+          "units": [
+            "px",
+            "vh",
+            "%"
+          ],
+          "defaultUnit": "px",
           "group": "Thumb Style"
         },
         "thumbColor": {
@@ -17553,6 +17745,12 @@
         "trackHeight": {
           "displayName": "Height",
           "type": "number",
+          "units": [
+            "px",
+            "vh",
+            "%"
+          ],
+          "defaultUnit": "px",
           "group": "Track Style"
         },
         "trackColor": {
@@ -17812,6 +18010,13 @@
         "width": {
           "displayName": "Width",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -17821,6 +18026,13 @@
         "height": {
           "displayName": "Height",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -17830,21 +18042,49 @@
         "minWidth": {
           "displayName": "Min Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxWidth": {
           "displayName": "Max Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "minHeight": {
           "displayName": "Min Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxHeight": {
           "displayName": "Max Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "iconSourceType": {
@@ -23744,16 +23984,28 @@
         "marginX": {
           "displayName": "Horizontal Gap",
           "type": "number",
+          "units": [
+            "px"
+          ],
+          "defaultUnit": "px",
           "group": "Layout Settings"
         },
         "marginY": {
           "displayName": "Vertical Gap",
           "type": "number",
+          "units": [
+            "px"
+          ],
+          "defaultUnit": "px",
           "group": "Layout Settings"
         },
         "minWidth": {
           "displayName": "Min Column Width",
           "type": "number",
+          "units": [
+            "px"
+          ],
+          "defaultUnit": "px",
           "group": "Constraints"
         },
         "direction": {
@@ -24483,6 +24735,13 @@
         "width": {
           "displayName": "Width",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -24492,6 +24751,13 @@
         "height": {
           "displayName": "Height",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -24501,21 +24767,49 @@
         "minWidth": {
           "displayName": "Min Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxWidth": {
           "displayName": "Max Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "minHeight": {
           "displayName": "Min Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxHeight": {
           "displayName": "Max Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "pointerEventsEnabled": {
@@ -24651,6 +24945,13 @@
         "width": {
           "displayName": "Width",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -24660,6 +24961,13 @@
         "height": {
           "displayName": "Height",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -24669,21 +24977,49 @@
         "minWidth": {
           "displayName": "Min Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxWidth": {
           "displayName": "Max Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "minHeight": {
           "displayName": "Min Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxHeight": {
           "displayName": "Max Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "pointerEventsEnabled": {
@@ -24854,6 +25190,13 @@
         "width": {
           "displayName": "Width",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -24863,6 +25206,13 @@
         "height": {
           "displayName": "Height",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -24872,21 +25222,49 @@
         "minWidth": {
           "displayName": "Min Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxWidth": {
           "displayName": "Max Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "minHeight": {
           "displayName": "Min Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxHeight": {
           "displayName": "Max Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "pointerEventsEnabled": {
@@ -25230,6 +25608,10 @@
         "blurAmount": {
           "displayName": "Blur Amount",
           "type": "number",
+          "units": [
+            "px"
+          ],
+          "defaultUnit": "px",
           "group": "Style"
         },
         "testId": {
@@ -25340,6 +25722,13 @@
         "width": {
           "displayName": "Width",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -25349,6 +25738,13 @@
         "height": {
           "displayName": "Height",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -25358,21 +25754,49 @@
         "minWidth": {
           "displayName": "Min Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxWidth": {
           "displayName": "Max Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "minHeight": {
           "displayName": "Min Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxHeight": {
           "displayName": "Max Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "flexWrap": {
@@ -26713,6 +27137,13 @@
         "width": {
           "displayName": "Width",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -26722,6 +27153,13 @@
         "height": {
           "displayName": "Height",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -26731,21 +27169,49 @@
         "minWidth": {
           "displayName": "Min Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxWidth": {
           "displayName": "Max Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "minHeight": {
           "displayName": "Min Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxHeight": {
           "displayName": "Max Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "pointerEventsEnabled": {
@@ -27041,6 +27507,13 @@
         "width": {
           "displayName": "Width",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -27050,6 +27523,13 @@
         "height": {
           "displayName": "Height",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -27059,21 +27539,49 @@
         "minWidth": {
           "displayName": "Min Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxWidth": {
           "displayName": "Max Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "minHeight": {
           "displayName": "Min Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxHeight": {
           "displayName": "Max Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "objectFit": {
@@ -27906,6 +28414,13 @@
         "width": {
           "displayName": "Width",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -27915,6 +28430,13 @@
         "height": {
           "displayName": "Height",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -27924,21 +28446,49 @@
         "minWidth": {
           "displayName": "Min Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxWidth": {
           "displayName": "Max Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "minHeight": {
           "displayName": "Min Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxHeight": {
           "displayName": "Max Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "pointerEventsEnabled": {
@@ -28238,6 +28788,13 @@
         "width": {
           "displayName": "Width",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -28247,6 +28804,13 @@
         "height": {
           "displayName": "Height",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -28256,21 +28820,49 @@
         "minWidth": {
           "displayName": "Min Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxWidth": {
           "displayName": "Max Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "minHeight": {
           "displayName": "Min Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxHeight": {
           "displayName": "Max Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "pointerEventsEnabled": {
@@ -28429,6 +29021,13 @@
         "width": {
           "displayName": "Width",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -28438,6 +29037,13 @@
         "height": {
           "displayName": "Height",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -28447,21 +29053,49 @@
         "minWidth": {
           "displayName": "Min Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxWidth": {
           "displayName": "Max Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "minHeight": {
           "displayName": "Min Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxHeight": {
           "displayName": "Max Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "pointerEventsEnabled": {
@@ -28639,6 +29273,13 @@
         "width": {
           "displayName": "Width",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -28648,6 +29289,13 @@
         "height": {
           "displayName": "Height",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -28657,21 +29305,49 @@
         "minWidth": {
           "displayName": "Min Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxWidth": {
           "displayName": "Max Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "minHeight": {
           "displayName": "Min Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxHeight": {
           "displayName": "Max Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "pointerEventsEnabled": {
@@ -28848,11 +29524,21 @@
         "objectPositionX": {
           "displayName": "Video Position X",
           "type": "number",
+          "units": [
+            "%",
+            "px"
+          ],
+          "defaultUnit": "%",
           "group": "Video Layout"
         },
         "objectPositionY": {
           "displayName": "Video Position Y",
           "type": "number",
+          "units": [
+            "%",
+            "px"
+          ],
+          "defaultUnit": "%",
           "group": "Video Layout"
         },
         "sizeMode": {
@@ -28869,6 +29555,13 @@
         "width": {
           "displayName": "Width",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -28878,6 +29571,13 @@
         "height": {
           "displayName": "Height",
           "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimensions",
           "gatedBy": [
             "sizeMode"
@@ -28887,21 +29587,49 @@
         "minWidth": {
           "displayName": "Min Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxWidth": {
           "displayName": "Max Width",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "minHeight": {
           "displayName": "Min Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "maxHeight": {
           "displayName": "Max Height",
           "type": "number",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
         "pointerEventsEnabled": {
