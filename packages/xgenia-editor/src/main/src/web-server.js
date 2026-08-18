@@ -1123,11 +1123,33 @@ function getContentType(request) {
   return contentType;
 }
 
+// A file that exists can still fail to open or read (a directory, EACCES/EPERM,
+// an iCloud-evicted file that can't be materialized, ...). Once headers are out
+// the status can't be changed anymore — calling writeHead again throws
+// ERR_HTTP_HEADERS_SENT, which is an uncaught exception in the main process and
+// takes down the whole app. Send an error status if we still can, otherwise kill
+// the connection so the client sees a failed transfer instead of a truncated one.
+function failResponse(response, err) {
+  if (!response.headersSent) {
+    response.writeHead(404);
+    response.end(err.message);
+  } else {
+    response.destroy();
+  }
+}
+
 function serveFile(filePath, request, response) {
   fs.stat(decodeURI(filePath), (error, stat) => {
     if (error) {
       response.writeHead(404);
       response.end(error.message);
+      return null;
+    }
+
+    // Only regular files can be streamed. Directories pass the stat/existsSync
+    // checks but error the read stream, so reject them here.
+    if (!stat.isFile()) {
+      serve404(response);
       return null;
     }
 
@@ -1141,6 +1163,7 @@ function serveFile(filePath, request, response) {
           'Content-Type': getContentType(request),
           'Content-Range': 'bytes */' + stat.size
         });
+        response.end();
 
         return null;
       }
@@ -1151,38 +1174,43 @@ function serveFile(filePath, request, response) {
       });
 
       fileStream.on('error', function (err) {
-        response.writeHead(404);
-        response.end(err.message);
+        failResponse(response, err);
       });
 
-      const responseHeaders = {
-        'Content-Range': 'bytes ' + start + '-' + end + '/' + stat.size,
-        'Content-Length': start == end ? 0 : end - start + 1,
-        'Content-Type': getContentType(request),
-        'Accept-Ranges': 'bytes',
-        'Cache-Control': 'no-cache',
-        'Last-Modified': stat.mtime.toUTCString(),
-        ETag: '"' + stat.mtimeMs + '-' + stat.size + '"'
-      };
+      // Wait for the file to actually open before sending headers, so open
+      // failures still get a clean error status.
+      fileStream.on('open', function () {
+        const responseHeaders = {
+          'Content-Range': 'bytes ' + start + '-' + end + '/' + stat.size,
+          'Content-Length': start == end ? 0 : end - start + 1,
+          'Content-Type': getContentType(request),
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'no-cache',
+          'Last-Modified': stat.mtime.toUTCString(),
+          ETag: '"' + stat.mtimeMs + '-' + stat.size + '"'
+        };
 
-      response.writeHead(206, responseHeaders);
-      fileStream.pipe(response);
+        response.writeHead(206, responseHeaders);
+        fileStream.pipe(response);
+      });
     } else {
-      response.writeHead(200, {
-        'Content-Type': getContentType(request),
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET',
-        'Last-Modified': stat.mtime.toUTCString(),
-        ETag: '"' + stat.mtimeMs + '-' + stat.size + '"',
-        'Cache-Control': 'no-cache'
-      });
       const fileStream = fs.createReadStream(decodeURI(filePath));
       fileStream.on('error', function (err) {
-        response.writeHead(404);
-        response.end(err.message);
+        failResponse(response, err);
       });
 
-      fileStream.pipe(response);
+      fileStream.on('open', function () {
+        response.writeHead(200, {
+          'Content-Type': getContentType(request),
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET',
+          'Last-Modified': stat.mtime.toUTCString(),
+          ETag: '"' + stat.mtimeMs + '-' + stat.size + '"',
+          'Cache-Control': 'no-cache'
+        });
+
+        fileStream.pipe(response);
+      });
     }
   });
 }
