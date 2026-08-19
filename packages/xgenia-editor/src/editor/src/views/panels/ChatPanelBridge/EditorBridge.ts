@@ -28,7 +28,8 @@ import {
     getProjectGlobalStylePrompt,
     setProjectGlobalStylePrompt,
     getProjectPalettes,
-    addProjectPalette
+    addProjectPalette,
+    getProjectBaseStyleId
 } from '../ProjectStylesPanel/ProjectStylesPanel';
 import { supabase } from '../../../supabaseInit';
 import { platform } from '@xgenia/platform';
@@ -2562,6 +2563,17 @@ export class EditorBridge {
         // --- Project Style commands ---
         h('style.getBaseUrl', () => {
             return getProjectBaseStyleUrl();
+        });
+
+        // WHICH GENERATION THE ANCHOR CAME FROM.
+        // (2026-08-19, export 1787112946756) The anchor's PIXELS survive a ChatPanel reload —
+        // setProjectBaseStyle persists them to project metadata and to a local file. Its ID did
+        // not, so nothing could tell whether those persisted bytes belonged to the imageId being
+        // saved. The user could see the key art on screen while image({action:"save"}) answered
+        // "Image session not found. Create an image first." and the AI regenerated a DIFFERENT
+        // anchor, orphaning every asset that would have derived from it.
+        h('style.getBaseId', () => {
+            return getProjectBaseStyleId();
         });
 
         h('style.setBase', ([id, dataUrl]: [string, string]) => {
