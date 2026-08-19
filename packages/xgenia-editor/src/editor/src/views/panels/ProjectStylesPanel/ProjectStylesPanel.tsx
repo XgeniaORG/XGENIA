@@ -20,6 +20,18 @@ const META_KEY = 'projectStyles';
 
 export interface ProjectStylesMeta {
     baseStyleImageUrl: string | null;
+    /**
+     * The imageId of the generation that became the anchor.
+     *
+     * (2026-08-19, export 1787112946756) setProjectBaseStyle has always TAKEN an id and thrown it
+     * away — the parameter was literally named `_id`. So the anchor's pixels were persisted here
+     * and to a local file, surviving a ChatPanel reload, while nothing could tell WHICH image
+     * they belonged to. When that build's ChatPanel reloaded and lost its in-memory session, the
+     * key art was on screen, in the project, and formally unrecoverable: image({action:"save"})
+     * answered "Image session not found. Create an image first." and the AI regenerated a
+     * DIFFERENT anchor. Keeping the id is what makes the recovery addressable.
+     */
+    baseStyleImageId?: string | null;
     globalStylePrompt: string;
     palettes: string[][];
 }
@@ -28,9 +40,9 @@ function readMeta(): ProjectStylesMeta {
     const project = ProjectModel.instance;
     if (project) {
         const saved = project.getMetaData(META_KEY) as Partial<ProjectStylesMeta> | undefined;
-        if (saved) return { baseStyleImageUrl: null, globalStylePrompt: '', palettes: [], ...saved };
+        if (saved) return { baseStyleImageUrl: null, baseStyleImageId: null, globalStylePrompt: '', palettes: [], ...saved };
     }
-    return { baseStyleImageUrl: null, globalStylePrompt: '', palettes: [] };
+    return { baseStyleImageUrl: null, baseStyleImageId: null, globalStylePrompt: '', palettes: [] };
 }
 
 function writeMeta(meta: ProjectStylesMeta) {
@@ -195,10 +207,11 @@ function readLocalStyleImage(relativePath: string): string | null {
     }
 }
 
-export function setProjectBaseStyle(_id: string, url: string) {
+export function setProjectBaseStyle(id: string, url: string) {
     ensureFreshMeta();
-    // Immediately store the URL so it's available right away
-    _meta = { ..._meta, baseStyleImageUrl: url };
+    // Immediately store the URL so it's available right away. The ID is kept too — see
+    // baseStyleImageId: without it the anchor's pixels are recoverable but not addressable.
+    _meta = { ..._meta, baseStyleImageUrl: url, baseStyleImageId: id || null };
     writeMeta(_meta);
     notify();
 
@@ -214,7 +227,7 @@ export function setProjectBaseStyle(_id: string, url: string) {
 
 export function clearProjectBaseStyle() {
     ensureFreshMeta();
-    _meta = { ..._meta, baseStyleImageUrl: null };
+    _meta = { ..._meta, baseStyleImageUrl: null, baseStyleImageId: null };
     writeMeta(_meta);
     notify();
 }
@@ -237,6 +250,14 @@ export function getProjectBaseStyleUrl(): string | null {
     // It's a local relative path — resolve to base64 data URL
     return readLocalStyleImage(stored);
 }
+/**
+ * Which generation the anchor came from, when it is known. Null for anchors set before the id
+ * was recorded, or set by hand from the panel.
+ */
+export function getProjectBaseStyleId(): string | null {
+    return ensureFreshMeta().baseStyleImageId ?? null;
+}
+
 export function getProjectGlobalStylePrompt(): string { return ensureFreshMeta().globalStylePrompt; }
 export function getProjectPalettes(): string[][] { return ensureFreshMeta().palettes || []; }
 
