@@ -188,8 +188,18 @@ export const deleteUserAccount = async (userId: string): Promise<{ success: bool
 export const getUserDisplayName = (user: User | null, profile?: UserProfile | null): string => {
   if (!user) return 'Guest';
 
-  if (profile?.full_name) {
-    return profile.full_name;
+  // The profiles row carries the name as first_name/last_name (with name/surname
+  // as aliases); full_name is not a column, so resolve from whatever is present.
+  const profileName = [
+    profile?.full_name,
+    [profile?.first_name, profile?.last_name].filter(Boolean).join(' '),
+    [profile?.name, profile?.surname].filter(Boolean).join(' ')
+  ]
+    .map((n) => (typeof n === 'string' ? n.trim() : ''))
+    .find((n) => n.length > 0);
+
+  if (profileName) {
+    return profileName;
   }
 
   if (user.user_metadata?.full_name) {
