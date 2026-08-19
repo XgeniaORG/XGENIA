@@ -72,6 +72,9 @@ export class EditorBridge {
      * on the queue when the AI falls quiet or signals a commit, so one Ctrl+Z
      * reverts one burst of AI edits.
      */
+    /** Set while a reparent is being replayed for undo/redo, so the replay does
+     *  not append yet another undo action to the group it is running inside. */
+    private _replayingReparent = false;
     private aiUndoGroup: UndoActionGroup | null = null;
     private aiUndoLabel = 'AI edit';
     private aiUndoTimer: ReturnType<typeof setTimeout> | null = null;
@@ -843,6 +846,15 @@ export class EditorBridge {
             const graphModelForRootCheck: any = (graph as any).model || graph;
             const wasModelRoot = Array.isArray(graphModelForRootCheck.roots)
                 && graphModelForRootCheck.roots.some((r: any) => r === node || r?.id === node.id);
+            // Where the node sat before the move, for the undo action at the bottom.
+            // Same reason as wasModelRoot: the detach sweep is about to erase it.
+            const originalParent: any = (node as any).parent || null;
+            const originalIndex = originalParent && Array.isArray(originalParent.children)
+                ? originalParent.children.indexOf(node)
+                : -1;
+            const originalRootIndex = Array.isArray(graphModelForRootCheck.roots)
+                ? graphModelForRootCheck.roots.findIndex((r: any) => r === node || r?.id === node.id)
+                : -1;
             // 2026-05-25: defensive detach. The previous implementation only
             // checked `node.parent` and called `oldParent.removeChild(node)`.
             // When create_nodes_batch sets up parent-child via addChild but
@@ -1087,6 +1099,50 @@ export class EditorBridge {
                     `then delete the orphan copies before continuing.`
                 );
             }
+            // Undo. Registered only on the ORIGINAL call: replaying this body for a
+            // do/undo must not append a second action to the group.
+            if (!this._replayingReparent) {
+                const replay = (args: any[]) => this.commandHandlers.get('graph.reparent')?.(args);
+                const restore = () => {
+                    this._replayingReparent = true;
+                    try {
+                        if (originalParent && originalParent.id) {
+                            replay([nodeId, originalParent.id, originalIndex >= 0 ? originalIndex : undefined]);
+                        } else {
+                            // The node was a root. detachNode fires 'nodeDetached', which is
+                            // the event that MOVES the existing visual box back out to the
+                            // canvas root — addRoot would leave the old box under the new
+                            // parent and draw a second one.
+                            const gm: any = (graph as any).model || graph;
+                            if ((node as any).parent && typeof gm.detachNode === 'function') {
+                                gm.detachNode(node);
+                            }
+                            // detachNode appends; put it back where it was among the roots.
+                            if (originalRootIndex >= 0 && Array.isArray(gm.roots)) {
+                                const at = gm.roots.findIndex((r: any) => r === node || r?.id === node.id);
+                                if (at >= 0 && at !== originalRootIndex) {
+                                    gm.roots.splice(at, 1);
+                                    gm.roots.splice(Math.min(originalRootIndex, gm.roots.length), 0, node);
+                                }
+                            }
+                        }
+                    } finally {
+                        this._replayingReparent = false;
+                    }
+                };
+                const redo = () => {
+                    this._replayingReparent = true;
+                    try {
+                        replay([nodeId, newParentId, index]);
+                    } finally {
+                        this._replayingReparent = false;
+                    }
+                };
+                // No label here: UndoActionGroupActions carries only do/undo — the
+                // group itself is what the history displays.
+                this.aiUndo().push({ do: redo, undo: restore });
+            }
+
             return {
                 success: true,
                 verified: true,
@@ -1220,7 +1276,7 @@ export class EditorBridge {
                 ...(comment?.color ? { color: comment.color } : {}),
                 ...(comment?.id ? { id: comment.id } : {}),
             };
-            cm.addComment(c); // assigns c.id if absent
+            cm.addComment(c, { undo: this.aiUndo(), label: this.aiUndoLabel }); // assigns c.id if absent
             return { ...c };
         });
         h('graph.updateComment', ([id, patch]: [string, any]) => {
@@ -1228,14 +1284,14 @@ export class EditorBridge {
             if (!cm) return false;
             const existing = (cm.comments || []).find((c: any) => c.id === id);
             if (!existing) return false;
-            cm.setComment(id, { ...existing, ...(patch || {}) });
+            cm.setComment(id, { ...existing, ...(patch || {}) }, { undo: this.aiUndo(), label: this.aiUndoLabel });
             return true;
         });
         h('graph.deleteComment', ([id]: [string]) => {
             const cm = this.getActiveGraph()?.commentsModel;
             if (!cm) return false;
             const before = (cm.comments || []).length;
-            cm.removeComment(id);
+            cm.removeComment(id, { undo: this.aiUndo(), label: this.aiUndoLabel });
             return (cm.comments || []).length < before;
         });
 
@@ -1354,7 +1410,7 @@ export class EditorBridge {
                 console.log(`[EditorBridge] node.addPort: port '${portSpec.name}' already exists on ${nodeId}`);
                 return { success: true, alreadyExists: true, port: existing };
             }
-            node.addPort(portSpec);
+            node.addPort(portSpec, { undo: this.aiUndo(), label: this.aiUndoLabel });
             console.log(`[EditorBridge] node.addPort: added '${portSpec.name}' (plug: ${portSpec.plug}) to ${nodeId}`);
             return { success: true, port: portSpec };
         });
@@ -1365,7 +1421,11 @@ export class EditorBridge {
             if (typeof node.removePortWithName !== 'function') {
                 throw new Error(`Node ${nodeId} does not support removePortWithName`);
             }
-            const result = node.removePortWithName(portName, { force: !!force });
+            const result = node.removePortWithName(portName, {
+                force: !!force,
+                undo: this.aiUndo(),
+                label: this.aiUndoLabel
+            });
             console.log(`[EditorBridge] node.removePort: removed '${portName}' from ${nodeId}: ${result}`);
             return { success: !!result, portName };
         });
@@ -1482,6 +1542,27 @@ export class EditorBridge {
         h('undo.getLocation', () => {
             this.flushAiUndo();
             return UndoQueue.instance?.getHistoryLocation?.() || 0;
+        });
+
+        // Rewind to a location the panel captured earlier. The loop belongs HERE,
+        // where the pointer actually lives: the panel used to run it against a
+        // counter of its own that only ever incremented, so the loop condition
+        // never went false and the revert spun forever, firing undo at the editor
+        // until the tab died. Bounded by the real pointer and by the queue length.
+        h('undo.undoTo', ([location]: [number]) => {
+            this.flushAiUndo();
+            const queue = UndoQueue.instance;
+            if (!queue) return { undone: 0, location: 0 };
+            const target = Math.max(0, Math.floor(Number(location) || 0));
+            let undone = 0;
+            let guard = queue.getHistory().length + 1;
+            while (queue.getHistoryLocation() > target && guard-- > 0) {
+                const before = queue.getHistoryLocation();
+                queue.undo();
+                if (queue.getHistoryLocation() === before) break; // nothing moved — stop rather than spin
+                undone++;
+            }
+            return { undone, location: queue.getHistoryLocation() };
         });
 
         // --- Git commands ---
