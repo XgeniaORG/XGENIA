@@ -35,6 +35,20 @@ export function useCaptureThumbnails(canvasView: CanvasView, viewerDetached: boo
      * while the editor sits idle, which is the case that was burning the CPU.
      *
      * Starts true so the first tick after opening a project always captures.
+     *
+     * ─── AND THE AI IS INPUT NOBODY TYPES (2026-08-19) ───────────────────────
+     * Raw input was the conservative signal for a human editing by hand. It is the WRONG
+     * signal for this product, because the thing that changes the project most is the AI, and
+     * it mutates through the ChatPanel bridge without generating a single pointer, key or
+     * wheel event. So an entire AI build produced ZERO captures and the home screen kept
+     * whatever picture it had from the last time a person clicked something. The user noticed
+     * before any test did: "it used to take screenshots of the game as you built and saved it
+     * to homepage — that seems broken now."
+     *
+     * EditorBridge.executeCommand emits `xgenia:project-mutated` for every non-read command,
+     * which is the same conservative shape as input — it says "something is happening", not
+     * "this specific thing changed" — and it keeps the property the interval fix was really
+     * after: nothing is captured while the editor sits idle.
      */
     let dirty = true;
     const markDirty = () => {
@@ -44,6 +58,7 @@ export function useCaptureThumbnails(canvasView: CanvasView, viewerDetached: boo
     window.addEventListener('pointerdown', markDirty, true);
     window.addEventListener('keydown', markDirty, true);
     window.addEventListener('wheel', markDirty, { capture: true, passive: true });
+    window.addEventListener('xgenia:project-mutated', markDirty);
 
     const timer = setInterval(async () => {
       // Nothing has happened since the last capture, or nobody is looking at it.
@@ -74,6 +89,7 @@ export function useCaptureThumbnails(canvasView: CanvasView, viewerDetached: boo
       window.removeEventListener('pointerdown', markDirty, true);
       window.removeEventListener('keydown', markDirty, true);
       window.removeEventListener('wheel', markDirty, { capture: true } as EventListenerOptions);
+      window.removeEventListener('xgenia:project-mutated', markDirty);
     };
   }, [canvasView, viewerDetached]);
 }

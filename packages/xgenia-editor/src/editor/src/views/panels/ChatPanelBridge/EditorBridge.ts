@@ -332,6 +332,34 @@ export class EditorBridge {
     };
 
     private async executeCommand(cmd: PluginCommand, event: MessageEvent) {
+        // ── THE AI IS WORKING, EVEN THOUGH NOBODY IS TOUCHING THE MOUSE ──────
+        //
+        // (2026-08-19) The project thumbnail on the home screen stopped updating during AI
+        // builds. useCaptureThumbnails refreshes it every 20s, but only when a `dirty` flag is
+        // set — and that flag is raised by `pointerdown`, `keydown` and `wheel` alone. Those
+        // are the right signals for a human editing by hand and the wrong ones for this
+        // product: the AI mutates the graph through THIS bridge and generates no input events
+        // at all, so a whole build produced zero captures and the home screen kept whatever
+        // picture it had from the last time a person clicked something.
+        //
+        // Introduced 2026-08-12 by a perf fix that was correct about the real problem — a
+        // capture ran every 20s forever, re-encoding a PNG twice and synchronously rewriting a
+        // settings file that reached 120MB in dev. What that fix wanted to stop was capturing
+        // while the editor sits IDLE. An AI session is the opposite of idle.
+        //
+        // So: any bridge command means something is happening. The read prefixes below are a
+        // courtesy, not a gate — an unrecognised command counts as a mutation, because the
+        // failure directions are not symmetric. Over-marking costs one extra capture during a
+        // session that is already busy; under-marking silently loses the thumbnail again, which
+        // is the bug being fixed.
+        try {
+            const _name = String(cmd.command || '');
+            const _isRead = /^(?:\w+\.)?(?:get|list|find|read|has|serialize|query|inspect|describe)/i.test(_name);
+            if (!_isRead) {
+                window.dispatchEvent(new CustomEvent('xgenia:project-mutated', { detail: { command: _name } }));
+            }
+        } catch { /* thumbnail freshness is never worth failing a command over */ }
+
         const handler = this.commandHandlers.get(cmd.command);
 
         let response: any;
