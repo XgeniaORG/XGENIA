@@ -787,7 +787,11 @@ export class NodeGraphNode extends Model {
     if (args && args.undo) {
       const undo = typeof args.undo === 'object' ? args.undo : UndoQueue.instance;
 
-      if (args.oldValue) {
+      // Presence, not truthiness: a caller that hands over the real pre-change
+      // value of 0, '', false or undefined (parameter unset) means it, and the
+      // fallback above now holds the value we just wrote — taking it would make
+      // Undo a no-op.
+      if ('oldValue' in args) {
         oldValue = args.oldValue;
       }
 

@@ -57,6 +57,61 @@ export class EditorBridge {
     private aiLockTimer: ReturnType<typeof setTimeout> | null = null;
     private static readonly AI_LOCK_TTL_MS = 120_000; // 2 minutes auto-expiry
 
+    /* --- AI undo grouping ---------------------------------------------------
+     * The AI panel runs in an iframe, so it cannot hand real do/undo closures to
+     * the editor's UndoQueue — its shim can only send a LABEL STRING across the
+     * bridge. `undo.push` used to put that string straight on the queue as if it
+     * were an action group, so every AI edit added an entry with no `undo`
+     * method: Ctrl+Z consumed a history slot and changed nothing, and the next
+     * press reverted one of the USER's own earlier edits instead.
+     *
+     * The group is now built on THIS side of the boundary out of the editor's own
+     * model-level undo actions (NodeGraphNode.setParameter/setLabel/addChild,
+     * NodeGraphModel.addRoot/removeNode/addConnection/removeConnection all accept
+     * `args.undo`). Mutating handlers register into the open group; the group goes
+     * on the queue when the AI falls quiet or signals a commit, so one Ctrl+Z
+     * reverts one burst of AI edits.
+     */
+    private aiUndoGroup: UndoActionGroup | null = null;
+    private aiUndoLabel = 'AI edit';
+    private aiUndoTimer: ReturnType<typeof setTimeout> | null = null;
+    /** Quiet period that ends a burst. Tool calls within a turn arrive far closer
+     *  together than this; a new user prompt is far further apart. */
+    private static readonly AI_UNDO_IDLE_MS = 1500;
+
+    /**
+     * The undo group AI mutations should register into.
+     *
+     * Opens one on first use and re-arms the idle flush on every call, so a burst
+     * of tool calls collapses into a single undo entry.
+     */
+    private aiUndo(label?: string): UndoActionGroup {
+        if (label) this.aiUndoLabel = label;
+        if (!this.aiUndoGroup) this.aiUndoGroup = new UndoActionGroup({ label: this.aiUndoLabel });
+        if (this.aiUndoTimer) clearTimeout(this.aiUndoTimer);
+        this.aiUndoTimer = setTimeout(() => this.flushAiUndo(), EditorBridge.AI_UNDO_IDLE_MS);
+        return this.aiUndoGroup;
+    }
+
+    /**
+     * Close the open AI undo group and put it on the queue.
+     *
+     * An empty group is DROPPED, never pushed — an entry that undoes nothing is
+     * exactly the dead history slot this whole mechanism replaces.
+     */
+    private flushAiUndo(label?: string) {
+        if (this.aiUndoTimer) {
+            clearTimeout(this.aiUndoTimer);
+            this.aiUndoTimer = null;
+        }
+        const group = this.aiUndoGroup;
+        this.aiUndoGroup = null;
+        this.aiUndoLabel = 'AI edit';
+        if (!group || group.isEmpty()) return;
+        if (label) group.label = label;
+        UndoQueue.instance?.push?.(group);
+    }
+
     constructor() {
         this.registerCommands();
         // NOT `.bind(this)`. `handleMessage` is already an arrow property, so it
@@ -255,6 +310,9 @@ export class EditorBridge {
 
     /** Destroy the bridge */
     destroy() {
+        // Commit any AI edits still inside the idle window — the flush timer dies
+        // with the bridge, and an unpushed group is an unundoable edit.
+        this.flushAiUndo();
         window.removeEventListener('message', this.handleMessage);
         this.iframe = null;
         this.connected = false;
@@ -724,17 +782,21 @@ export class EditorBridge {
                     console.log(`[EditorBridge] Set node.label = "${nodeLabel}" after fromJSON`);
                 }
                 // Add as child of parent or as root
+                // The attach is what the undo group records: its inverse
+                // (removeNode) takes the node back out of the graph, which is the
+                // whole of "undo the node the AI just created".
+                const undoArgs = { undo: this.aiUndo(), label: this.aiUndoLabel };
                 if (data.parentId) {
                     const parent = this.findNode(data.parentId);
                     if (parent && typeof parent.addChild === 'function') {
-                        parent.addChild(node);
+                        parent.addChild(node, undoArgs);
                         console.log(`[EditorBridge] Added node ${nodeId} as child of ${data.parentId}`);
                     } else {
-                        graph.addRoot(node);
+                        graph.addRoot(node, undoArgs);
                         console.log(`[EditorBridge] Parent ${data.parentId} not found, added as root`);
                     }
                 } else {
-                    graph.addRoot(node);
+                    graph.addRoot(node, undoArgs);
                     console.log(`[EditorBridge] Added node ${nodeId} as root`);
                 }
 
@@ -752,8 +814,9 @@ export class EditorBridge {
             if (!graph) throw new Error('No active graph');
             const node = this.findNode(nodeId);
             if (!node) throw new Error(`Node not found: ${nodeId}`);
-            // NodeGraphModel uses removeNode(), not deleteNode()
-            graph.removeNode(node);
+            // NodeGraphModel uses removeNode(), not deleteNode(). It records the
+            // node's connections into the same group, so undo restores those too.
+            graph.removeNode(node, { undo: this.aiUndo(), label: this.aiUndoLabel });
             console.log(`[EditorBridge] Deleted node: ${nodeId}`);
         });
 
@@ -1070,7 +1133,7 @@ export class EditorBridge {
             // already detect success via post-create connection-existence
             // checks (see safe_connection_workflow); changing the shape here
             // would break those existing flows.
-            return graph.addConnection?.(connection);
+            return graph.addConnection?.(connection, { undo: this.aiUndo(), label: this.aiUndoLabel });
         });
 
         h('graph.removeConnection', ([connectionId]: [string]) => {
@@ -1127,7 +1190,7 @@ export class EditorBridge {
                 console.warn(`[EditorBridge] removeConnection: no matching connection found for "${connectionId}". Available: ${connections.length}`);
                 throw new Error(`Connection not found: ${connectionId}`);
             }
-            graph.removeConnection?.(conn);
+            graph.removeConnection?.(conn, { undo: this.aiUndo(), label: this.aiUndoLabel });
         });
 
         h('graph.getAppXml', ([scope]: [string?]) => {
@@ -1185,7 +1248,7 @@ export class EditorBridge {
             // was missing or rejected". Previously the handler returned
             // undefined and the caller had no way to detect silent rejections.
             if (typeof node.setParameter !== 'function') return false;
-            node.setParameter(name, value);
+            node.setParameter(name, value, { undo: this.aiUndo(), label: this.aiUndoLabel });
             return true;
         });
 
@@ -1221,7 +1284,13 @@ export class EditorBridge {
             // 2026-05-29 (Round 9 Fix): same as setParameter — return true on
             // successful assignment, false if the property setter was rejected.
             try {
-                node.label = label;
+                // setLabel (not the bare `label` setter) so the rename joins the
+                // AI undo group; it captures the old label itself.
+                if (typeof (node as any).setLabel === 'function') {
+                    (node as any).setLabel(label, { undo: this.aiUndo(), label: this.aiUndoLabel });
+                } else {
+                    node.label = label;
+                }
                 // Re-read to verify the setter wasn't a no-op getter (computed property).
                 return node.label === label;
             } catch {
@@ -1391,15 +1460,27 @@ export class EditorBridge {
         });
 
         // --- Undo commands ---
+        // The panel's UndoQueue shim can only send a LABEL across the bridge — a
+        // string has no do/undo, so pushing it created a history entry that
+        // reverted nothing. Treat it for what it is: the AI saying "that edit is
+        // finished, label it this". The real reversible group was assembled here
+        // by the mutating handlers.
         h('undo.push', ([group]: [any]) => {
-            UndoQueue.instance?.push?.(group);
+            const label = typeof group === 'string'
+                ? group
+                : (group?.label || group?.getLabel?.() || undefined);
+            this.flushAiUndo(label);
         });
 
         h('undo.undo', () => {
+            // Close the open group first, or Undo would skip past AI edits that
+            // are still only half-committed and revert the user's work instead.
+            this.flushAiUndo();
             UndoQueue.instance?.undo?.();
         });
 
         h('undo.getLocation', () => {
+            this.flushAiUndo();
             return UndoQueue.instance?.getHistoryLocation?.() || 0;
         });
 

@@ -109,12 +109,20 @@ export class Dimension extends TypeView {
     const labelEl = this.el.find('.property-label')[0];
     const inputEl = this.el.find('input')[0];
     if (labelEl && inputEl) {
+      // See BasicType: the intermediate writes overwrite the model on every
+      // mouse-move, so the pre-drag value has to be captured at mouse-down or the
+      // undo entry records oldValue === newValue and Undo does nothing.
+      let dragStartValue;
       this._disposeScrubber = attachScrubber(labelEl, inputEl, {
+        onStart() {
+          const current = _this.getCurrentValue();
+          dragStartValue = current && typeof current === 'object' && !current.isDefault ? current.value : undefined;
+        },
         onChange(newValue, isFinal) {
           const unit = _this.unit || _this.type.defaultUnit;
           const paramValue = { value: newValue, unit: unit, isFixed: _this.isFixed };
           if (isFinal) {
-            _this.parent.setParameter(_this.name, paramValue);
+            _this.parent.setParameterEx(_this.name, paramValue, dragStartValue, false);
           } else {
             _this.parent.setParameterEx(_this.name, paramValue, _this.numberWithUnits, true);
           }
