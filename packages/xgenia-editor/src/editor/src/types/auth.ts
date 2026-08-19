@@ -30,8 +30,14 @@ export interface UserProfile {
   name?: string;
   surname?: string;
 
-  // Subscription. membership_level is the tier ('free' | 'pro' | 'enterprise'),
-  // plan is its display label, subscription_status is the legacy column name.
+  // Account state on the rebuilt (2026-08-04) profiles schema: 'active' on
+  // healthy rows.
+  status?: string;
+
+  // Subscription. membership_level is the tier (enum 'free' | 'premium' |
+  // 'enterprise' — there is no 'pro' label in the DB enum), plan is its
+  // display label / Stripe product slug, subscription_status is the legacy
+  // column name (dropped from the live table).
   membership_level?: string;
   plan?: string;
   subscription_status?: string;

@@ -204,6 +204,10 @@ export class ProjectsView extends View {
     if (subscriptionStatus === 'pro') {
       planDisplay = 'Pro';
       planColor = '#67DE92';
+    } else if (subscriptionStatus === 'premium') {
+      // 'premium' is the DB enum's paid individual tier (there is no 'pro' label)
+      planDisplay = 'Premium';
+      planColor = '#67DE92';
     } else if (subscriptionStatus === 'enterprise') {
       planDisplay = 'Enterprise';
       planColor = '#67DE92';
@@ -230,11 +234,11 @@ export class ProjectsView extends View {
 
   /**
    * Label/tooltip/target for the sidebar membership button. Free accounts are asked to
-   * upgrade; paid tiers (pro/enterprise) get their account settings instead, since there
-   * is nothing to upgrade to.
+   * upgrade; paid tiers (pro/premium/enterprise) get their account settings instead,
+   * since there is nothing to upgrade to.
    */
   private getMembershipAction(subscriptionStatus: string) {
-    if (subscriptionStatus === 'pro' || subscriptionStatus === 'enterprise') {
+    if (subscriptionStatus === 'pro' || subscriptionStatus === 'premium' || subscriptionStatus === 'enterprise') {
       return {
         label: 'Account settings',
         title: 'Manage your XGENIA account',
