@@ -304,9 +304,14 @@ const OPERATOR_DEFAULTS = {
     slug: '',
     mode: 'demo' as OperatorMode,
     wallet_balance: '0.00',
-    currencies: 'USD',
+    // EUR, not USD: the RGS platform's operating currency went back to EUR on
+    // 2026-08-04 (migration 20260804130000) and create_operator's own default is
+    // EUR, so an operator opened from here in USD would be the only one on the
+    // platform quoting a currency it does not operate in.
+    currencies: 'EUR',
     max_bet: '',
     max_win: '',
+    contact_email: '',
     allowed_ips: ''
 };
 
@@ -1285,6 +1290,15 @@ export function MathsPanel() {
             return;
         }
 
+        // Loose shape check, the same rule the column's CHECK constraint and the
+        // platform's mailer apply. Caught here so a typo reads as a sentence
+        // instead of as "violates operator_connectors_contact_email_check".
+        const contactEmail = operatorForm.contact_email.trim();
+        if (contactEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contactEmail)) {
+            setOperatorError(`"${contactEmail}" is not a valid email address`);
+            return;
+        }
+
         setCreatingOperator(true);
         setOperatorError(null);
         try {
@@ -1300,11 +1314,12 @@ export function MathsPanel() {
                 name,
                 slug: operatorForm.slug.trim() || undefined,
                 mode: operatorForm.mode,
-                currencies: currencies.length ? currencies : ['USD'],
+                currencies: currencies.length ? currencies : ['EUR'],
                 walletBalance: funds,
                 maxBet: operatorForm.max_bet ? parseInt(operatorForm.max_bet, 10) : null,
                 maxWin: operatorForm.max_win ? parseInt(operatorForm.max_win, 10) : null,
                 allowedIps,
+                contactEmail,
             });
             // Connect immediately using the freshly minted key (same as handleConnect).
             saveRgsSettings(result.api_key);
@@ -2857,10 +2872,34 @@ export function MathsPanel() {
                                     </div>
                                 </div>
 
+                                {/* Contact email — the operator's registered address on
+                                    the RGS platform. It is the ONE address compliance
+                                    documents are delivered to: a game's Compliance
+                                    section can generate a Gaming Licence Application
+                                    Pack for a deployed component and email it, and that
+                                    Send button is disabled for an operator with no
+                                    address. Optional, so trying the editor out does not
+                                    require one. */}
+                                <div style={{ marginBottom: '16px' }}>
+                                    <label style={MODAL_LABEL_STYLE}>Contact Email</label>
+                                    <input
+                                        type="email"
+                                        placeholder="compliance@acme-casino.com"
+                                        value={operatorForm.contact_email}
+                                        onChange={(e) => { setOperatorForm({ ...operatorForm, contact_email: e.target.value }); setOperatorError(null); }}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') handleCreateOperator(); }}
+                                        style={MODAL_INPUT_STYLE}
+                                    />
+                                    <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
+                                        Where the RGS platform sends compliance and certification documents for this
+                                        operator's games. Can be added later from the platform's Operators section.
+                                    </div>
+                                </div>
+
                                 {/* Wallet — the funding behind this operator's games. */}
                                 <div style={{ marginBottom: '16px' }}>
                                     <label style={MODAL_LABEL_STYLE}>
-                                        Wallet Balance ({operatorForm.currencies.split(',')[0]?.trim() || 'USD'})
+                                        Wallet Balance ({operatorForm.currencies.split(',')[0]?.trim() || 'EUR'})
                                     </label>
                                     <input
                                         type="number"

@@ -128,6 +128,15 @@ export interface CreateOperatorInput {
   maxBet?: number | null;
   maxWin?: number | null;
   allowedIps?: string[];
+  /**
+   * The operator's registered address. This is where the RGS platform delivers
+   * compliance documents — a game's Compliance section can generate a Gaming
+   * Licence Application Pack and email it, and the Send button is disabled for an
+   * operator that has none. Optional: an operator opened to try the editor out has
+   * nothing to receive, and the address can be added later from the RGS platform's
+   * Operators section.
+   */
+  contactEmail?: string;
 }
 
 export interface CreateOperatorResult {
@@ -137,6 +146,7 @@ export interface CreateOperatorResult {
   wallet_mode: string;
   wallet_balance: number;
   supported_currencies: string[];
+  contact_email: string | null;
   api_key: string;
 }
 
@@ -159,11 +169,14 @@ export async function createOperator(input: CreateOperatorInput): Promise<Create
       p_name: input.name,
       p_slug: input.slug || null,
       p_wallet_mode: input.mode || 'demo',
-      p_currencies: input.currencies && input.currencies.length ? input.currencies : ['USD'],
+      p_currencies: input.currencies && input.currencies.length ? input.currencies : ['EUR'],
       p_wallet_balance: Math.max(0, Math.round(input.walletBalance || 0)),
       p_max_bet: input.maxBet ?? null,
       p_max_win: input.maxWin ?? null,
-      p_allowed_ips: input.allowedIps && input.allowedIps.length ? input.allowedIps : null
+      p_allowed_ips: input.allowedIps && input.allowedIps.length ? input.allowedIps : null,
+      // Blank is "not given", not an empty string: the column's CHECK rejects ''
+      // and the RPC stores NULL for a blank. Sending '' would fail the insert.
+      p_contact_email: input.contactEmail && input.contactEmail.trim() ? input.contactEmail.trim().toLowerCase() : null
     })
   });
 
