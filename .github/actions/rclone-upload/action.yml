@@ -1,5 +1,5 @@
 name: 'Upload build artifacts with rclone'
-description: 'Mirrors a directory of installers into a cloud folder, replacing the previous version. Linux runners only.'
+description: 'Mirrors a directory of installers into a cloud folder, replacing the previous version. Linux runners only; uses a pinned rclone.'
 
 inputs:
   remote-type:
@@ -42,6 +42,10 @@ inputs:
     required: false
     default: 'false'
     description: 'Report what would change without uploading or deleting anything'
+  rclone-version:
+    required: false
+    default: ''
+    description: 'Override the pinned rclone version, e.g. 1.76.0. Normally leave empty: the action pins a version and checks the download against a hash it carries, because rclone changes which flags a command accepts between releases. An override is verified against the published SHA256SUMS instead, which is a weaker check, and says so in the log'
 
 runs:
   using: 'composite'
@@ -60,4 +64,7 @@ runs:
         RCLONE_REQUIRE_EXTENSIONS: ${{ inputs.require-extensions }}
         RCLONE_FOLDER_URL: ${{ inputs.folder-url }}
         RCLONE_DRY_RUN: ${{ inputs.dry-run }}
+        # Not RCLONE_VERSION: rclone reads exported RCLONE_<FLAG> variables as
+        # flags, and --version is one of them.
+        UPLOAD_RCLONE_VERSION: ${{ inputs.rclone-version }}
       run: bash "${{ github.action_path }}/upload.sh"

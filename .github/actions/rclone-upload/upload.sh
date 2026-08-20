@@ -23,7 +23,12 @@
 # Everything arrives by environment variable, so no credential reaches a command
 # line where it could show up in a process listing.
 #
-# Linux runners only: rclone is installed with apt when the runner does not have it.
+# Linux runners only. rclone is pinned: the official release zip for the version pinned
+# below is downloaded, checked against a hash carried in this script, and that binary is
+# the one every call uses -- never whatever happens to be on PATH. Ubuntu's apt package is
+# 1.60.1 (2022) while this script is developed against 1.75, and the two disagree about
+# which flags `rclone copy` accepts, so "some rclone" is not good enough. The
+# `rclone-version` action input can override the pin; see that block for what it costs.
 set -euo pipefail
 
 REMOTE_TYPE="${RCLONE_REMOTE_TYPE:-}"
@@ -83,12 +88,57 @@ echo "Files to upload:"
 ls -lh "$SOURCE_DIR" | tail -n +2 | sed 's/^/  /'
 
 # --- rclone --------------------------------------------------------------------
-if ! command -v rclone > /dev/null 2>&1; then
-  echo "Installing rclone"
-  sudo apt-get update -qq
-  sudo apt-get install -y -qq rclone
+# The hash is for the pinned default only. Overriding the version means there is
+# nothing to compare against locally, so the download is verified against the
+# SHA256SUMS rclone publishes beside it and the weaker check is called out.
+PINNED_VERSION="1.75.0"
+PINNED_SHA256_amd64="aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa"
+PINNED_SHA256_arm64="d0ad88ba4c8e285b7c9efa591e0ab643280a91741e13c27f3a9c0957ccfa5203"
+
+# Deliberately not called RCLONE_VERSION: rclone reads exported RCLONE_<FLAG>
+# variables as flags, and --version is one, which would make every call print the
+# version and exit.
+VERSION="${UPLOAD_RCLONE_VERSION:-$PINNED_VERSION}"
+VERSION="${VERSION#v}"
+
+case "$(uname -m)" in
+  x86_64 | amd64) ARCH="amd64" ;;
+  aarch64 | arm64) ARCH="arm64" ;;
+  *) die "Unsupported architecture '$(uname -m)'. This action runs on linux amd64 or arm64." ;;
+esac
+
+RCLONE_BIN="$(command -v rclone || true)"
+if [ -n "$RCLONE_BIN" ] && [ "$("$RCLONE_BIN" version 2> /dev/null | head -1)" = "rclone v$VERSION" ]; then
+  echo "Using the rclone already on this runner, which is the pinned v$VERSION"
+else
+  ARCHIVE="rclone-v${VERSION}-linux-${ARCH}"
+  WORK="$(mktemp -d)"
+  echo "Downloading rclone v$VERSION ($ARCH)"
+  curl -fsSL --retry 3 --retry-delay 2 \
+    -o "$WORK/$ARCHIVE.zip" "https://downloads.rclone.org/v${VERSION}/${ARCHIVE}.zip" \
+    || die "Could not download rclone v$VERSION for $ARCH. Check that the version exists at downloads.rclone.org."
+
+  sha_var="PINNED_SHA256_${ARCH}"
+  expected="${!sha_var:-}"
+  if [ "$VERSION" != "$PINNED_VERSION" ]; then
+    echo "::warning::rclone v$VERSION was requested instead of the pinned v$PINNED_VERSION," \
+      "so it is verified against the published SHA256SUMS rather than a hash pinned in this action."
+    expected="$(curl -fsSL --retry 3 "https://downloads.rclone.org/v${VERSION}/SHA256SUMS" \
+      | awk -v f="${ARCHIVE}.zip" '$2 == f { print $1 }')"
+    [ -n "$expected" ] || die "No published checksum for ${ARCHIVE}.zip. Refusing to run an unverified binary."
+  fi
+
+  actual="$(sha256sum "$WORK/$ARCHIVE.zip" | awk '{print $1}')"
+  [ "$actual" = "$expected" ] || die "Checksum mismatch on ${ARCHIVE}.zip." \
+    "Expected $expected but got $actual. Refusing to run it."
+
+  unzip -q -o "$WORK/$ARCHIVE.zip" -d "$WORK" || die "Could not unpack ${ARCHIVE}.zip."
+  RCLONE_BIN="$WORK/$ARCHIVE/rclone"
+  chmod +x "$RCLONE_BIN"
+  echo "Verified sha256 $actual"
 fi
-rclone version | head -1
+
+"$RCLONE_BIN" version | head -1
 
 # A throwaway config file rather than RCLONE_CONFIG_* env vars, so that rclone has
 # somewhere to write a refreshed token instead of logging a failure every run. It
@@ -96,7 +146,14 @@ rclone version | head -1
 # the temp directory outlives the job.
 export RCLONE_CONFIG="$(mktemp)"
 chmod 600 "$RCLONE_CONFIG"
-trap 'rm -f "$RCLONE_CONFIG"' EXIT
+cleanup() {
+  rm -f "$RCLONE_CONFIG"
+  # The unpacked rclone is not a credential, but a self-hosted runner keeps its
+  # temp directory, so it goes too.
+  [ -n "${WORK:-}" ] && rm -rf "$WORK"
+  return 0
+}
+trap cleanup EXIT
 {
   echo "[nightly]"
   echo "type = $REMOTE_TYPE"
@@ -117,13 +174,20 @@ fi
 # Proves the credential works and that we can write, and creates the destination on
 # the first run. mkdir is a no-op when it is already there.
 echo "Checking access to $TARGET"
-rclone mkdir "$TARGET" "${DRY_ARGS[@]}" \
+"$RCLONE_BIN" mkdir "$TARGET" "${DRY_ARGS[@]}" \
   || die "Could not reach '$TARGET'. Check that the rclone token is valid and that the path exists" \
     "or can be created by this account."
 
-FILTER=(--include-from "$PATTERN_FILE" --max-depth 1 --files-only)
+# --include-from and --max-depth are filter flags every command takes. --files-only
+# is a *listing* flag: recent rclone happens to accept it on `copy` too, but the
+# apt-installed rclone on the runner rejects it outright ("unknown flag:
+# --files-only"), so the transfer and the listings cannot share one array. It is
+# only needed on the listings anyway, to keep sub-folder names out of the
+# comparison that decides what gets deleted.
+FILTER=(--include-from "$PATTERN_FILE" --max-depth 1)
+LIST_FILTER=("${FILTER[@]}" --files-only)
 
-rclone copy "$SOURCE_DIR" "$TARGET" \
+"$RCLONE_BIN" copy "$SOURCE_DIR" "$TARGET" \
   "${FILTER[@]}" \
   --verbose --stats-one-line --stats 30s --stats-log-level NOTICE \
   "${DRY_ARGS[@]}"
@@ -136,8 +200,8 @@ rclone copy "$SOURCE_DIR" "$TARGET" \
 REMOTE_LIST="$(mktemp)"
 SOURCE_LIST="$(mktemp)"
 STALE_LIST="$(mktemp)"
-rclone lsf "$TARGET" "${FILTER[@]}" 2> /dev/null | sort > "$REMOTE_LIST" || true
-rclone lsf "$SOURCE_DIR" "${FILTER[@]}" | sort > "$SOURCE_LIST"
+"$RCLONE_BIN" lsf "$TARGET" "${LIST_FILTER[@]}" 2> /dev/null | sort > "$REMOTE_LIST" || true
+"$RCLONE_BIN" lsf "$SOURCE_DIR" "${LIST_FILTER[@]}" | sort > "$SOURCE_LIST"
 comm -23 "$REMOTE_LIST" "$SOURCE_LIST" > "$STALE_LIST"
 
 if [ -s "$STALE_LIST" ]; then
@@ -146,14 +210,14 @@ if [ -s "$STALE_LIST" ]; then
   if [ "$DRY_RUN" = "true" ]; then
     echo "Dry run: leaving them in place."
   else
-    rclone delete "$TARGET" --files-from "$STALE_LIST" --verbose
+    "$RCLONE_BIN" delete "$TARGET" --files-from "$STALE_LIST" --verbose
   fi
 else
   echo "No previous versions to remove."
 fi
 
 # --- report --------------------------------------------------------------------
-listing="$(rclone lsf "$TARGET" "${FILTER[@]}" --format "ps" --separator "|" 2> /dev/null || true)"
+listing="$("$RCLONE_BIN" lsf "$TARGET" "${LIST_FILTER[@]}" --format "ps" --separator "|" 2> /dev/null || true)"
 
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   {

@@ -166,15 +166,23 @@ jobs:
           retention-days: 7
 
   release:
-    name: Create Draft Release
+    name: Publish Nightly Pre-Release
     needs: [build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
     if: success()
     permissions:
       contents: write
+    env:
+      # Optional. Present -> the release notes get a curated-prose pass; absent
+      # -> the generated notes are published as-is. Never required.
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Full history and tags: the release notes are computed from the range
+          # between the last stable release tag and this commit.
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -214,21 +222,10 @@ jobs:
           echo "--- Assets collected for release ---"
           ls -R release-dist
 
-      - name: Create GitHub Draft Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: XGENIA-V${{ steps.package-version.outputs.version }}-nightly-${{ github.run_number }}
-          name: XGENIA V${{ steps.package-version.outputs.version }} (Nightly Build #${{ github.run_number }})
-          draft: true
-          prerelease: true
-          files: release-dist/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # A second, rolling release under a fixed 'nightly' tag. Its assets carry no
+      # A single rolling release under a fixed 'nightly' tag. Its assets carry no
       # version in the name and are replaced every run, which is what makes the
-      # download URLs permanent -- unlike the draft above, whose assets need
-      # authentication and whose tag changes every build.
+      # download URLs permanent and stops releases piling up: one entry that is
+      # always the newest build.
       - name: Stage stable-named installers
         run: |
           mkdir nightly-dist
@@ -248,23 +245,74 @@ jobs:
           # app's auto-updater cannot mistake a nightly for a shipping release.
           ls -l nightly-dist
 
+      # Read before the tag is moved: this is the commit the release currently
+      # being replaced was built from, which gives the notes their "since the
+      # previous nightly" section.
+      - name: Record the nightly release's current commit
+        id: prev-nightly
+        run: |
+          SHA=$(git rev-parse -q --verify 'refs/tags/nightly^{commit}' || true)
+          if [ -z "$SHA" ]; then
+            SHA=$(git ls-remote origin refs/tags/nightly | awk '{print $1}' | head -1)
+          fi
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          echo "Previous nightly commit: ${SHA:-none}"
+
+      # Notes are derived from git: everything since the most recent stable
+      # release tag, grouped by kind and area, plus the delta against the
+      # nightly this build replaces. Needs no credential.
+      - name: Generate release notes
+        env:
+          VERSION: ${{ steps.package-version.outputs.version }}
+          RUN_NUMBER: ${{ github.run_number }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          PREV_NIGHTLY_SHA: ${{ steps.prev-nightly.outputs.sha }}
+        run: |
+          node .github/scripts/release-notes.mjs \
+            --out release-notes.md \
+            --digest release-notes.digest.json \
+            --assets-dir nightly-dist
+          echo "--- release notes ---"
+          cat release-notes.md
+
+      # Optional polish pass: rewrites the generated notes into the curated prose
+      # style of the tagged V2.x releases. Skipped entirely when the secret is
+      # absent, and cannot fail the release when it is present.
+      - name: Polish release notes with Claude
+        if: env.ANTHROPIC_API_KEY != ''
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.package-version.outputs.version }}
+          RUN_NUMBER: ${{ github.run_number }}
+          REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          WORK="$RUNNER_TEMP/notes-ai"
+          mkdir -p "$WORK"
+          cd "$WORK"
+          npm init -y > /dev/null 2>&1
+          npm install --no-audit --no-fund --loglevel=error @anthropic-ai/sdk
+          cp "$GITHUB_WORKSPACE/.github/scripts/polish-release-notes.mjs" .
+          node polish-release-notes.mjs \
+            --notes "$GITHUB_WORKSPACE/release-notes.md" \
+            --digest "$GITHUB_WORKSPACE/release-notes.digest.json"
+          echo "--- notes as published ---"
+          cat "$GITHUB_WORKSPACE/release-notes.md"
+
       - name: Move the nightly tag to this commit
         run: git push -f origin HEAD:refs/tags/nightly
 
+      # Same tag every run, so this updates the existing release in place rather
+      # than adding another one. prerelease keeps it out of "Latest release".
       - name: Publish rolling nightly release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly
-          name: XGENIA Nightly (V${{ steps.package-version.outputs.version }}, build #${{ github.run_number }})
-          body: |
-            The newest nightly build. Replaced on every run, so these links always
-            point at the latest one.
-
-            Version ${{ steps.package-version.outputs.version }} - build #${{ github.run_number }} - commit ${{ github.sha }}
-
-            - macOS: https://github.com/${{ github.repository }}/releases/download/nightly/XGENIA-nightly-macos.dmg
-            - Windows: https://github.com/${{ github.repository }}/releases/download/nightly/XGENIA-nightly-windows.exe
-            - Linux: https://github.com/${{ github.repository }}/releases/download/nightly/XGENIA-nightly-linux.deb
+          # Quoted: an unquoted ' #' would start a YAML comment and truncate the title.
+          name: "XGENIA Nightly (V${{ steps.package-version.outputs.version }}, build #${{ github.run_number }})"
+          body_path: release-notes.md
           draft: false
           prerelease: true
           make_latest: false
