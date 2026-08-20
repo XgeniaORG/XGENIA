@@ -224,3 +224,87 @@ jobs:
           files: release-dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # A second, rolling release under a fixed 'nightly' tag. Its assets carry no
+      # version in the name and are replaced every run, which is what makes the
+      # download URLs permanent -- unlike the draft above, whose assets need
+      # authentication and whose tag changes every build.
+      - name: Stage stable-named installers
+        run: |
+          mkdir nightly-dist
+          stage() {
+            match=$(find release-dist -maxdepth 1 -type f -name "$1" | head -1)
+            if [ -n "$match" ]; then
+              cp -v "$match" "nightly-dist/$2"
+            else
+              echo "No $1 in this build, skipping $2"
+            fi
+          }
+          stage "*.dmg"      "XGENIA-nightly-macos.dmg"
+          stage "*.exe"      "XGENIA-nightly-windows.exe"
+          stage "*.deb"      "XGENIA-nightly-linux.deb"
+          stage "*.AppImage" "XGENIA-nightly-linux.AppImage"
+          # The latest*.yml updater manifests are deliberately left out, so the
+          # app's auto-updater cannot mistake a nightly for a shipping release.
+          ls -l nightly-dist
+
+      - name: Move the nightly tag to this commit
+        run: git push -f origin HEAD:refs/tags/nightly
+
+      - name: Publish rolling nightly release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: XGENIA Nightly (V${{ steps.package-version.outputs.version }}, build #${{ github.run_number }})
+          body: |
+            The newest nightly build. Replaced on every run, so these links always
+            point at the latest one.
+
+            Version ${{ steps.package-version.outputs.version }} - build #${{ github.run_number }} - commit ${{ github.sha }}
+
+            - macOS: https://github.com/${{ github.repository }}/releases/download/nightly/XGENIA-nightly-macos.dmg
+            - Windows: https://github.com/${{ github.repository }}/releases/download/nightly/XGENIA-nightly-windows.exe
+            - Linux: https://github.com/${{ github.repository }}/releases/download/nightly/XGENIA-nightly-linux.deb
+          draft: false
+          prerelease: true
+          make_latest: false
+          files: nightly-dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  upload-to-dropbox:
+    name: Upload Builds to Dropbox
+    needs: [build-macos, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: success()
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download every platform's artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: XGENIA-*
+          path: dropbox-assets
+
+      - name: Prepare assets for upload
+        run: |
+          mkdir dropbox-dist
+          # The same set of files that goes to the GitHub release.
+          find dropbox-assets -type f \( -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.exe" -o -name "latest*.yml" -o -name "latest*.json" \) -exec cp -v {} dropbox-dist/ \;
+          echo "--- Assets collected for Dropbox ---"
+          ls -l dropbox-dist
+
+      # Replaces the previous version rather than piling up next to it. Removals go
+      # to Dropbox's Deleted files, and anything in the folder that is not a build
+      # artifact is left alone.
+      - name: Upload to Dropbox
+        uses: ./.github/actions/rclone-upload
+        with:
+          remote-type: dropbox
+          remote-path: ${{ vars.DROPBOX_NIGHTLY_PATH || 'XGENIA/Nightly' }}
+          rclone-token: ${{ secrets.DROPBOX_RCLONE_TOKEN }}
+          source-dir: dropbox-dist
+          folder-url: ${{ vars.DROPBOX_FOLDER_URL }}
