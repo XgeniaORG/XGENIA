@@ -1141,6 +1141,8 @@ export class ProjectsView extends View {
     };
     this.projectTemplateLongDesc = '';
 
+    this._setCreateProjectPopupMode({ blank: false });
+
     if (iconURL !== undefined) {
       this._downloadImageAsURI(decodeURIComponent(iconURL), (uri) => {
         if (uri) {
@@ -1166,11 +1168,38 @@ export class ProjectsView extends View {
     this.$('#start-pane-feed-big').show();
   }
 
+  /**
+   * The name popup (#start-pane-feed-big) is shared between the template flow and the
+   * blank-project flow. Template mode shows the preview image and the "from template"
+   * title; blank mode hides the preview, compacts the popup and only asks for a name.
+   */
+  _setCreateProjectPopupMode({ blank }: { blank: boolean }) {
+    this.$('#start-pane-feed-item-big-image').css('display', blank ? 'none' : 'flex');
+    this.$('#start-pane-feed-item-big-title').text(blank ? 'Create new project' : 'Create new project from template');
+    this.$('.create-from-template-popup').toggleClass('blank-project-mode', blank);
+  }
+
+  onCreateBlankProjectClicked() {
+    this.currentBigFeedItem = { title: 'Blank project', blankProject: true };
+    this.projectTemplateLongDesc = '';
+
+    this._setCreateProjectPopupMode({ blank: true });
+
+    this.$('#create-new-project-from-feed-item-name').val('');
+    this.$('#create-new-project-button').prop('disabled', true);
+    this.$('#start-pane-feed-item-big-create-new-project').show();
+    this.$('#start-pane-feed-big').show();
+
+    this.$('#create-new-project-from-feed-item-name').focus();
+  }
+
   onSelectTemplateClicked(scope) {
     const _this = this;
     //this.selectedProjectTemplate = scope;
     this.currentBigFeedItem = scope;
     this.projectTemplateLongDesc = scope.desc;
+
+    this._setCreateProjectPopupMode({ blank: false });
 
     if (scope.iconURL) {
       this._downloadImageAsURI(scope.iconURL, function (uri) {
@@ -1203,7 +1232,8 @@ export class ProjectsView extends View {
   async onNewProjectFromSampleClicked() {
     const projectTemplate = this.currentBigFeedItem;
     if (!projectTemplate) return;
-    if (!projectTemplate.projectURL) return;
+    // Blank projects have no template URL; LocalProjectsModel.newProject scaffolds them
+    if (!projectTemplate.projectURL && !projectTemplate.blankProject) return;
 
     // Show loading state on button
     this.showButtonLoading();

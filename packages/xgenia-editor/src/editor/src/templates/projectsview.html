@@ -363,6 +363,17 @@
       visibility: visible !important;
     }
 
+    /* Compact layout for the blank-project flow — no template preview to make room for */
+    .create-from-template-popup.blank-project-mode {
+      width: 460px !important;
+      min-width: 460px !important;
+      min-height: 0 !important;
+    }
+
+    .create-from-template-popup.blank-project-mode #start-pane-feed-item-big-create-new-project {
+      padding-bottom: 48px;
+    }
+
     .projects-feed-image-big {
       background-color: rgba(255, 255, 255, 0.04);
       background-size: cover;
@@ -439,6 +450,30 @@
     .projects-template-item:hover {
       transform: translateY(-2px);
       background: rgba(255, 255, 255, 0.06);
+    }
+
+    /* Blank project ("+") card */
+    .projects-blank-project-plus {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .projects-blank-project-plus-circle {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      border: 1.5px dashed rgba(255, 255, 255, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255, 255, 255, 0.6);
+      transition: all 0.2s ease;
+    }
+
+    .projects-blank-project-item:hover .projects-blank-project-plus-circle {
+      border-color: var(--accent);
+      color: var(--accent);
     }
 
     .projects-feed-image {
@@ -764,10 +799,28 @@
         style="font-size: 18px; color: rgba(255,255,255,0.5); cursor: pointer; position:absolute; top:7px; left:10px;"
         data-click="onBackToProjectsListClicked"></i>
       <div style="margin-left:50px; margin-bottom:40px; width:500px; position:relative; top:0px;">
-        <div class="projects-title">Pick a template to start from</div>
+        <div class="projects-title">Create a new project</div>
+      </div>
+
+      <!-- blank project card (lives outside .projects-create-from-template, which is re-rendered) -->
+      <div style="margin-left:45px; margin-bottom:32px;">
+        <div class="projects-template-item projects-blank-project-item" data-click="onCreateBlankProjectClicked"
+          data-test="create-blank-project-item">
+          <div class="projects-feed-image projects-blank-project-plus">
+            <div class="projects-blank-project-plus-circle">
+              <i class="hgi-stroke hgi-add-01" style="font-size: 24px;"></i>
+            </div>
+          </div>
+
+          <div class="projects-template-item-details">
+            <div class="projects-template-item-title">Create new project</div>
+            <div class="projects-template-item-body">Start from scratch</div>
+          </div>
+        </div>
       </div>
 
       <div style="margin-left:45px;">
+        <div class="projects-create-from-template-title">Or pick a template to start from</div>
         <div class="projects-create-from-template" style="overflow-y: auto"></div>
       </div>
     </div>
@@ -839,7 +892,7 @@
         <div id="start-pane-feed-item-big-create-new-project" style="margin:20px; flex: 1;">
 
           <div style="margin-left:0px; margin-right:20px;">
-            <div class="projects-popup-title">Create new project from template</div>
+            <div id="start-pane-feed-item-big-title" class="projects-popup-title">Create new project from template</div>
             <div class="projects-sublabel" style="margin-top:5px;" data-bind="watch"
               data-html="projectTemplateLongDesc"></div>
           </div>
