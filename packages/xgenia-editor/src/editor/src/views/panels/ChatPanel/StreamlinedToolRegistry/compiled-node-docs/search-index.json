@@ -20439,8 +20439,8 @@
       "relativePath": "std-library/animation-target.js",
       "category": "Animation",
       "docs": "https://docsapp.xgenia.com/nodes/ui-controls/animation-target/",
-      "lineCount": 2376,
-      "byteSize": 103075,
+      "lineCount": 2425,
+      "byteSize": 106399,
       "inputFormatHints": {
         "animationName": {
           "displayName": "Animation Name",
