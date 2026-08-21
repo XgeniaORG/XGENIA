@@ -391,7 +391,7 @@ export class ProjectsView extends View {
     platform.openExternal('https://xgenia.ai/whats-new');
   }
   onSidebarReleaseNotesClicked() {
-    platform.openExternal('https://xgenia.ai/release-notes');
+    platform.openExternal('https://github.com/XgeniaORG/XGENIA/releases');
   }
   onSidebarHelpClicked() {
     platform.openExternal('https://xgenia.ai/help');
