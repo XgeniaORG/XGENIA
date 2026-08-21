@@ -1,0 +1,63 @@
+name: Notify Discord
+
+# Only pushes to main are announced in Discord. Other branches, tags and
+# force-push-to-empty are ignored on purpose -- a repo-level GitHub webhook
+# cannot filter by branch, which is why this lives in Actions instead.
+on:
+  push:
+    branches: ['main']
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    name: Post push to Discord
+    runs-on: ubuntu-latest
+    if: github.event.head_commit != null
+    steps:
+      - name: Send Discord notification
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          REPO: ${{ github.repository }}
+          PUSHER: ${{ github.event.pusher.name }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          COMMIT_URL: ${{ github.event.head_commit.url }}
+          COMPARE_URL: ${{ github.event.compare }}
+          COMMITS: ${{ toJSON(github.event.commits) }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${WEBHOOK_URL:-}" ]; then
+            echo "::warning::DISCORD_WEBHOOK_URL secret is not set - skipping notification"
+            exit 0
+          fi
+
+          count=$(printf '%s' "$COMMITS" | jq 'length')
+          subject=$(printf '%s' "$COMMIT_MSG" | head -n 1)
+
+          jq -n \
+            --arg repo "$REPO" \
+            --arg pusher "$PUSHER" \
+            --arg subject "$subject" \
+            --arg commit_url "$COMMIT_URL" \
+            --arg compare_url "$COMPARE_URL" \
+            --arg sha "${SHA:0:7}" \
+            --argjson count "$count" \
+            '{
+               username: "GitHub",
+               embeds: [{
+                 title: "[\($repo):main] \($count) new commit\(if $count == 1 then "" else "s" end)",
+                 url: $compare_url,
+                 color: 5814783,
+                 description: "[`\($sha)`](\($commit_url)) \($subject)",
+                 author: { name: $pusher }
+               }]
+             }' > payload.json
+
+          curl -sS --fail-with-body \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            --data @payload.json \
+            "$WEBHOOK_URL"
