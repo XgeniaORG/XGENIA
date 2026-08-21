@@ -73,10 +73,7 @@ Rules you must follow:
 - Output ONLY the release-notes Markdown body. No preamble, no code fence around the whole
   answer, no closing commentary. Start with a top-level "# Release Notes" heading.
 - Do not include download links, version/build/commit metadata, or a changelog footer — those
-  are added around your output automatically.
-- Never write a bare @handle. GitHub reads it as a mention and credits that account as a
-  contributor to the release. Where a token like @import or @media appears, keep it inside a
-  code span.`;
+  are added around your output automatically.`;
 
 async function main() {
   const full = readFileSync(NOTES, 'utf8');
@@ -145,11 +142,6 @@ async function main() {
   // Strip a stray fence if the model wrapped the whole answer in one.
   const fenced = /^```(?:markdown|md)?\n([\s\S]*)\n```$/.exec(polished);
   if (fenced) polished = fenced[1].trim();
-
-  // Same guard as the generator: a bare @word in a release body is an @mention, and
-  // GitHub credits that account as a contributor. The model is fed already-escaped
-  // text, but it writes prose of its own, so re-apply it rather than trust that.
-  polished = polished.replace(/(^|[^`\w@])@([A-Za-z0-9][A-Za-z0-9._-]*)/gm, '$1`@$2`');
 
   if (polished.length < 400 || !/^#\s/m.test(polished)) {
     warn('Polished notes looked wrong (too short or unstructured); keeping the generated notes.');
