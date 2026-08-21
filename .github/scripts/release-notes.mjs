@@ -35,8 +35,9 @@ const REPO = process.env.REPO || 'XgeniaORG/XGENIA';
 const SHA = process.env.SHA || '';
 const REF_NAME = process.env.REF_NAME || '';
 const PREV_NIGHTLY_SHA = (process.env.PREV_NIGHTLY_SHA || '').trim();
+const TAG = process.env.TAG || 'nightly';
 
-const RELEASE_URL = `https://github.com/${REPO}/releases/download/nightly`;
+const RELEASE_URL = `https://github.com/${REPO}/releases/download/${TAG}`;
 
 // --- git --------------------------------------------------------------------
 
@@ -92,13 +93,18 @@ function pickBase() {
 }
 
 function readCommits(range) {
-  const raw = git('log', '--no-merges', `--pretty=format:%H%x1f%s%x1f%an`, range);
+  const raw = git('log', '--no-merges', `--pretty=format:%H%x1f%s%x1f%an%x1f%ae`, range);
   if (!raw) return [];
   return raw
     .split('\n')
     .map((line) => {
-      const [sha, subject, author] = line.split('\x1f');
-      return { sha: (sha || '').slice(0, 7), subject: (subject || '').trim(), author: (author || '').trim() };
+      const [sha, subject, author, email] = line.split('\x1f');
+      return {
+        sha: (sha || '').slice(0, 7),
+        subject: (subject || '').trim(),
+        author: (author || '').trim(),
+        email: (email || '').trim(),
+      };
     })
     .filter((c) => c.subject);
 }
@@ -169,6 +175,15 @@ const areaOf = (subject) => {
   return 'Other';
 };
 
+/**
+ * A bare @word in a release body is an @mention to GitHub: it links to that user
+ * and the release then credits them as a contributor. A commit subject reading
+ * "(@import no longer eats the next CSS rule)" really did put github.com/import on
+ * the release. A code span renders these tokens correctly and never autolinks.
+ */
+const escapeMentions = (text) =>
+  text.replace(/(^|[^`\w@])@([A-Za-z0-9][A-Za-z0-9._-]*)/g, '$1`@$2`');
+
 /** Turn a raw commit subject into a readable bullet. */
 function display(subject) {
   let s = subject;
@@ -192,7 +207,37 @@ function display(subject) {
 
   s = s.replace(/\s+/g, ' ').trim().replace(/\.+$/, '');
   if (s) s = s[0].toUpperCase() + s.slice(1);
-  return s;
+  return escapeMentions(s);
+}
+
+/**
+ * Who authored the commits in this range. Grouped by email so one person writing
+ * under two spellings counts once, then merged by the resulting name so one person
+ * with two addresses counts once too. Names are printed as plain text, never as
+ * @handles: a handle can only be guessed from a name or address, and guessing wrong
+ * credits a stranger -- which is the same failure as the @import mention above.
+ */
+function contributors(commits) {
+  const byEmail = new Map();
+  for (const { author, email } of commits) {
+    if (!author || /\[bot\]$/i.test(author) || /^noreply@github\.com$/i.test(email || '')) continue;
+    const key = (email || author).toLowerCase();
+    if (!byEmail.has(key)) byEmail.set(key, { names: new Map(), count: 0 });
+    const entry = byEmail.get(key);
+    entry.names.set(author, (entry.names.get(author) || 0) + 1);
+    entry.count += 1;
+  }
+
+  const byName = new Map();
+  for (const { names, count } of byEmail.values()) {
+    // The spelling this address used most often wins.
+    const name = [...names.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    byName.set(name, (byName.get(name) || 0) + count);
+  }
+
+  return [...byName.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
 }
 
 // --- rendering --------------------------------------------------------------
@@ -247,26 +292,50 @@ function renderMaintenance(commits, cap) {
   return out.join('\n');
 }
 
-const ASSET_ROWS = [
-  ['macOS (Universal)', 'XGENIA-nightly-macos.dmg'],
-  ['Windows (x64)', 'XGENIA-nightly-windows.exe'],
-  ['Linux (x64, .deb)', 'XGENIA-nightly-linux.deb'],
-  ['Linux (x64, AppImage)', 'XGENIA-nightly-linux.AppImage'],
+// Assets keep the names electron-builder gave them, because latest*.yml refers to
+// them by name and a renamed installer would break the updater manifest.
+const PLATFORMS = [
+  [/\.dmg$/i, 'macOS (Universal)'],
+  [/\.exe$/i, 'Windows (x64)'],
+  [/\.deb$/i, 'Linux (x64, .deb)'],
+  [/\.AppImage$/i, 'Linux (x64, AppImage)'],
 ];
+const MANIFEST = /^latest.*\.(yml|json)$/i;
+
+const platformOf = (name) => {
+  for (const [re, label] of PLATFORMS) if (re.test(name)) return label;
+  return null;
+};
 
 function renderDownloads() {
-  const present = ASSETS_DIR && existsSync(ASSETS_DIR) ? new Set(readdirSync(ASSETS_DIR)) : null;
-  // With no staged directory to inspect, advertise the full set.
-  const rows = ASSET_ROWS.filter(([, file]) => !present || present.has(file));
-  if (!rows.length) return '';
+  if (!ASSETS_DIR || !existsSync(ASSETS_DIR)) return '';
+  const files = readdirSync(ASSETS_DIR).sort();
+
+  const order = PLATFORMS.map(([, label]) => label);
+  const installers = files
+    .map((name) => ({ name, label: platformOf(name) }))
+    .filter((f) => f.label)
+    .sort((a, b) => order.indexOf(a.label) - order.indexOf(b.label) || a.name.localeCompare(b.name));
+
+  if (!installers.length) return '';
+
   const out = ['## Downloads', '', '| Platform | Download |', '| --- | --- |'];
-  for (const [label, file] of rows) out.push(`| ${label} | [${file}](${RELEASE_URL}/${file}) |`);
-  const missing = ASSET_ROWS.filter(([, file]) => present && !present.has(file));
-  out.push('');
-  if (missing.length) {
-    out.push(`> Not produced by this build: ${missing.map(([l]) => l).join(', ')}.`, '');
+  for (const { label, name } of installers) {
+    out.push(`| ${label} | [${name}](${RELEASE_URL}/${encodeURIComponent(name)}) |`);
   }
-  out.push('These links are permanent — every run replaces the files in place.', '');
+  out.push('');
+
+  const missing = order.filter((label) => !installers.some((f) => f.label === label));
+  if (missing.length) out.push(`> Not produced by this build: ${missing.join(', ')}.`, '');
+
+  const manifests = files.filter((name) => MANIFEST.test(name));
+  if (manifests.length) {
+    out.push(
+      `Also attached: ${manifests.map((m) => `\`${m}\``).join(', ')} — updater manifests, ` +
+        'of no use unless you are wiring up an update feed.',
+      ''
+    );
+  }
   return out.join('\n');
 }
 
@@ -286,17 +355,17 @@ function buildBody({ perArea, maintenanceCap }) {
   }
 
   const byKind = (k) => commits.filter((c) => c.kind === k);
-  const authors = [...new Set(raw.map((c) => c.author).filter(Boolean))];
+  const people = contributors(raw);
   const files = git('diff', '--shortstat', `${base.ref || 'HEAD'}..HEAD`);
 
   const head = [];
   head.push(`# XGENIA Nightly — V${VERSION} (build #${RUN_NUMBER})`);
   head.push('');
   head.push(
-    '> **Pre-release.** This is the automated nightly build of XGENIA. It is rebuilt and',
-    '> replaced in place on every pipeline run, so the download links always point at the',
-    '> newest build. It is not a shipping release and the in-app updater deliberately',
-    '> ignores it.'
+    `> **Pre-release.** Automated nightly build of XGENIA V${VERSION}. Another nightly run of`,
+    '> the same version replaces this release in place; a new version number gets a',
+    '> pre-release of its own. Not a shipping release — the in-app updater resolves updates',
+    '> through the latest *stable* release and skips pre-releases.'
   );
   head.push('');
   head.push(
@@ -320,7 +389,6 @@ function buildBody({ perArea, maintenanceCap }) {
     const scope = [
       `${commits.length} change${commits.length === 1 ? '' : 's'}`,
       files ? files.replace(/^\s+/, '') : '',
-      authors.length > 1 ? `${authors.length} contributors` : '',
     ]
       .filter(Boolean)
       .join(' · ');
@@ -339,6 +407,18 @@ function buildBody({ perArea, maintenanceCap }) {
     }
     const maint = renderMaintenance(byKind('maintenance'), maintenanceCap);
     if (maint) notes.push(maint);
+
+    if (people.length) {
+      const total = people.reduce((n, c) => n + c.count, 0);
+      notes.push('## 👥 Contributors', '');
+      notes.push(
+        `${people.map((c) => escapeMentions(c.name)).join(' · ')}`,
+        '',
+        `_${people.length} ${people.length === 1 ? 'person' : 'people'}, ` +
+          `${total} commit${total === 1 ? '' : 's'} since ${base.label}._`,
+        ''
+      );
+    }
 
     if (commits.length === 0) {
       notes.push('_No commits between this build and ' + base.label + '._', '');
@@ -380,6 +460,11 @@ function buildBody({ perArea, maintenanceCap }) {
     tail.push('');
   }
 
+  // Last, and invisible when rendered. Read back by the next run: with one release
+  // per version the tag no longer moves, so the previous build's commit cannot be
+  // recovered from git and is carried here instead.
+  if (SHA) tail.push(`<!-- build-commit: ${SHA} -->`, '');
+
   return {
     body:
       head.join('\n') +
@@ -394,7 +479,7 @@ function buildBody({ perArea, maintenanceCap }) {
       base: base.label,
       baseKind: base.kind,
       diffstat: files,
-      contributors: authors.length,
+      contributors: people.map((c) => c.name),
       commits: commits.map((c) => ({ sha: c.sha, kind: c.kind, area: areaOf(c.subject), text: c.text })),
     },
   };

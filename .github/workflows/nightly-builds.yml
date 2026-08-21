@@ -194,7 +194,12 @@ jobs:
         run: |
           VERSION=$(node -p "require('./packages/xgenia-editor/package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Read version: $VERSION"
+          # One release per version: re-running the same version updates that release
+          # in place, a version bump gets a pre-release of its own. Deliberately not
+          # matching the V1.2.3 shape of the stable tags, so the release-notes script
+          # cannot mistake a nightly tag for a stable release to compare against.
+          echo "tag=nightly-v$VERSION" >> $GITHUB_OUTPUT
+          echo "Read version: $VERSION (tag nightly-v$VERSION)"
 
       - name: Download macOS Artifact
         uses: actions/download-artifact@v4
@@ -214,49 +219,36 @@ jobs:
           name: XGENIA-Windows-x64
           path: release-assets/windows
 
+      # Installers keep the names electron-builder gave them, and the latest*.yml
+      # updater manifests ride along: they name the installers they describe, so a
+      # renamed asset would break them. Publishing them inside a pre-release is safe
+      # because electron-updater resolves updates through /releases/latest, which
+      # GitHub defines as excluding pre-releases -- and allowPrerelease is false for
+      # any app version without a prerelease suffix. Ship a 2.1.1-beta.1 build and
+      # that stops being true.
       - name: Prepare assets for release
         run: |
           mkdir release-dist
-          # Collect all installers and metadata files from all download paths
           find release-assets -type f \( -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.exe" -o -name "latest*.yml" -o -name "latest*.json" \) -exec cp -v {} release-dist/ \;
           echo "--- Assets collected for release ---"
-          ls -R release-dist
+          ls -l release-dist
 
-      # A single rolling release under a fixed 'nightly' tag. Its assets carry no
-      # version in the name and are replaced every run, which is what makes the
-      # download URLs permanent and stops releases piling up: one entry that is
-      # always the newest build.
-      - name: Stage stable-named installers
-        run: |
-          mkdir nightly-dist
-          stage() {
-            match=$(find release-dist -maxdepth 1 -type f -name "$1" | head -1)
-            if [ -n "$match" ]; then
-              cp -v "$match" "nightly-dist/$2"
-            else
-              echo "No $1 in this build, skipping $2"
-            fi
-          }
-          stage "*.dmg"      "XGENIA-nightly-macos.dmg"
-          stage "*.exe"      "XGENIA-nightly-windows.exe"
-          stage "*.deb"      "XGENIA-nightly-linux.deb"
-          stage "*.AppImage" "XGENIA-nightly-linux.AppImage"
-          # The latest*.yml updater manifests are deliberately left out, so the
-          # app's auto-updater cannot mistake a nightly for a shipping release.
-          ls -l nightly-dist
-
-      # Read before the tag is moved: this is the commit the release currently
-      # being replaced was built from, which gives the notes their "since the
-      # previous nightly" section.
-      - name: Record the nightly release's current commit
+      # The tag no longer moves between runs, so the commit the release currently
+      # holds cannot come from git. The notes carry it in a build-commit marker
+      # instead, which is read back here to work out what changed since that build.
+      - name: Read the commit of the release being replaced
         id: prev-nightly
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          SHA=$(git rev-parse -q --verify 'refs/tags/nightly^{commit}' || true)
-          if [ -z "$SHA" ]; then
-            SHA=$(git ls-remote origin refs/tags/nightly | awk '{print $1}' | head -1)
-          fi
+          BODY=$(gh release view "${{ steps.package-version.outputs.tag }}" --json body -q .body 2> /dev/null || true)
+          SHA=$(printf '%s' "$BODY" | sed -n 's/.*<!-- build-commit: \([0-9a-f]\{7,40\}\) -->.*/\1/p' | head -1)
           echo "sha=$SHA" >> $GITHUB_OUTPUT
-          echo "Previous nightly commit: ${SHA:-none}"
+          if [ -n "$SHA" ]; then
+            echo "This release currently holds the build from $SHA"
+          else
+            echo "No previous build recorded for this version; this is its first nightly."
+          fi
 
       # Notes are derived from git: everything since the most recent stable
       # release tag, grouped by kind and area, plus the delta against the
@@ -269,11 +261,12 @@ jobs:
           SHA: ${{ github.sha }}
           REF_NAME: ${{ github.ref_name }}
           PREV_NIGHTLY_SHA: ${{ steps.prev-nightly.outputs.sha }}
+          TAG: ${{ steps.package-version.outputs.tag }}
         run: |
           node .github/scripts/release-notes.mjs \
             --out release-notes.md \
             --digest release-notes.digest.json \
-            --assets-dir nightly-dist
+            --assets-dir release-dist
           echo "--- release notes ---"
           cat release-notes.md
 
@@ -301,22 +294,23 @@ jobs:
           echo "--- notes as published ---"
           cat "$GITHUB_WORKSPACE/release-notes.md"
 
-      - name: Move the nightly tag to this commit
-        run: git push -f origin HEAD:refs/tags/nightly
-
-      # Same tag every run, so this updates the existing release in place rather
-      # than adding another one. prerelease keeps it out of "Latest release".
-      - name: Publish rolling nightly release
+      # No tag is pushed from here. The tag is created by the release below on the
+      # first build of a version and then left alone, so a tag never changes what it
+      # points at -- that is what made `git pull` report
+      # "! [rejected] nightly -> nightly (would clobber existing tag)" for everyone.
+      # Re-running the same version updates this release and replaces its assets;
+      # a new version number produces a new tag and a new pre-release next to it.
+      - name: Publish nightly pre-release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: nightly
+          tag_name: ${{ steps.package-version.outputs.tag }}
           # Quoted: an unquoted ' #' would start a YAML comment and truncate the title.
-          name: "XGENIA Nightly (V${{ steps.package-version.outputs.version }}, build #${{ github.run_number }})"
+          name: "XGENIA Nightly V${{ steps.package-version.outputs.version }} (build #${{ github.run_number }})"
           body_path: release-notes.md
           draft: false
           prerelease: true
           make_latest: false
-          files: nightly-dist/*
+          files: release-dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -337,11 +331,14 @@ jobs:
           pattern: XGENIA-*
           path: dropbox-assets
 
+      # Installers only. The latest*.yml updater manifests go to the GitHub release
+      # and not here: this folder is for people who just want to download and run
+      # the app. They are still listed in the action's include-patterns below, which
+      # is what lets any manifest left over from an earlier run be cleared out.
       - name: Prepare assets for upload
         run: |
           mkdir dropbox-dist
-          # The same set of files that goes to the GitHub release.
-          find dropbox-assets -type f \( -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.exe" -o -name "latest*.yml" -o -name "latest*.json" \) -exec cp -v {} dropbox-dist/ \;
+          find dropbox-assets -type f \( -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.exe" \) -exec cp -v {} dropbox-dist/ \;
           echo "--- Assets collected for Dropbox ---"
           ls -l dropbox-dist
 
