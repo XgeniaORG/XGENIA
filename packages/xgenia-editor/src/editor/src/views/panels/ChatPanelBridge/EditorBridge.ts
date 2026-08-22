@@ -250,6 +250,33 @@ export class EditorBridge {
     setIframe(iframe: HTMLIFrameElement, pluginId: string = 'xgenia-ai') {
         this.iframe = iframe; // Legacy compatibility
         this.iframes.set(pluginId, iframe);
+        this.flushPendingEvents();
+    }
+
+    /**
+     * Events raised before the panel's iframe existed.
+     *
+     * The editor emits componentSwitched (and friends) during startup, while the ChatPanel iframe
+     * is still mounting — those pushes used to be dropped with a console warning, so the panel
+     * booted not knowing which component was active and had to discover it on its first tool call.
+     * Holding the last value per event name and replaying it on attach costs nothing and removes a
+     * whole class of "the panel thinks it is somewhere else" confusion.
+     *
+     * Last-write-wins per event: replaying a stale intermediate state would be worse than
+     * replaying only the current one.
+     */
+    private pendingEvents = new Map<string, any>();
+
+    private flushPendingEvents() {
+        if (!this.pendingEvents.size) return;
+        const target = this.iframe?.contentWindow;
+        if (!target) return;
+        const queued = [...this.pendingEvents.entries()];
+        this.pendingEvents.clear();
+        for (const [event, data] of queued) {
+            this.safePostMessage(target, { type: 'event', event, data }, this.pluginOrigin);
+        }
+        console.debug(`[EditorBridge] Replayed ${queued.length} event(s) queued before the panel attached: ${queued.map(([e]) => e).join(', ')}`);
     }
 
     /** Check if plugin is connected */
@@ -262,7 +289,10 @@ export class EditorBridge {
         if (this.iframe?.contentWindow) {
             this.safePostMessage(this.iframe.contentWindow, { type: 'event', event, data }, this.pluginOrigin);
         } else {
-            console.warn(`[EditorBridge] Cannot push event "${event}": iframe or contentWindow missing`);
+            // Queue rather than drop: the panel attaches a moment later, and losing the startup
+            // componentSwitched left it blind to the active component until its first tool call.
+            this.pendingEvents.set(event, data);
+            console.debug(`[EditorBridge] Panel not attached yet — queued event "${event}" for replay.`);
         }
     }
 
