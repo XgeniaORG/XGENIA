@@ -44,10 +44,23 @@ export class BasicType extends TypeView {
       const inputEl = this.el.find('input')[0];
       if (labelEl && inputEl) {
         const _this = this;
+        // The value the drag started from. The intermediate writes below move the
+        // model on every mouse-move, so the final commit cannot read the pre-drag
+        // value back out of it — it would record oldValue === newValue and Undo
+        // would be a silent no-op. Snapshot it once, on mouse-down.
+        let dragStartValue;
         this._disposeScrubber = attachScrubber(labelEl, inputEl, {
+          onStart() {
+            const current = _this.getCurrentValue();
+            // getCurrentValue returns '' for ports the model doesn't carry.
+            // isDefault means the parameter is unset, so Undo must clear it
+            // (undefined) rather than pin it to the default value.
+            dragStartValue = current && typeof current === 'object' && !current.isDefault ? current.value : undefined;
+          },
           onChange(newValue, isFinal) {
             if (isFinal) {
-              _this.parent.setParameter(_this.name, newValue);
+              // One undo entry for the whole drag, anchored to the pre-drag value.
+              _this.parent.setParameterEx(_this.name, newValue, dragStartValue, false);
             } else {
               _this.parent.setParameterEx(_this.name, newValue, _this.value, true);
             }

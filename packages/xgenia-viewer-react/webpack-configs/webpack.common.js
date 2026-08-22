@@ -27,6 +27,22 @@ const hasAgentNodes = hasPrivateDir && fs.existsSync(agentNodesSrcPath);
 
 // Build alias object conditionally
 const alias = {};
+
+// The installed pixi.js build ships an `exports` map that advertises a
+// ./lib/index.mjs target for the "import" condition, but that file doesn't
+// actually exist on disk (only the CJS lib/*.js build is present). Any ESM
+// `import ... from 'pixi.js'` (spine-pixi-v8, pro-nodes pixi components)
+// hits that dangling target and fails to resolve. Alias the bare specifier
+// straight to the real CJS entry to sidestep the broken exports map.
+try {
+  // require.resolve (CJS context) hits the "require" condition, which
+  // correctly points at lib/index.js - unlike the "import" condition's
+  // dangling lib/index.mjs target.
+  alias['pixi.js$'] = require.resolve('pixi.js');
+} catch {
+  // pixi.js not installed - nothing to alias
+}
+
 if (hasProNodes) {
   // Always use src instead of dist to avoid broken import paths
   // The source files have correct relative paths that webpack can resolve

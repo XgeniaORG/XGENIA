@@ -1,8 +1,13 @@
 import fs from 'fs';
 import nodePath from 'path';
+import { fileURLToPath } from 'url';
 import fse, { mkdirp } from 'fs-extra';
 import JSZip from 'jszip';
 import { FileBlob, FileInfo, FileStat, IFileSystem, OpenDialogOptions } from '@xgenia/platform';
+
+// Two writeJson calls to the same path within the same millisecond would
+// otherwise derive the same tmp file name and clobber each other.
+let writeJsonSequence = 0;
 
 export class FileSystemNode implements IFileSystem {
   resolve(...paths: string[]): string {
@@ -99,7 +104,7 @@ export class FileSystemNode implements IFileSystem {
   }
 
   async writeJson(path: string, obj: any): Promise<void> {
-    const tmpFileName = path + '.tmp-' + Date.now();
+    const tmpFileName = path + '.tmp-' + Date.now() + '-' + ++writeJsonSequence;
 
     let jsonText = '';
 
@@ -114,8 +119,11 @@ export class FileSystemNode implements IFileSystem {
       await fs.promises.writeFile(tmpFileName, jsonText);
       await fs.promises.rename(tmpFileName, path);
     } catch (error: any) {
-      await fs.promises.unlink(tmpFileName);
+      // Log the real failure before cleaning up: the unlink can itself throw
+      // (the tmp file may never have been created), which previously replaced
+      // the underlying error with a misleading ENOENT and skipped this log.
       console.log('Error writing json file', error);
+      await fs.promises.unlink(tmpFileName).catch(() => {});
       throw error;
     }
   }
@@ -279,54 +287,62 @@ export class FileSystemNode implements IFileSystem {
         });
     }
 
-    return new Promise(async (resolve, reject) => {
-      try {
-        // Make sure the folder is empty
-        const isEmpty = await this.isDirectoryEmpty(to);
-        if (!isEmpty) {
-          reject({ result: 'failure', message: 'Folder must be empty' });
+    const handleUnzip = (blob: any, resolve: () => void, reject: (_: any) => void) => {
+      unzipToFolder(to, blob, function (r) {
+        if (r.result !== 'success') {
+          reject({ result: 'failure', message: 'Failed to extract' });
+          _this.removeDirRecursive(to);
           return;
         }
 
-        const isHttp = url.startsWith('http://') || url.startsWith('https://');
+        resolve();
+      });
+    };
 
-        if (!isHttp) {
-          const buffer = await fs.promises.readFile(url);
-          unzipToFolder(to, buffer, function (r) {
-            if (r.result !== 'success') {
-              reject({ result: 'failure', message: 'Failed to extract' });
-              _this.removeDirRecursive(to);
-              return;
-            }
-
-            resolve();
-          });
-          return;
-        }
-
-        // Load zip file from URL
-        // @ts-ignore XMLHttpRequest
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', url, true);
-        xhr.responseType = 'blob';
-        xhr.onload = function (_e) {
-          unzipToFolder(to, this.response, function (r) {
-            if (r.result !== 'success') {
-              reject({ result: 'failure', message: 'Failed to extract' });
-              _this.removeDirRecursive(to);
-              return;
-            }
-
-            resolve();
-          });
-        };
-        xhr.onerror = function () {
-          reject({ result: 'failure', message: 'Network error occurred while fetching zip' });
-        };
-        xhr.send();
-      } catch (err) {
-        reject({ result: 'failure', message: 'Failed to extract: ' + err });
+    return new Promise((resolve, reject) => {
+      // Make sure the folder is empty
+      const isEmpty = this.isDirectoryEmpty(to);
+      if (!isEmpty) {
+        reject({ result: 'failure', message: 'Folder must be empty' });
+        return;
       }
+
+      // If the URL points to a local file, read it directly via fs.
+      // Going through XMLHttpRequest fails under Electron's CSP, which does not
+      // allow the 'file:' scheme in connect-src. The Node platform has full
+      // filesystem access, so this is both correct and faster.
+      let localPath: string | undefined;
+      if (url.startsWith('file:')) {
+        try {
+          localPath = fileURLToPath(url);
+        } catch (_e) {
+          localPath = decodeURIComponent(url.replace(/^file:\/\/\/?/, ''));
+        }
+      } else if (!/^[a-z]+:\/\//i.test(url)) {
+        // Not an http(s)/network URL — treat as a plain filesystem path.
+        localPath = url;
+      }
+
+      if (localPath !== undefined) {
+        fs.readFile(localPath, (err, data) => {
+          if (err) {
+            reject({ result: 'failure', message: 'Failed to read file: ' + err.message });
+            return;
+          }
+          handleUnzip(data, resolve, reject);
+        });
+        return;
+      }
+
+      // Load zip file from a network URL
+      // @ts-ignore XMLHttpRequest
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.responseType = 'blob';
+      xhr.onload = function (_e) {
+        handleUnzip(this.response, resolve, reject);
+      };
+      xhr.send();
     });
   }
 

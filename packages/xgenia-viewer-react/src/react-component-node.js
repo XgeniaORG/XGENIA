@@ -1,6 +1,7 @@
 'use strict';
 
 import React from 'react';
+import { joinDimensionValue } from './dimension-value';
 
 // CHANGE 1: Enhanced React 18/19 compatibility and patching
 if (typeof window !== 'undefined') {
@@ -48,6 +49,236 @@ import Layout from './layout';
 import mergeDeep from './mergedeep';
 import NodeSharedPortDefinitions from './node-shared-port-definitions';
 import transitionParameter from './node-transitions';
+
+// Tolerant CSS declaration parser: paren-aware ';' split (so url(data:...;base64,...)
+// survives), first-':' split (so https:// values survive), applies every valid
+// declaration and reports (not swallows) the bad ones. The old parser rejected any
+// declaration whose value contained ':' or ';' and then discarded the ENTIRE style
+// block on a single bad declaration. Kept in sync with the copy in
+// private/xgenia-pro-nodes/src/utils/react-component-node.js (parity-locked by
+// private/xgenia-ai-app/tests/stylecss-parser.test.ts).
+// Strip /* */ comments (an unterminated comment swallows the rest, as before).
+export function stripCssComments(css) {
+  let raw = String(css || '');
+  let stripped = '';
+  while (raw.length) {
+    let next = raw.indexOf('/*');
+    if (next === -1) next = raw.length;
+    stripped += raw.substring(0, next);
+    raw = raw.substring(next);
+    if (raw.length) {
+      let end = raw.indexOf('*/');
+      if (end === -1) end = raw.length;
+      raw = raw.substring(end + 2);
+    }
+  }
+  return stripped;
+}
+
+export function parseStyleCssDeclarations(css) {
+  const style = {};
+  const errors = [];
+
+  const stripped = stripCssComments(css);
+
+  const decls = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of stripped) {
+    if (ch === '(') depth++;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+    if (ch === ';' && depth === 0) {
+      decls.push(cur);
+      cur = '';
+    } else cur += ch;
+  }
+  if (depth > 0) {
+    // An unclosed '(' swallowed every later declaration into `cur`; report it
+    // instead of silently applying the mangled tail as one giant declaration.
+    // Declarations split cleanly BEFORE the unbalanced one still apply.
+    errors.push(`Unbalanced '(' in declaration: "${cur.trim().slice(0, 60)}"`);
+  } else if (cur.trim()) decls.push(cur);
+
+  for (const rawDecl of decls) {
+    const s = rawDecl.trim();
+    if (!s) continue;
+    const idx = s.indexOf(':');
+    if (idx <= 0) {
+      errors.push(`Invalid declaration: "${s.slice(0, 60)}"`);
+      continue;
+    }
+    const prop = s.slice(0, idx).trim();
+    const value = s.slice(idx + 1).trim();
+    if (!prop || !value) {
+      errors.push(`Invalid declaration: "${s.slice(0, 60)}"`);
+      continue;
+    }
+    // Custom properties (--x) keep their name verbatim; everything else camelCases.
+    const camel = prop.startsWith('--') ? prop : prop.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+    style[camel] = value;
+  }
+
+  return { style, errors };
+}
+
+// Conditional group rules wrap rules that still belong to this node, so their
+// contents get scoped. @keyframes / @font-face / @property own their inner
+// preludes ('from', '50%', …) — those pass through verbatim.
+const SCOPED_AT_RULE = /^@(media|supports|container|layer|scope)\b/i;
+
+// Split one CSS block into its flat declaration text and its nested blocks.
+// This is what makes `&:hover { … }`, `> * { … }` and `@media … { … }`
+// expressible in a styleCss port: the flat part stays inline style (as it always
+// has), the blocks become real CSS rules in a per-node <style> element.
+// Brace-, paren- AND quote-aware, so `url(a{b)` and `content: "}"` don't derail it.
+export function splitCssBlocks(css) {
+  const src = stripCssComments(css);
+  const errors = [];
+  const blocks = [];
+  let flat = '';
+  let pending = ''; // text since the last ';' or '}' — a declaration, or a selector
+  let paren = 0;
+  let quote = null;
+  let i = 0;
+
+  while (i < src.length) {
+    const ch = src[i];
+
+    if (quote) {
+      pending += ch;
+      if (ch === quote && src[i - 1] !== '\\') quote = null;
+      i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      pending += ch;
+      i++;
+      continue;
+    }
+    if (ch === '(') paren++;
+    else if (ch === ')') paren = Math.max(0, paren - 1);
+
+    if (ch === '{' && paren === 0) {
+      const bodyStart = i + 1;
+      let depth = 1;
+      let j = bodyStart;
+      let q = null;
+      let pd = 0;
+      while (j < src.length && depth > 0) {
+        const c = src[j];
+        if (q) {
+          if (c === q && src[j - 1] !== '\\') q = null;
+        } else if (c === '"' || c === "'") {
+          q = c;
+        } else if (c === '(') pd++;
+        else if (c === ')') pd = Math.max(0, pd - 1);
+        else if (pd === 0 && c === '{') depth++;
+        else if (pd === 0 && c === '}') {
+          depth--;
+          if (depth === 0) break;
+        }
+        j++;
+      }
+      if (depth > 0) {
+        // Unclosed '{' swallowed the rest; report it rather than emitting a
+        // truncated rule whose declarations would leak into the next one.
+        errors.push(`Unbalanced '{' in rule: "${pending.trim().slice(0, 60)}"`);
+        pending = '';
+        break;
+      }
+      const prelude = pending.trim();
+      if (prelude) blocks.push({ prelude, body: src.slice(bodyStart, j) });
+      else errors.push('Ignored a rule block with no selector');
+      pending = '';
+      i = j + 1;
+      continue;
+    }
+
+    if (ch === '}' && paren === 0) {
+      errors.push(`Unexpected '}' — dropped "${pending.trim().slice(0, 60)}"`);
+      pending = '';
+      i++;
+      continue;
+    }
+
+    pending += ch;
+    if (ch === ';' && paren === 0) {
+      flat += pending;
+      pending = '';
+    }
+    i++;
+  }
+
+  // Trailing text with no ';' is still a declaration (parity with the flat parser).
+  flat += pending;
+  return { flat, blocks, errors };
+}
+
+// Resolve one nested prelude against the enclosing scope selector.
+//   '&:hover'  -> '.scope:hover'      (explicit &, anywhere in the selector)
+//   ':hover'   -> '.scope:hover'      (leading pseudo attaches to the scope)
+//   '> *'      -> '.scope > *'        (leading combinator)
+//   '.title'   -> '.scope .title'     (descendant)
+function scopeCssSelector(prelude, scope) {
+  return prelude
+    .split(',')
+    .map((part) => {
+      const s = part.trim();
+      if (!s) return null;
+      if (s.indexOf('&') !== -1) return s.replace(/&/g, scope);
+      if (s.charAt(0) === ':') return scope + s;
+      return scope + ' ' + s;
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
+// Flatten nested blocks into CSS text rooted at `scope`. Declaration bodies are
+// emitted verbatim — the browser's own parser handles them, so vendor prefixes,
+// !important and every value syntax work without a camelCase round trip.
+export function renderScopedCssRules(blocks, scope, errors) {
+  let out = '';
+  for (const { prelude, body } of blocks) {
+    if (prelude.charAt(0) === '@' && !SCOPED_AT_RULE.test(prelude)) {
+      // @keyframes / @font-face / @property — body belongs to the at-rule itself.
+      out += prelude + ' {' + body + '}\n';
+      continue;
+    }
+
+    const inner = splitCssBlocks(body);
+    if (errors && inner.errors.length) errors.push(...inner.errors);
+    const decls = inner.flat.trim();
+
+    if (prelude.charAt(0) === '@') {
+      // Conditional group rule: bare declarations inside still target this node.
+      let nested = '';
+      if (decls) nested += scope + ' { ' + decls + ' }\n';
+      nested += renderScopedCssRules(inner.blocks, scope, errors);
+      if (nested) out += prelude + ' {\n' + nested + '}\n';
+      continue;
+    }
+
+    const selector = scopeCssSelector(prelude, scope);
+    if (!selector) continue;
+    if (decls) out += selector + ' { ' + decls + ' }\n';
+    out += renderScopedCssRules(inner.blocks, selector, errors);
+  }
+  return out;
+}
+
+// Full styleCss parse: inline declarations plus the nested blocks around them.
+export function parseStyleCss(css) {
+  const split = splitCssBlocks(css);
+  const flat = parseStyleCssDeclarations(split.flat);
+  return { style: flat.style, blocks: split.blocks, errors: split.errors.concat(flat.errors) };
+}
+
+// One <style> element per scope class, shared by every node instance that
+// resolves to it (component instances reuse the definition's node id, so N
+// instances legitimately want the same rules). Refcounted so the last one out
+// removes it.
+const _scopedCssStyleElements = new Map();
 
 function addOutputPropHandler(node, propCallbacks, propPath) {
   const props = propPath ? node.props[propPath] : node.props;
@@ -128,8 +359,44 @@ function defineRegularInputProp(input, name) {
     input.set = function (value) {
       const props = input.propPath ? this.props[input.propPath] : this.props;
       if (value && value.value !== undefined) {
-        props[name] = value.value + value.unit;
+        // ─── THE VALUE MAY ALREADY CARRY A UNIT (2026-08-15) ──────────────────────
+        // (user: "it did not set 800% — it set 800PX, and % was the type")
+        // A dimension is stored as {value, unit} and applied by concatenation, so a
+        // value that already has a unit produces "800px" + "%" = "800px%". That is not
+        // a CSS length, so the browser drops the declaration entirely and the box
+        // collapses to auto — while the stored parameter still LOOKS well-formed to
+        // every check that inspects its shape.
+        //
+        // Trust the unit written into the value: someone who typed "800px" meant 800px,
+        // and the unit dropdown is the field they did not touch. Repairing here rather
+        // than only auditing means an already-corrupted project renders correctly on
+        // the next frame instead of needing a migration.
+        props[name] = joinDimensionValue(value);
+      } else if (typeof value === 'string' && /[a-z%)]$/i.test(value.trim())) {
+        // ─── A VALID CSS STRING WAS BEING THROWN AWAY (2026-08-15) ────────────────
+        // This branch used to delete the prop for anything that was not a
+        // {value, unit} object — including "50%", "800px" and "calc(100% - 20px)",
+        // which are complete CSS lengths that need no assembly at all. The port then
+        // had NO value, the element fell back to its default size, and nothing said
+        // so: the parameter reads back exactly as it was set.
+        props[name] = value.trim();
       } else {
+        // Still dropped — a bare number is genuinely ambiguous here (the port's
+        // declared default is the bare 100 and means 100%, while an authored bare
+        // number conventionally means px), so guessing would be worse than refusing.
+        // But refusing SILENTLY is what made this class invisible for so long: say it,
+        // now that viewer warnings actually reach a console.
+        if (value !== undefined && value !== null && value !== '') {
+          if (!this._warnedUnusableDim) this._warnedUnusableDim = {};
+          if (!this._warnedUnusableDim[name]) {
+            this._warnedUnusableDim[name] = true;
+            console.warn('[' + (this.name || 'node') + '] "' + name + '" was set to '
+              + JSON.stringify(value) + ', which is not a usable CSS length, so the property '
+              + 'has been REMOVED and this element falls back to its default size. Pass an '
+              + 'explicit unit as a string — "800px", "100%", "50vh". A bare number is '
+              + 'ambiguous on this port: its declared default is 100 meaning 100%.');
+          }
+        }
         delete props[name];
       }
       if (input.onChange) {
@@ -254,14 +521,23 @@ class XgeniaReactComponent extends React.Component {
 
     const { xgeniaNode, style, ...otherProps } = this.props;
 
-    let finalStyle = xgeniaNode.style;
-
-    if (style) {
-      finalStyle = {
-        ...xgeniaNode.style,
-        ...style
-      };
-    }
+    // ─── NEVER HAND Layout THE NODE'S OWN STYLE OBJECT (2026-08-15) ──────────────
+    // Layout.size/align MUTATE what they are given — flexShrink, flexGrow, position,
+    // calc() widths. On the no-style-prop path this used to be `xgeniaNode.style`
+    // itself, so every render wrote its computed layout back into the node's shared
+    // style and the next render started from a polluted baseline. It also produced the
+    // runtime warning the console capture surfaced on 2026-08-15:
+    //   "Cannot set style property 'flexShrink' to '0'. Property might be read-only."
+    // — Layout's own try/catch reporting that the object it was handed was frozen.
+    //
+    // Same lesson the attrs/dom channels below already learned ("without mutating the
+    // node's own shared attrs object"); style just never got the same treatment. Nothing
+    // reads the layout output back off a node's style, so a fresh object each render is
+    // a straight fix rather than a behaviour change.
+    const finalStyleBase = style
+      ? { ...xgeniaNode.style, ...style }
+      : { ...xgeniaNode.style };
+    let finalStyle = finalStyleBase;
 
     const props = {
       ref: (ref) => {
@@ -288,6 +564,58 @@ class XgeniaReactComponent extends React.Component {
     if (!props['data-xgenia-component']) {
       props['data-xgenia-component'] = xgeniaNode.name;
     }
+    // (2026-06-23, trace 1782197236224 issue #3) Emit the node LABEL too. Repo-wide,
+    // ~8 consumers read `data-xgenia-node-label` (inspector.js, webview-preload-viewer.js,
+    // get_full_webpage_html selector/grep) but NOTHING ever wrote it, so label/type
+    // lookups against the rendered HTML always failed and fell back to the UUID. Without
+    // this, the AI can't map a DOM node back to its @label.
+    if (!props['data-xgenia-node-label']) {
+      // AUTHORED LABEL ONLY — never the type. (2026-08-18, traces 1787010262432 /
+      // 1787027583089) `xgeniaNode.name` is the node TYPE, so using it as a silent fallback
+      // published data-xgenia-node-label="Group" for every Group and
+      // "net.xgenia.controls.button" for every Button. Consumers then could not find a node
+      // by the name it was given, which is exactly what the attribute exists for: the
+      // documented selector matched nothing, and ui_layout_map reported unaddressable
+      // "@Group" culprits. Emitting NOTHING when there is no authored label is honest —
+      // the type is already on data-xgenia-component for anyone who wants it.
+      // (2026-08-18, trace 1787071170156) THE MODEL is where the label actually lives.
+      // The previous fix taught NodeModel.createFromExportData to keep `label`, but
+      // Node.setNodeModel only does `this.model = nodeModel` — it never copies the label onto
+      // the node — so `xgeniaNode.label` stayed undefined and the DOM attribute never appeared.
+      // The QA pass caught it immediately: [data-xgenia-node-label='TestProbe'] still matched 0.
+      // Read through the model as well.
+      const nodeLabel = xgeniaNode.label
+        || (xgeniaNode.model && xgeniaNode.model.label)
+        || (xgeniaNode.parameters && (xgeniaNode.parameters.nodeLabel || xgeniaNode.parameters.label))
+        || (xgeniaNode.model && xgeniaNode.model.parameters
+            && (xgeniaNode.model.parameters.nodeLabel || xgeniaNode.model.parameters.label));
+      if (nodeLabel) props['data-xgenia-node-label'] = nodeLabel;
+    }
+
+    // (2026-08-02, export 1785709004449) …and ROUTE them to the element. Setting them on
+    // `props` alone did nothing: NO visual component spreads `...props`. Group, Text, Image,
+    // Circle, Columns and the charts each hand-pick what reaches the DOM —
+    //   React.createElement(Tag, { className, ...props.attrs, ...props.dom, ...pointer, style })
+    // — so every data-* written above was dropped on the floor. `attrs` only ever carried a
+    // hand-set data-testid and `dom` was never populated at all.
+    //
+    // Consequence, repo-wide: not one rendered element carried its node id or label, so
+    // get_rendered_output('@Group') always missed ("_domElementMissing"), the documented
+    // selector "[data-xgenia-node-id]" matched nothing, simulate_interaction could only
+    // target by visible TEXT, and the editor's own inspector (inspector.js reads
+    // data-xgenia-node-id) had nothing to read. The AI could change a container's layout
+    // and then had no way to measure the result — it concluded "container layout is not
+    // verifiable" and fell back to guessing from screenshots.
+    //
+    // Write into `attrs`/`dom` — the two channels components DO forward — without mutating
+    // the node's own shared attrs object.
+    const identityAttrs = {
+      'data-xgenia-node-id': props['data-xgenia-node-id'],
+      'data-xgenia-component': props['data-xgenia-component'],
+    };
+    if (props['data-xgenia-node-label']) identityAttrs['data-xgenia-node-label'] = props['data-xgenia-node-label'];
+    props.attrs = Object.assign({}, props.attrs, identityAttrs);
+    props.dom = Object.assign({}, props.dom, identityAttrs);
 
     xgeniaNode.renderedAtFrame = xgeniaNode.context.frameNumber;
 
@@ -295,8 +623,11 @@ class XgeniaReactComponent extends React.Component {
       if (props.textStyle !== undefined) {
         props.style = finalStyle = Object.assign({}, props.textStyle, finalStyle);
       }
-      Layout.size(finalStyle, props);
-      Layout.align(finalStyle, props);
+      // Hand Layout the declarations the AUTHOR wrote in styleCss (updateAdvancedStyle
+      // stores the parsed set as customCssStyles) so it cannot derive over an explicit
+      // flex-grow/flex-shrink. See layout.js AUTHOR_OWNED — trace 1787010262432.
+      Layout.size(finalStyle, props, xgeniaNode.customCssStyles);
+      Layout.align(finalStyle, props, xgeniaNode.customCssStyles);
     }
 
     const TargetComponent = xgeniaNode.reactComponent;
@@ -499,16 +830,33 @@ function createNodeFromReactComponent(def) {
         type: 'string',
         default: '',
         set(value) {
-          this.props.className = value;
-          this.forceUpdate();
+          this._cssUserClassName = value;
+          this._updateClassName();
         }
       },
       styleCss: {
         index: 100011,
         displayName: 'CSS Style',
         group: 'Advanced HTML',
-        type: { name: 'string', codeeditor: 'text', allowEditOnly: true },
-        default: '/* background-color: red; */',
+        // Was 'text' (no highlighting at all), then 'css' — but Monaco validates a
+        // 'css' model as a COMPLETE stylesheet, and a bare declaration list is a parse
+        // error there, so every correct property the user typed got a red squiggle.
+        // 'scss' is a CSS superset that also understands the '&' nesting styleCss
+        // supports (so bracket matching / folding / auto-indent work inside
+        // '&:hover { … }'), and it carries its OWN Monaco diagnostics options —
+        // CodeEditor/index.ts turns validation off for scss only, leaving the CSS
+        // Definition node's 'css' port fully validated. Highlighting and completion
+        // are unaffected. Still opted into the editor's 3-way source merge
+        // (NodeGraphNode.isSourceCodePort lists scss) so two branches editing the same
+        // node's CSS merge line-by-line instead of conflicting wholesale.
+        // No allowEditOnly: the port is connectable, so CSS can be driven from a
+        // String, Expression, Variable or JS Function output.
+        type: { name: 'string', codeeditor: 'scss' },
+        // Was '/* background-color: red; */' — a leftover dev placeholder that
+        // leaked into EVERY node's serialized styleCss, cluttering inspects and
+        // repeatedly read by the AI as a real/leftover style (trace 1784051747260,
+        // bug #10). Empty default keeps nodes clean; real CSS still overrides.
+        default: '',
         set(value) {
           this.updateAdvancedStyle({ content: value });
         }
@@ -551,53 +899,107 @@ function createNodeFromReactComponent(def) {
           this.customCssStyles = undefined;
         }
 
-        let style;
-        let errorMessage = '';
-        let rawCss = (params.content || '').replace('\n', '');
-        let css = '';
-        while (rawCss.length) {
-          let nextComment = rawCss.indexOf('/*');
-          if (nextComment === -1) nextComment = rawCss.length;
-          css += rawCss.substring(0, nextComment);
-          rawCss = rawCss.substring(nextComment);
-          if (rawCss.length) {
-            let endComment = rawCss.indexOf('*/');
-            if (endComment === -1) endComment = rawCss.length;
-            rawCss = rawCss.substring(endComment + 2);
-          }
+        // Tolerant semantics: apply every valid declaration, report the bad
+        // ones as a warning — one bad declaration no longer drops the block.
+        // Nested blocks are split off first: `&:hover { … }`, `> * { … }`,
+        // `@media … { … }` and `@keyframes … { … }` become real CSS rules scoped
+        // to this node, while the bare declarations around them stay inline.
+        const { style, blocks, errors } = parseStyleCss(params.content);
+
+        // Unconditional application (parity with the pre-tolerant code):
+        // when the parse yields zero keys (e.g. styleCss cleared to ''), the
+        // removeStyle of the prior keys above IS the runtime clear path —
+        // setStyle({}) is a no-op merge, and customCssStyles = {} keeps the
+        // bookkeeping identical to the old `style && this.setStyle(style)` /
+        // `this.customCssStyles = style` behavior.
+        this.setStyle(style);
+        this.customCssStyles = style;
+
+        this.updateScopedCssRules(blocks, errors);
+
+        if (errors.length) {
+          this.context.editorConnection.sendWarning(this.nodeScope.componentOwner.name, this.id, 'css-parse-waring', { message: 'styleCss: ' + errors.length + ' declaration(s) skipped:<br>' + errors.join('<br>') });
+        } else {
+          this.context.editorConnection.clearWarning(this.nodeScope.componentOwner.name, this.id, 'css-parse-waring');
         }
-        function trim(s) { return s.replace(/^\s+|\s+$/gm, ''); }
-        const styles = css.split(';').map(trim).filter((s) => s.length);
-        style = {};
-        for (const s of styles) {
-          // Split on the FIRST colon only. A naive s.split(':') breaks any
-          // declaration whose VALUE contains a colon — most importantly
-          // `background-image: url(https://...)`, `background: url(data:...)`,
-          // and gradient/transition values with embedded URLs — which used to
-          // be rejected as a "Syntax error", and (because one bad declaration
-          // aborts the whole block below) silently dropped ALL styles on the
-          // element. Splitting on the first colon preserves the value verbatim.
-          const colonIdx = s.indexOf(':');
-          const parts = colonIdx === -1 ? [s] : [trim(s.slice(0, colonIdx)), trim(s.slice(colonIdx + 1))];
-          if (s.indexOf('\n') !== -1) errorMessage += 'Missing semicolon: ' + s.split('\n')[0];
-          else if (parts.length !== 2 || !parts[0] || !parts[1]) errorMessage += 'Syntax error: ' + s;
-          else {
-            const nameParts = parts[0].split('-');
-            for (let i = 1; i < nameParts.length; i++) {
-              if (nameParts[i]) nameParts[i] = nameParts[i][0].toUpperCase() + nameParts[i].substring(1);
-            }
-            style[nameParts.join('')] = parts[1];
+      },
+
+      // The class the node's own rules are scoped under. Prefixed so it can never
+      // start with a digit, and sanitized because ids reach us as raw strings.
+      cssScopeClassName() {
+        return 'xg-css-' + String(this.id).replace(/[^A-Za-z0-9_-]/g, '-');
+      },
+
+      // props.className is the union of the user's CSS Class input and the
+      // generated scope class — either can change independently, so neither may
+      // overwrite the other.
+      _updateClassName() {
+        const parts = [];
+        if (this._cssUserClassName) parts.push(this._cssUserClassName);
+        if (this._cssScopeActive) parts.push(this.cssScopeClassName());
+        this.props.className = parts.join(' ');
+        this.forceUpdate();
+      },
+
+      updateScopedCssRules(blocks, errors) {
+        // SSR has no document to inject into and no DOM to class.
+        if (typeof document === 'undefined') return;
+
+        const scopeClass = this.cssScopeClassName();
+        const cssText = blocks && blocks.length ? renderScopedCssRules(blocks, '.' + scopeClass, errors) : '';
+
+        if (!cssText) {
+          this.releaseScopedCssRules();
+          return;
+        }
+
+        let entry = _scopedCssStyleElements.get(scopeClass);
+        if (!entry) {
+          const el = document.createElement('style');
+          el.type = 'text/css';
+          el.setAttribute('data-xg-css-scope', scopeClass);
+          document.head.appendChild(el);
+          entry = { el, refs: 0 };
+          _scopedCssStyleElements.set(scopeClass, entry);
+        }
+        entry.el.textContent = cssText;
+
+        if (!this._cssScopeRegistered) {
+          this._cssScopeRegistered = true;
+          entry.refs++;
+          if (!this._cssScopeDeleteListenerAdded) {
+            // The node can be torn down (For Each churn, page switch) without the
+            // input ever being cleared, so release on delete too.
+            this._cssScopeDeleteListenerAdded = true;
+            this.addDeleteListener(() => this.releaseScopedCssRules());
           }
         }
 
-        if (errorMessage) {
-          this.context.editorConnection.sendWarning(this.nodeScope.componentOwner.name, this.id, 'css-parse-waring', { message: 'Error in CSS Style<br>' + errorMessage });
-        } else {
-          this.context.editorConnection.clearWarning(this.nodeScope.componentOwner.name, this.id, 'css-parse-waring');
-          style && this.setStyle(style);
-          this.customCssStyles = style;
+        if (!this._cssScopeActive) {
+          this._cssScopeActive = true;
+          this._updateClassName();
         }
       },
+
+      releaseScopedCssRules() {
+        if (this._cssScopeRegistered) {
+          this._cssScopeRegistered = false;
+          const scopeClass = this.cssScopeClassName();
+          const entry = _scopedCssStyleElements.get(scopeClass);
+          if (entry) {
+            entry.refs--;
+            if (entry.refs <= 0) {
+              if (entry.el.parentNode) entry.el.parentNode.removeChild(entry.el);
+              _scopedCssStyleElements.delete(scopeClass);
+            }
+          }
+        }
+        if (this._cssScopeActive) {
+          this._cssScopeActive = false;
+          this._updateClassName();
+        }
+      },
+
       setChildIndex(index) {
         this.childIndex = index;
         this.flagOutputDirty('childIndex');
@@ -625,6 +1027,17 @@ function createNodeFromReactComponent(def) {
         this.flagOutputDirty('childrenCount');
       },
       addChild(child, index) {
+        // (trace 1785024174577) IDEMPOTENT: re-attaching a child that is already mounted
+        // used to splice it in a SECOND time, rendering the same node twice — the
+        // user-reported "the live DOM shows extra Save buttons after remounts", which no
+        // amount of graph-side deleting could clear because the graph only had one node.
+        // Re-attaching at a NEW index is still honoured (move, not duplicate).
+        const existing = this.children.indexOf(child);
+        if (existing !== -1) {
+          if (index === undefined || index === existing) return; // already exactly where asked
+          this.children.splice(existing, 1); // move: drop the old position first
+          if (index > existing) index--;
+        }
         if (index === undefined) index = this.children.length;
         child.parent = this;
         this.children.splice(index, 0, child);
@@ -1088,7 +1501,7 @@ function createNodeFromReactComponent(def) {
     if (input.type.units) {
       input.set = function (value) {
         if (typeof value !== 'object' && input.type.defaultUnit) value = { value, unit: input.type.defaultUnit };
-        if (typeof value === 'object' && value.value !== undefined) this.setStyle({ [styleTargetName]: value.value + value.unit }, input.styleTag);
+        if (typeof value === 'object' && value.value !== undefined) this.setStyle({ [styleTargetName]: joinDimensionValue(value) }, input.styleTag);
         else if (value !== undefined) this.setStyle({ [styleTargetName]: value }, input.styleTag);
         else this.removeStyle([styleTargetName], input.styleTag);
         if (input.onChange) input.onChange.call(this, value);

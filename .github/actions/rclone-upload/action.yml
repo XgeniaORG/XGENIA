@@ -1,0 +1,70 @@
+name: 'Upload build artifacts with rclone'
+description: 'Mirrors a directory of installers into a cloud folder, replacing the previous version. Linux runners only; uses a pinned rclone.'
+
+inputs:
+  remote-type:
+    required: true
+    description: 'rclone backend to use, e.g. dropbox, drive, s3, b2'
+  remote-path:
+    required: false
+    default: ''
+    description: 'Path within the remote to upload into, e.g. XGENIA/Nightly. Created on the first run. Leave empty for the remote root'
+  rclone-token:
+    required: false
+    default: ''
+    description: 'The JSON blob printed by `rclone authorize "<backend>"`, for the OAuth backends. Uses rclone own app, so no cloud console is involved'
+  extra-config:
+    required: false
+    default: ''
+    description: 'Extra `key = value` lines for the rclone remote, one per line. Where an S3-compatible bucket keeps its static keys, or Drive its root_folder_id'
+  source-dir:
+    required: true
+    description: 'Directory whose files are uploaded'
+  include-patterns:
+    required: false
+    default: |
+      *.dmg
+      *.exe
+      *.deb
+      *.AppImage
+      latest*.yml
+      latest*.json
+    description: 'Filename patterns that make up a build. This filter bounds everything the action does: a top-level file matching one of these but absent from the new build is removed, and anything not matching is untouchable. Keep it in step with the workflow step that collects the artifacts'
+  require-extensions:
+    required: false
+    default: 'dmg,exe,deb'
+    description: 'Extensions that must be present in source-dir or the upload is refused, so a platform whose build produced nothing cannot take the previous version down with it. Set to an empty string to disable'
+  folder-url:
+    required: false
+    default: ''
+    description: 'Share link for the destination, used only to put a link in the job summary'
+  dry-run:
+    required: false
+    default: 'false'
+    description: 'Report what would change without uploading or deleting anything'
+  rclone-version:
+    required: false
+    default: ''
+    description: 'Override the pinned rclone version, e.g. 1.76.0. Normally leave empty: the action pins a version and checks the download against a hash it carries, because rclone changes which flags a command accepts between releases. An override is verified against the published SHA256SUMS instead, which is a weaker check, and says so in the log'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Upload with rclone
+      shell: bash
+      # Everything goes through env rather than the run body, so no credential is
+      # interpolated into a shell command line.
+      env:
+        RCLONE_REMOTE_TYPE: ${{ inputs.remote-type }}
+        RCLONE_REMOTE_PATH: ${{ inputs.remote-path }}
+        RCLONE_TOKEN: ${{ inputs.rclone-token }}
+        RCLONE_EXTRA_CONFIG: ${{ inputs.extra-config }}
+        RCLONE_SOURCE_DIR: ${{ inputs.source-dir }}
+        RCLONE_INCLUDE_PATTERNS: ${{ inputs.include-patterns }}
+        RCLONE_REQUIRE_EXTENSIONS: ${{ inputs.require-extensions }}
+        RCLONE_FOLDER_URL: ${{ inputs.folder-url }}
+        RCLONE_DRY_RUN: ${{ inputs.dry-run }}
+        # Not RCLONE_VERSION: rclone reads exported RCLONE_<FLAG> variables as
+        # flags, and --version is one of them.
+        UPLOAD_RCLONE_VERSION: ${{ inputs.rclone-version }}
+      run: bash "${{ github.action_path }}/upload.sh"

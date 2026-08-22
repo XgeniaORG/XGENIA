@@ -16,12 +16,16 @@
 // Import collection node converter
 import { CollectionNodeConverter } from './collection-node-converter';
 import { MathNodeConverter } from './math-node-converter';
+// Import RGS extra (provably-fair / data / I-O) node converter
+import { RgsExtraNodeConverter } from './rgs-extra-node-converter';
 // Import signal passthrough node converter
 import { SignalPassthroughNodeConverter } from './signal-passthrough-node-converter';
 // Import slot game node converter
 import { SlotGameNodeConverter } from './slot-game-node-converter';
 // Import standard library node converter
 import { StdLibraryNodeConverter } from './std-library-node-converter';
+// Import the RGS sandbox sanitizer (extracted pure function, parity-tested)
+import { sanitizeForSandbox } from './sanitize-for-sandbox';
 // Import shared types
 import {
     Component,
@@ -592,6 +596,11 @@ export class CloudFunctionConverter {
   private readonly signalPassthroughNodeConverter: SignalPassthroughNodeConverter;
   // Add collection node converter
   private readonly collectionNodeConverter: CollectionNodeConverter;
+  // Add RGS extra node converter (provably-fair / data / I-O nodes)
+  private readonly rgsExtraNodeConverter: RgsExtraNodeConverter;
+  // Stage-2 persistence: stateful variables (Variable2 + Set Variable writers)
+  // resolved once per generateRgsScript run; null on the cloud-function path.
+  private _statefulVars: Map<string, { initial: unknown; writers: Node[] }> | null = null;
 
   // Add project context for Cloud Logic components
   private readonly projectContext?: Project;
@@ -609,6 +618,7 @@ export class CloudFunctionConverter {
     this.stdLibraryNodeConverter = new StdLibraryNodeConverter();
     this.signalPassthroughNodeConverter = new SignalPassthroughNodeConverter();
     this.collectionNodeConverter = new CollectionNodeConverter();
+    this.rgsExtraNodeConverter = new RgsExtraNodeConverter();
 
     // Then assign function names (which depends on converters)
     this.nodeFunctionNames = this.assignUniqueFunctionNames();
@@ -778,7 +788,7 @@ export class CloudFunctionConverter {
 
     // Transform Inputs.parameterName to inputs.sanitizedParameterName
     inputPorts.forEach((port) => {
-      const originalName = port.displayName;
+      const originalName = this.portScriptName(port);
       const sanitizedName = this.sanitizeParameterName(originalName);
       if (originalName !== sanitizedName) {
         script = script.replace(
@@ -793,7 +803,7 @@ export class CloudFunctionConverter {
     // Transform Outputs.parameterName = to let sanitizedParameterName =
     // Fix the variable mapping issue by ensuring proper variable names and scope
     outputPorts.forEach((port) => {
-      const originalName = port.displayName;
+      const originalName = this.portScriptName(port);
       const sanitizedName = this.sanitizeParameterName(originalName);
       if (originalName !== sanitizedName) {
         script = script.replace(
@@ -816,7 +826,7 @@ export class CloudFunctionConverter {
 
     // Get output port names for return statement (needed for early returns)
     // outputPorts is an array of port objects in Cloud Logic functions
-    const outputPortNames = outputPorts.map((p) => this.sanitizeParameterName(p.displayName));
+    const outputPortNames = outputPorts.map((p) => this.sanitizeParameterName(this.portScriptName(p)));
 
     // Declare all detected signals as booleans and include in outputs
     signalNames.forEach((name) => {
@@ -933,6 +943,7 @@ ${functionSignature}
     const stdLibraryNodes = this.findAllStdLibraryNodes();
     const signalPassthroughNodes = this.findAllSignalPassthroughNodes();
     const collectionNodes = this.findAllCollectionNodes();
+    const extraNodes = this.findAllExtraNodes();
     const cloudLogicNodes = this.component.graph.roots.filter((node) => node.typename.startsWith('/#__cloud__/'));
     const mathsLogicNodes = this.component.graph.roots.filter((node) => node.typename.startsWith('/#__maths__/'));
     const allFunctionNodes = [
@@ -942,6 +953,7 @@ ${functionSignature}
       ...stdLibraryNodes,
       ...signalPassthroughNodes,
       ...collectionNodes,
+      ...extraNodes,
       ...cloudLogicNodes,
       ...mathsLogicNodes
     ];
@@ -970,6 +982,8 @@ ${functionSignature}
         baseName = `signal_${node.typename.toLowerCase().replace(/\s+/g, '_')}`;
       } else if (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename)) {
         baseName = `collection_${node.typename.toLowerCase().replace(/\s+/g, '_')}`;
+      } else if (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(node.typename)) {
+        baseName = `extra_${node.typename.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
       } else if (node.typename.startsWith('/#__cloud__/')) {
         const rawName = node.typename.replace('/#__cloud__/', '');
         baseName = `cloud_${this.sanitizeForIdentifier(rawName) || 'logic'}`;
@@ -992,6 +1006,9 @@ ${functionSignature}
   }
 
   public generateSupabaseFunction(): { name: string; code: string } {
+    // Stage-2 persistence is an RGS-only concept — never let a prior
+    // generateRgsScript() run on this instance leak into the cloud path.
+    this._statefulVars = null;
     const requestNode = this.findNodeByType('xgenia.cloud.request');
 
     // Get all function nodes (JavaScript + Math + Slot Game + Standard Library + Signal Passthrough + Collection + Cloud Logic references)
@@ -1136,6 +1153,11 @@ ${originalComponentStructure}
    * Must return { win: number, data: {}, state: {} }
    */
   public generateRgsScript(): { script: string; configData: Record<string, any> } {
+    // Stage-2 cross-spin persistence: variables written via Set Variable
+    // compile to a ctx.state-backed `_vars` store (see collectStatefulVariables).
+    const statefulVars = this.collectStatefulVariables();
+    this._statefulVars = statefulVars;
+
     // Discover ALL node types — matching generateSupabaseFunction()
     const jsFunctionNodes = this.findAllNodesByType('JavaScriptFunction');
     const mathNodes = this.findAllMathNodes();
@@ -1143,6 +1165,7 @@ ${originalComponentStructure}
     const stdLibraryNodes = this.findAllStdLibraryNodes();
     const signalPassthroughNodes = this.findAllSignalPassthroughNodes();
     const collectionNodes = this.findAllCollectionNodes();
+    const extraNodes = this.findAllExtraNodes();
     const mathsLogicNodes = this.component.graph.roots.filter((n) => n.typename.startsWith('/#__maths__/'));
 
     const allFunctionNodes = [
@@ -1152,20 +1175,49 @@ ${originalComponentStructure}
       ...stdLibraryNodes,
       ...signalPassthroughNodes,
       ...collectionNodes,
+      ...extraNodes,
       ...mathsLogicNodes,
       ...this.findAllNodesByType('Javascript2'),
-      ...this.findAllNodesByType('stateManager')
+      ...this.findAllNodesByType('stateManager'),
+      // Stage-2: Set Variable writers of stateful variables join the ordered
+      // node stream — they emit gated `_vars` writes, not function calls.
+      ...this.component.graph.roots.filter(
+        (n) =>
+          (n.typename === 'Set Variable' || n.typename === '/#__cloud__/Set Variable') &&
+          statefulVars.has((n.parameters as any)?.name)
+      ),
     ];
     const sortedFunctionNodes = this.sortNodesByExecutionOrder(allFunctionNodes);
 
+    // Shared sandbox-safe helpers (sha256 / hashToRange / uuid) used by the
+    // provably-fair & data node functions — emitted once, before the node defs.
+    const extraPrelude = this.rgsExtraNodeConverter.hasAnyExtraNode(allFunctionNodes.map((n) => n.typename))
+      ? RgsExtraNodeConverter.helperPrelude()
+      : '';
+
     // Generate function definitions (same code generators as cloud)
-    const functionDefinitions = this.generateFunctionDefinitions(sortedFunctionNodes);
+    const functionDefinitions = extraPrelude + this.generateFunctionDefinitions(sortedFunctionNodes);
 
     // Generate invocations with RGS-specific wiring
     const functionInvocations = this.generateRgsFunctionInvocations(sortedFunctionNodes);
 
     // Extract config data from node parameters + Variable2 defaults
     const configData = this.extractMathsConfig(sortedFunctionNodes);
+
+    // Stage-2 persistence prelude: hydrate `_vars` from ctx.state (production
+    // /spin threads game_sessions.round_state; the stress runner threads
+    // persistedState), defaulting each variable to its Variable2 initial value
+    // on the first spin of a session.
+    const statefulPrelude = statefulVars.size === 0
+      ? ''
+      : [
+          '// --- Cross-spin variable store (hydrated from ctx.state.__vars) ---',
+          'var _vars = (ctx.state && typeof ctx.state === "object" && ctx.state.__vars && typeof ctx.state.__vars === "object") ? Object.assign({}, ctx.state.__vars) : {};',
+          ...Array.from(statefulVars.entries()).map(
+            ([name, info]) =>
+              `if (!Object.prototype.hasOwnProperty.call(_vars, ${JSON.stringify(name)})) _vars[${JSON.stringify(name)}] = ${JSON.stringify(info.initial === undefined ? null : info.initial)};`
+          ),
+        ].join('\n');
 
     const script = [
       '// XGENIA RGS Maths Script - Auto-generated from editor graph',
@@ -1174,6 +1226,8 @@ ${originalComponentStructure}
       '',
       '// --- Node function definitions ---',
       functionDefinitions,
+      '',
+      statefulPrelude,
       '',
       '// --- Node invocations (wired via graph connections) ---',
       functionInvocations,
@@ -1184,9 +1238,34 @@ ${originalComponentStructure}
       '  ? _componentOutputs',
       '  : (typeof _lastResult === "object" ? { ..._lastResult } : { result: _lastResult });',
       '',
+      '// 2026-07-14 (trace 1784044997749): the RGS RTP harness scores each spin by the',
+      '// top-level `win` field — see this converter\'s own { win, data, state } contract',
+      '// (docstring above) and knowledge/topics.ts evaluate_contract. The old return',
+      '// OMITTED `win`, so EVERY spin scored 0 payout -> 0% RTP for all generated maths.',
+      '// Derive it from the data output (flat OR decomposed/finalResult shape). 0 is a',
+      '// valid win (a losing spin), so preserve it. Conservative JS only (sandbox-safe).',
+      'var _win = (function (d) {',
+      '  if (!d || typeof d !== "object") return 0;',
+      '  var fr = d.finalResult;',
+      '  var w = 0;',
+      '  if (d.win != null) w = d.win;',
+      '  else if (d.winAmount != null) w = d.winAmount;',
+      '  else if (d.spinWinnings != null) w = d.spinWinnings;',
+      '  else if (d.totalPayout != null) w = d.totalPayout;',
+      '  else if (d.totalWinnings != null) w = d.totalWinnings;',
+      '  else if (fr && fr.spinResults && fr.spinResults.totalPayout != null) w = fr.spinResults.totalPayout;',
+      '  else if (fr && fr.totalWinnings != null) w = fr.totalWinnings;',
+      '  else if (fr && fr.spinWinnings != null) w = fr.spinWinnings;',
+      '  var n = Number(w);',
+      '  return isFinite(n) ? n : 0;',
+      '})(_dataOut);',
+      '',
       'return {',
+      '  win: _win,',
       '  data: _dataOut,',
-      '  state: { ...ctx.state, round: ctx.round }',
+      statefulVars.size > 0
+        ? '  state: { ...ctx.state, __vars: _vars, round: ctx.round }'
+        : '  state: { ...ctx.state, round: ctx.round }',
       '};',
     ].join('\n');
 
@@ -1203,134 +1282,107 @@ ${originalComponentStructure}
    * containing Deno, eval(, Function(, crypto, import, require, etc.
    * The cloud deploy code generators produce TypeScript and use these
    * patterns, so we strip/replace them here for RGS use.
+   *
+   * 2026-07-10: extracted to sanitize-for-sandbox.ts (pure function) so the
+   * formula-eval parity test can assert the sanitizer leaves the emitted
+   * evaluator working — see that file's docblock for the trace-1783634013326
+   * story (eval-strip zeroed every slot-maths formula in the uploaded bundle).
    */
   private sanitizeForSandbox(script: string): string {
-    let s = script;
-
-    // 1. Strip TypeScript type annotations
-    //    IMPORTANT: Regexes must not match ternary falsy branches like `: number` in `x ? y : number`
-    //    Only strip type annotations that follow `)`, `]`, or an identifier (variable/param declarations).
-    //    Lookbehind ensures we only strip actual TS type annotations, not ternary branches.
-    s = s.replace(/([\)\]\w])\s*:\s*Record<[^>]+>/g, '$1');
-    s = s.replace(/([\)\]\w])\s*:\s*(?:number|string|boolean|any|void|object|unknown|never)(?:\[\])?(?=\s*[,\)={;\n])/g, '$1');
-    // `as Type` casts are always safe to strip (they only exist in TS)
-    s = s.replace(/\bas\s+Record<[^>]+>/g, '');
-    s = s.replace(/\bas\s+(?:number|string|boolean|any|void|object|unknown|never)/g, '');
-    s = s.replace(/<[A-Z][a-zA-Z]*(?:,\s*[A-Z][a-zA-Z]*)*>/g, '');
-
-    // 2. Replace crypto.getRandomValues blocks with RNG adapter
-    //    Matches: if (typeof crypto !== 'undefined' && crypto.getRandomValues) { ... } else { ... }
-    s = s.replace(
-      /if\s*\(\s*typeof\s+crypto\s*!==?\s*['"]undefined['"]\s*&&\s*crypto\.getRandomValues\s*\)\s*\{[^}]*\}\s*else\s*\{[^}]*\}/g,
-      '{ value = rgsRandom() * 1000000000000; }'
-    );
-    // Also catch standalone crypto.getRandomValues
-    s = s.replace(/crypto\.getRandomValues\([^)]*\)/g, '/* replaced by rgsRandom */');
-
-    // 2b. Strip inlined IsaacRNG class — RNG comes directly from the server's Isaac
-    //     Use brace-counting since the class body contains nested { } blocks
-    {
-      let idx = 0;
-      while (true) {
-        const classStart = s.indexOf('class IsaacRNG', idx);
-        if (classStart === -1) break;
-        // Find the opening brace
-        let braceStart = s.indexOf('{', classStart);
-        if (braceStart === -1) break;
-        // Count braces to find matching closing brace
-        let depth = 1;
-        let pos = braceStart + 1;
-        while (pos < s.length && depth > 0) {
-          if (s[pos] === '{') depth++;
-          else if (s[pos] === '}') depth--;
-          pos++;
-        }
-        // Replace the entire class with a comment
-        s = s.slice(0, classStart) + '/* IsaacRNG class removed — using server RNG */' + s.slice(pos);
-        idx = classStart + 1;
-      }
-    }
-    s = s.replace(/\/\*\s*duplicate class IsaacRNG removed\s*\*\//g, '');
-
-    // 2c. Replace Isaac instantiation and usage with direct rgsRandom() calls
-    //     Pattern: `const isaac = new IsaacRNG(seed, nonce);`
-    s = s.replace(/const\s+isaac\s*=\s*new\s+IsaacRNG\s*\([^)]*\)\s*;/g, '/* isaac replaced by rgsRandom */');
-    //     Pattern: `isaac.randomFloat(0, 1000000000000)` → `rgsRandom() * 1000000000000`
-    s = s.replace(/isaac\.randomFloat\s*\(\s*0\s*,\s*(\d+)\s*\)/g, 'rgsRandom() * $1');
-    //     Pattern: `isaac.random()` → `rgsRandom()`
-    s = s.replace(/isaac\.random\s*\(\s*\)/g, 'rgsRandom()');
-    //     Pattern: `isaac.randomInt(min, max)` → `rgsRandomInt(min, max)`
-    s = s.replace(/isaac\.randomInt\s*\(/g, 'rgsRandomInt(');
-
-    // 3. Replace eval() calls with safe fallback values
-    //    Scripts should not contain eval() — replace with 0
-    s = s.replace(
-      /\beval\s*\(\s*processedFormula\s*\)/g,
-      '0 /* eval removed */'
-    );
-    s = s.replace(
-      /\beval\s*\(\s*([a-zA-Z_]+)\.replace\([^)]*\)\s*\)/g,
-      '0 /* eval removed */'
-    );
-    // Catch any remaining eval() calls
-    s = s.replace(
-      /\beval\s*\(\s*([^)]+)\s*\)/g,
-      '0 /* eval removed */'
-    );
-    // Also catch any `new Function(` residual
-    s = s.replace(
-      /\(?\s*new\s+Function\s*\([^)]*\)\s*\)\s*\([^)]*\)/g,
-      '0 /* new Function removed */'
-    );
-
-    // 4. Remove/replace Deno references
-    s = s.replace(/\bDeno\b\.[a-zA-Z]+/g, 'undefined');
-    // Also catch standalone Deno word that might remain
-    s = s.replace(/\btypeof\s+Deno\b/g, 'typeof undefined');
-
-    // 5. Strip single-line comments that might contain blocked words
-    s = s.replace(/\/\/.*$/gm, '');
-
-    // 6. Strip multi-line comments
-    s = s.replace(/\/\*[\s\S]*?\*\//g, '');
-
-    // 7. Clean up multiple blank lines
-    s = s.replace(/\n{3,}/g, '\n\n');
-
-    // 8. Deduplicate inline helper declarations
-    //    When multiple nodes of the same type exist (e.g. 2 ISAAC RNGs),
-    //    their shared helper code (class IsaacRNG, function evaluateFormula,
-    //    function SeededRandom) gets emitted multiple times.
-    //    Keep only the first occurrence of each declaration block.
-    const seenDeclarations = new Set<string>();
-
-    // NOTE: We intentionally do NOT deduplicate function declarations.
-    // Functions like evaluateFormula and SeededRandom are scoped inside
-    // different node arrow functions (e.g., const slot_get_paytable = (inputs) => { ... })
-    // and are NOT actual duplicates — each one belongs to its own scope.
-
-    s = s.replace(/^(\s*)class\s+(\w+)\s*\{[\s\S]*?\n\1\}/gm, (match, _indent, name) => {
-      // IsaacRNG is fully stripped in step 2b — remove any residuals
-      if (name === 'IsaacRNG') return `/* IsaacRNG class removed */`;
-      if (seenDeclarations.has(`class:${name}`)) return `/* duplicate class ${name} removed */`;
-      seenDeclarations.add(`class:${name}`);
-      return match;
-    });
-
-    // 10. Final cleanup of blank lines left by deduplication
-    s = s.replace(/\n{3,}/g, '\n\n');
-
-    return s;
+    return sanitizeForSandbox(script);
   }
+
 
   /**
    * Generate function invocations for the RGS script.
    * Similar to generateFunctionInvocations but uses ctx.config instead of requestBody.
    */
+  /**
+   * Build a memoized resolver that returns, for a node id, the set of request
+   * operation-trigger flags (`is<Operation>`) whose `Do`-signal chain reaches it:
+   *   null    -> unconditional: no operation trigger gates this node (it has no
+   *              signal input, or its `Do` is driven directly by a non-`is*`
+   *              request signal like `do`/`fetch`). Always invoke.
+   *   Set(0)  -> gated but reachable from no trigger (dead/cyclic). Never invoke.
+   *   Set(>0) -> invoke only when one of these flags is set.
+   *
+   * This mirrors the editor, where a node computes only when its `Do` fires. A
+   * signal edge into a node is a request `pm-is*` trigger, or an internal
+   * `Do`/`Done` connection. Used to gate BOTH node invocations and response
+   * fields so an operation that wasn't triggered neither runs its nodes (e.g. a
+   * Division that would throw "Division by zero") nor leaks their outputs.
+   *
+   * Components without an `xgenia.cloud.request` node (slot/maths graphs driven
+   * by `Component Inputs`) resolve to `null` for every node, so gating built on
+   * this resolver is a no-op for them.
+   */
+  private buildTriggerResolver(requestNode?: Node): (nodeId: string) => Set<string> | null {
+    const isTriggerEdge = (c: Connection): boolean =>
+      !!requestNode &&
+      c.fromId === requestNode.id &&
+      typeof c.fromProperty === 'string' &&
+      c.fromProperty.startsWith('pm-is');
+    const isSignalEdge = (c: Connection): boolean =>
+      isTriggerEdge(c) || c.toProperty === 'Do' || c.fromProperty === 'Done';
+
+    const memo = new Map<string, Set<string> | null>();
+    const resolve = (nodeId: string, stack: Set<string>): Set<string> | null => {
+      if (memo.has(nodeId)) return memo.get(nodeId)!;
+      if (stack.has(nodeId)) return new Set<string>(); // cycle guard
+      stack.add(nodeId);
+      const sigConns = this.connections.filter((c) => c.toId === nodeId && isSignalEdge(c));
+      let res: Set<string> | null;
+      if (sigConns.length === 0) {
+        res = null; // no signal inputs -> unconditional
+      } else {
+        res = new Set<string>();
+        for (const c of sigConns) {
+          if (isTriggerEdge(c)) {
+            res.add(String(c.fromProperty).replace(/^pm-/, ''));
+          } else if (requestNode && c.fromId === requestNode.id) {
+            // `Do`/`Done` straight from the request node but NOT an `is*` trigger
+            // (e.g. a plain `do`/`fetch` signal) -> node runs unconditionally.
+            res = null;
+            break;
+          } else {
+            const up = resolve(c.fromId, stack);
+            if (up === null) {
+              res = null;
+              break;
+            } // upstream always fires -> so does this
+            up.forEach((t) => (res as Set<string>).add(t));
+          }
+        }
+      }
+      stack.delete(nodeId);
+      memo.set(nodeId, res);
+      return res;
+    };
+    return (nodeId: string) => resolve(nodeId, new Set<string>());
+  }
+
   private generateRgsFunctionInvocations(nodes: Node[]): string {
     let invocationCode = '';
     const outputVariableMap = new Map<string, string>();
     let lastResultVar = '';
+
+    // Gate each node's invocation (and, further down, each response field) on the
+    // request operation-triggers that reach its `Do` — mirroring the editor,
+    // where a node computes only when triggered. See buildTriggerResolver().
+    const requestNode = this.component.graph.roots.find((n) => n.typename === 'xgenia.cloud.request');
+    const triggersForNode = this.buildTriggerResolver(requestNode);
+    // Gate expression for a node's invocation:
+    //   null    -> unconditional, always invoke
+    //   'false' -> signal-wired but no request trigger reaches it, never invoke
+    //   string  -> a `config.isX || config.isY` guard; invoke only when it holds
+    const invocationGateFor = (nodeId: string): string | null => {
+      const trigs = triggersForNode(nodeId);
+      if (trigs === null) return null;
+      if (trigs.size === 0) return 'false';
+      return Array.from(trigs)
+        .map((t) => this.safePropertyAccess('config', t))
+        .join(' || ');
+    };
 
     nodes.forEach((node) => {
       const functionName = this.getFunctionName(node);
@@ -1351,21 +1403,23 @@ ${originalComponentStructure}
 
         let sourceValue: string;
 
-        // Resolve passthrough (Variable2) nodes by tracing backwards
-        let resolvedFromId = conn.fromId;
-        let resolvedFromProperty = conn.fromProperty;
-        let hops = 0;
-        while (!outputVariableMap.has(resolvedFromId) && hops < 10) {
-          const srcNode = this.nodes.get(resolvedFromId);
-          if (!srcNode || (srcNode.typename !== '/#__cloud__/Variable2' && srcNode.typename !== 'Variable2')) break;
-          const upstreamConn = this.connections.find(
-            (c) => c.toId === resolvedFromId && c.toProperty === 'value'
-          );
-          if (!upstreamConn) break;
-          resolvedFromId = upstreamConn.fromId;
-          resolvedFromProperty = upstreamConn.fromProperty;
-          hops++;
+        // Stage-2: reads from a STATEFUL Variable2 come from the `_vars` store
+        // (persisted via ctx.state), not from re-deriving the writer's source.
+        const _rawSrc = this.nodes.get(conn.fromId);
+        if (_rawSrc && (_rawSrc.typename === 'Variable2' || _rawSrc.typename === '/#__cloud__/Variable2')) {
+          const _vn = (_rawSrc.parameters as any)?.name;
+          if (_vn && this._statefulVars?.has(_vn)) {
+            inputMappings.set(inputName, `_vars[${JSON.stringify(_vn)}]`);
+            return;
+          }
         }
+
+        // Resolve passthrough (Variable2) nodes by tracing backwards — follows
+        // both direct `value` wires AND name-matched Set Variable writers
+        // (see resolveThroughVariables; trace 1784154340515).
+        const _resolved = this.resolveThroughVariables(conn.fromId, conn.fromProperty, (id) => outputVariableMap.has(id));
+        const resolvedFromId = _resolved.fromId;
+        const resolvedFromProperty = _resolved.fromProperty;
 
         if (outputVariableMap.has(resolvedFromId)) {
           const sourceNode = this.nodes.get(resolvedFromId);
@@ -1409,6 +1463,19 @@ ${originalComponentStructure}
               // and input_overrides sent by the Play Tester UI.
               sourceValue = this.safePropertyAccess('config', portName);
             }
+          } else if (srcNode && srcNode.typename === 'xgenia.cloud.request') {
+            // Compiled cloud component: the request node feeds values via its
+            // pm-<field> output ports. The config key is the FIELD name
+            // (fromProperty minus the "pm-" prefix), NOT the destination port name
+            // (inputName/toProperty) — these differ whenever a node's input port
+            // name isn't the same as the aggregator data field (e.g. a "client
+            // seed" port fed by the "clientSeed" field, or an "input0" port fed by
+            // "firstNumber"). Using toProperty here would read a non-existent
+            // config key and silently feed undefined.
+            const field = conn.fromProperty.startsWith('pm-')
+              ? conn.fromProperty.substring(3)
+              : conn.fromProperty;
+            sourceValue = this.safePropertyAccess('config', field);
           } else {
             sourceValue = this.safePropertyAccess('config', inputName);
           }
@@ -1416,9 +1483,31 @@ ${originalComponentStructure}
         inputMappings.set(inputName, sourceValue);
       });
 
+      // Stage-2: a stateful Set Variable node compiles to a signal-gated write
+      // into `_vars` — no function call, no output variable. The gate keeps
+      // init/reset chains from clobbering persisted state every spin (the
+      // compiled script has no real signal engine; everything runs per spin).
+      if (
+        (node.typename === 'Set Variable' || node.typename === '/#__cloud__/Set Variable') &&
+        this._statefulVars?.has((node.parameters as any)?.name)
+      ) {
+        const varName = (node.parameters as any).name;
+        const valueSrc = inputMappings.get('value');
+        if (valueSrc !== undefined) {
+          const writeGate = this.signalGateForWriter(node);
+          const wLabel = node.label || `Set Variable ${varName}`;
+          invocationCode += writeGate === 'true'
+            ? `_vars[${JSON.stringify(varName)}] = ${valueSrc}; /* [${wLabel}] */\n    `
+            : `if (${writeGate}) { _vars[${JSON.stringify(varName)}] = ${valueSrc}; } /* [${wLabel}] */\n    `;
+        }
+        return;
+      }
+
       // Add node parameters as fallbacks
       Object.entries(node.parameters).forEach(([paramName, paramValue]) => {
         if (paramName === 'params' || paramName === 'functionScript' || paramName === 'code') return;
+        // isMath is a deployment-routing flag (Compile feature), not a data input.
+        if (paramName === 'isMath') return;
         // Skip internal port metadata that should never be passed as inputs
         if (paramName.startsWith('intype-') || paramName.startsWith('outtype-') ||
             paramName.startsWith('Inputs.') || paramName.startsWith('Outputs.') ||
@@ -1449,10 +1538,22 @@ ${originalComponentStructure}
         .join(', ');
 
       const outputVar = `${functionName}Result`;
-      // Wrap each node call in try/catch so errors include the node name
-      invocationCode += `let ${outputVar};\n    `;
-      invocationCode += `try { ${outputVar} = ${functionName}({ ${inputObject} }); }\n    `;
-      invocationCode += `catch(_e) { throw new Error("[${node.label || functionName}] " + _e.message); }\n    `;
+      const nodeLabel = node.label || functionName;
+      const gate = invocationGateFor(node.id);
+      // Only invoke the node when its `Do` was actually triggered by this
+      // request (mirrors the editor, where a node computes solely on `Do`).
+      // Un-triggered nodes yield {} so downstream reads are undefined and their
+      // response fields are dropped by the trigger-gated response mapping below.
+      // Wrap the call in try/catch so any thrown error names the node.
+      invocationCode += `let ${outputVar} = {};\n    `;
+      if (gate === null) {
+        invocationCode += `try { ${outputVar} = ${functionName}({ ${inputObject} }); }\n    `;
+        invocationCode += `catch(_e) { throw new Error("[${nodeLabel}] " + _e.message); }\n    `;
+      } else if (gate === 'false') {
+        invocationCode += `/* [${nodeLabel}] not invoked: no request trigger reaches its Do */\n    `;
+      } else {
+        invocationCode += `if (${gate}) {\n      try { ${outputVar} = ${functionName}({ ${inputObject} }); }\n      catch(_e) { throw new Error("[${nodeLabel}] " + _e.message); }\n    }\n    `;
+      }
 
       outputVariableMap.set(node.id, outputVar);
       lastResultVar = outputVar;
@@ -1477,21 +1578,23 @@ ${originalComponentStructure}
           // conn.toProperty is the Component Outputs port name (e.g. "Sum")
           const outputPortName = conn.toProperty;
 
-          // Resolve the source through Variable2 passthroughs
-          let resolvedFromId = conn.fromId;
-          let resolvedFromProperty = conn.fromProperty;
-          let hops = 0;
-          while (!outputVariableMap.has(resolvedFromId) && hops < 10) {
-            const srcNode = this.nodes.get(resolvedFromId);
-            if (!srcNode || (srcNode.typename !== '/#__cloud__/Variable2' && srcNode.typename !== 'Variable2')) break;
-            const upstreamConn = this.connections.find(
-              (c) => c.toId === resolvedFromId && c.toProperty === 'value'
-            );
-            if (!upstreamConn) break;
-            resolvedFromId = upstreamConn.fromId;
-            resolvedFromProperty = upstreamConn.fromProperty;
-            hops++;
+          // Stage-2: a Component Outputs port fed by a stateful Variable2
+          // reads the persisted `_vars` store.
+          const _rawOutSrc = this.nodes.get(conn.fromId);
+          if (_rawOutSrc && (_rawOutSrc.typename === 'Variable2' || _rawOutSrc.typename === '/#__cloud__/Variable2')) {
+            const _ovn = (_rawOutSrc.parameters as any)?.name;
+            if (_ovn && this._statefulVars?.has(_ovn)) {
+              const safeName = /[^a-zA-Z0-9_]/.test(outputPortName) ? `"${outputPortName}"` : outputPortName;
+              mappings.push(`${safeName}: _vars[${JSON.stringify(_ovn)}]`);
+              continue;
+            }
           }
+
+          // Resolve the source through Variable2 passthroughs (incl. name-matched
+          // Set Variable writers — see resolveThroughVariables).
+          const _resolvedOut = this.resolveThroughVariables(conn.fromId, conn.fromProperty, (id) => outputVariableMap.has(id));
+          const resolvedFromId = _resolvedOut.fromId;
+          const resolvedFromProperty = _resolvedOut.fromProperty;
 
           if (outputVariableMap.has(resolvedFromId)) {
             const sourceNode = this.nodes.get(resolvedFromId);
@@ -1507,6 +1610,94 @@ ${originalComponentStructure}
         if (mappings.length > 0) {
           invocationCode += `const _componentOutputs = { ${mappings.join(', ')} };\n    `;
         }
+      }
+    }
+
+    // --- xgenia.cloud.response mapping (compiled cloud components) ---
+    // Cloud components built by the editor's "Compile" feature use an
+    // xgenia.cloud.response node (params -> pm-<field> input ports) instead of a
+    // "Component Outputs" node. Without this the script would fall back to
+    // _lastNodeResult — i.e. whichever node happens to sort last — which is wrong
+    // (and is 0 when that node is an unconnected/dead one). Build the response
+    // object from the response node's connections instead.
+    const responseNode = this.component.graph.roots.find(
+      (n) => n.typename === 'xgenia.cloud.response'
+    );
+    // `requestNode`, `isSignalEdge` and `triggersForNode` are declared once at
+    // the top of this method and reused here for response-field gating.
+    if (responseNode && !componentOutputsNode) {
+      // Resolve a source connection (through Variable2 passthroughs) to its
+      // result expression, or null if the source isn't a generated node.
+      const resolveSourceExpr = (conn: any): string | null => {
+        const _resolvedResp = this.resolveThroughVariables(conn.fromId, conn.fromProperty, (id) => outputVariableMap.has(id));
+        const resolvedFromId = _resolvedResp.fromId;
+        const resolvedFromProperty = _resolvedResp.fromProperty;
+        if (!outputVariableMap.has(resolvedFromId)) return null;
+        const sourceNode = this.nodes.get(resolvedFromId);
+        let fromProp = resolvedFromProperty;
+        if (sourceNode?.typename === 'JavaScriptFunction' && fromProp.startsWith('out-')) {
+          fromProp = fromProp.substring(4);
+        }
+        return this.safePropertyAccess(outputVariableMap.get(resolvedFromId)!, fromProp);
+      };
+
+      // Trigger isolation. The Aggregator fires ONE operation per request (sets
+      // exactly one `is<X>` flag true). In the editor graph a node only produces
+      // output when its `Do` signal fires — directly from a request `pm-is<X>`
+      // trigger, or transitively from an upstream node's `Done`. But the deployed
+      // script runs every node function unconditionally, so without gating EVERY
+      // output would come back on EVERY request and the aggregator would push
+      // values into UI bound to operations the user never triggered.
+      //
+      // So we compute, per source node, the set of request trigger flags whose
+      // signal chain reaches it, and gate that node's output on those flags:
+      //   field = (config.isX || config.isY) ? value : undefined
+      // (undefined is dropped by JSON.stringify, so non-triggered fields simply
+      // don't appear in the response). A node with no signal input at all is
+      // unconditional (e.g. a constant feeding the response directly).
+      //
+      // Signal edges are: a request `pm-is*` trigger, or an internal `Do`/`Done`
+      // connection (the universal trigger-in / signal-out ports for these nodes).
+      // `isSignalEdge` / `triggersForNode` are defined once at the top of this
+      // method (they now gate node invocations too) and reused here.
+      const responseConns = this.connections.filter(
+        (c) => c.toId === responseNode.id && c.toProperty.startsWith('pm-')
+      );
+      const byParam = new Map<string, any[]>();
+      for (const conn of responseConns) {
+        const param = conn.toProperty.replace('pm-', '');
+        if (!byParam.has(param)) byParam.set(param, []);
+        byParam.get(param)!.push(conn);
+      }
+
+      const safeName = (param: string) => (/[^a-zA-Z0-9_]/.test(param) ? `"${param}"` : param);
+      const mappings: string[] = [];
+      for (const [param, conns] of byParam) {
+        // Fold the sources for this field into a chain of trigger-gated ternaries.
+        // Base is `undefined` so a field whose operation wasn't triggered is
+        // dropped from the response entirely (not pushed to the UI).
+        let expr = 'undefined';
+        for (let i = conns.length - 1; i >= 0; i--) {
+          const resolved = resolveSourceExpr(conns[i]);
+          // A source we can't resolve (e.g. an I-O node that can't run in the
+          // sandbox) still keeps its field — as null — when its trigger fires,
+          // so the response shape matches the aggregator's declared outputs.
+          const valueExpr = resolved != null ? resolved : 'null';
+          const trigs = requestNode ? triggersForNode(conns[i].fromId) : null;
+          let gate: string | null;
+          if (trigs === null) {
+            gate = null; // unconditional — no signal gating on this source
+          } else if (trigs.size > 0) {
+            gate = Array.from(trigs).map((t) => this.safePropertyAccess('config', t)).join(' || ');
+          } else {
+            continue; // signal-gated but unreachable from any trigger — never fires
+          }
+          expr = gate ? `(${gate} ? ${valueExpr} : ${expr})` : valueExpr;
+        }
+        mappings.push(`${safeName(param)}: ${expr}`);
+      }
+      if (mappings.length > 0) {
+        invocationCode += `const _componentOutputs = { ${mappings.join(', ')} };\n    `;
       }
     }
 
@@ -1526,7 +1717,8 @@ ${originalComponentStructure}
         (this.mathNodeConverter && this.mathNodeConverter.isMathNode(node.typename))
       ) {
         Object.entries(node.parameters).forEach(([key, value]) => {
-          if (key !== 'params' && key !== 'functionScript') {
+          // isMath is a compile-time deployment-routing flag, not maths config.
+          if (key !== 'params' && key !== 'functionScript' && key !== 'isMath') {
             config[key] = value;
           }
         });
@@ -1541,10 +1733,28 @@ ${originalComponentStructure}
       }
     }
 
+    // 2026-07-14 (trace 1784044997749): read component ports from BOTH shapes. Real
+    // editor Component Inputs/Outputs nodes store their ports at `node.ports` (with
+    // parameters = {}); only hand-written fixtures put them under `parameters.ports`.
+    // Reading ONLY parameters.ports made _portManifest empty for every real game -> the
+    // deployer printed "0 inputs (none), 0 outputs (none traced)", which misled the AI
+    // into thinking evaluate() was a no-op (it wasn't — data-flow tracing is by edges,
+    // not ports). Fall back to node.ports and normalize type (object {name} on real
+    // nodes, string on fixtures).
+    const _readCompPorts = (n: any): Array<{ name: string; type: string }> => {
+      const raw = ((n && n.parameters && n.parameters.ports) || (n && n.ports) || []) as any[];
+      return raw
+        .filter((p: any) => p && p.name)
+        .map((p: any) => ({
+          name: p.name,
+          type: typeof p.type === 'string' ? p.type : ((p.type && (p.type.name || p.type.type)) || 'number'),
+        }));
+    };
+
     // 3. Include Component Inputs defaults
     for (const node of this.component.graph.roots) {
-      if (node.typename === 'Component Inputs' && node.parameters.ports) {
-        for (const port of node.parameters.ports as Array<{ name: string; type: string }>) {
+      if (node.typename === 'Component Inputs') {
+        for (const port of _readCompPorts(node)) {
           if (port.name.toLowerCase() === 'betamount') {
             config['bet'] = config['bet'] || 100; // Default bet amount
           }
@@ -1558,15 +1768,11 @@ ${originalComponentStructure}
     const manifestOutputs: Array<{ name: string; type: string }> = [];
 
     for (const node of this.component.graph.roots) {
-      if (node.typename === 'Component Inputs' && node.parameters.ports) {
-        for (const port of node.parameters.ports as Array<{ name: string; type: string }>) {
-          manifestInputs.push({ name: port.name, type: port.type || 'number' });
-        }
+      if (node.typename === 'Component Inputs') {
+        for (const port of _readCompPorts(node)) manifestInputs.push(port);
       }
-      if (node.typename === 'Component Outputs' && node.parameters.ports) {
-        for (const port of node.parameters.ports as Array<{ name: string; type: string }>) {
-          manifestOutputs.push({ name: port.name, type: port.type || 'number' });
-        }
+      if (node.typename === 'Component Outputs') {
+        for (const port of _readCompPorts(node)) manifestOutputs.push(port);
       }
     }
 
@@ -1631,6 +1837,9 @@ ${originalComponentStructure}
         } else if (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename)) {
           const functionName = this.getFunctionName(node);
           return this.collectionNodeConverter.convertCollectionNode(node, functionName);
+        } else if (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(node.typename)) {
+          const functionName = this.getFunctionName(node);
+          return this.rgsExtraNodeConverter.generateNodeFunctionDefinition(node, functionName);
         } else if (node.typename.startsWith('/#__cloud__/')) {
           // Handle Cloud Logic component references
           const logicComponent = this.findCloudLogicComponent(node.typename);
@@ -1667,6 +1876,12 @@ ${originalComponentStructure}
           return `function ${funcName}(inputs) {\n  // StateManager passthrough: forward all state inputs\n  return { ${aliases.map(a => `${this.sanitizeParameterName(a)}: inputs.${this.sanitizeParameterName(a)}`).join(', ')} };\n}\n`;
         }
 
+        // Stage-2: stateful Set Variable nodes emit inline `_vars` writes in the
+        // invocation stream — no function definition.
+        if (node.typename === 'Set Variable' || node.typename === '/#__cloud__/Set Variable') {
+          return '';
+        }
+
         return `// Unknown node type: ${node.typename}`;
       })
       .join('\n');
@@ -1689,7 +1904,15 @@ ${originalComponentStructure}
     // Transform Inputs.parameterName to inputs.sanitizedParameterName
     const inputPorts = node.dynamicports?.filter((p) => p.plug === 'input') || [];
     inputPorts.forEach((port) => {
-      const originalName = port.displayName;
+      // `displayName` is what the script writes (`Inputs.<displayName>`), but it is
+      // not guaranteed present — editor-model ports carry it, ports rehydrated from
+      // a project export or a fixture often carry only `name`. Reading it blindly
+      // threw "Cannot read properties of undefined (reading 'replace')" out of the
+      // middle of code generation, which surfaces as a failed compile with no clue
+      // which port caused it. Fall back to the port name, which is what the script
+      // would have referenced anyway.
+      const originalName = this.portScriptName(port);
+      if (!originalName) return;
       const sanitizedName = this.sanitizeParameterName(originalName);
       if (originalName !== sanitizedName) {
         transformedScript = transformedScript.replace(
@@ -1708,10 +1931,13 @@ ${originalComponentStructure}
     // Fix the variable mapping issue by ensuring proper variable names and scope
     outputPorts.forEach((portName) => {
       const originalPort = node.dynamicports?.find(
-        (p) => p.plug === 'output' && this.sanitizeParameterName(p.displayName) === portName
+        (p) => p.plug === 'output' && this.sanitizeParameterName(this.portScriptName(p)) === portName
       );
       if (originalPort) {
-        const originalName = originalPort.displayName;
+        // Same fallback as the input side above: `displayName` is absent on ports
+        // rehydrated from an export, and reading it blindly crashed code generation.
+        const originalName = this.portScriptName(originalPort);
+        if (!originalName) return;
 
         // Check if the variable is already declared as const in the script
         const isConstVariable = new RegExp(`const\\s+${portName}\\s*=`).test(transformedScript);
@@ -1885,6 +2111,16 @@ ${originalComponentStructure}
     return this.component.graph.roots.filter((node) => this.mathNodeConverter.isMathNode(node.typename));
   }
 
+  // Non-visual nodes not handled by any other converter (provably-fair / data /
+  // I-O). These are extracted to the backend by Compile, so the RGS script must
+  // generate functions for them — otherwise their outputs are dropped.
+  private findAllExtraNodes(): Node[] {
+    if (!this.rgsExtraNodeConverter) {
+      return [];
+    }
+    return this.component.graph.roots.filter((node) => this.rgsExtraNodeConverter.isExtraNode(node.typename));
+  }
+
   /**
    * Find all slot game nodes in the component
    */
@@ -1935,17 +2171,34 @@ ${originalComponentStructure}
     if (!requestNode?.dynamicports) return [];
     return requestNode.dynamicports
       .filter((p) => p.plug === 'output')
-      .map((p) => this.sanitizeParameterName(p.displayName));
+      .map((p) => this.sanitizeParameterName(this.portScriptName(p)));
   }
 
   private generateFunctionInvocations(nodes: Node[], requestNode?: Node): string {
     let invocationCode = '';
     const outputVariableMap = new Map<string, string>();
 
+    // Gate each node's invocation on the request operation-triggers (`is<Op>`)
+    // that reach its `Do`, so an operation the request never triggered doesn't
+    // run its nodes (e.g. a Division that would throw "Division by zero" on an
+    // unrelated request). Untriggered nodes keep {} — downstream reads and
+    // response fields then resolve to undefined and drop out of the JSON.
+    // No-op when there is no aggregator request node. See buildTriggerResolver().
+    const triggersForNode = this.buildTriggerResolver(requestNode);
+    const invocationGateFor = (nodeId: string): string | null => {
+      const trigs = triggersForNode(nodeId);
+      if (trigs === null) return null;
+      if (trigs.size === 0) return 'false';
+      return Array.from(trigs)
+        .map((t) => this.safePropertyAccess('requestBody', t))
+        .join(' || ');
+    };
+
     nodes.forEach((node) => {
       const functionName = this.getFunctionName(node);
 
-      // For math, slot game, standard library, signal passthrough, and collection nodes, we need to handle the case where dynamicports might be empty
+      // For math, slot game, standard library, signal passthrough, collection, and RGS-extra
+      // nodes, we need to handle the case where dynamicports might be empty
       // but connections exist with the actual port names
       let inputConnections;
       if (
@@ -1954,9 +2207,14 @@ ${originalComponentStructure}
         (this.stdLibraryNodeConverter && this.stdLibraryNodeConverter.isStdLibraryNode(node.typename)) ||
         (this.signalPassthroughNodeConverter &&
           this.signalPassthroughNodeConverter.isSignalPassthroughNode(node.typename)) ||
-        (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename))
+        (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename)) ||
+        (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(node.typename))
       ) {
-        // For math and slot game nodes, look for connections to this node regardless of port prefix
+        // For these nodes, look for connections to this node regardless of port prefix.
+        // RGS-extra nodes (e.g. Convert Inputs into Record) name their dynamic value
+        // ports "input{i}"/"key{i}", which do NOT carry the "in-" prefix the generic
+        // branch below filters on — without this, their connections are silently
+        // dropped and the generated function falls back to defaults.
         inputConnections = this.connections.filter((c) => c.toId === node.id);
       } else if (node.typename.startsWith('/#__cloud__/') || node.typename.startsWith('/#__maths__/')) {
         // For Cloud/Maths Logic component references, no input connections needed (they're self-contained)
@@ -1978,7 +2236,8 @@ ${originalComponentStructure}
         (this.stdLibraryNodeConverter && this.stdLibraryNodeConverter.isStdLibraryNode(node.typename)) ||
         (this.signalPassthroughNodeConverter &&
           this.signalPassthroughNodeConverter.isSignalPassthroughNode(node.typename)) ||
-        (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename))
+        (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename)) ||
+        (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(node.typename))
       ) {
         // For math and slot game nodes, we need to include ALL required parameters
         // Some may come from connections, others from node parameters (sidepanel)
@@ -2048,7 +2307,8 @@ ${originalComponentStructure}
               } else if (
                 (this.mathNodeConverter && this.mathNodeConverter.isMathNode(sourceNodeType)) ||
                 (this.slotGameNodeConverter && this.slotGameNodeConverter.isSlotGameNode(sourceNodeType)) ||
-                (this.stdLibraryNodeConverter && this.stdLibraryNodeConverter.isStdLibraryNode(sourceNodeType))
+                (this.stdLibraryNodeConverter && this.stdLibraryNodeConverter.isStdLibraryNode(sourceNodeType)) ||
+                (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(sourceNodeType))
               ) {
                 // For REST nodes, use bracket notation and strip 'out-' prefix from fromProperty
                 // because REST node outputs are stored without the 'out-' prefix
@@ -2087,6 +2347,10 @@ ${originalComponentStructure}
           // Skip special parameters that aren't input ports
           // For REST nodes, requestScript and responseScript are embedded in the function body, not passed as parameters
           if (paramName === 'params' || paramName === 'functionScript') {
+            return;
+          }
+          // isMath is a deployment-routing flag (Compile feature), not a data input.
+          if (paramName === 'isMath') {
             return;
           }
           // Exclude requestScript and responseScript for REST nodes (they're embedded in function body)
@@ -2147,7 +2411,7 @@ ${originalComponentStructure}
             requestNode.dynamicports
               .filter((p) => p.plug === 'output')
               .forEach((port) => {
-                const originalName = port.displayName;
+                const originalName = this.portScriptName(port);
                 const paramName = this.sanitizeParameterName(originalName);
                 if (!inputMappings.has(paramName)) {
                   // Use square bracket notation for parameters with spaces or special characters
@@ -2227,7 +2491,8 @@ ${originalComponentStructure}
                 } else if (
                   (this.mathNodeConverter && this.mathNodeConverter.isMathNode(sourceNode.typename)) ||
                   (this.slotGameNodeConverter && this.slotGameNodeConverter.isSlotGameNode(sourceNode.typename)) ||
-                  (this.stdLibraryNodeConverter && this.stdLibraryNodeConverter.isStdLibraryNode(sourceNode.typename))
+                  (this.stdLibraryNodeConverter && this.stdLibraryNodeConverter.isStdLibraryNode(sourceNode.typename)) ||
+                  (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(sourceNode.typename))
                 ) {
                   // For REST nodes, use bracket notation and strip 'out-' prefix from fromProperty
                   // because REST node outputs are stored without the 'out-' prefix
@@ -2266,6 +2531,21 @@ ${originalComponentStructure}
       }
 
       const outputVar = `${functionName}Result`;
+      const nodeLabel = node.label || functionName;
+      const gate = invocationGateFor(node.id);
+      // Emit a (possibly gated) invocation of `callExpr`. When gated, the node is
+      // only called if its request trigger fired; otherwise its result stays {}
+      // (mirrors the editor, where an untriggered node never computes, so its
+      // response fields resolve to undefined and drop out of the JSON).
+      const emitCall = (callExpr: string) => {
+        if (gate === null) {
+          invocationCode += `const ${outputVar} = ${callExpr};\n    `;
+        } else if (gate === 'false') {
+          invocationCode += `let ${outputVar} = {}; /* [${nodeLabel}] not invoked: no request trigger reaches its Do */\n    `;
+        } else {
+          invocationCode += `let ${outputVar} = {};\n    if (${gate}) { ${outputVar} = ${callExpr}; }\n    `;
+        }
+      };
 
       if (node.typename.startsWith('/#__cloud__/') || node.typename.startsWith('/#__maths__/')) {
         // For Cloud/Maths Logic component references, we need to pass input parameters
@@ -2348,22 +2628,15 @@ ${originalComponentStructure}
             ? this.detectAsyncOperations(jsNode.parameters.functionScript || '')
             : false;
 
+          const awaitPrefix = hasAsyncOperations ? 'await ' : '';
           if (inputObject) {
-            if (hasAsyncOperations) {
-              invocationCode += `const ${outputVar} = await ${functionName}({ ${inputObject} });\n    `;
-            } else {
-              invocationCode += `const ${outputVar} = ${functionName}({ ${inputObject} });\n    `;
-            }
+            emitCall(`${awaitPrefix}${functionName}({ ${inputObject} })`);
           } else {
-            if (hasAsyncOperations) {
-              invocationCode += `const ${outputVar} = await ${functionName}();\n    `;
-            } else {
-              invocationCode += `const ${outputVar} = ${functionName}();\n    `;
-            }
+            emitCall(`${awaitPrefix}${functionName}()`);
           }
         } else {
           // Fallback if Logic component not found
-          invocationCode += `const ${outputVar} = ${functionName}();\n    `;
+          emitCall(`${functionName}()`);
         }
       } else {
         // DbConfig nodes are variables, not functions - skip function invocation
@@ -2390,11 +2663,7 @@ ${originalComponentStructure}
         const hasAsyncOperations =
           isRestNode || isAsyncStdLibraryNode || this.detectAsyncOperations(node.parameters.functionScript || '');
 
-        if (hasAsyncOperations) {
-          invocationCode += `const ${outputVar} = await ${functionName}({ ${inputObject} });\n    `;
-        } else {
-          invocationCode += `const ${outputVar} = ${functionName}({ ${inputObject} });\n    `;
-        }
+        emitCall(`${hasAsyncOperations ? 'await ' : ''}${functionName}({ ${inputObject} })`);
       }
 
       outputVariableMap.set(node.id, outputVar);
@@ -2934,11 +3203,37 @@ ${originalComponentStructure}
   }
 
   private getOutputPortNames(node: Node): string[] {
-    return node.dynamicports.filter((p) => p.plug === 'output').map((p) => this.sanitizeParameterName(p.displayName));
+    // Guard against a missing dynamicports array (e.g. a custom Function node
+    // loaded from disk before the editor materialised its derived out-* ports).
+    return (node.dynamicports || [])
+      .filter((p) => p.plug === 'output')
+      .map((p) => this.sanitizeParameterName(this.portScriptName(p)));
+  }
+
+  /**
+   * The name a script uses for a port: `Inputs.<x>` / `Outputs.<x>`.
+   *
+   * Editor-model ports carry `displayName`; ports rehydrated from a project
+   * export or a fixture often carry only `name`, prefixed with its plug
+   * (`in-reels`, `out-finalResult`). Reading displayName blindly crashed code
+   * generation; falling back to the raw name emitted `let out-finalResult;`,
+   * which is not an identifier. Strip the plug prefix — that is exactly what
+   * displayName is, and the same convention this file already uses when it
+   * builds the Inputs/Outputs objects.
+   */
+  private portScriptName(port: { displayName?: string; name?: string } | undefined | null): string {
+    if (!port) return '';
+    if (port.displayName) return port.displayName;
+    return String(port.name || '').replace(/^(?:in|out)-/, '');
   }
 
   private findPort(nodeId: string, portName: string) {
-    return this.nodes.get(nodeId)?.dynamicports.find((p) => p.name === portName);
+    // `?.` guarded the node lookup but not `dynamicports`, so a node without that
+    // array threw "Cannot read properties of undefined (reading 'find')" out of a
+    // lookup whose whole contract is "return the port or undefined". Editor-model
+    // nodes always carry it; nodes rehydrated from an export or a test fixture do
+    // not, and those are exactly the inputs a harness feeds in.
+    return this.nodes.get(nodeId)?.dynamicports?.find((p) => p.name === portName);
   }
 
   private sanitizeForIdentifier(name: string): string {
@@ -2968,6 +3263,153 @@ ${originalComponentStructure}
     return isSafeIdentifier ? `${obj}.${prop}` : `${obj}["${prop}"]`;
   }
 
+  /**
+   * Resolve a connection source through Variable2 hops to a "real" node.
+   *
+   * (2026-07-15, trace 1784154340515 — Relic Run "[WReels] Reel strips array is
+   * required and cannot be empty"): Variable2 and Set Variable are NOT compiled
+   * node types — the old passthrough only followed a data wire into the
+   * Variable2's `value` port. But the canonical persistence pattern writes the
+   * variable via a name-matched `Set Variable` node (generator → SetX.value,
+   * SetX.do fired by a signal), leaving the Variable2's `value` port unwired —
+   * so resolution dead-ended and the reader was inlined with the variable's
+   * INITIAL value (an empty array) forever. Any maths that generates reel strips
+   * at init and reads them through a Variable2 crashed server-side on every spin.
+   *
+   * This resolver follows BOTH: a wire into `value`, OR (when absent) the
+   * name-matched Set Variable writer's `value` source. NOTE the Stage-1
+   * semantics: the resolved source is evaluated in the spin script, so
+   * init-generated data is re-derived per evaluation rather than persisted
+   * across spins (true cross-spin persistence needs ctx.state mapping — a
+   * follow-up). With multiple same-name writers the first wired one wins.
+   */
+  /**
+   * Stage-2 cross-spin persistence (2026-07-17). A "stateful" variable is a
+   * Variable2 with at least one name-matched `Set Variable` writer whose value
+   * port is wired. These compile to a `_vars` store hydrated from
+   * `ctx.state.__vars` and written back into the returned state, so the value
+   * genuinely persists across spins — in the RGS stress runner (persistedState)
+   * AND in production /spin (game_sessions.round_state). Variable2 nodes with
+   * no writer stay inlined as constants (Stage-1 behavior).
+   */
+  private collectStatefulVariables(): Map<string, { initial: unknown; writers: Node[] }> {
+    const stateful = new Map<string, { initial: unknown; writers: Node[] }>();
+    const roots = this.component.graph.roots;
+    for (const node of roots) {
+      if (node.typename !== 'Variable2' && node.typename !== '/#__cloud__/Variable2') continue;
+      const varName = (node.parameters as any)?.name;
+      if (!varName) continue;
+      const writers = roots.filter(
+        (n) =>
+          (n.typename === 'Set Variable' || n.typename === '/#__cloud__/Set Variable') &&
+          (n.parameters as any)?.name === varName &&
+          this.connections.some((c) => c.toId === n.id && c.toProperty === 'value')
+      );
+      if (writers.length === 0) continue;
+      if (!stateful.has(varName)) {
+        stateful.set(varName, { initial: (node.parameters as any)?.value, writers });
+      }
+    }
+    return stateful;
+  }
+
+  /** Port type lookup across both real-editor and fixture port storage shapes. */
+  private portTypeOf(node: Node | undefined, portName: string): string {
+    if (!node) return '';
+    const pools: any[] = [
+      ...((node as any).dynamicports || []),
+      ...(((node as any).ports as any[]) || []),
+      ...((((node as any).parameters || {}).ports as any[]) || []),
+    ];
+    const p = pools.find((x) => x && x.name === portName);
+    const t = p?.type;
+    return String((t && typeof t === 'object' ? t.name : t) || '').toLowerCase();
+  }
+
+  /**
+   * Gate expression for a Set Variable write: trace the writer's `do` signal
+   * chain backwards to its Component Inputs root(s).
+   *
+   * The compiled RGS script runs every node each evaluate() — there is no real
+   * signal engine — so init/reset chains would clobber persisted state every
+   * spin without this. Semantics: a chain rooted in a signal whose name looks
+   * like init/reset fires on ROUND 1 only (or when the caller explicitly sends
+   * `config.<Name>: true`); every other root (Spin etc.) fires every spin.
+   * A writer with no traceable Component Inputs root gates to `true` — closest
+   * to the editor "fired by an in-spin chain" case and to Stage-1 behavior.
+   */
+  private signalGateForWriter(writer: Node): string {
+    const rootGates = new Set<string>();
+    const visited = new Set<string>();
+    const queue: Array<{ nodeId: string; portName: string }> = [{ nodeId: writer.id, portName: 'do' }];
+    let steps = 0;
+    while (queue.length > 0 && steps < 200) {
+      steps++;
+      const { nodeId, portName } = queue.shift()!;
+      const key = `${nodeId} ${portName}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      for (const conn of this.connections) {
+        if (conn.toId !== nodeId || conn.toProperty !== portName) continue;
+        const src = this.nodes.get(conn.fromId);
+        if (!src) continue;
+        if (src.typename === 'Component Inputs') {
+          const root = conn.fromProperty;
+          rootGates.add(
+            /init|reset/i.test(root)
+              ? `(ctx.round === 1 || config[${JSON.stringify(root)}] === true)`
+              : 'true'
+          );
+          continue;
+        }
+        // Continue backwards through the source node's own signal inputs.
+        for (const upstream of this.connections) {
+          if (upstream.toId !== src.id) continue;
+          const t = this.portTypeOf(src, upstream.toProperty);
+          const looksSignal = t === 'signal' || /^(do|run|spin)$/i.test(upstream.toProperty) || upstream.toProperty.startsWith('on');
+          if (looksSignal) queue.push({ nodeId: src.id, portName: upstream.toProperty });
+        }
+      }
+    }
+    if (rootGates.size === 0 || rootGates.has('true')) return 'true';
+    return Array.from(rootGates).join(' || ');
+  }
+
+  private resolveThroughVariables(
+    fromId: string,
+    fromProperty: string,
+    isResolved: (id: string) => boolean
+  ): { fromId: string; fromProperty: string } {
+    let resolvedFromId = fromId;
+    let resolvedFromProperty = fromProperty;
+    let hops = 0;
+    while (!isResolved(resolvedFromId) && hops < 10) {
+      const srcNode = this.nodes.get(resolvedFromId);
+      if (!srcNode || (srcNode.typename !== '/#__cloud__/Variable2' && srcNode.typename !== 'Variable2')) break;
+      let upstreamConn = this.connections.find(
+        (c) => c.toId === resolvedFromId && c.toProperty === 'value'
+      );
+      if (!upstreamConn) {
+        // Variable2 persistence: value arrives via a name-matched Set Variable.
+        const varName = (srcNode.parameters as any)?.name;
+        const writer = varName
+          ? Array.from(this.nodes.values()).find(
+              (n) =>
+                (n.typename === 'Set Variable' || n.typename === '/#__cloud__/Set Variable') &&
+                (n.parameters as any)?.name === varName &&
+                this.connections.some((c) => c.toId === n.id && c.toProperty === 'value')
+            )
+          : undefined;
+        if (!writer) break;
+        upstreamConn = this.connections.find((c) => c.toId === writer.id && c.toProperty === 'value')!;
+      }
+      resolvedFromId = upstreamConn.fromId;
+      resolvedFromProperty = upstreamConn.fromProperty;
+      hops++;
+    }
+    return { fromId: resolvedFromId, fromProperty: resolvedFromProperty };
+  }
+
   private sortNodesByExecutionOrder(nodes: Node[]): Node[] {
     const nodeIds = new Set(nodes.map((n) => n.id));
     const adj: Map<string, string[]> = new Map();
@@ -2977,8 +3419,37 @@ ${originalComponentStructure}
       inDegree.set(node.id, 0);
     }
     for (const conn of this.connections) {
-      if (nodeIds.has(conn.fromId) && nodeIds.has(conn.toId)) {
-        adj.get(conn.fromId)!.push(conn.toId);
+      if (!nodeIds.has(conn.toId)) continue;
+      // (2026-07-15) Variable-mediated dependencies: a compiled node reading a
+      // Variable2 depends on the compiled node that WRITES it (via Set Variable).
+      // Without this synthetic edge the writer could sort AFTER the reader and
+      // the reader would reference its output before assignment.
+      let fromId = conn.fromId;
+      if (!nodeIds.has(fromId)) {
+        // Stage-2: when the source is a STATEFUL Variable2, the reader depends
+        // on the Set Variable writer NODES themselves (the `_vars` write must
+        // emit before the read within a spin — round 1 would otherwise read the
+        // initial value that Stage-1's inline resolution used to paper over).
+        // Read-modify-write loops become cycles here; the Kahn remainder net
+        // below keeps those nodes in original order instead of dropping them.
+        const _srcVar = this.nodes.get(conn.fromId);
+        const _svn = _srcVar && (_srcVar.typename === 'Variable2' || _srcVar.typename === '/#__cloud__/Variable2')
+          ? (_srcVar.parameters as any)?.name
+          : null;
+        const _stInfo = _svn ? this._statefulVars?.get(_svn) : null;
+        if (_stInfo) {
+          for (const w of _stInfo.writers) {
+            if (nodeIds.has(w.id) && w.id !== conn.toId) {
+              adj.get(w.id)!.push(conn.toId);
+              inDegree.set(conn.toId, (inDegree.get(conn.toId) || 0) + 1);
+            }
+          }
+          continue;
+        }
+        fromId = this.resolveThroughVariables(conn.fromId, conn.fromProperty, (id) => nodeIds.has(id)).fromId;
+      }
+      if (nodeIds.has(fromId) && fromId !== conn.toId) {
+        adj.get(fromId)!.push(conn.toId);
         inDegree.set(conn.toId, (inDegree.get(conn.toId) || 0) + 1);
       }
     }
@@ -2990,6 +3461,17 @@ ${originalComponentStructure}
       for (const v of adj.get(u) || []) {
         inDegree.set(v, inDegree.get(v)! - 1);
         if (inDegree.get(v) === 0) queue.push(v);
+      }
+    }
+    // Cycle safety net: Kahn's algorithm silently DROPS nodes stuck in a cycle
+    // (their in-degree never reaches 0) — they'd vanish from the compiled script
+    // entirely. Variable-mediated edges can create legitimate read-modify-write
+    // cycles (a node reads a variable it also writes), so append any remainder
+    // in original order instead of dropping it.
+    if (sorted.length < nodes.length) {
+      const seen = new Set(sorted);
+      for (const n of nodes) {
+        if (!seen.has(n.id)) sorted.push(n.id);
       }
     }
     return sorted.map((id) => this.nodes.get(id)!);

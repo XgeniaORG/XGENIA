@@ -253,6 +253,26 @@ export async function copyDeployFilesToFolder({
       flatAssetMap
     })
   ]);
+
+  // Bundle the uid→path asset manifest so the deployed runtime resolves `uid://<id>` refs.
+  // Built from the project's .xgenia-assets.json (the stable-id store).
+  try {
+    const root = (ProjectModel.instance as any)?._retainedProjectDirectory;
+    const map: Record<string, string> = {};
+    if (root) {
+      const metaPath = filesystem.join(String(root), '.xgenia-assets.json');
+      if (filesystem.exists(metaPath)) {
+        const meta = JSON.parse(await filesystem.readFile(metaPath));
+        for (const p in meta) {
+          const uid = meta[p] && meta[p].uid;
+          if (uid) map[uid] = p;
+        }
+      }
+    }
+    await filesystem.writeFileOverride(direntry + '/assets-manifest.json', JSON.stringify(map));
+  } catch (e) {
+    console.warn('[deploy] assets-manifest write failed:', e);
+  }
   // reject({ result: 'failure', message: 'Failed to copy deploy files.' });
 }
 

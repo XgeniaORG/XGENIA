@@ -339,6 +339,14 @@
       padding-top: 12px !important;
       margin-top: auto !important;
       padding-bottom: 0 !important;
+      display: none !important;
+    }
+
+    /* Visibility is driven by the .is-signed-in class, not jQuery show()/hide():
+       the display rule above is !important, so it outranks the inline display that
+       show()/hide() write and those calls would silently do nothing. The island stays
+       hidden until ProjectsView has populated the user's name/email. */
+    .projects-left-sidebar .sidebar-user.is-signed-in {
       display: block !important;
     }
 
@@ -400,6 +408,20 @@
       background: rgba(103, 222, 146, 0.15) !important;
     }
 
+    /* Paid tiers (pro/enterprise) get a neutral "manage plan" button rather than
+       the green upgrade call to action. */
+    .projects-left-sidebar .sidebar-upgrade.is-manage-plan {
+      background: rgba(255, 255, 255, 0.06) !important;
+      color: rgba(255, 255, 255, 0.7) !important;
+      box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.08) !important;
+      font-weight: 500 !important;
+    }
+
+    .sidebar-upgrade.is-manage-plan:hover {
+      background: rgba(255, 255, 255, 0.10) !important;
+      color: #fff !important;
+    }
+
     /* Additional Components */
     .content-tabs {
       display: flex;
@@ -444,6 +466,17 @@
       min-width: 600px !important;
       display: block !important;
       visibility: visible !important;
+    }
+
+    /* Compact layout for the blank-project flow — no template preview to make room for */
+    .create-from-template-popup.blank-project-mode {
+      width: 460px !important;
+      min-width: 460px !important;
+      min-height: 0 !important;
+    }
+
+    .create-from-template-popup.blank-project-mode #start-pane-feed-item-big-create-new-project {
+      padding-bottom: 48px;
     }
 
     .projects-feed-image-big {
@@ -522,6 +555,30 @@
     .projects-template-item:hover {
       transform: translateY(-2px);
       background: rgba(255, 255, 255, 0.06);
+    }
+
+    /* Blank project ("+") card */
+    .projects-blank-project-plus {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .projects-blank-project-plus-circle {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      border: 1.5px dashed rgba(255, 255, 255, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255, 255, 255, 0.6);
+      transition: all 0.2s ease;
+    }
+
+    .projects-blank-project-item:hover .projects-blank-project-plus-circle {
+      border-color: var(--accent);
+      color: var(--accent);
     }
 
     .projects-feed-image {
@@ -787,7 +844,7 @@
       </nav>
     </div>
 
-    <div class="sidebar-user" style="display:none;">
+    <div class="sidebar-user">
       <div class="user-profile-area" data-click="onUserProfileClicked"
         style="display: flex; align-items: center; margin-bottom: 2px; cursor: pointer; padding: 8px; border-radius: 8px; transition: all 0.2s ease; position: relative;">
         <div class="avatar"></div>
@@ -808,7 +865,10 @@
         </div>
       </div>
       <div style="margin-top: 1rem; padding-bottom: 1rem;">
-        <button class="sidebar-upgrade" data-click="onSidebarUpgradeClicked">Upgrade</button>
+        <!-- Label/target are set per membership tier in updateSidebarUserInfo() -->
+        <button class="sidebar-upgrade" data-click="onSidebarUpgradeClicked">
+          <span class="sidebar-upgrade-label">Upgrade</span>
+        </button>
       </div>
     </div>
   </div>
@@ -876,10 +936,28 @@
         style="font-size: 18px; color: rgba(255,255,255,0.5); cursor: pointer; position:absolute; top:7px; left:10px;"
         data-click="onBackToProjectsListClicked"></i>
       <div style="margin-left:50px; margin-bottom:40px; width:500px; position:relative; top:0px;">
-        <div class="projects-title">Pick a template to start from</div>
+        <div class="projects-title">Create a new project</div>
+      </div>
+
+      <!-- blank project card (lives outside .projects-create-from-template, which is re-rendered) -->
+      <div style="margin-left:45px; margin-bottom:32px;">
+        <div class="projects-template-item projects-blank-project-item" data-click="onCreateBlankProjectClicked"
+          data-test="create-blank-project-item">
+          <div class="projects-feed-image projects-blank-project-plus">
+            <div class="projects-blank-project-plus-circle">
+              <i class="hgi-stroke hgi-add-01" style="font-size: 24px;"></i>
+            </div>
+          </div>
+
+          <div class="projects-template-item-details">
+            <div class="projects-template-item-title">Create new project</div>
+            <div class="projects-template-item-body">Start from scratch</div>
+          </div>
+        </div>
       </div>
 
       <div style="margin-left:45px;">
+        <div class="projects-create-from-template-title">Or pick a template to start from</div>
         <div class="projects-create-from-template" style="overflow-y: auto"></div>
       </div>
     </div>
@@ -951,7 +1029,7 @@
         <div id="start-pane-feed-item-big-create-new-project" style="margin:20px; flex: 1;">
 
           <div style="margin-left:0px; margin-right:20px;">
-            <div class="projects-popup-title">Create new project from template</div>
+            <div id="start-pane-feed-item-big-title" class="projects-popup-title">Create new project from template</div>
             <div class="projects-sublabel" style="margin-top:5px;" data-bind="watch"
               data-html="projectTemplateLongDesc"></div>
           </div>

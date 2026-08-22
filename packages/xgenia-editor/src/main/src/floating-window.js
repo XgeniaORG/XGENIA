@@ -1,12 +1,14 @@
 const { BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const CrashTelemetry = require('./crash-telemetry');
 
 function FloatingWindow() {
   this.window = null;
   this.eventListeners = new Map(); // Store event listeners for cleanup
   this.isWindowReady = false; // Track if window is ready to receive messages
   this.queuedEvents = []; // Queue events until window is ready
+  this.queueFullWarned = false; // one warn per full-queue episode, not per dropped event
   this.MAX_QUEUED_EVENTS = 100; // REDUCED: Prevent memory leaks (was 100)
   
   // EMERGENCY FIX: Add throttling to prevent runaway loops
@@ -31,6 +33,7 @@ FloatingWindow.prototype.open = function ({ x, y, width, height, minWidth, minHe
   // Reset ready state
   this.isWindowReady = false;
   this.queuedEvents = [];
+  this.queueFullWarned = false;
 
   // Use the correct preload script for the floating window (not webview preload)
   let preloadPath = '';
@@ -130,7 +133,9 @@ FloatingWindow.prototype.open = function ({ x, y, width, height, minWidth, minHe
   });
 
   this.window.webContents.on('render-process-gone', (event, details) => {
-    console.error('[FloatingWindow] Render process gone:', details);
+    // (debug-export 1783408275898) Persist reason/exitCode so viewer-window
+    // crashes are diagnosable post-restart, same as the editor window.
+    CrashTelemetry.record('floating-window', details);
   });
 
   this.window.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
@@ -248,6 +253,7 @@ FloatingWindow.prototype.close = function () {
   // Reset ready state
   this.isWindowReady = false;
   this.queuedEvents = [];
+  this.queueFullWarned = false;
   
   // EMERGENCY FIX: Reset throttling state
   this.lastEventTimes.clear();
@@ -365,7 +371,14 @@ FloatingWindow.prototype.forwardIpcEvents = function (events) {
           console.log(`[FloatingWindow] Queueing event '${eventName}' until window is ready`);
           this.queuedEvents.push({ eventName, args });
         } else {
-          console.warn(`[FloatingWindow] Event queue full for ${eventName}. Dropping event to prevent crash.`);
+          // Warn ONCE per full-queue episode, like the circuit breaker above. This fires per
+          // DROPPED EVENT, so a preview restart (which floods ipcMain before the window is
+          // ready) turned one condition into hundreds of writes a second — which is how a
+          // broken stdout pipe became a crash dialog here rather than anywhere else.
+          if (!this.queueFullWarned) {
+            this.queueFullWarned = true;
+            console.warn(`[FloatingWindow] Event queue full (${this.MAX_QUEUED_EVENTS}) — dropping '${eventName}' and further events until the window is ready.`);
+          }
         }
       }
     };

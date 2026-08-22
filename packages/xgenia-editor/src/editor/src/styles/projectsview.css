@@ -215,7 +215,7 @@
   width: 20px;
   height: 20px;
   opacity: 0.7;
-  content: url('../icons/checkmark.svg');
+  content: url('../assets/icons/checkmark.svg');
 }
 
 /* ===== Search ===== */
@@ -1576,6 +1576,19 @@
   background: rgba(103, 222, 146, 0.15);
 }
 
+/* Paid tiers show a neutral "manage plan" button instead of the upgrade CTA */
+.sidebar-upgrade.is-manage-plan {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+  font-weight: 500;
+}
+
+.sidebar-upgrade.is-manage-plan:hover {
+  background: rgba(255, 255, 255, 0.10);
+  color: #fff;
+}
+
 /* User profile area */
 .user-profile-area:hover {
   background: rgba(255, 255, 255, 0.06);
@@ -1664,9 +1677,15 @@
   right: 16px;
   padding-top: 12px;
   border-top: 0.5px solid rgba(255, 255, 255, 0.06);
-  display: flex;
+  display: none;
   align-items: center;
   gap: 10px;
+}
+
+/* Only shown once the signed-in user's details have been filled in — see the matching
+   rule in projectsview.html for why this is a class and not jQuery show()/hide(). */
+.projects-left-sidebar .sidebar-user.is-signed-in {
+  display: flex;
 }
 
 .projects-left-sidebar .sidebar-user .avatar {

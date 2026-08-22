@@ -14,7 +14,7 @@ import DashboardSquare01Icon from '@hugeicons/core-free-icons/DashboardSquare01I
 // @ts-ignore
 import Search01Icon from '@hugeicons/core-free-icons/Search01Icon';
 // @ts-ignore
-import Setting06Icon from '@hugeicons/core-free-icons/Setting06Icon';
+import Settings01Icon from '@hugeicons/core-free-icons/Settings01Icon';
 // @ts-ignore
 import GitBranchIcon from '@hugeicons/core-free-icons/GitBranchIcon';
 // @ts-ignore
@@ -22,17 +22,9 @@ import CloudIcon from '@hugeicons/core-free-icons/CloudIcon';
 // @ts-ignore
 import FlashIcon from '@hugeicons/core-free-icons/FlashIcon';
 // @ts-ignore
-import Folder02Icon from '@hugeicons/core-free-icons/Folder02Icon';
-// @ts-ignore
 import Brain01Icon from '@hugeicons/core-free-icons/Brain01Icon';
 // @ts-ignore
 import Telescope01Icon from '@hugeicons/core-free-icons/Telescope01Icon';
-// @ts-ignore
-import Folder01Icon from '@hugeicons/core-free-icons/Folder01Icon';
-// @ts-ignore
-import PaintBoardIcon from '@hugeicons/core-free-icons/PaintBoardIcon';
-// @ts-ignore
-import ArrowTurnBackwardIcon from '@hugeicons/core-free-icons/ArrowTurnBackwardIcon';
 // @ts-ignore
 import Link01Icon from '@hugeicons/core-free-icons/Link01Icon';
 // @ts-ignore
@@ -57,6 +49,8 @@ import PinIcon from '@hugeicons/core-free-icons/PinIcon';
 import PinOffIcon from '@hugeicons/core-free-icons/PinOffIcon';
 // @ts-ignore
 import CalculatorIcon from '@hugeicons/core-free-icons/CalculatorIcon';
+// @ts-ignore
+import FolderLibraryIcon from '@hugeicons/core-free-icons/FolderLibraryIcon';
 
 interface IconProps {
     size?: number;
@@ -77,23 +71,21 @@ function makeIcon(iconData: any, displayName: string) {
 // ── Sidebar icon wrappers ───────────────────────────────────────────
 export const SideComponents = makeIcon(DashboardSquare01Icon, 'SideComponents');
 export const SideSearch = makeIcon(Search01Icon, 'SideSearch');
-export const SideEditorSettings = makeIcon(Setting06Icon, 'SideEditorSettings');
 export const SideVersionControl = makeIcon(GitBranchIcon, 'SideVersionControl');
 export const SideCloud = makeIcon(CloudIcon, 'SideCloud');
 export const SideCloudFunctions = makeIcon(FlashIcon, 'SideCloudFunctions');
-export const SideSettings = makeIcon(Folder02Icon, 'SideSettings');
+/** Gear — the merged Project/Editor Settings panel. */
+export const SideSettings = makeIcon(Settings01Icon, 'SideSettings');
 export const SideChatPanel = makeIcon(Brain01Icon, 'SideChatPanel');
 export const SideAiPanel = makeIcon(Telescope01Icon, 'SideAiPanel');
-export const SideFileExplorer = makeIcon(Folder01Icon, 'SideFileExplorer');
-export const SideDesignTokens = makeIcon(PaintBoardIcon, 'SideDesignTokens');
 export const SideProjectStyles = makeIcon(PaintBrush01Icon, 'SideProjectStyles');
 
-export const SideUndoQueue = makeIcon(ArrowTurnBackwardIcon, 'SideUndoQueue');
 export const SideNodeReferences = makeIcon(Link01Icon, 'SideNodeReferences');
 export const SideFeedback = makeIcon(Comment01Icon, 'SideFeedback');
 export const SideImageEditor = makeIcon(Image01Icon, 'SideImageEditor');
 export const SideMemoryPanel = makeIcon(Brain01Icon, 'SideMemoryPanel');
 export const SideMaths = makeIcon(CalculatorIcon, 'SideMaths');
+export const SideAssets = makeIcon(FolderLibraryIcon, 'SideAssets');
 export const SideAddNode = makeIcon(Add01Icon, 'SideAddNode');
 export const SideLogout = makeIcon(Logout01Icon, 'SideLogout');
 export const TopbarImport = makeIcon(Download04Icon, 'TopbarImport');

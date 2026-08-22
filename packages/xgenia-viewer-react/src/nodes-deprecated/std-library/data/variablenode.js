@@ -5,7 +5,7 @@ const Model = require('@xgenia/runtime/src/model');
 
 const VariableNodeDefinition = {
   name: 'Variable',
-  docs: 'https://docsapp.xgenia.com/nodes/data/variable',
+  docs: 'https://docsapp.xgenia.com/nodes/data/variable/variable-node',
   category: 'Data',
   usePortAsLabel: 'name',
   color: 'data',

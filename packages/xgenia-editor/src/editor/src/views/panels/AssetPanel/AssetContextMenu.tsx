@@ -14,6 +14,12 @@ interface AssetContextMenuProps {
   onRename: () => void;
   onDelete: () => void;
   onCopyPath: () => void;
+  onDuplicate: () => void;
+  onMove?: () => void;
+  isFavorite?: boolean;
+  onToggleFavorite?: () => void;
+  /** Only provided in Electron (reveal-in-OS is desktop-only). */
+  onReveal?: () => void;
 }
 
 interface MenuItem {
@@ -29,8 +35,14 @@ export function AssetContextMenu({
   onClose,
   onRename,
   onDelete,
-  onCopyPath
+  onCopyPath,
+  onDuplicate,
+  onMove,
+  isFavorite,
+  onToggleFavorite,
+  onReveal
 }: AssetContextMenuProps) {
+  const isMac = typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac');
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -56,11 +68,37 @@ export function AssetContextMenu({
   }, [onClose]);
 
   const menuItems: MenuItem[] = [
+    ...(onToggleFavorite
+      ? [{
+          label: isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
+          icon: IconName.Star,
+          action: onToggleFavorite
+        }]
+      : []),
     {
       label: 'Copy Path',
       icon: IconName.Copy,
       action: onCopyPath
     },
+    {
+      label: 'Duplicate',
+      icon: IconName.Copy,
+      action: onDuplicate
+    },
+    ...(onMove
+      ? [{
+          label: 'Move to…',
+          icon: IconName.FolderOpen,
+          action: onMove
+        }]
+      : []),
+    ...(onReveal
+      ? [{
+          label: isMac ? 'Reveal in Finder' : 'Show in Explorer',
+          icon: IconName.ExternalLink,
+          action: onReveal
+        }]
+      : []),
     {
       label: 'Rename',
       icon: IconName.Pencil,

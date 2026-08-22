@@ -6,9 +6,10 @@ import { SidebarModel } from '@xgenia-models/sidebar';
 
 import { IconName } from '@xgenia-core-ui/components/common/Icon';
 
-import config from '../../shared/config/config';
 import { ComponentDiffDocumentProvider } from './views/documents/ComponentDiffDocument';
 import { EditorDocumentProvider } from './views/documents/EditorDocument';
+import { MathsComponentDocumentProvider } from './views/documents/MathsComponentDocument';
+import { MathsSimulateDocumentProvider } from './views/documents/MathsSimulateDocument';
 import { NodePickerPanel } from './views/NodePicker/NodePickerPanel';
 // ChatPanel: proprietary AI module loaded via iframe (GPL-isolated) or symlink (legacy).
 // Falls back to a GPL-3 shell if neither is available.
@@ -37,26 +38,25 @@ if (AI_LOAD_STRATEGY === 'iframe') {
 } else {
   console.log('[XGENIA] AI Chat panel running in open-source mode (shell)');
 }
-import { CloudFunctionsPanel } from './views/panels/CloudFunctionsPanel/CloudFunctionsPanel';
-import { CloudServicePanel } from './views/panels/CloudServicePanel/CloudServicePanel';
+// Cloud Functions panel disabled — see the commented-out register() call below.
+// import { CloudFunctionsPanel } from './views/panels/CloudFunctionsPanel/CloudFunctionsPanel';
+// Cloud Services panel disabled — see the commented-out register() call below.
+// import { CloudServicePanel } from './views/panels/CloudServicePanel/CloudServicePanel';
 import { ComponentPortsComponent } from './views/panels/componentports';
 import { ComponentsPanel } from './views/panels/componentspanel';
-import { DesignTokenPanel } from './views/panels/DesignTokenPanel/DesignTokenPanel';
-import { EditorSettingsPanel } from './views/panels/EditorSettingsPanel/EditorSettingsPanel';
 import { FeedbackPanel, FeedbackPanel_ID } from './views/panels/FeedbackPanel';
-import { FileExplorerPanel } from './views/panels/FileExplorerPanel';
 import MemoryPanel from './views/panels/MemoryPanel/MemoryPanel';
 import { NodeReferencesPanel_ID } from './views/panels/NodeReferencesPanel';
 import { NodeReferencesPanel } from './views/panels/NodeReferencesPanel/NodeReferencesPanel';
-import { ProjectSettingsPanel } from './views/panels/ProjectSettingsPanel/ProjectSettingsPanel';
 import { PropertyEditor } from './views/panels/propertyeditor';
 import { SearchPanel } from './views/panels/search-panel/search-panel';
-import { UndoQueuePanel } from './views/panels/UndoQueuePanel/UndoQueuePanel';
+import { SettingsPanel, SettingsPanel_ID } from './views/panels/SettingsPanel/SettingsPanel';
 import { VersionControlPanel_ID } from './views/panels/VersionControlPanel';
 import { VersionControlPanel } from './views/panels/VersionControlPanel/VersionControlPanel';
 import { ImageEditorPanel } from './views/panels/ImageEditorPanel';
 import { ProjectStylesPanel } from './views/panels/ProjectStylesPanel/ProjectStylesPanel';
 import { MathsPanel, MathsPanel_ID } from './views/panels/MathsPanel';
+import { AssetPanel } from './views/panels/AssetPanel';
 
 
 
@@ -64,6 +64,11 @@ export interface SetupEditorOptions {
   isLesson: boolean;
 }
 
+// `isLesson` currently has no live reader: its only two uses were the
+// `isDisabled` flags on the Cloud Services and Cloud Functions registrations,
+// both commented out below. Kept destructured so uncommenting either one
+// compiles as-is.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function installSidePanel({ isLesson }: SetupEditorOptions) {
   const appRegistry = AppRegistry.instance;
 
@@ -177,63 +182,99 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
   //   panel: MemoryPanel
   // });
 
-  SidebarModel.instance.register({
-    id: 'cloudservice',
-    name: 'Cloud Services',
-    isDisabled: isLesson === true,
-    order: 6,
-    placement: 'bottom',
-    icon: IconName.CloudData,
-    panel: CloudServicePanel
-  });
+  // Cloud Services - Commented out (2026-08-06), together with Cloud Functions
+  // below. The two go together: the environment this panel connects (a Supabase
+  // cloud service) was what Cloud Functions deployed `/#__cloud__/` components
+  // to, and the Maths RGS panel reaches the RGS backend by its own route
+  // (operator key + maths-deployer), not through a cloud-service environment.
+  //
+  // Nothing else in the editor navigates here — no `SidebarModel.switch(
+  // 'cloudservice')` anywhere — so withdrawing the sidebar entry is the whole
+  // change. `'cloudservice'` is left in SidePanel.tsx's `bottomIds` set and
+  // `iconMap`; both are keyed lookups over registered items, so a stale entry is
+  // inert.
+  //
+  // What is no longer reachable while this is off: listing, creating (
+  // CloudServiceCreateModal) and activating environments. Environments already
+  // stored in a project still exist and are still listed by the "Connected cloud
+  // services" dropdowns on DeployToFolderTab / DeployToStakeTab, and the
+  // deploy-supabase-edge-functions compile pass still fires for whichever one is
+  // active — this hides the management UI, it does not clear the setting.
+  //
+  // Publish (XgeniaDeployTab) is unaffected: its own "Connected cloud services"
+  // picker was commented out earlier and its state pinned to
+  // RGS_ENVIRONMENT_VALUE, so Publish takes the RGS path regardless of what any
+  // cloud service says. Do not "fix" that pinning by restoring
+  // NO_ENVIRONMENT_VALUE without also restoring that picker — see the comment at
+  // XgeniaDeployTab.tsx:1887.
+  //
+  // SidebarModel.instance.register({
+  //   id: 'cloudservice',
+  //   name: 'Cloud Services',
+  //   isDisabled: isLesson === true,
+  //   order: 6,
+  //   placement: 'bottom',
+  //   icon: IconName.CloudData,
+  //   panel: CloudServicePanel
+  // });
 
-  SidebarModel.instance.register({
-    id: 'cloud-functions',
-    name: 'Cloud Functions',
-    isDisabled: isLesson === true,
-    order: 7,
-    placement: 'bottom',
-    icon: IconName.CloudFunction,
-    panel: CloudFunctionsPanel
-  });
+  // Cloud Functions - Commented out (2026-08-06).
+  //
+  // Superseded by the Maths RGS panel: maths is authored in `/#__maths__/` and
+  // shipped to the RGS from there, so the `/#__cloud__/` authoring surface this
+  // panel provided is no longer part of the workflow. The panel itself
+  // (CloudFunctionsPanel.tsx) and every `__cloud__` code path — the compile
+  // passes, the converter, the search-panel labelling — are left intact; only
+  // the sidebar entry is withdrawn, so re-enabling is a matter of uncommenting
+  // this block (plus the import above and the switch in NodeGraphContext.tsx).
+  //
+  // Consequence while this is off: '__cloud__' stays in the `hideSheets` list of
+  // the general Components panel above, and no other panel locks to that sheet,
+  // so `/#__cloud__/` components have no UI surface at all. That is intended
+  // here (the sheet is unused, and Publish's machine-generated
+  // `/#__cloud__/__Component_N__` entries were never meant to be browsed), but
+  // it is exactly the condition maths-sheet-mount.test.ts test 1 exists to
+  // catch — that test reads source text, so it keeps passing on the
+  // still-uncommented `lockCurrentSheetName: '__cloud__'` in the panel file. If
+  // `/#__cloud__/` ever needs to be reachable again, either uncomment this
+  // registration or drop '__cloud__' from that hideSheets list.
+  //
+  // SidebarModel.instance.register({
+  //   id: 'cloud-functions',
+  //   name: 'Cloud Functions',
+  //   isDisabled: isLesson === true,
+  //   order: 7,
+  //   placement: 'bottom',
+  //   icon: IconName.CloudFunction,
+  //   panel: CloudFunctionsPanel
+  // });
 
+  // "Project settings" and "Editor settings" were merged into one entry
+  // (2026-08-12). The two scopes live on as the panel's Project/Editor tabs —
+  // see SettingsPanel for why they are tabs and not one flat section list.
   SidebarModel.instance.register({
-    id: 'settings',
-    name: 'Project settings',
+    id: SettingsPanel_ID,
+    name: 'Settings',
     order: 8,
     placement: 'bottom',
     icon: IconName.Setting,
-    panel: ProjectSettingsPanel
+    panel: SettingsPanel
   });
 
-  if (config.devMode) {
-    SidebarModel.instance.register({
-      experimental: true,
-      id: 'file-explorer',
-      name: 'File Explorer',
-      order: 19,
-      icon: IconName.FolderOpen,
-      panel: FileExplorerPanel
-    });
-
-    SidebarModel.instance.register({
-      experimental: true,
-      id: 'design-tokens',
-      name: 'Design Tokens',
-      order: 20,
-      icon: IconName.Palette,
-      panel: DesignTokenPanel
-    });
-
-    SidebarModel.instance.register({
-      experimental: true,
-      id: 'undo-queue',
-      name: 'Undo Queue',
-      order: 21,
-      icon: IconName.Reset,
-      panel: UndoQueuePanel
-    });
-  }
+  // Removed (2026-08-12): the three `config.devMode` experimental panels —
+  // File Explorer, Design Tokens and Undo Queue. All three were unfinished
+  // mockups rather than features: File Explorer rendered the literal string
+  // "Files"; Design Tokens listed colours read-only behind a placeholder
+  // context menu ("Another Action" / "Success" / "Danger") and dumped
+  // `JSON.stringify(textStyle)` for typography; Undo Queue rendered history
+  // entries as buttons with no onClick and never marked the current position.
+  //
+  // They were `devMode`-only (config-dev.js, loaded by dev-main.js), so they
+  // never appeared in packaged builds and nothing outside these registrations
+  // referenced them. The shared infrastructure they leaned on is untouched and
+  // still used elsewhere: UndoQueue/UndoActionGroup (@xgenia-models/undo-queue-model)
+  // back the editor's real undo, and ProjectDesignTokenContext is still
+  // provided by EditorPage.
 
   SidebarModel.instance.register({
     experimental: true,
@@ -245,13 +286,17 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     panel: NodeReferencesPanel
   });
 
+  // Asset browser (experimental). Hidden by default; enable via
+  // Settings → Editor → Experimental panels → "Enable Assets".
   SidebarModel.instance.register({
-    id: 'editor-settings',
-    name: 'Editor settings',
-    order: 1,
-    placement: 'bottom',
-    icon: IconName.SlidersHorizontal,
-    panel: EditorSettingsPanel
+    experimental: true,
+    id: 'assets',
+    name: 'Assets',
+    description:
+      'Asset browser (experimental): browse, search, sort and preview project assets. Drag-into-graph, rename and stable asset IDs are still in progress.',
+    order: 22,
+    icon: IconName.FolderClosed,
+    panel: AssetPanel
   });
 
   // TODO: Register MCP Server Browser panel via iframe bridge when available
@@ -265,6 +310,8 @@ export function installDocuments() {
   appRegistry.openDocument(EditorDocumentProvider.ID);
 
   appRegistry.registerDocumentProvider(ComponentDiffDocumentProvider.ID, new ComponentDiffDocumentProvider());
+  appRegistry.registerDocumentProvider(MathsComponentDocumentProvider.ID, new MathsComponentDocumentProvider());
+  appRegistry.registerDocumentProvider(MathsSimulateDocumentProvider.ID, new MathsSimulateDocumentProvider());
 
   if (import.meta.webpackHot) {
     import.meta.webpackHot.accept('./views/documents/EditorDocument', () => {
@@ -274,6 +321,18 @@ export function installDocuments() {
       AppRegistry.instance.registerDocumentProvider(
         ComponentDiffDocumentProvider.ID,
         new ComponentDiffDocumentProvider()
+      );
+    });
+    import.meta.webpackHot.accept('./views/documents/MathsComponentDocument', () => {
+      AppRegistry.instance.registerDocumentProvider(
+        MathsComponentDocumentProvider.ID,
+        new MathsComponentDocumentProvider()
+      );
+    });
+    import.meta.webpackHot.accept('./views/documents/MathsSimulateDocument', () => {
+      AppRegistry.instance.registerDocumentProvider(
+        MathsSimulateDocumentProvider.ID,
+        new MathsSimulateDocumentProvider()
       );
     });
   }

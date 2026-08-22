@@ -10,7 +10,12 @@ export default function createXgeniaAPI(xgeniaRuntime) {
   global.XGENIA.getMetaData = xgeniaRuntime.getMetaData.bind(xgeniaRuntime);
   global.XGENIA.Collection = global.XGENIA.Array = require('@xgenia/runtime/src/collection');
   global.XGENIA.Model = global.XGENIA.Object = require('@xgenia/runtime/src/model');
-  global.XGENIA.Variables = global.XGENIA.Object.get('--xgenia--global-variables');
+  // '--ndl--global-variables' is the store EVERY variable node actually uses
+  // (setvariablenode.js, variablenode2.js, variablenode.js). The rebrand renamed only
+  // this handle to '--xgenia--global-variables', splitting the public API onto a dead,
+  // always-empty model: XGENIA.Variables reads saw nothing, and writes were invisible
+  // to Variable/Set Variable nodes (trace 1784502460845).
+  global.XGENIA.Variables = global.XGENIA.Object.get('--ndl--global-variables');
   global.XGENIA.Events = global.XGENIA.eventEmitter = xgeniaRuntime.context.eventSenderEmitter;
   global.XGENIA.Records = require('@xgenia/runtime/src/api/records')();
   global.XGENIA.Users = require('./api/users');

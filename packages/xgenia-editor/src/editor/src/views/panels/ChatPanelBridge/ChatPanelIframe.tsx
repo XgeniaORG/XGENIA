@@ -20,6 +20,21 @@ export function ChatPanelIframe() {
     const [pluginUrl, setPluginUrl] = useState<string | null>(null);
     const [errorMsg, setErrorMsg] = useState('');
     const [tier, setTier] = useState('');
+    // When the AI plugin opens its full-screen Settings, it asks us to expand the
+    // iframe to cover the whole editor (a CSS modal inside the iframe can only fill
+    // the docked column). We restore on close.
+    const [fullscreen, setFullscreen] = useState(false);
+
+    // Listen for the plugin's full-screen requests (only from our own iframe).
+    useEffect(() => {
+        const onMessage = (e: MessageEvent) => {
+            if (e?.data?.type !== 'xgenia:ai-panel-fullscreen') return;
+            if (iframeRef.current && e.source !== iframeRef.current.contentWindow) return;
+            setFullscreen(!!e.data.on);
+        };
+        window.addEventListener('message', onMessage);
+        return () => window.removeEventListener('message', onMessage);
+    }, []);
 
     // Fetch plugin URL from entitlements
     useEffect(() => {
@@ -178,11 +193,13 @@ export function ChatPanelIframe() {
     }
 
     // -- Loading / Connected: show iframe --
+    // When fullscreen, lift the iframe out of its docked column to cover the
+    // whole editor viewport (the plugin's Settings modal then fills the screen).
+    const wrapperStyle: React.CSSProperties = fullscreen
+        ? { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 2147483000, overflow: 'hidden', background: '#1a1a1a' }
+        : { width: '100%', height: '100%', position: 'relative', overflow: 'hidden' };
     return (
-        <div style={{
-            width: '100%', height: '100%',
-            position: 'relative', overflow: 'hidden',
-        }}>
+        <div style={wrapperStyle}>
             {pluginUrl && (() => {
                     // Forward ai_mode from parent localStorage to iframe via URL param
                     let iframeSrc = pluginUrl;

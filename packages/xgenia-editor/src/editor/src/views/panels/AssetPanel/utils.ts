@@ -1,5 +1,6 @@
 import { IconName } from '@xgenia-core-ui/components/common/Icon';
 import { Asset } from './types';
+import { classifyAssetType } from './asset-classification';
 
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'tiff', 'tif'];
 const AUDIO_EXTENSIONS = ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac', 'wma', 'aiff'];
@@ -10,18 +11,13 @@ const STYLE_EXTENSIONS = ['css', 'scss', 'sass', 'less', 'styl'];
 const DOCUMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'txt', 'md', 'json', 'xml', 'yaml', 'yml', 'html', 'htm'];
 const ARCHIVE_EXTENSIONS = ['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz'];
 
+// Load-bearing listing/filter classification is delegated to the shared mirror
+// (asset-classification.ts) so the panel agrees with the AI's list_project_assets.
+// getDetailedAssetType below keeps the richer SUPERSET purely for cosmetic icon
+// selection (scripts/styles/archives/etc.), which never affects what is listed.
 export function getAssetType(filename: string): Asset['type'] {
   const extension = filename.split('.').pop()?.toLowerCase();
-
-  if (!extension) return 'unknown';
-
-  if (IMAGE_EXTENSIONS.includes(extension)) return 'image';
-  if (AUDIO_EXTENSIONS.includes(extension)) return 'audio';
-  if (VIDEO_EXTENSIONS.includes(extension)) return 'video';
-  if (FONT_EXTENSIONS.includes(extension)) return 'font';
-  if (DOCUMENT_EXTENSIONS.includes(extension)) return 'document';
-
-  return 'unknown';
+  return extension ? classifyAssetType(extension) : 'unknown';
 }
 
 // Extended asset type detection for better icon selection
@@ -43,6 +39,8 @@ export function getDetailedAssetType(filename: string): string {
 }
 
 export function getAssetIcon(asset: Asset): IconName {
+  // Folders carry no extension, so resolve them by type, not by filename.
+  if (asset.type === 'folder') return IconName.FolderOpen;
   const detailedType = getDetailedAssetType(asset.name);
 
   switch (detailedType) {

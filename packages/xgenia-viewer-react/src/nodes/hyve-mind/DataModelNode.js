@@ -4,7 +4,7 @@ const DataModelNode = {
   name: 'hyve.DataModelNode',
   displayName: 'Data Model',
   category: 'Hyve Mind',
-  docs: '',
+  docs: 'https://docsapp.xgenia.com/nodes/hyve-mind/data-model',
   initialize() {
     this._internal = {
       name: this.inputs.name || 'New Data Model',

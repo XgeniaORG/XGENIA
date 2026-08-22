@@ -22,9 +22,17 @@ import { Label } from '@xgenia-core-ui/components/typography/Label';
 import { TextType } from '@xgenia-core-ui/components/typography/Text';
 import { useTrackBounds } from '@xgenia-core-ui/hooks/useTrackBounds';
 
+import { ProjectModel } from '@xgenia-models/projectmodel';
+
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import { CreateNewNodePanel } from '../createnewnodepanel';
 import { DeployPopup } from '../DeployPopup/DeployPopup';
+import { ToastLayer } from '../ToastLayer/ToastLayer';
+// Compile-only button retired — Publish compiles as its first step, so the standalone
+// button was a second way to do half of Publish. Kept commented rather than deleted so
+// it can be restored; the compiler itself is untouched and still used by
+// XgeniaDeployTab (its own `compileProject` import).
+// import { compileProject } from '../../utils/compile';
 import { FigmaImportDialog } from './FigmaImportDialog';
 import { TitleBar } from '../documents/EditorDocument/titlebar';
 import { NodeGraphEditor } from '../nodegrapheditor';
@@ -82,6 +90,9 @@ export function EditorTopbar({
   const screenSizeTrigger = useRef<HTMLDivElement>(null);
   const previewLayoutTrigger = useRef<HTMLDivElement>(null);
   const [isDeployVisible, setIsDeployVisible] = useState(false);
+  // Compile button state — retired with the button itself (see the JSX below).
+  // const compileButtonRef = useRef<HTMLDivElement>(null);
+  // const [isCompiling, setIsCompiling] = useState(false);
   const [isFigmaDialogVisible, setIsFigmaDialogVisible] = useState(false);
   const figmaButtonRef = useRef<HTMLDivElement>(null);
   const [isWarningsDialogVisible, setIsWarningsDialogVisible] = useState(false);
@@ -92,7 +103,6 @@ export function EditorTopbar({
   const [isRouteListVisible, setIsRouteListVisible] = useState(false);
   const currentScreenSize = getScreenSizeObjectFromMeasurements(previewSize.width, previewSize.height);
   const [routeTextInputValue, setRouteTextInputValue] = useState('');
-  const [glowIntensity, setGlowIntensity] = useState(0);
   const [isLeftPanelVisible, setIsLeftPanelVisible] = useState(true);
 
   // Right panel tab state — only visible when an AI node is selected
@@ -112,6 +122,35 @@ export function EditorTopbar({
     );
     return () => { EventDispatcher.instance.off(eventGroup); };
   }, []);
+
+  // Compile-only handler — retired with the button (see the JSX below). Publish runs
+  // the same compileProject() as its first step, so nothing here is lost.
+  // const handleCompile = async () => {
+  //   if (isCompiling) return;
+  //   const project = ProjectModel.instance;
+  //   if (!project) {
+  //     ToastLayer.showError('No project is open to compile.');
+  //     return;
+  //   }
+  //   const activityId = 'compile';
+  //   setIsCompiling(true);
+  //   ToastLayer.showActivity('Compiling project…', activityId);
+  //   try {
+  //     const result = await compileProject(project);
+  //     ToastLayer.hideActivity(activityId);
+  //     ToastLayer.showSuccess(
+  //       `Compiled to ${result.name} (${result.componentsCreated} logic component${
+  //         result.componentsCreated === 1 ? '' : 's'
+  //       }).`
+  //     );
+  //   } catch (e: any) {
+  //     ToastLayer.hideActivity(activityId);
+  //     ToastLayer.showError('Compile failed: ' + (e?.message || String(e)));
+  //     console.error('[Compile] failed', e);
+  //   } finally {
+  //     setIsCompiling(false);
+  //   }
+  // };
 
   const zoomLevelOptions = [
     {
@@ -148,6 +187,9 @@ export function EditorTopbar({
     setRouteTextInputValue(routeWithoutQuery);
   }, [navigationState?.route]);
 
+  // Mounted once. Without the dependency array this tore down and rebuilt the
+  // WarningsModel subscription after EVERY render of the topbar, which is the
+  // most-rendered component in the editor.
   useEffect(() => {
     const eventGroup = {};
     WarningsModel.instance.on('warningsChanged', () => triggerRerender(), eventGroup);
@@ -155,20 +197,13 @@ export function EditorTopbar({
     return () => {
       WarningsModel.instance.off(eventGroup);
     };
-  });
-
-  useEffect(() => {
-    const animateGlow = () => {
-      setGlowIntensity((prev) => {
-        const next = prev + 0.005;
-        if (next > 0.4) return 0.2;
-        return next;
-      });
-    };
-
-    const interval = setInterval(animateGlow, 60);
-    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 2026-08-12 perf audit: a `glowIntensity` state was advanced by a 60ms
+  // interval — ~17 re-renders per second of the always-mounted topbar, forever —
+  // and the value was never read anywhere in this file. Deleted outright rather
+  // than throttled: there is no glow to animate.
 
   function showWarnings(e) {
     setIsWarningsDialogVisible(true);
@@ -725,6 +760,43 @@ export function EditorTopbar({
             </button>
           </Tooltip>
         </span>
+
+        {/* Compile button — removed from the topbar. Publish (below) compiles first and
+            then deploys, so this only ever did half of what Publish does. Commented out
+            rather than deleted; restoring it means uncommenting this block plus the ref,
+            state, handler and `compileProject` import above.
+
+        <span ref={compileButtonRef} style={{ margin: '0 4px', position: 'relative' }}>
+          <Tooltip content="Compile: copy the project and extract logic into deployable cloud components">
+            <button
+              onClick={handleCompile}
+              disabled={isCompiling}
+              style={{
+                background: '#FBBF24',
+                borderRadius: '6px',
+                boxShadow: 'none',
+                border: 'none',
+                transition: 'all 0.15s ease',
+                position: 'relative',
+                zIndex: 1,
+                color: '#000000',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '3px 9px',
+                fontWeight: 600,
+                fontSize: '11px',
+                letterSpacing: 0.2,
+                cursor: isCompiling ? 'wait' : 'pointer',
+                opacity: isCompiling ? 0.6 : 1
+              }}
+            >
+              <Icon icon={IconName.CloudFunction} UNSAFE_style={{ color: '#000000' }} size={IconSize.Tiny} />
+              {isCompiling ? 'Compiling…' : 'Compile'}
+            </button>
+          </Tooltip>
+        </span>
+        */}
 
         <span
           ref={deployButtonRef}

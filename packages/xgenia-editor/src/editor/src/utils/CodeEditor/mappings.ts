@@ -8,6 +8,10 @@ const prettyLanguageId = {
 
   html: 'HTML',
   css: 'CSS',
+  // styleCss ports are modelled as scss (a CSS superset) so the validator doesn't
+  // reject a bare declaration list — see CodeEditor/index.ts. The user is still
+  // writing CSS, so the label must say CSS, not SCSS.
+  scss: 'CSS',
   json: 'JSON',
   plaintext: 'Plain Text'
 };

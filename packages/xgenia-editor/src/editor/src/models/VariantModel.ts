@@ -200,7 +200,10 @@ export class VariantModel extends Model {
     if (args && args.undo) {
       const undo = typeof args.undo === 'object' ? args.undo : UndoQueue.instance;
 
-      if (args.oldValue) {
+      // Presence, not truthiness — see NodeGraphNode.setParameter. A pre-change
+      // value of 0 / '' / false / undefined is a real value, and the fallback
+      // above already holds the value we just wrote.
+      if ('oldValue' in args) {
         oldValue = args.oldValue;
       }
 

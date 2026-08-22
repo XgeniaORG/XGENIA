@@ -302,38 +302,22 @@ export class NodeGraphEditor extends View {
         type: 'up'
       },
       {
-        handler: () => {
-          for (const node of this.selector.nodes) {
-            this.nudgeNode(node, node.x + SnapSpacing, node.y);
-          }
-        },
+        handler: () => this.nudgeSelectedNodes(SnapSpacing, 0),
         keybinding: KeyCode.RightArrow,
         type: 'down'
       },
       {
-        handler: () => {
-          for (const node of this.selector.nodes) {
-            this.nudgeNode(node, node.x - SnapSpacing, node.y);
-          }
-        },
+        handler: () => this.nudgeSelectedNodes(-SnapSpacing, 0),
         keybinding: KeyCode.LeftArrow,
         type: 'down'
       },
       {
-        handler: () => {
-          for (const node of this.selector.nodes) {
-            this.nudgeNode(node, node.x, node.y - SnapSpacing);
-          }
-        },
+        handler: () => this.nudgeSelectedNodes(0, -SnapSpacing),
         keybinding: KeyCode.UpArrow,
         type: 'down'
       },
       {
-        handler: () => {
-          for (const node of this.selector.nodes) {
-            this.nudgeNode(node, node.x, node.y + SnapSpacing);
-          }
-        },
+        handler: () => this.nudgeSelectedNodes(0, SnapSpacing),
         keybinding: KeyCode.DownArrow,
         type: 'down'
       }
@@ -1943,10 +1927,17 @@ export class NodeGraphEditor extends View {
     });
   }
 
+  /**
+   * Animate a node to (x, y). Purely visual — it does not touch `node.model`, so
+   * callers are responsible for persisting (see `nudgeSelectedNodes` and
+   * `commitMoveNode`).
+   *
+   * This used to bail out unless the `nodeGraphEditor.snapToGrid` experimental
+   * flag was on, which also disabled arrow-key nudging (the arrow handlers route
+   * through here) for everyone who had not opted in. The flag belongs on
+   * snapping only, so it now lives in `snapNodeToGrid` alone.
+   */
   nudgeNode(node: NodeGraphEditorNode, x: number, y: number) {
-    const enabled = EditorSettings.instance.get('nodeGraphEditor.snapToGrid');
-    if (!enabled) return;
-
     //nodes with parent's don't use their x and y coords, so just bail out
     if (node.parent || (node.x === x && node.y === y)) return;
 
@@ -1968,6 +1959,45 @@ export class NodeGraphEditor extends View {
     };
 
     requestAnimationFrame(anim);
+  }
+
+  /**
+   * Move every selected node by (dx, dy) — the arrow-key nudge.
+   *
+   * Positions are taken from and written back to `node.model`, so the move is
+   * saved and undoable. `nudgeNode` on its own only animates the editor node,
+   * which is why arrow-key moves used to be lost on reload.
+   */
+  nudgeSelectedNodes(dx: number, dy: number) {
+    if (this.readOnly) return;
+
+    // Nodes with a parent are laid out by the parent and ignore their own x/y.
+    const nodes = this.selector.nodes.filter((node) => !node.parent);
+    if (!nodes.length) return;
+
+    const moves = nodes.map((node) => {
+      const from = { x: node.model.x, y: node.model.y };
+      return { node, from, to: { x: from.x + dx, y: from.y + dy } };
+    });
+
+    const apply = (key: 'from' | 'to') => {
+      for (const move of moves) {
+        const position = move[key];
+        move.node.model.set({ x: position.x, y: position.y });
+        this.nudgeNode(move.node, position.x, position.y);
+      }
+
+      this.relayout();
+      this.repaint();
+    };
+
+    const undoGroup = new UndoActionGroup({ label: 'nudge nodes' });
+    undoGroup.pushAndDo({
+      do: () => apply('to'),
+      undo: () => apply('from')
+    });
+
+    UndoQueue.instance.push(undoGroup);
   }
 
   snapNodeToGrid(node: NodeGraphEditorNode) {
@@ -2715,6 +2745,65 @@ export class NodeGraphEditor extends View {
     return res;
   }
 
+  /**
+   * Highlight a SET of nodes and bring the whole set into view.
+   *
+   * `selectNode` is single-select by construction — it clears the selection
+   * before selecting — so calling it in a loop leaves only the last node
+   * highlighted. That is wrong whenever the thing being pointed at is a group
+   * rather than one node (e.g. "these are the nodes that compiled into one
+   * backend component"). This drives the same `selector` the rubber-band
+   * multiselect drives, which is what `isHighlighted` reads when painting, and
+   * frames the group's bounding box instead of centring an arbitrary member.
+   *
+   * Ids that don't resolve in the active component are skipped.
+   *
+   * @returns how many nodes were actually highlighted.
+   */
+  public revealNodes(ids: string[]): number {
+    const nodes: NodeGraphEditorNode[] = [];
+    for (const id of ids || []) {
+      const node = this.findNodeWithId(id);
+      if (node) nodes.push(node);
+    }
+    if (nodes.length === 0) return 0;
+
+    this.clearSelection({ disableHidePanels: true });
+    this.commentLayer?.clearSelection();
+    // Note: deliberately not setting node.selected — that flag is the
+    // single-selection highlight, and Selector.unselect() only knows how to
+    // clear it for a selection of one. Group highlighting goes through the
+    // selector alone, exactly as multiselectNodes does.
+    this.selector.select(nodes);
+    // So a follow-up shift-drag extends this selection rather than ignoring it.
+    this.lastMultiselected = nodes;
+
+    // Twice, as switchToComponent does — global positions aren't final until
+    // the second pass the first time a freshly bound model is laid out.
+    this.relayout();
+    this.layout();
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const node of nodes) {
+      minX = Math.min(minX, node.global.x);
+      minY = Math.min(minY, node.global.y);
+      maxX = Math.max(maxX, node.global.x + node.nodeSize.width);
+      maxY = Math.max(maxY, node.global.y + node.nodeSize.height);
+    }
+
+    const panAndScale = this.getPanAndScale();
+    this.moveRoots(
+      -panAndScale.x + this.currentLayout.width / 2 / panAndScale.scale - (minX + maxX) / 2,
+      -panAndScale.y + this.currentLayout.height / 2 / panAndScale.scale - (minY + maxY) / 2
+    );
+
+    this.repaint();
+    return nodes.length;
+  }
+
   findConnectionWithModel(model: Connection): NodeGraphEditorConnection {
     for (const i in this.connections) if (this.connections[i].model === model) return this.connections[i];
   }
@@ -2747,9 +2836,32 @@ export class NodeGraphEditor extends View {
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     // --- Draw Background Dots ---
-    const gridSize = 20; // Spacing between dots
-    const dotRadius = 1; // Size of the dots
+    //
+    // 2026-08-12 perf audit. This block used to issue one beginPath + arc + fill
+    // PER DOT on a fixed 20px world grid. The world area it covers grows as
+    // 1/scale in both axes, so the cost is quadratic in zoom-out: at a 1600x900
+    // viewport it is ~3,600 draw calls at 1:1, ~57,000 at 0.25, and a large graph
+    // may zoom out to well under 0.1 (see updateZoomLevel — minScale is derived
+    // from the graph's own bounds, not floored at 0.33), which is hundreds of
+    // thousands of draw calls on EVERY repaint. Panning such a graph is a repaint
+    // per frame, which is why a big graph zoomed out froze the editor.
+    //
+    // Two fixes. The grid coarsens by powers of two so its ON-SCREEN spacing
+    // never drops below a readable minimum — that bounds the dot count by the
+    // viewport instead of by the zoom, and it also stops the dots merging into
+    // grey mush when zoomed out. And every dot now goes into ONE path that is
+    // filled once, rather than a path and a fill each. Square rather than round:
+    // the dot is ~2 device pixels at any zoom (the radius is divided by scale and
+    // then multiplied by it again by the transform), where an arc and a rect are
+    // the same handful of pixels, and `arc` tessellates a circle per dot.
+    const dotRadius = 1; // Size of the dots, in screen pixels at any zoom
     const dotColor = 'rgba(255, 255, 255, 0.2)'; // Light white, semi-transparent
+    const MIN_DOT_SPACING_ON_SCREEN = 10;
+
+    let gridSize = 20; // Spacing between dots, in world units
+    if (scale > 0) {
+      while (gridSize * scale < MIN_DOT_SPACING_ON_SCREEN) gridSize *= 2;
+    }
 
     // Calculate the visible range in world coordinates
     const viewMinX = Math.floor(-panAndScale.x / gridSize) * gridSize;
@@ -2757,20 +2869,25 @@ export class NodeGraphEditor extends View {
     const viewMaxX = Math.ceil((this.canvas.width / (this.canvas.ratio * scale) - panAndScale.x) / gridSize) * gridSize;
     const viewMaxY = Math.ceil((this.canvas.height / (this.canvas.ratio * scale) - panAndScale.y) / gridSize) * gridSize;
 
-    ctx.fillStyle = dotColor;
-    ctx.save();
-    // Apply the main transform so dots align with world coords
-    ctx.scale(this.canvas.ratio * scale, this.canvas.ratio * scale);
-    ctx.translate(panAndScale.x, panAndScale.y);
+    if (scale > 0 && isFinite(viewMaxX) && isFinite(viewMaxY)) {
+      const dotHalf = dotRadius / scale;
+      const dotSize = dotHalf * 2;
 
-    for (let x = viewMinX; x < viewMaxX; x += gridSize) {
-      for (let y = viewMinY; y < viewMaxY; y += gridSize) {
-        ctx.beginPath();
-        ctx.arc(x, y, dotRadius / scale, 0, Math.PI * 2, true); // Scale dot radius inversely with zoom
-        ctx.fill();
+      ctx.fillStyle = dotColor;
+      ctx.save();
+      // Apply the main transform so dots align with world coords
+      ctx.scale(this.canvas.ratio * scale, this.canvas.ratio * scale);
+      ctx.translate(panAndScale.x, panAndScale.y);
+
+      ctx.beginPath();
+      for (let x = viewMinX; x < viewMaxX; x += gridSize) {
+        for (let y = viewMinY; y < viewMaxY; y += gridSize) {
+          ctx.rect(x - dotHalf, y - dotHalf, dotSize, dotSize);
+        }
       }
+      ctx.fill();
+      ctx.restore(); // Restore from dot drawing transform
     }
-    ctx.restore(); // Restore from dot drawing transform
     // --- End Draw Background Dots ---
 
     if (!NodeLibrary.instance.isLoaded()) {

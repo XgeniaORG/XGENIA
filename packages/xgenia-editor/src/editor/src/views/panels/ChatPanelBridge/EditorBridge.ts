@@ -9,6 +9,14 @@
  */
 
 // GPL model imports (this file intentionally lives in GPL code)
+import { ProjectModel } from '@xgenia-models/projectmodel';
+import ThumbnailCache from '@xgenia-utils/thumbnailcache';
+import { isBloatPort, isTooLargeToSerialize, unwrapValueUnit, portUnitInfo } from './serialize-param-guard';
+import { NodeLibrary } from '@xgenia-models/nodelibrary';
+import { UndoQueue, UndoActionGroup } from '@xgenia-models/undo-queue-model';
+import { SidebarModel } from '@xgenia-models/sidebar';
+import { recordAssetProvenance, loadAssetMeta, migrateAssetMeta } from '../AssetPanel/assetMeta';
+import { reconcileGraphAssetRefs } from '../AssetPanel/assetGraphRefs';
 import { ComponentModel } from '@xgenia-models/componentmodel';
 import { NodeGraphModel, NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 import { NodeLibrary } from '@xgenia-models/nodelibrary';
@@ -25,8 +33,8 @@ import {
     getProjectBaseStyleUrl,
     getProjectGlobalStylePrompt,
     getProjectPalettes,
-    setProjectBaseStyle,
-    setProjectGlobalStylePrompt
+    addProjectPalette,
+    getProjectBaseStyleId
 } from '../ProjectStylesPanel/ProjectStylesPanel';
 
 interface PluginCommand {
@@ -41,6 +49,7 @@ type CommandExecutor = (args: any[]) => any;
 export class EditorBridge {
     private iframes = new Map<string, HTMLIFrameElement>(); // pluginId -> iframe
     private iframe: HTMLIFrameElement | null = null; // Legacy: primary (AI chat) iframe
+    private _warnedUntrustedSource = false;
     private pluginOrigin = '*'; // Will be locked to plugin origin after handshake
     private commandHandlers = new Map<string, CommandExecutor>();
     private eventListeners = new Map<string, Set<(data: any) => void>>();
@@ -52,13 +61,114 @@ export class EditorBridge {
     private aiLockTimer: ReturnType<typeof setTimeout> | null = null;
     private static readonly AI_LOCK_TTL_MS = 120_000; // 2 minutes auto-expiry
 
+    /* --- AI undo grouping ---------------------------------------------------
+     * The AI panel runs in an iframe, so it cannot hand real do/undo closures to
+     * the editor's UndoQueue — its shim can only send a LABEL STRING across the
+     * bridge. `undo.push` used to put that string straight on the queue as if it
+     * were an action group, so every AI edit added an entry with no `undo`
+     * method: Ctrl+Z consumed a history slot and changed nothing, and the next
+     * press reverted one of the USER's own earlier edits instead.
+     *
+     * The group is now built on THIS side of the boundary out of the editor's own
+     * model-level undo actions (NodeGraphNode.setParameter/setLabel/addChild,
+     * NodeGraphModel.addRoot/removeNode/addConnection/removeConnection all accept
+     * `args.undo`). Mutating handlers register into the open group; the group goes
+     * on the queue when the AI falls quiet or signals a commit, so one Ctrl+Z
+     * reverts one burst of AI edits.
+     */
+    /** Set while a reparent is being replayed for undo/redo, so the replay does
+     *  not append yet another undo action to the group it is running inside. */
+    private _replayingReparent = false;
+    private aiUndoGroup: UndoActionGroup | null = null;
+    private aiUndoLabel = 'AI edit';
+    private aiUndoTimer: ReturnType<typeof setTimeout> | null = null;
+    /** Quiet period that ends a burst. Tool calls within a turn arrive far closer
+     *  together than this; a new user prompt is far further apart. */
+    private static readonly AI_UNDO_IDLE_MS = 1500;
+
+    /**
+     * The undo group AI mutations should register into.
+     *
+     * Opens one on first use and re-arms the idle flush on every call, so a burst
+     * of tool calls collapses into a single undo entry.
+     */
+    private aiUndo(label?: string): UndoActionGroup {
+        if (label) this.aiUndoLabel = label;
+        if (!this.aiUndoGroup) this.aiUndoGroup = new UndoActionGroup({ label: this.aiUndoLabel });
+        if (this.aiUndoTimer) clearTimeout(this.aiUndoTimer);
+        this.aiUndoTimer = setTimeout(() => this.flushAiUndo(), EditorBridge.AI_UNDO_IDLE_MS);
+        return this.aiUndoGroup;
+    }
+
+    /**
+     * Close the open AI undo group and put it on the queue.
+     *
+     * An empty group is DROPPED, never pushed — an entry that undoes nothing is
+     * exactly the dead history slot this whole mechanism replaces.
+     */
+    private flushAiUndo(label?: string) {
+        if (this.aiUndoTimer) {
+            clearTimeout(this.aiUndoTimer);
+            this.aiUndoTimer = null;
+        }
+        const group = this.aiUndoGroup;
+        this.aiUndoGroup = null;
+        this.aiUndoLabel = 'AI edit';
+        if (!group || group.isEmpty()) return;
+        if (label) group.label = label;
+        UndoQueue.instance?.push?.(group);
+    }
+
     constructor() {
         this.registerCommands();
-        window.addEventListener('message', this.handleMessage.bind(this));
+        // NOT `.bind(this)`. `handleMessage` is already an arrow property, so it
+        // is bound; wrapping it in `bind` produced a fresh function here and
+        // ANOTHER fresh one in `destroy`, so `removeEventListener` was handed a
+        // function that had never been added and the listener outlived the
+        // bridge. Every destroyed bridge left a live `message` handler on the
+        // window, each one re-running the full command dispatch for every
+        // postMessage the editor receives.
+        window.addEventListener('message', this.handleMessage);
         // Listen for active component changes from the NodeGraphEditor
         this.listenForComponentChanges();
-        // Listen for settings changes (API keys) to push to plugins
-        this.listenForSettingChanges();
+        // Forward viewer console output into the plugin iframe
+        this.forwardViewerConsole();
+    }
+
+    /**
+     * Forward viewer console logs to the plugin iframe.
+     *
+     * WHY (trace 1785095779892 / 1785106018235): every debug export showed
+     * `bySource: {editor: 500, viewer: 0}` — the AI has NEVER seen a viewer log, so when
+     * the viewer crashed there was no stack, no error, nothing to diagnose with. It looked
+     * like the viewer "produces no logs"; in fact the chain was broken at the last hop.
+     *
+     * ViewerConnection receives `viewerConsole` over the socket and re-emits it as
+     * `Viewer.consoleLog` on the EDITOR's EventDispatcher. ConsoleLogBuffer subscribes to
+     * that event — but it runs in the plugin IFRAME, where `EventDispatcher.instance` is a
+     * different object from this one, so the subscription can never fire. (Same parent-vs-
+     * iframe singleton split that CodeApprovalService already documents.)
+     *
+     * ConsoleLogBuffer ALSO listens for a postMessage of shape
+     * `{ type: 'xgenia-viewer-console', level, message, stack }` and nothing ever sent it.
+     * This sends it — the receiving end already exists and needs no change.
+     */
+    private forwardViewerConsole() {
+        try {
+            EventDispatcher.instance.on('Viewer.consoleLog', (data: any) => {
+                const win = this.iframe?.contentWindow;
+                if (!win) return; // panel not mounted yet — nothing to forward to
+                this.safePostMessage(win, {
+                    type: 'xgenia-viewer-console',
+                    level: data?.level || 'log',
+                    message: typeof data?.message === 'string' ? data.message : String(data?.message ?? ''),
+                    stack: data?.stack,
+                    timestamp: data?.timestamp || Date.now(),
+                }, this.pluginOrigin);
+            }, this);
+        } catch (e: any) {
+            console.warn('[EditorBridge] Could not subscribe to viewer console logs:', e?.message || e);
+        }
     }
 
     /** Listen for NodeGraphEditor active component changes via EventDispatcher */
@@ -159,7 +269,36 @@ export class EditorBridge {
     private safePostMessage(windowProxy: WindowProxy, message: any, origin: string) {
         try {
             windowProxy.postMessage(message, origin);
-        } catch (err) {
+        } catch (err: any) {
+            // 2026-06-10: a DataCloneError (command result contains a
+            // function / Proxy / circular graph object — not structured-
+            // clone-able) used to be misread as an origin mismatch: the
+            // fallback resent the SAME non-cloneable payload to '*', threw
+            // again, and the iframe's pending promise hung into a fake
+            // 30s timeout. Distinguish the two: on DataCloneError,
+            // JSON-sanitize the payload (drops functions/proxies, breaks
+            // cycles) and resend; if even that fails, send an error-shaped
+            // reply with the same id so the iframe REJECTS FAST instead of
+            // timing out.
+            if (err?.name === 'DataCloneError') {
+                try {
+                    const sanitized = JSON.parse(JSON.stringify(message, (_k, v) =>
+                        typeof v === 'function' ? undefined : v));
+                    sanitized._sanitized = true;
+                    windowProxy.postMessage(sanitized, origin);
+                    console.warn('[EditorBridge] Message contained non-cloneable values — sent JSON-sanitized copy (_sanitized: true)');
+                    return;
+                } catch (sanitizeErr: any) {
+                    try {
+                        windowProxy.postMessage({
+                            type: message?.type,
+                            id: message?.id,
+                            error: `Result not transferable across the bridge: ${sanitizeErr?.message || 'circular or non-serializable value'}`,
+                        }, origin);
+                        return;
+                    } catch { /* fall through to origin fallback below */ }
+                }
+            }
             console.warn(`[EditorBridge] Failed to postMessage with origin '${origin}', falling back to '*'`);
             try {
                 windowProxy.postMessage(message, '*');
@@ -197,16 +336,54 @@ export class EditorBridge {
 
     /** Destroy the bridge */
     destroy() {
-        window.removeEventListener('message', this.handleMessage.bind(this));
+        // Commit any AI edits still inside the idle window — the flush timer dies
+        // with the bridge, and an unpushed group is an unundoable edit.
+        this.flushAiUndo();
+        window.removeEventListener('message', this.handleMessage);
         this.iframe = null;
         this.connected = false;
     }
 
     // --- Internal ---
 
+    /**
+     * IS THIS MESSAGE FROM A WINDOW WE ACTUALLY LOADED?
+     *
+     * (2026-08-04 pre-release audit) handleMessage accepted every command from every window. It
+     * never compared event.origin or event.source to anything: the field that looks like the guard,
+     * `pluginOrigin`, is outbound-only AND is SET BY THE SENDER in the handshake branch. So any
+     * frame or window that could postMessage into the editor could drive the full privileged
+     * command surface — the fs handlers, the graph mutations, git.
+     *
+     * A message is accepted only when its source window is the contentWindow of an iframe currently
+     * in this document. That is the property that actually matters (we loaded it), and it holds for
+     * the AI panel and the image editor without needing to hardcode a Vercel URL that changes.
+     */
+    private isTrustedSource(event: MessageEvent): boolean {
+        try {
+            const src = event.source as Window | null;
+            if (!src) return false;
+            if (src === window) return true;   // same-document postMessage (our own plumbing)
+            const frames = Array.from(document.querySelectorAll('iframe')) as HTMLIFrameElement[];
+            return frames.some((f) => {
+                try { return f.contentWindow === src; } catch { return false; }
+            });
+        } catch { return false; }
+    }
+
     private handleMessage = (event: MessageEvent) => {
         const msg = event.data;
         if (!msg || typeof msg !== 'object') return;
+
+        // Reject anything that did not come from a frame this document owns. Silent by design —
+        // an attacker learns nothing — but logged once so a legitimate integration is debuggable.
+        if (!this.isTrustedSource(event)) {
+            if (!this._warnedUntrustedSource) {
+                this._warnedUntrustedSource = true;
+                console.warn('[EditorBridge] Ignoring a message from a window this document does not own:', event.origin);
+            }
+            return;
+        }
 
         // Handshake from plugin (AI chat or Image Editor)
         if (msg.type === 'handshake' && (msg.plugin === 'xgenia-ai' || msg.plugin === 'xgenia-image-editor')) {
@@ -239,6 +416,34 @@ export class EditorBridge {
     };
 
     private async executeCommand(cmd: PluginCommand, event: MessageEvent) {
+        // ── THE AI IS WORKING, EVEN THOUGH NOBODY IS TOUCHING THE MOUSE ──────
+        //
+        // (2026-08-19) The project thumbnail on the home screen stopped updating during AI
+        // builds. useCaptureThumbnails refreshes it every 20s, but only when a `dirty` flag is
+        // set — and that flag is raised by `pointerdown`, `keydown` and `wheel` alone. Those
+        // are the right signals for a human editing by hand and the wrong ones for this
+        // product: the AI mutates the graph through THIS bridge and generates no input events
+        // at all, so a whole build produced zero captures and the home screen kept whatever
+        // picture it had from the last time a person clicked something.
+        //
+        // Introduced 2026-08-12 by a perf fix that was correct about the real problem — a
+        // capture ran every 20s forever, re-encoding a PNG twice and synchronously rewriting a
+        // settings file that reached 120MB in dev. What that fix wanted to stop was capturing
+        // while the editor sits IDLE. An AI session is the opposite of idle.
+        //
+        // So: any bridge command means something is happening. The read prefixes below are a
+        // courtesy, not a gate — an unrecognised command counts as a mutation, because the
+        // failure directions are not symmetric. Over-marking costs one extra capture during a
+        // session that is already busy; under-marking silently loses the thumbnail again, which
+        // is the bug being fixed.
+        try {
+            const _name = String(cmd.command || '');
+            const _isRead = /^(?:\w+\.)?(?:get|list|find|read|has|serialize|query|inspect|describe)/i.test(_name);
+            if (!_isRead) {
+                window.dispatchEvent(new CustomEvent('xgenia:project-mutated', { detail: { command: _name } }));
+            }
+        } catch { /* thumbnail freshness is never worth failing a command over */ }
+
         const handler = this.commandHandlers.get(cmd.command);
 
         let response: any;
@@ -443,11 +648,27 @@ export class EditorBridge {
 
 
         h('html.translate', ([html, options]: [string, { omitRootWrapper?: boolean }?]) => {
+        h('html.translate', ([html, options]: [string, { omitRootWrapper?: boolean }?]) => {
             try {
                 const { translateHtmlToXgeniaXml } = require('../../EditorTopbar/html-translator');
                 return translateHtmlToXgeniaXml(html, options);
+                return translateHtmlToXgeniaXml(html, options);
             } catch (err: any) {
                 console.error('[EditorBridge] html.translate failed:', err.message);
+                throw err;
+            }
+        });
+
+        // Like html.translate but also reports every style/element the
+        // translator DROPPED — the ChatPanel surfaces `translationWarnings`
+        // to the model so it can restyle instead of silently losing fidelity.
+        h('html.translateWithReport', ([html, options]: [string, { omitRootWrapper?: boolean }?]) => {
+            try {
+                const { translateHtmlToXgeniaXmlWithReport } = require('../../EditorTopbar/html-translator');
+                const { xml, warnings } = translateHtmlToXgeniaXmlWithReport(html, options);
+                return { xml, translationWarnings: warnings };
+            } catch (err: any) {
+                console.error('[EditorBridge] html.translateWithReport failed:', err.message);
                 throw err;
             }
         });
@@ -498,6 +719,24 @@ export class EditorBridge {
                 if (!nodeType) {
                     console.error('[EditorBridge] graph.createNode: No type provided!', data);
                     throw new Error('Node type is required');
+                }
+
+                // 2026-05-23 (BUG 76 fix, bridge half): refuse to create a
+                // ComponentInstance whose target is the currently active
+                // component. That produces a graph where the component
+                // contains itself; every getPorts()/forEachNode pass on it
+                // then recurses forever and crashes the editor with a
+                // stack overflow. Trace 2026-05-23 13:25 hit this when an
+                // AI passed `componentName: "/#__maths__/WildDoomMaths"`
+                // as the node type while the active component WAS
+                // /#__maths__/WildDoomMaths.
+                if (typeof nodeType === 'string' && nodeType.startsWith('/')) {
+                    const activeName = (graph as any)?.name || (graph as any)?.path || (graph as any)?.fullName;
+                    if (activeName && nodeType === activeName) {
+                        const msg = `Refusing to create ComponentInstance of "${nodeType}" inside itself — would produce a circular component reference that crashes the editor with a stack overflow on the next port lookup.`;
+                        console.error('[EditorBridge] graph.createNode SELF-INSTANCE BLOCKED:', msg);
+                        throw new Error(msg);
+                    }
                 }
 
                 // 2026-05-23 (BUG 76 fix, bridge half): refuse to create a
@@ -592,6 +831,38 @@ export class EditorBridge {
                     } catch (paramHydrateErr: any) {
                         console.warn('[EditorBridge] Parameter default hydration failed (non-fatal):', paramHydrateErr?.message);
                     }
+
+                    // FIX (2026-05-04): Hydrate PARAMETER DEFAULTS from the type's inputs schema.
+                    // Without this, hand-built pixi.ReelColumn / pixi.ReelCell nodes come out missing
+                    // animation params (spinSpeed, stopStyle, motionBlur, cellWidth, etc) — the
+                    // defaults are declared on type.inputs[key].default but fromJSON doesn't apply
+                    // them. The reel only animates correctly when a PixiReelController with
+                    // autoLayout cascades these values, which the AI doesn't always set up.
+                    // Apply any default that the node doesn't already have a value for.
+                    try {
+                        const inputs = type?.inputs;
+                        if (inputs && typeof inputs === 'object') {
+                            for (const paramName of Object.keys(inputs)) {
+                                const def = inputs[paramName];
+                                if (!def || def.default === undefined) continue;
+                                // Only set when the node doesn't already carry a value for this param
+                                const existing = (node as any).parameters?.[paramName];
+                                if (existing !== undefined && existing !== null) continue;
+                                try {
+                                    if (typeof (node as any).setParameter === 'function') {
+                                        (node as any).setParameter(paramName, def.default);
+                                    } else if ((node as any).parameters) {
+                                        (node as any).parameters[paramName] = def.default;
+                                    }
+                                } catch (perParamErr) {
+                                    // Some setters validate input strictly — skip on rejection
+                                    console.debug(`[EditorBridge] Default for ${typeName}.${paramName} rejected:`, (perParamErr as any)?.message);
+                                }
+                            }
+                        }
+                    } catch (paramHydrateErr: any) {
+                        console.warn('[EditorBridge] Parameter default hydration failed (non-fatal):', paramHydrateErr?.message);
+                    }
                 } catch (initErr: any) {
                     console.warn('[EditorBridge] Port hydration from type definition failed (non-fatal):', initErr?.message);
                 }
@@ -606,17 +877,21 @@ export class EditorBridge {
                     console.log(`[EditorBridge] Set node.label = "${nodeLabel}" after fromJSON`);
                 }
                 // Add as child of parent or as root
+                // The attach is what the undo group records: its inverse
+                // (removeNode) takes the node back out of the graph, which is the
+                // whole of "undo the node the AI just created".
+                const undoArgs = { undo: this.aiUndo(), label: this.aiUndoLabel };
                 if (data.parentId) {
                     const parent = this.findNode(data.parentId);
                     if (parent && typeof parent.addChild === 'function') {
-                        parent.addChild(node);
+                        parent.addChild(node, undoArgs);
                         console.log(`[EditorBridge] Added node ${nodeId} as child of ${data.parentId}`);
                     } else {
-                        graph.addRoot(node);
+                        graph.addRoot(node, undoArgs);
                         console.log(`[EditorBridge] Parent ${data.parentId} not found, added as root`);
                     }
                 } else {
-                    graph.addRoot(node);
+                    graph.addRoot(node, undoArgs);
                     console.log(`[EditorBridge] Added node ${nodeId} as root`);
                 }
 
@@ -634,8 +909,9 @@ export class EditorBridge {
             if (!graph) throw new Error('No active graph');
             const node = this.findNode(nodeId);
             if (!node) throw new Error(`Node not found: ${nodeId}`);
-            // NodeGraphModel uses removeNode(), not deleteNode()
-            graph.removeNode(node);
+            // NodeGraphModel uses removeNode(), not deleteNode(). It records the
+            // node's connections into the same group, so undo restores those too.
+            graph.removeNode(node, { undo: this.aiUndo(), label: this.aiUndoLabel });
             console.log(`[EditorBridge] Deleted node: ${nodeId}`);
         });
 
@@ -657,6 +933,20 @@ export class EditorBridge {
             if (typeof newParent.addChild !== 'function') {
                 throw new Error(`Target parent (id=${newParentId}, type=${newParent.type?.name || newParent.typename}) is not a container — cannot accept children.`);
             }
+            // Whether the node is a MODEL root right now decides which view event the
+            // canvas needs below — read it BEFORE the detach sweep destroys the evidence.
+            const graphModelForRootCheck: any = (graph as any).model || graph;
+            const wasModelRoot = Array.isArray(graphModelForRootCheck.roots)
+                && graphModelForRootCheck.roots.some((r: any) => r === node || r?.id === node.id);
+            // Where the node sat before the move, for the undo action at the bottom.
+            // Same reason as wasModelRoot: the detach sweep is about to erase it.
+            const originalParent: any = (node as any).parent || null;
+            const originalIndex = originalParent && Array.isArray(originalParent.children)
+                ? originalParent.children.indexOf(node)
+                : -1;
+            const originalRootIndex = Array.isArray(graphModelForRootCheck.roots)
+                ? graphModelForRootCheck.roots.findIndex((r: any) => r === node || r?.id === node.id)
+                : -1;
             // 2026-05-25: defensive detach. The previous implementation only
             // checked `node.parent` and called `oldParent.removeChild(node)`.
             // When create_nodes_batch sets up parent-child via addChild but
@@ -769,22 +1059,94 @@ export class EditorBridge {
             } catch (detachErr: any) {
                 console.warn('[EditorBridge] reparent detach phase non-fatal error:', detachErr?.message);
             }
+            // ════════════════════════════════════════════════════════════════════
+            // 2026-08-07 (debug export 1786095426879 — user: "my pixi stage isn't
+            // connected to the ui node … but when I close the project and open it
+            // again it's already in the ui node").
+            //
+            // The re-attach below used to be a bare newParent.addChild(node), and
+            // NodeGraphNode.addChild fires 'nodeAdded'. The canvas's nodeAdded handler
+            // (nodegrapheditor.ts) UNCONDITIONALLY builds a brand-new
+            // NodeGraphEditorNode and inserts it under the parent — it never checks
+            // whether a visual node for that id already exists. Meanwhile the detach
+            // sweep above only touched the MODEL, so the node's original visual box was
+            // still sitting in nodegrapheditor.roots. Result: the model was correct, the
+            // canvas showed the node still detached at the root (plus a duplicate box
+            // under the new parent, and a second bindNodeModel on the same model), and
+            // only reopening the project — which rebuilds the view from the model —
+            // "fixed" it. That is exactly the reported ReelStage-vs-ReelArea symptom.
+            //
+            // The reparent-aware events are 'nodeDetached' / 'nodeAttached': their canvas
+            // handlers MOVE the existing visual node instead of creating one. So go
+            // through NodeGraphModel.attachNode, whose precondition is "child is in
+            // graph.roots" — which IS the model's canonical detached state, and what the
+            // sweep above has (almost) produced.
+            // ════════════════════════════════════════════════════════════════════
+            const graphModelForAttach: any = (graph as any).model || graph;
+            const childCountBefore = Array.isArray(newParent.children) ? newParent.children.length : 0;
+            const targetIndex = (typeof index === 'number' && index >= 0)
+                ? Math.max(0, Math.min(index, childCountBefore))
+                : childCountBefore;
+            const nodeIsInModelRoots = () => Array.isArray(graphModelForAttach.roots)
+                && graphModelForAttach.roots.some((r: any) => r === node || r?.id === node.id);
+            let attachedViaModel = false;
+            let pushedToRoots = false;
             try {
-                if (typeof index === 'number' && index >= 0) {
-                    // Most NodeGraphModel implementations expose addChildAt; fall back to addChild.
-                    if (typeof (newParent as any).addChildAt === 'function') {
-                        (newParent as any).addChildAt(node, index);
+                if (typeof graphModelForAttach.attachNode === 'function' && Array.isArray(graphModelForAttach.roots)) {
+                    // If the node used to be a CHILD, its visual box is still under the
+                    // old visual parent — tell the view to detach it first (that handler
+                    // moves the box into the visual roots). Skip when it was already a
+                    // root: nodeDetached would push a SECOND entry into
+                    // nodegrapheditor.roots, and removeRoot only ever splices one.
+                    if (!wasModelRoot && typeof graphModelForAttach.notifyListeners === 'function') {
+                        try { graphModelForAttach.notifyListeners('nodeDetached', { model: node }); }
+                        catch (e: any) { console.warn('[EditorBridge] nodeDetached notify failed (non-fatal):', e?.message); }
+                    }
+                    if (!nodeIsInModelRoots()) {
+                        graphModelForAttach.roots.push(node);
+                        pushedToRoots = true;
+                    }
+                    try { (node as any).parent = undefined; } catch { /* read-only in some models */ }
+                    graphModelForAttach.attachNode(newParent, node, targetIndex);
+                    attachedViaModel = Array.isArray(newParent.children)
+                        && newParent.children.some((c: any) => c === node || c?.id === node.id);
+                }
+            } catch (attachErr: any) {
+                console.warn('[EditorBridge] attachNode path failed, falling back to addChild:', attachErr?.message);
+            }
+
+            if (!attachedViaModel) {
+                // FALLBACK: the original raw path, for any model without attachNode.
+                // Undo our roots push first so the fallback can't leave a duplicate root.
+                if (pushedToRoots && Array.isArray(graphModelForAttach.roots)) {
+                    const undoIdx = graphModelForAttach.roots.findIndex((r: any) => r === node || r?.id === node.id);
+                    if (undoIdx >= 0) graphModelForAttach.roots.splice(undoIdx, 1);
+                }
+                try {
+                    if (typeof index === 'number' && index >= 0) {
+                        // (2026-06-23, trace 1782197236224 issue #16) NodeGraphNode's real
+                        // index-insert method is `insertChild(child, index)` — there is NO
+                        // `addChildAt`. The old probe checked for the non-existent addChildAt
+                        // and ALWAYS fell through to addChild (append), silently dropping the
+                        // index. That's why change_node_parent's position_index was a no-op
+                        // ("only gives end of list") and why reorder had no working bridge path.
+                        // Prefer insertChild; keep addChildAt for any alternate model that has it.
+                        if (typeof (newParent as any).insertChild === 'function') {
+                            (newParent as any).insertChild(node, index);
+                        } else if (typeof (newParent as any).addChildAt === 'function') {
+                            (newParent as any).addChildAt(node, index);
+                        } else {
+                            newParent.addChild(node);
+                        }
                     } else {
                         newParent.addChild(node);
                     }
-                } else {
-                    newParent.addChild(node);
+                } catch (e: any) {
+                    throw new Error(`addChild on new parent failed: ${e?.message || e}`);
                 }
-            } catch (e: any) {
-                throw new Error(`addChild on new parent failed: ${e?.message || e}`);
+                // Also update the node.parent backref if the framework didn't.
+                try { (node as any).parent = newParent; } catch { /* read-only in some models */ }
             }
-            // Also update the node.parent backref if the framework didn't.
-            try { (node as any).parent = newParent; } catch { /* read-only in some models */ }
 
             // 2026-06-02 (R35): real verification. The previous code returned
             // { success: true } based on addChild not throwing. That missed
@@ -820,7 +1182,7 @@ export class EditorBridge {
                 }
             })();
 
-            console.log(`[EditorBridge] Reparented ${nodeId} → ${newParentId}`, verification);
+            console.log(`[EditorBridge] Reparented ${nodeId} → ${newParentId}`, { ...verification, attachedViaModel, wasModelRoot });
             if (!verification.ok) {
                 // Don't silently lie about success. The AI needs to know.
                 throw new Error(
@@ -829,7 +1191,63 @@ export class EditorBridge {
                     `then delete the orphan copies before continuing.`
                 );
             }
-            return { success: true, verified: true, verification };
+            // Undo. Registered only on the ORIGINAL call: replaying this body for a
+            // do/undo must not append a second action to the group.
+            if (!this._replayingReparent) {
+                const replay = (args: any[]) => this.commandHandlers.get('graph.reparent')?.(args);
+                const restore = () => {
+                    this._replayingReparent = true;
+                    try {
+                        if (originalParent && originalParent.id) {
+                            replay([nodeId, originalParent.id, originalIndex >= 0 ? originalIndex : undefined]);
+                        } else {
+                            // The node was a root. detachNode fires 'nodeDetached', which is
+                            // the event that MOVES the existing visual box back out to the
+                            // canvas root — addRoot would leave the old box under the new
+                            // parent and draw a second one.
+                            const gm: any = (graph as any).model || graph;
+                            if ((node as any).parent && typeof gm.detachNode === 'function') {
+                                gm.detachNode(node);
+                            }
+                            // detachNode appends; put it back where it was among the roots.
+                            if (originalRootIndex >= 0 && Array.isArray(gm.roots)) {
+                                const at = gm.roots.findIndex((r: any) => r === node || r?.id === node.id);
+                                if (at >= 0 && at !== originalRootIndex) {
+                                    gm.roots.splice(at, 1);
+                                    gm.roots.splice(Math.min(originalRootIndex, gm.roots.length), 0, node);
+                                }
+                            }
+                        }
+                    } finally {
+                        this._replayingReparent = false;
+                    }
+                };
+                const redo = () => {
+                    this._replayingReparent = true;
+                    try {
+                        replay([nodeId, newParentId, index]);
+                    } finally {
+                        this._replayingReparent = false;
+                    }
+                };
+                // No label here: UndoActionGroupActions carries only do/undo — the
+                // group itself is what the history displays.
+                this.aiUndo().push({ do: redo, undo: restore });
+            }
+
+            return {
+                success: true,
+                verified: true,
+                verification,
+                // Did the CANVAS get told to move the node, or did we only mutate the
+                // model? On the fallback path the node-graph view keeps drawing the old
+                // hierarchy until the project is reopened — say so instead of implying
+                // the visible graph matches.
+                viewSynced: attachedViaModel,
+                ...(attachedViaModel ? {} : {
+                    _viewMayBeStale: 'Model updated, but the node-graph canvas was not sent a move event (attachNode unavailable on this model). Reopen the component to see the new nesting.',
+                }),
+            };
         });
 
         h('graph.getConnections', () => {
@@ -863,7 +1281,7 @@ export class EditorBridge {
             // already detect success via post-create connection-existence
             // checks (see safe_connection_workflow); changing the shape here
             // would break those existing flows.
-            return graph.addConnection?.(connection);
+            return graph.addConnection?.(connection, { undo: this.aiUndo(), label: this.aiUndoLabel });
         });
 
         h('graph.removeConnection', ([connectionId]: [string]) => {
@@ -890,7 +1308,21 @@ export class EditorBridge {
                 : connectionId.indexOf('->');
             const arrowLen = connectionId.includes('→') ? 1 : 2;
             if (!conn && arrowIdx > 0) {
+            // Strategy 2: Parse semantic format "fromId:fromProperty→toId:toProperty".
+            // 2026-06-01 (xgenia-debug-export-1779795859929 fix): also accept the
+            // ASCII "->" arrow. The edit_js_function_node ghost-cleanup path uses
+            // `conn.id` first (line 1748), and many GPL-side connection.id strings
+            // are built with "->", so the previous "→"-only branch rejected them
+            // outright and we threw "Connection not found" for connections that
+            // genuinely existed. Trace 2026-05-26 11:44 had four SpinResult /
+            // WinAmount / SpecialReel / CashCollect ghost-removals all fall here.
+            const arrowIdx = connectionId.indexOf('→') >= 0
+                ? connectionId.indexOf('→')
+                : connectionId.indexOf('->');
+            const arrowLen = connectionId.includes('→') ? 1 : 2;
+            if (!conn && arrowIdx > 0) {
                 const fromPart = connectionId.substring(0, arrowIdx);
+                const toPart = connectionId.substring(arrowIdx + arrowLen);
                 const toPart = connectionId.substring(arrowIdx + arrowLen);
                 const fColonIdx = fromPart.indexOf(':');
                 const tColonIdx = toPart.indexOf(':');
@@ -909,6 +1341,8 @@ export class EditorBridge {
             // Fallback for corrupted connections (e.g., from old addConnection bug)
             if (!conn && (connectionId === 'undefined:undefined→undefined:undefined'
                        || connectionId === 'undefined:undefined->undefined:undefined')) {
+            if (!conn && (connectionId === 'undefined:undefined→undefined:undefined'
+                       || connectionId === 'undefined:undefined->undefined:undefined')) {
                 const corruptIdx = connections.findIndex((c: any) => !c || typeof c === 'string' || (!c.fromId && !c.id));
                 if (corruptIdx !== -1) {
                     conn = connections[corruptIdx];
@@ -920,7 +1354,7 @@ export class EditorBridge {
                 console.warn(`[EditorBridge] removeConnection: no matching connection found for "${connectionId}". Available: ${connections.length}`);
                 throw new Error(`Connection not found: ${connectionId}`);
             }
-            graph.removeConnection?.(conn);
+            graph.removeConnection?.(conn, { undo: this.aiUndo(), label: this.aiUndoLabel });
         });
 
         h('graph.getAppXml', ([scope]: [string?]) => {
@@ -929,6 +1363,44 @@ export class EditorBridge {
             if (!graph) return '';
             if (typeof graph.toXML === 'function') return graph.toXML(scope);
             return '';
+        });
+
+        // COMMENTS (sticky notes) — a SEPARATE canvas layer from nodes, held in
+        // graph.commentsModel, NOT walked by any node/XML serializer. The AI was
+        // blind to them (trace 1784753612441: an empty component with two comments
+        // read as "nothing here"). These handlers surface + edit them.
+        h('graph.getComments', () => {
+            const cm = this.getActiveGraph()?.commentsModel;
+            return cm && Array.isArray(cm.comments) ? cm.comments.map((c: any) => ({ ...c })) : [];
+        });
+        h('graph.addComment', ([comment]: [any]) => {
+            const cm = this.getActiveGraph()?.commentsModel;
+            if (!cm || typeof cm.addComment !== 'function') return null;
+            const c: any = {
+                text: comment?.text ?? '',
+                x: comment?.x ?? 0, y: comment?.y ?? 0,
+                width: comment?.width ?? 150, height: comment?.height ?? 100,
+                fill: comment?.fill ?? 'transparent',
+                ...(comment?.color ? { color: comment.color } : {}),
+                ...(comment?.id ? { id: comment.id } : {}),
+            };
+            cm.addComment(c, { undo: this.aiUndo(), label: this.aiUndoLabel }); // assigns c.id if absent
+            return { ...c };
+        });
+        h('graph.updateComment', ([id, patch]: [string, any]) => {
+            const cm = this.getActiveGraph()?.commentsModel;
+            if (!cm) return false;
+            const existing = (cm.comments || []).find((c: any) => c.id === id);
+            if (!existing) return false;
+            cm.setComment(id, { ...existing, ...(patch || {}) }, { undo: this.aiUndo(), label: this.aiUndoLabel });
+            return true;
+        });
+        h('graph.deleteComment', ([id]: [string]) => {
+            const cm = this.getActiveGraph()?.commentsModel;
+            if (!cm) return false;
+            const before = (cm.comments || []).length;
+            cm.removeComment(id, { undo: this.aiUndo(), label: this.aiUndoLabel });
+            return (cm.comments || []).length < before;
         });
 
         // --- Node commands ---
@@ -940,7 +1412,7 @@ export class EditorBridge {
             // was missing or rejected". Previously the handler returned
             // undefined and the caller had no way to detect silent rejections.
             if (typeof node.setParameter !== 'function') return false;
-            node.setParameter(name, value);
+            node.setParameter(name, value, { undo: this.aiUndo(), label: this.aiUndoLabel });
             return true;
         });
 
@@ -950,15 +1422,63 @@ export class EditorBridge {
             return node.getParameter?.(name);
         });
 
+        // LAYOUT-3: batch-apply node positions (auto_organize_nodes / apply_graph_diff)
+        // THROUGH the editor's undo system so a single Undo reverts the whole reposition.
+        // The iframe previously set x/y on the bridge proxy directly — that moved the nodes
+        // but pushed an EMPTY undo group (the proxy is not the editor's UndoQueue, and the
+        // setParameter calls were not registered with any group), so Undo did nothing.
+        h('node.setPositionsUndoable', ([changes]: [Array<{ nodeId: string; x: number; y: number }>]) => {
+            if (!Array.isArray(changes) || changes.length === 0) return { applied: 0, total: 0 };
+            const group = new UndoActionGroup({ label: 'Auto-organize Nodes' });
+            let applied = 0;
+            for (const change of changes) {
+                const node = this.findNode(change.nodeId);
+                if (!node || typeof node.setParameter !== 'function') continue;
+                node.setParameter('x', change.x, { undo: group });
+                node.setParameter('y', change.y, { undo: group });
+                applied++;
+            }
+            if (applied > 0) UndoQueue.instance?.push?.(group);
+            return { applied, total: changes.length };
+        });
+
         h('node.setLabel', ([nodeId, label]: [string, string]) => {
             const node = this.findNode(nodeId);
             if (!node) throw new Error(`Node not found: ${nodeId}`);
             // 2026-05-29 (Round 9 Fix): same as setParameter — return true on
             // successful assignment, false if the property setter was rejected.
             try {
-                node.label = label;
+                // setLabel (not the bare `label` setter) so the rename joins the
+                // AI undo group; it captures the old label itself.
+                if (typeof (node as any).setLabel === 'function') {
+                    (node as any).setLabel(label, { undo: this.aiUndo(), label: this.aiUndoLabel });
+                } else {
+                    node.label = label;
+                }
                 // Re-read to verify the setter wasn't a no-op getter (computed property).
                 return node.label === label;
+            } catch {
+                return false;
+            }
+        });
+
+        // BRAIN: merge AI/user annotations under node.metadata.ai. metadata
+        // round-trips through NodeGraphNode.toJSON, so this persists into
+        // project.json. We fire a Model.* change event so the 1s autosave
+        // debounce (projectmodel.ts) writes it to disk. Best-effort mirror of
+        // the .xgenia/brain.json sidecar, which stays authoritative.
+        h('node.setMetadata', ([nodeId, patch]: [string, Record<string, any>]) => {
+            const node = this.findNode(nodeId);
+            if (!node) throw new Error(`Node not found: ${nodeId}`);
+            try {
+                const meta = ((node as any).metadata && typeof (node as any).metadata === 'object')
+                    ? (node as any).metadata : ((node as any).metadata = {});
+                meta.ai = { ...(meta.ai || {}), ...(patch || {}), updatedAt: new Date().toISOString() };
+                // Trigger autosave without disturbing parameter/port listeners.
+                if (typeof (node as any).notifyListeners === 'function') {
+                    (node as any).notifyListeners('metadataChanged', { model: node, key: 'ai' });
+                }
+                return true;
             } catch {
                 return false;
             }
@@ -998,7 +1518,7 @@ export class EditorBridge {
                 console.log(`[EditorBridge] node.addPort: port '${portSpec.name}' already exists on ${nodeId}`);
                 return { success: true, alreadyExists: true, port: existing };
             }
-            node.addPort(portSpec);
+            node.addPort(portSpec, { undo: this.aiUndo(), label: this.aiUndoLabel });
             console.log(`[EditorBridge] node.addPort: added '${portSpec.name}' (plug: ${portSpec.plug}) to ${nodeId}`);
             return { success: true, port: portSpec };
         });
@@ -1009,7 +1529,11 @@ export class EditorBridge {
             if (typeof node.removePortWithName !== 'function') {
                 throw new Error(`Node ${nodeId} does not support removePortWithName`);
             }
-            const result = node.removePortWithName(portName, { force: !!force });
+            const result = node.removePortWithName(portName, {
+                force: !!force,
+                undo: this.aiUndo(),
+                label: this.aiUndoLabel
+            });
             console.log(`[EditorBridge] node.removePort: removed '${portName}' from ${nodeId}: ${result}`);
             return { success: !!result, portName };
         });
@@ -1104,16 +1628,280 @@ export class EditorBridge {
         });
 
         // --- Undo commands ---
+        // The panel's UndoQueue shim can only send a LABEL across the bridge — a
+        // string has no do/undo, so pushing it created a history entry that
+        // reverted nothing. Treat it for what it is: the AI saying "that edit is
+        // finished, label it this". The real reversible group was assembled here
+        // by the mutating handlers.
         h('undo.push', ([group]: [any]) => {
-            UndoQueue.instance?.push?.(group);
+            const label = typeof group === 'string'
+                ? group
+                : (group?.label || group?.getLabel?.() || undefined);
+            this.flushAiUndo(label);
         });
 
         h('undo.undo', () => {
+            // Close the open group first, or Undo would skip past AI edits that
+            // are still only half-committed and revert the user's work instead.
+            this.flushAiUndo();
             UndoQueue.instance?.undo?.();
         });
 
         h('undo.getLocation', () => {
+            this.flushAiUndo();
             return UndoQueue.instance?.getHistoryLocation?.() || 0;
+        });
+
+        // Rewind to a location the panel captured earlier. The loop belongs HERE,
+        // where the pointer actually lives: the panel used to run it against a
+        // counter of its own that only ever incremented, so the loop condition
+        // never went false and the revert spun forever, firing undo at the editor
+        // until the tab died. Bounded by the real pointer and by the queue length.
+        h('undo.undoTo', ([location]: [number]) => {
+            this.flushAiUndo();
+            const queue = UndoQueue.instance;
+            if (!queue) return { undone: 0, location: 0 };
+            const target = Math.max(0, Math.floor(Number(location) || 0));
+            let undone = 0;
+            let guard = queue.getHistory().length + 1;
+            while (queue.getHistoryLocation() > target && guard-- > 0) {
+                const before = queue.getHistoryLocation();
+                queue.undo();
+                if (queue.getHistoryLocation() === before) break; // nothing moved — stop rather than spin
+                undone++;
+            }
+            return { undone, location: queue.getHistoryLocation() };
+        });
+
+        // --- Git commands ---
+        // 2026-06-06 (Option B): bridge dugite git through the EditorProxy so
+        // the AI chat panel (iframed from Vercel) can checkpoint/commit/revert.
+        // The iframe has no window.require / no dugite binary; the parent
+        // (Electron editor) has both. All git ops route here.
+        //
+        // Security:
+        //   - checkpoint / status / history are READ-ONLY (no remote side-effects)
+        //   - commit / revert are LOCAL mutations (no remote side-effects)
+        //   - push talks to a USER-CONFIGURED remote — the user has already
+        //     authorized that remote via the Version Control panel; AI-initiated
+        //     push is treated as an authorized action under that prior consent.
+        h('git.isAvailable', async () => {
+            try {
+                const pm = ProjectModel.instance as any;
+                if (!pm?._retainedProjectDirectory) {
+                    return { available: false, reason: 'No project directory' };
+                }
+                const { LocalProjectsModel } = await import('@xgenia-utils/LocalProjectsModel');
+                const isGit = await (LocalProjectsModel as any).instance?.isGitProject?.(pm);
+                return { available: !!isGit };
+            } catch (e: any) {
+                return { available: false, reason: e?.message || String(e) };
+            }
+        });
+
+        h('git.ensureInitialized', async () => {
+            try {
+                const pm = ProjectModel.instance as any;
+                if (!pm?._retainedProjectDirectory) {
+                    return { success: false, action: 'skipped', error: 'No project directory available' };
+                }
+                const projectDir = pm._retainedProjectDirectory;
+                const { LocalProjectsModel } = await import('@xgenia-utils/LocalProjectsModel');
+                const { Git } = await import('@xgenia/git');
+                const { mergeProject } = await import('@xgenia-utils/projectmerger');
+                const isGit = await (LocalProjectsModel as any).instance?.isGitProject?.(pm);
+                if (!isGit) {
+                    const g = new Git(mergeProject);
+                    await g.initNewRepo(projectDir);
+                    try {
+                        const st = await g.status();
+                        if (st && st.length > 0) {
+                            await g.commit('Initial AI checkpoint');
+                        }
+                    } catch { /* repo initialised; baseline commit failed; still usable */ }
+                    return { success: true, action: 'initialized' };
+                }
+                const g = new Git(mergeProject);
+                await g.openRepository(projectDir);
+                const st = await g.status();
+                if (st && st.length > 0) {
+                    await g.commit('AI session baseline');
+                    return { success: true, action: 'baseline_committed' };
+                }
+                return { success: true, action: 'already_clean' };
+            } catch (e: any) {
+                return { success: false, action: 'failed', error: e?.message || String(e) };
+            }
+        });
+
+        h('git.getHead', async () => {
+            try {
+                const pm = ProjectModel.instance as any;
+                if (!pm?._retainedProjectDirectory) return { sha: null, error: 'No project directory' };
+                const { Git } = await import('@xgenia/git');
+                const { mergeProject } = await import('@xgenia-utils/projectmerger');
+                const g = new Git(mergeProject);
+                await g.openRepository(pm._retainedProjectDirectory);
+                const sha = await g.getHeadCommitId();
+                return { sha: sha || null };
+            } catch (e: any) {
+                return { sha: null, error: e?.message || String(e) };
+            }
+        });
+
+        h('git.status', async () => {
+            try {
+                const pm = ProjectModel.instance as any;
+                if (!pm?._retainedProjectDirectory) return { files: [], error: 'No project directory' };
+                const { Git } = await import('@xgenia/git');
+                const { mergeProject } = await import('@xgenia-utils/projectmerger');
+                const g = new Git(mergeProject);
+                await g.openRepository(pm._retainedProjectDirectory);
+                const raw = await g.status();
+                const files = Array.isArray(raw)
+                    ? raw.map((f: any) => ({
+                        path: f?.path ?? f?.file ?? String(f),
+                        status: f?.status ?? f?.workingTreeStatus ?? '?',
+                    }))
+                    : [];
+                return { files };
+            } catch (e: any) {
+                return { files: [], error: e?.message || String(e) };
+            }
+        });
+
+        h('git.commit', async ([message]: [string]) => {
+            try {
+                const pm = ProjectModel.instance as any;
+                if (!pm?._retainedProjectDirectory) return { success: false, error: 'No project directory' };
+                if (!message || typeof message !== 'string') {
+                    return { success: false, error: 'Commit message required' };
+                }
+                const { Git } = await import('@xgenia/git');
+                const { mergeProject } = await import('@xgenia-utils/projectmerger');
+                const g = new Git(mergeProject);
+                await g.openRepository(pm._retainedProjectDirectory);
+                const sha = await g.commit(message);
+                return { success: true, sha, message };
+            } catch (e: any) {
+                return { success: false, error: e?.message || String(e) };
+            }
+        });
+
+        h('git.revert', async ([sha]: [string]) => {
+            try {
+                const pm = ProjectModel.instance as any;
+                if (!pm?._retainedProjectDirectory) return { success: false, error: 'No project directory' };
+                if (!sha || typeof sha !== 'string') return { success: false, error: 'Target SHA required' };
+                const { Git } = await import('@xgenia/git');
+                const { mergeProject } = await import('@xgenia-utils/projectmerger');
+                const g = new Git(mergeProject);
+                await g.openRepository(pm._retainedProjectDirectory);
+                // (2026-08-03 pre-release audit) THIS PROBED THREE METHODS THAT DO NOT EXIST.
+                // `revertToCommit`, `resetHard` and `checkout` are not on the Git class, so every
+                // revert fell through to "No revert API available on Git instance" — while
+                // git_checkpoint had been telling the AI, on every checkpoint, "if something goes
+                // wrong, call git({action:'revert'}) to restore this state". The rollback the
+                // safety story rests on has never once worked.
+                //
+                // The real method is resetToCommitWithId (git.ts:357 — `reset --hard <id>` plus
+                // cleanUntrackedFiles).
+                if (typeof (g as any).resetToCommitWithId !== 'function') {
+                    return { success: false, error: 'This editor build has no resetToCommitWithId on its Git class — the revert cannot be performed. Do NOT treat the checkpoint as restorable.' };
+                }
+                await g.resetToCommitWithId(sha);
+
+                // VERIFY THE POSTCONDITION. A revert that reports success without landing is the
+                // worst possible lie in a rollback path — the user believes the bad state is gone.
+                let headAfter: string | null = null;
+                try { headAfter = await g.getHeadCommitId(); } catch { /* fall through to unverified */ }
+                if (headAfter && sha && !headAfter.startsWith(sha) && !sha.startsWith(headAfter)) {
+                    return {
+                        success: false,
+                        error: `Revert did not land: HEAD is ${headAfter}, expected ${sha}. Your project has NOT been restored.`,
+                        headAfter,
+                    };
+                }
+                return {
+                    success: true,
+                    sha,
+                    ...(headAfter ? { headAfter, verified: true } : { verified: false, note: 'HEAD could not be re-read, so the reset is UNCONFIRMED — check `git log` before relying on it.' }),
+                    warning: 'reset --hard also deleted UNTRACKED files in the project directory. Anything created since the checkpoint and never committed is gone.',
+                };
+            } catch (e: any) {
+                return { success: false, error: e?.message || String(e) };
+            }
+        });
+
+        h('git.getHistory', async ([limit]: [number?]) => {
+            try {
+                const pm = ProjectModel.instance as any;
+                if (!pm?._retainedProjectDirectory) return { commits: [], error: 'No project directory' };
+                const { Git } = await import('@xgenia/git');
+                const { mergeProject } = await import('@xgenia-utils/projectmerger');
+                const g = new Git(mergeProject);
+                await g.openRepository(pm._retainedProjectDirectory);
+                const anyG: any = g as any;
+                const cap = Math.max(1, Math.min(50, Number(limit) || 10));
+                // 2026-06-10 (workflow wdym5rje7 #3): the previous probe list
+                // (getCommitHistory / log / history) contained ZERO methods
+                // that exist on the Git class — raw was unconditionally []
+                // and the handler returned {commits: []} with no error for
+                // every repository. The real method is getCommitsCurrentBranch
+                // (caps at 100 internally, takes no args; our slice keeps the
+                // bridge cap). Probes kept as fallbacks for future builds.
+                let raw: any = [];
+                if (typeof anyG.getCommitsCurrentBranch === 'function') raw = await anyG.getCommitsCurrentBranch();
+                else if (typeof anyG.getCommitHistory === 'function') raw = await anyG.getCommitHistory(cap);
+                else if (typeof anyG.log === 'function') raw = await anyG.log(cap);
+                else if (typeof anyG.history === 'function') raw = await anyG.history(cap);
+                const commits = (Array.isArray(raw) ? raw : []).slice(0, cap).map((c: any) => ({
+                    sha: c?.sha ?? c?.commit ?? c?.id ?? '',
+                    shortSha: c?.shortSha ?? (typeof c?.sha === 'string' ? c.sha.slice(0, 7) : ''),
+                    message: c?.message ?? c?.summary ?? '',
+                    author: c?.author?.name ?? c?.author ?? '',
+                    // Date → ISO keeps the payload structured-clone- and JSON-safe.
+                    timestamp: c?.date instanceof Date ? c.date.toISOString() : (c?.timestamp ?? c?.date ?? c?.committedAt ?? null),
+                }));
+                return { commits };
+            } catch (e: any) {
+                return { commits: [], error: e?.message || String(e) };
+            }
+        });
+
+        h('git.push', async () => {
+            try {
+                const pm = ProjectModel.instance as any;
+                if (!pm?._retainedProjectDirectory) return { success: false, error: 'No project directory' };
+                // 2026-06-10 (workflow wdym5rje7 #4): the previous handler
+                // called the MODULE-level getRemote(g) / push(g) with the
+                // Git INSTANCE where those functions expect a directory
+                // string — getRemote treated the instance as a filesystem
+                // path, the catch swallowed the throw, remote stayed null,
+                // and the handler returned "No git remote configured" for
+                // EVERY repository (including ones with remotes). git.push
+                // through the bridge has never worked. Use the INSTANCE
+                // methods (g.getRemoteName / g.push) which resolve the
+                // repo from the opened baseDir.
+                const { Git } = await import('@xgenia/git');
+                const { mergeProject } = await import('@xgenia-utils/projectmerger');
+                const g = new Git(mergeProject);
+                await g.openRepository(pm._retainedProjectDirectory);
+                // Confirm a remote exists before pushing — refuse silent setup.
+                let remoteName: string | undefined;
+                try { remoteName = await g.getRemoteName(); } catch { /* treat as no remote */ }
+                if (!remoteName) {
+                    return {
+                        success: false,
+                        error: 'No git remote configured. Set one up in the Version Control panel first.',
+                        requiresUserAction: true,
+                    };
+                }
+                const ok = await g.push();
+                return { success: !!ok };
+            } catch (e: any) {
+                return { success: false, error: e?.message || String(e) };
+            }
         });
 
         // --- Sidebar commands ---
@@ -1127,22 +1915,36 @@ export class EditorBridge {
             const pm = ProjectModel.instance as any;
             const components = pm?.getComponents?.() || [];
             const comp = components.find((c: any) => c.name === componentName || c.fullName === componentName);
-            if (comp) {
-                // Prefer NodeGraphContextTmp.switchToComponent for full UI + model switch
-                // (same API used by ComponentsPanel and property editor clicks)
-                const NodeGraphContextTmp = (window as any).NodeGraphContextTmp;
-                if (NodeGraphContextTmp?.switchToComponent && typeof NodeGraphContextTmp.switchToComponent === 'function') {
-                    NodeGraphContextTmp.switchToComponent(comp, { pushHistory: true });
-                } else if (NodeGraphContextTmp?.nodeGraph?.switchToComponent && typeof NodeGraphContextTmp.nodeGraph.switchToComponent === 'function') {
-                    NodeGraphContextTmp.nodeGraph.switchToComponent(comp, { pushHistory: true });
-                } else if (typeof pm?.setActiveComponent === 'function') {
-                    // Fallback: model-only switch (no UI update)
-                    pm.setActiveComponent(comp);
-                }
-                this.cachedActiveComponent = comp;
-                // AI explicitly requested this component — lock it to prevent drift
-                this.setAiLock(comp);
+            // 2026-06-10 (workflow wdym5rje7 #5): previously a nonexistent
+            // component name SILENTLY no-op'd — the handler resolved with
+            // undefined, the AI's switch_component_safely read it as
+            // success, cachedActiveComponent + the AI lock stayed on the
+            // PREVIOUS component, and every subsequent mutation landed in
+            // the wrong graph. This is the bridge-side root of the
+            // wrong-component family of bugs (Cell duplication, orphan
+            // wires). Throw with the available list — PluginBridge
+            // surfaces the message via msg.error → pending.reject, and
+            // NodeGraphUtils already catches + logs it, so existing
+            // callers degrade to an explicit error instead of silence.
+            if (!comp) {
+                const available = components.slice(0, 30).map((c: any) => c.fullName || c.name).join(', ');
+                throw new Error(`component.switchTo: no component named "${componentName}". Available: ${available || '(none — is a project open?)'}`);
             }
+            // Prefer NodeGraphContextTmp.switchToComponent for full UI + model switch
+            // (same API used by ComponentsPanel and property editor clicks)
+            const NodeGraphContextTmp = (window as any).NodeGraphContextTmp;
+            if (NodeGraphContextTmp?.switchToComponent && typeof NodeGraphContextTmp.switchToComponent === 'function') {
+                NodeGraphContextTmp.switchToComponent(comp, { pushHistory: true });
+            } else if (NodeGraphContextTmp?.nodeGraph?.switchToComponent && typeof NodeGraphContextTmp.nodeGraph.switchToComponent === 'function') {
+                NodeGraphContextTmp.nodeGraph.switchToComponent(comp, { pushHistory: true });
+            } else if (typeof pm?.setActiveComponent === 'function') {
+                // Fallback: model-only switch (no UI update)
+                pm.setActiveComponent(comp);
+            }
+            this.cachedActiveComponent = comp;
+            // AI explicitly requested this component — lock it to prevent drift
+            this.setAiLock(comp);
+            return { success: true, name: comp.name, fullName: comp.fullName };
         });
 
         h('component.unlockContext', () => {
@@ -1172,13 +1974,35 @@ export class EditorBridge {
             const wanted = nameOrFullName;
             const wantedStripped = stripPath(wanted);
 
-            const matches = allComponents.filter((c: any) => {
+            // CLIFE-6: full-path/name match wins. Only fall back to basename when it is
+            // UNAMBIGUOUS — the old code matched by basename across ALL folders and deleted
+            // EVERY match in the loop, so deleting "Reels" silently destroyed both
+            // /Pages/Reels and /Components/Reels. Never auto-delete multiple components.
+            const exactMatches = allComponents.filter((c: any) => {
                 const cn = c?.name || c?.fullName || '';
-                return cn === wanted || stripPath(cn) === wantedStripped || stripPath(cn).toLowerCase() === wantedStripped.toLowerCase();
+                return cn === wanted;
             });
-
-            if (matches.length === 0) {
-                return { success: false, error: `No component matches "${nameOrFullName}"`, deletedCount: 0 };
+            let matches: any[];
+            if (exactMatches.length >= 1) {
+                matches = exactMatches;
+            } else {
+                const basenameMatches = allComponents.filter((c: any) => {
+                    const cn = c?.name || c?.fullName || '';
+                    return stripPath(cn) === wantedStripped || stripPath(cn).toLowerCase() === wantedStripped.toLowerCase();
+                });
+                if (basenameMatches.length === 0) {
+                    return { success: false, error: `No component matches "${nameOrFullName}"`, deletedCount: 0 };
+                }
+                if (basenameMatches.length > 1) {
+                    return {
+                        success: false,
+                        ambiguous: true,
+                        error: `"${nameOrFullName}" is ambiguous across ${basenameMatches.length} components — pass the full path to delete a specific one`,
+                        candidates: basenameMatches.map((c: any) => c?.name || c?.fullName || 'unknown'),
+                        deletedCount: 0,
+                    };
+                }
+                matches = basenameMatches;
             }
 
             const undoGroup = new UndoActionGroup({ label: `delete component ${nameOrFullName}` });
@@ -1224,7 +2048,7 @@ export class EditorBridge {
             };
         });
 
-        h('component.createWithTemplate', ([name, templateJSON]: [string, any]) => {
+        h('component.createWithTemplate', ([name, templateJSON, switchTo]: [string, any, boolean?]) => {
             const pm = ProjectModel.instance as any;
             if (!pm) throw new Error('ProjectModel not available');
 
@@ -1242,15 +2066,30 @@ export class EditorBridge {
             UndoQueue.instance.push(undoGroup);
             pm.addComponent(newComponent, { undo: undoGroup });
 
-            // Cache, lock, and broadcast
-            this.cachedActiveComponent = newComponent;
-            this.setAiLock(newComponent);
-            this.pushEvent('componentSwitched', {
-                name: newComponent.name,
-                fullName: newComponent.fullName || newComponent.name,
-            });
+            // Only move the AI's active scope (cache + lock) onto the new component
+            // when the caller explicitly asked. A default create_component must NOT
+            // relocate the mutation target to the new empty component while the UI
+            // still shows the original one — that is silent wrong-component drift.
+            if (switchTo) {
+                this.cachedActiveComponent = newComponent;
+                this.setAiLock(newComponent);
+                this.pushEvent('componentSwitched', {
+                    name: newComponent.name,
+                    fullName: newComponent.fullName || newComponent.name,
+                });
+            }
 
-            return this.serializeComponent(newComponent);
+            // Return the REAL created structure (roots), not just a stripped serialization,
+            // so the tool can verify what was actually created instead of asserting its
+            // own local template. Mirrors project.getComponentsWithGraph.
+            const result: any = this.serializeComponent(newComponent);
+            const graph = newComponent.graph;
+            if (graph) {
+                const graphModel = graph.model || graph;
+                const roots = graphModel.roots || [];
+                result.graph = { roots: roots.map((n: any) => this.serializeNode(n)) };
+            }
+            return result;
         });
 
         // --- Manifest / inspection commands ---
@@ -1414,21 +2253,188 @@ export class EditorBridge {
 
         // --- Auth commands (for AI proxy mode) ---
         h('auth.getJwt', async () => {
+            // ─── getSession() CAN BLOCK, AND SILENCE IS THE WORST ANSWER (2026-08-16) ────────
+            // (debug export 1786926487499) This awaited getSession() with no bound. supabase-js
+            // v2 takes an auth lock around refresh, and getSession() queues behind it — so when
+            // the editor's own refresh was failing (`token?grant_type=refresh_token 400`), this
+            // handler simply never returned. The panel saw:
+            //
+            //   Command 'auth.getJwt' timed out after 30s
+            //   Editor-bridge getJwt attempt 1 failed: timed out after 10s
+            //   Editor-bridge getJwt attempt 2 failed: timed out after 10s
+            //   refreshSession failed: Auth session missing!
+            //   All token recovery paths failed — the user must log in again
+            //
+            // The build was going fine; it died mid-turn on a 401 because the one call that could
+            // have answered was stuck behind a lock. A handler whose failure mode is SILENCE gives
+            // the caller nothing to distinguish "bridge is dead" from "bridge is busy" — and this
+            // codebase has spent the day removing exactly that ambiguity elsewhere.
+            //
+            // So: bound it, and on timeout read the persisted session directly. This client is the
+            // one configured with persistSession: true — it OWNS that storage — so reading it is
+            // reading our own state, not guessing. A slightly-stale access token is a far better
+            // answer than none: the caller already handles 401 by asking us to refresh, whereas
+            // silence ends the turn.
+            const readPersistedToken = (): string | null => {
+                try {
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (!key || !/^sb-.*-auth-token$/.test(key)) continue;
+                        const raw = localStorage.getItem(key);
+                        if (!raw) continue;
+                        const parsed = JSON.parse(raw);
+                        const token = parsed?.access_token || parsed?.currentSession?.access_token;
+                        if (token) return token;
+                    }
+                } catch { /* storage unreadable — fall through to null */ }
+                return null;
+            };
+
             try {
-                const { data: { session }, error } = await supabase.auth.getSession();
+                const timeout = new Promise<'__timeout'>((resolve) => setTimeout(() => resolve('__timeout'), 3000));
+                const result = await Promise.race([supabase.auth.getSession(), timeout]);
+
+                if (result === '__timeout') {
+                    const fallback = readPersistedToken();
+                    console.warn(
+                        `[EditorBridge] auth.getJwt: getSession() did not return within 3s — it is almost `
+                        + `certainly queued behind an in-flight token refresh. ${fallback
+                            ? 'Answering from the persisted session instead (may be near expiry; a 401 will trigger auth.refresh).'
+                            : 'No persisted session to fall back on, so returning null — the user needs to sign in again.'}`,
+                    );
+                    return fallback;
+                }
+
+                const { data: { session } = { session: null }, error } = (result as any) || {};
                 if (error) {
                     console.warn('[EditorBridge] auth.getJwt: getSession error:', error.message);
-                    return null;
+                    return readPersistedToken();
                 }
-                return session?.access_token || null;
+                return session?.access_token || readPersistedToken();
             } catch (e: any) {
                 console.warn('[EditorBridge] auth.getJwt failed:', e.message);
-                return null;
+                return readPersistedToken();
             }
         });
 
+        /**
+         * REFRESH IS THE OWNER'S JOB.
+         *
+         * (2026-08-05 — reported: "Invalid Refresh Token: Already Used", user signed out.)
+         *
+         * Supabase refresh tokens are single-use with rotation, and this editor client is the one
+         * configured with `persistSession: true` — it OWNS the stored session. The AI panel is a
+         * consumer in an iframe with `persistSession: false`; when it refreshed on its own, the
+         * server rotated the pair and the replacement went nowhere, leaving this client holding a
+         * spent token. One access-token lifetime later its own autoRefresh fired with that token,
+         * reuse-detection revoked the family, and the user was logged out of the app.
+         *
+         * So the panel asks US. One refresh, in the client that persists the result, with the
+         * same single-flight discipline the panel uses — two concurrent 401s must not double-spend.
+         */
+        h('auth.refreshJwt', async () => {
+            const g: any = window as any;
+            if (g.__xgeniaAuthRefreshInFlight) {
+                try { return await g.__xgeniaAuthRefreshInFlight; } catch { return null; }
+            }
+            const run = (async () => {
+                try {
+                    const { data, error } = await supabase.auth.refreshSession();
+                    if (error) {
+                        // "Already Used" means the family is revoked server-side — no client-side
+                        // retry can recover it, and adding one would only spend more tokens.
+                        console.warn('[EditorBridge] auth.refreshJwt failed:', error.message);
+                        return null;
+                    }
+                    return data?.session?.access_token || null;
+                } catch (e: any) {
+                    console.warn('[EditorBridge] auth.refreshJwt threw:', e?.message || e);
+                    return null;
+                }
+            })();
+            g.__xgeniaAuthRefreshInFlight = run;
+            try { return await run; } finally { g.__xgeniaAuthRefreshInFlight = null; }
+        });
+
+        // --- XRGS (maths/RGS) bridge ---
+        // The AI plugin runs in an iframe and cannot reach `window.__xrgs` (it lives on the editor
+        // window, defined at MathsPanel module load — eagerly imported by router.setup.ts). These
+        // passthroughs let the iframe reach the RGS API key, the maths compiler, and the shared
+        // test config (active game + settings). Without them the AI's RGS tools are dead in prod.
+        // Key + config use the `xgenia_rgs_settings` localStorage key directly (single source of
+        // truth, independent of whether the Maths panel is mounted); compile/list go through __xrgs.
+        const XRGS_DEFAULT_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/functions/v1';
+        const readRgs = (): any => {
+            try { return JSON.parse(localStorage.getItem('xgenia_rgs_settings') || '{}'); } catch { return {}; }
+        };
+        const writeRgs = (patch: Record<string, any>): void => {
+            try { localStorage.setItem('xgenia_rgs_settings', JSON.stringify({ ...readRgs(), ...patch })); } catch { /* ignore */ }
+        };
+        h('xrgs.getSettings', () => {
+            const s = readRgs();
+            return s.apiKey ? { apiKey: s.apiKey, url: s.rgsUrl || XRGS_DEFAULT_URL } : null;
+        });
+        h('xrgs.getActiveGame', () => readRgs().activeGame ?? null);
+        h('xrgs.setActiveGame', ([game]: [any]) => { writeRgs({ activeGame: game ?? null }); return true; });
+        h('xrgs.getTestSettings', () => readRgs().testSettings ?? null);
+        h('xrgs.setTestSettings', ([s]: [any]) => {
+            const next = { ...(readRgs().testSettings || {}), ...(s || {}) };
+            writeRgs({ testSettings: next });
+            return next;
+        });
+        h('xrgs.generateScript', ([componentName]: [string?]) => {
+            try {
+                const xrgs = (window as any).__xrgs;
+                return xrgs?.generateRgsScript
+                    ? xrgs.generateRgsScript(componentName)
+                    : { error: 'Maths bridge not available — open the Maths panel once to initialise it.' };
+            } catch (e: any) {
+                return { error: e?.message || 'generateScript failed' };
+            }
+        });
+        h('xrgs.getMathsComponents', () => {
+            try { return (window as any).__xrgs?.getMathsComponents?.() ?? []; } catch { return []; }
+        });
+
         // --- Filesystem commands ---
+        //
+        // PATH CONTAINMENT. (2026-08-04 pre-release audit — no handler had any.)
+        //
+        // Every fs handler below treated an ABSOLUTE path as authoritative:
+        //     const fullPath = filePath.startsWith('/') ? filePath : path.join(projectDir, filePath)
+        // and four of them (readJson / writeJson / rename / writeFileBinary) did not even join the
+        // project directory — they passed the caller's string straight to node's fs. So a script
+        // that reached this bridge could read ~/.ssh/id_rsa or write ~/.zshrc, and because the text
+        // classifier only ever looks at the CALL SPELLING, an absolute-path read was graded
+        // "read-only" and auto-ran with no prompt at all.
+        //
+        // Containment cannot live in a text classifier — it belongs here, where the real path is.
+        // resolve() collapses `..`; realpath (best-effort) closes the symlink escape. A path that
+        // does not exist yet is checked at its resolved location, which is what a create needs.
+        const assertInsideProject = (p: string, op: string): string => {
+            const path = require('path');
+            const fs = require('fs');
+            const projectDir = ProjectModel.instance._retainedProjectDirectory;
+            if (!projectDir) throw new Error(`FileSystem.${op} refused: no project is open, so nothing can be resolved safely.`);
+            const root = path.resolve(projectDir);
+            const resolved = path.resolve(root, p || '');
+            const within = (candidate: string) => candidate === root || candidate.startsWith(root + path.sep);
+            let check = resolved;
+            try {
+                // realpath the deepest EXISTING ancestor, so a symlinked parent cannot smuggle us out.
+                let probe = resolved;
+                while (probe !== path.dirname(probe) && !fs.existsSync(probe)) probe = path.dirname(probe);
+                const realProbe = fs.realpathSync(probe);
+                check = path.resolve(realProbe, path.relative(probe, resolved));
+            } catch { /* unreadable ancestor — fall back to the lexical check below */ }
+            if (!within(check) || !within(resolved)) {
+                throw new Error(`FileSystem.${op} refused: "${p}" resolves outside the project directory. The AI bridge may only touch files inside the open project.`);
+            }
+            return resolved;
+        };
+
         h('fs.readFile', async ([filePath, encoding]: [string, string?]) => {
+            filePath = assertInsideProject(filePath, 'readFile');
             const fs = require('fs');
             const path = require('path');
             const projectDir = ProjectModel.instance._retainedProjectDirectory;
@@ -1450,6 +2456,7 @@ export class EditorBridge {
         });
 
         h('fs.writeFile', async ([filePath, content, encoding]: [string, string, string?]) => {
+            filePath = assertInsideProject(filePath, 'writeFile');
             const fs = require('fs');
             const path = require('path');
             const projectDir = ProjectModel.instance._retainedProjectDirectory;
@@ -1467,6 +2474,7 @@ export class EditorBridge {
         });
 
         h('fs.exists', ([filePath]: [string]) => {
+            filePath = assertInsideProject(filePath, 'exists');
             const fs = require('fs');
             const path = require('path');
             const projectDir = ProjectModel.instance._retainedProjectDirectory;
@@ -1477,6 +2485,7 @@ export class EditorBridge {
         });
 
         h('fs.mkdir', ([dirPath]: [string]) => {
+            dirPath = assertInsideProject(dirPath, 'mkdir');
             const fs = require('fs');
             const path = require('path');
             const projectDir = ProjectModel.instance._retainedProjectDirectory;
@@ -1489,27 +2498,56 @@ export class EditorBridge {
             return true;
         });
 
-        h('fs.remove', ([filePath]: [string]) => {
+        h('fs.remove', ([filePath, opts]: [string, { recursive?: boolean }?]) => {
+            filePath = assertInsideProject(filePath, 'remove');
             const fs = require('fs');
-            if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
+            const path = require('path');
+            // Resolve relative paths against the project dir (same bug class as fs.readDirDetailed) — a raw
+            // relative path here would unlink from the editor's OWN bundle dir, a real footgun.
+            const projectDir = ProjectModel.instance?._retainedProjectDirectory;
+            const isAbsolute = filePath.startsWith('/') || filePath.includes(':');
+            if (!isAbsolute && !projectDir) return false;
+            const fullPath = isAbsolute ? filePath : path.join(projectDir, filePath);
+            if (!fs.existsSync(fullPath)) return true; // already gone — the caller's intent is satisfied
+
+            // unlink() on a DIRECTORY throws EPERM on macOS (EISDIR on Linux). This surfaced to the user
+            // as "EPERM: operation not permitted, unlink '.../.xgenia/skills/test-skill'": skills are
+            // stored as a FOLDER (<slug>/SKILL.md), so deleting one always hit a directory here and the
+            // folder was left behind. Branch on the real type instead of assuming every path is a file.
+            //
+            // Directories are removed NON-recursively BY DEFAULT: making fs.remove implicitly `rm -rf`
+            // would silently widen the blast radius of every existing caller. A caller that genuinely
+            // owns the tree opts in. lstat (not stat) so a symlink to a directory is unlinked, not walked.
+            if (fs.lstatSync(fullPath).isDirectory()) {
+                if (opts?.recursive) fs.rmSync(fullPath, { recursive: true, force: true });
+                else fs.rmdirSync(fullPath); // throws ENOTEMPTY if it still has contents — an honest failure
+                return true;
             }
+            fs.unlinkSync(fullPath);
             return true;
         });
 
         h('fs.readDir', ([dirPath]: [string]) => {
+            dirPath = assertInsideProject(dirPath, 'readDir');
             const fs = require('fs');
-            if (!fs.existsSync(dirPath)) return [];
-            return fs.readdirSync(dirPath);
+            const path = require('path');
+            const projectDir = ProjectModel.instance?._retainedProjectDirectory;
+            const isAbsolute = dirPath.startsWith('/') || dirPath.includes(':');
+            if (!isAbsolute && !projectDir) return [];
+            const fullPath = isAbsolute ? dirPath : path.join(projectDir, dirPath);
+            if (!fs.existsSync(fullPath)) return [];
+            return fs.readdirSync(fullPath);
         });
 
         h('fs.readJson', async ([filePath]: [string]) => {
+            filePath = assertInsideProject(filePath, 'readJson');
             const fs = require('fs');
             const content = fs.readFileSync(filePath, 'utf-8');
             return JSON.parse(content);
         });
 
         h('fs.writeJson', async ([filePath, data]: [string, any]) => {
+            filePath = assertInsideProject(filePath, 'writeJson');
             const fs = require('fs');
             const path = require('path');
             const dir = path.dirname(filePath);
@@ -1521,12 +2559,15 @@ export class EditorBridge {
         });
 
         h('fs.rename', ([oldPath, newPath]: [string, string]) => {
+            oldPath = assertInsideProject(oldPath, 'rename');
+            newPath = assertInsideProject(newPath, 'rename');
             const fs = require('fs');
             fs.renameSync(oldPath, newPath);
             return true;
         });
 
         h('fs.writeFileBinary', async ([filePath, base64Data]: [string, string]) => {
+            filePath = assertInsideProject(filePath, 'writeFileBinary');
             const fs = require('fs');
             const path = require('path');
             const dir = path.dirname(filePath);
@@ -1538,17 +2579,69 @@ export class EditorBridge {
             return true;
         });
 
+        // Record AI provenance (prompt/model/params) for a saved asset, keyed by its
+        // project-relative path ('assets/...'). The AI calls this right after saving a
+        // generated image so the asset carries "what the AI did" (shown in the Inspector).
+        h('assetMeta.set', async ([assetPath, entry]: [string, { ai?: any; tags?: string[]; favorite?: boolean }]) => {
+            if (!assetPath || !entry) return false;
+            try {
+                if (entry.ai) await recordAssetProvenance(assetPath, entry.ai);
+                return true;
+            } catch (e) {
+                console.warn('[EditorBridge] assetMeta.set failed:', e);
+                return false;
+            }
+        });
+
+        // Migrate asset metadata (tags/provenance) when the AI renames/moves an asset,
+        // so it isn't orphaned. Prefix-aware (a folder move carries its inner files).
+        h('assetMeta.migrate', async ([oldPath, newPath]: [string, string]) => {
+            if (!oldPath || !newPath) return false;
+            try {
+                await loadAssetMeta();
+                migrateAssetMeta(oldPath, newPath);
+                try {
+                    reconcileGraphAssetRefs(oldPath, newPath);
+                } catch {
+                    /* graph reconciliation is best-effort */
+                }
+                return true;
+            } catch (e) {
+                console.warn('[EditorBridge] assetMeta.migrate failed:', e);
+                return false;
+            }
+        });
+
         h('fs.stat', ([filePath]: [string]) => {
+            filePath = assertInsideProject(filePath, 'stat');
             const fs = require('fs');
-            if (!fs.existsSync(filePath)) return null;
-            const stat = fs.statSync(filePath);
+            const path = require('path');
+            const projectDir = ProjectModel.instance?._retainedProjectDirectory;
+            const isAbsolute = filePath.startsWith('/') || filePath.includes(':');
+            if (!isAbsolute && !projectDir) return null;
+            const fullPath = isAbsolute ? filePath : path.join(projectDir, filePath);
+            if (!fs.existsSync(fullPath)) return null;
+            const stat = fs.statSync(fullPath);
             return { size: stat.size, modified: stat.mtime.toISOString(), isFile: stat.isFile(), isDirectory: stat.isDirectory() };
         });
 
         h('fs.readDirDetailed', ([dirPath]: [string]) => {
+            dirPath = assertInsideProject(dirPath, 'readDirDetailed');
             const fs = require('fs');
-            if (!fs.existsSync(dirPath)) return [];
-            const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+            const path = require('path');
+            // BUG (trace 1781972390362): a relative dirPath like 'assets' was passed straight to
+            // fs.readdirSync, so it resolved against the EDITOR's process CWD — its own bundle dir, which
+            // ships packages/xgenia-editor/assets/{cherry.png, videos/LogoIntroXGENIA.mp4}. The ChatPanel's
+            // list-project-assets walks 'assets' via this bridge, so it read the editor's TEMPLATE SEED as
+            // the project's inventory: reported 2 phantom assets (cherry + the XGENIA intro), MISSED all the
+            // real ones, and the AI regenerated symbols it already had. Resolve relative paths against the
+            // loaded project directory, exactly like fs.readFile / fs.exists / fs.mkdir already do.
+            const projectDir = ProjectModel.instance?._retainedProjectDirectory;
+            const isAbsolute = dirPath.startsWith('/') || dirPath.includes(':');
+            if (!isAbsolute && !projectDir) return [];
+            const fullPath = isAbsolute ? dirPath : path.join(projectDir, dirPath);
+            if (!fs.existsSync(fullPath)) return [];
+            const entries = fs.readdirSync(fullPath, { withFileTypes: true });
             return entries
                 .filter((e: any) => !e.name.startsWith('.'))
                 .map((e: any) => ({
@@ -1568,18 +2661,26 @@ export class EditorBridge {
         });
 
         // --- Warnings model ---
-        h('warnings.get', () => {
-            try {
-                const { WarningsModel } = require('@xgenia-models/warningsmodel');
-                return WarningsModel.instance || null;
-            } catch {
-                return null;
-            }
-        });
+        // (2026-08-07) The duplicate `warnings.get` that used to live here returned
+        // `WarningsModel.instance` — a live class instance, which cannot survive the postMessage
+        // bridge. See the real handler further down (search "Editor warnings"); it is registered
+        // later and therefore won this key anyway. Removed rather than left as a second definition
+        // of the same route.
 
         // --- Project Style commands ---
         h('style.getBaseUrl', () => {
             return getProjectBaseStyleUrl();
+        });
+
+        // WHICH GENERATION THE ANCHOR CAME FROM.
+        // (2026-08-19, export 1787112946756) The anchor's PIXELS survive a ChatPanel reload —
+        // setProjectBaseStyle persists them to project metadata and to a local file. Its ID did
+        // not, so nothing could tell whether those persisted bytes belonged to the imageId being
+        // saved. The user could see the key art on screen while image({action:"save"}) answered
+        // "Image session not found. Create an image first." and the AI regenerated a DIFFERENT
+        // anchor, orphaning every asset that would have derived from it.
+        h('style.getBaseId', () => {
+            return getProjectBaseStyleId();
         });
 
         h('style.setBase', ([id, dataUrl]: [string, string]) => {
@@ -1666,30 +2767,138 @@ export class EditorBridge {
         });
 
         // --- Editor warnings ---
-        h('warnings.get', () => {
+        //
+        // (2026-08-07) THIS HANDLER HAS NEVER RETURNED A WARNING. It called
+        // `getWarnings?.()` with no argument, but the signature is `getWarnings(ref: WarningRef)` —
+        // so it resolved a ref of `undefined`, got nothing back, and the `|| []` turned that into a
+        // clean empty array. Meanwhile the caller passes a COMPONENT NAME, which neither this nor
+        // the duplicate above ever accepted.
+        //
+        // The effect: the editor draws a red triangle on a broken node and shows the reason on
+        // hover, `getWarningsForNode()` returns [] to the AI every time, and the AI reports the
+        // node as verified working. Observed on a pixi.Graphics node reading
+        // "Invalid array — SyntaxError: Unexpected number" while the QA pass called polyPoints
+        // confirmed-working in the same breath.
+        //
+        // Returns PLAIN OBJECTS — the previous shape was un-serialisable across postMessage, so
+        // even a correct lookup would have arrived empty.
+        h('warnings.get', ([componentName]: [string?] = [] as any) => {
             try {
                 const { WarningsModel } = require('@xgenia-models/warningsmodel');
-                const warnings = WarningsModel.instance;
-                if (!warnings) return [];
-                return warnings.getWarnings?.() || [];
-            } catch {
+                const model = WarningsModel.instance;
+                if (!model) return [];
+
+                // getAllWarningsForComponent only ever reads `.name`, so a bare {name} is a valid ref.
+                const namesToRead: string[] = [];
+                if (componentName) {
+                    namesToRead.push(componentName);
+                } else {
+                    try {
+                        const comps = (ProjectModel.instance as any)?.getComponents?.() || [];
+                        for (const c of comps) if (c?.name) namesToRead.push(c.name);
+                    } catch { /* fall through to the active component below */ }
+                    if (namesToRead.length === 0) {
+                        const active = (ProjectModel.instance as any)?.getActiveComponent?.();
+                        if (active?.name) namesToRead.push(active.name);
+                    }
+                }
+
+                const out: any[] = [];
+                for (const name of namesToRead) {
+                    let raw: any[] = [];
+                    try { raw = model.getAllWarningsForComponent({ name }, undefined) || []; } catch { raw = []; }
+                    for (const entry of raw) {
+                        const node = entry?.ref?.node;
+                        const connection = entry?.ref?.connection;
+                        out.push({
+                            component: name,
+                            key: entry?.ref?.key ?? null,
+                            nodeId: node?.id ?? null,
+                            nodeLabel: node?.label ?? node?.parameters?.nodeLabel ?? null,
+                            // `type` is a NodeType MODEL, not a string — sending it raw produced
+                            // "WARNING on @Polygon ([object Object])" in the first warning that ever
+                            // reached the AI (2026-08-08, export 1786160157171).
+                            nodeType: (typeof node?.type === 'string' ? node.type : (node?.type?.name ?? node?.type?.fullName ?? null)),
+                            connectionId: connection?.id ?? null,
+                            level: entry?.warning?.level === 'error' ? 'error' : 'warning',
+                            type: entry?.warning?.type ?? null,
+                            message: String(entry?.warning?.message ?? '').replace(/<br\s*\/?>/gi, ' | '),
+                        });
+                    }
+                }
+                return out;
+            } catch (e: any) {
+                console.warn('[EditorBridge] warnings.get failed:', e?.message || e);
                 return [];
             }
         });
 
         // --- ViewerConnection bridge (runtime signal triggering) ---
+        // Waits for the runtime to say what actually happened.
+        //
+        // This used to return `{success:true}` the instant the message was sent,
+        // which only ever proved the editor could talk to itself. Every real
+        // failure downstream — no such node, no such port, wrong direction —
+        // came back to the AI as success, and the AI wrote prose to match.
+        // Export 1786997975677: a spin fired at an INPUT named "Spin" hit
+        // `Node /#__maths__/LuckyCherryMaths doesn't have a output named Spin`
+        // and was still reported as delivered, which is what tripped the
+        // fabrication detector at the end of that turn.
         h('viewer.triggerSignal', ([nodeId, portName, data, isInput]: [string, string, any?, boolean?]) => {
-            try {
-                const { ViewerConnection } = require('../../../ViewerConnection');
-                const vc = ViewerConnection.instance;
-                if (!vc) throw new Error('ViewerConnection instance not available');
-                vc.sendTriggerSignal(nodeId, portName, data, isInput);
-                console.log(`[EditorBridge] viewer.triggerSignal: sent to ${nodeId}.${portName} (isInput=${!!isInput})`);
-                return { success: true, nodeId, portName };
-            } catch (e: any) {
-                console.error('[EditorBridge] viewer.triggerSignal failed:', e.message);
-                throw e;
+            const { ViewerConnection } = require('../../../ViewerConnection');
+            const vc = ViewerConnection.instance;
+            if (!vc) {
+                throw new Error('Cannot trigger a signal: the game preview is not running (ViewerConnection unavailable). Start the preview first.');
             }
+
+            const sigId = `sig_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            return new Promise<any>((resolve) => {
+                let settled = false;
+                const finish = (result: any) => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    EventDispatcher.instance.off(sigId);
+                    resolve(result);
+                };
+
+                // An older viewer does not know how to answer. Resolving as
+                // "unconfirmed" rather than as success keeps the honest shape:
+                // the caller can see the difference between "it worked" and
+                // "nobody told me", which is the whole point of this change.
+                const timer = setTimeout(() => {
+                    finish({
+                        success: false,
+                        unconfirmed: true,
+                        nodeId,
+                        portName,
+                        isInput: !!isInput,
+                        error: 'The running preview did not acknowledge the signal within 5s. It may be an older viewer build, or nothing is running. Treat this as UNVERIFIED, not as a successful trigger.'
+                    });
+                }, 5000);
+
+                // Group-keyed on this request's id, the same way the eval path
+                // does it, so two signals in flight cannot resolve each other
+                // and `off(sigId)` detaches only this one.
+                EventDispatcher.instance.on(
+                    'Viewer.triggerSignalResult',
+                    (msg: any) => {
+                        if (!msg || msg.id !== sigId) return;
+                        finish({
+                            success: !!msg.success,
+                            nodeId,
+                            portName,
+                            isInput: !!isInput,
+                            detail: msg.detail,
+                            error: msg.error
+                        });
+                    },
+                    sigId
+                );
+
+                vc.sendTriggerSignal(nodeId, portName, data, isInput, sigId);
+                console.log(`[EditorBridge] viewer.triggerSignal: sent to ${nodeId}.${portName} (isInput=${!!isInput}) awaiting ${sigId}`);
+            });
         });
 
         // --- ViewerConnection bridge (code execution in Viewer game engine) ---
@@ -1709,13 +2918,37 @@ export class EditorBridge {
                     reject(new Error(`Code execution timed out after ${cappedTimeout}ms`));
                 }, cappedTimeout);
 
-                const resultHandler = (response: any) => {
-                    const message = response.args || response;
-                    if (message.id !== evalId) return;
+                // ═══ MULTI-CLIENT EVAL SELECTION (trace 1785088922912) ═══
+                // sendRuntimeEval BROADCASTS — it carries no client id, so every connected
+                // client runs it and every one replies with the same evalId. The old handler
+                // took the FIRST reply and unsubscribed, discarding the rest. When both the
+                // real viewer (localhost:8574, "XGENIA Viewer", 10 body children) and the
+                // cloud-runtime shell (cloudruntime/index.html, 0 body children, 6 elements)
+                // are connected, the EMPTY one wins the race for DOM-heavy code because it has
+                // almost nothing to walk. That is why simulate_interaction could never find the
+                // SPIN button while execute_code, one call later, enumerated it fine — and why
+                // it looked intermittent (execute_code hit the shell too, on other calls).
+                //
+                // Fix: score each reply by whether its document actually has content, and
+                // prefer a real one. Zero added latency in the healthy case — a good reply
+                // resolves immediately; only an empty-document reply waits briefly to see if a
+                // real viewer answers too. Falls back to first-reply behaviour if no client
+                // reports a document (older viewers), so this can only ever improve selection.
+                let settled = false;
+                let graceTimer: any = null;
+                let best: any = null;
 
-                    EventDispatcher.instance.off(evalId);
-                    clearTimeout(timer);
+                const scoreOf = (m: any): number => {
+                    if (!m?.success) return -10;
+                    const raw = m.result;
+                    const doc = raw && typeof raw === 'object' ? (raw as any).__doc : null;
+                    if (!doc) return 0; // unknown shape — neutral, never worse than a known-empty
+                    const kids = typeof doc.kids === 'number' ? doc.kids : -1;
+                    if (kids > 0) return 1000 + (typeof doc.els === 'number' ? doc.els : 0);
+                    return -1; // answered from an empty shell
+                };
 
+                const emit = (message: any) => {
                     if (message.success) {
                         // Extract structured result with logs if available
                         const raw = message.result;
@@ -1741,6 +2974,43 @@ export class EditorBridge {
                     }
                 };
 
+                const finishWith = (message: any) => {
+                    if (settled) return;
+                    settled = true;
+                    if (graceTimer) clearTimeout(graceTimer);
+                    EventDispatcher.instance.off(evalId);
+                    clearTimeout(timer);
+                    emit(message);
+                };
+
+                const resultHandler = (response: any) => {
+                    const message = response.args || response;
+                    if (message.id !== evalId) return;
+                    if (settled) return;
+
+                    if (best === null || scoreOf(message) > scoreOf(best)) best = message;
+
+                    // Take it now unless we KNOW it is bad: a real document (>0) is
+                    // authoritative, and an unscoreable reply (0 — no __doc, e.g. a
+                    // non-object result) must not pay the grace penalty on every call.
+                    // Only a known-empty shell (-1) or a failure (-10) waits.
+                    if (scoreOf(message) >= 0) { finishWith(message); return; }
+
+                    // Empty-shell or error reply: wait for a better answer before accepting it.
+                    //
+                    // (trace 1785091702991) This was 300ms and that was far too short. The shell
+                    // BAILS fast — empty scope, one 500ms retry, give up at ~500ms — while a real
+                    // viewer deliberately waits out the caller's settle time before replying
+                    // (simulate_interaction clicks, then waits settleMs — 2500ms in that run).
+                    // So the good answer landed ~2s after the window had already closed, and the
+                    // shell's useless reply won anyway. A known-bad reply carries NO information,
+                    // so waiting for a better one costs nothing but latency, and only in the case
+                    // where no better client exists. Bound it by the caller's own timeout — they
+                    // already agreed to wait that long — capped so a genuinely dead preview still
+                    // fails promptly rather than hanging for the full 15s+.
+                    if (!graceTimer) graceTimer = setTimeout(() => finishWith(best), Math.min(cappedTimeout, 5000));
+                };
+
                 EventDispatcher.instance.on('Viewer.runtimeEvalResult', resultHandler, evalId);
 
                 try {
@@ -1759,7 +3029,25 @@ export class EditorBridge {
                         if (lastIdx >= 0) {
                             const trimmed = lines[lastIdx].trim();
                             const noAutoReturn = /^(return|if|for|while|try|class|function|switch|throw|const|let|var|async\s+function)\b/;
-                            if (!noAutoReturn.test(trimmed) && !trimmed.endsWith('{')) {
+                            // (trace 1783290828056) A closing-only line like `})();` or `})()` is the
+                            // TAIL of a multi-line expression — prepending return produces `return })();`,
+                            // a SyntaxError that kills the whole eval. Leave such code untouched
+                            // (callers that need the value must return it explicitly).
+                            const closingOnly = /^[)\]}\s;]*$/.test(trimmed);
+                            // (trace 1783519124189 / 1783535424256) The auto-return is
+                            // LINE-based, so when the last statement is a MULTI-LINE
+                            // expression — `return JSON.stringify({\n  a: 1,\n  b: 2\n});`
+                            // — the last non-closing line is a PROPERTY still inside the
+                            // open `({`, and prepending `return` ("return b: 2") corrupts
+                            // the object literal (SyntaxError: Unexpected identifier). Only
+                            // auto-return when the last line is a COMPLETE top-level
+                            // statement: nothing before it may have an unclosed ( [ {.
+                            // Naive bracket count (can miscount inside strings/comments) but
+                            // FAILS SAFE — a false "continuation" just skips the convenience
+                            // return; it never corrupts valid code.
+                            const before = lines.slice(0, lastIdx).join('\n');
+                            const openDepth = (before.match(/[([{]/g) || []).length - (before.match(/[)\]}]/g) || []).length;
+                            if (openDepth <= 0 && !noAutoReturn.test(trimmed) && !trimmed.endsWith('{') && !closingOnly) {
                                 const indent = lines[lastIdx].match(/^(\s*)/)?.[1] || '';
                                 lines[lastIdx] = `${indent}return ${trimmed}`;
                             }
@@ -1784,7 +3072,20 @@ ${autoReturnCode}
     console.log = __oc.log; console.warn = __oc.warn; console.error = __oc.error;
     console.info = __oc.info; console.debug = __oc.debug;
   }
-})().then(function(r) { return { __result: r, __logs: __logs }; });`;
+})().then(function(r) {
+  // __doc lets the editor tell WHICH connected client answered (see MULTI-CLIENT EVAL
+  // SELECTION above). runtimeEval is broadcast, so the empty cloud-runtime shell replies
+  // too — and fastest. Consumers ignore __doc; only reply-scoring reads it.
+  var __d = null;
+  try {
+    __d = {
+      url: String((typeof location !== 'undefined' && location.href) || ''),
+      kids: (typeof document !== 'undefined' && document.body && document.body.children) ? document.body.children.length : -1,
+      els: (typeof document !== 'undefined' && document.getElementsByTagName) ? document.getElementsByTagName('*').length : -1
+    };
+  } catch (e) { __d = null; }
+  return { __result: r, __logs: __logs, __doc: __d };
+});`;
                     vc.sendRuntimeEval(wrappedCode, evalId);
                 } catch (syncError: any) {
                     clearTimeout(timer);
@@ -1959,6 +3260,10 @@ ${autoReturnCode}
             x: node.x,
             y: node.y,
             parameters: this.serializeParameters(node),
+            // BRAIN: surface the AI/user annotation (purpose/notes) written into
+            // node.metadata.ai so on-node knowledge round-trips back to the AI on
+            // inspection — nodes carry data, not just the .xgenia/brain.json sidecar.
+            ...(node.metadata?.ai ? { aiKnowledge: node.metadata.ai } : {}),
             // Include ports for live proxy caching — tools call node.getPorts()/getPort()
             // FIX (2026-03-07): Use getPorts() METHOD (returns static + dynamic ports from type system)
             // instead of .ports PROPERTY (only dynamic/user-added ports).
@@ -2056,61 +3361,22 @@ ${autoReturnCode}
         //
         // FIX (2026-05-25 — same trace, second issue): the editor model wraps
         // some dimension params (width/height/fontSize/padding/margin) as
-        // {value, unit} objects for its property-editor UI. For HTML nodes
-        // this matches the model contract; for `type: number` ports (pixi
-        // dimensions, etc.) the wrap is internal storage that the runtime
-        // unwraps. When we surface the wrap to the AI side via getParameter,
-        // tools like verify_logic_correctness's malformed_dimension_param
-        // check trip on it as if the AI passed bad input. Unwrap here so the
-        // AI sees the same number the runtime sees.
-        const unwrapValueUnit = (val: any, portType: string): any => {
-            if (val && typeof val === 'object' && !Array.isArray(val) &&
-                val.value !== undefined && val.unit !== undefined) {
-                // Unwrap unconditionally when the {value, unit} shape is present.
-                // Trace 2026-05-25 showed pixi.Container.width has port type
-                // "dimension" (not "number") at runtime, so the original type
-                // whitelist missed it and CHECK 24 kept tripping. {value, unit}
-                // is editor-model internal storage; the runtime-effective value
-                // is ALWAYS the bare number (for numeric units like px) or a
-                // CSS string (for percent on HTML nodes). Prefer the bare
-                // number so downstream tools and checks see the same thing the
-                // runtime sees. We explicitly KEEP the wrap for object-typed
-                // ports (rare, never observed in practice) and for ports
-                // declared as 'object'/'array' where {value, unit} could be a
-                // genuine user value rather than dimension storage.
-                if (portType === 'object' || portType === 'array') return val;
-                const num = typeof val.value === 'number' ? val.value : parseFloat(String(val.value));
-                if (!isFinite(num)) return val; // garbage in → keep as-is
-                return num;
-            }
-            return val;
-        };
-        // 2026-05-25 (second iteration): only fetch via getParameter for
-        // ports DECLARED by this specific node type. Previously we walked
-        // `node.getPorts()` which returns the inherited port set including
-        // base-class pseudo-ports. On pixi.* nodes this exposed a magic
-        // `functionScript` getter that returned the ENTIRE node-type def as
-        // a 98KB string — bloated every export by 3MB+ and polluted
-        // inspect_node output. The compiled-node-docs search-index has the
-        // authoritative declared-input list per node type. Use it as the
-        // gate.
-        const ALLOWED_PORT_NAMES_BY_TYPE: Record<string, Set<string>> = (() => {
-            try {
-                const mod = require('../ChatPanel/StreamlinedToolRegistry/compiled-node-docs/search-index.json');
-                const nodes = mod?.nodes || {};
-                const map: Record<string, Set<string>> = {};
-                for (const [name, entry] of Object.entries<any>(nodes)) {
-                    const hints = entry?.inputFormatHints;
-                    if (hints && typeof hints === 'object') {
-                        map[name] = new Set(Object.keys(hints));
-                        map[name.trim()] = map[name];
-                    }
-                }
-                return map;
-            } catch {
-                return {};
-            }
-        })();
+        // {value, unit} objects for its property-editor UI. When we surface
+        // the wrap to the AI side via getParameter, tools like
+        // verify_logic_correctness's malformed_dimension_param check trip on
+        // it as if the AI passed bad input. Flatten via unwrapValueUnit
+        // (serialize-param-guard.ts) — which, since traces 1784010250453 /
+        // 1784051747260 (the "width: 100" phantom), preserves responsive units
+        // (%/vw/vh/em/rem) as CSS strings instead of collapsing everything to
+        // a bare number. Exotic units (deg, vmin, …) intentionally stay bare
+        // numbers — see the export's doc comment and the shared regression
+        // lock (unwrap-value-unit.test.ts) that pins both this and the
+        // xgenia-ai twin preserveDimensionUnit to the same unit set.
+        // 2026-06-22: serialize every declared input port, skipping only the known
+        // bloat pseudo-port (see isBloatPort) + a size backstop. The earlier
+        // inputFormatHints allowlist (2026-05-25) over-corrected the pixi
+        // functionScript bloat by also dropping PRIMARY params (Text.text,
+        // button.label) — trace 1782150899325.
         try {
             let rawPorts: any[] = [];
             if (typeof node.getPorts === 'function') {
@@ -2129,9 +3395,6 @@ ${autoReturnCode}
                 }
             }
             const typeName3 = node.type?.name || node.typename || '';
-            const allowedNames = ALLOWED_PORT_NAMES_BY_TYPE[typeName3]
-                || ALLOWED_PORT_NAMES_BY_TYPE[typeName3.trim()]
-                || null;
             const isJSFunction = (typeName3 || '').toLowerCase() === 'javascriptfunction'
                 || (typeName3 || '').toLowerCase() === 'javascript2';
             for (const p of rawPorts) {
@@ -2142,16 +3405,19 @@ ${autoReturnCode}
                 const portTypeName = (p.type?.name || p.type || '').toString().toLowerCase();
                 if (portTypeName === 'signal') continue;
                 if (params[p.name] !== undefined && params[p.name] !== null) continue;
-                // GATE: only fetch ports the compiled-docs catalog declares
-                // for THIS node type. JS function nodes are excluded from the
-                // gate because their special params (functionScript /
-                // scriptInputs / scriptOutputs) are intentionally fetched by
-                // the earlier JS-specific block above.
-                if (!isJSFunction && allowedNames && !allowedNames.has(p.name)) continue;
+                // GATE: serialize EVERY declared input port except the known bloat
+                // pseudo-port (functionScript on pixi.* returns the whole ~98KB
+                // node-type def). The previous allowlist (compiled-docs
+                // inputFormatHints) was partial and dropped PRIMARY params like
+                // Text.text and button.label — so inspect_node, verify_logic_correctness
+                // and the debug export saw empty content and a button with params:[]
+                // (trace 1782150899325, the phantom "empty text"). A size backstop
+                // catches any other pathologically-large value.
+                if (isBloatPort(p.name, isJSFunction)) continue;
                 try {
                     const v = typeof node.getParameter === 'function' ? node.getParameter(p.name) : undefined;
-                    if (v !== undefined && v !== null) {
-                        params[p.name] = unwrapValueUnit(v, portTypeName);
+                    if (v !== undefined && v !== null && !isTooLargeToSerialize(v)) {
+                        params[p.name] = unwrapValueUnit(v, portTypeName, portUnitInfo(p));
                     }
                 } catch { /* skip ports that error on read */ }
             }
@@ -2162,7 +3428,7 @@ ${autoReturnCode}
                 const portTypeName = (p.type?.name || p.type || '').toString().toLowerCase();
                 if (portTypeName === 'signal') continue;
                 if (params[p.name] !== undefined && params[p.name] !== null) {
-                    params[p.name] = unwrapValueUnit(params[p.name], portTypeName);
+                    params[p.name] = unwrapValueUnit(params[p.name], portTypeName, portUnitInfo(p));
                 }
             }
         } catch { /* defensive: never let serializer throw */ }

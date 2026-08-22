@@ -17,6 +17,7 @@ import { tracker } from '../utils/tracker';
 import { getUserProfile } from '../utils/userUtils';
 import { timeSince } from '../utils/utils';
 import { ChatPanelIframe_ID } from './panels/ChatPanelBridge/ChatPanelIframe';
+import { editorBridge } from './panels/ChatPanelBridge/EditorBridge';
 import { getLessonsState } from './projectsview.lessonstate';
 import { ToastLayer } from './ToastLayer/ToastLayer';
 
@@ -54,6 +55,8 @@ export class ProjectsView extends View {
   private userProfile: any = null;
   private currentUser: any = null;
   private authSubscription: any = null;
+  /** Lowercased membership tier ('free' | 'pro' | 'enterprise'), drives the sidebar membership button. */
+  private membershipTier: string = 'free';
 
   constructor({ from }: { from: string }) {
     super();
@@ -68,67 +71,82 @@ export class ProjectsView extends View {
   }
 
   private async initializeUserData() {
+    // Subscribe before reading the session: onAuthStateChange replays the initial
+    // session to new subscribers, so this both closes the window where a session
+    // restored mid-await would be missed and covers a getSession() that hangs or
+    // throws, either of which used to leave the sidebar user island empty until the
+    // next reload.
+    if (!this.authSubscription) {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+        if (newSession?.user) {
+          this.applySignedInUser(newSession.user);
+        } else {
+          this.currentUser = null;
+          this.userProfile = null;
+          this.membershipTier = 'free';
+          this.setSidebarUserVisible(false);
+        }
+      });
+      this.authSubscription = subscription;
+    }
+
     try {
       // Quickly load from session cache to avoid UI delay
       const { data: { session } } = await supabase.auth.getSession();
 
       if (session?.user) {
-        this.currentUser = session.user;
-        this.updateSidebarUserInfo();
-        const $userSection = this.$('.sidebar-user');
-        if ($userSection && $userSection.length) {
-          $userSection.show();
-        }
-        // Asynchronously fetch extra subscription data
-        this.fetchExtendedUserProfile(session.user.id);
-      } else {
-        const $userSection = this.$('.sidebar-user');
-        if ($userSection && $userSection.length) {
-          $userSection.hide();
-        }
-      }
-
-      // Hook up an auth subscription to react instantly to any state changes in the app
-      if (!this.authSubscription) {
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-          if (newSession?.user) {
-            const isNewUser = !this.currentUser || this.currentUser.id !== newSession.user.id;
-            this.currentUser = newSession.user;
-            this.updateSidebarUserInfo();
-            const $userSection = this.$('.sidebar-user');
-            if ($userSection && $userSection.length) {
-              $userSection.show();
-            }
-            if (isNewUser) {
-              this.fetchExtendedUserProfile(newSession.user.id);
-            }
-          } else {
-            this.currentUser = null;
-            this.userProfile = null;
-            const $userSection = this.$('.sidebar-user');
-            if ($userSection && $userSection.length) {
-              $userSection.hide();
-            }
-          }
-        });
-        this.authSubscription = subscription;
+        this.applySignedInUser(session.user);
+      } else if (!this.currentUser) {
+        this.setSidebarUserVisible(false);
       }
     } catch (error: any) {
       console.error('Error initializing user data:', error);
       // Fall back to basic user info if available
       if (this.currentUser) {
-        this.updateSidebarUserInfo();
-        const $userSection = this.$('.sidebar-user');
-        if ($userSection && $userSection.length) {
-          $userSection.show();
-        }
+        this.applySignedInUser(this.currentUser);
       }
     }
   }
 
+  /**
+   * Populate and reveal the sidebar user island for `user`. Safe to call repeatedly —
+   * the profile is only refetched when it is for a different user or when a previous
+   * fetch left us without one (otherwise a failed fetch was never retried, leaving the
+   * plan line and membership button stuck on their defaults).
+   */
+  private applySignedInUser(user: any) {
+    const isNewUser = !this.currentUser || this.currentUser.id !== user.id;
+    if (isNewUser) {
+      this.userProfile = null;
+      this.membershipTier = 'free';
+    }
+    this.currentUser = user;
+
+    // Fill in name/email/plan first so the island is never revealed blank
+    this.updateSidebarUserInfo();
+    this.setSidebarUserVisible(true);
+
+    if (isNewUser || !this.userProfile) {
+      this.fetchExtendedUserProfile(user.id);
+    }
+  }
+
+  /**
+   * The island's display rule is !important, so jQuery show()/hide() cannot move it —
+   * visibility has to go through this class. See projectsview.html.
+   */
+  private setSidebarUserVisible(visible: boolean) {
+    const $userSection = this.$('.sidebar-user');
+    if (!$userSection || !$userSection.length) return;
+    $userSection.toggleClass('is-signed-in', visible);
+  }
+
   private async fetchExtendedUserProfile(userId: string) {
     try {
-      this.userProfile = await getUserProfile(userId);
+      const profile = await getUserProfile(userId);
+      // The signed-in user may have changed while the request was in flight
+      if (!this.currentUser || this.currentUser.id !== userId) return;
+      this.userProfile = profile;
       this.updateSidebarUserInfo();
     } catch (error) {
       console.error('Failed to grab extended user profile:', error);
@@ -146,13 +164,24 @@ export class ProjectsView extends View {
     const $email = $userSection.find('.user-info .email');
     let $plan = $userSection.find('.user-info .plan');
 
+    // The profiles row carries the name as first_name/last_name (with name/surname as
+    // aliases); full_name is not a column, so resolve it from whatever is present.
+    const profileName = [
+      this.userProfile?.full_name,
+      [this.userProfile?.first_name, this.userProfile?.last_name].filter(Boolean).join(' '),
+      [this.userProfile?.name, this.userProfile?.surname].filter(Boolean).join(' ')
+    ]
+      .map((n) => (typeof n === 'string' ? n.trim() : ''))
+      .find((n) => n.length > 0);
+
+    const emailPrefix = this.currentUser.email ? this.currentUser.email.split('@')[0] : '';
+    const displayName = profileName || emailPrefix || 'User';
+
     // Update avatar with first letter of name or email
-    const displayName = this.userProfile?.full_name || this.currentUser.email || 'User';
-    const avatarLetter = displayName.charAt(0).toUpperCase();
-    $avatar.text(avatarLetter);
+    $avatar.text(displayName.charAt(0).toUpperCase());
 
     // Update name
-    $name.text(this.userProfile?.full_name || (this.currentUser.email ? this.currentUser.email.split('@')[0] : 'User'));
+    $name.text(displayName);
 
     // Update email
     $email.text(this.currentUser.email || 'No email');
@@ -162,18 +191,68 @@ export class ProjectsView extends View {
       $plan = $('<div class="plan"/>').appendTo($userSection.find('.user-info'));
     }
 
-    // Set plan text and color
-    const subscriptionStatus = (this.userProfile?.subscription_status || 'free').toLowerCase();
+    // Set plan text and color. The tier lives in membership_level (with plan as the
+    // human-readable label); subscription_status is the legacy column name and is
+    // absent on current rows, so it is only a last-resort fallback.
+    const tier = [this.userProfile?.membership_level, this.userProfile?.plan, this.userProfile?.subscription_status]
+      .map((v) => (typeof v === 'string' ? v.trim() : ''))
+      .find((v) => v.length > 0);
+
+    const subscriptionStatus = (tier || 'free').toLowerCase();
     let planDisplay = subscriptionStatus.charAt(0).toUpperCase() + subscriptionStatus.slice(1);
     let planColor = 'rgba(255, 255, 255, 0.5)';
     if (subscriptionStatus === 'pro') {
-      planDisplay = '✨ Pro';
+      planDisplay = 'Pro';
+      planColor = '#67DE92';
+    } else if (subscriptionStatus === 'premium') {
+      // 'premium' is the DB enum's paid individual tier (there is no 'pro' label)
+      planDisplay = 'Premium';
       planColor = '#67DE92';
     } else if (subscriptionStatus === 'enterprise') {
-      planDisplay = '💎 Enterprise';
+      planDisplay = 'Enterprise';
       planColor = '#67DE92';
     }
     $plan.text(planDisplay).css('color', planColor);
+
+    this.membershipTier = subscriptionStatus;
+
+    // The button stays visible on every tier, but there is nothing to upgrade to on a
+    // paid plan — pro/enterprise get a plan-management action instead of the upgrade CTA.
+    const $upgrade = $userSection.find('.sidebar-upgrade');
+    if ($upgrade.length) {
+      const action = this.getMembershipAction(subscriptionStatus);
+      const $label = $upgrade.find('.sidebar-upgrade-label');
+      if ($label.length) {
+        $label.text(action.label);
+      } else {
+        $upgrade.text(action.label);
+      }
+      $upgrade.attr('title', action.title);
+      $upgrade.toggleClass('is-manage-plan', action.isPaidPlan);
+    }
+  }
+
+  /**
+   * Label/tooltip/target for the sidebar membership button. Free accounts are asked to
+   * upgrade; paid tiers (pro/premium/enterprise) get their account settings instead,
+   * since there is nothing to upgrade to.
+   */
+  private getMembershipAction(subscriptionStatus: string) {
+    if (subscriptionStatus === 'pro' || subscriptionStatus === 'premium' || subscriptionStatus === 'enterprise') {
+      return {
+        label: 'Account settings',
+        title: 'Manage your XGENIA account',
+        url: 'https://primora.xgenia.ai/user-panel',
+        isPaidPlan: true
+      };
+    }
+
+    return {
+      label: 'Upgrade',
+      title: 'See XGENIA plans and pricing',
+      url: 'https://xgenia.ai/pricing',
+      isPaidPlan: false
+    };
   }
 
   attachBackgroundUpdateListener() {
@@ -303,7 +382,7 @@ export class ProjectsView extends View {
     this.$('#start-pane-feed-big').hide();
   }
   onTopDocsClicked() {
-    platform.openExternal('https://docs.xgenia.ai');
+    platform.openExternal('https://docsapp.xgenia.com');
   }
   onTopCommunityClicked() {
     platform.openExternal('https://discord.com/invite/n4P5zkpvFE');
@@ -312,13 +391,13 @@ export class ProjectsView extends View {
     platform.openExternal('https://xgenia.ai/whats-new');
   }
   onSidebarReleaseNotesClicked() {
-    platform.openExternal('https://xgenia.ai/release-notes');
+    platform.openExternal('https://github.com/XgeniaORG/XGENIA/releases');
   }
   onSidebarHelpClicked() {
     platform.openExternal('https://xgenia.ai/help');
   }
   onSidebarUpgradeClicked() {
-    platform.openExternal('https://xgenia.ai/pricing');
+    platform.openExternal(this.getMembershipAction(this.membershipTier).url);
   }
 
   onUserProfileClicked() {
@@ -912,125 +991,6 @@ export class ProjectsView extends View {
     this.$('#start-pane-feed-item-big-image').css('background-image', '').html('');
   }
 
-  /** Show the choice overlay when "New project" is clicked */
-  onNewProjectButtonClicked() {
-    this.$('#new-project-choice-overlay').addClass('visible');
-  }
-
-  /** User chose "Start with AI" from the choice overlay */
-  onChoiceAIClicked() {
-    this.$('#new-project-choice-overlay').removeClass('visible');
-    this.onCreateWithAIClicked();
-  }
-
-  /** User chose "Start from template" from the choice overlay */
-  onChoiceTemplateClicked() {
-    this.$('#new-project-choice-overlay').removeClass('visible');
-    this.onCreateNewProjectClicked();
-  }
-
-  /** User cancelled the choice overlay */
-  onChoiceCancelClicked() {
-    this.$('#new-project-choice-overlay').removeClass('visible');
-  }
-
-  /** Mount the AI Wizard React component for onboarding / project creation */
-  async onCreateWithAIClicked() {
-    const wizardRoot = this.$('#ai-wizard-root').get(0) as HTMLDivElement | undefined;
-    if (!wizardRoot) {
-      console.error('[ProjectsView] #ai-wizard-root not found');
-      return;
-    }
-
-    // Show the wizard container
-    wizardRoot.style.display = 'block';
-
-    try {
-      const React = (await import('react')).default;
-      const { createRoot } = await import('react-dom/client');
-      const { AIWizard } = await import('@xgenia-ai/ChatPanel/AIWizard');
-
-      const root = createRoot(wizardRoot);
-
-      const unmount = () => {
-        root.unmount();
-        wizardRoot.style.display = 'none';
-      };
-
-      root.render(
-        React.createElement(AIWizard, {
-          showClose: true,
-          onCancel: unmount,
-          onComplete: async (projectPath: string, projectName: string, initialPrompt: string, images?: any[], selectedModel?: string) => {
-            unmount();
-
-            const activityId = 'ai-wizard-create';
-            ToastLayer.showActivity('Creating project…', activityId);
-
-            console.log('[ProjectsView] AI Wizard onComplete:', { projectPath, projectName, promptLength: initialPrompt?.length, imageCount: images?.length ?? 0, selectedModel });
-
-            // Store the prompt so EditorBridge can forward it to the ChatPanel
-            if (initialPrompt) {
-              (window as any).__xgenia_pendingAIPrompt = {
-                prompt: initialPrompt,
-                images: images || [],
-                selectedModel: selectedModel,
-                timestamp: Date.now()
-              };
-            }
-
-            try {
-              await this.projectsModel.newProject(
-                (project) => {
-                  ToastLayer.hideActivity(activityId);
-
-                  if (!project) {
-                    console.error('[ProjectsView] newProject callback received falsy project');
-                    ToastLayer.showError('Could not create new project.');
-                    // Clear pending prompt on failure
-                    delete (window as any).__xgenia_pendingAIPrompt;
-                    return;
-                  }
-
-                  console.log('[ProjectsView] Project created successfully:', project.name);
-
-                  tracker.track('Create New Project', {
-                    templateLabel: 'AI Wizard',
-                    templateUrl: '',
-                  });
-
-                  this.notifyListeners('projectLoaded', project);
-
-                  // Auto-switch to ChatPanel after project loads so the prompt is picked up
-                  if (initialPrompt) {
-                    setTimeout(() => {
-                      try {
-                        SidebarModel.instance?.switch?.(ChatPanelIframe_ID);
-                        console.log('[ProjectsView] Auto-switched to ChatPanel for AI prompt');
-                      } catch (e: any) {
-                        console.warn('[ProjectsView] Could not auto-switch to ChatPanel:', e);
-                      }
-                    }, 500);
-                  }
-                },
-                { name: projectName, path: projectPath }
-              );
-            } catch (err: any) {
-              ToastLayer.hideActivity(activityId);
-              ToastLayer.showError('Could not create project.');
-              console.error('[ProjectsView] AI Wizard project creation failed:', err);
-              // Clear pending prompt on failure
-              delete (window as any).__xgenia_pendingAIPrompt;
-            }
-          },
-        })
-      );
-    } catch (err: any) {
-      console.error('[ProjectsView] Failed to mount AI Wizard:', err);
-      wizardRoot.style.display = 'none';
-    }
-  }
-
   onCreateNewProjectClicked() {
     this.$('.projects-create-new-project').show();
     //enable scrolling on the entire parent pane so the templates can be scrolled
@@ -1181,6 +1141,8 @@ export class ProjectsView extends View {
     };
     this.projectTemplateLongDesc = '';
 
+    this._setCreateProjectPopupMode({ blank: false });
+
     if (iconURL !== undefined) {
       this._downloadImageAsURI(decodeURIComponent(iconURL), (uri) => {
         if (uri) {
@@ -1206,11 +1168,38 @@ export class ProjectsView extends View {
     this.$('#start-pane-feed-big').show();
   }
 
+  /**
+   * The name popup (#start-pane-feed-big) is shared between the template flow and the
+   * blank-project flow. Template mode shows the preview image and the "from template"
+   * title; blank mode hides the preview, compacts the popup and only asks for a name.
+   */
+  _setCreateProjectPopupMode({ blank }: { blank: boolean }) {
+    this.$('#start-pane-feed-item-big-image').css('display', blank ? 'none' : 'flex');
+    this.$('#start-pane-feed-item-big-title').text(blank ? 'Create new project' : 'Create new project from template');
+    this.$('.create-from-template-popup').toggleClass('blank-project-mode', blank);
+  }
+
+  onCreateBlankProjectClicked() {
+    this.currentBigFeedItem = { title: 'Blank project', blankProject: true };
+    this.projectTemplateLongDesc = '';
+
+    this._setCreateProjectPopupMode({ blank: true });
+
+    this.$('#create-new-project-from-feed-item-name').val('');
+    this.$('#create-new-project-button').prop('disabled', true);
+    this.$('#start-pane-feed-item-big-create-new-project').show();
+    this.$('#start-pane-feed-big').show();
+
+    this.$('#create-new-project-from-feed-item-name').focus();
+  }
+
   onSelectTemplateClicked(scope) {
     const _this = this;
     //this.selectedProjectTemplate = scope;
     this.currentBigFeedItem = scope;
     this.projectTemplateLongDesc = scope.desc;
+
+    this._setCreateProjectPopupMode({ blank: false });
 
     if (scope.iconURL) {
       this._downloadImageAsURI(scope.iconURL, function (uri) {
@@ -1243,7 +1232,8 @@ export class ProjectsView extends View {
   async onNewProjectFromSampleClicked() {
     const projectTemplate = this.currentBigFeedItem;
     if (!projectTemplate) return;
-    if (!projectTemplate.projectURL) return;
+    // Blank projects have no template URL; LocalProjectsModel.newProject scaffolds them
+    if (!projectTemplate.projectURL && !projectTemplate.blankProject) return;
 
     // Show loading state on button
     this.showButtonLoading();

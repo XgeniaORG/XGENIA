@@ -8,6 +8,7 @@ import { ProjectModel } from '@xgenia-models/projectmodel';
 import { getDefaultComponent } from '@xgenia-models/projectmodel.utils';
 import { UndoQueue, UndoActionGroup } from '@xgenia-models/undo-queue-model';
 import { WarningsModel } from '@xgenia-models/warningsmodel';
+import { MATHS_DEPLOY_STATE_CHANGED, mathsStatusForComponent } from '@xgenia-utils/rgs/mathsDeployState';
 import { tracker } from '@xgenia-utils/tracker';
 import { guid } from '@xgenia-utils/utils';
 
@@ -401,6 +402,17 @@ export class ComponentsPanelView extends View {
       _this
     );
 
+    // Deploy state changed on the platform (a refresh, a Deploy, a different
+    // Server Version selected). Only the maths tree renders it, so only the maths
+    // tree needs to redraw — every other mount of this panel ignores it.
+    EventDispatcher.instance.on(
+      MATHS_DEPLOY_STATE_CHANGED,
+      function () {
+        if (_this.getRuntimeType() === 'maths') _this.scheduleRender();
+      },
+      _this
+    );
+
     EventDispatcher.instance.on(
       'ProjectModel.instanceHasChanged',
       (args) => {
@@ -486,6 +498,42 @@ export class ComponentsPanelView extends View {
         this.folderScopes[path].folder.isOpen = true;
       }
     }
+  }
+
+  /**
+   * How a Math Component stands relative to the platform, for the row template's
+   * deploy badge.
+   *
+   * Informational only. This tree is the "Local" subsection — the working copy —
+   * so dragging a row out of it always drops the LOCAL component, whatever the
+   * badge says; the backend form is dragged from the Deployed subsection, which
+   * reads the platform directly (see MathsDeployedSection). The badge is here so
+   * you can see at a glance which of your components are live and which have
+   * edits waiting, without leaving the tree.
+   *
+   * Only ever populated in the maths sheet — this panel is also mounted for the
+   * ordinary Components tree and for Cloud Functions, and a deploy badge there
+   * would mean nothing. Three mutually exclusive flags rather than one string,
+   * because the row template can only test truthiness.
+   *
+   * All three false is a real state and the right one: no game connected, no
+   * Server Version selected, or the status not fetched yet. The row then shows no
+   * badge, rather than claiming the component is undeployed.
+   */
+  private mathsDeployScope(component: TSFixme) {
+    if (this.getRuntimeType() !== 'maths') {
+      return { isMathsLive: false, isMathsDirty: false, isMathsUndeployed: false };
+    }
+
+    const status = mathsStatusForComponent(component?.name);
+    return {
+      // Deployed and matching what is deployed.
+      isMathsLive: !!status && status.kind === 'unchanged' && !!status.url,
+      // Deployed, but the local graph has moved on.
+      isMathsDirty: !!status && status.kind === 'modified',
+      // In the tree, never deployed.
+      isMathsUndeployed: !!status && status.kind === 'added'
+    };
   }
 
   makeDraggable(el, type, args) {
@@ -732,7 +780,8 @@ export class ComponentsPanelView extends View {
         isVisual: iconType === ComponentIconType.Visual,
         isComponentFolder: false,
         canBecomeRoot: c.allowAsExportRoot,
-        hasWarnings: WarningsModel.instance.hasComponentWarnings(c)
+        hasWarnings: WarningsModel.instance.hasComponentWarnings(c),
+        ...this.mathsDeployScope(c)
       };
 
       if (this.nodeGraphEditor?.getActiveComponent() === c) this.selectedScope = scope;
@@ -765,7 +814,11 @@ export class ComponentsPanelView extends View {
           ProjectModel.instance.getRootNode().owner.owner == f.component,
         isComponentFolder: Boolean(f.component),
         canBecomeRoot: Boolean(f.component) && f.component.allowAsExportRoot,
-        hasWarnings: Boolean(f.component) && WarningsModel.instance.hasComponentWarnings(f.component)
+        hasWarnings: Boolean(f.component) && WarningsModel.instance.hasComponentWarnings(f.component),
+        // A "folder component" — a folder that is also a component — deploys as
+        // its own endpoint like any other, so it carries the same badge. A plain
+        // folder has no component and all three flags stay false.
+        ...this.mathsDeployScope(f.component)
       };
 
       this.folderScopes[f.getPath()] = scope;
@@ -992,6 +1045,25 @@ export class ComponentsPanelView extends View {
     evt.stopPropagation();
   }
 
+  // ─── SIMULATE — NOT HERE (2026-08-06) ─────────────────────────
+  //
+  // This panel used to add a "Simulate" item to the three-dot menu of every
+  // component in the maths tree: it compiled the component in the renderer and
+  // measured the RTP in-process. That has been withdrawn, and the whole local
+  // simulator with it (`utils/rgs/simulationEngine.ts`).
+  //
+  // The reason is what it measured. A component in the Local tab is a working
+  // copy; simulating it reported figures for a script that had never been near
+  // RGS and might never be deployed at all — while looking identical to a
+  // measurement of the live maths. Simulation is a property of the deployed
+  // artifact, so it now lives where the deployed artifacts are: the Maths RGS
+  // panel's Deployed tab, whose three-dot menu opens the same Simulate view
+  // against the row `rgs-fn` actually serves, with the rounds run on the
+  // platform (maths-deployer `simulate-component`).
+  //
+  // Nothing in this file is maths-specific any more, which is the point — the
+  // tree is an authoring surface for every runtime type again.
+
   onComponentActionsClicked(scope, el, evt) {
     const _this = this;
 
@@ -1000,26 +1072,14 @@ export class ComponentsPanelView extends View {
       forRuntimeType: this.getRuntimeType()
     });
 
-    let items: PopupMenuItem[] = [];
-    if (this.getRuntimeType() === 'maths') {
-      items.push({
-        icon: IconName.CloudData,
-        label: 'Upload to RGS',
-        onClick: () => {
-          document.dispatchEvent(new CustomEvent('upload-maths-component', { detail: { component: scope.comp } }));
-          evt.stopPropagation();
-        }
-      });
-    } else {
-      items = templates.map((t) => ({
-        icon: IconName.Plus,
-        label: t.label,
-        onClick: () => {
-          this.onAddComponentWithTemplateClicked(Object.assign(scope, { template: t }), el);
-          evt.stopPropagation();
-        }
-      }));
-    }
+    let items: PopupMenuItem[] = templates.map((t) => ({
+      icon: IconName.Plus,
+      label: t.label,
+      onClick: () => {
+        this.onAddComponentWithTemplateClicked(Object.assign(scope, { template: t }), el);
+        evt.stopPropagation();
+      }
+    }));
 
     items.push({ type: 'divider' });
 

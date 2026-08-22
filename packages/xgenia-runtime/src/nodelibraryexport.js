@@ -1,5 +1,30 @@
 'use strict';
 
+// ISMATH_NON_LOGIC_CATEGORIES lived here to decide which nodes got the `isMath`
+// deployment tickbox. Removed 2026-08-04 with the tickbox itself: deployment is
+// decided by LOCATION now, so there is no per-node category test to make.
+
+// Categories whose nodes ARE the backend / talk to it themselves: cloud function
+// gateways, the deployed-function caller, the cloud DB + auth + storage nodes.
+// They already depend on RGS/backend services from their own implementation, so
+// "compile me into a backend edge function" is not a choice they have — they get
+// no `isMath` toggle and the compiler never extracts them (compile/util.ts).
+// Individual nodes in other categories (e.g. the RGS player/balance/session nodes
+// under 'Data', the Stake Engine RGS nodes) declare `usesBackendServices: true`
+// in their own definition instead.
+var ISMATH_BACKEND_SERVICE_CATEGORIES = {
+  Cloud: true,
+  'Cloud Functions': true,
+  'Cloud Services': true
+};
+
+function usesBackendServices(nodeMetadata) {
+  return !!(
+    nodeMetadata.usesBackendServices === true ||
+    (nodeMetadata.category && ISMATH_BACKEND_SERVICE_CATEGORIES[nodeMetadata.category])
+  );
+}
+
 function formatDynamicPorts(nodeMetadata) {
   const dynamicports = [];
 
@@ -416,6 +441,21 @@ function generateNodeLibrary(nodeRegister) {
         exportOutput(prop, output);
       });
     }
+
+    // The per-node `isMath` deployment tickbox was removed 2026-08-04.
+    // Deployment is decided by LOCATION: a `/#__maths__/` component compiles to
+    // the RGS, everything else stays on the frontend.
+    //
+    // The tickbox defaulted to TRUE ("compile me to the backend"), so front-facing
+    // logic became back-facing unless the user turned it off node by node —
+    // which is why it needed a category blocklist and a per-type opt-out on
+    // PixiReelController to contain it. Location routing inverts the default to
+    // "stays where you put it", so none of that scaffolding is needed.
+    //
+    // `usesBackendServices` is still re-emitted: other code reads it.
+    if (usesBackendServices(nodeMetadata)) {
+      nodeObj.usesBackendServices = true;
+    }
   });
 
   const coreNodes = [
@@ -552,6 +592,9 @@ function generateNodeLibrary(nodeRegister) {
             'stateManager',
             'arrayStateManager',
             'Convert Dict Keys to Ports',
+            'Convert Inputs into Record',
+            'Convert Record into Outputs',
+            'Convert to String',
             'Export to JSON file',
             'Import from JSON file',
             'Value Changed',
@@ -611,6 +654,10 @@ function generateNodeLibrary(nodeRegister) {
           items: ['Single Parameter Formula']
         },
         {
+          name: 'Data',
+          items: ['Random UUID Generator']
+        },
+        {
           name: 'Generator',
           items: [
             'True Random Number Generator',
@@ -628,7 +675,6 @@ function generateNodeLibrary(nodeRegister) {
             'Check Wins',
             'Check Jackpot',
             'Symbol Frequency Tracker',
-            'Volatility Estimator',
             'Generate Symbol Weights',
             'Get Paytable',
             'Init Free Spins',
@@ -646,6 +692,27 @@ function generateNodeLibrary(nodeRegister) {
         {
           name: 'Slot Games (Legacy)',
           items: ['Generate Reel Strips', 'Slot Spin', 'Slot Simulation']
+        },
+        {
+          name: 'Provably Fair System',
+          items: ['Server Seed Generator', 'Calculate Roll', 'Verify Commitment']
+        },
+        {
+          name: 'Betslip Actions',
+          items: ['Verify Fairness', 'Validate Outcome']
+        },
+        {
+          name: 'Simulations',
+          items: ['RTP Monitor', 'Hit Frequency Monitor', 'Volatility Monitor']
+        },
+        {
+          name: 'Keno Games',
+          items: [
+            'Calculate PF Array Draw',
+            'Check Keno Hits',
+            'Evaluate Keno Paytable',
+            'Auto Bet Strategy Evaluator'
+          ]
         }
       ]
     },
@@ -678,6 +745,7 @@ function generateNodeLibrary(nodeRegister) {
           items: [
             'RunTasks',
             'For Each',
+            'Repeater Loop',
             'For Each Actions',
             'Model2',
             'SetModelProperties',
@@ -722,7 +790,35 @@ function generateNodeLibrary(nodeRegister) {
             'Cloud File',
             'Upload File',
             'CloudFunction2',
-            'DbConfig'
+            'DbConfig',
+            'CreateNewPlayer',
+            'UpdatePlayer',
+            'GetPlayer',
+            // Deprecated 2026-08, superseded by the three above; listed so an
+            // existing instance still resolves its category.
+            'GetPlayerIdByName',
+            'ListGameSessions',
+            'SaveGameSession',
+            'LoadGameSession',
+            'GetBalanceByPlayerId'
+          ]
+        },
+        {
+          // Nodes that MOVE money on a player's RGS balance. Reading the balance
+          // (GetBalanceByPlayerId) stays under Cloud Data — it changes nothing.
+          //
+          // ALL DEPRECATED 2026-08-04. Deposits, withdrawals and operator wallet
+          // top-ups are switched off across the RGS platform, so every node in this
+          // group is hidden from the picker and the search index. The category is
+          // kept, and they are all still listed, so an instance inside an
+          // already-published project still resolves where it belongs. A player's
+          // play money is set with Create New Player / Update Player now.
+          name: 'Transactions',
+          items: [
+            'DepositBalance',
+            'CreateDeposit',
+            'CreateStripeDeposit',
+            'WithdrawBalance'
           ]
         },
         {
@@ -767,7 +863,7 @@ function generateNodeLibrary(nodeRegister) {
       subCategories: [
         {
           name: '',
-          items: ['xgenia.cloud.request', 'xgenia.cloud.response']
+          items: ['xgenia.cloud.request', 'xgenia.cloud.response', 'Aggregator']
         },
         {
           name: 'Cloud Data',

@@ -35,6 +35,7 @@ import './src/styles/tailwind.css';
 import { EventDispatcher } from '../shared/utils/EventDispatcher';
 import { NodeLibrary } from './src/models/nodelibrary';
 import { ProjectModel } from './src/models/projectmodel';
+import { loadSharedDeployTokens } from './src/utils/rgs/deployTokens';
 
 try {
   const { falService } = require('@xgenia/image-editor');
@@ -47,6 +48,11 @@ try {
 // This ensures ProjectModel is available for chat history persistence
 (window as any).ProjectModel = ProjectModel;
 console.log('[Editor] ProjectModel exposed to window at startup for chat history compatibility');
+
+// Warm the shared deploy tokens (Vercel/GitHub) from the RGS DB as early as possible,
+// so ConnectionStore has them installed on window.__XGENIA_DEFAULT_TOKENS__ before the
+// user can open the Publish/Deploy panel. Fire-and-forget; the panel also awaits it.
+loadSharedDeployTokens();
 
 // CSS imports
 import '../editor/src/styles/custom-properties/animations.css';

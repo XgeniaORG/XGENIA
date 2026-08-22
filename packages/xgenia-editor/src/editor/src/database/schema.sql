@@ -1,30 +1,56 @@
 -- XGENIA Authentication Database Schema
--- This file contains the database schema for the authentication system
+--
+-- ⚠️ HISTORICAL DESIGN DOC — NOT THE LIVE SCHEMA. DO NOT APPLY. ⚠️
+--
+-- The live account backend (Supabase project pcrghrjikkcmelflwiys, shared with
+-- the primora.xgenia.ai site) was rebuilt on 2026-08-04 and its `profiles`
+-- table no longer matches the definition below. Columns is_active,
+-- subscription_status, last_seen, full_name and avatar_url DO NOT EXIST on
+-- the live table — selecting them 400s.
+--
+-- Live profiles columns as of 2026-08-19 (verified against the deployed API):
+--   id uuid PK, email, name, first_name, last_name, surname,
+--   role ('user'|...), status ('active'|...),
+--   membership_level  -- ENUM: 'free' | 'premium' | 'enterprise' (no 'pro'!)
+--   plan              -- display label / Stripe product slug
+--                     -- ('Enterprise', 'creator', 'stake_pro', 'xgenia_pro', ...)
+--   is_alpha_tester, alpha_tester, expires_at, trial_hours,
+--   organization_id, current_organization_id, invited_by,
+--   stripe_customer_id, created_at, updated_at
+--
+-- Subscription state additionally lives in user_subscriptions /
+-- subscription_plans (Stripe-backed, written by the site's check-subscription
+-- edge function).
+--
+-- NOTE: the RLS policies at the bottom of this file (own-row-only SELECT and
+-- UPDATE) are what the live table SHOULD enforce but currently does not — as
+-- of 2026-08-19 any authenticated user can read AND update every profiles
+-- row. Kept here as the reference design.
 
 -- Enable necessary extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Profiles table to store user profile information
+-- Profiles table to store user profile information (ORIGINAL DESIGN — superseded, see header)
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email TEXT UNIQUE NOT NULL,
   full_name TEXT,
   avatar_url TEXT,
-  
+
   -- Authentication and licensing fields
   is_active BOOLEAN DEFAULT true NOT NULL,
   subscription_status TEXT DEFAULT 'free' CHECK (subscription_status IN ('free', 'pro', 'enterprise', 'suspended')),
   subscription_expires_at TIMESTAMPTZ,
-  
+
   -- Activity tracking
   last_seen TIMESTAMPTZ DEFAULT NOW(),
   login_count INTEGER DEFAULT 0,
   last_login TIMESTAMPTZ,
-  
+
   -- Account management
   email_verified BOOLEAN DEFAULT false,
   account_created_at TIMESTAMPTZ DEFAULT NOW(),
-  
+
   -- Metadata
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL

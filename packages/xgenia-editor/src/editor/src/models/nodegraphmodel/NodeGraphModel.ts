@@ -341,6 +341,16 @@ export class NodeGraphModel extends Model {
         });
 
         this.notifyListeners('nodeRemoved', { model: model });
+      } else {
+        // (trace 1785024174577) The node is in NEITHER parent.children NOR roots, so both
+        // branches above no-op: nothing is spliced, nodeMap keeps the id, and 'nodeRemoved'
+        // never fires (so the viewer never unmounts it either). This used to be SILENT, and
+        // the caller reported "deleted successfully" regardless — the node stayed on screen
+        // and the AI carried on believing it was gone. Make the failure visible.
+        console.warn(
+          '[NodeGraphModel] removeNode: node was not attached to a parent or to roots — NOTHING was removed:',
+          model?.id,
+        );
       }
     }
 

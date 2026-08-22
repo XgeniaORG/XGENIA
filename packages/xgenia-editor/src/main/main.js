@@ -1,3 +1,37 @@
+// A DEAD STDOUT/STDERR PIPE MUST NOT KILL THE APP. Must be first — before any
+// require() can warn.
+//
+// (2026-08-02, user report) The editor died with the Electron crash dialog:
+//   Uncaught Exception: Error: write EPIPE
+//     at Writable.write → console.value → console.warn
+//     at IpcMainImpl.listener (src/floating-window.js:371)
+//
+// floating-window is not the bug, it is just the unlucky first writer. When the app is
+// launched from a terminal or npm script and that parent goes away, stdout/stderr become
+// broken pipes. Node reports a failed async write by THROWING on the process unless the
+// stream has an 'error' listener — so from that moment ANY console.warn / console.error
+// anywhere in the main process is a fatal crash. The block below noops log/debug/info and
+// deliberately keeps warn/error, which is exactly the set that can still reach the pipe.
+//
+// It surfaced during an AI-driven preview refresh because that is when the main process
+// warns in bursts, not because refreshing is special.
+//
+// Attaching an 'error' listener makes Node EMIT instead of THROW. Narrow on purpose: a
+// blanket process.on('uncaughtException') would also swallow real crashes and hide the
+// Electron dialog we actually want for those.
+for (const stream of [process.stdout, process.stderr]) {
+  try {
+    stream?.on?.('error', (err) => {
+      // EPIPE = the reader is gone. ERR_STREAM_DESTROYED / EBADF = same story, different
+      // race. Nothing to recover: the output has nowhere to go. Anything else is a real
+      // stream fault and is re-thrown on the next tick so it is not silently buried.
+      const code = err && (err.code || err.errno);
+      if (code === 'EPIPE' || code === 'ERR_STREAM_DESTROYED' || code === 'EBADF') return;
+      setImmediate(() => { throw err; });
+    });
+  } catch { /* a stream with no .on (rare packaging case) simply cannot be guarded */ }
+}
+
 // Disable console.log globally - must be first!
 const DISABLE_CONSOLE_LOGS = true;
 if (DISABLE_CONSOLE_LOGS) {
@@ -36,9 +70,13 @@ const DesignToolImportServer = require('./src/design-tool-import-server');
 const jsonstorage = require('../shared/utils/jsonstorage');
 const StorageApi = require('./src/StorageApi');
 const { getOAuthServer } = require('./src/oauth-callback-server');
+const CrashTelemetry = require('./src/crash-telemetry');
+
+// (debug-export 1783408275898) Local-only minidump collection + crash-log.jsonl.
+// Must start before any window is created so Crashpad covers all renderers.
+CrashTelemetry.start();
 
 const { handleProjectMerge } = require('./src/merge-driver');
-const promptHistoryManager = require('./src/PromptHistoryManager');
 
 //fixes problem with reloading the viewer when it's
 //running in a separate browser window (file:// cross origin warning)
@@ -190,7 +228,7 @@ function launchApp() {
     if (!gotTheLock) {
       console.log(`
 -------------------------------
-   XGENIA is already running.   
+   XGENIA is already running.
 -------------------------------
 
 `);
@@ -587,13 +625,6 @@ function launchApp() {
     });
     console.log("[Main Process] IPC handler for 'read-tools-project' registered (placeholder).");
 
-    // Prompt History Handlers
-    ipcMain.handle('history:savePrompt', (event, data) => promptHistoryManager.savePrompt(data));
-    ipcMain.handle('history:getHistory', () => promptHistoryManager.getPromptHistory());
-    ipcMain.handle('history:clearHistory', () => promptHistoryManager.clearPromptHistory());
-    ipcMain.handle('history:deletePrompt', (event, id) => promptHistoryManager.deletePrompt(id));
-    console.log("[Main Process] IPC handlers for Prompt History registered.");
-
     function projectGetSettings(callback) {
       makeEditorAPIRequest('projectGetSettings', undefined, callback);
     }
@@ -881,20 +912,37 @@ function launchApp() {
         }
       });
 
-      win.webContents.on('render-process-gone', (event, details) => {
-        if (details.reason === 'crashed') {
-          console.log('Editor window process crashed');
-          closeViewer();
+      win.webContents.on('render-process-gone', async (event, details) => {
+        // (debug-export 1783408275898) Persist reason/exitCode BEFORE any
+        // recovery. The 2026-07-07 crash left zero forensics: details was
+        // discarded, console.log is no-op'd in main, and no minidumps
+        // existed — the post-restart debug export had no crash evidence.
+        // Must be awaited: the dialog below is synchronous and blocks this
+        // process's event loop until dismissed, which starves the in-flight
+        // upload's fetch of any chance to complete — the report never made
+        // it out. Bounded to 5s by upload()'s own AbortSignal.timeout, so
+        // this can't hang the crash dialog indefinitely.
+        await CrashTelemetry.record('editor-window', details);
 
-          dialog.showMessageBoxSync({
-            message: 'Oh No! XGENIA has crashed :( Click OK to restart',
-            type: 'error'
-          });
-
-          win.close();
-          win = null;
-          reopenWindow = true;
+        // Recover from EVERY unexpected renderer death, not just the literal
+        // 'crashed' — the old check left the user staring at a dead window
+        // with no dialog and no restart on 'oom', 'abnormal-exit',
+        // 'launch-failed' and 'integrity-failure'.
+        if (!CrashTelemetry.isFatal(details.reason)) {
+          return;
         }
+
+        closeViewer();
+
+        dialog.showMessageBoxSync({
+          message: 'Oh No! XGENIA has crashed :( Click OK to restart',
+          detail: `Renderer process gone (reason: ${details.reason}, exit code: ${details.exitCode}). A record was appended to ${CrashTelemetry.CRASH_LOG_FILENAME} in the app data folder.`,
+          type: 'error'
+        });
+
+        win.close();
+        win = null;
+        reopenWindow = true;
       });
 
       process.env.xgeniaURI && win.webContents.send('open-xgenia-uri', process.env.xgeniaURI);

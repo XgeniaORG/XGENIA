@@ -2,12 +2,31 @@ import { useModernModel } from '@xgenia-hooks/useModel';
 import React, { useState, useEffect } from 'react';
 import { filesystem } from '@xgenia/platform';
 import * as os from 'os';
-import * as path from 'path';
 
 import { CloudService } from '@xgenia-models/CloudServices';
 import { ProjectModel } from '@xgenia-models/projectmodel';
+import { projectFromDirectory } from '@xgenia-models/projectmodel.editor';
 import { createEditorCompilation } from '@xgenia-utils/compilation/compilation.editor';
 import * as Exporter from '@xgenia-utils/exporter';
+// Publishing no longer compiles or deploys logic: Math Components are compiled and
+// deployed as backend components from the Maths RGS panel, so this tab only wires
+// the frontend to their live endpoints (see deployToRgsAndVercel).
+// compileProject / generateFunctionArtifact / createEdgeDeployment /
+// deployEdgeFunction are therefore unused here now, and kept imported alongside the
+// retained ComponentSetupDialog helpers so that flow is one edit away.
+import { compileProject } from '@xgenia-utils/compile';
+import { duplicateCurrentProject, saveProject } from '@xgenia-utils/compile/duplicateProject';
+import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
+import { generateFunctionArtifact } from '@xgenia-utils/rgs/generateFunctionArtifact';
+import { createEdgeDeployment, deployEdgeFunction, deleteEdgeDeployment } from '@xgenia-utils/rgs/deployEdgeFunction';
+import {
+  mathsEndpointsForGame,
+  repointMathsAggregators,
+  swapDeployedMathsInstances,
+  undeployedMathsInstances
+} from '@xgenia-utils/rgs/deployMathsComponents';
+import { getRgsSettings, getActiveGame, isRgsConnected } from '@xgenia-utils/rgs/rgsClient';
+import { loadSharedDeployTokens } from '@xgenia-utils/rgs/deployTokens';
 
 import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
 import { Select } from '@xgenia-core-ui/components/inputs/Select';
@@ -16,8 +35,16 @@ import { Text } from '@xgenia-core-ui/components/typography/Text';
 import { TextType } from '@xgenia-core-ui/components/typography/Text/Text';
 import { TextInput } from '@xgenia-core-ui/components/inputs/TextInput';
 
+import { NodeGraphContextTmp } from '@xgenia-contexts/NodeGraphContext/NodeGraphContext';
+import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
+
 import { ToastLayer } from '../../../ToastLayer/ToastLayer';
-import { NO_ENVIRONMENT_VALUE } from '../../DeployPopup.constants';
+import {
+  ComponentSetupDialog,
+  ComponentSetupChoice,
+  ComponentSetupItem
+} from '../../ComponentSetupDialog';
+import { NO_ENVIRONMENT_VALUE, RGS_ENVIRONMENT_VALUE } from '../../DeployPopup.constants';
 import { useEnvironmentsAsOptions } from '../../DeployPopup.hooks';
 import { useAuth } from '../../../../context/AuthContext';
 import { ConnectionStore, ServiceName } from '../../../../services/ConnectionStore';
@@ -26,8 +53,100 @@ import { ConnectedServicesPanel } from '../../../panels/ConnectedServicesPanel/C
 // GitHub API constants
 const GITHUB_API_BASE = 'https://api.github.com';
 
-// Tokens are dynamically loaded from ConnectionStore (OAuth-based)
-// No more hardcoded tokens!
+// Generic, provider-agnostic message shown to the user when the source-hosting
+// step of a publish fails. The deploy pipeline uses GitHub + Vercel under the
+// hood, but that's an implementation detail collaborators shouldn't see — so all
+// GitHub-specific failures surface as this instead. Real diagnostics still go to
+// the devtools console.
+const GENERIC_DEPLOY_ERROR = 'Project compilation error';
+
+// Deployment tokens (GitHub + Vercel) resolve through ConnectionStore, which falls
+// back to the hardcoded shared team tokens baked into the source. See
+// ConnectionStore.ts (HARDCODED_DEFAULT_TOKENS) — no per-user connection required.
+
+/**
+ * Perform an HTTPS request via Node's `https` module instead of the Chromium
+ * renderer's `fetch`. The editor window runs with nodeIntegration enabled
+ * (see main.js webPreferences), so Node APIs are available in the renderer.
+ *
+ * WHY THIS EXISTS: deployments call third-party APIs (GitHub, Vercel) directly
+ * from the renderer. The renderer's `fetch` can reject with "Failed to fetch" —
+ * a network-LAYER failure (not an HTTP status error) that happens when the
+ * renderer's network path is blocked: a system proxy/PAC script, VPN, corporate
+ * firewall, or DNS interception. Node uses the OS network stack directly (the
+ * same path as curl), which sidesteps all of those. It also lets us set a
+ * User-Agent header, which the GitHub API REQUIRES and a browser `fetch` refuses
+ * to let us override.
+ *
+ * Returns a minimal fetch-Response-like object so existing `.ok` / `.status` /
+ * `.statusText` / `.json()` / `.text()` call sites keep working unchanged.
+ */
+function nodeHttpsRequest(
+  url: string,
+  options: { method?: string; headers?: Record<string, string>; body?: string } = {}
+): Promise<{
+  ok: boolean;
+  status: number;
+  statusText: string;
+  /** Lower-cased response headers — used to read Vercel's `x-vercel-error`. */
+  headers: Record<string, string>;
+  json: () => Promise<any>;
+  text: () => Promise<string>;
+}> {
+  // Use Electron's injected Node require (window.require) rather than a bare
+  // require() — this bypasses webpack, which otherwise maps 'https' to the
+  // 'https-browserify' polyfill (resolve.fallback) that runs over XHR and would
+  // re-introduce the very renderer-network failure we're avoiding. nodeIntegration
+  // is enabled for the editor window, so window.require is the real Node require.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const https = (window as any).require('https');
+  return new Promise((resolve, reject) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    const req = https.request(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port || 443,
+        path: parsed.pathname + parsed.search,
+        method: options.method || 'GET',
+        headers: {
+          // GitHub rejects requests without a User-Agent (HTTP 403).
+          'User-Agent': 'XGENIA-Editor',
+          ...(options.headers || {}),
+        },
+      },
+      (res: any) => {
+        res.setEncoding('utf8');
+        let bodyText = '';
+        res.on('data', (chunk: string) => { bodyText += chunk; });
+        res.on('end', () => {
+          const status = res.statusCode || 0;
+          const headers: Record<string, string> = {};
+          for (const key in res.headers || {}) {
+            const value = res.headers[key];
+            headers[key.toLowerCase()] = Array.isArray(value) ? value.join(', ') : String(value);
+          }
+          resolve({
+            ok: status >= 200 && status < 300,
+            status,
+            statusText: res.statusMessage || '',
+            headers,
+            text: async () => bodyText,
+            json: async () => (bodyText ? JSON.parse(bodyText) : {}),
+          });
+        });
+      }
+    );
+    req.on('error', reject);
+    if (options.body) req.write(options.body);
+    req.end();
+  });
+}
 
 // Import Vercel SDK - we'll create a simple wrapper for now since we can't install packages during runtime
 // This would typically be: import { Vercel } from '@vercel/sdk';
@@ -42,13 +161,14 @@ class VercelSDKWrapper {
 
   private async request(endpoint: string, options: RequestInit = {}) {
     const url = `${this.baseUrl}${endpoint}`;
-    const response = await fetch(url, {
-      ...options,
+    const response = await nodeHttpsRequest(url, {
+      method: (options.method as string) || 'GET',
       headers: {
         'Authorization': `Bearer ${this.bearerToken}`,
         'Content-Type': 'application/json',
-        ...options.headers,
+        ...(options.headers as Record<string, string> | undefined),
       },
+      body: options.body as string | undefined,
     });
 
     if (!response.ok) {
@@ -318,6 +438,29 @@ interface GitHubFile {
   encoding?: 'utf-8' | 'base64';
 }
 
+/**
+ * One RGS Server Version a domain's frontend was published against.
+ *
+ * A published game is two halves: the Vercel deployment (UI) and an RGS
+ * deployment version holding the edge functions its Aggregator nodes call.
+ * Recording the pair is what lets deleting the domain take its backend with it
+ * — otherwise a deleted frontend leaves its logic live and callable on the RGS
+ * platform, with nothing left in the editor pointing at it.
+ *
+ * Optional throughout: domains published before this was recorded (and any
+ * deploy to a plain cloud service, which has no RGS backend at all) simply have
+ * no link, and delete then behaves as it always did.
+ */
+interface RgsBackendRef {
+  /** `game_function_deployments.id` — the Server Version row to delete. */
+  deploymentId: string;
+  /** Scopes the delete server-side, so a stale id can't touch another game. */
+  gameId: string;
+  /** Display only, for the domains list and the delete toast. */
+  gameName?: string;
+  version?: number;
+}
+
 interface DeployedDomain {
   name: string;
   id: string;
@@ -326,14 +469,103 @@ interface DeployedDomain {
   updatedAt?: string;
   deviceId?: string;
   accountId?: string;
+  /**
+   * Every RGS Server Version published under this domain, oldest first.
+   *
+   * A list rather than one id because republishing the same domain opens a NEW
+   * version and leaves the earlier ones on the platform — so the frontend's
+   * backend is all of them, and deleting the domain has to clean up all of them.
+   */
+  rgsBackends?: RgsBackendRef[];
+}
+
+/**
+ * Port names in an example payload whose value is a JS number.
+ *
+ * The RGS side has no stored port types — it infers each port's type from the
+ * `typeof` of its example value (see test.tsx `portTypeOf`), and only numeric
+ * ports can be a bet or a win. Mirroring that rule here keeps the choices this
+ * popup offers identical to the ones RGS Testing will show.
+ */
+function numericPortNames(example: Record<string, any> | undefined | null): string[] {
+  if (!example || typeof example !== 'object') return [];
+  return Object.keys(example).filter((key) => typeof example[key] === 'number');
+}
+
+/**
+ * Last path segment of a component's name — "/Components/Keno Dynasty" →
+ * "Keno Dynasty".
+ *
+ * Component names are folder paths, so the segments in front are where the user
+ * filed it, not what it is called. Returns '' for a missing or all-slashes name,
+ * which callers treat as "no name to use".
+ */
+function leafComponentName(componentName: string | undefined | null): string {
+  const segments = String(componentName || '')
+    .split('/')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return segments.length ? segments[segments.length - 1] : '';
 }
 
 export function XgeniaDeployTab() {
   const cloudService = useModernModel(CloudService.instance);
-  const environmentOptions = useEnvironmentsAsOptions(cloudService);
+  // Always offer "XGENIA RGS" here so the user can pick it and get a clear
+  // "connect first" error when no operator key is set (see rgsError below).
+  // Feeds only the commented-out picker below; kept so restoring it is a pure
+  // uncomment.
+  const environmentOptions = useEnvironmentsAsOptions(cloudService, { alwaysIncludeRgs: true });
   const { user } = useAuth();
 
-  const [environmentId, setEnvironmentId] = useState(NO_ENVIRONMENT_VALUE);
+  // ── PUBLISH TARGET — PINNED TO XGENIA RGS (2026-08-06) ────────────────
+  //
+  // This is not a preference. `onDeployToVercelClicked` branches on it, so it
+  // chooses which of two publish routines runs:
+  //
+  //   RGS_ENVIRONMENT_VALUE → deployToRgsAndVercel: duplicate the project, swap
+  //     every deployed Math Component instance for an Aggregator on its live
+  //     /rgs-fn/<game>/<slug> endpoint, repoint stale ones, stamp `rgsgame`,
+  //     then build. This is the only path that connects the published frontend
+  //     to the backend components.
+  //   anything else → the generic path, which bakes in a cloudService.backend
+  //     environment and does NONE of that wiring.
+  //
+  // Now that Math Components ARE the backend — deployed from the Maths RGS panel,
+  // living in game_edge_functions, already integrated — the second path can only
+  // ever be the wrong answer for this tab, so the picker below is commented out
+  // and this defaults to RGS.
+  //
+  // IT HAD TO DEFAULT HERE, not just be hidden. The old initial value was
+  // NO_ENVIRONMENT_VALUE, so hiding the dropdown on its own would have sent every
+  // Publish down the generic path: no Aggregator swap, no `rgsgame` stamp, and a
+  // published game whose maths silently runs in the player's browser while the
+  // deployed endpoints sit there uncalled. That failure is invisible — the build
+  // succeeds and the page loads.
+  //
+  // Note the two paths are already mutually exclusive: deployToRgsAndVercel calls
+  // deployToFolder with `environment: undefined` and skips the built-in cloud
+  // -function pass outright, so picking a cloud service and picking RGS never did
+  // anything together. Choosing RGS always meant ignoring the cloud service.
+  //
+  // COST OF THIS, stated plainly: a project can no longer be published without an
+  // RGS operator key and a selected game — the Deploy button below stays disabled
+  // until both exist. To publish a frontend-only project again, or to target a
+  // cloudService.backend environment, uncomment the picker and restore
+  // NO_ENVIRONMENT_VALUE here.
+  const [environmentId, setEnvironmentId] = useState(RGS_ENVIRONMENT_VALUE);
+
+  // ── XGENIA RGS backend target ──────────────────────────────────────────
+  // Which RGS game this frontend belongs to. Read from the Maths RGS panel, never
+  // picked here: a project's Math Components are deployed as backend components of
+  // ONE game, so that game is a fact about the project, not a publish-time choice.
+  // Offering a dropdown could only let the two disagree — publishing "to game B"
+  // while every endpoint baked into the build belongs to game A.
+  //
+  // Re-read when the popup opens and whenever the panel changes it, so a game
+  // selected without closing this popup is picked up.
+  const [rgsGame, setRgsGame] = useState(() => getActiveGame());
+  const rgsSelected = environmentId === RGS_ENVIRONMENT_VALUE;
+  const rgsConnected = isRgsConnected();
   const [domainName, setDomainName] = useState('');
   const [isPrivate, setIsPrivate] = useState(true);
   const [isDeploying, setIsDeploying] = useState(false);
@@ -346,16 +578,76 @@ export function XgeniaDeployTab() {
   const [domainError, setDomainError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
+  // ── Post-compile component setup card ─────────────────────────────────
+  // Holds the pending "name your components / map bet + win" prompt. The deploy
+  // routine parks on the promise stored here while the user fills the card in.
+  const [setupRequest, setSetupRequest] = useState<{
+    items: ComponentSetupItem[];
+    resolve: (choices: Record<string, ComponentSetupChoice> | null) => void;
+  } | null>(null);
+
+  /** Show the setup card and resolve with the user's choices, or null if cancelled. */
+  function requestComponentSetup(items: ComponentSetupItem[]) {
+    return new Promise<Record<string, ComponentSetupChoice> | null>((resolve) => {
+      setSetupRequest({ items, resolve });
+    });
+  }
+
+  /**
+   * Reveal in the editor the component a compiled logic component came from.
+   *
+   * Deliberately targets the OPEN project, never the compiled copy: the copy's
+   * cloud components are flattened and machine-named (useless for recognising
+   * anything), and loading it would replace what the user is looking at. The
+   * source component is the one they recognise, it is still open, and compile
+   * left it untouched — so this is a pure navigation, no project swap.
+   *
+   * Node ids match because the copy is a byte-for-byte duplicate, so the exact
+   * nodes that became the edge function can be highlighted — ALL of them. A
+   * component's logic is routinely several roots, and each root a subtree, so
+   * highlighting one node would misrepresent what is being deployed.
+   */
+  function showSourceComponent(item: ComponentSetupItem): boolean {
+    try {
+      const project: any = ProjectModel.instance;
+      const comp = project?.getComponentWithName?.(item.sourceComponentName);
+      if (!comp) return false;
+      const switchTo = NodeGraphContextTmp?.switchToComponent;
+      if (typeof switchTo !== 'function') return false;
+
+      // Switch first with no `node` — passing one would single-select it and
+      // pan to it, which revealNodes is about to override anyway.
+      switchTo(comp, { pushHistory: true });
+      NodeGraphContextTmp.nodeGraph?.revealNodes?.(item.logicNodeIds);
+      return true;
+    } catch (e) {
+      console.warn('[Deploy] Could not reveal source component:', e);
+      return false;
+    }
+  }
+
   // Service connection tokens (loaded from ConnectionStore)
   const [vercelToken, setVercelToken] = useState<string | null>(null);
   const [githubToken, setGithubToken] = useState<string | null>(null);
   const [tokensLoaded, setTokensLoaded] = useState(false);
+  // Why the shared deploy tokens are missing, when they are. Held so every entry
+  // point can say the actual reason ("not connected to XGENIA RGS") instead of
+  // failing later on a null token — which is what produced the two useless
+  // errors this replaced: "Project compilation error" on publish, and
+  // "Cannot read properties of null (reading 'projects')" on delete.
+  const [tokenError, setTokenError] = useState<string>('');
 
   // Load tokens from ConnectionStore on mount
   useEffect(() => {
     const loadTokens = async () => {
       const store = ConnectionStore.getInstance();
       await store.initialize();
+      // Ensure the shared deploy tokens from RGS are installed on
+      // window.__XGENIA_DEFAULT_TOKENS__ before we read them (idempotent on
+      // success; a failure is retried on the next open, since the usual cause is
+      // an operator key the user can connect without restarting the editor).
+      const shared = await loadSharedDeployTokens();
+      setTokenError(shared.ok ? '' : shared.message);
       const vToken = await store.getToken('vercel');
       const gToken = await store.getToken('github');
       setVercelToken(vToken);
@@ -373,6 +665,20 @@ export function XgeniaDeployTab() {
       setGithubToken(gToken);
     });
     return () => unsub();
+  }, []);
+
+  // Follow the Maths RGS panel's game selection. The panel emits `rgs.gameSelected`
+  // (see rgsClient.setActiveGame), so a game chosen while this popup is open is
+  // reflected here rather than leaving a stale name on screen.
+  //
+  // No games list is fetched any more: without a picker there is nothing to
+  // populate, and the selection already carries the id, slug and name that
+  // publishing needs.
+  useEffect(() => {
+    setRgsGame(getActiveGame());
+    const onSelected = () => setRgsGame(getActiveGame());
+    EventDispatcher.instance.on('rgs.gameSelected', onSelected, onSelected);
+    return () => { EventDispatcher.instance.off(onSelected); };
   }, []);
 
   // Team info — falls back to XGENIA team when user has no personal Vercel account
@@ -408,6 +714,29 @@ export function XgeniaDeployTab() {
     bearerToken: vercelToken,
   }) : null;
 
+  /**
+   * Are the deploy credentials actually here?
+   *
+   * `vercel` is null whenever the Vercel token is missing, and every call below
+   * is `vercel.<something>` — so without this check the first one throws
+   * "Cannot read properties of null (reading 'projects')" at the user, naming
+   * nothing they can act on. Publishing fails just as opaquely on the GitHub
+   * side, as GENERIC_DEPLOY_ERROR ("Project compilation error") thrown out of
+   * uploadToGitHub, which is not a compilation error and never was.
+   *
+   * Both really mean one thing: the shared tokens did not load. Say that, with
+   * the reason loadSharedDeployTokens gave.
+   *
+   * @returns an error message, or '' when the credentials are present.
+   */
+  function deployCredentialError(): string {
+    if (!tokensLoaded) return 'Still loading deploy credentials — try again in a moment.';
+    if (vercelToken && githubToken) return '';
+    if (tokenError) return tokenError;
+    const missing = [!vercelToken && 'Vercel', !githubToken && 'GitHub'].filter(Boolean).join(' and ');
+    return `No ${missing} deploy token is available, so this cannot run.`;
+  }
+
   // Validate domain name
   function validateDomain(domain: string): boolean {
     const trimmedDomain = domain.trim();
@@ -428,18 +757,62 @@ export function XgeniaDeployTab() {
     return `${trimmedDomain}.vercel.app`; // Add .vercel.app suffix
   }
 
+  /**
+   * Is "<name>.vercel.app" free across ALL of Vercel?
+   *
+   * `*.vercel.app` is a single namespace shared by every Vercel account, not a
+   * per-team one. Vercel only auto-assigns the pretty "<project>.vercel.app"
+   * alias when that exact subdomain is globally unclaimed; if some stranger's
+   * project already owns it, our project silently gets only the team-scoped
+   * "<project>-<team>.vercel.app" URL instead — no error, no warning.
+   *
+   * There is no Vercel API that answers "is this .vercel.app subdomain free"
+   * (/v6/domains/:d/status is about *registrable* domains), so we probe the
+   * hostname itself: an unclaimed subdomain answers 404 with the header
+   * `x-vercel-error: DEPLOYMENT_NOT_FOUND`. Anything else (200/302/401/502…)
+   * means a live Vercel project is already bound to it.
+   *
+   * @returns true = free, false = taken by someone, null = probe inconclusive
+   *          (offline/DNS/proxy) — callers must not block a deploy on null.
+   */
+  async function isVercelSubdomainFree(hostname: string): Promise<boolean | null> {
+    try {
+      const response = await nodeHttpsRequest(`https://${hostname}/`, { method: 'HEAD' });
+      if (response.status === 404 && response.headers['x-vercel-error'] === 'DEPLOYMENT_NOT_FOUND') {
+        return true;
+      }
+      // Only trust the verdict when we know Vercel actually answered.
+      if (response.headers['x-vercel-id'] || /vercel/i.test(response.headers['server'] || '')) {
+        return false;
+      }
+      return null;
+    } catch (error: any) {
+      console.warn(`Could not probe ${hostname} for availability:`, error?.message || error);
+      return null;
+    }
+  }
+
+  type DomainAvailability = {
+    available: boolean;
+    /** Why it is unavailable — drives the message shown to the user. */
+    reason?: 'existing-project' | 'taken-elsewhere';
+  };
+
   // Check if domain is available using Vercel SDK
-  async function checkDomainAvailability(domain: string): Promise<boolean> {
+  async function checkDomainAvailability(domain: string): Promise<DomainAvailability> {
     const trimmed = domain.trim();
     // For .vercel.app, availability is effectively whether a project of that name exists in the team
     const projectName = trimmed.includes('.') ? trimmed.replace(/\.vercel\.app$/i, '') : trimmed;
     try {
       await vercel.projects.getProject({ idOrName: projectName, teamId: teamInfo.id, slug: teamInfo.slug });
       // Project exists in this team -> domain (default alias) is taken
-      return false;
+      return { available: false, reason: 'existing-project' };
     } catch (error: any) {
-      // If project not found (likely 404), consider available for our team
-      return true;
+      // Not in our team — but the global .vercel.app namespace may still own it.
+      const isFree = await isVercelSubdomainFree(`${projectName}.vercel.app`);
+      if (isFree === false) return { available: false, reason: 'taken-elsewhere' };
+      // true (free) or null (couldn't tell) -> let the deploy proceed.
+      return { available: true };
     }
   }
 
@@ -519,7 +892,8 @@ export function XgeniaDeployTab() {
   // Upload files to GitHub repository
   async function uploadToGitHub(files: GitHubFile[], repositoryName: string, isPrivateRepo: boolean): Promise<{ repoOwner: string; repoName: string }> {
     if (!githubToken) {
-      throw new Error('GitHub is not connected. Please connect your GitHub account first.');
+      console.error('Deploy: source-hosting token unavailable');
+      throw new Error(GENERIC_DEPLOY_ERROR);
     }
     const headers = {
       'Authorization': `token ${githubToken}`,
@@ -528,7 +902,7 @@ export function XgeniaDeployTab() {
     };
 
     // Create repository
-    const createRepoResponse = await fetch(`${GITHUB_API_BASE}/user/repos`, {
+    const createRepoResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/user/repos`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -540,20 +914,22 @@ export function XgeniaDeployTab() {
     });
 
     if (!createRepoResponse.ok) {
-      const errorData = await createRepoResponse.json();
-      throw new Error(`Failed to create repository: ${errorData.message}`);
+      const errorData = await createRepoResponse.json().catch(() => ({}));
+      console.error('Deploy: create-repository step failed:', createRepoResponse.status, errorData?.message);
+      throw new Error(GENERIC_DEPLOY_ERROR);
     }
 
     const repoData = await createRepoResponse.json();
     const repoOwner = repoData.owner.login;
 
     // Get the latest commit SHA
-    const commitResponse = await fetch(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/commits/main`, {
+    const commitResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/commits/main`, {
       headers
     });
 
     if (!commitResponse.ok) {
-      throw new Error('Failed to get latest commit');
+      console.error('Deploy: get-latest-commit step failed:', commitResponse.status);
+      throw new Error(GENERIC_DEPLOY_ERROR);
     }
 
     const commitData = await commitResponse.json();
@@ -565,7 +941,7 @@ export function XgeniaDeployTab() {
     for (const file of files) {
       if (file.encoding === 'base64') {
         // Create a blob for binary content
-        const blobResponse = await fetch(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/blobs`, {
+        const blobResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/blobs`, {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -575,7 +951,8 @@ export function XgeniaDeployTab() {
         });
         if (!blobResponse.ok) {
           const errorData = await blobResponse.json().catch(() => ({}));
-          throw new Error(`Failed to create blob for ${file.path}: ${errorData.message || blobResponse.statusText}`);
+          console.error(`Deploy: blob step failed for ${file.path}:`, blobResponse.status, errorData?.message || blobResponse.statusText);
+          throw new Error(GENERIC_DEPLOY_ERROR);
         }
         const blobData = await blobResponse.json();
         treeItems.push({ path: file.path, mode: file.mode, type: file.type, sha: blobData.sha });
@@ -586,7 +963,7 @@ export function XgeniaDeployTab() {
     }
 
     // Create tree with prepared items
-    const treeResponse = await fetch(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/trees`, {
+    const treeResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/trees`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -596,15 +973,16 @@ export function XgeniaDeployTab() {
     });
 
     if (!treeResponse.ok) {
-      const errorData = await treeResponse.json();
-      throw new Error(`Failed to create tree: ${errorData.message}`);
+      const errorData = await treeResponse.json().catch(() => ({}));
+      console.error('Deploy: create-tree step failed:', treeResponse.status, errorData?.message);
+      throw new Error(GENERIC_DEPLOY_ERROR);
     }
 
     const treeData = await treeResponse.json();
     const treeSha = treeData.sha;
 
     // Create commit
-    const newCommitResponse = await fetch(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/commits`, {
+    const newCommitResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/commits`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -615,15 +993,16 @@ export function XgeniaDeployTab() {
     });
 
     if (!newCommitResponse.ok) {
-      const errorData = await newCommitResponse.json();
-      throw new Error(`Failed to create commit: ${errorData.message}`);
+      const errorData = await newCommitResponse.json().catch(() => ({}));
+      console.error('Deploy: create-commit step failed:', newCommitResponse.status, errorData?.message);
+      throw new Error(GENERIC_DEPLOY_ERROR);
     }
 
     const newCommitData = await newCommitResponse.json();
     const newCommitSha = newCommitData.sha;
 
     // Update main branch
-    const updateRefResponse = await fetch(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/refs/heads/main`, {
+    const updateRefResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/refs/heads/main`, {
       method: 'PATCH',
       headers,
       body: JSON.stringify({
@@ -633,11 +1012,56 @@ export function XgeniaDeployTab() {
     });
 
     if (!updateRefResponse.ok) {
-      const errorData = await updateRefResponse.json();
-      throw new Error(`Failed to update main branch: ${errorData.message}`);
+      const errorData = await updateRefResponse.json().catch(() => ({}));
+      console.error('Deploy: update-branch step failed:', updateRefResponse.status, errorData?.message);
+      throw new Error(GENERIC_DEPLOY_ERROR);
     }
 
     return { repoOwner, repoName: repositoryName };
+  }
+
+  /**
+   * Which URL is this project actually reachable on?
+   *
+   * NEVER build this by hand as `${domainName}.vercel.app` — Vercel hands out
+   * that pretty alias only when the subdomain is globally free (see
+   * isVercelSubdomainFree). When it isn't, that hostname belongs to a stranger's
+   * project and pointing the user at it shows THEIR site (or THEIR error page).
+   * So ask Vercel which domains are bound to our project and pick from those.
+   */
+  async function resolveLiveUrl(
+    projectName: string,
+    deploymentURL: string,
+    deploymentAliases?: string[]
+  ): Promise<string> {
+    let candidates: string[] = [];
+
+    try {
+      const result = await vercel.domains.getProjectDomains({
+        projectName,
+        teamId: teamInfo.id,
+        slug: teamInfo.slug,
+      });
+      candidates = (result?.domains || []).map((d: any) => d?.name).filter(Boolean);
+    } catch (error: any) {
+      console.warn('Could not read project domains, falling back to deployment aliases:', error?.message || error);
+    }
+
+    if (candidates.length === 0 && Array.isArray(deploymentAliases)) {
+      candidates = deploymentAliases.filter(Boolean);
+    }
+
+    // The pretty alias, when we actually got it.
+    const preferred = `${projectName}.vercel.app`;
+    if (candidates.includes(preferred)) return `https://${preferred}`;
+
+    // Otherwise the shortest stable alias (e.g. "<project>-<team>.vercel.app")
+    // beats the immutable per-deployment URL, which changes on every publish.
+    const stable = candidates
+      .filter((c) => c !== deploymentURL)
+      .sort((a, b) => a.length - b.length)[0];
+
+    return `https://${stable || deploymentURL}`;
   }
 
   // Deploy GitHub repository to Vercel using SDK
@@ -676,6 +1100,7 @@ export function XgeniaDeployTab() {
       // Monitor deployment status
       let deploymentStatus;
       let deploymentURL;
+      let deploymentAliases: string[] | undefined;
       let attempts = 0;
       const maxAttempts = 24; // Maximum 2 minutes of waiting (24 * 5 seconds)
 
@@ -693,6 +1118,7 @@ export function XgeniaDeployTab() {
 
           deploymentStatus = statusResponse.status;
           deploymentURL = statusResponse.url;
+          deploymentAliases = statusResponse.alias;
           console.log(`📋 Status: ${deploymentStatus}, URL: ${deploymentURL}`);
 
           if (attempts >= maxAttempts) {
@@ -713,13 +1139,16 @@ export function XgeniaDeployTab() {
         throw new Error(`Status monitoring failed: ${statusError.message}`);
       }
 
-      // Use the auto-generated deployment URL
+      // The immutable per-deployment URL always works; the alias is the one we
+      // show the user, resolved from the domains Vercel really bound to us.
       const deploymentHttpsUrl = `https://${deploymentURL}`;
+      const aliasUrl = await resolveLiveUrl(domainName, deploymentURL, deploymentAliases);
+      console.log(`🔗 Live URL resolved to ${aliasUrl}`);
 
       return {
         deploymentId,
         deploymentUrl: deploymentHttpsUrl,
-        aliasUrl: deploymentHttpsUrl // Use the same URL since no custom alias
+        aliasUrl
       };
     } catch (error: any) {
       console.error('❌ Deployment process failed:', error);
@@ -761,7 +1190,12 @@ export function XgeniaDeployTab() {
   }
 
   // Save deployed domain to local storage
-  function saveDeployedDomain(domainName: string, deploymentId: string, deploymentUrl: string) {
+  function saveDeployedDomain(
+    domainName: string,
+    deploymentId: string,
+    deploymentUrl: string,
+    rgsBackend?: RgsBackendRef
+  ) {
     try {
       const storedDomains = localStorage.getItem('xgenia-deployed-domains');
       const deployedDomainsData = storedDomains ? JSON.parse(storedDomains) : [];
@@ -773,6 +1207,16 @@ export function XgeniaDeployTab() {
         )
       );
       const currentTime = new Date().toISOString();
+      // Carry the backend links across a republish and APPEND this publish's
+      // version, rather than replacing: every version this domain opened is
+      // still live on the platform, and delete has to account for all of them.
+      const existingBackends: RgsBackendRef[] =
+        existingIndex >= 0 && Array.isArray(deployedDomainsData[existingIndex]?.rgsBackends)
+          ? deployedDomainsData[existingIndex].rgsBackends
+          : [];
+      const rgsBackends = rgsBackend && !existingBackends.some((b) => b.deploymentId === rgsBackend.deploymentId)
+        ? [...existingBackends, rgsBackend]
+        : existingBackends;
       const newDomain: DeployedDomain = {
         name: domainName,
         id: deploymentId,
@@ -781,6 +1225,7 @@ export function XgeniaDeployTab() {
         updatedAt: currentTime,
         deviceId,
         accountId: currentAccountId || undefined,
+        ...(rgsBackends.length > 0 ? { rgsBackends } : {})
       };
 
       if (existingIndex >= 0) {
@@ -876,10 +1321,14 @@ export function XgeniaDeployTab() {
     try {
       // Step 1: Check domain availability
       ToastLayer.showActivity('Step 1/5: Checking domain availability...', activityId);
-      const isDomainAvailable = await checkDomainAvailability(newName.trim());
+      const availability = await checkDomainAvailability(newName.trim());
 
-      if (!isDomainAvailable) {
-        throw new Error('Domain name is already in use. Please choose a different name.');
+      if (!availability.available) {
+        throw new Error(
+          availability.reason === 'taken-elsewhere'
+            ? `${newName.trim()}.vercel.app is already taken by another Vercel account. Please choose a different name.`
+            : 'Domain name is already in use. Please choose a different name.'
+        );
       }
 
       // Step 2: Update Vercel project name
@@ -999,8 +1448,100 @@ export function XgeniaDeployTab() {
     }
   }
 
-  // Delete a specific domain/deployment
-  async function deleteDomain(domainId: string, domainName: string) {
+  /** Drop one domain from the stored list and from the list on screen. */
+  function forgetDomain(domainId: string) {
+    const storedDomains = localStorage.getItem('xgenia-deployed-domains');
+    const deployedDomainsData = storedDomains ? JSON.parse(storedDomains) : [];
+    const updatedDomains = deployedDomainsData.filter((d: any) => d.id !== domainId);
+    localStorage.setItem('xgenia-deployed-domains', JSON.stringify(updatedDomains));
+    setDeployedDomains(prev => prev.filter(domain => domain.id !== domainId));
+  }
+
+  /** "v3 (Keno Dynasty)" — how a backend version is named in messages. */
+  function backendLabel(b: RgsBackendRef): string {
+    const version = b.version ? `v${b.version}` : 'version';
+    return b.gameName ? `${version} (${b.gameName})` : version;
+  }
+
+  /**
+   * Delete the RGS Server Version(s) behind a Vercel deployment.
+   *
+   * Deleting the Vercel project only removes the UI half of a published game:
+   * its logic lives in RGS edge functions, which stay live and callable on their
+   * public `/rgs-fn/<game>/<slug>` endpoints with nothing left pointing at them.
+   * So the domain's recorded versions go too — the cascade on
+   * game_function_deployments takes their component functions with them.
+   *
+   * Never throws. By the time this runs the Vercel project is already gone, so a
+   * backend that won't delete cannot be allowed to fail the whole operation —
+   * it has to be reported instead, with the version named so it can be removed
+   * by hand from the Maths RGS panel.
+   */
+  async function deleteRgsBackends(
+    domain: DeployedDomain
+  ): Promise<{ ok: boolean; message: string; keepRecord: boolean }> {
+    const backends = domain.rgsBackends || [];
+    // Nothing linked: an older record, or a deploy to a plain cloud service.
+    if (backends.length === 0) return { ok: true, message: '', keepRecord: false };
+
+    const apiKey = getRgsSettings()?.apiKey;
+    if (!apiKey) {
+      return {
+        ok: false,
+        keepRecord: true,
+        message:
+          ` Its XGENIA RGS backend (${backends.map(backendLabel).join(', ')}) was NOT deleted — not connected to` +
+          ` XGENIA RGS. Connect in the Maths RGS panel and delete again.`
+      };
+    }
+
+    const failures: string[] = [];
+    for (const backend of backends) {
+      try {
+        await deleteEdgeDeployment(apiKey, backend.deploymentId, backend.gameId);
+      } catch (e: any) {
+        const message = String(e?.message || e);
+        // Already gone server-side (deleted from the RGS studio, or a previous
+        // attempt that got this far) is the outcome we wanted, not a failure.
+        if (/not found/i.test(message)) continue;
+        console.error(`Failed to delete RGS deployment ${backend.deploymentId}:`, e);
+        failures.push(`${backendLabel(backend)}: ${message}`);
+      }
+    }
+
+    if (failures.length > 0) {
+      return {
+        ok: false,
+        keepRecord: true,
+        message:
+          ` Its XGENIA RGS backend could not be deleted (${failures.join('; ')}).` +
+          ` Delete it from the Maths RGS panel — the domain stays listed so you can retry.`
+      };
+    }
+    const deleted = backends.map(backendLabel).join(', ');
+    return {
+      ok: true,
+      keepRecord: false,
+      message: ` XGENIA RGS backend deleted too (${deleted}).`
+    };
+  }
+
+  // Delete a specific domain/deployment — frontend (Vercel project) AND the RGS
+  // backend it was published with, so a deleted game leaves nothing running.
+  // Vercel goes first: if it fails, the backend is deliberately left alone
+  // rather than pulling the logic out from under a frontend that is still live.
+  async function deleteDomain(domain: DeployedDomain) {
+    const { id: domainId, name: domainName } = domain;
+
+    // Without a Vercel token there is no client to call, and the record must stay
+    // listed: dropping it here would strand a live project with nothing pointing
+    // at it, which is the same reason a failed Vercel delete keeps the record.
+    const credentialError = deployCredentialError();
+    if (credentialError) {
+      ToastLayer.showError(`Cannot delete ${domainName}.vercel.app. ${credentialError}`);
+      return;
+    }
+
     setDeletingDomains(prev => new Set([...prev, domainId]));
 
     try {
@@ -1011,16 +1552,12 @@ export function XgeniaDeployTab() {
         slug: teamInfo.slug
       });
 
-      // Remove from local storage
-      const storedDomains = localStorage.getItem('xgenia-deployed-domains');
-      const deployedDomainsData = storedDomains ? JSON.parse(storedDomains) : [];
-      const updatedDomains = deployedDomainsData.filter((d: any) => d.id !== domainId);
-      localStorage.setItem('xgenia-deployed-domains', JSON.stringify(updatedDomains));
+      const backend = await deleteRgsBackends(domain);
+      if (!backend.keepRecord) forgetDomain(domainId);
 
-      // Remove from the UI list
-      setDeployedDomains(prev => prev.filter(domain => domain.id !== domainId));
-
-      ToastLayer.showSuccess(`Successfully deleted ${domainName}.vercel.app project from Vercel`);
+      const summary = `Successfully deleted ${domainName}.vercel.app project from Vercel.${backend.message}`;
+      if (backend.ok) ToastLayer.showSuccess(summary);
+      else ToastLayer.showError(summary);
     } catch (error: any) {
       console.error('Failed to delete project from Vercel:', error);
 
@@ -1028,16 +1565,14 @@ export function XgeniaDeployTab() {
       if (error.message.includes('404') || error.message.includes('Not Found') || error.message.includes('not found')) {
         console.log('Project not found in Vercel, removing from local storage only');
 
-        // Remove from local storage
-        const storedDomains = localStorage.getItem('xgenia-deployed-domains');
-        const deployedDomainsData = storedDomains ? JSON.parse(storedDomains) : [];
-        const updatedDomains = deployedDomainsData.filter((d: any) => d.id !== domainId);
-        localStorage.setItem('xgenia-deployed-domains', JSON.stringify(updatedDomains));
+        // The frontend is already gone, but its backend may not be — this is the
+        // last chance to take it with the record, so still try.
+        const backend = await deleteRgsBackends(domain);
+        if (!backend.keepRecord) forgetDomain(domainId);
 
-        // Remove from the UI list
-        setDeployedDomains(prev => prev.filter(domain => domain.id !== domainId));
-
-        ToastLayer.showSuccess(`Removed ${domainName}.vercel.app from list (project not found in Vercel)`);
+        const summary = `Removed ${domainName}.vercel.app from list (project not found in Vercel).${backend.message}`;
+        if (backend.ok) ToastLayer.showSuccess(summary);
+        else ToastLayer.showError(summary);
       } else {
         // For other errors, show the actual error
         ToastLayer.showError(`Failed to delete ${domainName}.vercel.app: ${error.message}`);
@@ -1048,6 +1583,186 @@ export function XgeniaDeployTab() {
         newSet.delete(domainId);
         return newSet;
       });
+    }
+  }
+
+  // Remove the "__<name>__" copy that publishing made: drop it from the projects
+  // list AND delete its files from disk, so repeated deploys don't pile up
+  // __<name>__-1, __<name>__-2, … next to the original project.
+  function cleanupCompiledCopy(compiledDir: string) {
+    if (!compiledDir) return;
+    try {
+      const entry = LocalProjectsModel.instance
+        .getProjects()
+        .find((p) => p.retainedProjectDirectory === compiledDir);
+      if (entry) LocalProjectsModel.instance.removeProject(entry.id);
+    } catch (e) {
+      console.warn('Failed to unregister compiled project copy:', e);
+    }
+    try {
+      filesystem.removeDirRecursive(compiledDir);
+    } catch (e) {
+      console.warn('Failed to delete compiled project copy from disk:', e);
+    }
+  }
+
+  /**
+   * Publish to XGENIA RGS + Vercel.
+   *
+   * NO COMPILATION. The backend/frontend split is not decided here any more — it
+   * was decided when the user put a component in "Math Components" and pressed
+   * Deploy, which compiled it (nested layers inlined) and made it a real backend
+   * component of a Server Version. So publishing has one job on the RGS side:
+   * point the frontend at those live endpoints. Nothing is extracted, no Server
+   * Version is opened, no component is deployed, and no post-compile setup card
+   * interrupts it.
+   *
+   * What this replaced (in git history, if it is ever wanted back): compileProject
+   * → extract each visual component's logic into /#__cloud__/__Component_N__ →
+   * name it and map its bet/win ports in ComponentSetupDialog →
+   * createEdgeDeployment + deployEdgeFunction → repoint each Aggregator at the URL
+   * that came back. The card's render and its helpers below are still here (the
+   * render commented out); only this routine changed.
+   */
+  async function deployToRgsAndVercel(activityId: string) {
+    const rgs = getRgsSettings();
+    // Which RGS game this frontend belongs to. NOT picked here any more: the Math
+    // Components it calls were deployed into one specific game from the Maths RGS
+    // panel, so that panel's selected game IS the answer. A second, independent
+    // choice in this popup could only ever contradict it — publishing against
+    // game B while every endpoint in the build belongs to game A.
+    const game = getActiveGame();
+    if (!rgs?.apiKey) {
+      ToastLayer.hideActivity(activityId);
+      ToastLayer.showError('Not connected to XGENIA RGS. Connect in the Maths RGS panel first.');
+      return;
+    }
+    if (!game?.id) {
+      ToastLayer.hideActivity(activityId);
+      ToastLayer.showError('No game selected. Select one in the Maths RGS panel first.');
+      return;
+    }
+
+    // 1. Copy the project on disk. Publishing rewrites node graphs below, and
+    //    that must never touch the project the user has open.
+    ToastLayer.showActivity('Preparing project...', activityId);
+    const { copy, destDir: publishDir } = await duplicateCurrentProject(ProjectModel.instance);
+
+    try {
+      // 2. Point every instance of a DEPLOYED Math Component at its live
+      //    `/rgs-fn/<game>/<slug>` endpoint, by swapping the instance for an
+      //    Aggregator node — the existing frontend→backend caller, whose payload
+      //    and response shape is exactly the deployed script's contract.
+      ToastLayer.showActivity('Wiring Math Components to XGENIA RGS...', activityId);
+      const endpoints = await mathsEndpointsForGame(rgs.apiKey, game.id, copy);
+      const { swapped, untriggered } = swapDeployedMathsInstances(copy, endpoints);
+
+      // Aggregators the user placed themselves, by dragging a component out of
+      // Maths Components → Deployed, carry the endpoint they had at drag time.
+      // Renaming or refiling the component since then moved its slug, and the
+      // stale URL still resolves — to the OLD code. Re-aim them at the current one.
+      // Reported in the success toast rather than logged: this build strips every
+      // console.* call (TerserPlugin drop_console), so a log here would say nothing
+      // to anyone.
+      const repointed = repointMathsAggregators(copy, endpoints);
+
+      // An Aggregator only POSTs when one of its `do-` inputs pulses. An instance
+      // whose trigger port is unwired therefore ships as a node that can never
+      // call its backend — the endpoint is live and correct, and the published UI
+      // simply never reaches it. Silent in the browser, so say it here.
+      if (untriggered.length > 0) {
+        const names = untriggered.map((n) => n.split('/').filter(Boolean).pop()).join(', ');
+        console.warn('[Deploy] Math Component instances with no trigger wired:', untriggered);
+        ToastLayer.showError(
+          `Heads up: nothing is wired to the trigger input of ${names}, so the published game ` +
+            `will never call ${untriggered.length === 1 ? 'it' : 'them'}. Connect a signal ` +
+            `(a button's Click, for example) to ${untriggered.length === 1 ? 'its' : 'their'} ` +
+            `Do port and publish again.`
+        );
+      }
+
+      // A Math Component that the UI uses but nobody deployed is now shipped
+      // as-is and RUNS IN THE BROWSER — there is no compile pass left to extract
+      // it. That is a real thing to know about a published game, so say it
+      // plainly instead of quietly building it.
+      const undeployed = undeployedMathsInstances(copy, endpoints);
+      if (undeployed.length > 0) {
+        const names = undeployed.map((n) => n.split('/').filter(Boolean).pop()).join(', ');
+        console.warn('[Deploy] Math Components used by the UI but not deployed:', undeployed);
+        ToastLayer.showError(
+          `Heads up: ${names} ${undeployed.length === 1 ? 'is' : 'are'} not deployed to ` +
+            `${game.name || 'this game'}, so ${undeployed.length === 1 ? 'its' : 'their'} maths will run in the ` +
+            `player's browser. Deploy ${undeployed.length === 1 ? 'it' : 'them'} from Maths RGS → Math Components.`
+        );
+      }
+
+      // 3. Stamp the game onto the copy, so the deployed frontend knows which RGS
+      //    game it IS. Aggregator calls get this for free — their function URL
+      //    carries the game slug — but the cashier nodes (Deposit Balance,
+      //    Withdraw Balance) call player-scoped RPCs that see only a player and an
+      //    amount, so without this their rows land on the platform's Transactions
+      //    page with no game at all. Read back at runtime by resolveRgsGame in
+      //    rgs-config.js. Stamped on the COPY, so the user's own project is left
+      //    untouched and switching games never leaves a stale id behind.
+      copy.setMetaData('rgsgame', { id: game.id, name: game.name, slug: game.slug });
+
+      await saveProject(copy, publishDir);
+
+      // 4. Build and Vercel-deploy the COPY.
+      const tempDir = filesystem.join(os.tmpdir(), `xgenia-deploy-${Date.now()}`);
+      await filesystem.makeDirectory(tempDir);
+      try {
+        ToastLayer.showActivity('Building UI bundle...', activityId);
+        // Skip the built-in Supabase/Parse cloud-function pass: this build has no
+        // cloud environment, and its backend is on RGS, so that pass would only
+        // error with "No cloud service to deploy cloud functions to".
+        const compilation = createEditorCompilation(copy, { skipBuiltinCloudFunctionDeploy: true }).addProjectBuildScripts();
+        await compilation.deployToFolder(tempDir, { environment: undefined });
+
+        const files = await collectProjectFiles(tempDir);
+        if (files.length === 0) throw new Error('No files were generated during deployment');
+
+        // GitHub upload — the toast deliberately says nothing about GitHub.
+        ToastLayer.showActivity('Preparing project for deployment...', activityId);
+        const repositoryName = `${domainName.trim()}-${Date.now()}`;
+        const { repoOwner, repoName: actualRepoName } = await uploadToGitHub(files, repositoryName, isPrivate);
+
+        ToastLayer.showActivity('Deploying to Vercel...', activityId);
+        const { deploymentId, aliasUrl } = await deployToVercel(repoOwner, actualRepoName, domainName.trim());
+
+        ToastLayer.hideActivity(activityId);
+        const userFriendlyDomain = aliasUrl.replace(/^https?:\/\//, '');
+        // Two ways a call reaches RGS in this build: an instance the publish swapped
+        // for an Aggregator, and an Aggregator the user dropped from Maths
+        // Components → Deployed, which was already one and only needed its endpoint
+        // confirmed. Both are worth reporting — a publish that repointed something
+        // silently changed which code the game runs.
+        const wiredParts = [
+          swapped > 0 ? `${swapped} Math Component call${swapped === 1 ? '' : 's'} wired` : '',
+          repointed > 0 ? `${repointed} repointed at ${repointed === 1 ? 'its' : 'their'} current endpoint` : ''
+        ].filter(Boolean);
+        const wiring = wiredParts.length > 0
+          ? `${wiredParts.join(', ')} to ${game.name || 'XGENIA RGS'}`
+          : 'no Math Component calls to wire';
+        ToastLayer.showSuccess(`Deployed to Vercel — ${wiring}.\nLive URL: ${userFriendlyDomain}`);
+        setSuccessMessage(`Deployed to Vercel (${wiring}). Live URL: ${userFriendlyDomain}`);
+
+        // No RGS backend reference is recorded any more: this publish did not
+        // create a Server Version, and the ones it calls are managed in the Maths
+        // RGS panel and may be shared by several frontends. Deleting this domain
+        // must not delete them — deleteRgsBackends already no-ops on a record with
+        // none, and records written by the old flow keep their links.
+        saveDeployedDomain(domainName.trim(), deploymentId, aliasUrl);
+        if (showDeployedDomains) await fetchDeployedDomains();
+
+        try { filesystem.removeDirRecursive(tempDir); } catch (e) { /* ignore */ }
+      } catch (err) {
+        try { filesystem.removeDirRecursive(tempDir); } catch (e) { /* ignore */ }
+        throw err;
+      }
+    } finally {
+      // Success or failure, don't leave a __<name>__ copy behind.
+      cleanupCompiledCopy(publishDir);
     }
   }
 
@@ -1062,6 +1777,16 @@ export function XgeniaDeployTab() {
       return;
     }
 
+    // Before any heavy work: a missing token cannot be recovered from mid-publish,
+    // and failing here costs the user nothing. Failing later costs a compile, an
+    // RGS deploy and a repo — and reports it as "Project compilation error".
+    const credentialError = deployCredentialError();
+    if (credentialError) {
+      setDomainError(credentialError);
+      ToastLayer.showError(credentialError);
+      return;
+    }
+
     const activityId = 'deploying-to-vercel';
     setIsDeploying(true);
     setDomainError('');
@@ -1070,10 +1795,24 @@ export function XgeniaDeployTab() {
     try {
       // Early: Check domain availability before any heavy work
       ToastLayer.showActivity('Checking domain availability...', activityId);
-      const isDomainAvailableEarly = await checkDomainAvailability(domainName.trim());
-      if (!isDomainAvailableEarly) {
+      const availability = await checkDomainAvailability(domainName.trim());
+      if (!availability.available) {
         ToastLayer.hideActivity(activityId);
-        setDomainError('Domain name is already in use on Vercel. Please choose a different name.');
+        setDomainError(
+          availability.reason === 'taken-elsewhere'
+            ? `${domainName.trim()}.vercel.app is already taken by another Vercel account (the .vercel.app namespace is shared globally). Pick a more unique name, e.g. "${domainName.trim()}-${Math.random().toString(36).slice(2, 6)}".`
+            : 'Domain name is already in use on Vercel. Please choose a different name.'
+        );
+        return;
+      }
+
+      // ── XGENIA RGS path ──────────────────────────────────────────────
+      // Compile → deploy each logic component as a per-game RGS edge function →
+      // point each Aggregator node at its deployed URL → Vercel-deploy ONLY the
+      // UI (visual components + Aggregators). Logic and UI become decoupled,
+      // talking over HTTPS REST.
+      if (environmentId === RGS_ENVIRONMENT_VALUE) {
+        await deployToRgsAndVercel(activityId);
         return;
       }
 
@@ -1115,8 +1854,9 @@ export function XgeniaDeployTab() {
           throw new Error('No files were generated during deployment');
         }
 
-        // Step 2: Preparing repository
-        ToastLayer.showActivity('Step 2/4: Preparing repository...', activityId);
+        // GitHub upload — hide the bottom-right toast so no GitHub-related
+        // notification shows. Compile and Vercel messages stay intact.
+        ToastLayer.hideActivity(activityId);
         const timestamp = Date.now();
         const repositoryName = `${domainName.trim()}-${timestamp}`;
         const { repoOwner, repoName: actualRepoName } = await uploadToGitHub(files, repositoryName, isPrivate);
@@ -1126,7 +1866,7 @@ export function XgeniaDeployTab() {
         const { deploymentId, deploymentUrl, aliasUrl } = await deployToVercel(repoOwner, actualRepoName, domainName.trim());
 
         ToastLayer.hideActivity(activityId);
-        const userFriendlyDomain = `${domainName.trim()}.vercel.app`;
+        const userFriendlyDomain = aliasUrl.replace(/^https?:\/\//, '');
         ToastLayer.showSuccess(`Successfully deployed to Vercel!\nLive URL: ${userFriendlyDomain}\n(Domain may take a few minutes to become active)`);
         setSuccessMessage(`Successfully deployed to Vercel. Live URL: ${userFriendlyDomain}`);
 
@@ -1172,6 +1912,9 @@ export function XgeniaDeployTab() {
           Deploy your project to Vercel
         </Text>
 
+        {/* Connect GitHub + Vercel — both are required to publish the UI. */}
+        <ConnectedServicesPanel filterFor="deploy" compact />
+
         <TextInput
           label="Domain Name"
           value={domainName}
@@ -1192,7 +1935,29 @@ export function XgeniaDeployTab() {
           </Text>
         )}
 
-        {Boolean(cloudService.backend.items?.length) && (
+        {/* Connected cloud services — COMMENTED OUT (2026-08-06), deliberately kept
+            rather than deleted.
+
+            There is nothing left for it to choose. The backend of an XGENIA project
+            is now its Math Components, deployed to a game from the Maths RGS panel;
+            by the time anyone opens this popup they are already deployed, already
+            integrated, and the publish routine only has to point the frontend at
+            them. This dropdown's other options — "No cloud service" and any
+            cloudService.backend environment — all route to a publish that skips that
+            wiring entirely, so every one of them was a way to ship a broken game.
+
+            The target is pinned to XGENIA RGS at the `environmentId` useState above;
+            read the note there before touching either. Restoring this is a pure
+            uncomment PLUS putting NO_ENVIRONMENT_VALUE back as the initial value —
+            uncommenting alone leaves the dropdown showing "XGENIA RGS" preselected,
+            which is harmless, but restoring the initial value without uncommenting
+            is the silent-breakage case.
+
+            The cloud-service picker still exists on the other two deploy tabs
+            (DeployToFolderTab, DeployToStakeTab), so the feature is not gone from
+            the editor — only from the path that publishes to XGENIA RGS. */}
+        {/*
+        {environmentOptions.length > 1 && (
           <Select
             options={environmentOptions}
             onChange={(value: string) => setEnvironmentId(value)}
@@ -1202,11 +1967,40 @@ export function XgeniaDeployTab() {
             hasBottomSpacing
           />
         )}
+        */}
+
+        {/* XGENIA RGS. There is no "Target game" picker here any more: the game is
+            wherever the project's Math Components were deployed, which is chosen
+            once in the Maths RGS panel. Publishing reads that, so it can never
+            build a frontend for game B out of endpoints belonging to game A. Shown
+            read-only so it is still obvious what is about to be published. */}
+        {rgsSelected && !rgsConnected && (
+          <Text style={{ marginBottom: '12px', fontSize: '12px', color: '#f66' }}>
+            Not connected to XGENIA RGS. Connect in the Maths RGS panel first.
+          </Text>
+        )}
+
+        {rgsSelected && rgsConnected && (
+          rgsGame ? (
+            <Text style={{ marginBottom: '12px', fontSize: '12px', color: '#999' }}>
+              Backend: <span style={{ color: '#ddd' }}>{rgsGame.name || rgsGame.slug}</span> — the game
+              its Math Components are deployed to. Change it in the Maths RGS panel.
+            </Text>
+          ) : (
+            <Text style={{ marginBottom: '12px', fontSize: '12px', color: '#f66' }}>
+              No game selected. Select one in the Maths RGS panel first.
+            </Text>
+          )
+        )}
 
         <PrimaryButton
           label={isDeploying ? "Deploying..." : "Deploy"}
           onClick={onDeployToVercelClicked}
-          isDisabled={isDeploying || !domainName.trim()}
+          isDisabled={
+            isDeploying ||
+            !domainName.trim() ||
+            (rgsSelected && (!rgsConnected || !rgsGame?.id))
+          }
         />
 
         <div style={{ marginTop: '12px' }}>
@@ -1308,8 +2102,11 @@ export function XgeniaDeployTab() {
                         <>
                           <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
                             <div style={{ display: 'flex', alignItems: 'center' }}>
+                              {/* Link the URL Vercel actually assigned (domain.url),
+                                  never a guessed "<name>.vercel.app" — that alias
+                                  may belong to a different Vercel account. */}
                               <a
-                                href={`https://${domain.name}.vercel.app`}
+                                href={domain.url || `https://${domain.name}.vercel.app`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 style={{
@@ -1322,7 +2119,7 @@ export function XgeniaDeployTab() {
                                 onMouseEnter={(e) => (e.target as HTMLAnchorElement).style.textDecoration = 'underline'}
                                 onMouseLeave={(e) => (e.target as HTMLAnchorElement).style.textDecoration = 'none'}
                               >
-                                {domain.name}.vercel.app
+                                {(domain.url || `https://${domain.name}.vercel.app`).replace(/^https?:\/\//, '')}
                               </a>
                             </div>
 
@@ -1341,6 +2138,16 @@ export function XgeniaDeployTab() {
                               {domain.updatedAt && domain.updatedAt !== domain.deployedAt && (
                                 <div>
                                   <span style={{ color: '#aaa' }}>Updated:</span> {formatTimestamp(domain.updatedAt)}
+                                </div>
+                              )}
+                              {/* Delete removes the linked RGS Server Version(s)
+                                  as well, so name them here — that is not
+                                  something to discover from the toast after the
+                                  fact. */}
+                              {(domain.rgsBackends || []).length > 0 && (
+                                <div>
+                                  <span style={{ color: '#aaa' }}>RGS backend:</span>{' '}
+                                  {(domain.rgsBackends || []).map(backendLabel).join(', ')}
                                 </div>
                               )}
                             </div>
@@ -1363,7 +2170,7 @@ export function XgeniaDeployTab() {
                               Rename
                             </button>
                             <button
-                              onClick={() => deleteDomain(domain.id, domain.name)}
+                              onClick={() => deleteDomain(domain)}
                               disabled={deletingDomains.has(domain.id)}
                               style={{
                                 padding: '4px 8px',
@@ -1409,6 +2216,31 @@ export function XgeniaDeployTab() {
           </div>
         )}
       </PopupSection>
+
+      {/* Post-compile setup card — REPLACED.
+          Belonged to the compile-and-deploy publish flow: it asked the user to name
+          each extracted logic component and map its bet/win ports. Publishing no
+          longer compiles or deploys anything, so nothing sets `setupRequest`.
+          Commented out with the flow itself; a Math Component is named by the user
+          in the component tree, and its bet/win mapping is set on the platform.
+
+      {setupRequest && (
+        <ComponentSetupDialog
+          items={setupRequest.items}
+          onShowComponent={showSourceComponent}
+          onConfirm={(choices) => {
+            const { resolve } = setupRequest;
+            setSetupRequest(null);
+            resolve(choices);
+          }}
+          onCancel={() => {
+            const { resolve } = setupRequest;
+            setSetupRequest(null);
+            resolve(null);
+          }}
+        />
+      )}
+      */}
     </>
   );
 }

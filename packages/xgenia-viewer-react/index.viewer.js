@@ -1,11 +1,7 @@
-// Disable console.log in production - must be first!
-(function () {
-  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'production') {
-    console.log = function () { };
-    console.debug = function () { };
-    console.info = function () { };
-  }
-})();
+// MUST BE THE FIRST IMPORT. ES imports are hoisted, so the only way to install the
+// console capture before any other module's silencer is to import it first — a
+// top-level IIFE here would run AFTER every import in this file. See console-capture.js.
+import './console-capture';
 
 // CRITICAL: Initialize XGENIA object IMMEDIATELY to prevent ReferenceError
 // This must be the very first code that runs in the bundle

@@ -142,16 +142,21 @@ export function ImageEditorPanel() {
     return (
         <div style={{
             position: 'fixed',
-            top: 0,
+            // See TITLE_BAR_HEIGHT. This is the frame the plugin actually loads
+            // into, and it had its own copy of the geometry — so fixing only
+            // `shellStyle` below would have moved the loading and error states
+            // out from under the title bar and left the editor itself beneath it.
+            top: `${TITLE_BAR_HEIGHT}px`,
             left: '60px',
             width: 'calc(100vw - 60px)',
-            height: '100vh',
+            height: `calc(100vh - ${TITLE_BAR_HEIGHT}px)`,
             zIndex: 1000,
             backgroundColor: '#000',
             overflow: 'hidden',
             display: 'flex',
-            flexDirection: 'column'
-        }}>
+            flexDirection: 'column',
+            WebkitAppRegion: 'no-drag'
+        } as React.CSSProperties}>
             {status === 'loading' && !pluginUrl && (
                 <div style={{
                     ...shellStyle,
@@ -188,19 +193,42 @@ export function ImageEditorPanel() {
     );
 }
 
+/**
+ * How far down the window the title bar reaches.
+ *
+ * `TitleBar.module.scss` is `height: 34px` with `-webkit-app-region: drag`, and
+ * a drag region is an OS-LEVEL caption area: Chromium computes it from the
+ * element's geometry and hands it to the window manager, so it is not overridden
+ * by anything painted on top of it. A panel at `top: 0` with a z-index of 1000
+ * still paints above the title bar and still cannot be clicked in that strip —
+ * the clicks move the window instead.
+ *
+ * This panel's own header is 52px tall and sits at the top of the frame, so 34
+ * of those 52 pixels were dead: every control in it — Paint, Undo, Save, Close —
+ * only responded along an 18px sliver at its bottom edge.
+ */
+const TITLE_BAR_HEIGHT = 34;
+
 const shellStyle: React.CSSProperties = {
     position: 'fixed',
-    top: 0,
+    // Below the title bar rather than under it. The alternative — marking this
+    // panel `no-drag` to punch a hole in the caption — also works, and costs the
+    // window its drag strip everywhere the panel covers, which is most of it.
+    top: `${TITLE_BAR_HEIGHT}px`,
     left: '60px',
     width: 'calc(100vw - 60px)',
-    height: '100vh',
+    height: `calc(100vh - ${TITLE_BAR_HEIGHT}px)`,
     zIndex: 1000,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     background: '#1a1a1a',
     color: '#e0e0e0',
-};
+    // Insurance, and free once the offset above is right: if the title bar is
+    // ever taller than this constant, the overlap is at least clickable rather
+    // than silently dead.
+    WebkitAppRegion: 'no-drag'
+} as React.CSSProperties;
 
 const messageStyle: React.CSSProperties = {
     display: 'flex',

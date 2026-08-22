@@ -44,8 +44,31 @@ ComponentInstanceNode.prototype = Object.create(Node.prototype, {
       componentModel.on(
         'rootAdded',
         (id) => {
-          this._internal.roots.push(this.nodeScope.getNodeWithId(id));
-          this.forceUpdate();
+          // (zombie-root fix 2026-07-20) The instance is created by nodescope's
+          // ASYNC 'nodeAdded' handler (createNodeFromModel), and this 'rootAdded'
+          // arrives as the very next editor message — so getNodeWithId(id) can
+          // run BEFORE creation resolves. The old code pushed `undefined` into
+          // roots: the new root never rendered ("zombie node") until a full
+          // preview refresh re-ran setComponentModel. Retry briefly until the
+          // instance exists, then attach and re-render.
+          const attach = (attempt) => {
+            // (trace 1785024174577) MUST be findNodeWithId — getNodeWithId fabricates a
+            // phantom on a miss, so `inst` was ALWAYS truthy and this retry never ran.
+            // The zombie-root fix above pushed a null-rendering phantom into roots on
+            // attempt 0, which is why the symptom persisted despite the 2026-07-20 fix.
+            const inst = this.nodeScope.findNodeWithId(id);
+            if (inst) {
+              if (this._internal.roots.indexOf(inst) === -1) this._internal.roots.push(inst);
+              this.forceUpdate();
+              return;
+            }
+            if (attempt < 40) {
+              setTimeout(() => attach(attempt + 1), 25);
+            } else {
+              console.warn('[ComponentInstance] rootAdded: instance never materialized for', id);
+            }
+          };
+          attach(0);
         },
         this
       );
@@ -53,7 +76,9 @@ ComponentInstanceNode.prototype = Object.create(Node.prototype, {
       componentModel.on(
         'rootRemoved',
         function (id) {
-          const index = this._internal.roots.findIndex((root) => root.id === id);
+          // (zombie-root fix) Guard `root &&` — a still-materializing root slot
+          // must not crash the findIndex.
+          const index = this._internal.roots.findIndex((root) => root && root.id === id);
           if (index !== -1) {
             this._internal.roots.splice(index, 1);
           }

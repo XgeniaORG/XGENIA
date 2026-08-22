@@ -322,7 +322,10 @@ NodeScope.prototype.insertNodeInTree = function (nodeInstance, nodeModel) {
   }
 
   try {
-    var parentInstance = this.getNodeWithId(nodeModel.parent.id);
+    // (trace 1785024174577) MUST be findNodeWithId — attaching a real child to a
+    // FABRICATED parent silently swallows it (the phantom renders null), which looks
+    // exactly like "the node was created but never appeared".
+    var parentInstance = this.findNodeWithId(nodeModel.parent.id);
     var childIndex = nodeModel.parent.children ? nodeModel.parent.children.indexOf(nodeModel) : -1;
 
     if (!parentInstance) {
@@ -668,6 +671,43 @@ NodeScope.prototype.createFallbackNode = function (id, originalType, extraProps)
 
 NodeScope.prototype.hasNodeWithId = function (id) {
   return this.nodes.hasOwnProperty(id);
+};
+
+/**
+ * (trace 1785024174577) HONEST lookup — returns undefined when the node genuinely
+ * isn't instantiated yet. USE THIS ANYWHERE YOU GUARD ON THE RESULT.
+ *
+ * `getNodeWithId` above can NEVER return a falsy value: on a miss it fabricates a
+ * fallback node AND registers it (`this.nodes[id] = fallbackNode`). That fake has a
+ * working addChild/removeChild but renders null — a silent black hole in the render
+ * tree. Consequences this cures:
+ *   • every `if (nodeInstance)` retry-guard downstream was DEAD CODE, so both
+ *     mid-preview zombie fixes (attachChild retry, componentinstance rootAdded)
+ *     never retried — they attached a phantom on the first attempt instead. That is
+ *     the recorded "nodes made mid-preview don't instantiate until refresh".
+ *   • the delete path's own null guard (onNodeModelRemoved) was unreachable, so every
+ *     listening scope — including ones that don't own the node — fabricated a phantom
+ *     and then deleted the WRONG map entry, orphaning it permanently (ghost mounts).
+ *   • the recursive child-scope search always returned on the FIRST child scope
+ *     (its recursive call is also never falsy), handing back a node from the wrong scope.
+ *
+ * Recurses into component-instance children the same way, but can actually miss.
+ */
+NodeScope.prototype.findNodeWithId = function (id) {
+  if (!id) return undefined;
+  if (this.nodes.hasOwnProperty(id)) return this.nodes[id];
+  for (const childId in this.componentInstanceChildren) {
+    const child = this.componentInstanceChildren[childId];
+    if (child && child.nodeScope && typeof child.nodeScope.findNodeWithId === 'function') {
+      try {
+        const found = child.nodeScope.findNodeWithId(id);
+        if (found) return found;
+      } catch (e) {
+        // keep searching sibling scopes
+      }
+    }
+  }
+  return undefined;
 };
 
 NodeScope.prototype.createPrimitiveNode = function (name, id, extraProps) {
@@ -1060,10 +1100,16 @@ NodeScope.prototype.onNodeModelRemoved = function (nodeModel) {
   }
 
   try {
-    var nodeInstance = this.getNodeWithId(nodeModel.id);
-    
+    // (trace 1785024174577) MUST be findNodeWithId. EVERY NodeScope listening on this
+    // componentModel runs this handler — including scopes that do NOT own the node.
+    // With getNodeWithId each of them fabricated a phantom for the id and then deleted
+    // the WRONG map entry, orphaning the real instance permanently: the deleted element
+    // stayed on screen (the user-reported "ghost" that only a hard refresh clears).
+    // Now a scope that doesn't own the node bails, as this guard always intended.
+    var nodeInstance = this.findNodeWithId(nodeModel.id);
+
     if (!nodeInstance) {
-      console.error("Cannot remove node model: node instance not found for ID", nodeModel.id);
+      // Not an error — this scope simply doesn't own the node.
       return;
     }
 
@@ -1178,8 +1224,29 @@ NodeScope.prototype.setComponentModel = async function (componentModel) {
         var parentInstance = this.getNodeWithId(nodeModel.parent.id);
         this.componentOwner.setChildRoot(parentInstance);
       } else {
-        var nodeInstance = self.getNodeWithId(nodeModel.id);
-        self.insertNodeInTree(nodeInstance, nodeModel);
+        // (zombie-node fix 2026-07-20) createNodeFromModel (the 'nodeAdded'
+        // handler) is ASYNC, and importEditorNodeData emits 'nodeParentUpdated'
+        // in the same tick — the instance may not be registered yet, and the old
+        // code passed `undefined` into insertNodeInTree, which just logged an
+        // error and dropped the attach: a live-created child never mounted until
+        // preview refresh. Retry briefly until the instance materializes.
+        var attachChild = function (attempt) {
+          // (trace 1785024174577) MUST be findNodeWithId: getNodeWithId fabricates a
+          // phantom on a miss, so this guard was always true and the retry NEVER ran —
+          // the zombie fix below was dead from birth. Now it genuinely waits for the
+          // instance, so a live-created child actually mounts without a refresh.
+          var nodeInstance = self.findNodeWithId(nodeModel.id);
+          if (nodeInstance) {
+            self.insertNodeInTree(nodeInstance, nodeModel);
+            return;
+          }
+          if (attempt < 40) {
+            setTimeout(function () { attachChild(attempt + 1); }, 25);
+          } else {
+            console.warn('[NodeScope] nodeParentUpdated: instance never materialized for', nodeModel.id);
+          }
+        };
+        attachChild(0);
       }
     },
     this

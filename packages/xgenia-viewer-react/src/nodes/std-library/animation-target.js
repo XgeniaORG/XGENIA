@@ -1005,10 +1005,33 @@ var AnimationTarget = {
 
       // Add comprehensive callbacks
       const vars = { ...baseVars };
+      this._tgtApplied = 0;
+      this._tgtFailed = 0;
+      this._tgtTicks = 0;
+      this._warnedInertTween = false;
       vars.onUpdate = () => {
         // Record performance metrics
         this._recordFrameTime();
-        
+
+        // ── SAY IT WHEN THE TWEEN RUNS AND THE ELEMENT DOES NOT MOVE ──────────────
+        // (2026-08-19, export 1787190818869) isPlaying:true is a statement about the GSAP
+        // tween, not about the element. When no update method on the target accepts a
+        // transform — no setStyle, no updateTransform, no reachable DOM node — the tween
+        // still ticks, still fires onUpdate, still reports isPlaying, and nothing on screen
+        // changes. The session that hit this read isPlaying:true with 819 ticks, could not
+        // reconcile it with an unchanged computed transform, and gave up on the node.
+        // One line, once, on the channel the completion gate reads.
+        this._tgtTicks = (this._tgtTicks || 0) + 1;
+        if (!this._warnedInertTween && this._tgtTicks >= 30 && !(this._tgtApplied > 0)) {
+          this._warnedInertTween = true;
+          console.warn(
+            `[AnimationTarget] "${this._internal.animationName || this.id}" reports isPlaying but has applied `
+            + `0 transforms in ${this._tgtTicks} frames — the tween is running and the target is NOT moving. `
+            + `The target accepted none of setStyle / updateTransform / direct DOM. isPlaying describes the `
+            + `TWEEN, not the element: do not read it as proof the animation is visible.`,
+          );
+        }
+
         // Update state consistently
         const progress = this._gsapTween ? this._gsapTween.progress() : 0;
         this._updateAnimationState({
@@ -1275,7 +1298,11 @@ var AnimationTarget = {
         
         // Store reference to target
         _target: target,
-        _targetType: 'react'
+        _targetType: 'react',
+        // 2026-08-19 (export 1787190818869): back-reference to the AnimationTarget node so
+        // _updateTarget can report whether its writes ever reached the element. isPlaying
+        // describes the TWEEN; without this the node had no way to say the element never moved.
+        _owner: this
       };
 
       // Get current values if possible
@@ -1428,9 +1455,22 @@ var AnimationTarget = {
           }
         }
 
+        // 2026-08-19 (export 1787190818869): count the outcome so the node can tell the
+        // difference between "the tween is running" and "the element is moving". A session
+        // spent ten calls on a float that reported isPlaying:true with 819 ticks while the
+        // computed transform never changed, then abandoned this node for hand-written CSS
+        // keyframes. Nothing in the node's own state distinguished the two cases.
+        if (this._owner) {
+          if (transformApplied) this._owner._tgtApplied = (this._owner._tgtApplied || 0) + 1;
+          else this._owner._tgtFailed = (this._owner._tgtFailed || 0) + 1;
+        }
+
         if (transformApplied) {
           // console.log(`[AnimationTarget] Successfully applied transform`);
-        } else {
+        } else if (!this._loggedApplyFailure) {
+          // Log ONCE. This runs per animation frame — the previous unconditional
+          // console.error would emit hundreds of identical lines and bury itself.
+          this._loggedApplyFailure = true;
           this._logTargetError(`Could not apply transform. Last error: ${lastError?.message || 'No suitable method found'}. Available methods: ${Object.keys(target).join(', ')}`);
         }
       };
@@ -1557,7 +1597,16 @@ var AnimationTarget = {
 
       // If no target properties, don't create animation
       if (Object.keys(targetProps).length === 0) {
-        // console.log(`[AnimationTarget ${this.id}] No target properties defined, skipping animation`);
+        // 2026-08-19 (export 1787190818869): this used to return in silence, so a node
+        // configured with duration/ease/repeat but no animated property looked identical to
+        // a working one — configured, connected, no error. Name the ports that would make
+        // it move; the caller cannot see this file.
+        console.warn(
+          `[AnimationTarget] "${this._internal.animationName || this.id}" has NO animated property, so no `
+          + `animation was created — duration/ease/repeat alone move nothing. Set at least one of `
+          + `gsapTargetX, gsapTargetY, gsapTargetRotation, gsapTargetScaleX, gsapTargetScaleY, `
+          + `gsapTargetAlpha, gsapTargetSkewX, gsapTargetSkewY.`,
+        );
         return;
       }
 

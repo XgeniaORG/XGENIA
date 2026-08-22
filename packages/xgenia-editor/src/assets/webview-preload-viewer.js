@@ -681,6 +681,14 @@ window.XgeniaEditorInspectorAPI = {
       // --- PixiJS Editing Bridge IPC ---
       // The PixiEditBridge handles its own mouse events on a canvas overlay.
       // We just need to forward selection/transform events to the editor via IPC.
+      //
+      // (2026-08-10) TURN THE GIZMO OVERLAY ON. It used to be created by every pixi.Stage on
+      // init, everywhere — including plain browser pages and shipped games, where it stacked a
+      // second canvas over the stage at z-index 9999 with pointer-events:auto and swallowed
+      // clicks on the reels. The bridge now creates it only when the editor asks, and this is
+      // the ask. Sticky on the bridge side, so a Stage that initialises before this runs still
+      // gets its overlay.
+      window.__PIXI_EDIT_BRIDGE?.setEditMode?.(true);
       window.__PIXI_EDIT_CALLBACK = (channel, data) => {
         try {
           if (channel === 'pixi-select-node') {
@@ -726,7 +734,9 @@ window.XgeniaEditorInspectorAPI = {
       // Clean up all overlays
       _cleanupOverlays();
 
-      // Clean up PixiJS bridge callback
+      // Clean up PixiJS bridge callback, and take the gizmo overlay down with it — leaving it
+      // behind is how a preview-mode click ends up dragging a sprite.
+      window.__PIXI_EDIT_BRIDGE?.setEditMode?.(false);
       window.__PIXI_EDIT_CALLBACK = null;
 
       console.log('[Inspector] Interactive editing disabled');

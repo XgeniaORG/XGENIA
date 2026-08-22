@@ -28,6 +28,9 @@ function registerNodes(xgeniaRuntime) {
     // Data
     require('./src/nodes/std-library/data/restnode'),
 
+    // Aggregator (Compile feature)
+    require('./src/nodes/std-library/data/aggregatornode'),
+
     // Slot Games moved to private module (@xgenia/pro-nodes)
 
     // Custom code
@@ -52,35 +55,40 @@ function registerNodes(xgeniaRuntime) {
     // Cloud
     require('./src/nodes/std-library/data/cloudfilenode'),
     require('./src/nodes/std-library/data/dbconfig'),
+    // Players. Create / Update / Get replaced the single get-or-create node in
+    // 2026-08 — see createnewplayer.js for why it was split three ways.
+    require('./src/nodes/std-library/data/createnewplayer'),
+    require('./src/nodes/std-library/data/updateplayer'),
+    require('./src/nodes/std-library/data/getplayer'),
+    // Deprecated, superseded by the three above — still registered so projects
+    // that already contain it keep loading, running and publishing.
+    require('./src/nodes/std-library/data/getplayeridbyname'),
+    require('./src/nodes/std-library/data/listgamesessions'),
+    require('./src/nodes/std-library/data/savegamesession'),
+    require('./src/nodes/std-library/data/loadgamesession'),
+    require('./src/nodes/std-library/data/getbalancebyplayerid'),
+    // Cashier nodes, all DEPRECATED 2026-08-04: deposits, withdrawals and
+    // operator top-ups are switched off across the RGS platform, and the RPCs
+    // behind these four refuse. Still registered — deprecation hides a node from
+    // the picker while leaving existing instances loadable, which commenting out
+    // a registration does not (it turns saved projects into unknown-type graphs).
+    // Play money is set on the player now: Create New Player / Update Player.
+    require('./src/nodes/std-library/data/depositbalance'),
+    require('./src/nodes/std-library/data/withdrawbalance'),
+    require('./src/nodes/std-library/data/createdeposit'),
+    require('./src/nodes/std-library/data/createstripedeposit'),
+    require('./src/nodes/std-library/convertInputsIntoRecord'),
+    require('./src/nodes/std-library/convertRecordIntoOutputs'),
+    require('./src/nodes/std-library/convertToString'),
 
     // Variables
     require('./src/nodes/std-library/variables/number'),
     require('./src/nodes/std-library/variables/string'),
     require('./src/nodes/std-library/variables/boolean'),
 
-    // Math nodes
-    require('./src/nodes/maths/trng'),
-    require('./src/nodes/maths/trng-array'),
-    require('./src/nodes/maths/isaac-rng'),
-    require('./src/nodes/maths/isaac-rng-array'),
-    require('./src/nodes/maths/mfag'),
-    require('./src/nodes/maths/spf'),
-    require('./src/nodes/maths/addition'),
-    require('./src/nodes/maths/subtraction'),
-    require('./src/nodes/maths/multiplication'),
-    require('./src/nodes/maths/division'),
-    require('./src/nodes/maths/modulo'),
-    require('./src/nodes/maths/min'),
-    require('./src/nodes/maths/max'),
-    require('./src/nodes/maths/minArray'),
-    require('./src/nodes/maths/maxArray'),
-    require('./src/nodes/maths/sum'),
-    require('./src/nodes/maths/round'),
-    require('./src/nodes/maths/floor'),
-    require('./src/nodes/maths/ceil'),
-    require('./src/nodes/maths/lessThanOrEqual'),
-    require('./src/nodes/maths/lessThan'),
-    require('./src/nodes/maths/equal'),
+    // Math nodes moved to private module (@xgenia/pro-nodes/maths)
+    // - editor/viewer/deploy register them via the external module loader
+    // - the cloud runtime registers them directly (see xgenia-viewer-cloud)
 
     // Utils
     require('./src/nodes/std-library/condition'),
@@ -271,8 +279,32 @@ xgeniaRuntime.prototype._setupEditorCommunication = function (args) {
 
   // 🔧 AI Signal Simulation - trigger signals on runtime nodes
   this.editorConnection.on('triggerSignal', (args) => {
-    const { nodeId, portName, data } = args;
-    console.log('[XgeniaRuntime] Received triggerSignal:', nodeId, portName, data);
+    const { nodeId, portName, data, isInput, id } = args;
+    console.log('[XgeniaRuntime] Received triggerSignal:', nodeId, portName, data, 'isInput=' + !!isInput);
+
+    // Whatever happens below, the caller is told. Reporting only into the
+    // console made every failure here look like a success to the tool that
+    // asked: the editor returned `{success:true}` the moment the message was
+    // SENT, so a signal fired at a port that does not exist came back as proof
+    // the thing worked. That is how "the reels spin now" gets written about a
+    // graph that never received a spin.
+    const reply = (ok, detail) => {
+      if (!ok) console.error('[XgeniaRuntime] triggerSignal FAILED:', detail);
+      else console.log('[XgeniaRuntime] triggerSignal ok:', detail);
+      if (id && this.editorConnection && typeof this.editorConnection.send === 'function') {
+        this.editorConnection.send({
+          cmd: 'triggerSignalResult',
+          type: 'viewer',
+          id,
+          success: !!ok,
+          nodeId,
+          portName,
+          isInput: !!isInput,
+          error: ok ? undefined : detail,
+          detail: ok ? detail : undefined
+        });
+      }
+    };
 
     // Use the correct method to find nodes - via rootComponent's nodeScope
     let node = null;
@@ -281,27 +313,55 @@ xgeniaRuntime.prototype._setupEditorCommunication = function (args) {
       node = nodes && nodes.length > 0 ? nodes[0] : null;
     }
 
-    if (node) {
-      console.log('[XgeniaRuntime] Found node:', node.name || node.id);
-      // Try various trigger methods
-      if (typeof node.sendSignalOnOutput === 'function') {
-        node.sendSignalOnOutput(portName);
-        console.log('[XgeniaRuntime] Signal triggered via sendSignalOnOutput');
-      } else if (typeof node.triggerOutput === 'function') {
-        node.triggerOutput(portName, data);
-        console.log('[XgeniaRuntime] Signal triggered via triggerOutput');
-      } else if (node.outputs && node.outputs[portName] && typeof node.outputs[portName].trigger === 'function') {
-        node.outputs[portName].trigger(data);
-        console.log('[XgeniaRuntime] Signal triggered via output.trigger');
-      } else if (typeof node.emit === 'function') {
-        node.emit(portName, data);
-        console.log('[XgeniaRuntime] Signal triggered via emit');
-      } else {
-        console.warn('[XgeniaRuntime] No trigger method found for node:', nodeId, 'port:', portName);
-        console.log('[XgeniaRuntime] Available methods:', Object.keys(node).filter(k => typeof node[k] === 'function'));
+    if (!node) {
+      reply(false, 'No node with id ' + nodeId + ' is running. Nothing received the signal.');
+      return;
+    }
+
+    const label = node.name || node.id;
+    console.log('[XgeniaRuntime] Found node:', label);
+
+    // An INPUT is not an output, and firing the wrong one is not a near miss.
+    //
+    // `isInput` was being dropped on the way here and every request fired an
+    // OUTPUT, so asking a maths node to receive a spin instead asked it to
+    // EMIT one — which it has no port for, so nothing happened at all.
+    if (isInput) {
+      if (typeof node.hasInput === 'function' && node.hasInput(portName) === false) {
+        reply(false, 'Node "' + label + '" has no INPUT named "' + portName + '".');
+        return;
       }
+      if (typeof node.queueInput !== 'function') {
+        reply(false, 'Node "' + label + '" cannot receive input signals from here.');
+        return;
+      }
+      // A signal on the wire is a true then a false — the same pulse a real
+      // connection delivers. Sending only the true leaves the port latched high
+      // and the next genuine signal does nothing.
+      node.queueInput(portName, true);
+      node.queueInput(portName, false);
+      reply(true, 'Delivered signal to input "' + portName + '" on "' + label + '".');
+      return;
+    }
+
+    if (typeof node.sendSignalOnOutput === 'function') {
+      if (typeof node.hasOutput === 'function' && node.hasOutput(portName) === false) {
+        reply(false, 'Node "' + label + '" has no OUTPUT named "' + portName + '".');
+        return;
+      }
+      node.sendSignalOnOutput(portName);
+      reply(true, 'Fired output "' + portName + '" on "' + label + '".');
+    } else if (typeof node.triggerOutput === 'function') {
+      node.triggerOutput(portName, data);
+      reply(true, 'Fired output "' + portName + '" via triggerOutput.');
+    } else if (node.outputs && node.outputs[portName] && typeof node.outputs[portName].trigger === 'function') {
+      node.outputs[portName].trigger(data);
+      reply(true, 'Fired output "' + portName + '" via output.trigger.');
+    } else if (typeof node.emit === 'function') {
+      node.emit(portName, data);
+      reply(true, 'Emitted "' + portName + '".');
     } else {
-      console.warn('[XgeniaRuntime] Node not found for signal trigger:', nodeId);
+      reply(false, 'Node "' + label + '" exposes no way to trigger "' + portName + '".');
     }
   });
 

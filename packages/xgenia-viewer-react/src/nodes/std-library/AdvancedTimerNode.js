@@ -4,6 +4,7 @@ const AdvancedTimerNode = {
   displayNodeName: 'Advanced Timer',
   category: 'Utilities',
   color: 'utility',
+  docs: 'https://docsapp.xgenia.com/nodes/utilities/advanced-timer',
   initialize() {
     this._internal = {
       // Timer state

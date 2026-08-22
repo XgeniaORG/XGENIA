@@ -87,13 +87,20 @@ export class HtmlProcessor {
     const indexJsPath = parameters.indexJsPath || 'index.js';
     let indexCode = `<script src="${baseUrl}${indexJsPath}"></script>`;
 
+    // The runtime global is XGENIA (all caps) — that is what external/deploy/index.js
+    // defines and what every reader uses (fontloader, Image, Video, LoaderScreen,
+    // router, sound, loader). This emitted `Xgenia.` for years, so the snippet threw
+    // "ReferenceError: Xgenia is not defined" on EVERY deployed page load and no env
+    // variable — BaseUrl included — was ever set. Root-hosted deploys hid it: the
+    // readers fall back to '/' or the current origin, which is the same thing there.
+    // A deploy under a sub-path (Stake-style nested routes) resolved assets wrongly.
     const envListCode = Object.entries(parameters.envVariables || {})
       .map(([name, variable]) => {
-        return `  Xgenia.Env['${name}'] = '${variable}';`;
+        return `  XGENIA.Env['${name}'] = '${variable}';`;
       })
       .join('\n');
 
-    let str = `Xgenia.Env['BaseUrl'] = '${baseUrl}';`;
+    let str = `XGENIA.Env['BaseUrl'] = '${baseUrl}';`;
     if (envListCode) {
       str += '\n' + envListCode;
     }

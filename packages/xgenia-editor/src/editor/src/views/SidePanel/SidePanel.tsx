@@ -23,25 +23,24 @@ import { Container, ContainerDirection } from '@xgenia-core-ui/components/layout
 import {
   SideComponents,
   SideSearch,
-  SideEditorSettings,
   SideVersionControl,
   SideCloud,
   SideCloudFunctions,
   SideSettings,
   SideChatPanel,
   SideAiPanel,
-  SideFileExplorer,
-  SideDesignTokens,
   SideProjectStyles,
-  SideUndoQueue,
   SideNodeReferences,
   SideFeedback,
   SideImageEditor,
   SideMemoryPanel,
   SideMaths,
+  SideAssets,
   SideAddNode,
   SideLogout
 } from './SidebarIcons';
+
+import { PanelActiveContext } from '../panels/useIsActivePanel';
 
 import css from './SidePanel.model.scss';
 
@@ -49,7 +48,6 @@ import css from './SidePanel.model.scss';
 const iconMap: Record<string, React.ElementType> = {
   'components': SideComponents,
   'search': SideSearch,
-  'editor-settings': SideEditorSettings,
   'versioncontrol': SideVersionControl,
   'cloudservice': SideCloud,
   'cloud-functions': SideCloudFunctions,
@@ -57,15 +55,13 @@ const iconMap: Record<string, React.ElementType> = {
   'chat-panel': SideChatPanel,
   'ChatPanel': SideChatPanel,
   'ai-panel': SideAiPanel,
-  'file-explorer': SideFileExplorer,
-  'design-tokens': SideDesignTokens,
   'project-styles': SideProjectStyles,
-  'undo-queue': SideUndoQueue,
   'node-references': SideNodeReferences,
   'feedback-panel': SideFeedback,
   'image-editor': SideImageEditor,
   'memory-panel': SideMemoryPanel,
-  'maths-panel': SideMaths
+  'maths-panel': SideMaths,
+  'assets': SideAssets
 };
 
 export function SidePanel() {
@@ -179,7 +175,6 @@ export function SidePanel() {
           const bottomIds = new Set([
             'project-styles',
             'versioncontrol',
-            'editor-settings',
             'cloudservice',
             'settings',
             'feedback-panel'
@@ -300,39 +295,58 @@ export function SidePanel() {
       }
       panel={
         <div style={{ height: '100%' }}>
-          {Object.entries(panels).map(([id, panel]) => (
-            <div
-              key={id}
-              data-panel-id={id}
-              className={css['PanelItem']}
-              style={{
-                display: id === activeId ? 'block' : 'none'
-              }}
-            >
-              <ErrorBoundary
-                showTryAgain
-                onTryAgain={() => {
-                  setPanels({});
+          {/*
+            Every panel the user has opened stays mounted and is hidden with
+            `display: none`, so switching back is instant and keeps its state —
+            and, for the panels that are remote iframes, avoids re-downloading and
+            re-booting a whole application on every switch.
 
-                  nextTick(() => {
-                    const currentPanelId = SidebarModel.instance.ActiveId;
-                    if (!currentPanelId) return;
-                    const component = SidebarModel.instance.getPanelComponent(currentPanelId);
+            The cost is that React has no idea a panel is off screen: hidden
+            panels keep their timers, keep their model subscriptions and keep
+            reconciling. `PanelActiveContext` is how a panel finds out, so the
+            expensive ones can idle instead. `unmountWhenHidden` is the stronger
+            opt-out for a panel that genuinely should not persist; it is off by
+            default because taking it costs that panel's state.
+          */}
+          {Object.entries(panels).map(([id, panel]) => {
+            const isActive = id === activeId;
+            const unmountWhenHidden = SidebarModel.instance.getPanel(id)?.unmountWhenHidden === true;
+            if (!isActive && unmountWhenHidden) return null;
 
-                    if (component) {
-                      setPanels({ [currentPanelId]: React.createElement(component) });
-                    } else {
-                      setPanels({});
-                    }
-
-                    setActiveId(currentPanelId);
-                  });
+            return (
+              <div
+                key={id}
+                data-panel-id={id}
+                className={css['PanelItem']}
+                style={{
+                  display: isActive ? 'block' : 'none'
                 }}
               >
-                {panel}
-              </ErrorBoundary>
-            </div>
-          ))}
+                <ErrorBoundary
+                  showTryAgain
+                  onTryAgain={() => {
+                    setPanels({});
+
+                    nextTick(() => {
+                      const currentPanelId = SidebarModel.instance.ActiveId;
+                      if (!currentPanelId) return;
+                      const component = SidebarModel.instance.getPanelComponent(currentPanelId);
+
+                      if (component) {
+                        setPanels({ [currentPanelId]: React.createElement(component) });
+                      } else {
+                        setPanels({});
+                      }
+
+                      setActiveId(currentPanelId);
+                    });
+                  }}
+                >
+                  <PanelActiveContext.Provider value={isActive}>{panel}</PanelActiveContext.Provider>
+                </ErrorBoundary>
+              </div>
+            );
+          })}
         </div>
       }
     />

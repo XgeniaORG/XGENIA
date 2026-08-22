@@ -14,7 +14,22 @@ export async function currentBranchName(repositoryDir: string): Promise<string> 
     const { output } = await git(args, repositoryDir, 'currentBranchName');
     return output.toString().trim();
   } catch {
-    // This will happen when there is no commit
+    // Unborn HEAD (no commits yet). The old code returned the literal
+    // string 'null', which callers then displayed as branch "null" and
+    // passed into further git commands. symbolic-ref reads the branch
+    // name HEAD points at even before the first commit (normally 'main'
+    // or 'master').
+    try {
+      const { output } = await git(
+        ['symbolic-ref', '--short', 'HEAD'],
+        repositoryDir,
+        'currentBranchName(unborn)'
+      );
+      const name = output.toString().trim();
+      if (name) return name;
+    } catch {
+      // detached HEAD with no commits, or not a repository — fall through
+    }
     return 'null';
   }
 }

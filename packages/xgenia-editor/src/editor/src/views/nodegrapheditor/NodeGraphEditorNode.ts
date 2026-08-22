@@ -724,17 +724,30 @@ export class NodeGraphEditorNode {
       const borderRadius = 12;
 
       // ═══════════════════════════════════════════════
-      // 1. SHADOW — Single subtle elevation
+      // 1. SHADOW — deleted 2026-08-12, it drew nothing and cost a great deal
       // ═══════════════════════════════════════════════
-      ctx.save();
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
-      ctx.shadowBlur = 20;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 6;
-      roundedRect(ctx, x, y, width, height, borderRadius);
-      ctx.fillStyle = 'rgba(0,0,0,0)';
-      ctx.fill();
-      ctx.restore();
+      //
+      // What used to be here set `shadowBlur = 20` and then filled the node's
+      // rounded rect with `rgba(0,0,0,0)`. Canvas2D derives a shadow from the
+      // SOURCE ALPHA, and a fully transparent fill has none — so the pass
+      // provably produced zero pixels (verified in Chromium: maxAlpha 0,
+      // nonZeroPixels 0, against 15544 for an opaque control).
+      //
+      // Blink still paid for it. `shadowBlur` is implemented as a DropShadow
+      // image filter, which suppresses Skia's nothing-to-draw early-out, so the
+      // saveLayer over (width+40)x(height+40) and both blur passes ran for every
+      // visible node on every repaint — and `repaint()` is rAF-driven by bare
+      // cursor movement and by panning. Measured at DPR2 while panning: 50 nodes
+      // 30fps -> 60fps, 100 nodes 29.5fps (p90 50.5ms) -> 60fps. It was 68% of
+      // node paint time at 100 nodes, and invisible in a JS profile because the
+      // cost is GPU raster.
+      //
+      // Note for anyone restoring the intent: nodes have had NO elevation shadow
+      // regardless, because the `restore()` reverted `shadowBlur` before the
+      // background fill below ever ran. Do NOT "repair" this by making the fill
+      // opaque — measured 9.81ms against 8.77ms, i.e. slower than doing nothing.
+      // Bake one shadow sprite per (width, height) to an offscreen canvas and
+      // `drawImage` it instead.
 
       // ═══════════════════════════════════════════════
       // 2. BACKGROUND — Elevated surface (above canvas #151414)

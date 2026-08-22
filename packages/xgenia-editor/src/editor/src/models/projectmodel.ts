@@ -16,6 +16,12 @@ import { NodeLibrary } from './nodelibrary';
 import { listProjectModules, ProjectModule, ProjectModuleManifest, readProjectModules } from './projectmodel.modules';
 import { VariantModel } from './VariantModel';
 
+// Makes every project save write to its own tmp file. Two saves that overlap
+// (the 1s autosave can fire again while a previous save is still verifying)
+// used to share one fixed 'project-tmp.json' and clobber each other.
+const saveTmpPrefix = Date.now().toString(36);
+let saveSequence = 0;
+
 export interface CloudServiceMetadata {
   id: string;
   endpoint: string;
@@ -659,7 +665,26 @@ export class ProjectModel extends Model {
     //reduces the amount of differences between versions _alot_ as well
     stripNodeChildPositions(projectJson);
 
-    const tmpProjectPath = retainedProjectDirectory + '/project-tmp.json';
+    // The tmp path is unique per save. When it was the fixed 'project-tmp.json',
+    // two overlapping saves shared it: the first to finish renamed it away, and
+    // the second one's verify step then read a file that no longer existed and
+    // reported a save failure even though the project was written correctly.
+    // The name still starts with 'project-tmp.json' so the .gitignore entry matches.
+    const tmpProjectPath = `${retainedProjectDirectory}/project-tmp.json.${saveTmpPrefix}-${++saveSequence}`;
+
+    const fail = (error?: any) => {
+      const detail = error && (error.message || String(error));
+      // Report the underlying reason. Collapsing every failure into one constant
+      // string is why these save errors were undiagnosable.
+      callback &&
+        callback({
+          result: 'failure',
+          message: detail ? `Error writing project file: ${detail}` : 'Error writing project file.'
+        });
+    };
+
+    // Never let cleanup of the tmp file turn into an unhandled rejection.
+    const discardTmpFile = () => filesystem.removeFile(tmpProjectPath).catch(() => {});
 
     filesystem
       .writeJson(tmpProjectPath, projectJson)
@@ -667,17 +692,13 @@ export class ProjectModel extends Model {
       .then(() => verifyJsonFile(tmpProjectPath))
       .then((validJson) => {
         if (!validJson) {
-          callback &&
-            callback({
-              result: 'failure',
-              message: 'Error writing project file.'
-            });
-          filesystem.removeFile(tmpProjectPath);
+          fail(new Error('the written project file did not verify as valid JSON'));
+          discardTmpFile();
           return;
         }
 
         // Move tmp file to project.json
-        filesystem
+        return filesystem
           .renameFile(tmpProjectPath, retainedProjectDirectory + '/project.json')
           .then(() => {
             callback &&
@@ -685,20 +706,14 @@ export class ProjectModel extends Model {
                 result: 'success'
               });
           })
-          .catch(() => {
-            callback &&
-              callback({
-                result: 'failure',
-                message: 'Error writing project file.'
-              });
+          .catch((error) => {
+            fail(error);
+            discardTmpFile();
           });
       })
-      .catch(() => {
-        callback &&
-          callback({
-            result: 'failure',
-            message: 'Error writing project file.'
-          });
+      .catch((error) => {
+        fail(error);
+        discardTmpFile();
       });
   }
 
@@ -833,6 +848,92 @@ export class ProjectModel extends Model {
       types,
       ignoreFullPath
     });
+  }
+
+  /**
+   * List asset files under the project's `assets/` folder only.
+   *
+   * Unlike listFilesInProjectDirectory (which walks the ENTIRE project tree,
+   * descending into node_modules/.git/dist), this roots the walk at
+   * `<projectDir>/assets`, caps recursion depth, and skips heavy/hidden dirs —
+   * so it is fast and its file set matches what the AI's list_project_assets
+   * tool reports. The callback ALWAYS fires (no project / no assets/ → []).
+   */
+  listProjectAssets(callback: (files: TSFixme[]) => void, opts?: { types?: string[] }) {
+    const root = this._retainedProjectDirectory;
+    if (root === undefined) {
+      callback([]);
+      return;
+    }
+
+    const assetsRoot = filesystem.join(root, 'assets');
+    let assetsExists = false;
+    try {
+      assetsExists = filesystem.exists(assetsRoot);
+    } catch {
+      assetsExists = false;
+    }
+    if (!assetsExists) {
+      callback([]);
+      return;
+    }
+
+    this._listAssetsBounded(assetsRoot, callback, { types: opts?.types, maxDepth: 6 }, 0);
+  }
+
+  _listAssetsBounded(
+    dirEntry: string,
+    callback: (files: TSFixme[]) => void,
+    args: { types?: string[]; maxDepth: number },
+    depth: number
+  ) {
+    const _this = this;
+    const SKIP_DIRS = ['node_modules', '.git', '.vscode', '.idea', 'dist', 'build', 'xgenia'];
+    let files: TSFixme[] = [];
+
+    filesystem
+      .listDirectory(dirEntry)
+      .then((results) => {
+        let dirs = 0;
+        for (const i in results) {
+          const fileEntry = results[i];
+
+          if (fileEntry.isDirectory) {
+            const name = fileEntry.name;
+            // Bound the walk: never descend into heavy/hidden dirs, and cap depth
+            // (also guards symlink cycles, since listDirectory lstats each entry).
+            if (name.startsWith('.') || SKIP_DIRS.indexOf(name) !== -1) continue;
+
+            // Surface the directory itself so empty/new folders are visible (the
+            // consumer distinguishes dirs via isDirectory).
+            files.push(fileEntry);
+
+            if (depth >= args.maxDepth) continue;
+
+            dirs++;
+            _this._listAssetsBounded(
+              fileEntry.fullPath,
+              function (directoryFiles) {
+                if (directoryFiles) files = files.concat(directoryFiles);
+                dirs--;
+                if (dirs === 0) callback(files);
+              },
+              args,
+              depth + 1
+            );
+          } else {
+            const parts = fileEntry.name.split('.');
+            if (
+              args.types === undefined ||
+              args.types.indexOf(parts[parts.length - 1].toLowerCase()) !== -1
+            ) {
+              files.push(fileEntry);
+            }
+          }
+        }
+        if (dirs === 0) callback(files);
+      })
+      .catch(() => callback(files));
   }
 
   listModules(callback: (modules: ProjectModuleManifest[]) => void) {
@@ -1228,6 +1329,16 @@ function stripNodeChildPositions(json) {
 // Project saver, saves current project when a change to a model occurs
 let saveOnModelChange = true;
 let saveTimeout;
+// A save is asynchronous (write tmp -> verify in a forked process -> rename), so
+// the debounce timer below only spaces out when saves *start*. Without these two
+// flags a new save could begin while the previous one was still running.
+let saveIsRunning = false;
+let savePendingWhileRunning = false;
+// Watchdog so a save that never reports back (a hung verify child, say) cannot
+// leave saveIsRunning stuck and silently stop autosaving altogether.
+let saveWatchdog;
+let saveToken = 0;
+const saveWatchdogTimeout = 30000;
 const ignoreEvents = [
   'Model.thumbnailChanged',
   'Model.inspectorAdded',
@@ -1268,10 +1379,36 @@ function saveProject() {
 
   if (ProjectModel.instance._retainedProjectDirectory) {
     // Project is loaded from directory, save it
+    if (saveIsRunning) {
+      // Coalesce. Anything that changed while this save was in flight is picked
+      // up by the follow-up save scheduled when the running one completes.
+      savePendingWhileRunning = true;
+      return;
+    }
+
+    saveIsRunning = true;
+    const token = ++saveToken;
+
+    clearTimeout(saveWatchdog);
+    saveWatchdog = setTimeout(function () {
+      if (saveToken !== token) return;
+      console.log('Project save did not report back within 30s, releasing the save lock');
+      saveToken++; // any late callback from that save is now stale and ignored
+      saveIsRunning = false;
+      savePendingWhileRunning = false;
+      clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(saveProject, 1000);
+    }, saveWatchdogTimeout);
+
     ProjectModel.instance.toDirectory(ProjectModel.instance._retainedProjectDirectory, function (r) {
+      if (saveToken !== token) return; // superseded by the watchdog
+      clearTimeout(saveWatchdog);
+      saveIsRunning = false;
+
       if (r.result !== 'success') {
         console.log(r.message);
         //retry in 3 seconds
+        savePendingWhileRunning = false;
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(saveProject, 3000);
         EventDispatcher.instance.emit('ProjectModel.saveFailedRetryScheduled');
@@ -1279,6 +1416,12 @@ function saveProject() {
         console.log('Project saved ' + new Date()); // Project is saved to disk, start the watch timer
         EventDispatcher.instance.emit('ProjectModel.projectSavedToDisk');
         //startWatchTimeOut();
+
+        if (savePendingWhileRunning) {
+          savePendingWhileRunning = false;
+          clearTimeout(saveTimeout);
+          saveTimeout = setTimeout(saveProject, 0);
+        }
       }
     });
   } else {

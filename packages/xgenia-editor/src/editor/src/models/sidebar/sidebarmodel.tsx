@@ -23,6 +23,23 @@ export interface SidebarItem<TProps = Record<string, unknown>> {
    */
   transient?: boolean;
 
+  /**
+   * Unmount this panel while another one is showing, instead of keeping it
+   * mounted and hidden.
+   *
+   * SidePanel keeps opened panels alive so switching back is instant and their
+   * state survives — but a hidden panel still runs its timers and still
+   * reconciles on every model event it subscribes to, for the rest of the
+   * session. Set this on a panel whose state is cheap to rebuild and whose
+   * background cost is not.
+   *
+   * Prefer `usePanelActive()` where the panel can simply idle: it gets the same
+   * saving without throwing the panel's state away.
+   *
+   * Default: false
+   */
+  unmountWhenHidden?: boolean;
+
   placement?: 'top' | 'bottom';
 
   isDisabled?: boolean /** Default: false */;
@@ -336,6 +353,17 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
 
     this.notifyListeners(SidebarModelEvent.rightPanelChanged, this.rightPanelId, this.rightPanelComponent);
     this.notifyListeners(SidebarModelEvent.nodeSelected, nodeModel.id);
+  }
+
+  /**
+   * Show an arbitrary component in the right-hand property panel (the same region
+   * node properties use). For non-node inspectors, e.g. the Asset inspector.
+   */
+  public showRightPanel(id: string, component: () => React.ReactElement) {
+    this.rightPanelId = id;
+    this.rightPanelComponent = component;
+    this.panels[id] = component;
+    this.notifyListeners(SidebarModelEvent.rightPanelChanged, this.rightPanelId, this.rightPanelComponent);
   }
 
   /**

@@ -20,6 +20,18 @@ const META_KEY = 'projectStyles';
 
 export interface ProjectStylesMeta {
     baseStyleImageUrl: string | null;
+    /**
+     * The imageId of the generation that became the anchor.
+     *
+     * (2026-08-19, export 1787112946756) setProjectBaseStyle has always TAKEN an id and thrown it
+     * away — the parameter was literally named `_id`. So the anchor's pixels were persisted here
+     * and to a local file, surviving a ChatPanel reload, while nothing could tell WHICH image
+     * they belonged to. When that build's ChatPanel reloaded and lost its in-memory session, the
+     * key art was on screen, in the project, and formally unrecoverable: image({action:"save"})
+     * answered "Image session not found. Create an image first." and the AI regenerated a
+     * DIFFERENT anchor. Keeping the id is what makes the recovery addressable.
+     */
+    baseStyleImageId?: string | null;
     globalStylePrompt: string;
     palettes: string[][];
 }
@@ -28,9 +40,9 @@ function readMeta(): ProjectStylesMeta {
     const project = ProjectModel.instance;
     if (project) {
         const saved = project.getMetaData(META_KEY) as Partial<ProjectStylesMeta> | undefined;
-        if (saved) return { baseStyleImageUrl: null, globalStylePrompt: '', palettes: [], ...saved };
+        if (saved) return { baseStyleImageUrl: null, baseStyleImageId: null, globalStylePrompt: '', palettes: [], ...saved };
     }
-    return { baseStyleImageUrl: null, globalStylePrompt: '', palettes: [] };
+    return { baseStyleImageUrl: null, baseStyleImageId: null, globalStylePrompt: '', palettes: [] };
 }
 
 function writeMeta(meta: ProjectStylesMeta) {
@@ -111,6 +123,68 @@ async function saveStyleImageLocally(urlOrData: string): Promise<string | null> 
 }
 
 /**
+ * STYLE LOCK — the user's "stop changing this".
+ *
+ * Written here, enforced in the AI plugin (StreamlinedToolRegistry/utils/style-lock.ts). The
+ * two live in different packages and cannot import each other, so the path and filename are
+ * duplicated below; `style-lock-parity.test.ts` pins them equal so a rename on one side cannot
+ * quietly disconnect the control from the thing it controls.
+ *
+ * `owner: 'user'` is the part that matters. A lock the AI applies to itself is bookkeeping and
+ * the AI may lift it; a lock set HERE is an instruction, and the plugin refuses every attempt
+ * to lift it — including `unlockStyle` and `confirmReplace`. It is cleared in this panel, by
+ * the person who set it, and nowhere else.
+ */
+const LOCK_DIR = '.xgenia-design';
+const LOCK_FILENAME = 'style.lock.json';
+
+function lockFilePath(): string | null {
+    try {
+        const project = ProjectModel.instance;
+        if (!project || !(project as any)._retainedProjectDirectory) return null;
+        const path = require('path');
+        return path.join((project as any)._retainedProjectDirectory, LOCK_DIR, LOCK_FILENAME);
+    } catch { return null; }
+}
+
+export function isProjectStyleLocked(): boolean {
+    try {
+        const p = lockFilePath();
+        if (!p) return false;
+        const fs = require('fs');
+        if (!fs.existsSync(p)) return false;
+        return JSON.parse(fs.readFileSync(p, 'utf-8'))?.locked === true;
+    } catch { return false; }
+}
+
+/** Apply or clear the USER lock. Returns false when it could not be written. */
+export function setProjectStyleLockedByUser(locked: boolean): boolean {
+    try {
+        const p = lockFilePath();
+        if (!p) return false;
+        const fs = require('fs');
+        const path = require('path');
+        const dir = path.dirname(p);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        const body = locked
+            ? {
+                locked: true,
+                owner: 'user',
+                lockedPrompt: ensureFreshMeta().globalStylePrompt || undefined,
+                lockedAt: Date.now(),
+                note: 'Locked from the Project Styles panel. The AI cannot lift this.',
+            }
+            : { locked: false };
+        fs.writeFileSync(p, JSON.stringify(body, null, 2));
+        notify();
+        return true;
+    } catch (err: any) {
+        console.error('[ProjectStyles] Failed to write the style lock:', err?.message || err);
+        return false;
+    }
+}
+
+/**
  * Read a locally saved style image and return a base64 data URL for the Fal API.
  * Returns null if the file doesn't exist.
  */
@@ -133,10 +207,11 @@ function readLocalStyleImage(relativePath: string): string | null {
     }
 }
 
-export function setProjectBaseStyle(_id: string, url: string) {
+export function setProjectBaseStyle(id: string, url: string) {
     ensureFreshMeta();
-    // Immediately store the URL so it's available right away
-    _meta = { ..._meta, baseStyleImageUrl: url };
+    // Immediately store the URL so it's available right away. The ID is kept too — see
+    // baseStyleImageId: without it the anchor's pixels are recoverable but not addressable.
+    _meta = { ..._meta, baseStyleImageUrl: url, baseStyleImageId: id || null };
     writeMeta(_meta);
     notify();
 
@@ -152,7 +227,7 @@ export function setProjectBaseStyle(_id: string, url: string) {
 
 export function clearProjectBaseStyle() {
     ensureFreshMeta();
-    _meta = { ..._meta, baseStyleImageUrl: null };
+    _meta = { ..._meta, baseStyleImageUrl: null, baseStyleImageId: null };
     writeMeta(_meta);
     notify();
 }
@@ -175,6 +250,14 @@ export function getProjectBaseStyleUrl(): string | null {
     // It's a local relative path — resolve to base64 data URL
     return readLocalStyleImage(stored);
 }
+/**
+ * Which generation the anchor came from, when it is known. Null for anchors set before the id
+ * was recorded, or set by hand from the panel.
+ */
+export function getProjectBaseStyleId(): string | null {
+    return ensureFreshMeta().baseStyleImageId ?? null;
+}
+
 export function getProjectGlobalStylePrompt(): string { return ensureFreshMeta().globalStylePrompt; }
 export function getProjectPalettes(): string[][] { return ensureFreshMeta().palettes || []; }
 
@@ -280,6 +363,8 @@ export function ProjectStylesPanel() {
         return _meta;
     });
     const [isCreatingPalette, setIsCreatingPalette] = useState(false);
+    const [locked, setLocked] = useState<boolean>(() => isProjectStyleLocked());
+    const [lockError, setLockError] = useState<string | null>(null);
 
     // Subscribe to external updates
     React.useEffect(() => {
@@ -287,12 +372,32 @@ export function ProjectStylesPanel() {
         return unsub;
     }, []);
 
+    // The lock lives in a file, not in this component's state, so a project switch or an
+    // external edit must be picked up rather than assumed.
+    React.useEffect(() => { setLocked(isProjectStyleLocked()); }, []);
+
     const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        if (locked) return; // the field is disabled; this is the belt to that brace
         setProjectGlobalStylePrompt(e.target.value);
         setMetaState(m => ({ ...m, globalStylePrompt: e.target.value }));
     };
 
+    const handleToggleLock = () => {
+        const next = !locked;
+        const ok = setProjectStyleLockedByUser(next);
+        if (!ok) {
+            // Never leave the checkbox showing a state the file does not hold — a lock the user
+            // believes is on, but isn't, is worse than no lock at all.
+            setLockError('Could not write the lock file. Open a project first, then try again.');
+            setLocked(isProjectStyleLocked());
+            return;
+        }
+        setLockError(null);
+        setLocked(next);
+    };
+
     const handleClearStyle = () => {
+        if (locked) return;
         clearProjectBaseStyle();
         setMetaState(m => ({ ...m, baseStyleImageUrl: null }));
     };
@@ -326,9 +431,42 @@ export function ProjectStylesPanel() {
                     <TextArea
                         value={meta.globalStylePrompt}
                         onChange={handlePromptChange}
+                        isDisabled={locked}
                         placeholder="e.g. Neo-pop art, flat colors, thick outlines, highly vibrant"
-                        UNSAFE_style={{ minHeight: '80px', backgroundColor: '#1E1E1E', color: '#FFF', border: '1px solid #333' }}
+                        UNSAFE_style={{
+                            minHeight: '80px',
+                            backgroundColor: locked ? '#191919' : '#1E1E1E',
+                            color: locked ? '#999' : '#FFF',
+                            border: locked ? '1px solid #4A4A2A' : '1px solid #333',
+                            cursor: locked ? 'not-allowed' : 'text',
+                        }}
                     />
+
+                    {/* --- Lock: the AI cannot lift this one --- */}
+                    <label
+                        htmlFor="xg-style-lock"
+                        style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginTop: '10px', cursor: 'pointer' }}
+                    >
+                        <input
+                            id="xg-style-lock"
+                            type="checkbox"
+                            checked={locked}
+                            onChange={handleToggleLock}
+                            style={{ marginTop: '2px', cursor: 'pointer' }}
+                        />
+                        <span style={{ color: locked ? '#E0C36A' : '#888' }}>
+                            <Text size={TextSize.Small}>
+                                {locked
+                                    ? 'Locked — the AI cannot change this style prompt or the reference image. Only you can unlock it, here.'
+                                    : 'Lock this style. The AI will not be able to change the prompt or the reference image, and cannot unlock it.'}
+                            </Text>
+                        </span>
+                    </label>
+                    {lockError ? (
+                        <div style={{ color: '#E06C6C', marginTop: '6px' }}>
+                            <Text size={TextSize.Small}>{lockError}</Text>
+                        </div>
+                    ) : null}
                 </Box>
             </Section>
 
@@ -373,9 +511,10 @@ export function ProjectStylesPanel() {
                                         <PrimaryButton
                                             variant={PrimaryButtonVariant.MutedOnLowBg}
                                             size={PrimaryButtonSize.Small}
-                                            label="Clear Reference"
+                                            label={locked ? 'Locked' : 'Clear Reference'}
                                             onClick={handleClearStyle}
-                                            UNSAFE_style={{ color: '#ff4d4d' }}
+                                            isDisabled={locked}
+                                            UNSAFE_style={{ color: locked ? '#777' : '#ff4d4d', cursor: locked ? 'not-allowed' : 'pointer' }}
                                         />
                                     </Box>
                                 </Box>

@@ -8,7 +8,7 @@ var Model = require('@xgenia/runtime/src/model');
 
 var ModelNodeDefinition = {
   name: 'Model',
-  docs: 'https://docsapp.xgenia.com/nodes/data/object',
+  docs: 'https://docsapp.xgenia.com/nodes/data/object/object-node',
   displayNodeName: 'Object',
   shortDesc:
     'Stores any amount of properties and can be used standalone or together with Collections and For Each nodes.',

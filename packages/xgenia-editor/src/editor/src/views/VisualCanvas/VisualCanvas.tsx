@@ -250,8 +250,23 @@ export function VisualCanvas({ onWebView, deviceName, zoom, onReloadWebview }: V
           disablewebsecurity="true"
           // @ts-ignore - React 19 requires string "true" but TypeScript expects boolean
           allowpopups="true"
-          // Set contextIsolation=true for security since nodeIntegration is false -- CHANGING TO FALSE
-          webpreferences="contextIsolation=false, webSecurity=false, enableRemoteModule=true"
+          // (2026-08-05 audit) What this webview actually grants, so the next reader
+          // does not have to re-derive it:
+          //   • nodeintegration=false and @electron/remote is NOT enabled for these
+          //     webContents (main.js only enables it for the main window and the
+          //     floating window) — so preview content has no direct Node access.
+          //   • contextIsolation=false is LOAD-BEARING: webview-preload-viewer.js
+          //     assigns window.XgeniaEditorAPI directly, which is how the viewer talks
+          //     to the editor. Flipping it to true breaks the preview until that
+          //     preload is rewritten onto contextBridge. Consequence to be aware of:
+          //     page script shares a world with the preload, so anything the preload
+          //     exposes is reachable by whatever the preview loads.
+          //   • webSecurity=false lets preview content read file:// and any origin.
+          //     Fine for a project you wrote; it is the exposure that matters if a
+          //     project ever contains third-party or generated HTML.
+          // `enableRemoteModule` was removed from Electron in v14 (this app is on 31),
+          // so it was a dead flag that only advertised an intent we do not want.
+          webpreferences="contextIsolation=false, webSecurity=false"
           // Preload to inject XgeniaEditorAPI into the preview content
           preload={preloadPath}
           suppressHydrationWarning={true}

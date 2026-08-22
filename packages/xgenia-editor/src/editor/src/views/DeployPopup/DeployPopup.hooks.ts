@@ -1,6 +1,7 @@
 import { ICloudService } from '@xgenia-models/CloudServices';
 
-import { NO_ENVIRONMENT_VALUE } from './DeployPopup.constants';
+import { getRgsSettings } from '@xgenia-utils/rgs/rgsClient';
+import { NO_ENVIRONMENT_VALUE, RGS_ENVIRONMENT_VALUE } from './DeployPopup.constants';
 
 /**
  * No caching, enjoy!
@@ -8,14 +9,29 @@ import { NO_ENVIRONMENT_VALUE } from './DeployPopup.constants';
  * @param cloudService
  * @returns
  */
-export function useEnvironmentsAsOptions(cloudService: ICloudService) {
+export function useEnvironmentsAsOptions(
+  cloudService: ICloudService,
+  opts?: { alwaysIncludeRgs?: boolean }
+) {
   const options = [{ label: 'No cloud service', value: NO_ENVIRONMENT_VALUE }];
 
-  if (!cloudService.backend.items?.length) return options;
+  // XGENIA RGS is connected separately (Maths RGS panel), not via
+  // cloudService.backend. Offer it whenever an operator key is present, or
+  // always when the caller opts in (the Vercel deploy tab does, so the user can
+  // pick it and get a clear "connect first" error when no key is set).
+  try {
+    if (opts?.alwaysIncludeRgs || getRgsSettings()?.apiKey) {
+      options.push({ label: 'XGENIA RGS', value: RGS_ENVIRONMENT_VALUE });
+    }
+  } catch {
+    /* ignore */
+  }
 
-  cloudService.backend.items.forEach((env) => {
-    options.push({ label: env.name, value: env.id });
-  });
+  if (cloudService.backend.items?.length) {
+    cloudService.backend.items.forEach((env) => {
+      options.push({ label: env.name, value: env.id });
+    });
+  }
 
   return options;
 }

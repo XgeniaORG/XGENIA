@@ -5,6 +5,19 @@
  * Uses DOMParser for parsing and pattern-based Tailwind class resolution.
  */
 
+import { isCleanClass, structuralRole } from './node-label';
+
+// ─── Translation warning channel ────────────────────────────
+// Collects every style/element the translator DROPS during a run so callers
+// can surface them instead of silently rendering something else. Reset per
+// translateHtmlToXgeniaXmlWithReport() call (translation is synchronous).
+
+let _warnings: string[] = [];
+
+function reportDrop(msg: string): void {
+    if (_warnings.length < 200) _warnings.push(msg);
+}
+
 // ─── Tailwind Scales ────────────────────────────────────────
 
 const SPACING: Record<string, number> = {
@@ -139,6 +152,7 @@ interface ParsedStyles {
     borderBottomLeftRadius?: number;
     borderWidth?: number;
     borderColor?: string;
+    borderStyle?: string;     // solid | dashed | dotted | double (native port; emit defaults to solid)
     opacity?: number;
     position?: string;
     top?: string;
@@ -170,7 +184,11 @@ interface ParsedStyles {
     _hasFlex?: boolean;       // Element has display:flex → default direction should be row
     _isInlineFlex?: boolean;  // Element has display:inline-flex → should shrink to content
     _gridCols?: number;       // CSS Grid columns count (grid-cols-N) → converted to flexbox wrap
+    _gridTracks?: string[];   // Raw grid-template-columns track list (e.g. ['2fr','1fr']) → fr ratios feed layoutString
     _colSpan?: number;        // CSS Grid col-span-N → used to compute Columns layoutString
+    _hoverClasses?: string[]; // hover: variant inner classes → css-definition :hover rule
+    _focusClasses?: string[]; // focus: variant inner classes → css-definition :focus rule
+    _activeClasses?: string[]; // active: variant inner classes → css-definition :active rule
     _gradientFrom?: string;   // Gradient from-color for text-transparent fallback
     _gradientTo?: string;     // Gradient to-color
     _gradientVia?: string;    // Gradient via-color (middle stop)
@@ -243,10 +261,27 @@ function hexToRgba(hex: string, alpha: number): string {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+/**
+ * The document's own type scale and spacing scale, for the translation in flight.
+ *
+ * Module state rather than another two positional parameters: `parseTailwindClasses` and
+ * `translateNode` are already threaded through ~30 call sites with five optional params each,
+ * and adding two more to every one of them is a parameter-order bug waiting to happen. This
+ * file already resets `_warnings` and `_stateRuleCache` per translation; these join them, and
+ * translateHtmlToXgeniaXmlWithReport clears them the same way.
+ */
+let _customFontSizes: Record<string, CustomFontSize> = {};
+let _customSpacing: Record<string, number> = {};
+
 function resolveSpacing(value: string): number | undefined {
     // Arbitrary: [24px] → 24
     const arbMatch = value.match(/^\[(\d+)px\]$/);
     if (arbMatch) return parseInt(arbMatch[1]);
+
+    // The document's OWN scale first. `p-container-padding` and `gap-gutter` are not in the
+    // stock table, and before this they resolved to undefined — so a screen authored on a
+    // clean 8px system arrived with none of its rhythm.
+    if (_customSpacing[value] !== undefined) return _customSpacing[value];
 
     // Scale value
     return SPACING[value];
@@ -262,11 +297,14 @@ function resolveFraction(value: string): string | undefined {
         '1/12': '8.333%', '2/12': '16.667%', '3/12': '25%', '4/12': '33.333%',
         '5/12': '41.667%', '6/12': '50%', '7/12': '58.333%', '8/12': '66.667%',
         '9/12': '75%', '10/12': '83.333%', '11/12': '91.667%',
-        'full': '100%', 'screen': '100vw',
+        // 'screen' → parent-relative % (NOT 100vw): components mount inside
+        // containers; viewport units overflow the host. Matches h-screen → 100%.
+        'full': '100%', 'screen': '100%',
     };
     return FRACTIONS[value];
 }
 
+function parseTailwindClasses(classes: string | any, customColors?: Record<string, string>, customFonts?: Record<string, string>, customShadows?: Record<string, string>, customBackgroundImages?: Record<string, string>): ParsedStyles {
 function parseTailwindClasses(classes: string | any, customColors?: Record<string, string>, customFonts?: Record<string, string>, customShadows?: Record<string, string>, customBackgroundImages?: Record<string, string>): ParsedStyles {
     const styles: ParsedStyles = {};
     if (typeof classes !== 'string') {
@@ -292,16 +330,62 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             }
         }
 
-        if (rawCls.startsWith('hover:') || rawCls.startsWith('focus:') ||
-            rawCls.startsWith('active:') || rawCls.startsWith('group-hover:') ||
+        // hover:/focus:/active: variants → collected per element and emitted as
+        // css-definition pseudo-class rules (see applyInteractionStates).
+        const stateVariantMatch = rawCls.match(/^(hover|focus|active):(.+)$/);
+        if (stateVariantMatch) {
+            const bucket = stateVariantMatch[1] === 'hover' ? '_hoverClasses'
+                : stateVariantMatch[1] === 'focus' ? '_focusClasses' : '_activeClasses';
+            (styles[bucket] = styles[bucket] || []).push(stateVariantMatch[2]);
+            continue;
+        }
+        if (rawCls.startsWith('group-hover:') ||
             rawCls.startsWith('group-active:') || rawCls.startsWith('selection:') ||
             rawCls.startsWith('placeholder:') || rawCls.startsWith('focus-within:') ||
             rawCls.startsWith('focus-visible:') || rawCls.startsWith('disabled:') ||
             rawCls.startsWith('first:') || rawCls.startsWith('last:') ||
-            rawCls.startsWith('odd:') || rawCls.startsWith('even:')) continue;
-        // Skip transition timing classes (but keep animate-spin/pulse → emit as CSS)
+            rawCls.startsWith('odd:') || rawCls.startsWith('even:')) {
+            reportDrop(`dropped: class '${cls}' (unsupported state variant)`);
+            continue;
+        }
+        // Transition classes → forward as CSS instead of dropping
+        if (rawCls === 'transition' || rawCls === 'transition-all') {
+            styles.styleCss = (styles.styleCss || '') + 'transition: all 150ms ease;';
+            continue;
+        }
+        if (rawCls === 'transition-none') {
+            styles.styleCss = (styles.styleCss || '') + 'transition: none;';
+            continue;
+        }
+        const transPropMatch = rawCls.match(/^transition-(colors|opacity|shadow|transform)$/);
+        if (transPropMatch) {
+            const TRANS_PROPS: Record<string, string> = {
+                'colors': 'color, background-color, border-color, fill, stroke',
+                'opacity': 'opacity', 'shadow': 'box-shadow', 'transform': 'transform',
+            };
+            styles.styleCss = (styles.styleCss || '') + `transition: ${TRANS_PROPS[transPropMatch[1]]} 150ms ease;`;
+            continue;
+        }
+        const durationMatch = rawCls.match(/^duration-(\d+)$/);
+        if (durationMatch) {
+            styles.styleCss = (styles.styleCss || '') + `transition-duration: ${durationMatch[1]}ms;`;
+            continue;
+        }
+        const easeMatch = rawCls.match(/^ease-(linear|in|out|in-out)$/);
+        if (easeMatch) {
+            const EASE_MAP: Record<string, string> = {
+                'linear': 'linear', 'in': 'cubic-bezier(0.4, 0, 1, 1)',
+                'out': 'cubic-bezier(0, 0, 0.2, 1)', 'in-out': 'cubic-bezier(0.4, 0, 0.2, 1)',
+            };
+            styles.styleCss = (styles.styleCss || '') + `transition-timing-function: ${EASE_MAP[easeMatch[1]]};`;
+            continue;
+        }
+        // Remaining transition/duration/ease forms (arbitrary values etc.)
         if (rawCls.startsWith('transition') ||
-            rawCls.startsWith('duration-') || rawCls.startsWith('ease-')) continue;
+            rawCls.startsWith('duration-') || rawCls.startsWith('ease-')) {
+            reportDrop(`dropped: class '${cls}' (unsupported transition form)`);
+            continue;
+        }
         // animate-spin/animate-pulse → inject keyframes via styleCss
         if (rawCls === 'animate-spin') {
             styles.styleCss = (styles.styleCss || '') + 'animation: spin 1s linear infinite;';
@@ -328,20 +412,31 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             continue;
         }
         // Skip unknown animate- classes
-        if (rawCls.startsWith('animate-')) continue;
+        if (rawCls.startsWith('animate-')) {
+            reportDrop(`dropped: class '${cls}' (unknown animation)`);
+            continue;
+        }
         // Skip snap/scroll utility
         if (rawCls.startsWith('snap-')) continue;
 
         // ─── Layout ─────────────────────────
         if (rawCls === 'flex' || rawCls === 'inline-flex') {
             styles._hasFlex = true;
+            clearHiddenDisplay(styles);
             if (rawCls === 'inline-flex') styles._isInlineFlex = true;
             continue;
         }
-        if (rawCls === 'grid' || rawCls === 'inline-grid') { styles._hasFlex = true; continue; }
+        if (rawCls === 'grid' || rawCls === 'inline-grid') { styles._hasFlex = true; clearHiddenDisplay(styles); continue; }
+        if (rawCls === 'block' || rawCls === 'inline-block' || rawCls === 'inline') { clearHiddenDisplay(styles); continue; }
         // grid-cols-N → convert to flexbox row wrap with N columns
         const gridColsMatch = rawCls.match(/^grid-cols-(\d+)$/);
         if (gridColsMatch) { styles._gridCols = parseInt(gridColsMatch[1]); styles._hasFlex = true; continue; }
+        // grid-rows-N → forward as styleCss so the renderer keeps row count if it honors grid
+        const gridRowsMatch = rawCls.match(/^grid-rows-(\d+)$/);
+        if (gridRowsMatch) {
+            styles.styleCss = (styles.styleCss || '') + `grid-template-rows: repeat(${gridRowsMatch[1]}, minmax(0, 1fr));`;
+            continue;
+        }
         // grid-rows-N → forward as styleCss so the renderer keeps row count if it honors grid
         const gridRowsMatch = rawCls.match(/^grid-rows-(\d+)$/);
         if (gridRowsMatch) {
@@ -373,21 +468,64 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             styles.styleCss = (styles.styleCss || '') + `grid-auto-${axis === 'cols' ? 'columns' : 'rows'}: ${sizeMap[autoTrackMatch[2]]};`;
             continue;
         }
+        // row-span-N → forward via styleCss
+        const rowSpanMatch = rawCls.match(/^row-span-(\d+)$/);
+        if (rowSpanMatch) {
+            styles.styleCss = (styles.styleCss || '') + `grid-row: span ${rowSpanMatch[1]} / span ${rowSpanMatch[1]};`;
+            continue;
+        }
+        // grid-flow-col / grid-flow-row → styleCss
+        const gridFlowMatch = rawCls.match(/^grid-flow-(col|row)(-dense)?$/);
+        if (gridFlowMatch) {
+            const dir = gridFlowMatch[1];
+            const dense = gridFlowMatch[2] ? ' dense' : '';
+            styles.styleCss = (styles.styleCss || '') + `grid-auto-flow: ${dir}${dense};`;
+            continue;
+        }
+        // auto-cols-fr / auto-rows-fr / auto-cols-min / auto-cols-max / auto-cols-auto → styleCss
+        const autoTrackMatch = rawCls.match(/^auto-(cols|rows)-(fr|min|max|auto)$/);
+        if (autoTrackMatch) {
+            const axis = autoTrackMatch[1];
+            const sizeMap: Record<string, string> = { 'fr': 'minmax(0, 1fr)', 'min': 'min-content', 'max': 'max-content', 'auto': 'auto' };
+            styles.styleCss = (styles.styleCss || '') + `grid-auto-${axis === 'cols' ? 'columns' : 'rows'}: ${sizeMap[autoTrackMatch[2]]};`;
+            continue;
+        }
         if (rawCls === 'flex-col' || rawCls === 'flex-column') { styles.flexDirection = 'column'; continue; }
         if (rawCls === 'flex-col-reverse') { styles.flexDirection = 'column-reverse'; continue; }
+        if (rawCls === 'flex-col-reverse') { styles.flexDirection = 'column-reverse'; continue; }
         if (rawCls === 'flex-row') { styles.flexDirection = 'row'; continue; }
+        if (rawCls === 'flex-row-reverse') { styles.flexDirection = 'row-reverse'; continue; }
         if (rawCls === 'flex-row-reverse') { styles.flexDirection = 'row-reverse'; continue; }
         if (rawCls === 'flex-wrap') { styles.flexWrap = 'wrap'; continue; }
         if (rawCls === 'flex-wrap-reverse') { styles.flexWrap = 'wrap-reverse'; continue; }
         if (rawCls === 'flex-nowrap') { styles.flexWrap = 'nowrap'; continue; }
+        if (rawCls === 'flex-wrap-reverse') { styles.flexWrap = 'wrap-reverse'; continue; }
+        if (rawCls === 'flex-nowrap') { styles.flexWrap = 'nowrap'; continue; }
         if (rawCls === 'flex-1') { styles.flexGrow = 1; styles.flexShrink = 1; continue; }
+        if (rawCls === 'flex-auto') { styles.flexGrow = 1; styles.flexShrink = 1; styles.styleCss = (styles.styleCss || '') + 'flex-basis: auto;'; continue; }
+        if (rawCls === 'flex-initial') { styles.flexGrow = 0; styles.flexShrink = 1; continue; }
         if (rawCls === 'flex-auto') { styles.flexGrow = 1; styles.flexShrink = 1; styles.styleCss = (styles.styleCss || '') + 'flex-basis: auto;'; continue; }
         if (rawCls === 'flex-initial') { styles.flexGrow = 0; styles.flexShrink = 1; continue; }
         if (rawCls === 'flex-none') { styles.flexGrow = 0; styles.flexShrink = 0; continue; }
         if (rawCls === 'flex-grow' || rawCls === 'grow') { styles.flexGrow = 1; continue; }
         if (rawCls === 'flex-grow-0' || rawCls === 'grow-0') { styles.flexGrow = 0; continue; }
         if (rawCls === 'flex-shrink' || rawCls === 'shrink') { styles.flexShrink = 1; continue; }
+        if (rawCls === 'flex-grow-0' || rawCls === 'grow-0') { styles.flexGrow = 0; continue; }
+        if (rawCls === 'flex-shrink' || rawCls === 'shrink') { styles.flexShrink = 1; continue; }
         if (rawCls === 'flex-shrink-0' || rawCls === 'shrink-0') { styles.flexShrink = 0; continue; }
+        // basis-N → flex-basis
+        const basisMatch = rawCls.match(/^basis-(.+)$/);
+        if (basisMatch) {
+            const arb = basisMatch[1].match(/^\[(.+?)\]$/);
+            if (arb) { styles.styleCss = (styles.styleCss || '') + `flex-basis: ${arb[1]};`; continue; }
+            const frac = resolveFraction(basisMatch[1]);
+            if (frac) { styles.styleCss = (styles.styleCss || '') + `flex-basis: ${frac};`; continue; }
+            if (basisMatch[1] === 'full') { styles.styleCss = (styles.styleCss || '') + 'flex-basis: 100%;'; continue; }
+            if (basisMatch[1] === 'auto') { styles.styleCss = (styles.styleCss || '') + 'flex-basis: auto;'; continue; }
+            const v = resolveSpacing(basisMatch[1]);
+            if (v !== undefined) { styles.styleCss = (styles.styleCss || '') + `flex-basis: ${v}px;`; continue; }
+            continue;
+        }
         // basis-N → flex-basis
         const basisMatch = rawCls.match(/^basis-(.+)$/);
         if (basisMatch) {
@@ -405,6 +543,7 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
 
         // Visibility / display toggles
         if (rawCls === 'hidden') {
+            // See clearHiddenDisplay: a later `md:flex` (or any display class) undoes this.
             styles.styleCss = (styles.styleCss || '') + 'display: none;';
             continue;
         }
@@ -453,6 +592,19 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         if (rawCls === 'place-items-end') { styles.alignItems = 'flex-end'; styles.justifyContent = 'flex-end'; continue; }
 
         // ─── Gap / Space ────────────────────
+        // gap-x-N / gap-y-N must come BEFORE the bare gap-N matcher so they win.
+        const gapXMatch = rawCls.match(/^gap-x-(.+)$/);
+        if (gapXMatch) {
+            const v = resolveSpacing(gapXMatch[1]);
+            if (v !== undefined) styles.styleCss = (styles.styleCss || '') + `column-gap: ${v}px;`;
+            continue;
+        }
+        const gapYMatch = rawCls.match(/^gap-y-(.+)$/);
+        if (gapYMatch) {
+            const v = resolveSpacing(gapYMatch[1]);
+            if (v !== undefined) styles.styleCss = (styles.styleCss || '') + `row-gap: ${v}px;`;
+            continue;
+        }
         // gap-x-N / gap-y-N must come BEFORE the bare gap-N matcher so they win.
         const gapXMatch = rawCls.match(/^gap-x-(.+)$/);
         if (gapXMatch) {
@@ -559,6 +711,42 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             if (v !== undefined) { styles.marginLeft = v * neg; styles.marginRight = v * neg; }
             continue;
         }
+        // m-N (all 4 sides) and m-auto must be matched BEFORE the per-side handlers
+        // so they don't get partially eaten.
+        const mAllMatch = rawCls.match(/^-?m-(.+)$/);
+        if (mAllMatch && !rawCls.startsWith('mx-') && !rawCls.startsWith('my-') &&
+            !rawCls.startsWith('mt-') && !rawCls.startsWith('mb-') &&
+            !rawCls.startsWith('ml-') && !rawCls.startsWith('mr-') &&
+            !rawCls.startsWith('-mx-') && !rawCls.startsWith('-my-') &&
+            !rawCls.startsWith('-mt-') && !rawCls.startsWith('-mb-') &&
+            !rawCls.startsWith('-ml-') && !rawCls.startsWith('-mr-') &&
+            !rawCls.startsWith('mix-') && !rawCls.startsWith('min-') &&
+            !rawCls.startsWith('max-')) {
+            if (mAllMatch[1] === 'auto') {
+                styles.styleCss = (styles.styleCss || '') + 'margin: auto;';
+                continue;
+            }
+            const neg = rawCls.startsWith('-') ? -1 : 1;
+            const v = resolveSpacing(mAllMatch[1]);
+            if (v !== undefined) {
+                const px = v * neg;
+                styles.marginTop = px; styles.marginBottom = px;
+                styles.marginLeft = px; styles.marginRight = px;
+            }
+            continue;
+        }
+        // mx-N (horizontal) — analogous to my-N
+        const mxMatch = rawCls.match(/^-?mx-(.+)$/);
+        if (mxMatch) {
+            if (mxMatch[1] === 'auto') {
+                styles.styleCss = (styles.styleCss || '') + 'margin-left: auto; margin-right: auto;';
+                continue;
+            }
+            const neg = rawCls.startsWith('-') ? -1 : 1;
+            const v = resolveSpacing(mxMatch[1]);
+            if (v !== undefined) { styles.marginLeft = v * neg; styles.marginRight = v * neg; }
+            continue;
+        }
         const mtMatch = rawCls.match(/^-?mt-(.+)$/);
         if (mtMatch) {
             const neg = rawCls.startsWith('-') ? -1 : 1;
@@ -597,7 +785,7 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
 
         // ─── Width / Height ─────────────────
         if (rawCls === 'w-full') { styles.width = '100%'; continue; }
-        if (rawCls === 'w-screen') { styles.width = '100vw'; continue; }
+        if (rawCls === 'w-screen') { styles.width = '100%'; continue; } // % not vw — see viewportDimToPercent
         if (rawCls === 'w-fit') { styles.width = 'fit-content'; continue; }
         if (rawCls === 'w-min') { styles.width = 'min-content'; continue; }
         if (rawCls === 'w-max') { styles.width = 'max-content'; continue; }
@@ -608,13 +796,17 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         if (rawCls === 'h-min') { styles.height = 'min-content'; continue; }
         if (rawCls === 'h-max') { styles.height = 'max-content'; continue; }
         if (rawCls === 'h-auto') { styles.height = 'auto'; continue; }
+        if (rawCls === 'h-fit') { styles.height = 'fit-content'; continue; }
+        if (rawCls === 'h-min') { styles.height = 'min-content'; continue; }
+        if (rawCls === 'h-max') { styles.height = 'max-content'; continue; }
+        if (rawCls === 'h-auto') { styles.height = 'auto'; continue; }
         if (rawCls === 'min-h-screen') { styles.minHeight = '100%'; continue; }
         if (rawCls === 'min-h-full') { styles.minHeight = '100%'; continue; }
         if (rawCls === 'min-h-0') { styles.minHeight = '0'; continue; }
         if (rawCls === 'min-h-fit') { styles.minHeight = 'fit-content'; continue; }
-        // Arbitrary min-h: min-h-[320px], min-h-[50vh], etc.
+        // Arbitrary min-h: min-h-[320px], min-h-[50vh], etc. (vw/vh → %)
         const minHMatch = rawCls.match(/^min-h-\[(.+?)\]$/);
-        if (minHMatch) { styles.minHeight = minHMatch[1]; continue; }
+        if (minHMatch) { styles.minHeight = viewportDimToPercent(minHMatch[1]); continue; }
         // Spacing-scale min-h: min-h-12 → 48px
         const minHSpacingMatch = rawCls.match(/^min-h-(\d+(?:\.\d+)?)$/);
         if (minHSpacingMatch) {
@@ -623,14 +815,14 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             continue;
         }
         // min-w
-        if (rawCls === 'min-w-screen') { styles.minWidth = '100vw'; continue; }
+        if (rawCls === 'min-w-screen') { styles.minWidth = '100%'; continue; } // % not vw
         if (rawCls === 'min-w-full') { styles.minWidth = '100%'; continue; }
         if (rawCls === 'min-w-0') { styles.minWidth = '0'; continue; }
         if (rawCls === 'min-w-fit') { styles.minWidth = 'fit-content'; continue; }
         if (rawCls === 'min-w-min') { styles.minWidth = 'min-content'; continue; }
         if (rawCls === 'min-w-max') { styles.minWidth = 'max-content'; continue; }
         const minWArbMatch = rawCls.match(/^min-w-\[(.+?)\]$/);
-        if (minWArbMatch) { styles.minWidth = minWArbMatch[1]; continue; }
+        if (minWArbMatch) { styles.minWidth = viewportDimToPercent(minWArbMatch[1]); continue; }
         const minWSpacingMatch = rawCls.match(/^min-w-(\d+(?:\.\d+)?)$/);
         if (minWSpacingMatch) {
             const v = resolveSpacing(minWSpacingMatch[1]);
@@ -638,11 +830,11 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             continue;
         }
         // max-h
-        if (rawCls === 'max-h-screen') { styles.maxHeight = '100vh'; continue; }
+        if (rawCls === 'max-h-screen') { styles.maxHeight = '100%'; continue; } // % not vh
         if (rawCls === 'max-h-full') { styles.maxHeight = '100%'; continue; }
         if (rawCls === 'max-h-fit') { styles.maxHeight = 'fit-content'; continue; }
         const maxHArbMatch = rawCls.match(/^max-h-\[(.+?)\]$/);
-        if (maxHArbMatch) { styles.maxHeight = maxHArbMatch[1]; continue; }
+        if (maxHArbMatch) { styles.maxHeight = viewportDimToPercent(maxHArbMatch[1]); continue; }
         const maxHSpacingMatch = rawCls.match(/^max-h-(\d+(?:\.\d+)?)$/);
         if (maxHSpacingMatch) {
             const v = resolveSpacing(maxHSpacingMatch[1]);
@@ -654,7 +846,7 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             'xs': '320px', 'sm': '384px', 'md': '448px', 'lg': '512px', 'xl': '576px',
             '2xl': '672px', '3xl': '768px', '4xl': '896px', '5xl': '1024px',
             '6xl': '1152px', '7xl': '1280px', 'prose': '65ch', 'none': 'none',
-            'full': '100%', 'screen': '100vw',
+            'full': '100%', 'screen': '100%', // % not vw — viewport units overflow the host
         };
         const maxWNamedMatch = rawCls.match(/^max-w-([\w]+)$/);
         if (maxWNamedMatch && MAX_W_MAP[maxWNamedMatch[1]] !== undefined) {
@@ -670,13 +862,13 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         }
         // max-w-[arbitrary]
         const maxWArbMatch = rawCls.match(/^max-w-\[(.+?)\]$/);
-        if (maxWArbMatch) { styles.maxWidth = maxWArbMatch[1]; continue; }
+        if (maxWArbMatch) { styles.maxWidth = viewportDimToPercent(maxWArbMatch[1]); continue; }
 
         // w-N (spacing scale → px, fractions → %)
         const wMatch = rawCls.match(/^w-(.+)$/);
         if (wMatch) {
             const arbW = wMatch[1].match(/^\[(.+?)\]$/);
-            if (arbW) { styles.width = arbW[1]; continue; }
+            if (arbW) { assignDimension(styles, 'width', 'width', arbW[1]); continue; }
             const frac = resolveFraction(wMatch[1]);
             if (frac) { styles.width = frac; continue; }
             const v = resolveSpacing(wMatch[1]);
@@ -686,7 +878,7 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         const hMatch = rawCls.match(/^h-(.+)$/);
         if (hMatch) {
             const arbH = hMatch[1].match(/^\[(.+?)\]$/);
-            if (arbH) { styles.height = arbH[1]; continue; }
+            if (arbH) { assignDimension(styles, 'height', 'height', arbH[1]); continue; }
             const frac = resolveFraction(hMatch[1]);
             if (frac) { styles.height = frac; continue; }
             const v = resolveSpacing(hMatch[1]);
@@ -698,7 +890,7 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         const sizeMatch = rawCls.match(/^size-(.+)$/);
         if (sizeMatch) {
             const arbSize = sizeMatch[1].match(/^\[(.+?)\]$/);
-            if (arbSize) { styles.width = arbSize[1]; styles.height = arbSize[1]; continue; }
+            if (arbSize) { assignDimension(styles, 'width', 'width', arbSize[1]); assignDimension(styles, 'height', 'height', arbSize[1]); continue; }
             if (sizeMatch[1] === 'full') { styles.width = '100%'; styles.height = '100%'; continue; }
             const frac = resolveFraction(sizeMatch[1]);
             if (frac) { styles.width = frac; styles.height = frac; continue; }
@@ -709,6 +901,19 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
 
         // ─── Font ───────────────────────────
         // text-SIZE (font size)
+        // The document's OWN type scale first — see extractCustomFontSizes for what its
+        // absence cost. The companion values travel with it: a 120px headline set at the
+        // default line-height is a different design from the one that was written.
+        const customSizeMatch = rawCls.match(/^text-([\w-]+)$/);
+        if (customSizeMatch && _customFontSizes[customSizeMatch[1]]) {
+            const cs = _customFontSizes[customSizeMatch[1]];
+            styles.fontSize = cs.px;
+            if (cs.lineHeight) styles.styleCss = (styles.styleCss || '') + `line-height: ${cs.lineHeight};`;
+            if (cs.letterSpacing) styles.styleCss = (styles.styleCss || '') + `letter-spacing: ${cs.letterSpacing};`;
+            if (cs.fontWeight) styles.styleCss = (styles.styleCss || '') + `font-weight: ${cs.fontWeight};`;
+            continue;
+        }
+
         const textSizeMatch = rawCls.match(/^text-(xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl)$/);
         if (textSizeMatch) { styles.fontSize = FONT_SIZE[textSizeMatch[1]]; continue; }
 
@@ -771,11 +976,67 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         if (rawCls === 'font-mono') { styles.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'; continue; }
         if (rawCls === 'font-sans') { styles.fontFamily = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'; continue; }
         if (rawCls === 'font-serif') { styles.fontFamily = 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif'; continue; }
+        if (rawCls === 'normal-case') { styles.textTransform = 'none'; continue; }
+
+        // Font style (italic)
+        if (rawCls === 'italic') { styles.fontStyle = 'italic'; continue; }
+        if (rawCls === 'not-italic') { styles.fontStyle = 'normal'; continue; }
+
+        // Text decoration
+        if (rawCls === 'underline') { styles.styleCss = (styles.styleCss || '') + 'text-decoration: underline;'; continue; }
+        if (rawCls === 'line-through') { styles.styleCss = (styles.styleCss || '') + 'text-decoration: line-through;'; continue; }
+        if (rawCls === 'overline') { styles.styleCss = (styles.styleCss || '') + 'text-decoration: overline;'; continue; }
+        if (rawCls === 'no-underline') { styles.styleCss = (styles.styleCss || '') + 'text-decoration: none;'; continue; }
+        // decoration-{thickness, style, color}
+        const decorThickMatch = rawCls.match(/^decoration-(\d+|auto|from-font)$/);
+        if (decorThickMatch) {
+            const v = decorThickMatch[1];
+            const css = /^\d+$/.test(v) ? `${v}px` : v;
+            styles.styleCss = (styles.styleCss || '') + `text-decoration-thickness: ${css};`;
+            continue;
+        }
+        if (/^decoration-(solid|dashed|dotted|double|wavy)$/.test(rawCls)) {
+            styles.styleCss = (styles.styleCss || '') + `text-decoration-style: ${rawCls.replace('decoration-', '')};`;
+            continue;
+        }
+        const decorColorMatch = rawCls.match(/^decoration-(.+)$/);
+        if (decorColorMatch) {
+            const arb = decorColorMatch[1].match(/^\[(.+?)\]$/);
+            if (arb) {
+                styles.styleCss = (styles.styleCss || '') + `text-decoration-color: ${arb[1]};`;
+                continue;
+            }
+            const c = resolveColor(decorColorMatch[1], customColors);
+            if (c) {
+                styles.styleCss = (styles.styleCss || '') + `text-decoration-color: ${c};`;
+                continue;
+            }
+        }
+
+        // Default font-family stacks (font-mono, font-sans, font-serif)
+        if (rawCls === 'font-mono') { styles.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'; continue; }
+        if (rawCls === 'font-sans') { styles.fontFamily = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'; continue; }
+        if (rawCls === 'font-serif') { styles.fontFamily = 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif'; continue; }
 
         // Text align
         if (rawCls === 'text-center') { styles.textAlign = 'center'; continue; }
         if (rawCls === 'text-left') { styles.textAlign = 'left'; continue; }
         if (rawCls === 'text-right') { styles.textAlign = 'right'; continue; }
+        if (rawCls === 'text-justify') { styles.textAlign = 'justify'; continue; }
+        if (rawCls === 'text-start') { styles.textAlign = 'start'; continue; }
+        if (rawCls === 'text-end') { styles.textAlign = 'end'; continue; }
+        // text-balance / text-pretty / text-wrap / text-ellipsis / text-clip
+        if (rawCls === 'text-balance') { styles.styleCss = (styles.styleCss || '') + 'text-wrap: balance;'; continue; }
+        if (rawCls === 'text-pretty') { styles.styleCss = (styles.styleCss || '') + 'text-wrap: pretty;'; continue; }
+        if (rawCls === 'text-wrap') { styles.styleCss = (styles.styleCss || '') + 'text-wrap: wrap;'; continue; }
+        if (rawCls === 'text-ellipsis') { styles.styleCss = (styles.styleCss || '') + 'text-overflow: ellipsis;'; continue; }
+        if (rawCls === 'text-clip') { styles.styleCss = (styles.styleCss || '') + 'text-overflow: clip;'; continue; }
+        // align-{baseline, top, middle, bottom, ...}
+        const alignVMatch = rawCls.match(/^align-(baseline|top|middle|bottom|text-top|text-bottom|sub|super)$/);
+        if (alignVMatch) {
+            styles.styleCss = (styles.styleCss || '') + `vertical-align: ${alignVMatch[1].replace('text-', 'text-')};`;
+            continue;
+        }
         if (rawCls === 'text-justify') { styles.textAlign = 'justify'; continue; }
         if (rawCls === 'text-start') { styles.textAlign = 'start'; continue; }
         if (rawCls === 'text-end') { styles.textAlign = 'end'; continue; }
@@ -842,6 +1103,7 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         }
 
         // bg-COLOR (and bg-* utilities for size/position/repeat/attachment)
+        // bg-COLOR (and bg-* utilities for size/position/repeat/attachment)
         const bgColorMatch = rawCls.match(/^bg-(.+)$/);
         if (bgColorMatch) {
             const colorStr = bgColorMatch[1];
@@ -899,6 +1161,54 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
                 styles.styleCss = (styles.styleCss || '') + `background-image: ${customBackgroundImages[colorStr]};`;
                 continue;
             }
+            // background-size utilities
+            if (colorStr === 'cover') { styles.styleCss = (styles.styleCss || '') + 'background-size: cover;'; continue; }
+            if (colorStr === 'contain') { styles.styleCss = (styles.styleCss || '') + 'background-size: contain;'; continue; }
+            if (colorStr === 'auto') { styles.styleCss = (styles.styleCss || '') + 'background-size: auto;'; continue; }
+            // background-position utilities
+            const POS_MAP: Record<string, string> = {
+                'center': 'center', 'top': 'top', 'bottom': 'bottom',
+                'left': 'left', 'right': 'right',
+                'left-top': 'left top', 'left-bottom': 'left bottom',
+                'right-top': 'right top', 'right-bottom': 'right bottom',
+            };
+            if (POS_MAP[colorStr] !== undefined) {
+                styles.styleCss = (styles.styleCss || '') + `background-position: ${POS_MAP[colorStr]};`;
+                continue;
+            }
+            // background-repeat utilities
+            if (colorStr === 'no-repeat' || colorStr === 'repeat' ||
+                colorStr === 'repeat-x' || colorStr === 'repeat-y' ||
+                colorStr === 'repeat-round' || colorStr === 'repeat-space') {
+                styles.styleCss = (styles.styleCss || '') + `background-repeat: ${colorStr};`;
+                continue;
+            }
+            // background-attachment utilities
+            if (colorStr === 'fixed' || colorStr === 'local' || colorStr === 'scroll') {
+                styles.styleCss = (styles.styleCss || '') + `background-attachment: ${colorStr};`;
+                continue;
+            }
+            // background-clip / background-origin
+            if (colorStr === 'clip-text') { styles._hasBgClipText = true; continue; }
+            if (colorStr === 'clip-border' || colorStr === 'clip-padding' || colorStr === 'clip-content') {
+                styles.styleCss = (styles.styleCss || '') + `background-clip: ${colorStr.replace('clip-', '')}-box;`;
+                continue;
+            }
+            if (colorStr === 'origin-border' || colorStr === 'origin-padding' || colorStr === 'origin-content') {
+                styles.styleCss = (styles.styleCss || '') + `background-origin: ${colorStr.replace('origin-', '')}-box;`;
+                continue;
+            }
+            // bg-blend-{normal, multiply, screen, overlay, ...}
+            const bgBlendMatch = colorStr.match(/^blend-(.+)$/);
+            if (bgBlendMatch) {
+                styles.styleCss = (styles.styleCss || '') + `background-blend-mode: ${bgBlendMatch[1]};`;
+                continue;
+            }
+            // Custom theme.extend.backgroundImage key (e.g. bg-metallic-rim → conic-gradient(...))
+            if (customBackgroundImages && customBackgroundImages[colorStr]) {
+                styles.styleCss = (styles.styleCss || '') + `background-image: ${customBackgroundImages[colorStr]};`;
+                continue;
+            }
             // Handle arbitrary bracket values: bg-[#hex], bg-[rgb(...)], bg-[gradient-fn(...)]
             const arbBgColor = colorStr.match(/^\[(.+?)\]$/);
             if (arbBgColor) {
@@ -906,6 +1216,10 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
                 // Gradient functions → styleCss (not a flat color)
                 if (arbVal.includes('gradient') || arbVal.includes('conic') || arbVal.includes('radial')) {
                     styles.styleCss = (styles.styleCss || '') + `background: ${arbVal};`;
+                } else if (arbVal.includes('url(')) {
+                    // bg-[url(...)] → a background IMAGE, never the color port
+                    styles.styleCss = (styles.styleCss || '') +
+                        `background-image: ${arbVal}; background-size: cover; background-position: center;`;
                 } else {
                     styles.backgroundColor = arbVal;
                 }
@@ -962,7 +1276,9 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         if (borderWMatch) { styles.borderWidth = parseInt(borderWMatch[1]); continue; }
 
         // Per-side borders: border-t, border-b, border-l, border-r, border-x, border-y (with optional width)
+        // Per-side borders: border-t, border-b, border-l, border-r, border-x, border-y (with optional width)
         // XGENIA doesn't have per-side border width, so emit via styleCss
+        const borderSideMatch = rawCls.match(/^border-([tblrxy])(?:-(\d+))?$/);
         const borderSideMatch = rawCls.match(/^border-([tblrxy])(?:-(\d+))?$/);
         if (borderSideMatch) {
             const width = borderSideMatch[2] ? parseInt(borderSideMatch[2]) : 1;
@@ -978,11 +1294,11 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             }
             continue;
         }
-        // Border style utilities
-        if (rawCls === 'border-solid') { styles.styleCss = (styles.styleCss || '') + 'border-style: solid;'; continue; }
-        if (rawCls === 'border-dashed') { styles.styleCss = (styles.styleCss || '') + 'border-style: dashed;'; continue; }
-        if (rawCls === 'border-dotted') { styles.styleCss = (styles.styleCss || '') + 'border-style: dotted;'; continue; }
-        if (rawCls === 'border-double') { styles.styleCss = (styles.styleCss || '') + 'border-style: double;'; continue; }
+        // Border style utilities → native borderStyle port (emitters default to solid)
+        if (rawCls === 'border-solid') { styles.borderStyle = 'solid'; continue; }
+        if (rawCls === 'border-dashed') { styles.borderStyle = 'dashed'; continue; }
+        if (rawCls === 'border-dotted') { styles.borderStyle = 'dotted'; continue; }
+        if (rawCls === 'border-double') { styles.borderStyle = 'double'; continue; }
         if (rawCls === 'border-none') { styles.borderWidth = 0; continue; }
         if (rawCls === 'border-hidden') { styles.styleCss = (styles.styleCss || '') + 'border-style: hidden;'; continue; }
         // Divide utilities (border between siblings)
@@ -1034,6 +1350,56 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         if (rawCls === 'inset-0') {
             styles.top = '0'; styles.bottom = '0'; styles.left = '0'; styles.right = '0';
             continue;
+        }
+        // General inset-N (all four sides), inset-x-N (left+right), inset-y-N (top+bottom),
+        // and their negative counterparts.
+        const insetAllMatch = rawCls.match(/^-?inset-(.+)$/);
+        if (insetAllMatch && !rawCls.startsWith('inset-x') && !rawCls.startsWith('inset-y') && !rawCls.startsWith('-inset-x') && !rawCls.startsWith('-inset-y')) {
+            const neg = rawCls.startsWith('-') ? '-' : '';
+            const arb = insetAllMatch[1].match(/^\[(.+?)\]$/);
+            if (arb) {
+                const v = `${neg}${arb[1]}`;
+                styles.top = v; styles.bottom = v; styles.left = v; styles.right = v;
+                continue;
+            }
+            const v = resolveSpacing(insetAllMatch[1]);
+            if (v !== undefined) {
+                const px = `${neg}${v}px`;
+                styles.top = px; styles.bottom = px; styles.left = px; styles.right = px;
+                continue;
+            }
+        }
+        const insetXMatch = rawCls.match(/^-?inset-x-(.+)$/);
+        if (insetXMatch) {
+            const neg = rawCls.startsWith('-') ? '-' : '';
+            const arb = insetXMatch[1].match(/^\[(.+?)\]$/);
+            if (arb) {
+                const v = `${neg}${arb[1]}`;
+                styles.left = v; styles.right = v;
+                continue;
+            }
+            const v = resolveSpacing(insetXMatch[1]);
+            if (v !== undefined) {
+                const px = `${neg}${v}px`;
+                styles.left = px; styles.right = px;
+                continue;
+            }
+        }
+        const insetYMatch = rawCls.match(/^-?inset-y-(.+)$/);
+        if (insetYMatch) {
+            const neg = rawCls.startsWith('-') ? '-' : '';
+            const arb = insetYMatch[1].match(/^\[(.+?)\]$/);
+            if (arb) {
+                const v = `${neg}${arb[1]}`;
+                styles.top = v; styles.bottom = v;
+                continue;
+            }
+            const v = resolveSpacing(insetYMatch[1]);
+            if (v !== undefined) {
+                const px = `${neg}${v}px`;
+                styles.top = px; styles.bottom = px;
+                continue;
+            }
         }
         // General inset-N (all four sides), inset-x-N (left+right), inset-y-N (top+bottom),
         // and their negative counterparts.
@@ -1245,8 +1611,13 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
                 const m = deg.match(/^\[(.+)\]$/);
                 deg = m ? m[1] : deg;
             }
+            // The arbitrary value may already carry its own unit (rotate-[-90deg],
+            // rotate-[0.5turn], rotate-[2rad]) — only append 'deg' when the value is a
+            // bare number, else we emit `-90degdeg` which the browser drops entirely
+            // (trace 1784942070260: reel-frame ornaments never rotated).
+            const hasUnit = /[a-z%]$/i.test(deg.trim());
             styles._transforms = (styles._transforms || []);
-            styles._transforms.push(`rotate(${neg}${deg}deg)`);
+            styles._transforms.push(`rotate(${neg}${deg}${hasUnit ? '' : 'deg'})`);
             continue;
         }
         const scaleMatch = rawCls.match(/^scale-(?:([xy])-)?(\d+|\[.+\])$/);
@@ -1359,6 +1730,24 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             if (val) {
                 styles.styleCss = (styles.styleCss || '') + `backdrop-filter: blur(${val});-webkit-backdrop-filter: blur(${val});`;
             }
+            continue;
+        }
+
+        // ─── Filter functions (brightness/contrast/saturate etc.) ──
+        // Previously fell off the end of the loop and vanished. Also needed so
+        // hover:brightness-110 parses into a :hover css-definition rule.
+        const filterFnMatch = rawCls.match(/^(brightness|contrast|saturate)-(\d+)$/);
+        if (filterFnMatch) {
+            styles.styleCss = (styles.styleCss || '') + `filter: ${filterFnMatch[1]}(${parseInt(filterFnMatch[2]) / 100});`;
+            continue;
+        }
+        if (rawCls === 'grayscale') { styles.styleCss = (styles.styleCss || '') + 'filter: grayscale(100%);'; continue; }
+        if (rawCls === 'grayscale-0') { styles.styleCss = (styles.styleCss || '') + 'filter: grayscale(0);'; continue; }
+        if (rawCls === 'invert') { styles.styleCss = (styles.styleCss || '') + 'filter: invert(100%);'; continue; }
+        if (rawCls === 'sepia') { styles.styleCss = (styles.styleCss || '') + 'filter: sepia(100%);'; continue; }
+        const hueRotateMatch = rawCls.match(/^hue-rotate-(\d+)$/);
+        if (hueRotateMatch) {
+            styles.styleCss = (styles.styleCss || '') + `filter: hue-rotate(${hueRotateMatch[1]}deg);`;
             continue;
         }
 
@@ -1527,8 +1916,117 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             continue;
         }
 
+        // accent-COLOR / caret-COLOR
+        const accentMatch = rawCls.match(/^accent-(.+)$/);
+        if (accentMatch) {
+            const arb = accentMatch[1].match(/^\[(.+?)\]$/);
+            const c = arb ? arb[1] : resolveColor(accentMatch[1], customColors);
+            if (c) styles.styleCss = (styles.styleCss || '') + `accent-color: ${c};`;
+            continue;
+        }
+        const caretMatch = rawCls.match(/^caret-(.+)$/);
+        if (caretMatch) {
+            const arb = caretMatch[1].match(/^\[(.+?)\]$/);
+            const c = arb ? arb[1] : resolveColor(caretMatch[1], customColors);
+            if (c) styles.styleCss = (styles.styleCss || '') + `caret-color: ${c};`;
+            continue;
+        }
+        // outline utilities
+        if (rawCls === 'outline-none') { styles.styleCss = (styles.styleCss || '') + 'outline: none;'; continue; }
+        if (rawCls === 'outline') { styles.styleCss = (styles.styleCss || '') + 'outline-style: solid; outline-width: 1px;'; continue; }
+        if (rawCls === 'outline-dashed' || rawCls === 'outline-dotted' || rawCls === 'outline-double') {
+            styles.styleCss = (styles.styleCss || '') + `outline-style: ${rawCls.replace('outline-', '')};`;
+            continue;
+        }
+        const outlineWidthMatch = rawCls.match(/^outline-(\d+)$/);
+        if (outlineWidthMatch) {
+            styles.styleCss = (styles.styleCss || '') + `outline-width: ${outlineWidthMatch[1]}px; outline-style: solid;`;
+            continue;
+        }
+        const outlineOffsetMatch = rawCls.match(/^outline-offset-(\d+)$/);
+        if (outlineOffsetMatch) {
+            styles.styleCss = (styles.styleCss || '') + `outline-offset: ${outlineOffsetMatch[1]}px;`;
+            continue;
+        }
+        const outlineColorMatch = rawCls.match(/^outline-(.+)$/);
+        if (outlineColorMatch) {
+            const arb = outlineColorMatch[1].match(/^\[(.+?)\]$/);
+            const c = arb ? arb[1] : resolveColor(outlineColorMatch[1], customColors);
+            if (c) styles.styleCss = (styles.styleCss || '') + `outline-color: ${c};`;
+            continue;
+        }
+        // user-select / select-*
+        if (/^select-(none|text|all|auto)$/.test(rawCls)) {
+            styles.styleCss = (styles.styleCss || '') + `user-select: ${rawCls.replace('select-', '')};`;
+            continue;
+        }
+        // resize-* (button reset etc)
+        if (/^resize(-(none|y|x|both))?$/.test(rawCls)) {
+            const v = rawCls === 'resize' ? 'both' : rawCls.replace('resize-', '');
+            styles.styleCss = (styles.styleCss || '') + `resize: ${v};`;
+            continue;
+        }
+        if (rawCls === 'appearance-none') { styles.styleCss = (styles.styleCss || '') + 'appearance: none;'; continue; }
+        // cursor-* (not always desired but harmless)
+        const cursorMatch = rawCls.match(/^cursor-(.+)$/);
+        if (cursorMatch && !cursorMatch[1].startsWith('[')) {
+            styles.styleCss = (styles.styleCss || '') + `cursor: ${cursorMatch[1]};`;
+            continue;
+        }
+        // scroll-behavior
+        if (rawCls === 'scroll-smooth') { styles.styleCss = (styles.styleCss || '') + 'scroll-behavior: smooth;'; continue; }
+        if (rawCls === 'scroll-auto') { styles.styleCss = (styles.styleCss || '') + 'scroll-behavior: auto;'; continue; }
+        // will-change
+        const willChangeMatch = rawCls.match(/^will-change-(.+)$/);
+        if (willChangeMatch) {
+            styles.styleCss = (styles.styleCss || '') + `will-change: ${willChangeMatch[1]};`;
+            continue;
+        }
+        // place-content / place-self / content-* (align-content)
+        const placeContentMatch = rawCls.match(/^place-content-(start|end|center|between|around|evenly|baseline|stretch)$/);
+        if (placeContentMatch) {
+            const v = placeContentMatch[1];
+            const cssV = v === 'start' || v === 'end' ? `flex-${v}` : v === 'between' || v === 'around' || v === 'evenly' ? `space-${v}` : v;
+            styles.styleCss = (styles.styleCss || '') + `place-content: ${cssV};`;
+            continue;
+        }
+        const contentAlignMatch = rawCls.match(/^content-(start|end|center|between|around|evenly|baseline|stretch)$/);
+        if (contentAlignMatch) {
+            const v = contentAlignMatch[1];
+            const cssV = v === 'start' || v === 'end' ? `flex-${v}` : v === 'between' || v === 'around' || v === 'evenly' ? `space-${v}` : v;
+            styles.styleCss = (styles.styleCss || '') + `align-content: ${cssV};`;
+            continue;
+        }
+        const placeSelfMatch = rawCls.match(/^place-self-(auto|start|end|center|stretch)$/);
+        if (placeSelfMatch) {
+            const v = placeSelfMatch[1];
+            const cssV = v === 'start' || v === 'end' ? `flex-${v}` : v;
+            styles.styleCss = (styles.styleCss || '') + `place-self: ${cssV};`;
+            continue;
+        }
+        // justify-items / justify-self
+        const justifyItemsMatch = rawCls.match(/^justify-items-(start|end|center|stretch)$/);
+        if (justifyItemsMatch) {
+            styles.styleCss = (styles.styleCss || '') + `justify-items: ${justifyItemsMatch[1]};`;
+            continue;
+        }
+        const justifySelfMatch = rawCls.match(/^justify-self-(auto|start|end|center|stretch)$/);
+        if (justifySelfMatch) {
+            styles.styleCss = (styles.styleCss || '') + `justify-self: ${justifySelfMatch[1]};`;
+            continue;
+        }
+        // order-N / order-first / order-last / order-none
+        const orderMatch = rawCls.match(/^order-(\d+|first|last|none)$/);
+        if (orderMatch) {
+            const ORDER_MAP: Record<string, string> = { 'first': '-9999', 'last': '9999', 'none': '0' };
+            const v = ORDER_MAP[orderMatch[1]] !== undefined ? ORDER_MAP[orderMatch[1]] : orderMatch[1];
+            styles.styleCss = (styles.styleCss || '') + `order: ${v};`;
+            continue;
+        }
+
         // Skip misc utility classes
         if (rawCls === 'truncate' || rawCls === 'break-inside-avoid' ||
+            rawCls === 'no-scrollbar' || rawCls === 'group' || rawCls === 'peer') continue;
             rawCls === 'no-scrollbar' || rawCls === 'group' || rawCls === 'peer') continue;
 
         // font-FAMILY (custom Tailwind theme fonts like font-spooky, font-display)
@@ -1581,15 +2079,116 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
 
 // ─── Inline Style Parser ────────────────────────────────────
 
+/**
+ * Convert CSS VIEWPORT units (vw/vh) to parent-relative percent. XGENIA components
+ * are always mounted INSIDE a container — a root/element sized `100vw`/`100vh` fills
+ * the whole viewport and OVERFLOWS its host (trace 1784062451334: every generated
+ * root got width:100vw/height:100vh, so an inserted "piece" escaped its parent; the
+ * piecewise brief even said "no viewport units"). The engine already maps
+ * h-screen/min-h-screen → 100%; this extends that to inline/arbitrary vw/vh.
+ */
+function viewportDimToPercent(v: string): string {
+    return v.replace(/(\d*\.?\d+)v[wh]\b/gi, '$1%');
+}
+
+/**
+ * Assign a width/height/min/max dimension to its native size attr, OR fall back to
+ * raw styleCss when the value is a CSS FUNCTION the dimension port can't parse
+ * (trace 1784942070260 #1). The dimension ports accept only {value,unit}; a
+ * `clamp(24px,2.6%,50px)` / `min(760px,76%)` / `calc(…)` string parses to NaN and the
+ * element silently collapses to the port's 100% default (or, for min/max, gets a stray
+ * '%' appended → invalid). Route those to styleCss where the browser evaluates them.
+ * Also converts Tailwind arbitrary-value underscores to spaces (#2:
+ * `calc(100%_-_2rem)` → `calc(100% - 2rem)`).
+ * @param styleKey  the ParsedStyles field ('width','height','minWidth',…)
+ * @param cssProp   the CSS property name for the styleCss fallback ('width','min-width',…)
+ */
+function assignDimension(styles: any, styleKey: string, cssProp: string, rawValue: string): void {
+    const v = String(rawValue).trim().replace(/_/g, ' ');
+    if (/\b(clamp|calc|min|max|var)\(/i.test(v)) {
+        styles.styleCss = (styles.styleCss || '') + `${cssProp}: ${v};`;
+    } else {
+        styles[styleKey] = viewportDimToPercent(v);
+    }
+}
+
+/**
+ * DECLARED identity for form controls: id → aria-label → data-node-label /
+ * data-label / data-name → name. The control emitters previously labeled
+ * themselves from CAPTION text (placeholder, selected option), so a brief
+ * asking for @EmailInput yielded @name_example_com and a Role dropdown became
+ * @Admin (trace 1784123058362). Mirrors generateNodeLabel's priority chain —
+ * identity is DECLARED, never derived from content, and caption text stays a
+ * FALLBACK only.
+ */
+function declaredControlLabel(el: HTMLElement): string | null {
+    const raw = el.getAttribute('id') || el.getAttribute('aria-label')
+        || el.getAttribute('data-node-label') || el.getAttribute('data-label')
+        || el.getAttribute('data-name') || el.getAttribute('name');
+    if (!raw || !raw.trim()) return null;
+    return raw.trim().replace(/[-_]+/g, ' ').substring(0, 40);
+}
+
+/**
+ * Convert a CSS length to px. Handles px/rem/em (×16)/pt and bare numbers.
+ * Returns null for %/vw/vh/calc()/auto/keywords — callers must route those
+ * to styleCss instead of truncating them with parseInt ('1.5rem' → 1px bug).
+ */
+function cssLenToPx(value: string): number | null {
+    const m = /^(-?[\d.]+)(px|rem|em|pt)?$/.exec(String(value).trim());
+    if (!m) return null;
+    const num = parseFloat(m[1]);
+    if (isNaN(num)) return null;
+    const unit = m[2];
+    if (unit === 'rem' || unit === 'em') return Math.round(num * 16);
+    if (unit === 'pt') return Math.round(num * (4 / 3));
+    return Math.round(num);
+}
+
+/**
+ * Split a CSS declaration list on the semicolons that actually END a declaration.
+ *
+ * (2026-08-08, found by scripts/emulate-ui-build.mjs) A plain `.split(';')` cuts a data URI
+ * in half — `background-image: url(data:image/svg+xml;base64,PHN2Zy…)` becomes
+ * `background-image: url(data:image/svg+xml` followed by a nonsense fragment, and the
+ * backdrop vanishes with no warning. Specialists inline SVG backdrops as data URIs often
+ * enough for this to be a real loss, and the same cut applies to any `url()` or quoted
+ * value carrying a semicolon (font stacks, content strings, multi-stop gradients).
+ *
+ * Semicolons inside parentheses or quotes belong to the value.
+ */
+function splitCssDeclarations(styleStr: string): string[] {
+    const out: string[] = [];
+    let depth = 0;
+    let quote: string | null = null;
+    let start = 0;
+    for (let i = 0; i < styleStr.length; i++) {
+        const ch = styleStr[i];
+        if (quote) { if (ch === quote && styleStr[i - 1] !== '\\') quote = null; continue; }
+        if (ch === '"' || ch === "'") { quote = ch; continue; }
+        if (ch === '(') { depth++; continue; }
+        if (ch === ')') { if (depth > 0) depth--; continue; }
+        if (ch === ';' && depth === 0) { out.push(styleStr.slice(start, i)); start = i + 1; }
+    }
+    out.push(styleStr.slice(start));
+    return out.filter(d => d.trim());
+}
+
 function parseInlineStyle(styleStr: string): ParsedStyles {
     const styles: ParsedStyles = {};
-    const declarations = styleStr.split(';').filter(d => d.trim());
+    const declarations = splitCssDeclarations(styleStr);
 
     for (const decl of declarations) {
         const [prop, ...valParts] = decl.split(':');
         if (!prop || valParts.length === 0) continue;
         const key = prop.trim().toLowerCase();
         const value = valParts.join(':').trim();
+
+        // var(--…) values reach the runtime with no variable definition to
+        // resolve against — still emitted, but flag it for the caller.
+        if (value.includes('var(--')) {
+            reportDrop(`dropped: '${key}: ${value.slice(0, 50)}' uses var(--…) with no variable definition`);
+        }
 
         switch (key) {
             // ─── Display & Flex ──────────────────
@@ -1606,8 +2205,11 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                 if (repeatMatch) {
                     styles._gridCols = parseInt(repeatMatch[1]);
                 } else {
-                    // Count space-separated column defs
-                    styles._gridCols = value.trim().split(/\s+/).length;
+                    // Count space-separated column defs; keep the raw track list
+                    // so fr ratios (2fr 1fr) can drive the Columns layoutString.
+                    const tracks = value.trim().split(/\s+/);
+                    styles._gridCols = tracks.length;
+                    styles._gridTracks = tracks;
                 }
                 break;
             }
@@ -1642,8 +2244,9 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                 break;
             }
             case 'gap': {
-                const g = parseInt(value);
-                if (!isNaN(g)) styles.gap = g;
+                const g = cssLenToPx(value.split(/\s+/)[0]);
+                if (g !== null) styles.gap = g;
+                else styles.styleCss = (styles.styleCss || '') + `gap: ${value};`;
                 break;
             }
 
@@ -1662,93 +2265,126 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
             }
 
             // ─── Size ────────────────────────────
-            // Keep 'px' suffix — XGENIA interprets bare numbers as %
-            case 'width': styles.width = value.trim(); break;
-            case 'height': styles.height = value.trim(); break;
-            case 'min-width': styles.minWidth = value.trim(); break;
-            case 'min-height': styles.minHeight = value.trim(); break;
-            case 'max-width': styles.maxWidth = value.trim(); break;
-            case 'max-height': styles.maxHeight = value.trim(); break;
+            // Keep 'px' suffix — XGENIA interprets bare numbers as %.
+            // vw/vh → % so a piece doesn't overflow its host container.
+            case 'width': assignDimension(styles, 'width', 'width', value); break;
+            case 'height': assignDimension(styles, 'height', 'height', value); break;
+            case 'min-width': assignDimension(styles, 'minWidth', 'min-width', value); break;
+            case 'min-height': assignDimension(styles, 'minHeight', 'min-height', value); break;
+            case 'max-width': assignDimension(styles, 'maxWidth', 'max-width', value); break;
+            case 'max-height': assignDimension(styles, 'maxHeight', 'max-height', value); break;
 
             // ─── Padding (individual + shorthand) ─
             case 'padding-top': {
-                const pt = parseInt(value);
-                if (!isNaN(pt)) styles.paddingTop = pt;
+                const pt = cssLenToPx(value);
+                if (pt !== null) styles.paddingTop = pt;
+                else styles.styleCss = (styles.styleCss || '') + `padding-top: ${value};`;
                 break;
             }
             case 'padding-bottom': {
-                const pb = parseInt(value);
-                if (!isNaN(pb)) styles.paddingBottom = pb;
+                const pb = cssLenToPx(value);
+                if (pb !== null) styles.paddingBottom = pb;
+                else styles.styleCss = (styles.styleCss || '') + `padding-bottom: ${value};`;
                 break;
             }
             case 'padding-left': {
-                const pl = parseInt(value);
-                if (!isNaN(pl)) styles.paddingLeft = pl;
+                const pl = cssLenToPx(value);
+                if (pl !== null) styles.paddingLeft = pl;
+                else styles.styleCss = (styles.styleCss || '') + `padding-left: ${value};`;
                 break;
             }
             case 'padding-right': {
-                const pr = parseInt(value);
-                if (!isNaN(pr)) styles.paddingRight = pr;
+                const pr = cssLenToPx(value);
+                if (pr !== null) styles.paddingRight = pr;
+                else styles.styleCss = (styles.styleCss || '') + `padding-right: ${value};`;
                 break;
             }
             case 'padding': {
                 // Shorthand: "48px 24px 32px" = top right bottom [left=right]
-                const parts = value.split(/\s+/).map(v => parseInt(v));
-                if (parts.length === 1 && !isNaN(parts[0])) {
-                    styles.paddingTop = styles.paddingBottom = styles.paddingLeft = styles.paddingRight = parts[0];
+                const rawParts = value.split(/\s+/);
+                const parts = rawParts.map(v => cssLenToPx(v));
+                if (parts.some(p => p === null)) {
+                    // %/calc/keyword part → whole shorthand via CSS
+                    styles.styleCss = (styles.styleCss || '') + `padding: ${value};`;
+                } else if (parts.length === 1) {
+                    styles.paddingTop = styles.paddingBottom = styles.paddingLeft = styles.paddingRight = parts[0]!;
                 } else if (parts.length === 2) {
-                    styles.paddingTop = styles.paddingBottom = parts[0];
-                    styles.paddingLeft = styles.paddingRight = parts[1];
+                    styles.paddingTop = styles.paddingBottom = parts[0]!;
+                    styles.paddingLeft = styles.paddingRight = parts[1]!;
                 } else if (parts.length === 3) {
-                    styles.paddingTop = parts[0];
-                    styles.paddingLeft = styles.paddingRight = parts[1];
-                    styles.paddingBottom = parts[2];
+                    styles.paddingTop = parts[0]!;
+                    styles.paddingLeft = styles.paddingRight = parts[1]!;
+                    styles.paddingBottom = parts[2]!;
                 } else if (parts.length >= 4) {
-                    styles.paddingTop = parts[0];
-                    styles.paddingRight = parts[1];
-                    styles.paddingBottom = parts[2];
-                    styles.paddingLeft = parts[3];
+                    styles.paddingTop = parts[0]!;
+                    styles.paddingRight = parts[1]!;
+                    styles.paddingBottom = parts[2]!;
+                    styles.paddingLeft = parts[3]!;
                 }
                 break;
             }
 
             // ─── Margin ──────────────────────────
             case 'margin-top': {
-                const mt = parseInt(value);
-                if (!isNaN(mt)) styles.marginTop = mt;
+                const mt = cssLenToPx(value);
+                if (mt !== null) styles.marginTop = mt;
+                else styles.styleCss = (styles.styleCss || '') + `margin-top: ${value};`;
                 break;
             }
             case 'margin-bottom': {
-                const mb = parseInt(value);
-                if (!isNaN(mb)) styles.marginBottom = mb;
+                const mb = cssLenToPx(value);
+                if (mb !== null) styles.marginBottom = mb;
+                else styles.styleCss = (styles.styleCss || '') + `margin-bottom: ${value};`;
                 break;
             }
             case 'margin-left': {
-                const ml = parseInt(value);
-                if (!isNaN(ml)) styles.marginLeft = ml;
+                const ml = cssLenToPx(value);
+                if (ml !== null) styles.marginLeft = ml;
+                else styles.styleCss = (styles.styleCss || '') + `margin-left: ${value};`;
                 break;
             }
             case 'margin-right': {
-                const mr = parseInt(value);
-                if (!isNaN(mr)) styles.marginRight = mr;
+                const mr = cssLenToPx(value);
+                if (mr !== null) styles.marginRight = mr;
+                else styles.styleCss = (styles.styleCss || '') + `margin-right: ${value};`;
                 break;
             }
             case 'margin': {
-                // For now just skip margin: 0px which is default
+                // Shorthand 1-4 values → per-side margin ports (was a no-op that
+                // silently dropped every inline margin). auto/%/calc parts fall
+                // back to styleCss so `margin: 0 auto` centering still works.
+                const mParts = value.split(/\s+/).map(v => cssLenToPx(v));
+                if (mParts.some(p => p === null)) {
+                    styles.styleCss = (styles.styleCss || '') + `margin: ${value};`;
+                } else if (mParts.length === 1) {
+                    styles.marginTop = styles.marginBottom = styles.marginLeft = styles.marginRight = mParts[0]!;
+                } else if (mParts.length === 2) {
+                    styles.marginTop = styles.marginBottom = mParts[0]!;
+                    styles.marginLeft = styles.marginRight = mParts[1]!;
+                } else if (mParts.length === 3) {
+                    styles.marginTop = mParts[0]!;
+                    styles.marginLeft = styles.marginRight = mParts[1]!;
+                    styles.marginBottom = mParts[2]!;
+                } else if (mParts.length >= 4) {
+                    styles.marginTop = mParts[0]!;
+                    styles.marginRight = mParts[1]!;
+                    styles.marginBottom = mParts[2]!;
+                    styles.marginLeft = mParts[3]!;
+                }
                 break;
             }
-
-            // ─── Dimension Constraints ───────────
-            case 'min-width': styles.minWidth = value; break;
-            case 'max-width': styles.maxWidth = value; break;
-            case 'min-height': styles.minHeight = value; break;
-            case 'max-height': styles.maxHeight = value; break;
 
             // ─── Colors & Backgrounds ────────────
             case 'background-image': {
                 const urlMatch = value.match(/url\(['"]?(.+?)['"]?\)/);
                 if (urlMatch) {
                     styles.backgroundImage = urlMatch[1];
+                } else if (
+                    value.includes('radial-gradient') ||
+                    value.includes('linear-gradient') ||
+                    value.includes('conic-gradient')
+                ) {
+                    // Gradient background-image (e.g. dot grid pattern, conic wheel) → forward as CSS
                 } else if (
                     value.includes('radial-gradient') ||
                     value.includes('linear-gradient') ||
@@ -1770,10 +2406,25 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                     value.includes('radial-gradient') ||
                     value.includes('conic-gradient')
                 ) {
+                if (
+                    value.includes('linear-gradient') ||
+                    value.includes('radial-gradient') ||
+                    value.includes('conic-gradient')
+                ) {
                     styles.styleCss = (styles.styleCss || '') + `background: ${value};`;
                 } else if (value.includes('rgba') || value.includes('rgb')) {
                     // background: rgba(16, 22, 34, 0.4)
                     styles.backgroundColor = value;
+                } else if (value.includes('url(')) {
+                    // Image / multi-token shorthand — keep verbatim in styleCss (can't map to a color port)
+                    styles.styleCss = (styles.styleCss || '') + `background: ${value};`;
+                } else if (value.trim()) {
+                    // Solid color via shorthand: background: #1a1f3a / navy / hsl(...).
+                    // Previously DROPPED (only gradients + rgb/rgba were handled) → the
+                    // node kept its transparent default and the specified color was lost
+                    // (trace 1784051747260: card/page solid backgrounds vanished). Route
+                    // solid shorthand colors to the native backgroundColor port.
+                    styles.backgroundColor = value.trim();
                 }
                 break;
             }
@@ -1815,8 +2466,14 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
 
             // ─── Borders ─────────────────────────
             case 'border-radius': {
+                // %-based radii (border-radius: 50% circles) can't map to the
+                // px radius ports — route the whole declaration to styleCss.
+                if (value.includes('%') || value.includes('calc(')) {
+                    styles.styleCss = (styles.styleCss || '') + `border-radius: ${value};`;
+                    break;
+                }
                 // Parse shorthand: border-radius: TL TR BR BL | TL TR/BL BR | TL/BR TR/BL | ALL
-                const parts = value.split(/\s+/).map(v => parseInt(v)).filter(v => !isNaN(v));
+                const parts = value.split(/\s+/).map(v => cssLenToPx(v)).filter((v): v is number => v !== null);
                 if (parts.length === 1) {
                     styles.borderRadius = parts[0];
                 } else if (parts.length === 2) {
@@ -1841,34 +2498,71 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                 break;
             }
             case 'border-top-left-radius': {
-                const r = parseInt(value);
-                if (!isNaN(r)) styles.borderTopLeftRadius = r;
+                const r = cssLenToPx(value);
+                if (r !== null) styles.borderTopLeftRadius = r;
+                else styles.styleCss = (styles.styleCss || '') + `border-top-left-radius: ${value};`;
                 break;
             }
             case 'border-top-right-radius': {
-                const r = parseInt(value);
-                if (!isNaN(r)) styles.borderTopRightRadius = r;
+                const r = cssLenToPx(value);
+                if (r !== null) styles.borderTopRightRadius = r;
+                else styles.styleCss = (styles.styleCss || '') + `border-top-right-radius: ${value};`;
                 break;
             }
             case 'border-bottom-right-radius': {
-                const r = parseInt(value);
-                if (!isNaN(r)) styles.borderBottomRightRadius = r;
+                const r = cssLenToPx(value);
+                if (r !== null) styles.borderBottomRightRadius = r;
+                else styles.styleCss = (styles.styleCss || '') + `border-bottom-right-radius: ${value};`;
                 break;
             }
             case 'border-bottom-left-radius': {
-                const r = parseInt(value);
-                if (!isNaN(r)) styles.borderBottomLeftRadius = r;
+                const r = cssLenToPx(value);
+                if (r !== null) styles.borderBottomLeftRadius = r;
+                else styles.styleCss = (styles.styleCss || '') + `border-bottom-left-radius: ${value};`;
                 break;
             }
             case 'border-width': {
-                const bw = parseInt(value);
-                if (!isNaN(bw)) styles.borderWidth = bw;
+                const bw = cssLenToPx(value);
+                if (bw !== null) styles.borderWidth = bw;
                 break;
             }
             case 'border-color': styles.borderColor = value; break;
             case 'border-style':
-                // Skip — XGENIA doesn't support border-style
+                // Native borderStyle port supports solid/dashed/dotted — emitters
+                // use styles.borderStyle || 'solid' alongside borderWidth.
+                styles.borderStyle = value.trim();
                 break;
+            case 'border': {
+                // Inline `border: <width> <style> <color>` shorthand. Was a no-op
+                // (grouped with white-space/cursor) → the specified border vanished
+                // and the node kept its engine defaults (trace 1784056805028:
+                // @Export `border:1px solid #fff` came out borderWidth 2 / #000000).
+                // The Group emit auto-adds borderStyle="solid" when borderWidth is
+                // set, so we only need to populate borderWidth + borderColor.
+                const bwM = value.match(/(?:^|\s)(\d+(?:\.\d+)?)px/);
+                const isNone = /\bnone\b|\bhidden\b/.test(value) ||
+                    /(?:^|\s)0(?:px)?(?:\s|$)/.test(value);
+                if (isNone && !bwM) {
+                    styles.borderWidth = 0;
+                } else {
+                    styles.borderWidth = bwM ? parseFloat(bwM[1]) : 1;
+                    // Non-solid styles (dashed/dotted/double) are real border ports
+                    const styleM = value.match(/\b(solid|dashed|dotted|double)\b/);
+                    if (styleM) styles.borderStyle = styleM[1];
+                    const colorM = value.match(/#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\)/);
+                    if (colorM) {
+                        styles.borderColor = colorM[0];
+                    } else {
+                        // named color: strip width + style keywords, take the first leftover token
+                        const named = value
+                            .replace(/(\d+(?:\.\d+)?px)/g, '')
+                            .replace(/\b(solid|dashed|dotted|double|groove|ridge|inset|outset|none|hidden)\b/g, '')
+                            .trim();
+                        if (named) styles.borderColor = named.split(/\s+/)[0];
+                    }
+                }
+                break;
+            }
 
             // ─── Visual ──────────────────────────
             case 'opacity': {
@@ -1906,7 +2600,6 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
             // ─── Skip known no-ops ───────────────
             case 'white-space':
             case 'overflow-wrap':
-            case 'border':
             case 'cursor':
                 break;
             case 'font-family':
@@ -1916,7 +2609,26 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                 styles.styleCss = (styles.styleCss || '') + `z-index: ${value};`;
                 break;
             case 'transform': {
-                // Extract translateX/translateY as native transformOriginX/Y
+                // (trace 1784656944021 — the flattened roulette wheel) The old code
+                // ALWAYS extracted translateX/translateY into native
+                // transformOriginX/Y (an ORIGIN offset — not a translation!) and
+                // kept only the remainder in CSS. That silently destroys any
+                // compound transform, and compound transforms are exactly how
+                // circular layouts work: `translate(-50%,-50%) rotate(Ndeg)
+                // translateY(-Rpx)` had its radial push ripped out and misapplied
+                // as an origin shift — all 25 wheel pockets collapsed out of orbit
+                // into a flat row. Rules now:
+                //   • transform contains ONLY translateX/translateY → keep the
+                //     legacy native-offset mapping (simple nudges, widely used).
+                //   • anything compound (rotate/scale/skew/shorthand translate
+                //     present) → pass the WHOLE transform through to styleCss
+                //     verbatim; CSS order is semantics, never split it.
+                const fnNames = Array.from(value.matchAll(/([a-zA-Z0-9]+)\s*\(/g)).map((m) => m[1].toLowerCase());
+                const onlySimpleTranslate = fnNames.length > 0 && fnNames.every((f) => f === 'translatex' || f === 'translatey');
+                if (!onlySimpleTranslate) {
+                    styles.styleCss = (styles.styleCss || '') + `transform: ${value};`;
+                    break;
+                }
                 const txMatch = value.match(/translateX\(([^)]+)\)/);
                 const tyMatch = value.match(/translateY\(([^)]+)\)/);
                 if (txMatch) {
@@ -1932,14 +2644,6 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                         styles.transformOriginY = parsed;
                         styles._transformOriginYUnit = tyMatch[1].includes('%') ? '%' : 'px';
                     }
-                }
-                // Keep non-translate transforms in CSS
-                const remaining = value
-                    .replace(/translateX\([^)]+\)/g, '')
-                    .replace(/translateY\([^)]+\)/g, '')
-                    .trim();
-                if (remaining) {
-                    styles.styleCss = (styles.styleCss || '') + `transform: ${remaining};`;
                 }
                 break;
             }
@@ -1958,8 +2662,6 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
             case 'background-clip':
             case '-webkit-background-clip':
             case '-webkit-text-fill-color':
-            case 'letter-spacing':
-            case 'line-height':
             // Typography decoration / style
             case 'text-decoration':
             case 'text-decoration-color':
@@ -1976,9 +2678,6 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
             case 'hyphens':
             case 'text-justify':
             // Borders (per-side / individual props)
-            case 'border-color':
-            case 'border-width':
-            case 'border-style':
             case 'border-top':
             case 'border-right':
             case 'border-bottom':
@@ -2003,7 +2702,6 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
             case 'outline-offset':
             // Visibility / display extras (display itself is consumed above)
             case 'visibility':
-            case 'isolation':
             // Grid layout (placement + tracks)
             case 'grid-template-rows':
             case 'grid-template-areas':
@@ -2034,7 +2732,6 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
             case 'background-origin':
             case 'background-blend-mode':
             // Interaction
-            case 'cursor':
             case 'user-select':
             case '-webkit-user-select':
             case 'pointer-events':
@@ -2088,13 +2785,39 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                 styles.fontStyle = value.trim();
                 break;
 
-            // Default: unknown properties go to styleCss if they seem important
-            default:
-                // Skip common layout no-ops
+            // Default: FORWARD unknown properties to styleCss — never vanish.
+            // Only a small explicit list of visual no-ops is skipped.
+            default: {
+                const NOOP_PROPS = new Set([
+                    'cursor', 'user-select', 'pointer-events', 'white-space',
+                    '-webkit-font-smoothing', '-moz-osx-font-smoothing', 'text-rendering',
+                ]);
+                if (!NOOP_PROPS.has(key)) {
+                    styles.styleCss = (styles.styleCss || '') + `${key}: ${value};`;
+                }
                 break;
+            }
         }
     }
     return styles;
+}
+
+/**
+ * `hidden md:flex` must not vanish.
+ *
+ * (2026-08-11) Two real imported pages lost whole regions this way. A nav declared
+ * `class="hidden md:flex gap-6"`; `hidden` appended `display: none` to styleCss, the later
+ * `flex` set `_hasFlex` and never took it back, and the links rendered as 0x0 boxes inside a
+ * 0x0 parent — five nav items simply absent from the screen.
+ *
+ * The surrounding loop already strips responsive prefixes and relies on "later class wins",
+ * which is right: XGENIA renders at a measured DESKTOP surface, so the `md:`+ variant is the
+ * one that describes the target. `display` was the one property where the earlier class won
+ * anyway, because it was written into a string instead of a field.
+ */
+function clearHiddenDisplay(styles: ParsedStyles): void {
+    if (!styles.styleCss) return;
+    styles.styleCss = styles.styleCss.replace(/display:\s*none;?/g, '');
 }
 
 // ─── Custom Colors Extractor ────────────────────────────────
@@ -2104,7 +2827,16 @@ function extractCustomColors(html: string): Record<string, string> {
     // Look for tailwind.config with custom colors
     const configMatch = html.match(/tailwind\.config\s*=\s*\{[\s\S]*?\}\s*;?\s*<\/script>/);
     if (configMatch) {
-        const colorBlock = configMatch[0].match(/colors\s*:\s*\{([\s\S]*?)\}/);
+        // QUOTED KEYS. (2026-08-11) A real imported page — a Tailwind landing page with a
+        // full Material-style token set — declared `"colors": { … }`. `colors\s*:` requires
+        // `colors` to be followed by whitespace or a colon, and a quoted key puts a `"` there,
+        // so NOTHING was extracted: every `text-on-surface` / `bg-surface` class went unresolved
+        // and the Text default (white) applied. The page rendered white-on-white — 8 headings
+        // present in the DOM, laid out correctly, and completely invisible.
+        //
+        // `spacing` already allowed the quotes and `fontSize` uses a balanced scan; these two
+        // were simply never updated. Any generator that emits JSON-style config hits this.
+        const colorBlock = configMatch[0].match(/["']?colors["']?\s*:\s*\{([\s\S]*?)\}/);
         if (colorBlock) {
             // Match both quoted keys ("primary": "#hex") and unquoted keys (primary: "#hex")
             const pairs = colorBlock[1].matchAll(/["']?([\w-]+)["']?\s*:\s*["'](#[0-9a-fA-F]+)["']/g);
@@ -2143,7 +2875,7 @@ function extractCustomFonts(html: string): Record<string, string> {
     const fonts: Record<string, string> = {};
     const configMatch = html.match(/tailwind\.config\s*=\s*\{[\s\S]*?\}\s*;?\s*<\/script>/);
     if (configMatch) {
-        const fontBlock = configMatch[0].match(/fontFamily\s*:\s*\{([\s\S]*?)\}/);
+        const fontBlock = configMatch[0].match(/["']?fontFamily["']?\s*:\s*\{([\s\S]*?)\}/);
         if (fontBlock) {
             // Match entries like: "display": ["Be Vietnam Pro", "sans-serif"],
             // or "spooky": ["Creepster", "cursive"],
@@ -2167,6 +2899,103 @@ function extractCustomFonts(html: string): Record<string, string> {
 }
 
 /**
+ * Extract the custom TYPE SCALE from Tailwind config's theme.extend.fontSize.
+ *
+ * (2026-08-08) Its absence was the single biggest fidelity loss in the translator. The stock
+ * FONT_SIZE table above covers Tailwind's built-in xs…9xl and nothing else, so a document
+ * that defines its own scale — which every serious design system does — had every size class
+ * resolve to `undefined` and get swallowed by the `continue` that follows it.
+ *
+ * Measured on a real pasted document (a Tailwind bonus-round screen), source render vs
+ * translated render:
+ *
+ *     Bonus Round       120px  ->  32px
+ *     Pick Your Prize    24px  ->  16px
+ *     Picks Left         12px  ->  16px
+ *     3                  20px  ->  28px
+ *
+ * Eight of eight text elements differed, and the translator reported no warning at all. That
+ * is also where the recurring `hero-below-display-scale` and `flat-type-hierarchy` findings
+ * on real screens come from: the type scale the designer wrote never arrived.
+ *
+ * Tailwind allows two shapes, and both appear in the wild:
+ *     "label-caps": "12px"
+ *     "win-display-xl": ["120px", { "lineHeight": "110px", "letterSpacing": "0.02em", "fontWeight": "400" }]
+ * The companion values matter as much as the size — a 120px headline set at its default
+ * line-height is a different design.
+ */
+export interface CustomFontSize { px: number; lineHeight?: string; letterSpacing?: string; fontWeight?: string }
+
+function toPx(v: string): number | undefined {
+    const m = String(v).trim().match(/^(-?[\d.]+)(px|rem|em)?$/);
+    if (!m) return undefined;
+    const n = parseFloat(m[1]);
+    if (isNaN(n)) return undefined;
+    return m[2] === 'rem' || m[2] === 'em' ? Math.round(n * 16) : Math.round(n);
+}
+
+function extractCustomFontSizes(html: string): Record<string, CustomFontSize> {
+    const out: Record<string, CustomFontSize> = {};
+    const configMatch = html.match(/tailwind\.config\s*=\s*\{[\s\S]*?\}\s*;?\s*<\/script>/);
+    if (!configMatch) return out;
+    // Balanced scan from `fontSize:` — a regex to the first `}` stops inside the first
+    // entry's own options object, which is exactly the shape this has to read.
+    const at = configMatch[0].search(/["']?fontSize["']?\s*:\s*\{/);
+    if (at < 0) return out;
+    const src = configMatch[0];
+    let i = src.indexOf('{', at), depth = 0, end = i;
+    for (; i < src.length; i++) {
+        if (src[i] === '{') depth++;
+        else if (src[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
+    }
+    const block = src.slice(src.indexOf('{', at) + 1, end);
+
+    // Each entry: "name": "20px"  |  "name": ["120px", { ... }]
+    const entryRe = /["']?([\w-]+)["']?\s*:\s*(\[[^\]]*\]|["'][^"']*["'])/g;
+    let m: RegExpExecArray | null;
+    while ((m = entryRe.exec(block)) !== null) {
+        const name = m[1];
+        const raw = m[2];
+        if (raw.startsWith('[')) {
+            const size = raw.match(/["']([^"']+)["']/);
+            const px = size ? toPx(size[1]) : undefined;
+            if (px === undefined) continue;
+            const lh = raw.match(/lineHeight["']?\s*:\s*["']([^"']+)["']/);
+            const ls = raw.match(/letterSpacing["']?\s*:\s*["']([^"']+)["']/);
+            const fw = raw.match(/fontWeight["']?\s*:\s*["']?([\w]+)["']?/);
+            out[name] = { px, lineHeight: lh?.[1], letterSpacing: ls?.[1], fontWeight: fw?.[1] };
+        } else {
+            const px = toPx(raw.replace(/["']/g, ''));
+            if (px !== undefined) out[name] = { px };
+        }
+    }
+    return out;
+}
+
+/**
+ * Extract the custom SPACING scale from theme.extend.spacing.
+ *
+ * Same failure as the type scale and the same cause: `p-container-padding`, `gap-gutter` and
+ * `px-gutter` are not in the stock SPACING table, so they resolved to undefined and the
+ * document's rhythm was replaced by whatever the defaults happened to be. This is also one
+ * source of the `spacing-off-grid` finding — a screen authored on a clean 8px system arrives
+ * with none of it.
+ */
+function extractCustomSpacing(html: string): Record<string, number> {
+    const out: Record<string, number> = {};
+    const configMatch = html.match(/tailwind\.config\s*=\s*\{[\s\S]*?\}\s*;?\s*<\/script>/);
+    if (!configMatch) return out;
+    const block = configMatch[0].match(/["']?spacing["']?\s*:\s*\{([\s\S]*?)\}/);
+    if (!block) return out;
+    const entries = block[1].matchAll(/["']?([\w-]+)["']?\s*:\s*["']([^"']+)["']/g);
+    for (const e of entries) {
+        const px = toPx(e[2]);
+        if (px !== undefined) out[e[1]] = px;
+    }
+    return out;
+}
+
+/**
  * Extract custom box-shadow definitions from Tailwind config's theme.extend.boxShadow.
  * Maps shadow key names (e.g. "glow", "glow-strong") to their CSS box-shadow value.
  */
@@ -2174,7 +3003,7 @@ function extractCustomShadows(html: string): Record<string, string> {
     const shadows: Record<string, string> = {};
     const configMatch = html.match(/tailwind\.config\s*=\s*\{[\s\S]*?\}\s*;?\s*<\/script>/);
     if (configMatch) {
-        const shadowBlock = configMatch[0].match(/boxShadow\s*:\s*\{([\s\S]*?)\}/);
+        const shadowBlock = configMatch[0].match(/["']?boxShadow["']?\s*:\s*\{([\s\S]*?)\}/);
         if (shadowBlock) {
             // Match entries like: 'glow': '0 0 20px 5px rgba(127, 19, 236, 0.5)',
             const entries = shadowBlock[1].matchAll(/["']?([\w-]+)["']?\s*:\s*["']([^"']+)["']/g);
@@ -2196,7 +3025,7 @@ function extractCustomBackgroundImages(html: string): Record<string, string> {
     const configMatch = html.match(/tailwind\.config\s*=\s*\{[\s\S]*?\}\s*;?\s*<\/script>/);
     if (!configMatch) return result;
     const config = configMatch[0];
-    const sectionRegex = /backgroundImage\s*:\s*\{/g;
+    const sectionRegex = /["']?backgroundImage["']?\s*:\s*\{/g;
     const sec = sectionRegex.exec(config);
     if (!sec) return result;
     // Brace-aware scan to find the matching `}` of the section, since values
@@ -2254,7 +3083,9 @@ function extractCssClassStyles(html: string): Record<string, Record<string, stri
             const className = match[1];
             const declarations = match[2];
             const props: Record<string, string> = {};
-            for (const decl of declarations.split(';')) {
+            // Same reason as parseInlineStyle: a class rule can hold a data URI or a
+            // gradient whose value contains its own semicolons.
+            for (const decl of splitCssDeclarations(declarations)) {
                 const [p, ...vParts] = decl.split(':');
                 if (p && vParts.length > 0) {
                     props[p.trim()] = vParts.join(':').trim();
@@ -2310,6 +3141,53 @@ function extractKeyframesRules(html: string): Map<string, string> {
 // <hr> handler in translateNode so AI-generated UIs get visible separators between sections.
 // <source> and <track> are skipped because they're metadata children of <picture>/<video>
 // — the actual renderable content is the <img> fallback inside <picture>.
+/**
+ * Properties a <style> class rule carries that DO reach the graph.
+ *
+ * (2026-08-09) Before this, a class rule contributed only `border`, `background-color` and
+ * `box-shadow`; everything else was reported as dropped and lost. Writing a stylesheet is a
+ * completely ordinary thing for the specialist to do — on one generated slot screen it cost
+ * 25 dropped properties, including the `background-image` on every reel symbol, and the
+ * fifteen cells rendered as empty boxes.
+ *
+ * Each entry maps the CSS property to the XGENIA port that already exists for it, or keeps it
+ * as CSS where no single port can hold it. Anything not listed is still REPORTED, never
+ * silently discarded.
+ */
+const STYLE_RULE_NATIVE: Array<[string, (out: any, v: string) => void]> = [
+    ['border-radius', (o, v) => { const n = parseFloat(v); if (!isNaN(n)) o.borderRadius = n; }],
+    ['color', (o, v) => { o.color = v; }],
+    ['font-size', (o, v) => { const n = parseFloat(v); if (!isNaN(n)) o.fontSize = /rem|em/.test(v) ? Math.round(n * 16) : n; }],
+    ['font-family', (o, v) => { o.fontFamily = v; }],
+    ['font-weight', (o, v) => { o.fontWeight = v; }],
+    ['line-height', (o, v) => { o.lineHeight = v; }],
+    ['letter-spacing', (o, v) => { o.letterSpacing = v; }],
+    ['text-align', (o, v) => { o.textAlign = v; }],
+    ['text-transform', (o, v) => { o.textTransform = v; }],
+    ['opacity', (o, v) => { const n = parseFloat(v); if (!isNaN(n)) o.opacity = n; }],
+    // Kept as CSS: no single port, and the shorthand may carry one to four values.
+    ['padding', (o, v) => { o.styleCss = (o.styleCss || '') + `padding: ${v};`; }],
+    ['margin', (o, v) => { o.styleCss = (o.styleCss || '') + `margin: ${v};`; }],
+    ['text-shadow', (o, v) => { o.styleCss = (o.styleCss || '') + `text-shadow: ${v};`; }],
+    ['transition', (o, v) => { o.styleCss = (o.styleCss || '') + `transition: ${v};`; }],
+    ['overflow', (o, v) => { o.styleCss = (o.styleCss || '') + `overflow: ${v};`; }],
+    ['cursor', (o, v) => { o.styleCss = (o.styleCss || '') + `cursor: ${v};`; }],
+    // (2026-08-10) Material Symbols carry their weight, fill, grade and optical size on this
+    // one property. A Stitch-style import declares `.material-symbols-outlined
+    // { font-variation-settings: 'FILL' 0, 'wght' 400, … }` in a <style> block, and dropping
+    // it renders every icon at the font's default axes — so a filled "home" tab icon comes
+    // through unfilled and the icon set looks subtly wrong everywhere.
+    ['font-variation-settings', (o, v) => { o.styleCss = (o.styleCss || '') + `font-variation-settings: ${v};`; }],
+    ['font-feature-settings', (o, v) => { o.styleCss = (o.styleCss || '') + `font-feature-settings: ${v};`; }],
+    ['-webkit-font-smoothing', (o, v) => { o.styleCss = (o.styleCss || '') + `-webkit-font-smoothing: ${v};`; }],
+];
+
+/** Everything handled above, plus the three that already were. */
+const STYLE_RULE_EXTRACTED = new Set<string>([
+    'border', 'background-color', 'box-shadow',
+    ...STYLE_RULE_NATIVE.map(([p]) => p),
+]);
+
 const SKIP_TAGS = new Set([
     'head', 'script', 'style', 'meta', 'link', 'title', 'noscript', 'br',
     'source', 'track', 'col', 'colgroup', 'option', 'param', 'wbr',
@@ -2322,12 +3200,17 @@ const CONTAINER_TAGS = new Set([
     'figure', 'figcaption', 'details', 'summary', 'dialog', 'a', 'label',
     'menu', 'menuitem', 'pre', 'blockquote', 'address',
     'picture', // <picture> — falls through to first <img> fallback child
+    'form', 'fieldset', 'legend', 'ul', 'ol', 'li', 'dl', 'dt', 'dd',
+    'figure', 'figcaption', 'details', 'summary', 'dialog', 'a', 'label',
+    'menu', 'menuitem', 'pre', 'blockquote', 'address',
+    'picture', // <picture> — falls through to first <img> fallback child
 ]);
 
 // Tags that map to native XGENIA <button> node
 const BUTTON_TAGS = new Set(['button']);
 
 // Tags that represent text → <text>
+const TEXT_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'b', 'strong', 'em', 'i', 'kbd', 'code', 'mark', 'small', 'sub', 'sup', 'time', 'abbr', 'cite', 'q', 'samp', 'var']);
 const TEXT_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'b', 'strong', 'em', 'i', 'kbd', 'code', 'mark', 'small', 'sub', 'sup', 'time', 'abbr', 'cite', 'q', 'samp', 'var']);
 
 // Tags that imply bold text
@@ -2379,6 +3262,27 @@ export function detectExternalDependencies(html: string): DetectedDependency[] {
             continue;
         }
 
+        // Material Icons / Material Symbols FIRST: these are served from
+        // fonts.googleapis.com too, so the general Google-Fonts branch below used to
+        // claim them and report an icon dependency as "Google Fonts: Material Icons"
+        // with category 'font'. The tag was still injected, so nothing broke — but the
+        // dependency report named the wrong kind of thing, and category is what a
+        // consumer branches on. (2026-08-08, found by scripts/emulate-ui-build.mjs.)
+        // Case-insensitive: the canonical URL is
+        // https://fonts.googleapis.com/icon?family=Material+Icons — capital M, capital I.
+        // A case-sensitive includes('material') never matched it, so this branch was dead
+        // for the exact URL everyone writes.
+        const hrefLower = href.toLowerCase();
+        if (hrefLower.includes('material') && (hrefLower.includes('icon') || hrefLower.includes('symbol'))) {
+            const isSymbols = hrefLower.includes('symbol');
+            addDep({
+                name: isSymbols ? 'Material Symbols' : 'Material Icons',
+                category: 'icon',
+                tag: fullTag,
+                detectPattern: isSymbols ? 'Material+Symbols' : 'Material+Icons'
+            });
+            continue;
+        }
         // Google Fonts
         if (href.includes('fonts.googleapis.com')) {
             // Fix malformed google font URLs that have spaces like "wght@400; 700" or %20
@@ -2403,17 +3307,6 @@ export function detectExternalDependencies(html: string): DetectedDependency[] {
             continue;
         }
 
-        // Material Icons / Material Symbols
-        if (href.includes('material') && (href.includes('icons') || href.includes('symbols'))) {
-            const isSymbols = href.includes('symbols');
-            addDep({
-                name: isSymbols ? 'Material Symbols' : 'Material Icons',
-                category: 'icon',
-                tag: fullTag,
-                detectPattern: isSymbols ? 'Material+Symbols' : 'Material+Icons'
-            });
-            continue;
-        }
 
         // Font Awesome
         if (href.includes('font-awesome') || href.includes('fontawesome')) {
@@ -2554,10 +3447,173 @@ export function detectExternalDependencies(html: string): DetectedDependency[] {
     return deps;
 }
 
+// ─── Interaction states (hover/focus/active) ────────────────
+// Generated pseudo-class rules are content-addressed: the class name is a
+// stable hash of pseudo+rule-body. The rules persist into project-GLOBAL
+// headCode, so a per-run counter would mint the same `.xg-hov-1` name with
+// DIFFERENT bodies across builds (later build restyles earlier components).
+// Hashing makes identical rules dedupe naturally across builds and makes it
+// impossible for different rules to share a name.
+const _stateRuleCache = new Map<string, string>();
+
+/** djb2-xor hash → stable 8-char lowercase hex. Deterministic across runs/builds. */
+function hashStateRule(s: string): string {
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) {
+        h = ((h << 5) + h) ^ s.charCodeAt(i);
+    }
+    return (h >>> 0).toString(16).padStart(8, '0');
+}
+// Classes that have a `.cls:hover|:focus|:active` rule in a <style> block —
+// elements carrying them must keep the class in cssClassName so the rule hits.
+let _stateRuleClasses = new Set<string>();
+
 /**
- * Translate raw HTML to XGENIA XML.
+ * Extract `.cls:hover { … }` (and :focus/:active) rules from <style> blocks.
+ * These are already valid CSS — they flow into css-definition nodes verbatim.
+ */
+function extractStateRules(html: string): Array<{ cls: string; pseudo: string; rule: string }> {
+    const out: Array<{ cls: string; pseudo: string; rule: string }> = [];
+    const styleBlocks = html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi);
+    if (!styleBlocks) return out;
+    for (const block of styleBlocks) {
+        const content = block.replace(/<\/?style[^>]*>/gi, '');
+        // Selector-level parse: grouped selectors ('.a:hover, .b:hover') are
+        // split on commas so each simple '.class:pseudo' part translates;
+        // anything else carrying a state pseudo (descendant '.card:hover .title',
+        // compound, ::before, …) is REPORTED instead of vanishing silently.
+        const ruleRegex = /([^{}]+)\{([^}]*)\}/g;
+        let m;
+        while ((m = ruleRegex.exec(content)) !== null) {
+            const selectorList = m[1].trim();
+            const body = m[2].trim().replace(/\s+/g, ' ');
+            if (!/:(hover|focus|active)\b/.test(selectorList) || !body) continue;
+            for (const rawSel of selectorList.split(',')) {
+                const sel = rawSel.trim();
+                const simple = sel.match(/^\.([\w-]+):(hover|focus|active)$/);
+                if (simple) {
+                    out.push({
+                        cls: simple[1],
+                        pseudo: simple[2],
+                        rule: `.${simple[1]}:${simple[2]} { ${body} }`,
+                    });
+                } else if (/:(hover|focus|active)\b/.test(sel)) {
+                    reportDrop(`dropped: state rule '${sel}' (only simple '.class:hover|:focus|:active' selectors translate)`);
+                }
+            }
+        }
+    }
+    return out;
+}
+
+/**
+ * Normalize fr-track ratios to integers — the runtime Columns.tsx parses
+ * layoutString with parseInt, so a verbatim '0.5 1' collapses the 0.5fr
+ * column to width 0. Multiply by increasing factors until every value is
+ * integral (within epsilon); fall back to scale-100 rounding + gcd-reduce.
+ * '0.5fr 1fr' → [1, 2]; '1.5fr 1fr' → [3, 2].
+ */
+function normalizeFrRatios(vals: number[]): number[] {
+    const eps = 1e-6;
+    for (let f = 1; f <= 10; f++) {
+        const scaled = vals.map(v => v * f);
+        if (scaled.every(v => Math.abs(v - Math.round(v)) < eps)) {
+            return scaled.map(v => Math.max(1, Math.round(v)));
+        }
+    }
+    const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+    const rounded = vals.map(v => Math.max(1, Math.round(v * 100)));
+    const g = rounded.reduce((a, b) => gcd(a, b));
+    return rounded.map(v => v / g);
+}
+
+/**
+ * Serialize the visual subset of ParsedStyles back to CSS declarations —
+ * used to turn hover:/focus:/active: Tailwind variants into pseudo-class rules.
+ */
+function parsedStylesToCssDeclarations(ps: ParsedStyles): string {
+    const out: string[] = [];
+    if (ps.backgroundColor) out.push(`background-color: ${ps.backgroundColor}`);
+    if (ps.color) out.push(`color: ${ps.color}`);
+    if (ps.borderColor) out.push(`border-color: ${ps.borderColor}`);
+    if (ps.borderWidth !== undefined) out.push(`border-width: ${ps.borderWidth}px`);
+    if (ps.borderStyle) out.push(`border-style: ${ps.borderStyle}`);
+    if (ps.borderRadius !== undefined) out.push(`border-radius: ${ps.borderRadius}px`);
+    if (ps.opacity !== undefined) out.push(`opacity: ${ps.opacity}`);
+    if (ps.fontWeight) out.push(`font-weight: ${ps.fontWeight}`);
+    if (ps.fontSize) out.push(`font-size: ${ps.fontSize}px`);
+    // letter-spacing needs a unit — a non-zero unitless value is invalid CSS and the
+    // browser drops it (trace 1784942070260 #3: hover:tracking-wide stored '0.5' →
+    // "letter-spacing: 0.5" did nothing). Append px when the value is a bare number.
+    if (ps.letterSpacing) out.push(`letter-spacing: ${/[a-z%]$/i.test(String(ps.letterSpacing)) ? ps.letterSpacing : ps.letterSpacing + 'px'}`);
+    if (ps._transforms && ps._transforms.length > 0) out.push(`transform: ${ps._transforms.join(' ')}`);
+    let body = out.map(d => `${d};`).join(' ');
+    if (ps.styleCss) body = `${body}${body ? ' ' : ''}${ps.styleCss}`;
+    return body.trim();
+}
+
+/**
+ * Turn collected hover:/focus:/active: variant classes into css-definition
+ * pseudo-class rules and attach the generated class to the element.
+ */
+function applyInteractionStates(
+    styles: ParsedStyles,
+    cssDefinitions: Map<string, string> | undefined,
+    customColors?: Record<string, string>,
+    customFonts?: Record<string, string>,
+    customShadows?: Record<string, string>,
+    customBackgroundImages?: Record<string, string>
+): void {
+    const states: Array<[string[] | undefined, string]> = [
+        [styles._hoverClasses, 'hover'],
+        [styles._focusClasses, 'focus'],
+        [styles._activeClasses, 'active'],
+    ];
+    for (const [classes, pseudo] of states) {
+        if (!classes || classes.length === 0) continue;
+        if (!cssDefinitions) {
+            classes.forEach(c => reportDrop(`dropped: class '${pseudo}:${c}' (no css-definition channel in this context)`));
+            continue;
+        }
+        const ps = parseTailwindClasses(classes.join(' '), customColors, customFonts, customShadows, customBackgroundImages);
+        const body = parsedStylesToCssDeclarations(ps);
+        if (!body) {
+            classes.forEach(c => reportDrop(`dropped: class '${pseudo}:${c}' (unsupported ${pseudo} style)`));
+            continue;
+        }
+        const ruleKey = `${pseudo}|${body}`;
+        let clsName = _stateRuleCache.get(ruleKey);
+        if (!clsName) {
+            clsName = `xg-${pseudo === 'hover' ? 'hov' : pseudo}-${hashStateRule(ruleKey)}`;
+            _stateRuleCache.set(ruleKey, clsName);
+            cssDefinitions.set(`__state_${clsName}__`, `.${clsName}:${pseudo} { ${body} transition: all 120ms ease; }`);
+        }
+        styles.cssClassName = styles.cssClassName ? `${styles.cssClassName} ${clsName}` : clsName;
+    }
+}
+
+/**
+ * Translate raw HTML to XGENIA XML (string API, back-compat).
  */
 export function translateHtmlToXgeniaXml(html: string, options?: { omitRootWrapper?: boolean }): string {
+    return translateHtmlToXgeniaXmlWithReport(html, options).xml;
+}
+
+/**
+ * Translate raw HTML to XGENIA XML and report every dropped style/element.
+ * The warnings array is deduped and capped — the bridge exposes it to the
+ * ChatPanel as `translationWarnings` so the AI sees what did NOT render.
+ */
+export function translateHtmlToXgeniaXmlWithReport(html: string, options?: { omitRootWrapper?: boolean }): { xml: string; warnings: string[] } {
+    _warnings = [];
+    _stateRuleCache.clear();
+    _customFontSizes = {};
+    _customSpacing = {};
+    const xml = doTranslateHtmlToXgeniaXml(html, options);
+    return { xml, warnings: [...new Set(_warnings)].slice(0, 40) };
+}
+
+function doTranslateHtmlToXgeniaXml(html: string, options?: { omitRootWrapper?: boolean }): string {
     // Extract custom Tailwind colors
     const customColors = extractCustomColors(html);
     // Extract custom Tailwind font families
@@ -2566,8 +3622,27 @@ export function translateHtmlToXgeniaXml(html: string, options?: { omitRootWrapp
     const customShadows = extractCustomShadows(html);
     // Extract custom Tailwind background images (gradient-radial, metallic-rim, etc.)
     const customBackgroundImages = extractCustomBackgroundImages(html);
+    // The document's own type scale and spacing scale. Until 2026-08-08 these were the only
+    // parts of theme.extend the translator did not read, and they are the two that decide
+    // how a screen actually looks: a 120px headline arrived as 32px and a 32px page padding
+    // as whatever the default was.
+    _customFontSizes = extractCustomFontSizes(html);
+    _customSpacing = extractCustomSpacing(html);
+    if (Object.keys(_customFontSizes).length > 0) {
+        console.debug('[HTMLTranslator] Custom type scale:', _customFontSizes);
+    }
     // Extract CSS class styles
     const cssClassStyles = extractCssClassStyles(html);
+
+    // ─── State rules (.cls:hover / :focus / :active) from <style> blocks ──
+    const stateRules = extractStateRules(html);
+    _stateRuleClasses = new Set(stateRules.map(r => r.cls));
+
+    // @media rules aren't translated — flag them once so responsive-only
+    // styling doesn't silently vanish.
+    if (/@media[\s(]/.test(html)) {
+        reportDrop('dropped: @media rules (translator renders the desktop layout only)');
+    }
 
     // ─── Extract font family from Google Fonts <link> tags ──
     let fontFamily: string | undefined;
@@ -2592,6 +3667,7 @@ export function translateHtmlToXgeniaXml(html: string, options?: { omitRootWrapp
     // ─── Extract body-level styles (bg color, text color, flex, etc.) ────
     const bodyClassName = body.getAttribute('class') || '';
     const bodyStyles = parseTailwindClasses(bodyClassName, customColors, customFonts, customShadows, customBackgroundImages);
+    const bodyStyles = parseTailwindClasses(bodyClassName, customColors, customFonts, customShadows, customBackgroundImages);
     const bodyInline = body.getAttribute('style') ? parseInlineStyle(body.getAttribute('style')!) : {};
     const mergedBodyStyles: ParsedStyles = { ...bodyStyles, ...bodyInline };
 
@@ -2615,6 +3691,11 @@ export function translateHtmlToXgeniaXml(html: string, options?: { omitRootWrapp
 
     // Collect CSS definitions for CSS Definition nodes
     const cssDefinitions = new Map<string, string>();
+
+    // `.cls:hover` etc. from <style> — already valid CSS, forwarded verbatim
+    for (const sr of stateRules) {
+        cssDefinitions.set(`__staterule_${sr.cls}_${sr.pseudo}__`, sr.rule);
+    }
 
     // Extract @keyframes rules from <style> blocks
     const keyframesRules = extractKeyframesRules(html);
@@ -2658,6 +3739,7 @@ export function translateHtmlToXgeniaXml(html: string, options?: { omitRootWrapp
     // Translate body children
     const children = Array.from(body.childNodes)
         .map(node => translateNode(node, 1, customColors, cssClassStyles, fontFamily, undefined, cssDefinitions, customFonts, customShadows, customBackgroundImages))
+        .map(node => translateNode(node, 1, customColors, cssClassStyles, fontFamily, undefined, cssDefinitions, customFonts, customShadows, customBackgroundImages))
         .filter(Boolean);
 
     // Deduplicate: if consecutive children are identical (duplicated pages), keep only one
@@ -2671,6 +3753,8 @@ export function translateHtmlToXgeniaXml(html: string, options?: { omitRootWrapp
     if (deduped.length === 0) {
         // Empty body — return a minimal wrapper unless caller wants no wrapper at all.
         return options?.omitRootWrapper ? '' : '<group nodeLabel="Root" width="100%" height="100%" />';
+        // Empty body — return a minimal wrapper unless caller wants no wrapper at all.
+        return options?.omitRootWrapper ? '' : '<group nodeLabel="Root" width="100%" height="100%" />';
     }
 
     // Emit CSS Definition nodes for collected CSS classes
@@ -2682,6 +3766,15 @@ export function translateHtmlToXgeniaXml(html: string, options?: { omitRootWrapp
         cssDefs.push(`<css-definition style="${escapedCss}" />`);
     });
 
+    // Root group wraps visual children; CSS defs are siblings outside.
+    // omitRootWrapper: when the caller is inserting the result under an existing
+    // parent node (piecewise build), skip the outer Root group so we don't pile up
+    // @Root, @Root_2, @Root_3… ambiguous labels under the parent slot. The body's
+    // styles have already been lifted onto a child wrapper by the plugin's
+    // liftBodyStylesToRoot pass, so the children carry their own styling.
+    const rootXml = options?.omitRootWrapper
+        ? deduped.join('\n')
+        : `<group ${rootAttrs.join(' ')}>\n${deduped.join('\n')}\n</group>`;
     // Root group wraps visual children; CSS defs are siblings outside.
     // omitRootWrapper: when the caller is inserting the result under an existing
     // parent node (piecewise build), skip the outer Root group so we don't pile up
@@ -2794,12 +3887,26 @@ function generateNodeLabel(el: HTMLElement, tag: string, textHint?: string): str
         if (/-\[.+\]$/.test(stripped)) return false;
         // Skip purely-numeric/fractional utilities: `1/4`, `2/3`, `100%` (these slip through if class name is a fragment)
         if (/^\d+\/\d+$/.test(stripped)) return false;
+        // Strip a leading variant prefix so `dark:bg-X`, `md:flex`, `hover:opacity-50`, `lg:px-4`
+        // are filtered by the same rules as their plain counterparts.
+        const stripped = c.replace(/^(?:dark|hover|focus|active|disabled|group|sm|md|lg|xl|2xl|first|last|odd|even|peer|aria-[\w-]+|data-[\w-]+):/, '');
+        // Skip prefixed utilities: bg-, text-, border-, top-, right-, bottom-, left-, inset-, w-, h-, etc.
+        if (/^(flex|grid|gap|p[xytblr]?|m[xytblr]?|w|h|bg|text|font|border|rounded|shadow|overflow|relative|absolute|hidden|block|inline|items|justify|self|col|row|space|min|max|leading|tracking|z|opacity|transition|cursor|hover|focus|active|disabled|sm|md|lg|xl|2xl|top|right|bottom|left|inset|from|to|via|aspect|backdrop|divide|place|content|auto|order|basis|grow|shrink|float|clear|origin|rotate|scale|skew|translate|transform|filter|blur|brightness|contrast|grayscale|hue-rotate|invert|saturate|sepia|drop-shadow|backdrop-blur|backdrop-brightness|backdrop-contrast|backdrop-grayscale|backdrop-hue-rotate|backdrop-invert|backdrop-opacity|backdrop-saturate|backdrop-sepia|will-change|fill|stroke|caret|accent|outline|ring|ring-offset|tab|select|sr|cursor|resize|scroll|snap|touch|user|appearance|pointer|gradient)-/.test(stripped)) return false;
+        // Bare Tailwind utility names (no -)
+        if (/^(flex|grid|hidden|block|inline|relative|absolute|static|fixed|sticky|rounded|border|shadow|overflow|container|transform|transition|outline|ring|inset|truncate|antialiased|subpixel|clearfix|float|clear|table|contents|visible|invisible|sr|collapse|isolate|object|aspect|columns|break|decoration|underline|overline|italic|uppercase|lowercase|capitalize|ordinal|lining|tabular|proportional|diagonal|stacked|oldstyle|normal|backdrop|resize|snap|touch|select|appearance|pointer|will|scroll|overscroll|dark|group|peer|first|last|odd|even)$/.test(stripped)) return false;
+        // Skip arbitrary-value Tailwind classes like `top-[10px]`, `bg-[#392830]`, `w-[100vw]`
+        if (/-\[.+\]$/.test(stripped)) return false;
+        // Skip purely-numeric/fractional utilities: `1/4`, `2/3`, `100%` (these slip through if class name is a fragment)
+        if (/^\d+\/\d+$/.test(stripped)) return false;
         return true;
     });
 
-    if (meaningfulClasses.length > 0) {
-        const label = meaningfulClasses.slice(0, 2).join(' ').replace(/[-_]+/g, ' ');
-        return label.substring(0, MAX_LEN);
+    // ONE clean semantic class only. Joining multiple classes produced garble
+    // like "sailing JUNGLE PIRATES sa section"; verbose/underscore-laden classes
+    // are skipped (fall through to a structural role below).
+    const cleanClass = meaningfulClasses.find(isCleanClass);
+    if (cleanClass) {
+        return cleanClass.replace(/[-_]+/g, ' ').substring(0, MAX_LEN);
     }
 
     // Helper: clean a label string to remove the concat-rot pattern seen in traces
@@ -2840,8 +3947,11 @@ function generateNodeLabel(el: HTMLElement, tag: string, textHint?: string): str
             if (tag === 'label') return cleaned;
             // Lists
             if (tag === 'li') return cleaned;
-            // Otherwise, use text directly for short content (no "tag:" prefix)
-            if (cleaned.length <= 25) return cleaned;
+            // Generic element: use its text as a label ONLY if it is a LEAF. A
+            // container's textContent aggregates ALL descendants into concat-rot
+            // like "remove 10 add" (the −/10/+ bet row) — never a real name. A
+            // container falls through to a structural role below.
+            if (cleaned.length <= 25 && el.children.length === 0) return cleaned;
         }
     }
 
@@ -2849,6 +3959,9 @@ function generateNodeLabel(el: HTMLElement, tag: string, textHint?: string): str
     const style = el.getAttribute('style') || '';
     const childCount = el.children.length;
 
+    // Decorative elements (dots, dividers, spacers) — extract a color/shape
+    // descriptor so labels are distinguishable in the node tree instead of all
+    // being "decorative border 1/2/3" which is un-targetable.
     // Decorative elements (dots, dividers, spacers) — extract a color/shape
     // descriptor so labels are distinguishable in the node tree instead of all
     // being "decorative border 1/2/3" which is un-targetable.
@@ -2879,52 +3992,42 @@ function generateNodeLabel(el: HTMLElement, tag: string, textHint?: string): str
         if (hasBg && !hasBorder) return `${colorPrefix}panel`.trim();
         if (hasBg && hasBorder) return `${colorPrefix}bordered panel`.trim();
         if (hasBorder) return `${colorPrefix}border`.trim();
+        // Try to pull a dominant color from the style for a more useful label.
+        const pickColor = (): string | null => {
+            // Hex first
+            const hexMatch = style.match(/#([0-9a-fA-F]{3,8})\b/);
+            if (hexMatch) return `#${hexMatch[1]}`;
+            // rgb/rgba
+            const rgbMatch = style.match(/rgba?\(([^)]+)\)/);
+            if (rgbMatch) return `rgb`;
+            // common named colors
+            const named = style.match(/(?:background(?:-color)?|color)\s*:\s*([a-z]+)/);
+            if (named && /^(red|orange|yellow|green|teal|cyan|blue|indigo|violet|purple|pink|magenta|white|black|gray|grey|silver|gold|chrome|neon)$/i.test(named[1])) return named[1].toLowerCase();
+            return null;
+        };
+        const color = pickColor();
+        const colorPrefix = color ? `${color} ` : '';
+
+        if (isCircle && hasBg) return `${colorPrefix}dot`.trim();
+        if (isShort && hasBg) return `${colorPrefix}divider`.trim();
+        if (hasBg && !hasBorder) return `${colorPrefix}panel`.trim();
+        if (hasBg && hasBorder) return `${colorPrefix}bordered panel`.trim();
+        if (hasBorder) return `${colorPrefix}border`.trim();
         return 'spacer';
     }
 
-    // Layout containers — peek at children for descriptive names
+    // Layout containers — a SAFE structural role from the element's OWN semantics
+    // (tag + layout), NEVER child content. Peeking at children's text aggregated
+    // into garble like "remove 10 add" / "BET row" that the AI can't navigate. An
+    // explicit id/aria/data-label above already short-circuited this; to get a
+    // semantic name, declare data-label. The dedup pass makes repeats unique
+    // (Row, Row 2).
     if (childCount > 0) {
-        const isRow = /flex-direction:\s*row/.test(style) || /display:\s*flex/.test(style);
-        const isGrid = /display:\s*grid/.test(style);
-
-        // FIX (2026-03-10): Use children's text content to produce unique, descriptive labels.
-        // "div container (2 items)" is useless for AI @ref targeting.
-        // FIX (2026-05-04): Run text through cleanLabel to strip emoji-only / symbol-only
-        // hints and collapse whitespace runs — produces clean ASCII-friendly @refs
-        // (e.g. "BET section" instead of "BET         $25 section").
-        let childHint = '';
-        for (let i = 0; i < Math.min(el.children.length, 5); i++) {
-            const child = el.children[i];
-            const rawChildText = (child.textContent || '').trim();
-            const cleanedChild = cleanLabel(rawChildText);
-            if (cleanedChild && cleanedChild.length > 1) {
-                childHint = cleanedChild;
-                break;
-            }
-        }
-        // If no usable text found in children, try first child's aria-label or id
-        if (!childHint) {
-            for (let i = 0; i < Math.min(el.children.length, 3); i++) {
-                const child = el.children[i] as HTMLElement;
-                const childId = child.getAttribute?.('id') || child.getAttribute?.('aria-label') || '';
-                if (childId) {
-                    childHint = childId.replace(/[-_]+/g, ' ');
-                    break;
-                }
-            }
-        }
-
-        if (childHint) {
-            // Truncate and clean the hint
-            const hint = childHint.replace(/\n/g, ' ').trim().substring(0, 25);
-            if (isGrid) return `${hint} grid`;
-            if (isRow) return `${hint} row`;
-            return `${hint} section`;
-        }
-
-        if (isGrid) return `${tag} grid (${childCount} items)`;
-        if (isRow) return `${tag} row (${childCount} items)`;
-        return `${tag} container (${childCount} items)`;
+        const layout: 'row' | 'grid' | 'col' | 'none' =
+            /display:\s*grid/.test(style) ? 'grid'
+                : (/flex-direction:\s*row/.test(style) || /display:\s*flex/.test(style)) ? 'row'
+                    : 'none';
+        return structuralRole(tag, layout);
     }
 
     // Fallback — use tag name (rare)
@@ -2934,8 +4037,13 @@ function generateNodeLabel(el: HTMLElement, tag: string, textHint?: string): str
 /**
  * Short label for inline text nodes within containers.
  * Collapses whitespace runs so "BET         $25" → "BET $25".
+ * Collapses whitespace runs so "BET         $25" → "BET $25".
  */
 function generateTextLabel(text: string): string {
+    if (!text) return 'text';
+    // Collapse all whitespace runs (including multi-space indentation pattern)
+    const collapsed = text.replace(/[\s ]+/g, ' ').trim();
+    const truncated = collapsed.substring(0, 30).trim();
     if (!text) return 'text';
     // Collapse all whitespace runs (including multi-space indentation pattern)
     const collapsed = text.replace(/[\s ]+/g, ' ').trim();
@@ -2943,6 +4051,35 @@ function generateTextLabel(text: string): string {
     return truncated || 'text';
 }
 
+
+
+/**
+ * `cover` or `contain` for a piece of art that was authored as a background-image.
+ *
+ * (2026-08-13, user: "buttons and things should scale down not be cut off, setting buttons and
+ * stuff as scale down is much more ideal than anything else".)
+ *
+ * Both defaults here were `cover`, and `cover` CROPS. That is exactly right for a backdrop — a
+ * scene has to fill its box on both axes or you see the page behind it — and exactly wrong for
+ * everything else. A spin button whose art is 1:1 dropped into a 3:1 slot loses its top and
+ * bottom; a title logo loses its ends. The piece is not too big, it is being cut.
+ *
+ * The asymmetry decides the default. Letterboxing is a spacing imperfection you can see and
+ * adjust; cropping destroys the art and reads as a broken asset. So `contain` unless the thing is
+ * actually a backdrop.
+ *
+ * An explicitly authored `background-size` always wins — both call sites check for one first —
+ * and the UI specialist is already taught to write `background-size: contain` for art slots
+ * (SubAgentDispatcher.ts:655). Until now the translator quietly overrode it on the branch where
+ * the author wrote none, so the tool contradicted its own instruction.
+ */
+const BACKDROP_SRC = /\b(background|backdrop|bg|scene|sky|wallpaper|panorama)\b/i;
+function fitForArt(src: string | undefined, alt: string | undefined): 'cover' | 'contain' {
+    // Named as a backdrop by its own filename or label — the only case where filling the box on
+    // both axes is what was wanted.
+    if (BACKDROP_SRC.test(String(src || '')) || BACKDROP_SRC.test(String(alt || ''))) return 'cover';
+    return 'contain';
+}
 
 function translateNode(
     node: Node,
@@ -2953,6 +4090,8 @@ function translateNode(
     parentTextAlign?: string,
     cssDefinitions?: Map<string, string>,
     customFonts?: Record<string, string>,
+    customShadows?: Record<string, string>,
+    customBackgroundImages?: Record<string, string>
     customShadows?: Record<string, string>,
     customBackgroundImages?: Record<string, string>
 ): string | null {
@@ -2978,11 +4117,19 @@ function translateNode(
     // Skip tags
     if (SKIP_TAGS.has(tag)) return null;
 
+    // <canvas>/<iframe> have no XGENIA equivalent — report instead of silently
+    // producing nothing.
+    if (tag === 'canvas' || tag === 'iframe') {
+        reportDrop(`dropped: <${tag}> element (no XGENIA equivalent; use nodes or an image instead)`);
+        return null;
+    }
+
     // Collect all text from this element
     const directText = getDirectText(el);
 
     // Parse styles: Tailwind classes + inline style + CSS class styles
     const className = el.getAttribute('class') || '';
+    const twStyles = parseTailwindClasses(className, customColors, customFonts, customShadows, customBackgroundImages);
     const twStyles = parseTailwindClasses(className, customColors, customFonts, customShadows, customBackgroundImages);
     const inlineStyles = el.getAttribute('style') ? parseInlineStyle(el.getAttribute('style')!) : {};
 
@@ -2994,8 +4141,20 @@ function translateNode(
             if (cssClassStyles[cls]) {
                 const props = cssClassStyles[cls];
                 // Determine if this class needs a CSS Definition node
+                // (2026-08-09, live harness) `background-image` was missing from this list.
+                // A <style> rule like `.symDoubloon { background-image: url('assets/…') }` is
+                // not "complex" by the test below, so it fell to the simple branch, which
+                // extracts only border / background-color / box-shadow — and the artwork was
+                // dropped with a warning nobody was reading. On a real generated slot that was
+                // fifteen reel symbols rendering as empty boxes.
+                //
+                // Routing it through a CSS Definition preserves the whole rule verbatim, which
+                // is what the mechanism is for.
                 const hasComplexCss = props['background'] || props['backdrop-filter'] ||
                     props['-webkit-backdrop-filter'] || props['animation'] ||
+                    props['background-image'] || props['background-size'] ||
+                    props['background-position'] || props['background-repeat'] ||
+                    props['mask-image'] || props['-webkit-mask-image'] ||
                     props['background-clip'] || props['-webkit-background-clip'] ||
                     props['-webkit-text-fill-color'];
 
@@ -3008,6 +4167,13 @@ function translateNode(
                         cssDefinitions.set(cls, `.${cls} { ${ruleBody} }`);
                     }
                     cssClassNames.push(cls);
+                } else if (!hasComplexCss) {
+                    // Only border/background-color/box-shadow are extracted below —
+                    // report the class-rule properties that do NOT make it through.
+                    for (const p of Object.keys(props)) {
+                        if (STYLE_RULE_EXTRACTED.has(p)) continue;
+                        reportDrop(`dropped: <style> .${cls} property '${p}' (not extracted; use inline style or Tailwind)`);
+                    }
                 }
 
                 // Still extract native-compatible properties
@@ -3018,10 +4184,32 @@ function translateNode(
                         cssStyles.borderColor = borderMatch[2];
                     }
                 }
+                // Solid background-color → native backgroundColor port. Previously
+                // only `background` (gradients/complex) was handled via CSS Definition;
+                // a plain `background-color` in a class rule was dropped, leaving the
+                // node transparent (trace 1784051747260). `background` shorthand is
+                // still routed through hasComplexCss above.
+                if (props['background-color']) {
+                    cssStyles.backgroundColor = props['background-color'];
+                }
                 // box-shadow stays in styleCss (no native equivalent)
                 if (props['box-shadow'] && !hasComplexCss) {
                     cssStyles.styleCss = (cssStyles.styleCss || '') + `box-shadow: ${props['box-shadow']};`;
                 }
+                // (2026-08-09) Everything else in STYLE_RULE_EXTRACTED. These are ordinary
+                // properties with real XGENIA ports, and a <style> rule is a perfectly normal
+                // way to write them — the specialist does it constantly. They used to be
+                // dropped, so a class-styled screen lost its radii, padding, type and colour
+                // and arrived as grey boxes.
+                for (const [prop, apply] of STYLE_RULE_NATIVE) {
+                    const v = props[prop];
+                    if (v !== undefined) apply(cssStyles, v);
+                }
+            }
+            // Class has a :hover/:focus/:active rule in <style> — keep the class
+            // on the element (cssClassName) so the css-definition rule can hit it.
+            if (_stateRuleClasses.has(cls) && !cssClassNames.includes(cls)) {
+                cssClassNames.push(cls);
             }
         }
     }
@@ -3031,6 +4219,18 @@ function translateNode(
 
     // Merge: CSS class → Tailwind → inline (inline wins)
     const styles: ParsedStyles = { ...cssStyles, ...twStyles, ...inlineStyles };
+
+    // Preserve styleCss from BOTH class-rule extraction and Tailwind parsing —
+    // the plain spread would keep only the last one. (Inline styleCss additions
+    // come from parseInlineStyle's forward-by-default and must not clobber
+    // Tailwind-parsed CSS like filters/transitions.)
+    const styleCssParts = [cssStyles.styleCss, twStyles.styleCss, inlineStyles.styleCss].filter(Boolean);
+    if (styleCssParts.length > 1) {
+        styles.styleCss = styleCssParts.join('');
+    }
+
+    // hover:/focus:/active: Tailwind variants → css-definition pseudo-class rules
+    applyInteractionStates(styles, cssDefinitions, customColors, customFonts, customShadows, customBackgroundImages);
 
     // ─── Inherit textAlign from parent if not set on this element ──
     // XGENIA's flexbox layout doesn't inherit text-align, so we propagate it explicitly
@@ -3123,16 +4323,10 @@ function translateNode(
             attrs.push('nodeLabel="SVG Graphic"');
             attrs.push(`src="${dataUri}"`);
 
-            // Layout
-            if (styles.width) attrs.push(`width="${styles.width}"`);
-            if (styles.height) attrs.push(`height="${styles.height}"`);
-            if (!styles.width && !styles.height) {
-                // Default to 100% if no size specified, to fill container
-                attrs.push('width="100%"');
-                attrs.push('height="100%"');
-            }
-
-            attrs.push('objectFit="contain"');
+            // Layout. An inlined SVG becomes an Image node, so its width and height are
+            // gated on sizeMode exactly like any other image — see addGatedSizing, which
+            // also emits objectFit where that port exists.
+            addGatedSizing(styles, attrs, 'image');
             if (styles.opacity !== undefined) attrs.push(`opacity="${styles.opacity}"`);
             addPositionAttrs(styles, attrs);
             if (styles.styleCss) attrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
@@ -3149,33 +4343,72 @@ function translateNode(
     if (tag === 'img') {
         const attrs: string[] = [];
         const alt = el.getAttribute('alt') || el.getAttribute('data-alt') || '';
-        attrs.push(`nodeLabel="${escapeXml(alt || 'Image')}"`);
+        // IDENTITY IS DECLARED. (2026-08-14, export 1786664368554) This was the one element type
+        // that never asked generateNodeLabel — it read `alt` and fell back to the literal 'Image',
+        // so `id` was ignored on every image in the document.
+        //
+        // Decorative art is SUPPOSED to carry alt="" (that is the accessible way to write it), so
+        // the more correct the HTML, the worse the outcome: a key-art build whose <img> tags were
+        // id="CabinetShell" / id="TitleLockup" / id="WheelOrnament" landed in the graph as Image,
+        // Image 2 … Image 7. Every named control beside them (ReelArea, SpinButton, BalanceText)
+        // kept its name, because those go through the normal path.
+        //
+        // The cost is not cosmetic. apply_design_delta refused the whole set on the next pass —
+        // "SKIPPED — 1 label(s) are not unique (Image). The translator numbers repeats by
+        // position, so a label like these can point at a different node in each document; writing
+        // to one would be a coin flip" — so two refine passes could not touch a single piece of
+        // art, and the AI had no @-ref to set_node_parameters on either. The screen was
+        // unfixable by every route the system has.
+        //
+        // declaredControlLabel, not generateNodeLabel: an <img> has no children and decorative
+        // art has no alt, which lands in generateNodeLabel's decorative branch and would name the
+        // cabinet "#f4a7c1 panel" or "dot" — worse than Image, and just as un-targetable. Only the
+        // DECLARED half of the chain applies to an image; alt stays the fallback it always was.
+        attrs.push(`nodeLabel="${escapeXml(declaredControlLabel(el) || alt || 'Image')}"`);
         const src = el.getAttribute('src') || '';
         attrs.push(`src="${escapeXml(src)}"`);
-        if (styles.width) attrs.push(`width="${styles.width}"`);
-        if (styles.height) attrs.push(`height="${styles.height}"`);
-        if (!styles.width && !styles.height) {
-            attrs.push('width="100%"');
-        }
-        if (styles.objectFit) attrs.push(`objectFit="${styles.objectFit}"`);
+        // sizeMode FIRST — see addImageSizing for why an image without it renders at its
+        // full intrinsic resolution no matter what width you write.
+        addGatedSizing(styles, attrs, 'image');
         addBorderRadiusAttrs(styles, attrs);
         if (styles.opacity !== undefined) attrs.push(`opacity="${styles.opacity}"`);
         addPositionAttrs(styles, attrs);
         if (styles.styleCss) attrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+        // Image is a react-component node → universal cssClassName port exists
+        if (styles.cssClassName) attrs.push(`cssClassName="${styles.cssClassName}"`);
         return `${indent}<img ${attrs.join(' ')} />`;
     }
 
-    // ─── Background image div → img ─────
+    // ─── Background image div WITH children → Group with CSS background ──
+    // Previously the whole subtree was replaced by a self-closing <img>, so a
+    // hero section's title/buttons vanished. Group has no native background-
+    // image port (verified: none in group.js/shared port definitions) → styleCss.
+    if (styles.backgroundImage && el.children.length > 0) {
+        // Defaults only where the author didn't declare the property —
+        // an explicit background-size/position must not be overridden.
+        const authored = styles.styleCss || '';
+        let bgCss = `background-image: url(${styles.backgroundImage});`;
+        if (!/background-size\s*:/i.test(authored)) {
+            bgCss += ` background-size: ${fitForArt(styles.backgroundImage, el.getAttribute('aria-label') || undefined)};`;
+        }
+        if (!/background-position\s*:/i.test(authored)) bgCss += ' background-position: center;';
+        styles.styleCss = authored + bgCss;
+        styles.backgroundImage = undefined;
+    }
+
+    // ─── Background image div (childless) → img ─────
     if (styles.backgroundImage) {
         const attrs: string[] = [];
         const alt = el.getAttribute('data-alt') || el.getAttribute('aria-label') || 'Background Image';
         attrs.push(`nodeLabel="${escapeXml(alt)}"`);
         attrs.push(`src="${escapeXml(styles.backgroundImage)}"`);
-        attrs.push('objectFit="cover"');
-        if (styles.width) attrs.push(`width="${styles.width}"`);
-        if (styles.height) attrs.push(`height="${styles.height}"`);
-        if (!styles.width) attrs.push('width="100%"');
-        if (!styles.height) attrs.push('height="100%"');
+        // objectFit is a dynamic port gated on `sizeMode = explicit` (image.js dynamicports):
+        // emitted without it, as it was until 2026-08-08, the port does not exist and the fit is
+        // silently dropped — the one property that decides whether art is cropped or scaled.
+        attrs.push('sizeMode="explicit"');
+        attrs.push(`width="${styles.width || '100%'}"`);
+        attrs.push(`height="${styles.height || '100%'}"`);
+        attrs.push(`objectFit="${fitForArt(styles.backgroundImage, alt)}"`);
         addBorderRadiusAttrs(styles, attrs);
         if (styles.opacity !== undefined) attrs.push(`opacity="${styles.opacity}"`);
         addPositionAttrs(styles, attrs);
@@ -3207,15 +4440,26 @@ function translateNode(
             'bi', 'bi-icon',
             'lucide', 'i-lucide',
         ];
+        // FontAwesome, Bootstrap Icons, Lucide, Heroicons (font/class form) don't use
+        // ligatures and depend on their JS/CSS runtimes — skip cleanly so the user's UI
+        // shows nothing rather than a broken empty span. (Heroicons used as inline SVG
+        // still works via the <svg> path.)
+        const SKIP_ICON_CLASSES = [
+            'fa', 'fas', 'far', 'fab', 'fal', 'fad', 'fa-solid', 'fa-regular', 'fa-brands',
+            'bi', 'bi-icon',
+            'lucide', 'i-lucide',
+        ];
         const elClasses = (el.getAttribute('class') || '').split(/\s+/);
 
         // data-lucide / data-feather / data-iconify hooks are JS-replaced — skip.
         if (el.getAttribute('data-lucide') || el.getAttribute('data-feather') || el.getAttribute('data-iconify')) {
+            reportDrop(`dropped: icon '${el.getAttribute('data-lucide') || el.getAttribute('data-feather') || el.getAttribute('data-iconify')}' (JS-runtime icon libs don't render; use Material Icons or inline SVG)`);
             return null;
         }
 
         // Check for skippable icon fonts (FA, BI, Lucide class form)
         if (elClasses.some(c => SKIP_ICON_CLASSES.includes(c) || c.startsWith('fa-') || c.startsWith('bi-') || c.startsWith('lucide-') || c.startsWith('hero-'))) {
+            reportDrop(`dropped: icon '${elClasses.filter(Boolean).slice(0, 3).join(' ')}' (FontAwesome/Bootstrap/Lucide class icons need their runtime; use Material Icons or inline SVG)`);
             return null;
         }
 
@@ -3307,6 +4551,7 @@ function translateNode(
                 if (childTag === 'span') {
                     const childClassName = childEl.getAttribute('class') || '';
                     const childStyles = parseTailwindClasses(childClassName, customColors, customFonts, customShadows, customBackgroundImages);
+                    const childStyles = parseTailwindClasses(childClassName, customColors, customFonts, customShadows, customBackgroundImages);
                     if (!childStyles.fontSize && styles.fontSize) {
                         childStyles.fontSize = styles.fontSize;
                     }
@@ -3326,6 +4571,7 @@ function translateNode(
                     // If this span has child elements (e.g. nested gradient spans),
                     // process it via translateNode to preserve nested structure
                     if (childEl.children.length > 0) {
+                        const translated = translateNode(childEl, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
                         const translated = translateNode(childEl, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
                         if (translated) children.push(translated);
                         continue;
@@ -3389,6 +4635,7 @@ function translateNode(
                     }
                 }
                 const translated = translateNode(child, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
+                const translated = translateNode(child, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
                 if (translated) children.push(translated);
             }
         }
@@ -3413,14 +4660,23 @@ function translateNode(
         const inputType = (el.getAttribute('type') || 'text').toLowerCase();
         const placeholder = el.getAttribute('placeholder') || '';
         const value = el.getAttribute('value') || '';
-        const display = value || placeholder || '';
 
-        // checkbox / radio → small bordered Group with optional checkmark Text
+        // checkbox / radio → NATIVE control node. Was a decorative bordered Group
+        // (no observable state, can't be wired, no real toggle behavior; trace
+        // 1784062451334 — a "native checkbox" brief produced 0 controls). The XML
+        // path already maps <checkbox>/<radio> to net.xgenia.controls.checkbox /
+        // radiobutton, and the html-translator output flows through that SAME tag
+        // map — so emit the native tag here instead of faking it with a Group.
         if (inputType === 'checkbox' || inputType === 'radio') {
             const isChecked = el.hasAttribute('checked');
-            const sizePx = inputType === 'checkbox' ? 18 : 16;
-            const radius = inputType === 'radio' ? 999 : 4;
-            return `${indent}<group nodeLabel="${escapeXml(inputType)}" width="${sizePx}px" height="${sizePx}px" backgroundColor="${isChecked ? (styles.color || '#0df20d') : 'rgba(255,255,255,0.05)'}" borderRadius="${radius}" borderWidth="1" borderStyle="solid" borderColor="${styles.borderColor || 'rgba(255,255,255,0.3)'}" />`;
+            const declared = declaredControlLabel(el);
+            const visibleLabel = el.getAttribute('aria-label') || '';
+            const nl = escapeXml(declared || inputType);
+            const labelAttr = visibleLabel ? ` label="${escapeXml(visibleLabel)}"` : '';
+            if (inputType === 'checkbox') {
+                return `${indent}<checkbox nodeLabel="${nl}"${labelAttr} checked="${isChecked ? 'true' : 'false'}" />`;
+            }
+            return `${indent}<radio nodeLabel="${nl}"${labelAttr} />`;
         }
 
         // range slider → track + filled portion + thumb
@@ -3433,7 +4689,7 @@ function translateNode(
             const thumbSize = 16;
             const fillColor = styles.color || styles.backgroundColor || '#0df20d';
             const sliderAttrs: string[] = [];
-            sliderAttrs.push(`nodeLabel="${escapeXml((el.getAttribute('aria-label') || 'slider'))}"`);
+            sliderAttrs.push(`nodeLabel="${escapeXml(declaredControlLabel(el) || 'slider')}"`);
             sliderAttrs.push(styles.width ? `width="${styles.width}"` : 'width="100%"');
             sliderAttrs.push(`height="${thumbSize}px"`);
             sliderAttrs.push('flexDirection="row"', 'alignItems="center"', 'position="relative"');
@@ -3445,9 +4701,29 @@ ${indent}  <group nodeLabel="thumb" width="${thumbSize}px" height="${thumbSize}p
 ${indent}</group>`;
         }
 
-        // text / email / password / number / search etc → text-input-like Group
+        // text / email / password / number / search / tel / url → NATIVE Text Input
+        // control (net.xgenia.controls.textinput). Was a decorative Group + inner
+        // Text mockup: NOT editable, no password masking, no value to wire — the
+        // form looked valid but was dead (trace 1784062451334: a "genuinely editable
+        // native controls" brief produced 0 inputs). The native node exists and the
+        // XML path uses it; emit the native <input> tag (styling params still apply
+        // as common UI ports). Placeholder stays real placeholder text, not a fake
+        // child Text node.
+        const nativeTypeMap: Record<string, string> = {
+            email: 'email', password: 'password', number: 'number', url: 'url',
+            tel: 'text', search: 'text', text: 'text',
+        };
+        const nativeType = nativeTypeMap[inputType] || 'text';
         const inputAttrs: string[] = [];
-        inputAttrs.push(`nodeLabel="${escapeXml(placeholder || value || 'input')}"`);
+        // Declared identity first (id/aria-label/data-*/name) — placeholder is a
+        // caption, not a name (it produced refs like @name_example_com).
+        inputAttrs.push(`nodeLabel="${escapeXml(declaredControlLabel(el) || placeholder || value || 'input')}"`);
+        inputAttrs.push(`type="${nativeType}"`);
+        if (placeholder) inputAttrs.push(`placeholder="${escapeXml(placeholder)}"`);
+        // Initial content port on net.xgenia.controls.textinput is `startValue`
+        if (value) inputAttrs.push(`startValue="${escapeXml(value)}"`);
+        const ariaLabel = el.getAttribute('aria-label');
+        if (ariaLabel) inputAttrs.push(`label="${escapeXml(ariaLabel)}"`);
         if (styles.width) inputAttrs.push(`width="${styles.width}"`); else inputAttrs.push('width="100%"');
         if (styles.height) inputAttrs.push(`height="${styles.height}"`); else inputAttrs.push('height="40px"');
         if (styles.backgroundColor) inputAttrs.push(`backgroundColor="${styles.backgroundColor}"`);
@@ -3455,7 +4731,7 @@ ${indent}</group>`;
         addBorderRadiusAttrs(styles, inputAttrs);
         if (styles.borderWidth !== undefined) {
             inputAttrs.push(`borderWidth="${styles.borderWidth}"`);
-            inputAttrs.push('borderStyle="solid"');
+            inputAttrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
         } else {
             inputAttrs.push('borderWidth="1"');
             inputAttrs.push('borderStyle="solid"');
@@ -3463,18 +4739,12 @@ ${indent}</group>`;
         if (styles.borderColor) inputAttrs.push(`borderColor="${styles.borderColor}"`);
         else inputAttrs.push('borderColor="rgba(255,255,255,0.15)"');
         addPositionAttrs(styles, inputAttrs);
-        inputAttrs.push('paddingLeft="12"', 'paddingRight="12"', 'paddingTop="8"', 'paddingBottom="8"');
-        inputAttrs.push('alignItems="center"');
-        if (styles.styleCss) inputAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
-
-        // Inner display text (placeholder or value)
-        const textColor = display === placeholder ? 'rgba(255,255,255,0.5)' : (styles.color || '#FFFFFF');
-        const textXml = display
-            ? `${indent}  <text nodeLabel="${escapeXml(display.substring(0, 30))}" text="${escapeXml(display)}" color="${textColor}" fontSize="${styles.fontSize || 14}" sizeMode="contentSize" flexGrow="0" flexShrink="0" />`
-            : '';
-        return textXml
-            ? `${indent}<group ${inputAttrs.join(' ')}>\n${textXml}\n${indent}</group>`
-            : `${indent}<group ${inputAttrs.join(' ')} />`;
+        // textinput has no `color` port — route text color through styleCss.
+        const inputCss = `${styles.color ? `color: ${styles.color};` : ''}${styles.styleCss || ''}`;
+        if (inputCss) inputAttrs.push(`styleCss="${escapeXml(inputCss)}"`);
+        // textinput is a react-component node → universal cssClassName port exists
+        if (styles.cssClassName) inputAttrs.push(`cssClassName="${styles.cssClassName}"`);
+        return `${indent}<input ${inputAttrs.join(' ')} />`;
     }
 
     // ─── <textarea> → multi-line text-input-like Group ──
@@ -3482,7 +4752,7 @@ ${indent}</group>`;
         const placeholder = el.getAttribute('placeholder') || '';
         const text = (el.textContent || '').trim() || placeholder;
         const taAttrs: string[] = [];
-        taAttrs.push(`nodeLabel="${escapeXml(placeholder || 'textarea')}"`);
+        taAttrs.push(`nodeLabel="${escapeXml(declaredControlLabel(el) || placeholder || 'textarea')}"`);
         if (styles.width) taAttrs.push(`width="${styles.width}"`); else taAttrs.push('width="100%"');
         if (styles.height) taAttrs.push(`height="${styles.height}"`); else taAttrs.push('height="100px"');
         if (styles.backgroundColor) taAttrs.push(`backgroundColor="${styles.backgroundColor}"`);
@@ -3503,11 +4773,27 @@ ${indent}</group>`;
     }
 
     // ─── <select> → render the currently-selected option as a styled dropdown-like Group ──
+    // <select> → NATIVE Dropdown (net.xgenia.controls.options). Was a decorative
+    // Group + selected-text + chevron mockup (not openable, no options, no value
+    // to wire; trace 1784123058362: a Role dropdown became @Admin, a Group). The
+    // XML pipeline maps <dropdown>/<select> to the native options node and JSON-
+    // parses its `items` attr (ARRAY_PORTS); item shape is [{Label, Value}].
     if (tag === 'select') {
-        const selectedOption = el.querySelector('option[selected]') || el.querySelector('option');
-        const selectedText = selectedOption ? (selectedOption.textContent || '').trim() : '';
+        const optionEls = Array.from(el.querySelectorAll('option'));
+        const items = optionEls.map((o) => {
+            const text = (o.textContent || '').trim();
+            const val = o.getAttribute('value');
+            return { Label: text || val || '', Value: val !== null ? val : text };
+        }).filter((it) => it.Label !== '' || it.Value !== '');
+        const selectedOption = el.querySelector('option[selected]') || optionEls[0];
+        const selectedValue = selectedOption
+            ? (selectedOption.getAttribute('value') ?? (selectedOption.textContent || '').trim())
+            : '';
         const selAttrs: string[] = [];
-        selAttrs.push(`nodeLabel="${escapeXml(selectedText || 'select')}"`);
+        const selectedText = selectedOption ? (selectedOption.textContent || '').trim() : '';
+        selAttrs.push(`nodeLabel="${escapeXml(declaredControlLabel(el) || selectedText || 'select')}"`);
+        if (items.length) selAttrs.push(`items="${escapeXml(JSON.stringify(items))}"`);
+        if (selectedValue) selAttrs.push(`value="${escapeXml(selectedValue)}"`);
         if (styles.width) selAttrs.push(`width="${styles.width}"`); else selAttrs.push('width="100%"');
         if (styles.height) selAttrs.push(`height="${styles.height}"`); else selAttrs.push('height="40px"');
         selAttrs.push(`backgroundColor="${styles.backgroundColor || 'rgba(255,255,255,0.05)'}"`);
@@ -3515,14 +4801,9 @@ ${indent}</group>`;
         selAttrs.push('borderWidth="1"', 'borderStyle="solid"');
         selAttrs.push(`borderColor="${styles.borderColor || 'rgba(255,255,255,0.15)'}"`);
         addPositionAttrs(styles, selAttrs);
-        selAttrs.push('paddingLeft="12"', 'paddingRight="12"', 'paddingTop="8"', 'paddingBottom="8"');
-        selAttrs.push('flexDirection="row"', 'alignItems="center"', 'justifyContent="space-between"');
-        if (styles.styleCss) selAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
-        const labelXml = selectedText
-            ? `${indent}  <text nodeLabel="${escapeXml(selectedText.substring(0, 30))}" text="${escapeXml(selectedText)}" color="${styles.color || '#FFFFFF'}" fontSize="${styles.fontSize || 14}" sizeMode="contentSize" flexGrow="0" flexShrink="0" />`
-            : '';
-        const chevronXml = `${indent}  <text nodeLabel="chevron" text="▾" color="rgba(255,255,255,0.6)" fontSize="14" sizeMode="contentSize" flexGrow="0" flexShrink="0" />`;
-        return `${indent}<group ${selAttrs.join(' ')}>\n${labelXml ? labelXml + '\n' : ''}${chevronXml}\n${indent}</group>`;
+        const selCss = `${styles.color ? `color: ${styles.color};` : ''}${styles.styleCss || ''}`;
+        if (selCss) selAttrs.push(`styleCss="${escapeXml(selCss)}"`);
+        return `${indent}<dropdown ${selAttrs.join(' ')} />`;
     }
 
     // ─── <table>, <thead>, <tbody>, <tfoot> → flex column Group of rows ──
@@ -3537,7 +4818,7 @@ ${indent}</group>`;
         addBorderRadiusAttrs(styles, tblAttrs);
         if (styles.borderWidth) {
             tblAttrs.push(`borderWidth="${styles.borderWidth}"`);
-            tblAttrs.push('borderStyle="solid"');
+            tblAttrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
         }
         if (styles.borderColor) tblAttrs.push(`borderColor="${styles.borderColor}"`);
         if (styles.styleCss) tblAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
@@ -3656,7 +4937,7 @@ ${indent}</group>`;
         addBorderRadiusAttrs(styles, detailsAttrs);
         if (styles.borderWidth) {
             detailsAttrs.push(`borderWidth="${styles.borderWidth}"`);
-            detailsAttrs.push('borderStyle="solid"');
+            detailsAttrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
         }
         if (styles.borderColor) detailsAttrs.push(`borderColor="${styles.borderColor}"`);
         addPositionAttrs(styles, detailsAttrs);
@@ -3772,6 +5053,7 @@ ${indent}</group>`;
                 }
             } else {
                 const translated = translateNode(child, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
+                const translated = translateNode(child, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
                 if (translated) children.push(translated);
             }
         }
@@ -3790,13 +5072,52 @@ ${indent}</group>`;
         if (styles._gridCols && styles._gridCols > 0) {
             const gridCols = styles._gridCols;
 
-            // Collect col-span values for each child
+            // ─── AN ABSOLUTE CHILD IS NOT A GRID ITEM ───────────────────────────
+            // (2026-08-11, export 1786484389484, user: "the reels in the middle were the
+            // wrong size") A slot screen declared `grid grid-cols-5` holding five reels AND
+            // four `absolute` separator strips. In CSS an absolutely-positioned child of a
+            // grid is out of flow and occupies NO cell — which is why the source renders as
+            // one row of five. This chunker counted all nine, so 9 children / 5 columns gave
+            //
+            //     layoutString "1 1 1 1 1"   then   "1 1 1 1"
+            //
+            // — two rows of reel/separator/reel/separator/reel, and the reel strip collapsed.
+            //
+            // In-flow children decide the tracks; the absolute ones are hung on the wrapper
+            // group below, which carries the container's `position: relative` and so remains
+            // their containing block.
+            const isAbsoluteChild = (childEl: HTMLElement): boolean => {
+                const cls = childEl.getAttribute('class') || '';
+                if (/(?:^|\s)(?:sm:|md:|lg:|xl:|2xl:)?(?:absolute|fixed)(?=\s|$)/.test(cls)) return true;
+                const inline = childEl.getAttribute('style') || '';
+                return /position\s*:\s*(?:absolute|fixed)/i.test(inline);
+            };
+            const flowIdx: number[] = [];
+            const absoluteIdx: number[] = [];
+            Array.from(el.children).forEach((childNode, i) => {
+                (isAbsoluteChild(childNode as HTMLElement) ? absoluteIdx : flowIdx).push(i);
+            });
+
+            // Collect col-span values for each IN-FLOW child
             const childSpans: number[] = [];
-            for (const childNode of Array.from(el.children)) {
-                const childEl = childNode as HTMLElement;
+            for (const i of flowIdx) {
+                const childEl = el.children[i] as HTMLElement;
                 const childClasses = (childEl.getAttribute('class') || '');
-                const spanMatch = childClasses.match(/(?:^|\s)(?:sm:|md:|lg:|xl:|2xl:)?col-span-(\d+)(?:\s|$)/);
-                childSpans.push(spanMatch ? parseInt(spanMatch[1]) : 1);
+                // LAST match, not first. (2026-08-11) A real imported page declared
+                // `col-span-1 md:col-span-8` — 1 column on mobile, 8 on desktop. Matching the
+                // first occurrence took the MOBILE value, so a 12-column bento grid with
+                // 8/4/4/8 spans came out as `layoutString="1 1 1 1"`: four equal cards in one
+                // row, 807px of horizontal overflow, and every card's text clipped.
+                //
+                // Mobile-first ordering means the larger breakpoint appears later, so the last
+                // match is the desktop value — the same rule parseTailwindClasses already
+                // applies when it strips prefixes and lets later classes win. This collector
+                // reads the RAW class attribute and so never got that treatment.
+                // The trailing check is a LOOKAHEAD, not a consuming group: `(?:\s|$)` would eat
+                // the separator, so in `col-span-1 md:col-span-8` the second class could never
+                // match its own leading `(?:^|\s)` and only the mobile value was ever seen.
+                const spans = [...childClasses.matchAll(/(?:^|\s)(?:sm:|md:|lg:|xl:|2xl:)?col-span-(\d+)(?=\s|$)/g)];
+                childSpans.push(spans.length > 0 ? parseInt(spans[spans.length - 1][1]) : 1);
             }
 
             // ─── Chunk children into rows based on gridCols ──────
@@ -3805,8 +5126,10 @@ ${indent}</group>`;
             let currentRow: { childIndices: number[]; spans: number[] } = { childIndices: [], spans: [] };
             let currentRowSpan = 0;
 
-            for (let i = 0; i < children.length; i++) {
-                const span = i < childSpans.length ? childSpans[i] : 1;
+            for (let k = 0; k < flowIdx.length; k++) {
+                const i = flowIdx[k];
+                if (i >= children.length) continue;   // a child that produced no node
+                const span = k < childSpans.length ? childSpans[k] : 1;
                 if (currentRowSpan + span > gridCols && currentRow.childIndices.length > 0) {
                     // Start a new row
                     rows.push(currentRow);
@@ -3834,10 +5157,18 @@ ${indent}</group>`;
             };
 
             // ─── Single row: emit a single <columns> (no wrapper needed) ──
-            if (rows.length <= 1) {
-                const layoutString = childSpans.length > 0
-                    ? childSpans.join(' ')
-                    : Array(gridCols).fill('1').join(' ');
+            const outOfFlowXml = absoluteIdx.filter(i => i < children.length).map(i => children[i]);
+            if (rows.length <= 1 && outOfFlowXml.length === 0) {
+                // fr-ratio tracks (grid-template-columns: 2fr 1fr) → proportional
+                // layoutString "2 1". Only when no explicit col-span overrides.
+                const frTracks = styles._gridTracks;
+                const allFr = !!frTracks && frTracks.length > 0 && frTracks.every(t => /^[\d.]+fr$/.test(t));
+                const spansAllDefault = childSpans.every(sp => sp === 1);
+                const layoutString = (allFr && spansAllDefault)
+                    ? normalizeFrRatios(frTracks!.map(t => parseFloat(t))).join(' ')
+                    : childSpans.length > 0
+                        ? childSpans.join(' ')
+                        : Array(gridCols).fill('1').join(' ');
 
                 const colAttrs: string[] = [];
                 colAttrs.push(`nodeLabel="${escapeXml(label + ' columns')}"`);
@@ -3850,7 +5181,7 @@ ${indent}</group>`;
                 if (styles.borderRadius) colAttrs.push(`borderRadius="${styles.borderRadius}"`);
                 if (styles.borderWidth) {
                     colAttrs.push(`borderWidth="${styles.borderWidth}"`);
-                    colAttrs.push('borderStyle="solid"');
+                    colAttrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
                 }
                 if (styles.borderColor) colAttrs.push(`borderColor="${styles.borderColor}"`);
                 if (styles.opacity !== undefined) colAttrs.push(`opacity="${styles.opacity}"`);
@@ -3862,6 +5193,8 @@ ${indent}</group>`;
                 if (styles.height) colAttrs.push(`height="${styles.height}"`);
                 addPositionAttrs(styles, colAttrs);
                 if (styles.styleCss) colAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+                // Columns is a react-component node → universal cssClassName port exists
+                if (styles.cssClassName) colAttrs.push(`cssClassName="${styles.cssClassName}"`);
 
                 if (children.length === 0) {
                     return `${indent}<columns ${colAttrs.join(' ')} />`;
@@ -3877,7 +5210,7 @@ ${indent}</group>`;
             if (styles.borderRadius) wrapperAttrs.push(`borderRadius="${styles.borderRadius}"`);
             if (styles.borderWidth) {
                 wrapperAttrs.push(`borderWidth="${styles.borderWidth}"`);
-                wrapperAttrs.push('borderStyle="solid"');
+                wrapperAttrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
             }
             if (styles.borderColor) wrapperAttrs.push(`borderColor="${styles.borderColor}"`);
             if (styles.opacity !== undefined) wrapperAttrs.push(`opacity="${styles.opacity}"`);
@@ -3890,6 +5223,8 @@ ${indent}</group>`;
             if (styles.gap) wrapperAttrs.push(`rowGap="${styles.gap}"`);
             addPositionAttrs(styles, wrapperAttrs);
             if (styles.styleCss) wrapperAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
+            // Group is a react-component node → universal cssClassName port exists
+            if (styles.cssClassName) wrapperAttrs.push(`cssClassName="${styles.cssClassName}"`);
 
             const rowXmls: string[] = [];
             for (let r = 0; r < rows.length; r++) {
@@ -3903,7 +5238,11 @@ ${indent}</group>`;
                 }
             }
 
-            return `${indent}<group ${wrapperAttrs.join(' ')}>\n${rowXmls.join('\n')}\n${indent}</group>`;
+            // The out-of-flow children ride on the wrapper, not inside a track. The wrapper
+            // carries the container's position/border/background, so an `absolute` separator
+            // still positions against the same box it did in the source.
+            const wrapperChildren = [...rowXmls, ...outOfFlowXml];
+            return `${indent}<group ${wrapperAttrs.join(' ')}>\n${wrapperChildren.join('\n')}\n${indent}</group>`;
         }
 
         return `${indent}<group ${attrs.join(' ')}>${'\n'}${children.join('\n')}${'\n'}${indent}</group>`;
@@ -3929,7 +5268,77 @@ function getDirectText(el: HTMLElement): string {
     return text.trim();
 }
 
+/**
+ * Parse a solid CSS color into RGB (0-255). Supports #rgb/#rrggbb and
+ * rgb(r, g, b). Gradients, alpha (rgba/#rrggbbaa) and keywords return null —
+ * those keep the white default.
+ */
+function parseSolidCssColor(value: string): { r: number; g: number; b: number } | null {
+    const v = value.trim();
+    const hex = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(v);
+    if (hex) {
+        let h = hex[1];
+        if (h.length === 3) h = h.split('').map(c => c + c).join('');
+        return {
+            r: parseInt(h.slice(0, 2), 16),
+            g: parseInt(h.slice(2, 4), 16),
+            b: parseInt(h.slice(4, 6), 16),
+        };
+    }
+    const rgb = /^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/.exec(v);
+    if (rgb) {
+        return { r: parseInt(rgb[1]), g: parseInt(rgb[2]), b: parseInt(rgb[3]) };
+    }
+    return null;
+}
+
+/**
+ * Default text color for an element with no declared color: find the nearest
+ * self-or-ancestor with a declared background; if it's a resolvable solid,
+ * pick by relative luminance (light bg → dark text). Unknown/gradient/alpha
+ * backgrounds — and no background at all — keep the white default.
+ */
+function defaultTextColorFor(el: HTMLElement): string {
+    let node: HTMLElement | null = el;
+    while (node) {
+        const styleAttr = (typeof node.getAttribute === 'function' && node.getAttribute('style')) || '';
+        const bgDecl = /(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i.exec(styleAttr);
+        let declared: string | null = bgDecl ? bgDecl[1].trim() : null;
+        if (!declared) {
+            // Tailwind bg-… classes (standard palette + arbitrary hex values)
+            const classes = ((typeof node.getAttribute === 'function' && node.getAttribute('class')) || '').split(/\s+/);
+            for (const c of classes) {
+                const m = /^bg-(.+)$/.exec(c);
+                if (!m || m[1].startsWith('gradient')) continue;
+                const arb = /^\[(.+?)\]$/.exec(m[1]);
+                const resolved = arb ? arb[1] : resolveColor(m[1]);
+                if (resolved) { declared = resolved; break; }
+            }
+        }
+        if (declared) {
+            const rgb = parseSolidCssColor(declared);
+            if (!rgb) return '#FFFFFF'; // gradient/alpha/unknown → keep white
+            const lum = (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
+            return lum > 0.6 ? '#1A1A1A' : '#FFFFFF';
+        }
+        node = node.parentElement;
+    }
+    return '#FFFFFF';
+}
+
 function createTextNode(el: HTMLElement, tag: string, text: string, styles: ParsedStyles, indent: string): string {
+    // Monospace defaults for code/keyboard/sample typographic tags.
+    if (!styles.fontFamily && (tag === 'code' || tag === 'kbd' || tag === 'samp' || tag === 'var')) {
+        styles = { ...styles, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' };
+    }
+    // <mark> default: yellow highlight bg.
+    if (tag === 'mark' && !styles.backgroundColor) {
+        styles = { ...styles, backgroundColor: '#fef08a', color: styles.color || '#0f172a' };
+    }
+    // <small>: 80% size.
+    if (tag === 'small' && !styles.fontSize) {
+        styles = { ...styles, fontSize: 12 };
+    }
     // Monospace defaults for code/keyboard/sample typographic tags.
     if (!styles.fontFamily && (tag === 'code' || tag === 'kbd' || tag === 'samp' || tag === 'var')) {
         styles = { ...styles, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' };
@@ -3948,7 +5357,8 @@ function createTextNode(el: HTMLElement, tag: string, text: string, styles: Pars
     const hasContainerStyles = styles.backgroundColor || styles.borderWidth || styles.borderRadius ||
         styles.borderTopLeftRadius !== undefined || styles.borderTopRightRadius !== undefined ||
         styles.borderBottomRightRadius !== undefined || styles.borderBottomLeftRadius !== undefined ||
-        styles.paddingTop || styles.paddingBottom || styles.paddingLeft || styles.paddingRight;
+        styles.paddingTop || styles.paddingBottom || styles.paddingLeft || styles.paddingRight ||
+        styles.marginTop || styles.marginBottom || styles.marginLeft || styles.marginRight;
     if (hasContainerStyles) {
         const wrapperAttrs: string[] = [];
         wrapperAttrs.push(`nodeLabel="${escapeXml(generateNodeLabel(el, tag, text) + ' pill')}"`);
@@ -3962,14 +5372,18 @@ function createTextNode(el: HTMLElement, tag: string, text: string, styles: Pars
         addBorderRadiusAttrs(styles, wrapperAttrs);
         if (styles.borderWidth) {
             wrapperAttrs.push(`borderWidth="${styles.borderWidth}"`);
-            // FIX (2026-03-10): XGENIA defaults borderStyle to none — must set solid.
-            wrapperAttrs.push('borderStyle="solid"');
+            // FIX (2026-03-10): XGENIA defaults borderStyle to none — must set it.
+            wrapperAttrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
         }
         if (styles.borderColor) wrapperAttrs.push(`borderColor="${styles.borderColor}"`);
         if (styles.paddingTop) wrapperAttrs.push(`paddingTop="${styles.paddingTop}"`);
         if (styles.paddingBottom) wrapperAttrs.push(`paddingBottom="${styles.paddingBottom}"`);
         if (styles.paddingLeft) wrapperAttrs.push(`paddingLeft="${styles.paddingLeft}"`);
         if (styles.paddingRight) wrapperAttrs.push(`paddingRight="${styles.paddingRight}"`);
+        if (styles.marginTop) wrapperAttrs.push(`marginTop="${styles.marginTop}"`);
+        if (styles.marginBottom) wrapperAttrs.push(`marginBottom="${styles.marginBottom}"`);
+        if (styles.marginLeft) wrapperAttrs.push(`marginLeft="${styles.marginLeft}"`);
+        if (styles.marginRight) wrapperAttrs.push(`marginRight="${styles.marginRight}"`);
         if (styles.opacity !== undefined) wrapperAttrs.push(`opacity="${styles.opacity}"`);
         // Transfer container-specific styleCss parts if needed
         if (styles.styleCss) wrapperAttrs.push(`styleCss="${escapeXml(styles.styleCss)}"`);
@@ -3989,6 +5403,10 @@ function createTextNode(el: HTMLElement, tag: string, text: string, styles: Pars
             paddingBottom: undefined,
             paddingLeft: undefined,
             paddingRight: undefined,
+            marginTop: undefined,
+            marginBottom: undefined,
+            marginLeft: undefined,
+            marginRight: undefined,
             styleCss: undefined,
             opacity: undefined,
             flexDirection: undefined,
@@ -4017,11 +5435,13 @@ function createTextNode(el: HTMLElement, tag: string, text: string, styles: Pars
         attrs.push('fontWeight="700"');
     }
 
-    // Color
+    // Color — luminance-aware default. The blanket '#FFFFFF' default made text
+    // invisible on light backgrounds (white-on-white). Walk the DOM for the
+    // nearest declared solid background and pick dark text when it's light.
     if (styles.color) {
         attrs.push(`color="${styles.color}"`);
     } else {
-        attrs.push('color="#FFFFFF"'); // Dark theme default
+        attrs.push(`color="${defaultTextColorFor(el)}"`);
     }
 
     // All text nodes should use contentSize so they center properly in parent containers.
@@ -4041,15 +5461,27 @@ function createTextNode(el: HTMLElement, tag: string, text: string, styles: Pars
     if (styles.lineHeight) {
         // XGENIA treats lineHeight as a dimension (px). CSS unitless ratios like 1.25
         // must be converted to px by multiplying with fontSize.
-        const lhValue = parseFloat(styles.lineHeight);
-        if (!isNaN(lhValue) && lhValue < 10) {
-            // Unitless ratio (e.g., 1.25, 1.625) — convert to px
+        let lhRaw: string = String(styles.lineHeight);
+        // CSS PERCENTAGE line-height (e.g. 150%) is a ratio of font-size. Previously
+        // emitted verbatim as "150%", which the px-based lineHeight port can't parse
+        // → it silently fell back to "Auto" (trace 1784056805028: CardSubtitle/TrendText
+        // line-height:150% → "Auto"). Normalize % to the unitless-ratio form so the
+        // px conversion below applies (150% → 1.5 → 1.5*fontSize).
+        const pctM = /^([\d.]+)%$/.exec(lhRaw.trim());
+        if (pctM) lhRaw = String(parseFloat(pctM[1]) / 100);
+        const lhTrim = lhRaw.trim();
+        const lhValue = parseFloat(lhTrim);
+        // Only treat as a UNITLESS ratio when there's genuinely no unit (trace
+        // 1784942070260 #5): the old `parseFloat < 10` also fired on "8px" (→ 8*fontSize
+        // = 128px) and "1.5rem", because parseFloat silently drops the unit. Unitful
+        // values (29px, 1.5rem) are emitted as-is — the XML parser strips the unit.
+        const isUnitlessRatio = /^[\d.]+$/.test(lhTrim) && !isNaN(lhValue) && lhValue < 10;
+        if (isUnitlessRatio) {
             const fs = styles.fontSize || HEADING_SIZES[tag] || 16;
             const lhPx = Math.round(lhValue * fs);
             attrs.push(`lineHeight="${lhPx}"`);
         } else {
-            // Already a px value or large number — emit as-is
-            attrs.push(`lineHeight="${styles.lineHeight}"`);
+            attrs.push(`lineHeight="${lhRaw}"`);
         }
     }
     // Font style (italic)
@@ -4066,6 +5498,77 @@ function createTextNode(el: HTMLElement, tag: string, text: string, styles: Pars
     if (styles.cssClassName) attrs.push(`cssClassName="${styles.cssClassName}"`);
 
     return `${indent}<text ${attrs.join(' ')} />`;
+}
+
+/**
+ * Size an Image or a control node — and declare the sizeMode that makes the size REAL.
+ *
+ * ─── the bug this exists to end ─────────────────────────────────────────────
+ * (2026-08-08, export 1786162963547) A "Pirates in Space" lobby came back with 31 of its
+ * 62 elements rendering entirely outside the viewport and 8 more cut off by it. Measured:
+ *
+ *     @Image                       1024×1024  — 763px below the fold
+ *     net.xgenia.visual.columns     303×1036  — 767px below the fold
+ *
+ * 1024×1024 is the symbol PNG's own resolution. The image was rendering at its intrinsic
+ * size inside a 148px cell, which made the symbol strip 1036px tall, which pushed three
+ * quarters of the screen below the fold.
+ *
+ * The HTML was fine. The translator emitted `width="100%"` — and it did nothing, because
+ * `width` and `height` on an Image are DYNAMIC ports:
+ *
+ *     ImageNode: addDimensions(ImageNode, { defaultSizeMode: 'contentSize' })
+ *       widthCondition  = 'sizeMode = explicit OR sizeMode = contentHeight'
+ *       heightCondition = 'sizeMode = explicit OR sizeMode = contentWidth'
+ *
+ * With `defaultSizeMode: 'contentSize'` the `OR sizeMode NOT SET` clause is never added,
+ * so with sizeMode unset NEITHER PORT EXISTS. The attribute was written to a port that
+ * was not there and dropped without a word. `layout.js` then matched none of its
+ * explicit/contentWidth/contentHeight branches and set no size at all, leaving the
+ * browser to use the image's natural dimensions.
+ *
+ * Groups never showed this because Group's addDimensions() defaults to 'explicit', which
+ * DOES add `OR sizeMode NOT SET`. Image is the one node in the pipeline where sizing is
+ * conditional on a gatekeeper the translator never set — and images are the only elements
+ * whose intrinsic size is measured in thousands of pixels.
+ *
+ * So: declare the mode, always, and pick the one that matches which axes were authored.
+ * `explicit` fills a missing axis from the port default (100%), which is why one-axis
+ * images use the per-axis mode instead — an authored width with `explicit` would stretch
+ * the image to full parent height and squash it.
+ */
+function addGatedSizing(styles: ParsedStyles, attrs: string[], kind: 'image' | 'control'): void {
+    const hasW = !!styles.width;
+    const hasH = !!styles.height;
+    const isImage = kind === 'image';
+
+    if (hasW && hasH) {
+        attrs.push('sizeMode="explicit"');
+        attrs.push(`width="${styles.width}"`);
+        attrs.push(`height="${styles.height}"`);
+        // objectFit is itself gated on `sizeMode = explicit`, so it can only be honoured
+        // here. Default to `contain`: a fixed box with no fit rule distorts the artwork.
+        if (isImage) attrs.push(`objectFit="${styles.objectFit || 'contain'}"`);
+        return;
+    }
+    if (hasW) {
+        // Width authored, height from the content (an image's aspect ratio, a control's label).
+        attrs.push('sizeMode="contentHeight"');
+        attrs.push(`width="${styles.width}"`);
+        return;
+    }
+    if (hasH) {
+        attrs.push('sizeMode="contentWidth"');
+        attrs.push(`height="${styles.height}"`);
+        return;
+    }
+    // Neither authored. An image fills the parent's width and takes its height from the
+    // aspect — what the old bare `width="100%"` was reaching for and never achieved. A
+    // control with no authored size should hug its content, which contentSize already does.
+    if (isImage) {
+        attrs.push('sizeMode="contentHeight"');
+        attrs.push('width="100%"');
+    }
 }
 
 /**
@@ -4148,6 +5651,70 @@ function addContainerAttrs(styles: ParsedStyles, attrs: string[]): void {
         if (!styles.height) styles.height = '100%';
     }
 
+    // ─── ABSOLUTE OFFSETS → alignX/alignY + transformX/transformY ───────────────
+    // (2026-07-31, exports 1785455504098 / 1785459401956)
+    //
+    // `left`/`top`/`right`/`bottom` were parsed into `styles` and then never emitted —
+    // outside the inset-0 case above, nothing downstream reads them. So an authored
+    // `position:absolute; left:340px; top:1232px` reached the graph as a bare absolute
+    // node with no offset, and the engine parked it in the corner:
+    //
+    //     alignX = alignX || 'left';                       // viewer layout.align
+    //     if (alignX === 'left') safelySetStyle('left', 0) // unconditional overwrite
+    //
+    // Even had they been emitted, the engine would have discarded them — `safelySetStyle`
+    // is a plain `style[key] = value`, so an authored left never survives. The only
+    // offsets the engine honours are the transformX/transformY params ("Pos X"/"Pos Y"),
+    // which this translator has never produced.
+    //
+    // The consequence is bigger than a missing feature: absolute layout silently does not
+    // work, so the UI specialist can only express layout through nested flex — which is
+    // how a cabinet came to self-inflate to 1415px through a chain of flex-grow:100 Groups
+    // and got deleted, 43 nodes at a time, because no parameter could repair it.
+    //
+    // Emitting the anchor + offset pair makes absolute positioning real, which is what a
+    // fixed design canvas needs, and gives the generator a way to say "this goes HERE".
+    if (styles.position === 'absolute') {
+        const insetFill =
+            (styles as any).top === '0' && (styles as any).bottom === '0' &&
+            (styles as any).left === '0' && (styles as any).right === '0';
+        if (!insetFill) {
+            // "-12px" → -12 ; "12px" → 12 ; "50%" → null (handled as centring below)
+            const px = (v: unknown): number | null => {
+                if (v === undefined || v === null) return null;
+                const m = String(v).trim().match(/^(-?\d+(?:\.\d+)?)(px)?$/i);
+                return m ? Number(m[1]) : null;
+            };
+            const isHalf = (v: unknown) => String(v ?? '').trim() === '50%';
+
+            const L = (styles as any).left, R = (styles as any).right;
+            const T = (styles as any).top, B = (styles as any).bottom;
+
+            // Horizontal. `right` anchors to the right edge, so its offset runs inward —
+            // i.e. negative in transform space.
+            if (isHalf(L)) {
+                attrs.push(`alignX="center"`);
+            } else if (px(L) !== null) {
+                attrs.push(`alignX="left"`);
+                if (px(L) !== 0) attrs.push(`transformX="${px(L)}"`);
+            } else if (px(R) !== null) {
+                attrs.push(`alignX="right"`);
+                if (px(R) !== 0) attrs.push(`transformX="${-(px(R) as number)}"`);
+            }
+
+            // Vertical, same rule with bottom.
+            if (isHalf(T)) {
+                attrs.push(`alignY="center"`);
+            } else if (px(T) !== null) {
+                attrs.push(`alignY="top"`);
+                if (px(T) !== 0) attrs.push(`transformY="${px(T)}"`);
+            } else if (px(B) !== null) {
+                attrs.push(`alignY="bottom"`);
+                if (px(B) !== 0) attrs.push(`transformY="${-(px(B) as number)}"`);
+            }
+        }
+    }
+
     // ─── Native commonUIParams (units handled by runtime) ───────
     // gap → split into rowGap + columnGap (both native commonUIParams,
     // and in isDimensionParameter — runtime handles unit parsing)
@@ -4195,8 +5762,54 @@ function addContainerAttrs(styles: ParsedStyles, attrs: string[]): void {
         } else {
             attrs.push('sizeMode="contentSize"');
         }
-    } else {
+    } else if (styles.width && styles.height) {
         attrs.push('sizeMode="explicit"');
+    } else if (styles.flexGrow) {
+        // One axis explicit + flex-grow: let the flex engine own the main axis; the
+        // authored axis is emitted above. Don't force explicit (would fill the missing
+        // axis to the 100% port default).
+    } else {
+        // ASYMMETRIC SIZE (trace 1784942070260): only ONE axis is authored. `explicit`
+        // fills the MISSING axis from the engine's port default (height defaults to
+        // 100%), so a width-only container becomes full-parent-height and centers its
+        // children with huge gaps. Use the per-axis mode so the unset axis hugs content.
+        //
+        // ─── BUT THE TWO AXES ARE NOT SYMMETRIC IN CSS ──────────────────────────
+        // (2026-08-10, export 1786410845480, user: "it sets the width to explicit height
+        // instead of width based")
+        //
+        //     <div id="ControlDeck" class="flex flex-col" style="height:288px">   ← no width
+        //
+        // came out `sizeMode="contentWidth"` — a full-bleed bottom control deck that hugs
+        // its content instead of spanning the screen. In CSS an unset CROSS size plus the
+        // default `align-items: stretch` FILLS the parent, which is why the same markup is
+        // correct in a browser. Only the MAIN axis is content-sized when unset.
+        //
+        //   • width authored, height absent  → `height: auto` = content height. contentHeight
+        //     is right, in either direction.
+        //   • height authored, width absent  → in a COLUMN parent CSS stretches the width;
+        //     only in a ROW parent (where width is the main axis) is it content-sized.
+        //
+        // XGENIA's Group.alignItems enum has no `stretch`, so the stretch cannot be expressed
+        // by aligning — it has to become an explicit width="100%".
+        //
+        // ─── WHY THAT CORRECTION IS NOT MADE HERE ───────────────────────────────
+        // It needs the PARENT's flex-direction, and `addContainerAttrs(styles, attrs)` has no
+        // parent context — `styles` describes this element alone. So the correction lives
+        // downstream in the plugin's `fixPerAxisSizeMode` (HTMLUICreationTool.ts), which walks
+        // a tag stack and therefore knows what each node is nested in.
+        //
+        // THE TRAP, and the reason this comment is long: that function keys on
+        // `sizeMode="explicit"`, because when it was written THIS branch emitted `explicit`
+        // and it did the per-axis split itself. Teaching this line to emit the per-axis mode
+        // directly silently switched the downstream correction off, and export 1786410845480
+        // came back with a full-bleed control deck hugging its content. It now normalises
+        // `contentWidth`-with-no-width back to `explicit` before applying the rule, so the two
+        // layers agree again.
+        //
+        // If you change what this line emits, change `fixPerAxisSizeMode` in the same commit —
+        // or thread parent direction into this function and move the whole rule here.
+        attrs.push(styles.width ? 'sizeMode="contentHeight"' : 'sizeMode="contentWidth"');
     }
     // Native commonUIParams (dimension constraints)
     if (styles.minWidth) attrs.push(`minWidth="${styles.minWidth}"`);
@@ -4209,8 +5822,8 @@ function addContainerAttrs(styles: ParsedStyles, attrs: string[]): void {
     addBorderRadiusAttrs(styles, attrs);
     if (styles.borderWidth) {
         attrs.push(`borderWidth="${styles.borderWidth}"`);
-        // XGENIA defaults border-style to none — must explicitly set solid
-        attrs.push('borderStyle="solid"');
+        // XGENIA defaults border-style to none — must explicitly set it
+        attrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
     }
     if (styles.borderColor) attrs.push(`borderColor="${styles.borderColor}"`);
     if (styles.opacity !== undefined) attrs.push(`opacity="${styles.opacity}"`);
@@ -4223,12 +5836,15 @@ function addContainerAttrs(styles: ParsedStyles, attrs: string[]): void {
         }
     }
 
-    // Transform origin — native XGENIA ports (from CSS translate)
+    // Transform origin — native XGENIA ports (from CSS translate).
+    // Emit the captured unit (trace 1784942070260 #4): the port defaultUnit is '%', so a
+    // bare "10" from a px translate rendered as 10% (the `_transformOrigin*Unit` field was
+    // captured but never used). Append it so px translates stay px.
     if (styles.transformOriginX !== undefined) {
-        attrs.push(`transformOriginX="${styles.transformOriginX}"`);
+        attrs.push(`transformOriginX="${styles.transformOriginX}${styles._transformOriginXUnit || ''}"`);
     }
     if (styles.transformOriginY !== undefined) {
-        attrs.push(`transformOriginY="${styles.transformOriginY}"`);
+        attrs.push(`transformOriginY="${styles.transformOriginY}${styles._transformOriginYUnit || ''}"`);
     }
 
     // ─── CSS FALLBACK props (string values — work as-is) ────────
@@ -4452,9 +6068,11 @@ function createButtonNode(
     // Extract clean text excluding icon fonts (material-icons etc.)
     const labelText = getButtonLabelText(el) || el.getAttribute('aria-label') || '';
 
-    // Use explicit nodeLabel/data-purpose/data-label for the XGENIA nodeLabel (AI targeting)
-    // but keep the text content as the displayed button label
+    // Use explicit nodeLabel/id/data-purpose/data-label for the XGENIA nodeLabel
+    // (AI targeting) but keep the text content as the displayed button label.
+    // id/aria-label added (trace 1784123058362) — declared identity beats caption.
     const explicitLabel = el.getAttribute('nodelabel') || el.getAttribute('nodeLabel')
+        || el.getAttribute('id') || el.getAttribute('aria-label')
         || el.getAttribute('data-purpose') || el.getAttribute('data-label')
         || el.getAttribute('data-name');
     attrs.push(`nodeLabel="${escapeXml(explicitLabel || labelText || 'Button')}"`);
@@ -4480,8 +6098,14 @@ function createButtonNode(
         groupAttrs.push('justifyContent="center"');
 
         // ─── Dimensions go to Group (visual container) ──────
-        if (styles.width || styles.height) {
+        // Per-axis size mode (trace 1784942070260): `explicit` fills a missing axis from
+        // the 100% port default, so a one-axis button wrapper balloons to full height.
+        if (styles.width && styles.height) {
             groupAttrs.push('sizeMode="explicit"');
+        } else if (styles.width) {
+            groupAttrs.push('sizeMode="contentHeight"');
+        } else if (styles.height) {
+            groupAttrs.push('sizeMode="contentWidth"');
         }
         if (styles.width) groupAttrs.push(`width="${styles.width}"`);
         if (styles.height) groupAttrs.push(`height="${styles.height}"`);
@@ -4517,7 +6141,7 @@ function createButtonNode(
         if (styles.borderRadius) groupAttrs.push(`borderRadius="${styles.borderRadius}"`);
         if (styles.borderWidth) {
             groupAttrs.push(`borderWidth="${styles.borderWidth}"`);
-            groupAttrs.push('borderStyle="solid"');
+            groupAttrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
         }
         if (styles.borderColor) groupAttrs.push(`borderColor="${styles.borderColor}"`);
         if (styles.opacity !== undefined) groupAttrs.push(`opacity="${styles.opacity}"`);
@@ -4588,12 +6212,42 @@ function createButtonNode(
         attrs.push(`iconIconSource='${iconSourceObj}'`);
         attrs.push(`iconPlacement="${iconInfo.placement}"`);
         attrs.push(`iconSize="${iconInfo.iconSize}"`);
-        if (iconInfo.iconColor) attrs.push(`iconColor="${iconInfo.iconColor}"`);
+        if (iconInfo.iconColor) {
+            attrs.push(`iconColor="${iconInfo.iconColor}"`);
+        } else if (styles.color) {
+            // INHERIT THE BUTTON'S TEXT COLOUR. (2026-08-11, export 1786483119240) A real page put a
+            // Material icon inside `<button class="text-primary …">`. The button resolved its
+            // own colour correctly — `color: "#bc0100"` — and then emitted no `iconColor` at
+            // all, so the port DEFAULT applied and the graph came out:
+            //
+            //     "color": "#bc0100",  "iconColor": "#FFFFFF"
+            //
+            // A white glyph on a white pill: the search and score icons were simply not there.
+            // In CSS the icon inherits `color` from the button, which is why the source looks
+            // right in a browser.
+            //
+            // The vertical icon+text path above ALREADY does this. This branch — the ordinary
+            // horizontal button, which is most of them — was the one missing it.
+            attrs.push(`iconColor="${styles.color}"`);
+        }
+    }
+
+    // (export 1784496045678) A button with NO text and NO icon used to emit neither
+    // `label` nor `useLabel` — the runtime defaults useLabel:true and renders the
+    // label port's DEFAULT string "Label". An intentionally bare/shaped <button>
+    // must render empty like its HTML source. Icon-only buttons are untouched
+    // (useIcon already set above).
+    if (!labelText && !iconInfo) {
+        attrs.push('useLabel="false"');
     }
 
     // ─── Dimensions ──────────────────────────────────────────
-    if (styles.width) attrs.push(`width="${styles.width}"`);
-    if (styles.height) attrs.push(`height="${styles.height}"`);
+    // (2026-08-08) These used to be bare, and every one of them was dropped: Button's
+    // addDimensions defaults to `contentSize`, so its width/height ports do not exist
+    // until sizeMode says otherwise. The emulator reported it as
+    //     SPIN: width="220px" never landed
+    // which is why authored button sizes were being ignored in favour of hugging the label.
+    addGatedSizing(styles, attrs, 'control');
     if (styles.minWidth) attrs.push(`minWidth="${styles.minWidth}"`);
     if (styles.maxWidth) attrs.push(`maxWidth="${styles.maxWidth}"`);
     if (styles.minHeight) attrs.push(`minHeight="${styles.minHeight}"`);
@@ -4626,8 +6280,8 @@ function createButtonNode(
     addBorderRadiusAttrs(styles, attrs);
     if (styles.borderWidth) {
         attrs.push(`borderWidth="${styles.borderWidth}"`);
-        // XGENIA defaults border-style to none — must explicitly set solid
-        attrs.push('borderStyle="solid"');
+        // XGENIA defaults border-style to none — must explicitly set it
+        attrs.push(`borderStyle="${styles.borderStyle || 'solid'}"`);
     }
     if (styles.borderColor) attrs.push(`borderColor="${styles.borderColor}"`);
     if (styles.opacity !== undefined) attrs.push(`opacity="${styles.opacity}"`);
@@ -4675,6 +6329,48 @@ function addPositionAttrs(styles: ParsedStyles, attrs: string[]): void {
         if (cssProp === 'bottom') hasBottom = true;
 
         const str = String(val);
+        // ─── A PERCENTAGE MARGIN IS NOT A PERCENTAGE OFFSET ─────────────────
+        // (2026-08-14, export 1786676064449, found by the AI's own report) In CSS, a percentage
+        // margin resolves against the containing block's WIDTH — on BOTH axes. `margin-top: 81.3%`
+        // on a 995px-wide stage is 809px, not 81.3% of its height. `top: 81.3%` on the same stage
+        // is 524px. So converting a percentage `top` into `marginTop` displaces it by exactly the
+        // parent's aspect ratio, and the error grows with the percentage: elements near the top
+        // look about right and anything near the bottom is flung off the screen.
+        //
+        // That is the layout fault behind every scattered screen in this run — a control bar at
+        // top:81.3% landed 164px below a 645px viewport, and ui_layout_map reported 17 elements
+        // off-screen. It compounds with, and is larger than, the key-art aspect problem.
+        //
+        // ─── AND THE ENGINE SUBTRACTS THE MARGIN FROM THE SIZE ──────────────
+        // (2026-08-14, export 1786678999496, again from the AI's own report) The first version of
+        // this fix rerouted only top/bottom, on the reasoning that CSS `left: X%` and
+        // `margin-left: X%` both resolve against width so the horizontal conversion was exact.
+        // That reasoning was about CSS. The engine does not use CSS margin semantics:
+        //
+        //   packages/xgenia-viewer-react/src/layout.js, size(), position !== 'relative':
+        //     if (isPercentage(style.width))  width  = calc(width  - marginLeft - marginRight)
+        //     if (isPercentage(style.height)) height = calc(height - marginTop  - marginBottom)
+        //
+        // A percentage margin is SUBTRACTED FROM THE SIZE. So `width:20%` with `marginLeft:70%`
+        // becomes `calc(-50%)` and the element is 0px wide. Measured live in that export:
+        // `@ZeusCharacter width: calc(-33%)` rendering 0×580, and `@HudPlate height: calc(-65%)`
+        // rendering 526×0 at y=932.
+        //
+        // So every percentage inset is rerouted, both axes. styleCss is the faithful route — it is
+        // what the author wrote — and it wins over the engine's default `left:0`/`top:0` for
+        // absolute elements, verified in real Chromium (an element at top:95% clips at the bottom
+        // of the viewport rather than sitting at the top).
+        //
+        // px and vh/vw are deliberately untouched. They feed the same subtraction, so `calc(30% -
+        // 24px)` is also slightly wrong — but that is a shrink of a fixed amount, not a collapse to
+        // zero, and px offsets are load-bearing all over existing projects. Separate change.
+        const isPercentInset = str.trim().endsWith('%');
+        if (isPercentInset) {
+            styles.styleCss = (styles.styleCss || '') + `${cssProp}: ${str};`;
+            // No margin emitted: writing both would apply the offset twice.
+            (styles as any)[xgeniaProp] = undefined;
+            continue;
+        }
         if (str.includes('%') || str.includes('vh') || str.includes('vw')) {
             // Percentage/viewport values → emit as native margin with unit
             attrs.push(`${xgeniaProp}="${str}"`);

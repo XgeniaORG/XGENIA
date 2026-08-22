@@ -9,6 +9,9 @@ import React, {
 } from 'react';
 
 import { ComponentModel } from '@xgenia-models/componentmodel';
+// Kept for the commented-out Cloud Functions panel switches in _update() below;
+// its only remaining uses are in those comments.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { isComponentModel_CloudRuntime } from '@xgenia-utils/NodeGraph';
 
@@ -46,6 +49,17 @@ export class NodeGraphContextTmp {
     // Webview is set by CanvasView._setupWebview() for AI tools like get_rendered_output
     public static webview: Electron.WebviewTag | null = null;
 }
+
+// Publish the class as a global. Bridge-style consumers that cannot import editor
+// modules directly read it off `window` — EditorBridge.ts (`component.switchTo`,
+// the AI's "open this component") and NodeCreationService.ts both do. Neither
+// assignment existed, so both reads were permanently `undefined` and took their
+// fallback path: `component.switchTo` fell through to `setActiveComponent()`,
+// which its own comment describes as a "model-only switch (no UI update)" — the
+// AI would switch to a component and the editor would carry on showing the
+// previous one. The statics are assigned by the provider effect below, so this
+// exposes the live values, not a snapshot.
+(window as any).NodeGraphContextTmp = NodeGraphContextTmp;
 
 // ------------------------------
 // NodeGraphContextProvider Component
@@ -99,14 +113,19 @@ export function NodeGraphContextProvider({ children }: NodeGraphContextProviderP
         function _update(model: ComponentModel) {
             if (isComponentModel_CloudRuntime(model)) {
                 setActive('backend');
-                if (SidebarModel.instance.ActiveId === 'components') {
-                    SidebarModel.instance.switch('cloud-functions');
-                }
+                // Cloud Functions sidebar entry is commented out in router.setup.ts,
+                // so 'cloud-functions' no longer resolves to a registered panel:
+                // switching to it would only throw inside SidebarModel.switch() and
+                // log an error. Uncomment both switches together with that
+                // registration.
+                // if (SidebarModel.instance.ActiveId === 'components') {
+                //     SidebarModel.instance.switch('cloud-functions');
+                // }
             } else {
                 setActive('frontend');
-                if (SidebarModel.instance.ActiveId === 'cloud-functions') {
-                    SidebarModel.instance.switch('components');
-                }
+                // if (SidebarModel.instance.ActiveId === 'cloud-functions') {
+                //     SidebarModel.instance.switch('components');
+                // }
             }
         }
 
