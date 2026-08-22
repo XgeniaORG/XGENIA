@@ -9,12 +9,12 @@
  */
 
 // GPL model imports (this file intentionally lives in GPL code)
-import { ProjectModel } from '@xgenia-models/projectmodel';
+//
+// The develop merge (952bf91) duplicated most of this block and, while doing it, dropped
+// setProjectBaseStyle / setProjectGlobalStylePrompt from the ProjectStylesPanel import — both are
+// still called below, which is why tsc reported them as undefined names.
 import ThumbnailCache from '@xgenia-utils/thumbnailcache';
 import { isBloatPort, isTooLargeToSerialize, unwrapValueUnit, portUnitInfo } from './serialize-param-guard';
-import { NodeLibrary } from '@xgenia-models/nodelibrary';
-import { UndoQueue, UndoActionGroup } from '@xgenia-models/undo-queue-model';
-import { SidebarModel } from '@xgenia-models/sidebar';
 import { recordAssetProvenance, loadAssetMeta, migrateAssetMeta } from '../AssetPanel/assetMeta';
 import { reconcileGraphAssetRefs } from '../AssetPanel/assetGraphRefs';
 import { ComponentModel } from '@xgenia-models/componentmodel';
@@ -30,11 +30,12 @@ import { supabase } from '../../../supabaseInit';
 import {
     addProjectPalette,
     clearProjectBaseStyle,
+    getProjectBaseStyleId,
     getProjectBaseStyleUrl,
     getProjectGlobalStylePrompt,
     getProjectPalettes,
-    addProjectPalette,
-    getProjectBaseStyleId
+    setProjectBaseStyle,
+    setProjectGlobalStylePrompt,
 } from '../ProjectStylesPanel/ProjectStylesPanel';
 
 interface PluginCommand {
@@ -648,10 +649,8 @@ export class EditorBridge {
 
 
         h('html.translate', ([html, options]: [string, { omitRootWrapper?: boolean }?]) => {
-        h('html.translate', ([html, options]: [string, { omitRootWrapper?: boolean }?]) => {
             try {
                 const { translateHtmlToXgeniaXml } = require('../../EditorTopbar/html-translator');
-                return translateHtmlToXgeniaXml(html, options);
                 return translateHtmlToXgeniaXml(html, options);
             } catch (err: any) {
                 console.error('[EditorBridge] html.translate failed:', err.message);
@@ -739,24 +738,6 @@ export class EditorBridge {
                     }
                 }
 
-                // 2026-05-23 (BUG 76 fix, bridge half): refuse to create a
-                // ComponentInstance whose target is the currently active
-                // component. That produces a graph where the component
-                // contains itself; every getPorts()/forEachNode pass on it
-                // then recurses forever and crashes the editor with a
-                // stack overflow. Trace 2026-05-23 13:25 hit this when an
-                // AI passed `componentName: "/#__maths__/WildDoomMaths"`
-                // as the node type while the active component WAS
-                // /#__maths__/WildDoomMaths.
-                if (typeof nodeType === 'string' && nodeType.startsWith('/')) {
-                    const activeName = (graph as any)?.name || (graph as any)?.path || (graph as any)?.fullName;
-                    if (activeName && nodeType === activeName) {
-                        const msg = `Refusing to create ComponentInstance of "${nodeType}" inside itself — would produce a circular component reference that crashes the editor with a stack overflow on the next port lookup.`;
-                        console.error('[EditorBridge] graph.createNode SELF-INSTANCE BLOCKED:', msg);
-                        throw new Error(msg);
-                    }
-                }
-
                 // Use the canonical NodeGraphNode.fromJSON() pattern
                 // This is how XGENIA itself creates nodes (see NodeGraphModel.fromJSON)
                 const nodeId = guid();
@@ -798,38 +779,6 @@ export class EditorBridge {
                                 try { node.addPort({ name: p.name, plug: p.plug, type: p.type }); } catch { /* some nodes reject duplicates silently */ }
                             }
                         }
-                    }
-
-                    // FIX (2026-05-04): Hydrate PARAMETER DEFAULTS from the type's inputs schema.
-                    // Without this, hand-built pixi.ReelColumn / pixi.ReelCell nodes come out missing
-                    // animation params (spinSpeed, stopStyle, motionBlur, cellWidth, etc) — the
-                    // defaults are declared on type.inputs[key].default but fromJSON doesn't apply
-                    // them. The reel only animates correctly when a PixiReelController with
-                    // autoLayout cascades these values, which the AI doesn't always set up.
-                    // Apply any default that the node doesn't already have a value for.
-                    try {
-                        const inputs = type?.inputs;
-                        if (inputs && typeof inputs === 'object') {
-                            for (const paramName of Object.keys(inputs)) {
-                                const def = inputs[paramName];
-                                if (!def || def.default === undefined) continue;
-                                // Only set when the node doesn't already carry a value for this param
-                                const existing = (node as any).parameters?.[paramName];
-                                if (existing !== undefined && existing !== null) continue;
-                                try {
-                                    if (typeof (node as any).setParameter === 'function') {
-                                        (node as any).setParameter(paramName, def.default);
-                                    } else if ((node as any).parameters) {
-                                        (node as any).parameters[paramName] = def.default;
-                                    }
-                                } catch (perParamErr) {
-                                    // Some setters validate input strictly — skip on rejection
-                                    console.debug(`[EditorBridge] Default for ${typeName}.${paramName} rejected:`, (perParamErr as any)?.message);
-                                }
-                            }
-                        }
-                    } catch (paramHydrateErr: any) {
-                        console.warn('[EditorBridge] Parameter default hydration failed (non-fatal):', paramHydrateErr?.message);
                     }
 
                     // FIX (2026-05-04): Hydrate PARAMETER DEFAULTS from the type's inputs schema.
@@ -1308,21 +1257,7 @@ export class EditorBridge {
                 : connectionId.indexOf('->');
             const arrowLen = connectionId.includes('→') ? 1 : 2;
             if (!conn && arrowIdx > 0) {
-            // Strategy 2: Parse semantic format "fromId:fromProperty→toId:toProperty".
-            // 2026-06-01 (xgenia-debug-export-1779795859929 fix): also accept the
-            // ASCII "->" arrow. The edit_js_function_node ghost-cleanup path uses
-            // `conn.id` first (line 1748), and many GPL-side connection.id strings
-            // are built with "->", so the previous "→"-only branch rejected them
-            // outright and we threw "Connection not found" for connections that
-            // genuinely existed. Trace 2026-05-26 11:44 had four SpinResult /
-            // WinAmount / SpecialReel / CashCollect ghost-removals all fall here.
-            const arrowIdx = connectionId.indexOf('→') >= 0
-                ? connectionId.indexOf('→')
-                : connectionId.indexOf('->');
-            const arrowLen = connectionId.includes('→') ? 1 : 2;
-            if (!conn && arrowIdx > 0) {
                 const fromPart = connectionId.substring(0, arrowIdx);
-                const toPart = connectionId.substring(arrowIdx + arrowLen);
                 const toPart = connectionId.substring(arrowIdx + arrowLen);
                 const fColonIdx = fromPart.indexOf(':');
                 const tColonIdx = toPart.indexOf(':');
@@ -1339,8 +1274,6 @@ export class EditorBridge {
             }
 
             // Fallback for corrupted connections (e.g., from old addConnection bug)
-            if (!conn && (connectionId === 'undefined:undefined→undefined:undefined'
-                       || connectionId === 'undefined:undefined->undefined:undefined')) {
             if (!conn && (connectionId === 'undefined:undefined→undefined:undefined'
                        || connectionId === 'undefined:undefined->undefined:undefined')) {
                 const corruptIdx = connections.findIndex((c: any) => !c || typeof c === 'string' || (!c.fromId && !c.id));

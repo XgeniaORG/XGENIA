@@ -371,7 +371,12 @@ const isLiveComponent = (versions: any[] | null, deploymentId: string, slug: str
     return live.deploymentId === deploymentId;
 };
 
-
+// Simulation-input configuration types. The develop merge (952bf91) kept the sim-config STATE and
+// its UI but dropped these definitions, so the panel referenced PortInfo / InputConfig / InputMode
+// that no longer existed anywhere — the TS2304s the dev server reported.
+interface PortInfo { name: string; type: string }
+type InputMode = 'rng' | 'fixed' | 'trigger' | 'off';
+interface InputConfig { mode: InputMode; value: number; rngMin?: number; rngMax?: number }
 
 export function MathsPanel() {
     const [settings, setSettings] = useState(getRgsSettings());
@@ -472,6 +477,14 @@ export function MathsPanel() {
     const [simAvailablePorts, setSimAvailablePorts] = useState<{ inputPorts: PortInfo[], outputPorts: PortInfo[] } | null>(null);
     const [simInputConfig, setSimInputConfig] = useState<Record<string, InputConfig>>({});
     const [pipelineStep, setPipelineStep] = useState<string | null>(null);
+
+    // Same merge casualty as the types above: the sim-config UI calls this on every input row.
+    const updateSimInputConfig = (portName: string, field: Partial<InputConfig>) => {
+        setSimInputConfig(prev => ({
+            ...prev,
+            [portName]: { ...(prev[portName] || { mode: 'rng', value: 0, rngMin: 1, rngMax: 100 }), ...field }
+        }));
+    };
 
     // Create Game modal state
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -1423,7 +1436,10 @@ export function MathsPanel() {
         }));
     }, [selectedGame]);
 
-    const handleUploadMathsComponent = useCallback(async (comp: any) => {
+    // `comp` is optional: the Maths Versions list passes the component it is showing, while the
+    // Test Configuration modal has no component in hand and relies on generateRgsScript picking
+    // the one open in the graph editor (the behaviour the pre-merge handleUploadTestDeploy had).
+    const handleUploadMathsComponent = useCallback(async (comp?: any) => {
         if (!settings?.apiKey) {
             setUploadStatus({ type: 'error', message: 'Not connected to XRGS.' });
             return;
@@ -1446,7 +1462,7 @@ export function MathsPanel() {
                 return;
             }
 
-            const result = xrgs.generateRgsScript(comp.name);
+            const result = xrgs.generateRgsScript(comp?.name);
             if (result.error) {
                 setUploadStatus({ type: 'error', message: result.error });
                 setUploading(false);
@@ -1517,9 +1533,15 @@ export function MathsPanel() {
                 message: `${deployedName} → v${testRun.version} tested (not live). RTP ${rtpStr} · Hit ${hitStr} · Max ${maxStr}`,
             });
         } catch (e: any) {
-            setActionStatus({ id, type: 'error', msg: e.message || 'Action failed' });
+            // The develop merge left this handler's tail belonging to a DIFFERENT function
+            // (`setActionStatus({ id, ... })` — `id` does not exist in this scope) and closed a
+            // useCallback with a bare `};`, which is the TS1005 the dev server reported.
+            setUploadStatus({ type: 'error', message: e?.message || 'Upload failed' });
+        } finally {
+            setUploading(false);
+            setPipelineStep(null);
         }
-    };
+    }, [settings, selectedGame, games, fetchMathsConfigs]);
 
 
     return (
@@ -2662,7 +2684,7 @@ export function MathsPanel() {
                                 }}
                             >Cancel</button>
                             <button
-                                onClick={handleUploadTestDeploy}
+                                onClick={() => { setShowTestConfigModal(false); handleUploadMathsComponent(); }}
                                 disabled={simCount < 1000}
                                 style={{
                                     padding: '8px 20px',
