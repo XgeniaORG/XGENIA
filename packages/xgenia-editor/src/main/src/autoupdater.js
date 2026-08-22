@@ -1,11 +1,8 @@
 const { dialog, ipcMain } = require('electron');
 const log = require('electron-log/main');
 const { autoUpdater } = require('electron-updater');
-const ProgressBar = require('electron-progressbar');
 
 function setupAutoUpdate(window) {
-
-
   if (process.env.autoUpdate === 'no') return;
 
   if (process.platform === 'linux') {
@@ -17,33 +14,15 @@ function setupAutoUpdate(window) {
 
   autoUpdater.logger.transports.file.level = 'info';
 
-  //Set autodownload to false (prevents the update from being downloaded automatically)
   autoUpdater.autoDownload = false;
 
-
-  let progressBar;
-  const createProgressBar = () => {
-    if (progressBar) return progressBar;
-    progressBar = new ProgressBar({
-      text: 'Preparing data...',
-      detail: 'Wait...',
-      abortOnError: true,
-      closeOnComplete: false,
-      browserWindow: {
-        alwaysOnTop: true
-      }
-    });
-    progressBar
-      .on('completed', function () {
-        progressBar.detail = 'Updates has been downloaded. We are preparing your install.';
-      })
-      .on('progress', function (value) {
-        progressBar.detail = `Value ${value} out of ${progressBar.getOptions().maxValue}...`;
-      });
-    return progressBar;
-  };
-
   let isDownloading = false;
+
+  const setProgress = (value) => {
+    if (window && !window.isDestroyed()) {
+      window.setProgressBar(value);
+    }
+  };
 
   function _checkForUpdates() {
     autoUpdater.checkForUpdates().catch((err) => {
@@ -51,6 +30,13 @@ function setupAutoUpdate(window) {
     });
   }
   _checkForUpdates();
+
+  if (process.env.TEST_UPDATE_FLOW === 'true') {
+    setTimeout(() => {
+      logger.info('[TEST] Simulating update-available');
+      autoUpdater.emit('update-available', { version: '999.0.0' });
+    }, 2000);
+  }
 
   autoUpdater.on('update-available', (event) => {
     logger.info('Update available: ' + event.version);
@@ -64,16 +50,32 @@ function setupAutoUpdate(window) {
       .then((res) => {
         if (res.response === 0) {
           isDownloading = true;
-          createProgressBar();
-          autoUpdater.downloadUpdate().catch((err) => {
-            isDownloading = false;
-            dialog.showErrorBox('Download Error', 'Failed to download update: ' + err.message);
-            logger.error('There has been an error downloading the update: ' + err);
-            if (progressBar) {
-              progressBar.close();
-              progressBar = undefined;
-            }
-          });
+          setProgress(0);
+
+          if (process.env.TEST_UPDATE_FLOW === 'true') {
+            let percent = 0;
+            const interval = setInterval(() => {
+              percent += 5;
+              autoUpdater.emit('download-progress', {
+                percent,
+                transferred: Math.round((percent / 100) * 20000000),
+                total: 20000000,
+                bytesPerSecond: 1000000
+              });
+              if (percent >= 100) {
+                clearInterval(interval);
+                logger.info('[TEST] Simulating update-downloaded');
+                autoUpdater.emit('update-downloaded');
+              }
+            }, 300);
+          } else {
+            autoUpdater.downloadUpdate().catch((err) => {
+              isDownloading = false;
+              setProgress(-1);
+              dialog.showErrorBox('Download Error', 'Failed to download update: ' + err.message);
+              logger.error('There has been an error downloading the update: ' + err);
+            });
+          }
         } else {
           logger.info('User chose to skip the update.');
         }
@@ -81,10 +83,11 @@ function setupAutoUpdate(window) {
   });
 
   autoUpdater.on('download-progress', (progressBarObj) => {
-    if (!progressBar) {
-      createProgressBar();
+    const percent = Number(progressBarObj?.percent);
+    if (Number.isFinite(percent)) {
+      setProgress(percent / 100);
+      logger.info(`Download progress: ${percent.toFixed(1)}%`);
     }
-    progressBar.value = progressBarObj.percent;
   });
 
   autoUpdater.on('error', (err) => {
@@ -93,19 +96,13 @@ function setupAutoUpdate(window) {
     }
     logger.error('Auto-updater error: ' + err.message);
     isDownloading = false;
-    if (progressBar) {
-      progressBar.close();
-      progressBar = undefined;
-    }
+    setProgress(-1);
   });
 
   autoUpdater.on('update-downloaded', () => {
     isDownloading = false;
+    setProgress(-1);
     logger.info('Update downloaded');
-    if (progressBar) {
-      progressBar.close();
-      progressBar = undefined;
-    }
     dialog
       .showMessageBox({
         type: 'info',
@@ -126,22 +123,23 @@ function setupAutoUpdate(window) {
     }
   });
 
-  autoUpdater.addListener("error", (error) => {
-    console.log('Auto update error', error);
-  });
-
   autoUpdater.addListener('update-not-available', () => {
-    setTimeout(() => {
-      _checkForUpdates();
-    }, 12 * 60 * 60 * 1000); // Check every 12 hours
+    setTimeout(
+      () => {
+        _checkForUpdates();
+      },
+      12 * 60 * 60 * 1000
+    );
   });
 
   autoUpdater.addListener('error', (event) => {
-    // There was an error while trying to update, try again
     console.log('Error while auto updating, trying again in a while...');
-    setTimeout(() => {
-      _checkForUpdates();
-    }, 12 * 60 * 60 * 1000); // Check every 12 hours
+    setTimeout(
+      () => {
+        _checkForUpdates();
+      },
+      12 * 60 * 60 * 1000
+    );
   });
 }
 

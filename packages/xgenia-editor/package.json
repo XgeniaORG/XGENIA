@@ -7,15 +7,15 @@
   "version": "2.1.1",
   "main": "src/main/main.bundle.js",
   "scripts": {
-    "build": "npx ts-node -P ./tsconfig.build.json ./scripts/build.ts",
-    "build:renderer": "npx webpack --config=webpackconfigs/webpack.renderer.production.js && cp dist/bundles/src/editor/index.bundle.js src/editor/ && mkdir -p src/editor/bundles && find dist/bundles -maxdepth 1 -name '*.js' -exec cp {} src/editor/bundles/ \\;",
+    "build": "npm run build:node-docs && npx ts-node -P ./tsconfig.build.json ./scripts/build.ts",
+    "build:node-docs": "node scripts/compile-node-source-docs.js",
+    "watch:node-docs": "nodemon --watch ../xgenia-runtime/src/nodes --exec npm run build:node-docs",
     "build:renderer:dev": "npx webpack --config=webpackconfigs/webpack.renderer.production.js --mode=development && cp dist/bundles/src/editor/index.bundle.js src/editor/",
     "clean-bundles": "rm -f src/main/main.bundle.js src/editor/index.bundle.js",
-    "check:assets": "node scripts/check-asset-references.js",
-    "rebuild-bundles": "npm run clean-bundles && npm run build:renderer",
+    "rebuild-bundles": "npm run clean-bundles && npm run build:renderer:dev",
     "start": "webpack-dev-server --config=webpackconfigs/webpack.renderer.dev.js",
-    "start:_dev": "electron dev-main.js --dev --no-sandbox",
-    "start:_dev_webpack": "electron . --dev --no-sandbox",
+    "start:_dev": "electron dev-main.js --dev",
+    "start:_dev_webpack": "electron . --dev",
     "dev": "npx ts-node scripts/dev.ts",
     "test": "webpack-dev-server --config=webpackconfigs/webpack.test.js",
     "test:_start_electron": "electron test.js",
@@ -39,6 +39,7 @@
         "dmg",
         "zip"
       ],
+      "artifactName": "${productName}-${version}-mac.${ext}",
       "hardenedRuntime": true,
       "notarize": false,
       "entitlements": "./build/entitlements.mac.plist",
@@ -52,7 +53,8 @@
       "target": "nsis"
     },
     "nsis": {
-      "guid": "XGENIA.net.XGENIA"
+      "guid": "XGENIA.net.XGENIA",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "linux": {
       "target": "deb"
@@ -154,7 +156,6 @@
     "otpauth": "^9.4.0",
     "passport": "0.7.0",
     "passport-local": "^1.0.0",
-    "prettier": "^3.8.1",
     "react": "19.1.1",
     "react-dom": "19.1.1",
     "react-hot-toast": "^2.4.0",
