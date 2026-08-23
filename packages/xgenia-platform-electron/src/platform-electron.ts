@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
+import { app as electronApp } from 'electron';
 import { app as remoteApp } from '@electron/remote';
-import { app as electronApp, shell, clipboard } from 'electron';
+import { shell, clipboard } from 'electron';
 import { addTrailingSlash, IPlatform, PlatformOS } from '@xgenia/platform';
 import { processPlatformToPlatformOS } from '@xgenia/platform-node/src/helper';
 
@@ -91,28 +92,13 @@ export class PlatformElectron implements IPlatform {
   async saveFile(filename: string, data: string, mimeType: string): Promise<void> {
     const { dialog } = require('@electron/remote');
     const fs = require('fs');
-    const path = require('path');
-
-    const ext = path.extname(filename).replace('.', '').toLowerCase();
-    const filters =
-      mimeType.startsWith('video/') || ['mp4', 'mov', 'webm', 'm4v', 'ogg'].includes(ext)
-        ? [
-            { name: 'Videos', extensions: ['mp4', 'mov', 'webm', 'm4v', 'ogg'] },
-            { name: 'All Files', extensions: ['*'] }
-          ]
-        : mimeType.startsWith('audio/') || ['mp3', 'wav', 'ogg', 'm4a'].includes(ext)
-          ? [
-              { name: 'Audio', extensions: ['mp3', 'wav', 'ogg', 'm4a'] },
-              { name: 'All Files', extensions: ['*'] }
-            ]
-          : [
-              { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'svg'] },
-              { name: 'All Files', extensions: ['*'] }
-            ];
 
     const result = await dialog.showSaveDialog({
       defaultPath: filename,
-      filters
+      filters: [
+        { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'svg'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
     });
 
     if (!result.canceled && result.filePath) {

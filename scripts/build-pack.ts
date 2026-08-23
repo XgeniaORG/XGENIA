@@ -52,7 +52,6 @@ const regexList: RegExp[] = [
 
   /* MacOS */
   /.*\.dmg$/,
-  /.*\.zip$/,
   /.*\.blockmap$/,
 
   /* Linux */

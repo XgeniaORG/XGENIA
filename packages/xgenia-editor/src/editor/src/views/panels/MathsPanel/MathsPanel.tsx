@@ -465,12 +465,7 @@ export function MathsPanel() {
 
     // Upload, Test & Deploy modal state
     const [showTestConfigModal, setShowTestConfigModal] = useState(false);
-    const [activeSimVersionId, setActiveSimVersionId] = useState<string | null>(null);
     const [simCount, setSimCount] = useState(10000);
-    const [simBetPort, setSimBetPort] = useState('bet');
-    const [simWinPort, setSimWinPort] = useState('win');
-    const [simAvailablePorts, setSimAvailablePorts] = useState<{ inputPorts: PortInfo[], outputPorts: PortInfo[] } | null>(null);
-    const [simInputConfig, setSimInputConfig] = useState<Record<string, InputConfig>>({});
     const [pipelineStep, setPipelineStep] = useState<string | null>(null);
 
     // Create Game modal state
@@ -1423,30 +1418,32 @@ export function MathsPanel() {
         }));
     }, [selectedGame]);
 
-    const handleUploadMathsComponent = useCallback(async (comp: any) => {
-        if (!settings?.apiKey) {
-            setUploadStatus({ type: 'error', message: 'Not connected to XRGS.' });
-            return;
-        }
-        if (!selectedGame) {
-            setUploadStatus({ type: 'error', message: 'No game selected.' });
-            return;
-        }
+
+
+    // Upload, Test & Deploy — full pipeline handler
+    const handleUploadTestDeploy = useCallback(async () => {
+        if (!settings?.apiKey || !selectedGame) return;
 
         setUploading(true);
         setUploadStatus(null);
-        setPipelineStep('Exporting component...');
+        setShowTestConfigModal(false);
+
+        const game = games?.find((g: any) => g.id === selectedGame);
+
         try {
-            const game = games?.find((g: any) => g.id === selectedGame);
+            // 1. Extract & sanitize the maths script
+            setPipelineStep('Extracting maths script...');
             const xrgs = (window as any).__xrgs;
             if (!xrgs?.generateRgsScript) {
-                setUploadStatus({ type: 'error', message: 'Maths bridge not ready.' });
+                setUploadStatus({ type: 'error', message: 'Maths bridge not ready. Open a maths component first.' });
                 setUploading(false);
                 setPipelineStep(null);
                 return;
             }
 
-            const result = xrgs.generateRgsScript(comp.name);
+            const result = xrgs.generateRgsScript();
+            (window as any).__xrgsLastScript = result.script;
+            console.log('[__xrgs] Script saved to window.__xrgsLastScript, length:', result.script?.length);
             if (result.error) {
                 setUploadStatus({ type: 'error', message: result.error });
                 setUploading(false);
@@ -1455,15 +1452,22 @@ export function MathsPanel() {
             }
 
             if (!result.script || result.script.length < 50) {
-                setUploadStatus({ type: 'error', message: 'Generated script is too short.' });
-                setUploading(false); setPipelineStep(null); return;
+                setUploadStatus({ type: 'error', message: 'Generated script is too short. Check your maths component.' });
+                setUploading(false);
+                setPipelineStep(null);
+                return;
             }
 
+            // Client-side compilation check
             try {
                 new Function('ctx', result.script);
+                console.log('[__xrgs] ✅ Client-side compilation check passed');
             } catch (compileErr: any) {
+                console.error('[__xrgs] ❌ Client-side compilation FAILED:', compileErr.message);
                 setUploadStatus({ type: 'error', message: `Client-side compilation failed: ${compileErr.message}` });
-                setUploading(false); setPipelineStep(null); return;
+                setUploading(false);
+                setPipelineStep(null);
+                return;
             }
 
             // 2. Test pipeline: upload → activate → stress-test, STOPPING at
@@ -1517,10 +1521,12 @@ export function MathsPanel() {
                 message: `${deployedName} → v${testRun.version} tested (not live). RTP ${rtpStr} · Hit ${hitStr} · Max ${maxStr}`,
             });
         } catch (e: any) {
-            setActionStatus({ id, type: 'error', msg: e.message || 'Action failed' });
+            setUploadStatus({ type: 'error', message: e.message || 'Pipeline failed' });
         }
-    };
 
+        setUploading(false);
+        setPipelineStep(null);
+    }, [settings, selectedGame, games, simCount]);
 
     return (
         <BasePanel title="Maths RGS" isFill>
@@ -2402,7 +2408,7 @@ export function MathsPanel() {
                     <div
                         onClick={(e) => e.stopPropagation()}
                         style={{
-                            width: '520px', maxHeight: '85vh', overflowY: 'auto',
+                            width: '420px',
                             backgroundColor: '#1e1e2e',
                             border: '1px solid rgba(255,255,255,0.12)',
                             borderRadius: '12px',
@@ -2411,168 +2417,17 @@ export function MathsPanel() {
                         }}
                     >
                         <div style={{ marginBottom: '20px' }}>
-                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>Test Configuration</div>
-                            <div style={{ fontSize: '12px', color: '#888' }}>Configure the simulation parameters for batch-spin execution.</div>
-                        </div>
-
-                        {/* ── Define Inputs ── */}
-                        {simAvailablePorts && simAvailablePorts.inputPorts.length > 0 && (
                             <div style={{
-                                marginBottom: '20px', padding: '16px',
-                                backgroundColor: 'rgba(255,255,255,0.03)',
-                                border: '1px solid rgba(255,255,255,0.08)',
-                                borderRadius: '8px',
-                            }}>
-                                <div style={{
-                                    fontSize: '11px', color: '#a0a0b0', textTransform: 'uppercase' as const,
-                                    letterSpacing: '0.5px', marginBottom: '12px', fontWeight: 600,
-                                }}>Input Port Configuration</div>
-                                {simAvailablePorts.inputPorts.map(port => {
-                                    const isSignal = port.type === 'signal' || port.type === 'boolean';
-                                    const cfg = simInputConfig[port.name] || {
-                                        mode: isSignal ? 'trigger' : 'rng',
-                                        value: 0, rngMin: 1, rngMax: 100,
-                                    };
-                                    return (
-                                        <div key={port.name} style={{
-                                            display: 'flex', alignItems: 'center', gap: '10px',
-                                            padding: '10px 0',
-                                            borderBottom: '1px solid rgba(255,255,255,0.05)',
-                                        }}>
-                                            {/* Port name & type */}
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '120px' }}>
-                                                <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#60A5FA' }} />
-                                                <span style={{ fontSize: '13px', color: '#fff', fontWeight: 500 }}>{port.name}</span>
-                                                <span style={{
-                                                    fontSize: '10px', color: '#888', backgroundColor: 'rgba(255,255,255,0.08)',
-                                                    padding: '1px 6px', borderRadius: '3px',
-                                                }}>{port.type}</span>
-                                            </div>
-                                            {/* Mode + controls */}
-                                            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
-                                                <select
-                                                    value={cfg.mode}
-                                                    onChange={(e) => updateSimInputConfig(port.name, { mode: e.target.value as InputMode })}
-                                                    style={{
-                                                        padding: '5px 8px', backgroundColor: 'rgba(255,255,255,0.08)',
-                                                        border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px',
-                                                        color: '#fff', fontSize: '12px', outline: 'none',
-                                                    }}
-                                                >
-                                                    {!isSignal && <option value="rng" style={{ color: '#000' }}>RNG Value</option>}
-                                                    {!isSignal && <option value="fixed" style={{ color: '#000' }}>Fixed</option>}
-                                                    <option value="trigger" style={{ color: '#000' }}>Always trigger / true</option>
-                                                    <option value="off" style={{ color: '#000' }}>Off</option>
-                                                </select>
-                                                {cfg.mode === 'rng' && (
-                                                    <>
-                                                        <span style={{ fontSize: '10px', color: '#888' }}>Min</span>
-                                                        <input type="number" value={cfg.rngMin ?? 1}
-                                                            onChange={(e) => updateSimInputConfig(port.name, { rngMin: Number(e.target.value) || 0 })}
-                                                            style={{
-                                                                width: '60px', padding: '5px 6px', backgroundColor: 'rgba(255,255,255,0.08)',
-                                                                border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px',
-                                                                color: '#fff', fontSize: '12px', fontFamily: 'monospace', outline: 'none',
-                                                            }}
-                                                        />
-                                                        <span style={{ fontSize: '10px', color: '#888' }}>Max</span>
-                                                        <input type="number" value={cfg.rngMax ?? 100}
-                                                            onChange={(e) => updateSimInputConfig(port.name, { rngMax: Number(e.target.value) || 0 })}
-                                                            style={{
-                                                                width: '60px', padding: '5px 6px', backgroundColor: 'rgba(255,255,255,0.08)',
-                                                                border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px',
-                                                                color: '#fff', fontSize: '12px', fontFamily: 'monospace', outline: 'none',
-                                                            }}
-                                                        />
-                                                    </>
-                                                )}
-                                                {cfg.mode === 'fixed' && (
-                                                    <input type="number" value={cfg.value}
-                                                        onChange={(e) => updateSimInputConfig(port.name, { value: Number(e.target.value) || 0 })}
-                                                        style={{
-                                                            width: '80px', padding: '5px 6px', backgroundColor: 'rgba(255,255,255,0.08)',
-                                                            border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px',
-                                                            color: '#fff', fontSize: '12px', fontFamily: 'monospace', outline: 'none',
-                                                        }}
-                                                    />
-                                                )}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-
-                        {/* ── RTP Port Mapping ── */}
-                        <div style={{
-                            marginBottom: '20px', padding: '16px',
-                            backgroundColor: 'rgba(255,255,255,0.03)',
-                            border: '1px solid rgba(255,255,255,0.08)',
-                            borderRadius: '8px',
-                        }}>
-                            <div style={{
-                                fontSize: '11px', color: '#a0a0b0', textTransform: 'uppercase' as const,
-                                letterSpacing: '0.5px', marginBottom: '4px', fontWeight: 600,
-                            }}>RTP</div>
-                            <div style={{ fontSize: '11px', color: '#666', marginBottom: '12px' }}>
-                                Map which port carries the bet amount and which carries the win amount for RTP calculation.
-                            </div>
-                            <div style={{ display: 'flex', gap: '12px' }}>
-                                <div style={{ flex: 1 }}>
-                                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '4px' }}>Bet Input</label>
-                                    {simAvailablePorts ? (
-                                        <select value={simBetPort} onChange={(e) => setSimBetPort(e.target.value)}
-                                            style={{
-                                                width: '100%', padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.06)',
-                                                border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff',
-                                                fontSize: '13px', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box' as const,
-                                            }}
-                                        >
-                                            <option value="" style={{ color: '#000' }}>— Select input port —</option>
-                                            {simAvailablePorts.inputPorts.map(p => (
-                                                <option key={p.name} value={p.name} style={{ color: '#000' }}>{p.name} ({p.type})</option>
-                                            ))}
-                                        </select>
-                                    ) : (
-                                        <input type="text" value={simBetPort} onChange={(e) => setSimBetPort(e.target.value)}
-                                            style={{
-                                                width: '100%', padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.06)',
-                                                border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff',
-                                                fontSize: '13px', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box' as const,
-                                            }}
-                                        />
-                                    )}
-                                </div>
-                                <div style={{ flex: 1 }}>
-                                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '4px' }}>Win Output</label>
-                                    {simAvailablePorts ? (
-                                        <select value={simWinPort} onChange={(e) => setSimWinPort(e.target.value)}
-                                            style={{
-                                                width: '100%', padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.06)',
-                                                border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff',
-                                                fontSize: '13px', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box' as const,
-                                            }}
-                                        >
-                                            <option value="" style={{ color: '#000' }}>— Select output port —</option>
-                                            {simAvailablePorts.outputPorts.map(p => (
-                                                <option key={p.name} value={p.name} style={{ color: '#000' }}>{p.name} ({p.type})</option>
-                                            ))}
-                                        </select>
-                                    ) : (
-                                        <input type="text" value={simWinPort} onChange={(e) => setSimWinPort(e.target.value)}
-                                            style={{
-                                                width: '100%', padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.06)',
-                                                border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff',
-                                                fontSize: '13px', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box' as const,
-                                            }}
-                                        />
-                                    )}
-                                </div>
+                                fontSize: '15px', fontWeight: 700, color: '#fff',
+                                marginBottom: '4px',
+                            }}>Test Configuration</div>
+                            <div style={{ fontSize: '12px', color: '#888' }}>
+                                Configure the simulation before uploading. The math will be automatically tested, approved, and deployed.
                             </div>
                         </div>
 
                         {/* Simulation Count */}
-                        <div style={{ marginBottom: '24px' }}>
+                        <div style={{ marginBottom: '16px' }}>
                             <label style={{
                                 display: 'block', fontSize: '11px', color: '#a0a0b0',
                                 textTransform: 'uppercase' as const, letterSpacing: '0.5px',
@@ -2580,21 +2435,25 @@ export function MathsPanel() {
                             }}>Simulation Count</label>
                             <input
                                 type="number"
-                                min={1}
+                                min={1000}
                                 max={1000000}
                                 value={simCount}
-                                onChange={(e) => setSimCount(Math.max(1, Math.min(1000000, Number(e.target.value) || 1)))}
+                                onChange={(e) => setSimCount(Math.max(1000, Math.min(1000000, Number(e.target.value) || 10000)))}
                                 style={{
-                                    width: '100%', padding: '10px 12px',
+                                    width: '100%',
+                                    padding: '10px 12px',
                                     backgroundColor: 'rgba(255,255,255,0.06)',
                                     border: '1px solid rgba(255,255,255,0.12)',
-                                    borderRadius: '6px', color: '#fff',
-                                    fontSize: '14px', fontFamily: 'monospace',
-                                    outline: 'none', boxSizing: 'border-box' as const,
+                                    borderRadius: '6px',
+                                    color: '#fff',
+                                    fontSize: '14px',
+                                    fontFamily: 'monospace',
+                                    outline: 'none',
+                                    boxSizing: 'border-box' as const,
                                 }}
                             />
                             <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
-                                1 – 1,000,000 spins
+                                1,000 – 1,000,000 spins
                             </div>
                         </div>
 
@@ -2628,29 +2487,10 @@ export function MathsPanel() {
                             ))}
                         </div>
 
-                        <div style={{ marginBottom: '16px' }}>
-                            <label style={MODAL_LABEL_STYLE}>Commit message</label>
-                            <input
-                                type="text"
-                                placeholder="what changed, and why"
-                                value={commitPrompt.message}
-                                onChange={(e) => setCommitPrompt({ message: e.target.value })}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && commitPrompt.message.trim() && !deployingComponents) {
-                                        const message = commitPrompt.message.trim();
-                                        setCommitPrompt(null);
-                                        void handleDeployMathsComponents(message);
-                                    }
-                                }}
-                                style={MODAL_INPUT_STYLE}
-                                autoFocus
-                            />
-                        </div>
-
+                        {/* Actions */}
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                             <button
-                                onClick={() => setCommitPrompt(null)}
-                                disabled={deployingComponents}
+                                onClick={() => setShowTestConfigModal(false)}
                                 style={{
                                     padding: '8px 16px',
                                     borderRadius: '6px',
