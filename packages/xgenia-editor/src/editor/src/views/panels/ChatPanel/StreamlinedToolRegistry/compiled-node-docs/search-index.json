@@ -8425,8 +8425,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiStage.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-stage/",
-      "lineCount": 868,
-      "byteSize": 42076,
+      "lineCount": 878,
+      "byteSize": 42905,
       "inputFormatHints": {
         "width": {
           "displayName": "Design Width",

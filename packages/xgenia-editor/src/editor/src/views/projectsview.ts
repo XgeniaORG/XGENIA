@@ -15,6 +15,7 @@ import CloudFormation from '../utils/cloudformation';
 import { templateRegistry } from '../utils/forge';
 import { tracker } from '../utils/tracker';
 import { getUserProfile } from '../utils/userUtils';
+import { resolveThumbSrc } from '../utils/thumbnails/thumbnail-store';
 import { timeSince } from '../utils/utils';
 import { ChatPanelIframe_ID } from './panels/ChatPanelBridge/ChatPanelIframe';
 import { editorBridge } from './panels/ChatPanelBridge/EditorBridge';
@@ -726,11 +727,12 @@ export class ProjectsView extends View {
       };
 
       const el = this.bindView(this.cloneTemplate(template), scope);
-      if (items[i].thumbURI) {
-        console.log('Thumbnail URI:', items[i].thumbURI);
-        View.$(el, '.projects-item-thumb').css('background-image', 'url(' + items[i].thumbURI + ')');
+      // Read through the resolver, never off `thumbURI` directly: thumbnails live on disk since
+      // 2026-08-22 and only legacy entries still carry an inline data URI. See thumbnail-store.ts.
+      const thumbSrc = resolveThumbSrc(items[i]);
+      if (thumbSrc) {
+        View.$(el, '.projects-item-thumb').css('background-image', 'url(' + thumbSrc + ')');
       } else {
-        console.log('No thumbnail for project:', items[i].name);
         View.$(el, '.projects-item-cloud-download').show();
       }
 
@@ -989,6 +991,50 @@ export class ProjectsView extends View {
     this.$('#start-pane-feed-big').hide();
     // Clear the image to prevent stale content
     this.$('#start-pane-feed-item-big-image').css('background-image', '').html('');
+  }
+
+  /**
+   * ─── THE NEW PROJECT BUTTON THREW (2026-08-23) ────────────────────────────
+   * `projectsview.html` has carried `data-click="onNewProjectButtonClicked"` and a three-button
+   * choice overlay since 0e237bd, and none of the four handlers was ever written. view.js binds
+   * by name — `_this[el.attr('data-click')].apply(...)` — so clicking New project did not fall
+   * through, it raised `Cannot read properties of undefined (reading 'apply')` inside jQuery's
+   * dispatch, and there was no way to start a game from the home screen at all.
+   *
+   * Nothing could see it: the binding is a string, so the build is happy and the markup looks
+   * wired. tests/invariants/template-handlers-exist.test.ts now sweeps every template against
+   * its view for the same shape.
+   */
+  onNewProjectButtonClicked() {
+    this.$('#new-project-choice-overlay').addClass('visible');
+  }
+
+  onChoiceCancelClicked() {
+    this.$('#new-project-choice-overlay').removeClass('visible');
+  }
+
+  onChoiceTemplateClicked() {
+    this.$('#new-project-choice-overlay').removeClass('visible');
+    this.onCreateNewProjectClicked();
+  }
+
+  /**
+   * "Start with AI".
+   *
+   * Opens the blank-project creation popup, which lands the user in a new empty project with the
+   * AI chat panel — the shortest working path to describing a game and having it built.
+   *
+   * There is a fuller AIWizard in `@xgenia-ai/ChatPanel/AIWizard` (folder + name + description,
+   * then a model recommendation) written for the `#ai-wizard-root` mount point in this template.
+   * It has never been mounted anywhere: it hands its host a path and expects the host to run
+   * `projectsModel.newProject`, open the project and seed the chat with the description, and none
+   * of that handoff exists yet. Wiring it is its own piece of work; this handler is deliberately
+   * the simple path rather than a button that opens a wizard whose completion goes nowhere.
+   */
+  onChoiceAIClicked() {
+    this.$('#new-project-choice-overlay').removeClass('visible');
+    this.onCreateNewProjectClicked();
+    this.onCreateBlankProjectClicked();
   }
 
   onCreateNewProjectClicked() {

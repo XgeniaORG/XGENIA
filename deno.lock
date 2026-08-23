@@ -240,7 +240,6 @@
             "npm:passport@0.7.0",
             "npm:postcss-loader@^8.2.0",
             "npm:postcss@^8.4.38",
-            "npm:prettier@^3.8.1",
             "npm:prop-types@^15.8.1",
             "npm:react-dom@19.1.1",
             "npm:react-hot-toast@^2.4.0",

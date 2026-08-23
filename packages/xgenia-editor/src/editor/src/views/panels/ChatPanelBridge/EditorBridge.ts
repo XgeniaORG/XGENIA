@@ -14,6 +14,7 @@
 // setProjectBaseStyle / setProjectGlobalStylePrompt from the ProjectStylesPanel import — both are
 // still called below, which is why tsc reported them as undefined names.
 import ThumbnailCache from '@xgenia-utils/thumbnailcache';
+import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import { isBloatPort, isTooLargeToSerialize, unwrapValueUnit, portUnitInfo } from './serialize-param-guard';
 import { recordAssetProvenance, loadAssetMeta, migrateAssetMeta } from '../AssetPanel/assetMeta';
 import { reconcileGraphAssetRefs } from '../AssetPanel/assetGraphRefs';
@@ -570,10 +571,42 @@ export class EditorBridge {
             return (ProjectModel.instance as any)?._retainedProjectDirectory || null;
         });
 
+        h('project.getName', () => {
+            return (ProjectModel.instance as any)?.name || null;
+        });
+
         h('project.getComponentByName', ([name]: [string]) => {
             const components = (ProjectModel.instance as any)?.getComponents?.() || [];
             const found = components.find((c: any) => c.name === name || c.fullName === name);
             return found ? this.serializeComponent(found) : null;
+        });
+
+        /**
+         * Whether the AI should build a title card for the project's current key art.
+         *
+         * The decision lives in the editor (utils/thumbnails/thumbnail-policy) rather than in the
+         * ChatPanel, so there is one authority on who owns the cover art. `anchorId` is the style
+         * anchor the AI just adopted; a card already built from that same anchor is not rebuilt.
+         */
+        h('project.needsTitleCard', ([anchorId]: [string]) => {
+            const projectId = (ProjectModel.instance as any)?.id;
+            if (!projectId) return false;
+            return LocalProjectsModel.instance.needsTitleCardFor(projectId, anchorId);
+        });
+
+        /**
+         * Install a generated title card as the project's cover art.
+         *
+         * Stamps the thumbnail as a title card built from `anchorId`, which stops the periodic
+         * canvas capture overwriting it until the project is re-anchored to new key art.
+         */
+        h('project.setTitleCard', ([dataUri, anchorId]: [string, string]) => {
+            const project = ProjectModel.instance as any;
+            if (!project) throw new Error('No project instance');
+            if (!dataUri?.startsWith('data:image/')) throw new Error('Title card must be an image data URI');
+
+            project.setThumbnailFromDataURI(dataUri, { source: 'title-card', anchorId: anchorId || undefined });
+            return true;
         });
 
         h('project.getSettings', () => {
