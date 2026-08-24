@@ -9,35 +9,30 @@
  */
 
 // GPL model imports (this file intentionally lives in GPL code)
-//
-// The develop merge (952bf91) duplicated most of this block and, while doing it, dropped
-// setProjectBaseStyle / setProjectGlobalStylePrompt from the ProjectStylesPanel import — both are
-// still called below, which is why tsc reported them as undefined names.
+import { ProjectModel } from '@xgenia-models/projectmodel';
 import ThumbnailCache from '@xgenia-utils/thumbnailcache';
-import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import { isBloatPort, isTooLargeToSerialize, unwrapValueUnit, portUnitInfo } from './serialize-param-guard';
+import { NodeLibrary } from '@xgenia-models/nodelibrary';
+import { UndoQueue, UndoActionGroup } from '@xgenia-models/undo-queue-model';
+import { SidebarModel } from '@xgenia-models/sidebar';
 import { recordAssetProvenance, loadAssetMeta, migrateAssetMeta } from '../AssetPanel/assetMeta';
 import { reconcileGraphAssetRefs } from '../AssetPanel/assetGraphRefs';
 import { ComponentModel } from '@xgenia-models/componentmodel';
 import { NodeGraphModel, NodeGraphNode } from '@xgenia-models/nodegraphmodel';
-import { NodeLibrary } from '@xgenia-models/nodelibrary';
-import { ProjectModel } from '@xgenia-models/projectmodel';
-import { SidebarModel } from '@xgenia-models/sidebar';
-import { UndoActionGroup, UndoQueue } from '@xgenia-models/undo-queue-model';
-import { guid } from '@xgenia-utils/utils';
-import { platform } from '@xgenia/platform';
 import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
-import { supabase } from '../../../supabaseInit';
+import { guid } from '@xgenia-utils/utils';
 import {
-    addProjectPalette,
-    clearProjectBaseStyle,
-    getProjectBaseStyleId,
     getProjectBaseStyleUrl,
-    getProjectGlobalStylePrompt,
-    getProjectPalettes,
     setProjectBaseStyle,
+    clearProjectBaseStyle,
+    getProjectGlobalStylePrompt,
     setProjectGlobalStylePrompt,
+    getProjectPalettes,
+    addProjectPalette,
+    getProjectBaseStyleId
 } from '../ProjectStylesPanel/ProjectStylesPanel';
+import { supabase } from '../../../supabaseInit';
+import { platform } from '@xgenia/platform';
 
 interface PluginCommand {
     id: string;
@@ -203,25 +198,6 @@ export class EditorBridge {
         }
     }
 
-    /** Listen for settings changes and push to plugin iframes */
-    private listenForSettingChanges() {
-        try {
-            const { EditorSettings } = require('../../../utils/editorsettings');
-            if (EditorSettings?.instance?.on) {
-                EditorSettings.instance.on('updated', ({ key }: any) => {
-                    if (key === 'fal.apiKey' || key === 'gemini.apiKey') {
-                        const value = EditorSettings.instance.get(key);
-                        console.log(`[EditorBridge] Setting updated: ${key}, pushing to plugins`);
-
-                        this.pushEvent('settingChanged', { key, value });
-                    }
-                }, this);
-            }
-        } catch (e: any) {
-            console.warn('[EditorBridge] Could not listen for setting changes:', e);
-        }
-    }
-
     /** Set or refresh the AI component lock with auto-expiry */
     private setAiLock(component: any) {
         this.aiLockedComponent = component;
@@ -251,33 +227,6 @@ export class EditorBridge {
     setIframe(iframe: HTMLIFrameElement, pluginId: string = 'xgenia-ai') {
         this.iframe = iframe; // Legacy compatibility
         this.iframes.set(pluginId, iframe);
-        this.flushPendingEvents();
-    }
-
-    /**
-     * Events raised before the panel's iframe existed.
-     *
-     * The editor emits componentSwitched (and friends) during startup, while the ChatPanel iframe
-     * is still mounting — those pushes used to be dropped with a console warning, so the panel
-     * booted not knowing which component was active and had to discover it on its first tool call.
-     * Holding the last value per event name and replaying it on attach costs nothing and removes a
-     * whole class of "the panel thinks it is somewhere else" confusion.
-     *
-     * Last-write-wins per event: replaying a stale intermediate state would be worse than
-     * replaying only the current one.
-     */
-    private pendingEvents = new Map<string, any>();
-
-    private flushPendingEvents() {
-        if (!this.pendingEvents.size) return;
-        const target = this.iframe?.contentWindow;
-        if (!target) return;
-        const queued = [...this.pendingEvents.entries()];
-        this.pendingEvents.clear();
-        for (const [event, data] of queued) {
-            this.safePostMessage(target, { type: 'event', event, data }, this.pluginOrigin);
-        }
-        console.debug(`[EditorBridge] Replayed ${queued.length} event(s) queued before the panel attached: ${queued.map(([e]) => e).join(', ')}`);
     }
 
     /** Check if plugin is connected */
@@ -290,10 +239,7 @@ export class EditorBridge {
         if (this.iframe?.contentWindow) {
             this.safePostMessage(this.iframe.contentWindow, { type: 'event', event, data }, this.pluginOrigin);
         } else {
-            // Queue rather than drop: the panel attaches a moment later, and losing the startup
-            // componentSwitched left it blind to the active component until its first tool call.
-            this.pendingEvents.set(event, data);
-            console.debug(`[EditorBridge] Panel not attached yet — queued event "${event}" for replay.`);
+            console.warn(`[EditorBridge] Cannot push event "${event}": iframe or contentWindow missing`);
         }
     }
 
@@ -523,23 +469,6 @@ export class EditorBridge {
                 } else {
                     console.warn('[EditorBridge] No active component cached yet during initial state push');
                 }
-
-                // Check for a pending AI prompt from project creation (set by ProjectsView)
-                const pendingPrompt = (window as any).__xgenia_pendingAIPrompt;
-                if (pendingPrompt?.prompt) {
-                    console.log('[EditorBridge] Found pending AI prompt, will forward to ChatPanel');
-                    // Clear immediately to prevent re-delivery
-                    delete (window as any).__xgenia_pendingAIPrompt;
-                    // Delay slightly to let the plugin fully initialize its message handlers
-                    setTimeout(() => {
-                        this.pushEvent('initialPrompt', {
-                            prompt: pendingPrompt.prompt,
-                            images: pendingPrompt.images || [],
-                            selectedModel: pendingPrompt.selectedModel,
-                        });
-                        console.log('[EditorBridge] Pushed initialPrompt event to ChatPanel');
-                    }, 1000);
-                }
             }
         } catch (e: any) {
             console.warn('[EditorBridge] Could not push initial state:', e);
@@ -571,42 +500,10 @@ export class EditorBridge {
             return (ProjectModel.instance as any)?._retainedProjectDirectory || null;
         });
 
-        h('project.getName', () => {
-            return (ProjectModel.instance as any)?.name || null;
-        });
-
         h('project.getComponentByName', ([name]: [string]) => {
             const components = (ProjectModel.instance as any)?.getComponents?.() || [];
             const found = components.find((c: any) => c.name === name || c.fullName === name);
             return found ? this.serializeComponent(found) : null;
-        });
-
-        /**
-         * Whether the AI should build a title card for the project's current key art.
-         *
-         * The decision lives in the editor (utils/thumbnails/thumbnail-policy) rather than in the
-         * ChatPanel, so there is one authority on who owns the cover art. `anchorId` is the style
-         * anchor the AI just adopted; a card already built from that same anchor is not rebuilt.
-         */
-        h('project.needsTitleCard', ([anchorId]: [string]) => {
-            const projectId = (ProjectModel.instance as any)?.id;
-            if (!projectId) return false;
-            return LocalProjectsModel.instance.needsTitleCardFor(projectId, anchorId);
-        });
-
-        /**
-         * Install a generated title card as the project's cover art.
-         *
-         * Stamps the thumbnail as a title card built from `anchorId`, which stops the periodic
-         * canvas capture overwriting it until the project is re-anchored to new key art.
-         */
-        h('project.setTitleCard', ([dataUri, anchorId]: [string, string]) => {
-            const project = ProjectModel.instance as any;
-            if (!project) throw new Error('No project instance');
-            if (!dataUri?.startsWith('data:image/')) throw new Error('Title card must be an image data URI');
-
-            project.setThumbnailFromDataURI(dataUri, { source: 'title-card', anchorId: anchorId || undefined });
-            return true;
         });
 
         h('project.getSettings', () => {
