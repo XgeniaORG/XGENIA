@@ -567,9 +567,10 @@ export class EditorBridge {
             return (ProjectModel.instance as any)?.id || null;
         });
 
-        h('project.getDirectory', () => {
-            return (ProjectModel.instance as any)?._retainedProjectDirectory || null;
-        });
+        // (2026-08-24) The duplicate `project.getDirectory` that used to live here was dead:
+        // the real handler further down (search "Project directory") is registered later and
+        // therefore won this key anyway, and it wraps the same read in a try/catch. Removed
+        // rather than left as a second definition of the same route.
 
         h('project.getName', () => {
             return (ProjectModel.instance as any)?.name || null;
