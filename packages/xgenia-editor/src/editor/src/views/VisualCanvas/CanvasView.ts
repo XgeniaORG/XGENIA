@@ -1046,8 +1046,17 @@ export class CanvasView extends View {
     this.webviewSetupComplete = false;
 
     if (this._reactRoot) {
-      this._reactRoot.unmount();
+      // Defer the unmount by a microtask: dispose() is called from editor code that can itself be
+      // running inside a React render (a component switch triggered from a rendering component),
+      // and React 18 warns "Attempted to synchronously unmount a root while React was already
+      // rendering" — with a real race behind the warning, since the root cannot finish unmounting
+      // until that render completes. Detaching the reference first makes the deferred call safe
+      // even if dispose() runs twice.
+      const root = this._reactRoot;
       this._reactRoot = null;
+      queueMicrotask(() => {
+        try { root.unmount(); } catch (err) { console.warn('[CanvasView] Deferred unmount failed:', err); }
+      });
     }
 
     if (this.webview) {

@@ -5,6 +5,7 @@ var JSZip = require('jszip');
 var fs = require('fs');
 var md5File = require('md5-file');
 var fse = require('fs-extra');
+var { isRemoteResource, toLocalPath, mimeForPath } = require('./local-resource');
 
 const { dialog } = require('@electron/remote');
 
@@ -140,7 +141,37 @@ FileSystem.instance = {
   getFileDirectoryName: function (path) {
     return Path.dirname(path);
   },
+  /**
+   * Load a resource and hand the caller something an <img>/@font-face can use.
+   *
+   * ─── A FILE ON DISK IS NOT A URL (2026-08-23) ──────────────────────────────
+   * This only ever did an XHR, and three of its four callers pass an ABSOLUTE FILESYSTEM PATH:
+   * thumbnailcache.js (asset and image-picker thumbnails), fontpicker.js and fontloader.js.
+   * An XHR resolves such a path against the page's origin, so a project asset at
+   * `/Users/x/proj/assets/ui/spin-button.png` was requested from
+   * `http://localhost:8080/Users/x/proj/assets/ui/spin-button.png` and 404'd — every asset and
+   * every font, on every launch, since the initial commit. Callers then bound the failed result
+   * straight into an `<img src>`, which requested the literal string "undefined".
+   *
+   * EditorBridge worked around it in one place ("bypass ThumbnailCache's broken XHR"), which
+   * fixed the AI's view and left the editor's own three callers broken. The decision belongs
+   * here, where all four pass through, and is made on WHAT the target is rather than on who is
+   * asking — see utils/local-resource.ts.
+   */
   downloadAsDataURI: function (url, callback, options) {
+    if (!isRemoteResource(url)) {
+      var localPath = toLocalPath(url);
+      fs.readFile(localPath, function (err, buffer) {
+        if (err) {
+          console.warn('[FileSystem] Could not read local resource:', localPath, err.message);
+          callback();
+          return;
+        }
+        callback('data:' + mimeForPath(localPath) + ';base64,' + buffer.toString('base64'));
+      });
+      return;
+    }
+
     var xhr = new XMLHttpRequest();
     xhr.open('GET', url, true);
     if (options && options.headers) {

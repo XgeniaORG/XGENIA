@@ -1,6 +1,7 @@
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import { useEffect } from 'react';
 import { CanvasView } from '../../../VisualCanvas/CanvasView';
+import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import { ipcRenderer } from 'electron';
 
 /**
@@ -63,6 +64,13 @@ export function useCaptureThumbnails(canvasView: CanvasView, viewerDetached: boo
     const timer = setInterval(async () => {
       // Nothing has happened since the last capture, or nobody is looking at it.
       if (!dirty || document.hidden) return;
+
+      // The AI's generated title card outranks a screenshot of whatever the editor happens to
+      // be showing, so once one exists this stops capturing entirely — see
+      // utils/thumbnails/thumbnail-policy. Checked before `capturePage`, which is the expensive
+      // part; LocalProjectsModel enforces the same rule at the write itself.
+      if (!LocalProjectsModel.instance.mayCaptureThumbnail(ProjectModel.instance?.id)) return;
+
       dirty = false;
 
       if (viewerDetached) {

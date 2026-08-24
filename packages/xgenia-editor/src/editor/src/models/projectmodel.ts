@@ -649,9 +649,15 @@ export class ProjectModel extends Model {
     return this.thumbnailURI;
   }
 
-  setThumbnailFromDataURI(uri) {
+  /**
+   * @param uri  the picture
+   * @param meta `{ source, anchorId }`. Omitted means the periodic canvas capture. A title card
+   *             passes `source: 'title-card'` and the style anchor it was built from, which is
+   *             what stops the next capture overwriting it — see utils/thumbnails/thumbnail-policy.
+   */
+  setThumbnailFromDataURI(uri, meta?) {
     this.thumbnailURI = uri;
-    this.notifyListeners('thumbnailChanged');
+    this.notifyListeners('thumbnailChanged', meta);
   }
 
   // Save to directory
