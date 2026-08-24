@@ -261,6 +261,19 @@ export function getProjectBaseStyleId(): string | null {
 export function getProjectGlobalStylePrompt(): string { return ensureFreshMeta().globalStylePrompt; }
 export function getProjectPalettes(): string[][] { return ensureFreshMeta().palettes || []; }
 
+/**
+ * Await the style state being readable. In THIS module that is already true — every getter above
+ * reads live module state through ensureFreshMeta() — so this resolves immediately.
+ *
+ * WHY IT EXISTS HERE (2026-08-22): the AI plugin's iframe build aliases this module path to a
+ * bridge-backed shim whose getters read an async-warmed cache; there, ensureStyleCacheWarmed()
+ * does real work (three bridge reads) and callers on the UI-generation path await it before
+ * trusting the synchronous getters. The Electron/dev editor resolves the SAME import to this real
+ * panel, which never had the export — so the binding arrived as undefined, callers skipped it via
+ * a typeof guard, and webpack warned on every compile. The two module shapes now agree.
+ */
+export async function ensureStyleCacheWarmed(): Promise<void> { /* state is live in-process */ }
+
 export function addProjectPalette(palette: string[]) {
     _meta = { ..._meta, palettes: [palette, ...(_meta.palettes || [])] };
     writeMeta(_meta);

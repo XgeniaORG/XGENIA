@@ -224,7 +224,13 @@ View.prototype.bindView = function (el, obj) {
 
   // Data src
   View.$(el, '[data-src]').each(function () {
-    $(this).attr('src', getObjectFromPath($(this).attr('data-src'), obj));
+    // (2026-08-23) A missing value used to be stringified into the attribute, so a thumbnail
+    // that failed to load produced src="undefined" and the browser dutifully fetched
+    // `.../src/editor/undefined`. Leave the attribute off instead: an <img> with no src renders
+    // nothing and requests nothing, which is what "there is no picture" should look like.
+    var src = getObjectFromPath($(this).attr('data-src'), obj);
+    if (src === undefined || src === null || src === '') $(this).removeAttr('src');
+    else $(this).attr('src', src);
   });
 
   // Data checked
