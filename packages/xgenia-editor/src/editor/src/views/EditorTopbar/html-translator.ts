@@ -305,7 +305,6 @@ function resolveFraction(value: string): string | undefined {
 }
 
 function parseTailwindClasses(classes: string | any, customColors?: Record<string, string>, customFonts?: Record<string, string>, customShadows?: Record<string, string>, customBackgroundImages?: Record<string, string>): ParsedStyles {
-function parseTailwindClasses(classes: string | any, customColors?: Record<string, string>, customFonts?: Record<string, string>, customShadows?: Record<string, string>, customBackgroundImages?: Record<string, string>): ParsedStyles {
     const styles: ParsedStyles = {};
     if (typeof classes !== 'string') {
         if (classes && classes.baseVal) classes = classes.baseVal; // Handle SVGAnimatedString explicitly
@@ -437,12 +436,6 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             styles.styleCss = (styles.styleCss || '') + `grid-template-rows: repeat(${gridRowsMatch[1]}, minmax(0, 1fr));`;
             continue;
         }
-        // grid-rows-N → forward as styleCss so the renderer keeps row count if it honors grid
-        const gridRowsMatch = rawCls.match(/^grid-rows-(\d+)$/);
-        if (gridRowsMatch) {
-            styles.styleCss = (styles.styleCss || '') + `grid-template-rows: repeat(${gridRowsMatch[1]}, minmax(0, 1fr));`;
-            continue;
-        }
         // col-span-N → track how many grid columns this child spans
         const colSpanMatch = rawCls.match(/^col-span-(\d+)$/);
         if (colSpanMatch) { styles._colSpan = parseInt(colSpanMatch[1]); continue; }
@@ -468,64 +461,21 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             styles.styleCss = (styles.styleCss || '') + `grid-auto-${axis === 'cols' ? 'columns' : 'rows'}: ${sizeMap[autoTrackMatch[2]]};`;
             continue;
         }
-        // row-span-N → forward via styleCss
-        const rowSpanMatch = rawCls.match(/^row-span-(\d+)$/);
-        if (rowSpanMatch) {
-            styles.styleCss = (styles.styleCss || '') + `grid-row: span ${rowSpanMatch[1]} / span ${rowSpanMatch[1]};`;
-            continue;
-        }
-        // grid-flow-col / grid-flow-row → styleCss
-        const gridFlowMatch = rawCls.match(/^grid-flow-(col|row)(-dense)?$/);
-        if (gridFlowMatch) {
-            const dir = gridFlowMatch[1];
-            const dense = gridFlowMatch[2] ? ' dense' : '';
-            styles.styleCss = (styles.styleCss || '') + `grid-auto-flow: ${dir}${dense};`;
-            continue;
-        }
-        // auto-cols-fr / auto-rows-fr / auto-cols-min / auto-cols-max / auto-cols-auto → styleCss
-        const autoTrackMatch = rawCls.match(/^auto-(cols|rows)-(fr|min|max|auto)$/);
-        if (autoTrackMatch) {
-            const axis = autoTrackMatch[1];
-            const sizeMap: Record<string, string> = { 'fr': 'minmax(0, 1fr)', 'min': 'min-content', 'max': 'max-content', 'auto': 'auto' };
-            styles.styleCss = (styles.styleCss || '') + `grid-auto-${axis === 'cols' ? 'columns' : 'rows'}: ${sizeMap[autoTrackMatch[2]]};`;
-            continue;
-        }
         if (rawCls === 'flex-col' || rawCls === 'flex-column') { styles.flexDirection = 'column'; continue; }
         if (rawCls === 'flex-col-reverse') { styles.flexDirection = 'column-reverse'; continue; }
-        if (rawCls === 'flex-col-reverse') { styles.flexDirection = 'column-reverse'; continue; }
         if (rawCls === 'flex-row') { styles.flexDirection = 'row'; continue; }
-        if (rawCls === 'flex-row-reverse') { styles.flexDirection = 'row-reverse'; continue; }
         if (rawCls === 'flex-row-reverse') { styles.flexDirection = 'row-reverse'; continue; }
         if (rawCls === 'flex-wrap') { styles.flexWrap = 'wrap'; continue; }
         if (rawCls === 'flex-wrap-reverse') { styles.flexWrap = 'wrap-reverse'; continue; }
         if (rawCls === 'flex-nowrap') { styles.flexWrap = 'nowrap'; continue; }
-        if (rawCls === 'flex-wrap-reverse') { styles.flexWrap = 'wrap-reverse'; continue; }
-        if (rawCls === 'flex-nowrap') { styles.flexWrap = 'nowrap'; continue; }
         if (rawCls === 'flex-1') { styles.flexGrow = 1; styles.flexShrink = 1; continue; }
-        if (rawCls === 'flex-auto') { styles.flexGrow = 1; styles.flexShrink = 1; styles.styleCss = (styles.styleCss || '') + 'flex-basis: auto;'; continue; }
-        if (rawCls === 'flex-initial') { styles.flexGrow = 0; styles.flexShrink = 1; continue; }
         if (rawCls === 'flex-auto') { styles.flexGrow = 1; styles.flexShrink = 1; styles.styleCss = (styles.styleCss || '') + 'flex-basis: auto;'; continue; }
         if (rawCls === 'flex-initial') { styles.flexGrow = 0; styles.flexShrink = 1; continue; }
         if (rawCls === 'flex-none') { styles.flexGrow = 0; styles.flexShrink = 0; continue; }
         if (rawCls === 'flex-grow' || rawCls === 'grow') { styles.flexGrow = 1; continue; }
         if (rawCls === 'flex-grow-0' || rawCls === 'grow-0') { styles.flexGrow = 0; continue; }
         if (rawCls === 'flex-shrink' || rawCls === 'shrink') { styles.flexShrink = 1; continue; }
-        if (rawCls === 'flex-grow-0' || rawCls === 'grow-0') { styles.flexGrow = 0; continue; }
-        if (rawCls === 'flex-shrink' || rawCls === 'shrink') { styles.flexShrink = 1; continue; }
         if (rawCls === 'flex-shrink-0' || rawCls === 'shrink-0') { styles.flexShrink = 0; continue; }
-        // basis-N → flex-basis
-        const basisMatch = rawCls.match(/^basis-(.+)$/);
-        if (basisMatch) {
-            const arb = basisMatch[1].match(/^\[(.+?)\]$/);
-            if (arb) { styles.styleCss = (styles.styleCss || '') + `flex-basis: ${arb[1]};`; continue; }
-            const frac = resolveFraction(basisMatch[1]);
-            if (frac) { styles.styleCss = (styles.styleCss || '') + `flex-basis: ${frac};`; continue; }
-            if (basisMatch[1] === 'full') { styles.styleCss = (styles.styleCss || '') + 'flex-basis: 100%;'; continue; }
-            if (basisMatch[1] === 'auto') { styles.styleCss = (styles.styleCss || '') + 'flex-basis: auto;'; continue; }
-            const v = resolveSpacing(basisMatch[1]);
-            if (v !== undefined) { styles.styleCss = (styles.styleCss || '') + `flex-basis: ${v}px;`; continue; }
-            continue;
-        }
         // basis-N → flex-basis
         const basisMatch = rawCls.match(/^basis-(.+)$/);
         if (basisMatch) {
@@ -592,19 +542,6 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         if (rawCls === 'place-items-end') { styles.alignItems = 'flex-end'; styles.justifyContent = 'flex-end'; continue; }
 
         // ─── Gap / Space ────────────────────
-        // gap-x-N / gap-y-N must come BEFORE the bare gap-N matcher so they win.
-        const gapXMatch = rawCls.match(/^gap-x-(.+)$/);
-        if (gapXMatch) {
-            const v = resolveSpacing(gapXMatch[1]);
-            if (v !== undefined) styles.styleCss = (styles.styleCss || '') + `column-gap: ${v}px;`;
-            continue;
-        }
-        const gapYMatch = rawCls.match(/^gap-y-(.+)$/);
-        if (gapYMatch) {
-            const v = resolveSpacing(gapYMatch[1]);
-            if (v !== undefined) styles.styleCss = (styles.styleCss || '') + `row-gap: ${v}px;`;
-            continue;
-        }
         // gap-x-N / gap-y-N must come BEFORE the bare gap-N matcher so they win.
         const gapXMatch = rawCls.match(/^gap-x-(.+)$/);
         if (gapXMatch) {
@@ -711,42 +648,6 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             if (v !== undefined) { styles.marginLeft = v * neg; styles.marginRight = v * neg; }
             continue;
         }
-        // m-N (all 4 sides) and m-auto must be matched BEFORE the per-side handlers
-        // so they don't get partially eaten.
-        const mAllMatch = rawCls.match(/^-?m-(.+)$/);
-        if (mAllMatch && !rawCls.startsWith('mx-') && !rawCls.startsWith('my-') &&
-            !rawCls.startsWith('mt-') && !rawCls.startsWith('mb-') &&
-            !rawCls.startsWith('ml-') && !rawCls.startsWith('mr-') &&
-            !rawCls.startsWith('-mx-') && !rawCls.startsWith('-my-') &&
-            !rawCls.startsWith('-mt-') && !rawCls.startsWith('-mb-') &&
-            !rawCls.startsWith('-ml-') && !rawCls.startsWith('-mr-') &&
-            !rawCls.startsWith('mix-') && !rawCls.startsWith('min-') &&
-            !rawCls.startsWith('max-')) {
-            if (mAllMatch[1] === 'auto') {
-                styles.styleCss = (styles.styleCss || '') + 'margin: auto;';
-                continue;
-            }
-            const neg = rawCls.startsWith('-') ? -1 : 1;
-            const v = resolveSpacing(mAllMatch[1]);
-            if (v !== undefined) {
-                const px = v * neg;
-                styles.marginTop = px; styles.marginBottom = px;
-                styles.marginLeft = px; styles.marginRight = px;
-            }
-            continue;
-        }
-        // mx-N (horizontal) — analogous to my-N
-        const mxMatch = rawCls.match(/^-?mx-(.+)$/);
-        if (mxMatch) {
-            if (mxMatch[1] === 'auto') {
-                styles.styleCss = (styles.styleCss || '') + 'margin-left: auto; margin-right: auto;';
-                continue;
-            }
-            const neg = rawCls.startsWith('-') ? -1 : 1;
-            const v = resolveSpacing(mxMatch[1]);
-            if (v !== undefined) { styles.marginLeft = v * neg; styles.marginRight = v * neg; }
-            continue;
-        }
         const mtMatch = rawCls.match(/^-?mt-(.+)$/);
         if (mtMatch) {
             const neg = rawCls.startsWith('-') ? -1 : 1;
@@ -792,10 +693,6 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         if (rawCls === 'w-auto') { styles.width = 'auto'; continue; }
         if (rawCls === 'h-full') { styles.height = '100%'; continue; }
         if (rawCls === 'h-screen') { styles.height = '100%'; continue; }
-        if (rawCls === 'h-fit') { styles.height = 'fit-content'; continue; }
-        if (rawCls === 'h-min') { styles.height = 'min-content'; continue; }
-        if (rawCls === 'h-max') { styles.height = 'max-content'; continue; }
-        if (rawCls === 'h-auto') { styles.height = 'auto'; continue; }
         if (rawCls === 'h-fit') { styles.height = 'fit-content'; continue; }
         if (rawCls === 'h-min') { styles.height = 'min-content'; continue; }
         if (rawCls === 'h-max') { styles.height = 'max-content'; continue; }
@@ -976,67 +873,11 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         if (rawCls === 'font-mono') { styles.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'; continue; }
         if (rawCls === 'font-sans') { styles.fontFamily = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'; continue; }
         if (rawCls === 'font-serif') { styles.fontFamily = 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif'; continue; }
-        if (rawCls === 'normal-case') { styles.textTransform = 'none'; continue; }
-
-        // Font style (italic)
-        if (rawCls === 'italic') { styles.fontStyle = 'italic'; continue; }
-        if (rawCls === 'not-italic') { styles.fontStyle = 'normal'; continue; }
-
-        // Text decoration
-        if (rawCls === 'underline') { styles.styleCss = (styles.styleCss || '') + 'text-decoration: underline;'; continue; }
-        if (rawCls === 'line-through') { styles.styleCss = (styles.styleCss || '') + 'text-decoration: line-through;'; continue; }
-        if (rawCls === 'overline') { styles.styleCss = (styles.styleCss || '') + 'text-decoration: overline;'; continue; }
-        if (rawCls === 'no-underline') { styles.styleCss = (styles.styleCss || '') + 'text-decoration: none;'; continue; }
-        // decoration-{thickness, style, color}
-        const decorThickMatch = rawCls.match(/^decoration-(\d+|auto|from-font)$/);
-        if (decorThickMatch) {
-            const v = decorThickMatch[1];
-            const css = /^\d+$/.test(v) ? `${v}px` : v;
-            styles.styleCss = (styles.styleCss || '') + `text-decoration-thickness: ${css};`;
-            continue;
-        }
-        if (/^decoration-(solid|dashed|dotted|double|wavy)$/.test(rawCls)) {
-            styles.styleCss = (styles.styleCss || '') + `text-decoration-style: ${rawCls.replace('decoration-', '')};`;
-            continue;
-        }
-        const decorColorMatch = rawCls.match(/^decoration-(.+)$/);
-        if (decorColorMatch) {
-            const arb = decorColorMatch[1].match(/^\[(.+?)\]$/);
-            if (arb) {
-                styles.styleCss = (styles.styleCss || '') + `text-decoration-color: ${arb[1]};`;
-                continue;
-            }
-            const c = resolveColor(decorColorMatch[1], customColors);
-            if (c) {
-                styles.styleCss = (styles.styleCss || '') + `text-decoration-color: ${c};`;
-                continue;
-            }
-        }
-
-        // Default font-family stacks (font-mono, font-sans, font-serif)
-        if (rawCls === 'font-mono') { styles.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'; continue; }
-        if (rawCls === 'font-sans') { styles.fontFamily = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'; continue; }
-        if (rawCls === 'font-serif') { styles.fontFamily = 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif'; continue; }
 
         // Text align
         if (rawCls === 'text-center') { styles.textAlign = 'center'; continue; }
         if (rawCls === 'text-left') { styles.textAlign = 'left'; continue; }
         if (rawCls === 'text-right') { styles.textAlign = 'right'; continue; }
-        if (rawCls === 'text-justify') { styles.textAlign = 'justify'; continue; }
-        if (rawCls === 'text-start') { styles.textAlign = 'start'; continue; }
-        if (rawCls === 'text-end') { styles.textAlign = 'end'; continue; }
-        // text-balance / text-pretty / text-wrap / text-ellipsis / text-clip
-        if (rawCls === 'text-balance') { styles.styleCss = (styles.styleCss || '') + 'text-wrap: balance;'; continue; }
-        if (rawCls === 'text-pretty') { styles.styleCss = (styles.styleCss || '') + 'text-wrap: pretty;'; continue; }
-        if (rawCls === 'text-wrap') { styles.styleCss = (styles.styleCss || '') + 'text-wrap: wrap;'; continue; }
-        if (rawCls === 'text-ellipsis') { styles.styleCss = (styles.styleCss || '') + 'text-overflow: ellipsis;'; continue; }
-        if (rawCls === 'text-clip') { styles.styleCss = (styles.styleCss || '') + 'text-overflow: clip;'; continue; }
-        // align-{baseline, top, middle, bottom, ...}
-        const alignVMatch = rawCls.match(/^align-(baseline|top|middle|bottom|text-top|text-bottom|sub|super)$/);
-        if (alignVMatch) {
-            styles.styleCss = (styles.styleCss || '') + `vertical-align: ${alignVMatch[1].replace('text-', 'text-')};`;
-            continue;
-        }
         if (rawCls === 'text-justify') { styles.textAlign = 'justify'; continue; }
         if (rawCls === 'text-start') { styles.textAlign = 'start'; continue; }
         if (rawCls === 'text-end') { styles.textAlign = 'end'; continue; }
@@ -1103,7 +944,6 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         }
 
         // bg-COLOR (and bg-* utilities for size/position/repeat/attachment)
-        // bg-COLOR (and bg-* utilities for size/position/repeat/attachment)
         const bgColorMatch = rawCls.match(/^bg-(.+)$/);
         if (bgColorMatch) {
             const colorStr = bgColorMatch[1];
@@ -1113,54 +953,6 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
                 continue;
             }
             if (colorStr.startsWith('gradient')) continue;
-            // background-size utilities
-            if (colorStr === 'cover') { styles.styleCss = (styles.styleCss || '') + 'background-size: cover;'; continue; }
-            if (colorStr === 'contain') { styles.styleCss = (styles.styleCss || '') + 'background-size: contain;'; continue; }
-            if (colorStr === 'auto') { styles.styleCss = (styles.styleCss || '') + 'background-size: auto;'; continue; }
-            // background-position utilities
-            const POS_MAP: Record<string, string> = {
-                'center': 'center', 'top': 'top', 'bottom': 'bottom',
-                'left': 'left', 'right': 'right',
-                'left-top': 'left top', 'left-bottom': 'left bottom',
-                'right-top': 'right top', 'right-bottom': 'right bottom',
-            };
-            if (POS_MAP[colorStr] !== undefined) {
-                styles.styleCss = (styles.styleCss || '') + `background-position: ${POS_MAP[colorStr]};`;
-                continue;
-            }
-            // background-repeat utilities
-            if (colorStr === 'no-repeat' || colorStr === 'repeat' ||
-                colorStr === 'repeat-x' || colorStr === 'repeat-y' ||
-                colorStr === 'repeat-round' || colorStr === 'repeat-space') {
-                styles.styleCss = (styles.styleCss || '') + `background-repeat: ${colorStr};`;
-                continue;
-            }
-            // background-attachment utilities
-            if (colorStr === 'fixed' || colorStr === 'local' || colorStr === 'scroll') {
-                styles.styleCss = (styles.styleCss || '') + `background-attachment: ${colorStr};`;
-                continue;
-            }
-            // background-clip / background-origin
-            if (colorStr === 'clip-text') { styles._hasBgClipText = true; continue; }
-            if (colorStr === 'clip-border' || colorStr === 'clip-padding' || colorStr === 'clip-content') {
-                styles.styleCss = (styles.styleCss || '') + `background-clip: ${colorStr.replace('clip-', '')}-box;`;
-                continue;
-            }
-            if (colorStr === 'origin-border' || colorStr === 'origin-padding' || colorStr === 'origin-content') {
-                styles.styleCss = (styles.styleCss || '') + `background-origin: ${colorStr.replace('origin-', '')}-box;`;
-                continue;
-            }
-            // bg-blend-{normal, multiply, screen, overlay, ...}
-            const bgBlendMatch = colorStr.match(/^blend-(.+)$/);
-            if (bgBlendMatch) {
-                styles.styleCss = (styles.styleCss || '') + `background-blend-mode: ${bgBlendMatch[1]};`;
-                continue;
-            }
-            // Custom theme.extend.backgroundImage key (e.g. bg-metallic-rim → conic-gradient(...))
-            if (customBackgroundImages && customBackgroundImages[colorStr]) {
-                styles.styleCss = (styles.styleCss || '') + `background-image: ${customBackgroundImages[colorStr]};`;
-                continue;
-            }
             // background-size utilities
             if (colorStr === 'cover') { styles.styleCss = (styles.styleCss || '') + 'background-size: cover;'; continue; }
             if (colorStr === 'contain') { styles.styleCss = (styles.styleCss || '') + 'background-size: contain;'; continue; }
@@ -1276,9 +1068,7 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         if (borderWMatch) { styles.borderWidth = parseInt(borderWMatch[1]); continue; }
 
         // Per-side borders: border-t, border-b, border-l, border-r, border-x, border-y (with optional width)
-        // Per-side borders: border-t, border-b, border-l, border-r, border-x, border-y (with optional width)
         // XGENIA doesn't have per-side border width, so emit via styleCss
-        const borderSideMatch = rawCls.match(/^border-([tblrxy])(?:-(\d+))?$/);
         const borderSideMatch = rawCls.match(/^border-([tblrxy])(?:-(\d+))?$/);
         if (borderSideMatch) {
             const width = borderSideMatch[2] ? parseInt(borderSideMatch[2]) : 1;
@@ -1350,56 +1140,6 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
         if (rawCls === 'inset-0') {
             styles.top = '0'; styles.bottom = '0'; styles.left = '0'; styles.right = '0';
             continue;
-        }
-        // General inset-N (all four sides), inset-x-N (left+right), inset-y-N (top+bottom),
-        // and their negative counterparts.
-        const insetAllMatch = rawCls.match(/^-?inset-(.+)$/);
-        if (insetAllMatch && !rawCls.startsWith('inset-x') && !rawCls.startsWith('inset-y') && !rawCls.startsWith('-inset-x') && !rawCls.startsWith('-inset-y')) {
-            const neg = rawCls.startsWith('-') ? '-' : '';
-            const arb = insetAllMatch[1].match(/^\[(.+?)\]$/);
-            if (arb) {
-                const v = `${neg}${arb[1]}`;
-                styles.top = v; styles.bottom = v; styles.left = v; styles.right = v;
-                continue;
-            }
-            const v = resolveSpacing(insetAllMatch[1]);
-            if (v !== undefined) {
-                const px = `${neg}${v}px`;
-                styles.top = px; styles.bottom = px; styles.left = px; styles.right = px;
-                continue;
-            }
-        }
-        const insetXMatch = rawCls.match(/^-?inset-x-(.+)$/);
-        if (insetXMatch) {
-            const neg = rawCls.startsWith('-') ? '-' : '';
-            const arb = insetXMatch[1].match(/^\[(.+?)\]$/);
-            if (arb) {
-                const v = `${neg}${arb[1]}`;
-                styles.left = v; styles.right = v;
-                continue;
-            }
-            const v = resolveSpacing(insetXMatch[1]);
-            if (v !== undefined) {
-                const px = `${neg}${v}px`;
-                styles.left = px; styles.right = px;
-                continue;
-            }
-        }
-        const insetYMatch = rawCls.match(/^-?inset-y-(.+)$/);
-        if (insetYMatch) {
-            const neg = rawCls.startsWith('-') ? '-' : '';
-            const arb = insetYMatch[1].match(/^\[(.+?)\]$/);
-            if (arb) {
-                const v = `${neg}${arb[1]}`;
-                styles.top = v; styles.bottom = v;
-                continue;
-            }
-            const v = resolveSpacing(insetYMatch[1]);
-            if (v !== undefined) {
-                const px = `${neg}${v}px`;
-                styles.top = px; styles.bottom = px;
-                continue;
-            }
         }
         // General inset-N (all four sides), inset-x-N (left+right), inset-y-N (top+bottom),
         // and their negative counterparts.
@@ -1916,117 +1656,8 @@ function parseTailwindClasses(classes: string | any, customColors?: Record<strin
             continue;
         }
 
-        // accent-COLOR / caret-COLOR
-        const accentMatch = rawCls.match(/^accent-(.+)$/);
-        if (accentMatch) {
-            const arb = accentMatch[1].match(/^\[(.+?)\]$/);
-            const c = arb ? arb[1] : resolveColor(accentMatch[1], customColors);
-            if (c) styles.styleCss = (styles.styleCss || '') + `accent-color: ${c};`;
-            continue;
-        }
-        const caretMatch = rawCls.match(/^caret-(.+)$/);
-        if (caretMatch) {
-            const arb = caretMatch[1].match(/^\[(.+?)\]$/);
-            const c = arb ? arb[1] : resolveColor(caretMatch[1], customColors);
-            if (c) styles.styleCss = (styles.styleCss || '') + `caret-color: ${c};`;
-            continue;
-        }
-        // outline utilities
-        if (rawCls === 'outline-none') { styles.styleCss = (styles.styleCss || '') + 'outline: none;'; continue; }
-        if (rawCls === 'outline') { styles.styleCss = (styles.styleCss || '') + 'outline-style: solid; outline-width: 1px;'; continue; }
-        if (rawCls === 'outline-dashed' || rawCls === 'outline-dotted' || rawCls === 'outline-double') {
-            styles.styleCss = (styles.styleCss || '') + `outline-style: ${rawCls.replace('outline-', '')};`;
-            continue;
-        }
-        const outlineWidthMatch = rawCls.match(/^outline-(\d+)$/);
-        if (outlineWidthMatch) {
-            styles.styleCss = (styles.styleCss || '') + `outline-width: ${outlineWidthMatch[1]}px; outline-style: solid;`;
-            continue;
-        }
-        const outlineOffsetMatch = rawCls.match(/^outline-offset-(\d+)$/);
-        if (outlineOffsetMatch) {
-            styles.styleCss = (styles.styleCss || '') + `outline-offset: ${outlineOffsetMatch[1]}px;`;
-            continue;
-        }
-        const outlineColorMatch = rawCls.match(/^outline-(.+)$/);
-        if (outlineColorMatch) {
-            const arb = outlineColorMatch[1].match(/^\[(.+?)\]$/);
-            const c = arb ? arb[1] : resolveColor(outlineColorMatch[1], customColors);
-            if (c) styles.styleCss = (styles.styleCss || '') + `outline-color: ${c};`;
-            continue;
-        }
-        // user-select / select-*
-        if (/^select-(none|text|all|auto)$/.test(rawCls)) {
-            styles.styleCss = (styles.styleCss || '') + `user-select: ${rawCls.replace('select-', '')};`;
-            continue;
-        }
-        // resize-* (button reset etc)
-        if (/^resize(-(none|y|x|both))?$/.test(rawCls)) {
-            const v = rawCls === 'resize' ? 'both' : rawCls.replace('resize-', '');
-            styles.styleCss = (styles.styleCss || '') + `resize: ${v};`;
-            continue;
-        }
-        if (rawCls === 'appearance-none') { styles.styleCss = (styles.styleCss || '') + 'appearance: none;'; continue; }
-        // cursor-* (not always desired but harmless)
-        const cursorMatch = rawCls.match(/^cursor-(.+)$/);
-        if (cursorMatch && !cursorMatch[1].startsWith('[')) {
-            styles.styleCss = (styles.styleCss || '') + `cursor: ${cursorMatch[1]};`;
-            continue;
-        }
-        // scroll-behavior
-        if (rawCls === 'scroll-smooth') { styles.styleCss = (styles.styleCss || '') + 'scroll-behavior: smooth;'; continue; }
-        if (rawCls === 'scroll-auto') { styles.styleCss = (styles.styleCss || '') + 'scroll-behavior: auto;'; continue; }
-        // will-change
-        const willChangeMatch = rawCls.match(/^will-change-(.+)$/);
-        if (willChangeMatch) {
-            styles.styleCss = (styles.styleCss || '') + `will-change: ${willChangeMatch[1]};`;
-            continue;
-        }
-        // place-content / place-self / content-* (align-content)
-        const placeContentMatch = rawCls.match(/^place-content-(start|end|center|between|around|evenly|baseline|stretch)$/);
-        if (placeContentMatch) {
-            const v = placeContentMatch[1];
-            const cssV = v === 'start' || v === 'end' ? `flex-${v}` : v === 'between' || v === 'around' || v === 'evenly' ? `space-${v}` : v;
-            styles.styleCss = (styles.styleCss || '') + `place-content: ${cssV};`;
-            continue;
-        }
-        const contentAlignMatch = rawCls.match(/^content-(start|end|center|between|around|evenly|baseline|stretch)$/);
-        if (contentAlignMatch) {
-            const v = contentAlignMatch[1];
-            const cssV = v === 'start' || v === 'end' ? `flex-${v}` : v === 'between' || v === 'around' || v === 'evenly' ? `space-${v}` : v;
-            styles.styleCss = (styles.styleCss || '') + `align-content: ${cssV};`;
-            continue;
-        }
-        const placeSelfMatch = rawCls.match(/^place-self-(auto|start|end|center|stretch)$/);
-        if (placeSelfMatch) {
-            const v = placeSelfMatch[1];
-            const cssV = v === 'start' || v === 'end' ? `flex-${v}` : v;
-            styles.styleCss = (styles.styleCss || '') + `place-self: ${cssV};`;
-            continue;
-        }
-        // justify-items / justify-self
-        const justifyItemsMatch = rawCls.match(/^justify-items-(start|end|center|stretch)$/);
-        if (justifyItemsMatch) {
-            styles.styleCss = (styles.styleCss || '') + `justify-items: ${justifyItemsMatch[1]};`;
-            continue;
-        }
-        const justifySelfMatch = rawCls.match(/^justify-self-(auto|start|end|center|stretch)$/);
-        if (justifySelfMatch) {
-            styles.styleCss = (styles.styleCss || '') + `justify-self: ${justifySelfMatch[1]};`;
-            continue;
-        }
-        // order-N / order-first / order-last / order-none
-        const orderMatch = rawCls.match(/^order-(\d+|first|last|none)$/);
-        if (orderMatch) {
-            const ORDER_MAP: Record<string, string> = { 'first': '-9999', 'last': '9999', 'none': '0' };
-            const v = ORDER_MAP[orderMatch[1]] !== undefined ? ORDER_MAP[orderMatch[1]] : orderMatch[1];
-            styles.styleCss = (styles.styleCss || '') + `order: ${v};`;
-            continue;
-        }
-
         // Skip misc utility classes
         if (rawCls === 'truncate' || rawCls === 'break-inside-avoid' ||
-            rawCls === 'no-scrollbar' || rawCls === 'group' || rawCls === 'peer') continue;
             rawCls === 'no-scrollbar' || rawCls === 'group' || rawCls === 'peer') continue;
 
         // font-FAMILY (custom Tailwind theme fonts like font-spooky, font-display)
@@ -2385,12 +2016,6 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                     value.includes('conic-gradient')
                 ) {
                     // Gradient background-image (e.g. dot grid pattern, conic wheel) → forward as CSS
-                } else if (
-                    value.includes('radial-gradient') ||
-                    value.includes('linear-gradient') ||
-                    value.includes('conic-gradient')
-                ) {
-                    // Gradient background-image (e.g. dot grid pattern, conic wheel) → forward as CSS
                     styles.styleCss = (styles.styleCss || '') + `background-image: ${value};`;
                 }
                 break;
@@ -2401,11 +2026,6 @@ function parseInlineStyle(styleStr: string): ParsedStyles {
                 break;
             }
             case 'background': {
-                if (
-                    value.includes('linear-gradient') ||
-                    value.includes('radial-gradient') ||
-                    value.includes('conic-gradient')
-                ) {
                 if (
                     value.includes('linear-gradient') ||
                     value.includes('radial-gradient') ||
@@ -3200,17 +2820,12 @@ const CONTAINER_TAGS = new Set([
     'figure', 'figcaption', 'details', 'summary', 'dialog', 'a', 'label',
     'menu', 'menuitem', 'pre', 'blockquote', 'address',
     'picture', // <picture> — falls through to first <img> fallback child
-    'form', 'fieldset', 'legend', 'ul', 'ol', 'li', 'dl', 'dt', 'dd',
-    'figure', 'figcaption', 'details', 'summary', 'dialog', 'a', 'label',
-    'menu', 'menuitem', 'pre', 'blockquote', 'address',
-    'picture', // <picture> — falls through to first <img> fallback child
 ]);
 
 // Tags that map to native XGENIA <button> node
 const BUTTON_TAGS = new Set(['button']);
 
 // Tags that represent text → <text>
-const TEXT_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'b', 'strong', 'em', 'i', 'kbd', 'code', 'mark', 'small', 'sub', 'sup', 'time', 'abbr', 'cite', 'q', 'samp', 'var']);
 const TEXT_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'b', 'strong', 'em', 'i', 'kbd', 'code', 'mark', 'small', 'sub', 'sup', 'time', 'abbr', 'cite', 'q', 'samp', 'var']);
 
 // Tags that imply bold text
@@ -3667,7 +3282,6 @@ function doTranslateHtmlToXgeniaXml(html: string, options?: { omitRootWrapper?: 
     // ─── Extract body-level styles (bg color, text color, flex, etc.) ────
     const bodyClassName = body.getAttribute('class') || '';
     const bodyStyles = parseTailwindClasses(bodyClassName, customColors, customFonts, customShadows, customBackgroundImages);
-    const bodyStyles = parseTailwindClasses(bodyClassName, customColors, customFonts, customShadows, customBackgroundImages);
     const bodyInline = body.getAttribute('style') ? parseInlineStyle(body.getAttribute('style')!) : {};
     const mergedBodyStyles: ParsedStyles = { ...bodyStyles, ...bodyInline };
 
@@ -3739,7 +3353,6 @@ function doTranslateHtmlToXgeniaXml(html: string, options?: { omitRootWrapper?: 
     // Translate body children
     const children = Array.from(body.childNodes)
         .map(node => translateNode(node, 1, customColors, cssClassStyles, fontFamily, undefined, cssDefinitions, customFonts, customShadows, customBackgroundImages))
-        .map(node => translateNode(node, 1, customColors, cssClassStyles, fontFamily, undefined, cssDefinitions, customFonts, customShadows, customBackgroundImages))
         .filter(Boolean);
 
     // Deduplicate: if consecutive children are identical (duplicated pages), keep only one
@@ -3753,8 +3366,6 @@ function doTranslateHtmlToXgeniaXml(html: string, options?: { omitRootWrapper?: 
     if (deduped.length === 0) {
         // Empty body — return a minimal wrapper unless caller wants no wrapper at all.
         return options?.omitRootWrapper ? '' : '<group nodeLabel="Root" width="100%" height="100%" />';
-        // Empty body — return a minimal wrapper unless caller wants no wrapper at all.
-        return options?.omitRootWrapper ? '' : '<group nodeLabel="Root" width="100%" height="100%" />';
     }
 
     // Emit CSS Definition nodes for collected CSS classes
@@ -3766,15 +3377,6 @@ function doTranslateHtmlToXgeniaXml(html: string, options?: { omitRootWrapper?: 
         cssDefs.push(`<css-definition style="${escapedCss}" />`);
     });
 
-    // Root group wraps visual children; CSS defs are siblings outside.
-    // omitRootWrapper: when the caller is inserting the result under an existing
-    // parent node (piecewise build), skip the outer Root group so we don't pile up
-    // @Root, @Root_2, @Root_3… ambiguous labels under the parent slot. The body's
-    // styles have already been lifted onto a child wrapper by the plugin's
-    // liftBodyStylesToRoot pass, so the children carry their own styling.
-    const rootXml = options?.omitRootWrapper
-        ? deduped.join('\n')
-        : `<group ${rootAttrs.join(' ')}>\n${deduped.join('\n')}\n</group>`;
     // Root group wraps visual children; CSS defs are siblings outside.
     // omitRootWrapper: when the caller is inserting the result under an existing
     // parent node (piecewise build), skip the outer Root group so we don't pile up
@@ -3887,17 +3489,6 @@ function generateNodeLabel(el: HTMLElement, tag: string, textHint?: string): str
         if (/-\[.+\]$/.test(stripped)) return false;
         // Skip purely-numeric/fractional utilities: `1/4`, `2/3`, `100%` (these slip through if class name is a fragment)
         if (/^\d+\/\d+$/.test(stripped)) return false;
-        // Strip a leading variant prefix so `dark:bg-X`, `md:flex`, `hover:opacity-50`, `lg:px-4`
-        // are filtered by the same rules as their plain counterparts.
-        const stripped = c.replace(/^(?:dark|hover|focus|active|disabled|group|sm|md|lg|xl|2xl|first|last|odd|even|peer|aria-[\w-]+|data-[\w-]+):/, '');
-        // Skip prefixed utilities: bg-, text-, border-, top-, right-, bottom-, left-, inset-, w-, h-, etc.
-        if (/^(flex|grid|gap|p[xytblr]?|m[xytblr]?|w|h|bg|text|font|border|rounded|shadow|overflow|relative|absolute|hidden|block|inline|items|justify|self|col|row|space|min|max|leading|tracking|z|opacity|transition|cursor|hover|focus|active|disabled|sm|md|lg|xl|2xl|top|right|bottom|left|inset|from|to|via|aspect|backdrop|divide|place|content|auto|order|basis|grow|shrink|float|clear|origin|rotate|scale|skew|translate|transform|filter|blur|brightness|contrast|grayscale|hue-rotate|invert|saturate|sepia|drop-shadow|backdrop-blur|backdrop-brightness|backdrop-contrast|backdrop-grayscale|backdrop-hue-rotate|backdrop-invert|backdrop-opacity|backdrop-saturate|backdrop-sepia|will-change|fill|stroke|caret|accent|outline|ring|ring-offset|tab|select|sr|cursor|resize|scroll|snap|touch|user|appearance|pointer|gradient)-/.test(stripped)) return false;
-        // Bare Tailwind utility names (no -)
-        if (/^(flex|grid|hidden|block|inline|relative|absolute|static|fixed|sticky|rounded|border|shadow|overflow|container|transform|transition|outline|ring|inset|truncate|antialiased|subpixel|clearfix|float|clear|table|contents|visible|invisible|sr|collapse|isolate|object|aspect|columns|break|decoration|underline|overline|italic|uppercase|lowercase|capitalize|ordinal|lining|tabular|proportional|diagonal|stacked|oldstyle|normal|backdrop|resize|snap|touch|select|appearance|pointer|will|scroll|overscroll|dark|group|peer|first|last|odd|even)$/.test(stripped)) return false;
-        // Skip arbitrary-value Tailwind classes like `top-[10px]`, `bg-[#392830]`, `w-[100vw]`
-        if (/-\[.+\]$/.test(stripped)) return false;
-        // Skip purely-numeric/fractional utilities: `1/4`, `2/3`, `100%` (these slip through if class name is a fragment)
-        if (/^\d+\/\d+$/.test(stripped)) return false;
         return true;
     });
 
@@ -3962,36 +3553,12 @@ function generateNodeLabel(el: HTMLElement, tag: string, textHint?: string): str
     // Decorative elements (dots, dividers, spacers) — extract a color/shape
     // descriptor so labels are distinguishable in the node tree instead of all
     // being "decorative border 1/2/3" which is un-targetable.
-    // Decorative elements (dots, dividers, spacers) — extract a color/shape
-    // descriptor so labels are distinguishable in the node tree instead of all
-    // being "decorative border 1/2/3" which is un-targetable.
     if (childCount === 0 && !effectiveText) {
         const hasBg = /background/.test(style);
         const hasBorder = /border/.test(style);
         const isCircle = /border-radius:\s*50%/.test(style) || /border-radius:\s*(100|999)/.test(style);
         const isShort = /height:\s*(1|2|3|4)px/.test(style);
 
-        // Try to pull a dominant color from the style for a more useful label.
-        const pickColor = (): string | null => {
-            // Hex first
-            const hexMatch = style.match(/#([0-9a-fA-F]{3,8})\b/);
-            if (hexMatch) return `#${hexMatch[1]}`;
-            // rgb/rgba
-            const rgbMatch = style.match(/rgba?\(([^)]+)\)/);
-            if (rgbMatch) return `rgb`;
-            // common named colors
-            const named = style.match(/(?:background(?:-color)?|color)\s*:\s*([a-z]+)/);
-            if (named && /^(red|orange|yellow|green|teal|cyan|blue|indigo|violet|purple|pink|magenta|white|black|gray|grey|silver|gold|chrome|neon)$/i.test(named[1])) return named[1].toLowerCase();
-            return null;
-        };
-        const color = pickColor();
-        const colorPrefix = color ? `${color} ` : '';
-
-        if (isCircle && hasBg) return `${colorPrefix}dot`.trim();
-        if (isShort && hasBg) return `${colorPrefix}divider`.trim();
-        if (hasBg && !hasBorder) return `${colorPrefix}panel`.trim();
-        if (hasBg && hasBorder) return `${colorPrefix}bordered panel`.trim();
-        if (hasBorder) return `${colorPrefix}border`.trim();
         // Try to pull a dominant color from the style for a more useful label.
         const pickColor = (): string | null => {
             // Hex first
@@ -4037,13 +3604,8 @@ function generateNodeLabel(el: HTMLElement, tag: string, textHint?: string): str
 /**
  * Short label for inline text nodes within containers.
  * Collapses whitespace runs so "BET         $25" → "BET $25".
- * Collapses whitespace runs so "BET         $25" → "BET $25".
  */
 function generateTextLabel(text: string): string {
-    if (!text) return 'text';
-    // Collapse all whitespace runs (including multi-space indentation pattern)
-    const collapsed = text.replace(/[\s ]+/g, ' ').trim();
-    const truncated = collapsed.substring(0, 30).trim();
     if (!text) return 'text';
     // Collapse all whitespace runs (including multi-space indentation pattern)
     const collapsed = text.replace(/[\s ]+/g, ' ').trim();
@@ -4092,8 +3654,6 @@ function translateNode(
     customFonts?: Record<string, string>,
     customShadows?: Record<string, string>,
     customBackgroundImages?: Record<string, string>
-    customShadows?: Record<string, string>,
-    customBackgroundImages?: Record<string, string>
 ): string | null {
     const indent = '  '.repeat(depth);
 
@@ -4129,7 +3689,6 @@ function translateNode(
 
     // Parse styles: Tailwind classes + inline style + CSS class styles
     const className = el.getAttribute('class') || '';
-    const twStyles = parseTailwindClasses(className, customColors, customFonts, customShadows, customBackgroundImages);
     const twStyles = parseTailwindClasses(className, customColors, customFonts, customShadows, customBackgroundImages);
     const inlineStyles = el.getAttribute('style') ? parseInlineStyle(el.getAttribute('style')!) : {};
 
@@ -4440,15 +3999,6 @@ function translateNode(
             'bi', 'bi-icon',
             'lucide', 'i-lucide',
         ];
-        // FontAwesome, Bootstrap Icons, Lucide, Heroicons (font/class form) don't use
-        // ligatures and depend on their JS/CSS runtimes — skip cleanly so the user's UI
-        // shows nothing rather than a broken empty span. (Heroicons used as inline SVG
-        // still works via the <svg> path.)
-        const SKIP_ICON_CLASSES = [
-            'fa', 'fas', 'far', 'fab', 'fal', 'fad', 'fa-solid', 'fa-regular', 'fa-brands',
-            'bi', 'bi-icon',
-            'lucide', 'i-lucide',
-        ];
         const elClasses = (el.getAttribute('class') || '').split(/\s+/);
 
         // data-lucide / data-feather / data-iconify hooks are JS-replaced — skip.
@@ -4551,7 +4101,6 @@ function translateNode(
                 if (childTag === 'span') {
                     const childClassName = childEl.getAttribute('class') || '';
                     const childStyles = parseTailwindClasses(childClassName, customColors, customFonts, customShadows, customBackgroundImages);
-                    const childStyles = parseTailwindClasses(childClassName, customColors, customFonts, customShadows, customBackgroundImages);
                     if (!childStyles.fontSize && styles.fontSize) {
                         childStyles.fontSize = styles.fontSize;
                     }
@@ -4571,7 +4120,6 @@ function translateNode(
                     // If this span has child elements (e.g. nested gradient spans),
                     // process it via translateNode to preserve nested structure
                     if (childEl.children.length > 0) {
-                        const translated = translateNode(childEl, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
                         const translated = translateNode(childEl, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
                         if (translated) children.push(translated);
                         continue;
@@ -4634,7 +4182,6 @@ function translateNode(
                         continue;
                     }
                 }
-                const translated = translateNode(child, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
                 const translated = translateNode(child, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
                 if (translated) children.push(translated);
             }
@@ -5053,7 +4600,6 @@ ${indent}</group>`;
                 }
             } else {
                 const translated = translateNode(child, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
-                const translated = translateNode(child, depth + 1, customColors, cssClassStyles, fontFamily, styles.textAlign || parentTextAlign, cssDefinitions, customFonts, customShadows, customBackgroundImages);
                 if (translated) children.push(translated);
             }
         }
@@ -5327,18 +4873,6 @@ function defaultTextColorFor(el: HTMLElement): string {
 }
 
 function createTextNode(el: HTMLElement, tag: string, text: string, styles: ParsedStyles, indent: string): string {
-    // Monospace defaults for code/keyboard/sample typographic tags.
-    if (!styles.fontFamily && (tag === 'code' || tag === 'kbd' || tag === 'samp' || tag === 'var')) {
-        styles = { ...styles, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' };
-    }
-    // <mark> default: yellow highlight bg.
-    if (tag === 'mark' && !styles.backgroundColor) {
-        styles = { ...styles, backgroundColor: '#fef08a', color: styles.color || '#0f172a' };
-    }
-    // <small>: 80% size.
-    if (tag === 'small' && !styles.fontSize) {
-        styles = { ...styles, fontSize: 12 };
-    }
     // Monospace defaults for code/keyboard/sample typographic tags.
     if (!styles.fontFamily && (tag === 'code' || tag === 'kbd' || tag === 'samp' || tag === 'var')) {
         styles = { ...styles, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' };
@@ -6389,4 +5923,3 @@ function addPositionAttrs(styles: ParsedStyles, attrs: string[]): void {
     if (hasRight) attrs.push('alignX="right"');
     if (hasBottom) attrs.push('alignY="bottom"');
 }
-
