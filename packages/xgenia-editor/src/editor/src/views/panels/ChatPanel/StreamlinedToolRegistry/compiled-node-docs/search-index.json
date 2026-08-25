@@ -17823,10 +17823,10 @@
       "name": "Sound",
       "file": "sound.ts",
       "relativePath": "controls/sound.ts",
-      "category": "Utilities",
+      "category": "Visual",
       "docs": "https://docsapp.xgenia.com/nodes/utilities/sound",
-      "lineCount": 438,
-      "byteSize": 11955,
+      "lineCount": 444,
+      "byteSize": 12440,
       "inputFormatHints": {
         "play": {
           "displayName": "Play",
@@ -30565,7 +30565,6 @@
       "Date To String",
       "Loop",
       "String Mapper",
-      "Sound",
       "AdvancedTimer",
       "Open File Picker",
       "Screen Resolution",
@@ -30834,6 +30833,11 @@
       "stake.RoundActive",
       "stake.ToAPIAmount"
     ],
+    "Visual": [
+      "Sound",
+      "For Each",
+      "Repeater Loop"
+    ],
     "Hyve Mind": [
       "hyve.DataModelNode",
       "hyve.FeatureNode",
@@ -30865,10 +30869,6 @@
     ],
     "Interpolation": [
       "Color Blend"
-    ],
-    "Visual": [
-      "For Each",
-      "Repeater Loop"
     ],
     "Cloud": [
       "xgenia.cloud.request",

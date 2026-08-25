@@ -95,7 +95,13 @@ const SoundNodeDefinition: NodeDefinition = {
   name: 'Sound',
   docs: 'https://docsapp.xgenia.com/nodes/utilities/sound',
   displayName: 'Sound',
-  category: 'Utilities',
+  // (2026-08-25, export 1787621749600) 'Visual', not 'Utilities': this node ships
+  // through createNodeFromReactComponent, which registers it category:'Visual' at
+  // runtime — it MUST mount in the render tree or soundControls never binds and
+  // play()/stop() are silent no-ops. The 'Utilities' literal here leaked into
+  // compiled-node-docs and every placement heuristic, which is how detached Sound
+  // nodes kept shipping silent games. Keep this equal to the runtime truth.
+  category: 'Visual',
   usePortAsLabel: 'soundUrl',
   color: 'purple',
   allowChildren: false,

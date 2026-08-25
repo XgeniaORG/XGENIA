@@ -854,6 +854,28 @@ NodeContext.prototype.getDefaultValueForInput = function (nodeType, inputName) {
 
 // Initialize MCP service for runtime nodes
 NodeContext.prototype.initializeMCPService = function () {
+  // (2026-08-24) @xgenia/mcp is Electron/Node-only (keytar native dep) and its dist/
+  // is not part of the viewer bundle — in a browser this require can NEVER succeed,
+  // so the catch below warned "MCP service not available: Cannot find module" on
+  // every single viewer boot (debug-export noise that reads like a defect). In the
+  // browser, install the inert fallback silently; the renderer path for MCP is the
+  // editor preload bridge, not an in-process require.
+  // Any window-bearing environment (browser viewer, Electron renderer — where MCP
+  // rides the preload bridge instead) gets the fallback without the failed require.
+  const inBrowser = typeof window !== 'undefined';
+  if (inBrowser) {
+    this.mcpService = {
+      loadAllMcpServers: () => [],
+      getTools: async () => {
+        throw new Error('MCP service not available');
+      },
+      callTool: async () => {
+        throw new Error('MCP service not available');
+      },
+      isServiceReady: () => false
+    };
+    return;
+  }
   try {
     // Try to load the MCP service - handle both development and production
     const { sharedMCPService } = require('@xgenia/mcp');
