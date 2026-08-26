@@ -26,7 +26,7 @@
 
 import { XRGS_URL, rgsHeaders } from './rgsClient';
 
-/** Which cost tier the AI screening runs on. Free is the platform default. */
+/** Whether the model that answered was paid or free — a description of the run, not a choice. */
 export type ComplianceAiTier = 'free' | 'paid';
 
 /** One document type, as the platform's catalogue describes it. */
@@ -69,13 +69,24 @@ export interface ComplianceReadiness {
   missing: { type: string; have: 'none' | 'generated' }[];
 }
 
-/** Whether the platform can screen a document with a model, and on whose key. */
+/**
+ * Whether the platform can screen a document with a model, how it chooses the
+ * model, and on whose key. The model is not chosen here: the platform picks the
+ * strongest one the credential can afford and falls back to a free one last.
+ */
 export interface ComplianceAiStatus {
   configured: boolean;
   provider: string;
-  tier?: ComplianceAiTier;
+  /** How the model is chosen: the strongest the credential can afford, free last. */
+  policy?: 'best-affordable';
+  /** The last-resort model — what a credential with no spending room gets. */
+  floor_model?: string;
+  /** COMPLIANCE_AI_MODEL, when the platform pinned the analysis model. */
+  pinned_model?: string | null;
+  /** COMPLIANCE_AI_MAX_SPEND_USD, when the platform caps one screening's estimate. */
+  max_spend_usd?: number | null;
+  /** The floor model under the name older endpoints used; always present. */
   model: string;
-  models?: { free: string; paid: string };
   missing: string[];
   /** Whether this endpoint reads a per-request `openrouter_api_key`. */
   caller_key_supported?: boolean;
@@ -145,12 +156,17 @@ export interface ComplianceAiRun {
   key_source?: 'caller' | 'platform' | 'none';
   model?: string;
   requested_model?: string;
+  /** How the model came to be the model: scout, spending room, every candidate and its fate. */
   selection?: {
-    method: 'web-scouted' | 'operator-pinned' | 'router-fallback' | 'paid-direct';
+    method: 'web-scouted' | 'catalogue-ranked' | 'operator-pinned' | 'router-fallback';
     model: string;
     scout?: { model: string; query: string; recommended: string[]; validated: string[] };
     reason?: string;
+    budget?: { usd: number | null; note: string };
+    candidates?: { model: string; free: boolean; estimatedCostUsd: number | null; outcome: string; detail?: string }[];
   };
+  /** The worst-case estimate the model was admitted on; null when it was unlisted. */
+  estimated_cost_usd?: number | null;
   reason?: string;
   duration_ms?: number;
   prompt_tokens?: number | null;
@@ -262,12 +278,11 @@ export interface GenerateComplianceOptions {
   deploymentId: string;
   functionSlug: string;
   documentType: string;
-  /** Which cost tier the AI screening runs on. Omitted, the platform decides. */
-  aiTier?: ComplianceAiTier;
   /**
-   * The requester's own OpenRouter key, for a paid screening billed to their
-   * account rather than the platform's. Sent with this one request and kept
-   * nowhere — not on disk, not in localStorage, not in the generated document.
+   * The requester's own OpenRouter key: the screening then runs on the
+   * strongest model THEIR key can afford, billed to their account rather than
+   * the platform's. Sent with this one request and kept nowhere — not on disk,
+   * not in localStorage, not in the generated document.
    */
   openrouterApiKey?: string;
 }
@@ -284,7 +299,6 @@ export function generateComplianceDocument(
       document_type: opts.documentType,
       deployment_id: opts.deploymentId,
       function_slug: opts.functionSlug,
-      ...(opts.aiTier ? { ai_tier: opts.aiTier } : {}),
       // Absent rather than empty: an empty string at the endpoint would be
       // indistinguishable from "use mine", and the platform's own key is the
       // right default.
