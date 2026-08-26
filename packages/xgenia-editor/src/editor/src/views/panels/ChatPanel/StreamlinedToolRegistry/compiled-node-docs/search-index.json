@@ -10270,8 +10270,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/RenderPaylinesPixi.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/render-paylines-pixi",
-      "lineCount": 456,
-      "byteSize": 18541,
+      "lineCount": 479,
+      "byteSize": 20185,
       "inputFormatHints": {
         "winningLinesDetails": {
           "displayName": "Winning Lines Details",
