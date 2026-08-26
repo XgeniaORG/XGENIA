@@ -129,9 +129,13 @@ module.exports = {
         /^\.\.\/\.\.\/nodes\/pixi\/utils\/filterUtils$/,
         path.join(projectRoot, 'private', 'xgenia-pro-nodes', 'src', 'pixi', 'nodes', 'utils', 'filterUtils.js')
       ),
-      // Deduplicate: redirect pro-nodes fontloader to the canonical viewer fontloader
+      // Deduplicate: redirect pro-nodes fontloader to the canonical viewer fontloader.
+      // Matches src/ AND dist/: the alias above prefers src, but hasProNodes is satisfied by
+      // dist/index.js alone, and pro-nodes' own `main` is dist/index.js — so a resolve that
+      // arrives through the package entry rather than the alias must land on the canonical
+      // file too, not on the babel-compiled copy.
       new NormalModuleReplacementPlugin(
-        /xgenia-pro-nodes\/src\/utils\/fontloader(\.js)?$/,
+        /xgenia-pro-nodes[\\/](src|dist)[\\/]utils[\\/]fontloader(\.js)?$/,
         path.join(__dirname, '..', 'src', 'fontloader.js')
       )
     ] : [])

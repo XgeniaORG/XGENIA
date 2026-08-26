@@ -300,7 +300,12 @@ function launchApp() {
     try {
       // Some dependencies of @xgenia/mcp are ESM-only; avoid crashing main by lazily requiring
       // and falling back to renderer-side service when unavailable in main.
-      const mod = require('@xgenia/mcp');
+      // (2026-08-24) __non_webpack_require__: the package ships no dist/, so a static
+      // require() also made every editor build print "Module not found: @xgenia/mcp".
+      // Resolve at RUNTIME via Node's own require — same catch-guarded behavior,
+      // no build-time warning.
+      const _req = typeof __non_webpack_require__ === 'function' ? __non_webpack_require__ : require;
+      const mod = _req('@xgenia/mcp');
       mcpService = mod.sharedMCPService;
       console.log('[Main Process] Using dedicated MCP service in main');
     } catch (e) {
