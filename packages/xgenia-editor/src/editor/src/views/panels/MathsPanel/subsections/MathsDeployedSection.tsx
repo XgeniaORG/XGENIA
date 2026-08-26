@@ -22,14 +22,23 @@
 //   * ⋯ → Simulate — measures this component's RTP / hit frequency / volatility.
 //     The rounds run on RGS, against the row `rgs-fn` serves; see
 //     @xgenia-utils/rgs/simulateComponent.
+//   * ⋯ → Compliance — the submission packs for this build: the ten catalogue
+//     documents, their prerequisites and their PDFs. Also produced on RGS, which
+//     is the only place that holds the deployed source's hash, the operator's
+//     registered details and the recorded play they cite; see
+//     @xgenia-utils/rgs/complianceDocs.
 //
-// Simulate is offered HERE and nowhere else (2026-08-06). It used to sit on the
-// Local tree's three-dot menu, where it compiled the working copy in the renderer
-// and reported an RTP for a script that had never been near the platform — a
-// figure indistinguishable, on screen, from a measurement of the live maths.
-// Simulation is a property of the deployed artifact, so it belongs to the tab
-// that holds deployed artifacts. To simulate something you are still authoring,
-// deploy it first: that is now a deliberate step, not a missing feature.
+// Both remote actions are offered HERE and nowhere else (Simulate 2026-08-06,
+// Compliance 2026-08-26), for one reason: they describe a DEPLOYED artifact. A
+// local component has no hash a laboratory could certify and no rounds anyone
+// has played, so neither question has an answer for one.
+//
+// Simulate learned that the hard way: it used to sit on the Local tree's
+// three-dot menu, where it compiled the working copy in the renderer and
+// reported an RTP for a script that had never been near the platform — a figure
+// indistinguishable, on screen, from a measurement of the live maths. To
+// simulate or document something you are still authoring, deploy it first: that
+// is a deliberate step, not a missing feature.
 
 import React, { useState } from 'react';
 
@@ -47,6 +56,7 @@ import { Label } from '@xgenia-core-ui/components/typography/Label';
 
 import { ComponentDiffDocumentProvider } from '../../../documents/ComponentDiffDocument';
 import { EditorDocumentProvider } from '../../../documents/EditorDocument';
+import { MathsComplianceDocumentProvider } from '../../../documents/MathsComplianceDocument';
 import { MathsSimulateDocumentProvider } from '../../../documents/MathsSimulateDocument';
 import PopupLayer from '../../../popuplayer';
 
@@ -57,9 +67,17 @@ export interface MathsDeployedSectionProps {
   /** False when there is no game / Server Version selected yet. */
   isReady: boolean;
   error?: string | null;
-  /** Operator key — Simulate needs it, because the rounds run on the platform. */
+  /**
+   * Operator key — Simulate and Compliance both need it, because the rounds run
+   * and the documents are generated and stored on the platform.
+   */
   apiKey?: string;
-  /** The Server Version these rows came from. Simulate names it when asking RGS to run. */
+  /**
+   * The Server Version these rows came from. Both remote actions name it: it is
+   * the build being measured or documented, it scopes the call to a game this
+   * key owns, and for Compliance it is also what identifies the game — so
+   * neither action needs a game selected separately.
+   */
   deploymentId?: string;
   version?: number;
   gameName?: string;
@@ -128,6 +146,36 @@ export function MathsDeployedSection({
         // Bet/Win pickers to these rather than guessing.
         bet_input_port: entry.betInputPort,
         win_output_port: entry.winOutputPort
+      }
+    });
+  }
+
+  /**
+   * Open the Compliance view on this component, in the editor's main area.
+   *
+   * Only the component's identity travels: its slug, plus the Server Version.
+   * That pair is the whole address the platform needs — the version names the
+   * game and the build, the slug names the component within it — which is why
+   * this view has nothing to select. Everything a document actually contains
+   * (the deployed source and its hash, the operator's registered details, the
+   * market rules, the recorded play) is read on the platform, from the row
+   * `rgs-fn` serves.
+   */
+  function compliance(entry: DeployedComponent) {
+    if (!apiKey || !deploymentId) {
+      setRowError('Not connected to a Server Version — select a game and version above, then try again.');
+      return;
+    }
+
+    setRowError(null);
+    AppRegistry.instance.openDocument(MathsComplianceDocumentProvider.ID, {
+      apiKey,
+      deploymentId,
+      version,
+      gameName,
+      fn: {
+        function_slug: entry.slug,
+        function_name: entry.functionName
       }
     });
   }
@@ -273,6 +321,11 @@ export function MathsDeployedSection({
                   label: 'Simulate',
                   icon: IconName.Play,
                   onClick: () => simulate(entry)
+                },
+                {
+                  label: 'Compliance',
+                  icon: IconName.File,
+                  onClick: () => compliance(entry)
                 }
               ]}
             />
