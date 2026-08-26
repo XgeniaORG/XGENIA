@@ -28,6 +28,19 @@ import {
 } from '@xgenia-utils/rgs/simulationPorts';
 
 import { EditorDocumentProvider } from '../EditorDocument';
+import {
+    DOCUMENT_BODY_STYLE,
+    FIELD_LABEL_STYLE,
+    HINT_STYLE,
+    INPUT_STYLE,
+    OPTION_STYLE,
+    PORT_ROW_STYLE,
+    SECTION_STYLE,
+    SECTION_TITLE_STYLE,
+    SELECT_STYLE,
+    STAT_TILE_STYLE,
+    TYPE_CHIP_STYLE
+} from '../mathsDocumentStyles';
 import { SimulationCharts } from './SimulationCharts';
 
 /**
@@ -85,24 +98,7 @@ interface MathsSimulateDocumentProps {
 // platform runner, so they cannot be allowed to disagree about what a port means.
 
 // ─── Styles ─────────────────────────────────────────────────
-const SECTION_STYLE: React.CSSProperties = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '14px 16px', marginBottom: '12px' };
-const SECTION_TITLE_STYLE: React.CSSProperties = { fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#a0a0b0', marginBottom: '10px' };
-const HINT_STYLE: React.CSSProperties = { fontSize: '11px', color: '#7a7a8a', lineHeight: 1.5 };
-const FIELD_LABEL_STYLE: React.CSSProperties = { display: 'block', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#8a8a9a', marginBottom: '4px' };
-const CONTROL_STYLE: React.CSSProperties = { padding: '6px 8px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '5px', color: '#e0e0e0', fontSize: '12px', outline: 'none' };
-// The window's own gray (same var as the scrolling content area below). A <select>
-// needs an OPAQUE background: the native dropdown popup is drawn on the platform's
-// white popup surface, so the translucent rgba(255,255,255,0.06) the other controls
-// use composited to near-white there and made the #e0e0e0 option text unreadable.
-// Set on the options too — the popup rows take their colour from the option, not the
-// select, on some platforms.
-const SELECT_SURFACE = 'var(--theme-color-bg-3, #16161f)';
-const SELECT_STYLE: React.CSSProperties = { ...CONTROL_STYLE, background: SELECT_SURFACE };
-const OPTION_STYLE: React.CSSProperties = { background: SELECT_SURFACE, color: '#e0e0e0' };
-const INPUT_STYLE: React.CSSProperties = { ...CONTROL_STYLE, fontFamily: 'monospace' };
-const PORT_ROW_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '6px', padding: '8px 10px', marginBottom: '6px' };
-const TYPE_CHIP_STYLE: React.CSSProperties = { flexShrink: 0, fontSize: '9px', fontFamily: 'monospace', padding: '2px 5px', borderRadius: '3px', background: 'rgba(255,255,255,0.06)', color: '#8a8a9a' };
-const STAT_TILE_STYLE: React.CSSProperties = { flex: 1, minWidth: '140px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', padding: '12px', textAlign: 'center' };
+// Shared with the Compliance document — see mathsDocumentStyles.
 
 // ─── Topbar (title + Exit) ──────────────────────────────────
 function MathsSimulateTopbar({ title }: { title: string }) {
@@ -265,7 +261,7 @@ function MathsSimulateDocument({
             <MathsSimulateTopbar title={titleParts.join(' · ')} />
 
             {/* One scrolling column — inputs, controls, results and charts, in that order. */}
-            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', backgroundColor: 'var(--theme-color-bg-3, #16161f)', padding: '16px 20px' }}>
+            <div style={DOCUMENT_BODY_STYLE}>
                 <div style={{ maxWidth: '920px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px', flexWrap: 'wrap' }}>
                         <span style={{ fontSize: '15px', fontWeight: 600, color: '#f0f0f0' }}>{fn.function_name}</span>

@@ -8,6 +8,7 @@ import { IconName } from '@xgenia-core-ui/components/common/Icon';
 
 import { ComponentDiffDocumentProvider } from './views/documents/ComponentDiffDocument';
 import { EditorDocumentProvider } from './views/documents/EditorDocument';
+import { MathsComplianceDocumentProvider } from './views/documents/MathsComplianceDocument';
 import { MathsComponentDocumentProvider } from './views/documents/MathsComponentDocument';
 import { MathsSimulateDocumentProvider } from './views/documents/MathsSimulateDocument';
 import { NodePickerPanel } from './views/NodePicker/NodePickerPanel';
@@ -312,6 +313,7 @@ export function installDocuments() {
   appRegistry.registerDocumentProvider(ComponentDiffDocumentProvider.ID, new ComponentDiffDocumentProvider());
   appRegistry.registerDocumentProvider(MathsComponentDocumentProvider.ID, new MathsComponentDocumentProvider());
   appRegistry.registerDocumentProvider(MathsSimulateDocumentProvider.ID, new MathsSimulateDocumentProvider());
+  appRegistry.registerDocumentProvider(MathsComplianceDocumentProvider.ID, new MathsComplianceDocumentProvider());
 
   if (import.meta.webpackHot) {
     import.meta.webpackHot.accept('./views/documents/EditorDocument', () => {
@@ -333,6 +335,12 @@ export function installDocuments() {
       AppRegistry.instance.registerDocumentProvider(
         MathsSimulateDocumentProvider.ID,
         new MathsSimulateDocumentProvider()
+      );
+    });
+    import.meta.webpackHot.accept('./views/documents/MathsComplianceDocument', () => {
+      AppRegistry.instance.registerDocumentProvider(
+        MathsComplianceDocumentProvider.ID,
+        new MathsComplianceDocumentProvider()
       );
     });
   }

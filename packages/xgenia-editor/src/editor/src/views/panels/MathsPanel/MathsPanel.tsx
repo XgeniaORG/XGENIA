@@ -2265,7 +2265,8 @@ export function MathsPanel() {
                                             : null}
                                         isReady={Boolean(connected && selectedGame && selectedVersion)}
                                         error={statusError}
-                                        // Simulate runs the rounds on RGS, so the section needs
+                                        // The row menu's remote actions — Simulate and
+                                        // Compliance — both run on RGS, so the section needs
                                         // enough to name the caller and the Server Version.
                                         apiKey={settings?.apiKey}
                                         deploymentId={selectedVersion?.id}
