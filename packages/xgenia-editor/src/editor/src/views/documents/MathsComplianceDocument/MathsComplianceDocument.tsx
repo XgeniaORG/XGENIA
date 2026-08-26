@@ -14,7 +14,6 @@ import {
     generateComplianceDocument,
     savePdf,
     sendComplianceDocument,
-    type ComplianceAiTier,
     type ComplianceCatalog,
     type ComplianceDocBlock,
     type ComplianceFieldState,
@@ -302,12 +301,10 @@ function MathsComplianceDocument({
     /** Last thing that went right — the editor has no toast, so it is said here. */
     const [notice, setNotice] = useState<string | null>(null);
 
-    // The AI screening's cost tier. Free by default: a paid model run spends
-    // money, so it is always a deliberate per-generation choice.
-    const [aiTier, setAiTier] = useState<ComplianceAiTier>('free');
     /**
-     * The requester's own OpenRouter key for a paid screening — "bill my
-     * account, not the platform's". Held in component state and deliberately
+     * The requester's own OpenRouter key — "bill my account, not the
+     * platform's", and with it the strongest model MY key can afford. Held in
+     * component state and deliberately
      * NOT persisted: not localStorage, not the project, not the RGS settings
      * blob. It is a live credential that can spend money, and re-typing it costs
      * less than leaving it in browser storage on a shared machine.
@@ -388,9 +385,6 @@ function MathsComplianceDocument({
                 deploymentId: deploymentId as string,
                 functionSlug: fn.function_slug,
                 documentType,
-                // Sent on every type: the platform ignores it for a type with no
-                // analysis profile, and every type has one today.
-                aiTier,
                 openrouterApiKey: openRouterKey
             });
             setResult(data);
@@ -399,8 +393,8 @@ function MathsComplianceDocument({
             // is acceptable for a compliance artefact.
             const ai = data.ai;
             const screening = ai?.performed
-                ? ` AI screening included (${ai.model}${ai.tier ? `, ${ai.tier} tier` : ''}` +
-                  `${ai.selection?.method === 'web-scouted' ? ', web-scouted' : ''}` +
+                ? ` AI screening included (${ai.model}${ai.tier ? `, ${ai.tier} model` : ''}` +
+                  `${ai.selection?.method ? `, ${ai.selection.method}` : ''}` +
                   `${ai.key_source === 'caller' ? ', your API key' : ''}).`
                 : ai?.requested && ai?.reason
                   ? ` Generated without AI screening: ${ai.reason}`
@@ -475,10 +469,6 @@ function MathsComplianceDocument({
 
     const ai = state?.ai ?? null;
     const mailer = state?.mailer ?? null;
-    // Tier → model map for the toggle's caption. An endpoint deployed before the
-    // tiers existed reports one model and no map; fall back so the caption still
-    // says something true.
-    const aiModels = ai ? (ai.models ?? { free: 'openrouter/free', paid: ai.model }) : null;
     const delivery = result?.delivery;
     const history = state?.history ?? [];
 
@@ -570,62 +560,45 @@ function MathsComplianceDocument({
                                     Automated AI screening is not configured on the platform (missing{' '}
                                     {ai.missing.join(', ')}). Documents still generate without it
                                     {ai.caller_key_supported
-                                        ? ' — or pick Paid below and screen on your own OpenRouter key.'
+                                        ? ' — or enter your own OpenRouter key below and screen on it.'
                                         : '.'}
                                 </span>
                             </div>
                         )}
 
-                        {/* ─── AI screening: tier, and on Paid the key that pays ───
-                            Free is the default and rides OpenRouter's free-only
-                            router, so screening costs nothing until someone
-                            deliberately picks Paid for a generation. The document
-                            names whichever model actually answered, either way.
+                        {/* ─── AI screening: the policy, and the key that pays ───
+                            The model is not a choice here. The platform picks the
+                            strongest OpenRouter model the credential can afford —
+                            web-scouted per document type, costed against the live
+                            catalogue and the key's remaining spend, tried
+                            strongest-first — and falls back to a free model only
+                            when nothing paid is affordable. The document names the
+                            model that answered and tables every candidate considered.
 
-                            The key column is offered on Paid only, and only by an
-                            endpoint that says it reads the field: a credential typed
-                            into a box that quietly discards it is worse than no box. */}
-                        {ai && aiModels && (
+                            The key column is shown whenever the endpoint says it reads
+                            the field: a credential typed into a box that quietly
+                            discards it is worse than no box. */}
+                        {ai && (
                             <div style={{ display: 'flex', gap: '18px', flexWrap: 'wrap', alignItems: 'flex-start', marginBottom: '12px' }}>
-                                <div>
+                                <div style={{ flex: 1, minWidth: '280px', maxWidth: '460px' }}>
                                     <label style={FIELD_LABEL_STYLE}>AI screening on generation</label>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                                        <div style={{ display: 'flex', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '5px', overflow: 'hidden' }}>
-                                            {(['free', 'paid'] as ComplianceAiTier[]).map((tier) => (
-                                                <button
-                                                    key={tier}
-                                                    onClick={() => setAiTier(tier)}
-                                                    disabled={generating !== null}
-                                                    style={{
-                                                        padding: '5px 12px',
-                                                        fontSize: '11px',
-                                                        fontWeight: 600,
-                                                        border: 'none',
-                                                        cursor: generating !== null ? 'default' : 'pointer',
-                                                        background: aiTier === tier ? 'rgba(103,222,146,0.12)' : 'transparent',
-                                                        color: aiTier === tier ? OK_COLOR : '#8a8a9a'
-                                                    }}
-                                                >
-                                                    {tier === 'free' ? 'Free' : 'Paid'}
-                                                </button>
-                                            ))}
-                                        </div>
-                                        <span style={{ ...HINT_STYLE, maxWidth: '320px' }}>
-                                            {aiTier === 'free' ? (
-                                                <>routes to a no-cost model via <code style={TYPE_CHIP_STYLE}>{aiModels.free}</code></>
-                                            ) : (
-                                                <>
-                                                    uses <code style={TYPE_CHIP_STYLE}>{aiModels.paid}</code> — billed to{' '}
-                                                    {openRouterKey.trim()
-                                                        ? 'the account of the key beside this'
-                                                        : "the platform's OpenRouter account"}
-                                                </>
-                                            )}
-                                        </span>
+                                    <div style={HINT_STYLE}>
+                                        Picks the strongest OpenRouter model the credential can afford — web-scouted for this
+                                        document type and costed against the key&#39;s remaining spend — and falls back to a
+                                        free model only when nothing paid is affordable
+                                        {ai.pinned_model ? (
+                                            <>
+                                                {' '}(pinned by the platform to <code style={TYPE_CHIP_STYLE}>{ai.pinned_model}</code>)
+                                            </>
+                                        ) : null}
+                                        {typeof ai.max_spend_usd === 'number' ? (
+                                            <>; one screening is capped at ${ai.max_spend_usd.toFixed(2)}</>
+                                        ) : null}
+                                        . Last resort: <code style={TYPE_CHIP_STYLE}>{ai.floor_model ?? ai.model}</code>.
                                     </div>
                                 </div>
 
-                                {aiTier === 'paid' && ai.caller_key_supported && (
+                                {ai.caller_key_supported && (
                                     <div style={{ flex: 1, minWidth: '260px' }}>
                                         <label style={FIELD_LABEL_STYLE} htmlFor="openrouter-api-key">
                                             OpenRouter API Key
@@ -644,8 +617,9 @@ function MathsComplianceDocument({
                                         <div style={{ ...HINT_STYLE, marginTop: '4px' }}>
                                             {openRouterKey.trim() ? (
                                                 <>
-                                                    This generation is billed to your key. It is not saved anywhere — send
-                                                    it again after reopening this view.
+                                                    This generation runs on your key — the strongest model it can afford,
+                                                    billed to it. It is not saved anywhere — enter it again after reopening
+                                                    this view.
                                                 </>
                                             ) : (
                                                 <>
