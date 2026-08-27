@@ -37,6 +37,11 @@ export interface TitleBarProps {
    * Linux get nothing from the WM and have to be served from here.
    */
   hasWindowControls?: boolean;
+  /**
+   * Current window state. Swaps the maximize button's single-window glyph for the
+   * two-window restore glyph, so the button shows what it will do next.
+   */
+  isMaximized?: boolean;
   onMinimizeClicked?: () => void;
   onMaximizeClicked?: () => void;
   onCloseClicked?: () => void;
@@ -50,6 +55,7 @@ export function TitleBar({
   onNewVersionAvailableClicked,
   onNewUpdateAvailableClicked,
   hasWindowControls,
+  isMaximized,
   onMinimizeClicked,
   onMaximizeClicked,
   onCloseClicked
@@ -105,7 +111,10 @@ export function TitleBar({
                 onClick={onMinimizeClicked}
               ></div>
               <div
-                className={classNames([css['OSWindowsIcon'], css['OSWindowsIcon__Maximize']])}
+                className={classNames([
+                  css['OSWindowsIcon'],
+                  isMaximized ? css['OSWindowsIcon__Restore'] : css['OSWindowsIcon__Maximize']
+                ])}
                 onClick={onMaximizeClicked}
               ></div>
             </>

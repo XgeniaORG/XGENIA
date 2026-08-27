@@ -29,6 +29,15 @@ WithWindowControls.args = {
   hasWindowControls: true
 };
 
+// Same controls, but the maximize button showing the restore glyph.
+export const WithWindowControlsMaximized = Template.bind({});
+WithWindowControlsMaximized.args = {
+  title: 'XGENIA Storybook',
+  version: '2.6.5',
+  hasWindowControls: true,
+  isMaximized: true
+};
+
 export const UpdateAvailable = Template.bind({});
 UpdateAvailable.args = {
   title: 'XGENIA Storybook',

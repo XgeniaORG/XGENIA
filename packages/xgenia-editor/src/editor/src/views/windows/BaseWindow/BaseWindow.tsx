@@ -29,6 +29,11 @@ export function BaseWindow({
     // const [newVersionAvailable, setNewVersionAvailable] = useState<boolean | undefined>(undefined);
     const [showDialog, setShowDialog] = useState(false); // State for dialog visibility (kept for compatibility)
 
+    // Drives the maximize/restore glyph. Sourced from the window rather than from our own
+    // clicks, because the WM can maximize us too (see App.onMaximizedChanged).
+    const [isMaximized, setIsMaximized] = useState(() => App.instance.isMaximized());
+    useEffect(() => App.instance.onMaximizedChanged(setIsMaximized), []);
+
     // AUTO-UPDATE DISABLED - Confirmation dialog for auto-update disabled
     // Destructure as a tuple (array)
     const [ConfirmationDialogComponent, showConfirmation] = useConfirmationDialog({
@@ -86,6 +91,7 @@ export function BaseWindow({
                         // draw our own. Leaving this at win32 was why Linux had no
                         // minimize/maximize/close at all.
                         hasWindowControls={process.platform !== 'darwin'}
+                        isMaximized={isMaximized}
                         onMinimizeClicked={() => App.instance.minimize()}
                         onMaximizeClicked={() => App.instance.maximize()}
                         onCloseClicked={() => App.instance.close()}
