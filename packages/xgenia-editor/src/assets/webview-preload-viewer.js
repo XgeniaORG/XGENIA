@@ -797,8 +797,23 @@ window.XgeniaEditorInspectorAPI = {
           } else if (channel === 'pixi-deselect-node') {
             // Nothing to do on the editor side for deselection
           } else if (channel === 'pixi-transform-node') {
-            // Forward transform to editor — sets x, y, width, height, rotation on the XGENIA node
-            makeEditorAPIRequest('pixiTransformNode', data, () => { });
+            // The bridge applies live feedback in-page; the model is written
+            // once, on commit, through the same resolver as DOM gestures.
+            if (!data.commit) return;
+            const gesture = data.rotation !== undefined ? 'rotate'
+              : data.width !== undefined ? 'resize' : 'move';
+            makeEditorAPIRequest('viewportGesture', {
+              label: gesture === 'move' ? 'Move sprite'
+                : gesture === 'resize' ? 'Resize sprite' : 'Rotate sprite',
+              targets: [{
+                nodeId: data.nodeId,
+                kind: 'pixi',
+                gesture,
+                x: data.x, y: data.y,
+                width: data.width, height: data.height,
+                rotation: data.rotation
+              }]
+            }, () => { });
           }
         } catch (e) {
           console.error('[Preload] Error in PixiEdit callback:', e);
