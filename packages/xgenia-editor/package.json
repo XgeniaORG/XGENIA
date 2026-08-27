@@ -57,7 +57,9 @@
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "linux": {
-      "target": "deb"
+      "target": "deb",
+      "icon": "build/icons",
+      "category": "Development"
     },
     "protocols": {
       "name": "xgenia",

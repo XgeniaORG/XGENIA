@@ -80,7 +80,12 @@ export function BaseWindow({
                         variant={TitleBarVariant.Default}
                         version={platform.getVersionWithTag()}
                         state={TitleBarState.Default} // AUTO-UPDATE DISABLED - Always use Default state
-                        isWindows={process.platform === 'win32'}
+                        // The window is created with `frame: false`, so the WM draws no
+                        // controls. macOS still gets its traffic lights from
+                        // `titleBarStyle: 'hidden'`; Windows and Linux get nothing, so we
+                        // draw our own. Leaving this at win32 was why Linux had no
+                        // minimize/maximize/close at all.
+                        hasWindowControls={process.platform !== 'darwin'}
                         onMinimizeClicked={() => App.instance.minimize()}
                         onMaximizeClicked={() => App.instance.maximize()}
                         onCloseClicked={() => App.instance.close()}

@@ -29,7 +29,14 @@ export interface TitleBarProps {
   onNewVersionAvailableClicked?: () => void;
   onNewUpdateAvailableClicked?: () => void;
 
-  isWindows?: boolean;
+  /**
+   * Draw our own minimize/maximize/close buttons (and the logo they sit opposite).
+   *
+   * The window is frameless, so the only platform that still gets controls from the OS
+   * is macOS, where `titleBarStyle: 'hidden'` keeps the traffic lights. Windows and
+   * Linux get nothing from the WM and have to be served from here.
+   */
+  hasWindowControls?: boolean;
   onMinimizeClicked?: () => void;
   onMaximizeClicked?: () => void;
   onCloseClicked?: () => void;
@@ -42,15 +49,15 @@ export function TitleBar({
   variant = TitleBarVariant.Default,
   onNewVersionAvailableClicked,
   onNewUpdateAvailableClicked,
-  isWindows,
+  hasWindowControls,
   onMinimizeClicked,
   onMaximizeClicked,
   onCloseClicked
 }: TitleBarProps) {
   return (
-    <div className={classNames([css['Root'], css[`is-variant-${variant}`], isWindows && css['is-windows']])}>
+    <div className={classNames([css['Root'], css[`is-variant-${variant}`], hasWindowControls && css['has-window-controls']])}>
 
-      {isWindows && (
+      {hasWindowControls && (
         <Logo size={LogoSize.Medium} />
       )}
 
@@ -89,7 +96,7 @@ export function TitleBar({
         </>
       )}
 
-      {Boolean(isWindows) && (
+      {Boolean(hasWindowControls) && (
         <div className={classNames(css['OSWindows'])}>
           {Boolean(variant === TitleBarVariant.Default) && (
             <>

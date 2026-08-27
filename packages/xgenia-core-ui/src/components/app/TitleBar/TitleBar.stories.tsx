@@ -19,14 +19,14 @@ export const Common = Template.bind({});
 Common.args = {
   title: 'XGENIA Storybook',
   version: '2.6.5',
-  isWindows: false
+  hasWindowControls: false
 };
 
-export const IsWindows = Template.bind({});
-IsWindows.args = {
+export const WithWindowControls = Template.bind({});
+WithWindowControls.args = {
   title: 'XGENIA Storybook',
   version: '2.6.5',
-  isWindows: true
+  hasWindowControls: true
 };
 
 export const UpdateAvailable = Template.bind({});
@@ -35,7 +35,7 @@ UpdateAvailable.args = {
   version: '2.6.5',
   versionAvailable: '2.6.6',
   state: TitleBarState.UpdateAvailable,
-  isWindows: true
+  hasWindowControls: true
 };
 
 export const Updated = Template.bind({});
@@ -43,5 +43,5 @@ Updated.args = {
   title: 'XGENIA Storybook',
   version: '2.6.5',
   state: TitleBarState.Updated,
-  isWindows: true
+  hasWindowControls: true
 };

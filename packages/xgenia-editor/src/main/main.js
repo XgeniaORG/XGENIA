@@ -47,6 +47,31 @@ const electron = require('electron');
 const { app, dialog } = electron;
 const fs = require('fs');
 const path = require('path');
+
+// Linux: Electron derives the X11 WM_CLASS from app.getName(), and the desktop shell uses
+// WM_CLASS to attribute the window to an installed application — that is what decides
+// whether the dock shows our logo or a generic gear (see src/linux-desktop-entry.js).
+// A dev launch is `electron dev-main.js`, so Electron never reads our package.json and
+// the name stays the default "Electron": the window announced itself as ("electron",
+// "Electron"), matched nothing, and got the gear.
+//
+// Two things have to be pinned BEFORE renaming, because both are derived from the name
+// and both silently change under it:
+//   userData — app.getPath('userData') is <appData>/<name>, so the rename alone would move
+//     dev state from ~/.config/Electron to ~/.config/XGENIA, where a packaged build's own
+//     (much older) settings live.
+//   version — measured on Electron 31: setName() drops app.getVersion() from "31.3.1" to
+//     "0.0", and "0.0" is not semver, so electron-updater THROWS while
+//     src/autoupdater.js is still being required and the editor never boots.
+//
+// 'XGENIA' is package.json `productName`; electron-builder bakes the same string into the
+// .deb's StartupWMClass, so the two must not drift.
+if (process.platform === 'linux' && app.getName() !== 'XGENIA') {
+  app.setPath('userData', app.getPath('userData'));
+  app.setVersion(app.getVersion());
+  app.setName('XGENIA');
+}
+
 const axios = require('axios');
 // Ensure fetch is available in the main process (older Electron/Node may lack global fetch)
 try {
@@ -71,6 +96,7 @@ const jsonstorage = require('../shared/utils/jsonstorage');
 const StorageApi = require('./src/StorageApi');
 const { getOAuthServer } = require('./src/oauth-callback-server');
 const CrashTelemetry = require('./src/crash-telemetry');
+const { ensureLinuxDesktopEntry } = require('./src/linux-desktop-entry');
 
 // (debug-export 1783408275898) Local-only minidump collection + crash-log.jsonl.
 // Must start before any window is created so Crashpad covers all renderers.
@@ -1475,6 +1501,10 @@ function launchApp() {
       console.log('[Main Process] *** APP READY EVENT FIRED - Starting initialization ***');
       // CSP will be handled by meta tag in index.html
       // console.log('[Main Process] onHeadersReceived CSP handler removed.'); // Optional: for logging
+
+      // Before createWindow(): the shell resolves a window's owning app at map time, so
+      // the desktop entry has to already be on disk.
+      ensureLinuxDesktopEntry(path.join(appPath, 'src/assets/images/icon.png'));
 
       console.log('[Main Process] About to call createWindow()...');
       createWindow();

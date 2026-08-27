@@ -15,8 +15,8 @@
   user-select: none;
   position: relative;
 
-  // Logo positioning (Windows only – rendered conditionally via isWindows)
-  &.is-windows > div:first-child {
+  // Logo positioning (only drawn when we render our own window controls)
+  &.has-window-controls > div:first-child {
     -webkit-app-region: no-drag;
     position: absolute !important;
     left: 8px !important;
