@@ -4,6 +4,8 @@ const Exporter = require('./exporter');
 const { EventDispatcher } = require('../../../shared/utils/EventDispatcher');
 const { CloudService } = require('@xgenia-models/CloudServices');
 const KeyboardHandler = require('@xgenia-utils/keyboardhandler');
+const { resolveGesture } = require('./TransformCommandResolver');
+const { UndoActionGroup, UndoQueue } = require('../models/undo-queue-model');
 
 class EditorAPI {
   keyDown(evt, cb) {
@@ -16,29 +18,42 @@ class EditorAPI {
     cb();
   }
 
-  pixiTransformNode(evt, cb) {
-    const { nodeId, x, y, width, height, rotation, commit } = evt;
-    if (!ProjectModel.instance || !nodeId) {
-      cb({ error: 'No project or nodeId' });
+  viewportGesture(evt, cb) {
+    if (!ProjectModel.instance || !evt || !Array.isArray(evt.targets) || evt.targets.length === 0) {
+      cb({ error: 'No project or targets' });
       return;
     }
 
-    const node = ProjectModel.instance.findNodeWithId(nodeId);
-    if (!node) {
-      console.warn('[EditorAPI] pixiTransformNode: node not found:', nodeId);
-      cb({ error: 'Node not found' });
-      return;
+    const label = evt.label || 'Edit in viewport';
+    const group = new UndoActionGroup({ label });
+    const blocked = [];
+    let applied = 0;
+
+    for (const target of evt.targets) {
+      const node = ProjectModel.instance.findNodeWithId(target.nodeId);
+      if (!node) {
+        blocked.push({ nodeId: target.nodeId, reason: 'not-found' });
+        continue;
+      }
+      const result = resolveGesture(target, {
+        parameters: node.parameters || {},
+        ancestorTransformed: target.ancestorTransformed
+      });
+      if (result.blocked) {
+        blocked.push({ nodeId: target.nodeId, reason: result.blocked });
+        continue;
+      }
+      if (result.needsExplicitSizeMode) {
+        node.setParameter('sizeMode', 'explicit', { undo: group, label });
+      }
+      for (const w of result.writes) {
+        node.setParameter(w.param, w.value, { undo: group, label });
+      }
+      applied++;
     }
 
-    // Apply numeric parameters directly — PixiJS uses numbers, not CSS strings
-    const undoArgs = commit ? { undo: true, label: 'Transform sprite' } : {};
-    if (x !== undefined && x !== null) node.setParameter('x', x, undoArgs);
-    if (y !== undefined && y !== null) node.setParameter('y', y, undoArgs);
-    if (width !== undefined && width !== null) node.setParameter('width', width, undoArgs);
-    if (height !== undefined && height !== null) node.setParameter('height', height, undoArgs);
-    if (rotation !== undefined && rotation !== null) node.setParameter('rotation', rotation, undoArgs);
-
-    cb({ success: true });
+    if (!group.isEmpty()) UndoQueue.instance.push(group);
+    cb({ applied, blocked });
   }
 
   getProjectData(evt, cb) {
