@@ -395,12 +395,7 @@ function _endDrag(e) {
   const dx = e.clientX - _dragStart.x;
   const dy = e.clientY - _dragStart.y;
 
-  console.log('[InteractiveEdit] Move complete:', { nodeId: _selectedNodeId, dx, dy });
-  ipcRenderer.sendToHost('editor-move-element', {
-    nodeId: _selectedNodeId,
-    deltaX: dx,
-    deltaY: dy
-  });
+  _sendDomGesture('move', { deltaX: dx, deltaY: dy });
   // Overlay stays at new position — preview will re-render when parameters update
 }
 
@@ -480,18 +475,7 @@ function _endResize(e) {
   const dh = newH - _originalRect.height;
 
   if (Math.abs(dw) > 1 || Math.abs(dh) > 1) {
-    console.log('[InteractiveEdit] Resize complete:', {
-      nodeId: _selectedNodeId,
-      width: Math.round(newW),
-      height: Math.round(newH)
-    });
-    ipcRenderer.sendToHost('editor-resize-element', {
-      nodeId: _selectedNodeId,
-      width: Math.round(newW),
-      height: Math.round(newH),
-      deltaWidth: Math.round(dw),
-      deltaHeight: Math.round(dh)
-    });
+    _sendDomGesture('resize', { width: Math.round(newW), height: Math.round(newH) });
   }
   // Restore label badge after resize
   if (_labelBadge && _selectedElement) {
@@ -512,6 +496,96 @@ function _globalMouseMove(e) {
 function _globalMouseUp(e) {
   if (_isDragging) { _endDrag(e); return; }
   if (_isResizing) { _endResize(e); return; }
+}
+
+// --- Gesture payload helpers ---
+
+function _rectOf(el) {
+  const r = el.getBoundingClientRect();
+  return { left: r.left, top: r.top, width: r.width, height: r.height };
+}
+
+function _parentRectOf(el) {
+  const p = el.parentElement;
+  return p ? _rectOf(p) : null;
+}
+
+// Screen-delta math is wrong under a rotated/scaled ancestor — fail closed.
+function _hasTransformedAncestor(el) {
+  let cur = el.parentElement;
+  while (cur && cur !== document.body) {
+    const t = getComputedStyle(cur).transform;
+    if (t && t !== 'none') {
+      // translate-only matrices are fine: matrix(1, 0, 0, 1, tx, ty)
+      const m = t.match(/^matrix\(([-\d.]+), ([-\d.]+), ([-\d.]+), ([-\d.]+),/);
+      if (!m || m[1] !== '1' || m[2] !== '0' || m[3] !== '0' || m[4] !== '1') return true;
+    }
+    cur = cur.parentElement;
+  }
+  return false;
+}
+
+// Which resize handle (if any) does a point on the selection frame correspond to?
+// 8px grab zone on edges/corners of the selected element's current rect.
+const HANDLE_ZONE = 8;
+function _handleAtPoint(x, y) {
+  if (!_selectedElement) return null;
+  const r = _selectedElement.getBoundingClientRect();
+  const nearL = Math.abs(x - r.left) <= HANDLE_ZONE;
+  const nearR = Math.abs(x - r.right) <= HANDLE_ZONE;
+  const nearT = Math.abs(y - r.top) <= HANDLE_ZONE;
+  const nearB = Math.abs(y - r.bottom) <= HANDLE_ZONE;
+  const insideX = x >= r.left - HANDLE_ZONE && x <= r.right + HANDLE_ZONE;
+  const insideY = y >= r.top - HANDLE_ZONE && y <= r.bottom + HANDLE_ZONE;
+  if (!insideX || !insideY) return null;
+  let h = '';
+  if (nearT) h += 'n'; else if (nearB) h += 's';
+  if (nearL) h += 'w'; else if (nearR) h += 'e';
+  return h || null;
+}
+
+function _isInsideSelection(x, y) {
+  if (!_selectedElement) return false;
+  const r = _selectedElement.getBoundingClientRect();
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+
+// Brief "why nothing moved" feedback on a blocked gesture, reusing the label badge.
+function _flashBlocked(reason) {
+  if (!_labelBadge || !_selectedElement) return;
+  const messages = {
+    'in-flow': 'Managed by layout — reorder coming soon',
+    'transformed-ancestor': 'Inside a transformed container',
+    'rotated-target': 'Rotated — resize not supported yet',
+    'no-parent-box': 'No parent box to measure against'
+  };
+  const prev = _labelBadge.textContent;
+  _labelBadge.textContent = messages[reason] || 'Cannot edit this element';
+  _labelBadge.style.display = 'block';
+  setTimeout(() => {
+    if (_labelBadge) _labelBadge.textContent = prev;
+    // Overlay may be stale after a blocked drag — resnap it to the element.
+    if (_selectedElement) _updateSelectionPosition(_selectedElement.getBoundingClientRect());
+  }, 1500);
+}
+
+function _sendDomGesture(gesture, fields) {
+  if (!_selectedNodeId || !_selectedElement) return;
+  const payload = {
+    label: gesture === 'move' ? 'Move element' : 'Resize element',
+    targets: [Object.assign({
+      nodeId: _selectedNodeId,
+      kind: 'dom',
+      gesture,
+      startRect: { width: _originalRect.width, height: _originalRect.height },
+      parentRect: _parentRectOf(_selectedElement),
+      ancestorTransformed: _hasTransformedAncestor(_selectedElement)
+    }, fields)]
+  };
+  makeEditorAPIRequest('viewportGesture', payload, (res) => {
+    const blocked = res && res.blocked && res.blocked[0];
+    if (blocked) _flashBlocked(blocked.reason);
+  });
 }
 
 
@@ -564,6 +638,18 @@ window.XgeniaEditorInspectorAPI = {
       const mouseMoveHandler = (e) => {
         // Skip if dragging or resizing
         if (_isDragging || _isResizing) return;
+
+        // Resize/move cursors take precedence around the selected element
+        if (_selectedElement) {
+          const h = _handleAtPoint(e.clientX, e.clientY);
+          if (h) {
+            document.body.style.cursor = h + '-resize';
+          } else if (_isInsideSelection(e.clientX, e.clientY)) {
+            document.body.style.cursor = 'move';
+          } else {
+            document.body.style.cursor = 'crosshair';
+          }
+        }
 
         const element = document.elementFromPoint(e.clientX, e.clientY);
         if (!element) return;
@@ -657,11 +743,20 @@ window.XgeniaEditorInspectorAPI = {
         }
       };
 
-      // --- Mousedown handler ---
-      // Resize handles and drag are disabled for now.
-      // Re-enable once smart constraints are implemented.
+      // --- Mousedown handler: entry point for drag-move and edge-resize ---
+      // Constraints live editor-side in TransformCommandResolver; anything it
+      // can't translate safely comes back blocked and only flashes a hint.
       const mousedownHandler = (e) => {
-        // No-op — both resize handles and drag are disabled
+        if (e.button !== 0) return;
+        const handle = _handleAtPoint(e.clientX, e.clientY);
+        if (handle) {
+          _startResize(e, handle);
+          return;
+        }
+        if (_isInsideSelection(e.clientX, e.clientY)) {
+          _startDrag(e);
+        }
+        // Otherwise fall through: clickHandler does selection/deselection.
       };
 
       // Attach all listeners
