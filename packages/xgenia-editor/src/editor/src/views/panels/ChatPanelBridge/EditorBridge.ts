@@ -203,17 +203,30 @@ export class EditorBridge {
         }
     }
 
+    /**
+     * Settings the panel is PUSHED rather than left to ask for.
+     *
+     * `aiProvider` is here because it carries the OpenRouter key, and the panel
+     * refuses to work without one. Pushing it means the panel never has to win
+     * the settings.get race to know it has a key — and, since AiProviderKeyVault
+     * writes this setting when it pulls the key down from the user's Primora
+     * account at login, a fresh install is pre-filled the moment the panel
+     * attaches. pushEvent queues for a panel that has not mounted yet, so the
+     * value is not lost if the pull finishes first.
+     */
+    private static readonly PUSHED_SETTING_KEYS = ['fal.apiKey', 'gemini.apiKey', 'aiProvider'];
+
     /** Listen for settings changes and push to plugin iframes */
     private listenForSettingChanges() {
         try {
             const { EditorSettings } = require('../../../utils/editorsettings');
             if (EditorSettings?.instance?.on) {
                 EditorSettings.instance.on('updated', ({ key }: any) => {
-                    if (key === 'fal.apiKey' || key === 'gemini.apiKey') {
+                    if (EditorBridge.PUSHED_SETTING_KEYS.includes(key)) {
                         const value = EditorSettings.instance.get(key);
                         console.log(`[EditorBridge] Setting updated: ${key}, pushing to plugins`);
 
-                        this.pushEvent('settingChanged', { key, value });
+                        this.pushEvent('settingChanged', { key, value }, `settingChanged:${key}`);
                     }
                 }, this);
             }
@@ -265,19 +278,24 @@ export class EditorBridge {
      *
      * Last-write-wins per event: replaying a stale intermediate state would be worse than
      * replaying only the current one.
+     *
+     * Keyed by an explicit QUEUE KEY rather than the event name, because
+     * `settingChanged` carries a different setting each time — collapsing those
+     * onto one slot would mean a queued fal.apiKey silently discarding a queued
+     * aiProvider (and with it the OpenRouter key the panel is waiting for).
      */
-    private pendingEvents = new Map<string, any>();
+    private pendingEvents = new Map<string, { event: string; data: any }>();
 
     private flushPendingEvents() {
         if (!this.pendingEvents.size) return;
         const target = this.iframe?.contentWindow;
         if (!target) return;
-        const queued = [...this.pendingEvents.entries()];
+        const queued = [...this.pendingEvents.values()];
         this.pendingEvents.clear();
-        for (const [event, data] of queued) {
+        for (const { event, data } of queued) {
             this.safePostMessage(target, { type: 'event', event, data }, this.pluginOrigin);
         }
-        console.debug(`[EditorBridge] Replayed ${queued.length} event(s) queued before the panel attached: ${queued.map(([e]) => e).join(', ')}`);
+        console.debug(`[EditorBridge] Replayed ${queued.length} event(s) queued before the panel attached: ${queued.map((q) => q.event).join(', ')}`);
     }
 
     /** Check if plugin is connected */
@@ -285,14 +303,20 @@ export class EditorBridge {
         return this.connected;
     }
 
-    /** Push an event to the plugin */
-    pushEvent(event: string, data?: any) {
+    /**
+     * Push an event to the plugin.
+     *
+     * `queueKey` distinguishes queued events that share an event name (see
+     * pendingEvents); it defaults to the event name, which is right for
+     * everything that carries a single kind of payload.
+     */
+    pushEvent(event: string, data?: any, queueKey?: string) {
         if (this.iframe?.contentWindow) {
             this.safePostMessage(this.iframe.contentWindow, { type: 'event', event, data }, this.pluginOrigin);
         } else {
             // Queue rather than drop: the panel attaches a moment later, and losing the startup
             // componentSwitched left it blind to the active component until its first tool call.
-            this.pendingEvents.set(event, data);
+            this.pendingEvents.set(queueKey || event, { event, data });
             console.debug(`[EditorBridge] Panel not attached yet — queued event "${event}" for replay.`);
         }
     }
@@ -502,6 +526,25 @@ export class EditorBridge {
     }
 
     private pushInitialState() {
+        // The AI provider settings — the OpenRouter key above all — go out
+        // FIRST and unconditionally, before the project block below, which
+        // returns early when no project is open. A panel that has to ask for
+        // this can lose the race and conclude the user has no key; a panel that
+        // is told cannot. Deliberately not awaited: the push happens as soon as
+        // the settings file has loaded, and the panel is already listening.
+        try {
+            const { EditorSettings } = require('../../../utils/editorsettings');
+            const instance = EditorSettings.instance;
+            const send = () => this.pushEvent(
+                'settingChanged',
+                { key: 'aiProvider', value: instance?.get?.('aiProvider') },
+                'settingChanged:aiProvider',
+            );
+            if (instance?.ready) { void instance.ready.then(send).catch(send); } else { send(); }
+        } catch (e: any) {
+            console.warn('[EditorBridge] Could not push AI provider settings on connect:', e);
+        }
+
         // Push current project info when plugin connects
         try {
             const project = ProjectModel.instance as any;
@@ -2230,10 +2273,39 @@ export class EditorBridge {
         });
 
         // --- Settings commands ---
-        h('settings.get', ([key]: [string]) => {
+        //
+        // ─── "undefined" IS NOT AN ANSWER (2026-08-28) ───────────────────────
+        // Reported: "I manually restarted the entire app again, and once again
+        // received a pop-up asking me to enter the OpenRouter API key. After
+        // restarting the app one more time, the pop-up disappeared."
+        //
+        // Under Electron, editorSettings lives in a FILE, so EditorSettings has
+        // nothing in memory until its async load lands. This handler answered
+        // whatever it had at the instant it was asked — and the AI panel asks
+        // for `aiProvider` the moment it boots. Lose that race and the panel is
+        // told there is no API key, so it raises "XGENIA AI Setup Required" at
+        // someone whose key is sitting on disk. The next launch re-rolls the
+        // timing, which is why it "fixed itself".
+        //
+        // Waiting is bounded: a storage layer that never answers must not hang
+        // the bridge, so after 5s we answer with what we have and say so.
+        h('settings.get', async ([key]: [string]) => {
             try {
                 const { EditorSettings } = require('../../../utils/editorsettings');
-                return EditorSettings.instance?.get?.(key);
+                const instance = EditorSettings.instance;
+                if (instance?.ready) {
+                    const timedOut = await Promise.race([
+                        instance.ready.then(() => false),
+                        new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 5000)),
+                    ]);
+                    if (timedOut) {
+                        console.warn(
+                            `[EditorBridge] settings.get('${key}'): the settings store did not finish loading `
+                            + 'within 5s — answering from memory, which may be incomplete.',
+                        );
+                    }
+                }
+                return instance?.get?.(key);
             } catch {
                 return null;
             }
