@@ -248,7 +248,8 @@ function renderMaintenance(commits, cap) {
 }
 
 const ASSET_ROWS = [
-  ['macOS (Universal)', 'XGENIA-nightly-macos.dmg'],
+  ['macOS (Apple Silicon)', 'XGENIA-nightly-macos-arm64.dmg'],
+  ['macOS (Intel)', 'XGENIA-nightly-macos-x64.dmg'],
   ['Windows (x64)', 'XGENIA-nightly-windows.exe'],
   ['Linux (x64, .deb)', 'XGENIA-nightly-linux.deb'],
   ['Linux (x64, AppImage)', 'XGENIA-nightly-linux.AppImage'],

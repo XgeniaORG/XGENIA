@@ -12,8 +12,13 @@ on:
 
 jobs:
   build-macos:
-    name: Build macOS (Universal)
+    name: Build macOS (${{ matrix.arch }})
     runs-on: macos-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
 
     steps:
       - name: Checkout repository
@@ -39,9 +44,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build macOS x64
+      - name: Build macOS ${{ matrix.arch }}
         env:
-          TARGET_PLATFORM: 'darwin-x64'
+          TARGET_PLATFORM: 'darwin-${{ matrix.arch }}'
           DISABLE_SIGNING: false
           CSC_CONTENT: ${{ secrets.MACOS_CERTIFICATE_P12 }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -59,7 +64,7 @@ jobs:
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: XGENIA-macOS-universal
+          name: XGENIA-macOS-${{ matrix.arch }}
           path: publish
           retention-days: 7
 
@@ -196,10 +201,10 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Read version: $VERSION"
 
-      - name: Download macOS Artifact
+      - name: Download macOS Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: XGENIA-macOS-universal
+          pattern: XGENIA-macOS-*
           path: release-assets/macos
 
       - name: Download Linux Artifacts
@@ -237,7 +242,12 @@ jobs:
               echo "No $1 in this build, skipping $2"
             fi
           }
-          stage "*.dmg"      "XGENIA-nightly-macos.dmg"
+          stage "*-mac-arm64.dmg" "XGENIA-nightly-macos-arm64.dmg"
+          stage "*-mac-x64.dmg"   "XGENIA-nightly-macos-x64.dmg"
+          # Legacy asset name: existing download links keep working. Points at the
+          # arm64 build, since Apple Silicon is the overwhelming majority and the
+          # Intel build now lives under the explicit -x64 name.
+          stage "*-mac-arm64.dmg" "XGENIA-nightly-macos.dmg"
           stage "*.exe"      "XGENIA-nightly-windows.exe"
           stage "*.deb"      "XGENIA-nightly-linux.deb"
           stage "*.AppImage" "XGENIA-nightly-linux.AppImage"

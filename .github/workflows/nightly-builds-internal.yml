@@ -12,8 +12,13 @@ on:
 
 jobs:
   build-macos:
-    name: Build macOS (Universal)
+    name: Build macOS (${{ matrix.arch }})
     runs-on: macos-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
 
     steps:
       - name: Checkout repository
@@ -39,9 +44,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build macOS x64
+      - name: Build macOS ${{ matrix.arch }}
         env:
-          TARGET_PLATFORM: 'darwin-x64'
+          TARGET_PLATFORM: 'darwin-${{ matrix.arch }}'
           DISABLE_SIGNING: false
           CSC_CONTENT: ${{ secrets.MACOS_CERTIFICATE_P12 }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -59,7 +64,7 @@ jobs:
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: XGENIA-macOS-universal
+          name: XGENIA-macOS-${{ matrix.arch }}
           path: publish
           retention-days: 7
 
