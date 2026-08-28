@@ -1,6 +1,6 @@
 import { IPlatform } from '@xgenia/platform';
 
-import { PlatformOS } from './common';
+import { PlatformOS, SaveFileResult } from './common';
 
 export class PlatformWeb implements IPlatform {
   get name(): string {
@@ -51,7 +51,7 @@ export class PlatformWeb implements IPlatform {
     await navigator.clipboard.writeText(value);
   }
 
-  async saveFile(filename: string, data: string, mimeType: string): Promise<void> {
+  async saveFile(filename: string, data: string, mimeType: string): Promise<SaveFileResult> {
     const a = document.createElement('a');
     // If it's base64, we need to handle it accordingly
     if (data.startsWith('data:')) {
@@ -67,5 +67,7 @@ export class PlatformWeb implements IPlatform {
     if (!data.startsWith('data:')) {
       URL.revokeObjectURL(a.href);
     }
+    // A browser download cannot be cancelled from here, so this is the best it can report.
+    return { saved: true };
   }
 }

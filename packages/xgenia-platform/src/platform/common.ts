@@ -71,12 +71,27 @@ export interface IPlatform {
 
   /**
    * Request to save a file to the native filesystem (Electron-only).
-   * 
+   *
    * @param filename Suggested filename
    * @param data Base64 data or string content
    * @param mimeType MIME type of the file
+   * @returns What happened, where the platform can tell. `void` is the legacy shape — an
+   *          implementation that cannot distinguish a cancel from a write still type-checks.
    */
-  saveFile(filename: string, data: string, mimeType: string): Promise<void>;
+  saveFile(filename: string, data: string, mimeType: string): Promise<SaveFileResult | void>;
+}
+
+/**
+ * The outcome of `saveFile`. Plugins that hand files to the host through the bridge used to
+ * receive `undefined` for a written file AND for a cancelled Save panel, and reported success
+ * for both (2026-08-29).
+ */
+export interface SaveFileResult {
+  saved: boolean;
+  /** The user dismissed the Save panel. */
+  cancelled?: boolean;
+  /** Where the file landed, when the platform knows. */
+  path?: string;
 }
 
 // OSX and Windows add trailing slashes to the temp folder, Linux doesn't
