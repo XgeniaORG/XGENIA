@@ -6,9 +6,26 @@
 import { XRGS_URL, XRGS_ANON_KEY, rgsHeaders } from './rgsClient';
 import { FunctionArtifact } from './generateFunctionArtifact';
 
+/** A rewrite the platform applied to the script as it was stored. */
+export interface DeployRewrite {
+  from: string;
+  to: string;
+  count: number;
+  reason: string;
+}
+
+/** Whether the platform could see the outcome move with the server's RNG. */
+export interface DeployRngVerdict {
+  verdict: 'responsive' | 'not_responsive' | 'inconclusive';
+  reason: string;
+}
+
 export interface DeployedFunction {
   slug: string;
   url: string;
+  /** Both absent when the RGS backend predates them. */
+  rewrites?: DeployRewrite[];
+  rng?: DeployRngVerdict;
 }
 
 /**
@@ -96,7 +113,31 @@ export async function deployEdgeFunction(
   if (!data || !data.url) {
     throw new Error('RGS deploy did not return a function URL');
   }
-  return { slug: data.slug || artifact.slug, url: data.url };
+
+  // What the platform did to the script on the way in, and what it can see
+  // about where the outcome comes from. Both keys are new; an RGS deployed
+  // before they existed simply omits them and nothing here changes.
+  if (Array.isArray(data.rewrites) && data.rewrites.length > 0) {
+    for (const rw of data.rewrites) {
+      console.warn(
+        `[RGS] ${artifact.slug}: rewrote ${rw.from} -> ${rw.to} (x${rw.count}) on upload — ${rw.reason}`
+      );
+    }
+  }
+  if (data.rng && data.rng.verdict === 'not_responsive') {
+    // Not thrown. Plenty of components legitimately have no randomness —
+    // calculators, paytable readers, replay pop-ups all deploy through here.
+    // The refusal belongs where the stake is known, which is the round path on
+    // real money; here it is a heads-up while the author is still looking.
+    console.warn(`[RGS] ${artifact.slug}: ${data.rng.reason}`);
+  }
+
+  return {
+    slug: data.slug || artifact.slug,
+    url: data.url,
+    rewrites: data.rewrites,
+    rng: data.rng,
+  };
 }
 
 /**

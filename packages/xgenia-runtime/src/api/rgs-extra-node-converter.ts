@@ -123,6 +123,28 @@ export class RgsExtraNodeConverter {
     return RgsExtraNodeConverter.REGISTRY.has(norm(typename));
   }
 
+  /**
+   * Is this (node, input port) the SERVER half of a provably-fair draw?
+   *
+   * The server seed is the platform's contribution to an outcome, and the one
+   * value a player must not be able to choose. `Calculate Roll` turns
+   * (server seed, client seed, nonce) into the result, so a server seed reaching
+   * it from the request body would let the caller compute a winning triple
+   * offline and submit it — the scenario reported as XRGS-2026-0826-RNG. It did
+   * not reproduce against production (every deployed graph happens to wire this
+   * port to a Server Seed Generator), but nothing PREVENTED it, and "nobody has
+   * drawn that wire yet" is not a control. `generateRgsScript` consults this to
+   * refuse the wire at compile time.
+   *
+   * Deliberately only Calculate Roll. `Verify Commitment` and `Verify Fairness`
+   * are the REVEAL step: checking a seed the player was given back is exactly
+   * what they are for, so their `serverSeed` input is supposed to arrive from
+   * outside and blocking it would break provably-fair verification.
+   */
+  public static isServerSeedInput(typename: string, portName: string): boolean {
+    return norm(typename) === 'Calculate Roll' && norm(portName).toLowerCase() === 'server seed';
+  }
+
   /** True if ANY of the given node typenames is handled here (drives prelude emit). */
   public hasAnyExtraNode(typenames: string[]): boolean {
     return typenames.some((t) => this.isExtraNode(t));
@@ -243,7 +265,13 @@ function _rgsUuid() {
       case 'Calculate Roll':
         return [
           'var _clientSeed = inputs["client seed"] != null ? String(inputs["client seed"]) : "";',
-          'var _serverSeed = inputs["server seed"] != null ? String(inputs["server seed"]) : "";',
+          // Fail SAFE, not empty. An unwired server seed used to default to "",
+          // which makes the draw a pure function of the client seed and the
+          // nonce — both caller-supplied — and so hands the outcome to whoever
+          // is asking. A missing server seed is a graph that forgot its Server
+          // Seed Generator, and the right recovery is to generate one from the
+          // round's own entropy rather than to quietly play with no seed at all.
+          'var _serverSeed = inputs["server seed"] != null ? String(inputs["server seed"]) : _rgsHexBytes(32);',
           'var _nonce = inputs.nonce != null ? inputs.nonce : 0;',
           'var _max = inputs["max range"] != null ? Number(inputs["max range"]) : 100;',
           'var _min = inputs["min range"] != null ? Number(inputs["min range"]) : 0;',
