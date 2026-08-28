@@ -179,6 +179,84 @@ window.addEventListener('DOMContentLoaded', () => {
         root.render(React.createElement(App, null));
     }
 
+    // (crash 2026-08-27, OOM abort) Passive who-grew counters, pushed to the
+    // main process every 60s and appended to <userData>/memory-log.jsonl next
+    // to the per-process curve. Unlike the Cmd+Alt+M panel below, this is
+    // always on and its data lives OUTSIDE this renderer — a crashed session
+    // still leaves a readable curve. Counters are picked for the known
+    // image-bytes-as-strings disease: data-URL totals, canvas pixels, DOM size.
+    (function setupPassiveMemoryReporter() {
+        // Rolling window of resource loads (fetch/img/script...) so a sample
+        // taken during a memory spike says whether the renderer was quietly
+        // pulling data over the network at the time. Both observed OOM
+        // explosions happened while the app was "just sitting there".
+        const recentRes: Array<{ t: number; bytes: number; type: string }> = [];
+        try {
+            new (window as any).PerformanceObserver((list: any) => {
+                for (const e of (list.getEntries ? list.getEntries() : []) as any[]) {
+                    recentRes.push({ t: performance.now(), bytes: e.transferSize || e.encodedBodySize || 0, type: e.initiatorType || '' });
+                }
+                if (recentRes.length > 3000) recentRes.splice(0, recentRes.length - 3000);
+            }).observe({ type: 'resource', buffered: true });
+        } catch { }
+        function collect() {
+            const s: any = {};
+            try {
+                const pm = (performance as any).memory;
+                if (pm) {
+                    s.jsUsedMB = Math.round(pm.usedJSHeapSize / 1048576);
+                    s.jsLimitMB = Math.round(pm.jsHeapSizeLimit / 1048576);
+                }
+            } catch { }
+            try { s.domNodes = document.getElementsByTagName('*').length; } catch { }
+            try {
+                const canvases = document.querySelectorAll('canvas');
+                let px = 0;
+                canvases.forEach(c => { px += c.width * c.height; });
+                s.canvases = canvases.length;
+                s.canvasMPx = Math.round(px / 1e6);
+            } catch { }
+            try {
+                let dataUrlBytes = 0;
+                let dataUrlImgs = 0;
+                const imgs = document.images;
+                for (let i = 0; i < imgs.length; i++) {
+                    const src = imgs[i].getAttribute('src') || '';
+                    if (src.startsWith('data:')) {
+                        dataUrlImgs++;
+                        dataUrlBytes += src.length;
+                    }
+                }
+                s.imgs = imgs.length;
+                s.dataUrlImgs = dataUrlImgs;
+                s.dataUrlMB = Math.round(dataUrlBytes / 1048576 * 10) / 10;
+            } catch { }
+            try { s.iframes = document.querySelectorAll('iframe').length; } catch { }
+            try {
+                const cutoff = performance.now() - 60_000;
+                let count = 0, bytes = 0;
+                const byType: Record<string, number> = {};
+                for (const r of recentRes) {
+                    if (r.t < cutoff) continue;
+                    count++; bytes += r.bytes;
+                    byType[r.type] = (byType[r.type] || 0) + r.bytes;
+                }
+                s.res60s = count;
+                s.resMB60s = Math.round(bytes / 1048576 * 10) / 10;
+                s.resTop = Object.entries(byType).sort((a, b) => b[1] - a[1])[0]?.[0];
+            } catch { }
+            return s;
+        }
+        function report() {
+            try { ipcRenderer.send('memory-telemetry:sample', collect()); } catch { }
+        }
+        report();
+        setInterval(report, 60_000);
+        // Main asks for an immediate sample when it sees a working-set spike,
+        // so the counters line up with the spike instead of lagging up to 60s.
+        try { ipcRenderer.on('memory-telemetry:request-sample', report); } catch { }
+    })();
+
     // Lightweight renderer memory sampler with toggle (Cmd+Alt+M)
     (function setupRendererMemorySampler() {
         const hasPerfMemory = typeof (performance as any).memory !== 'undefined';
