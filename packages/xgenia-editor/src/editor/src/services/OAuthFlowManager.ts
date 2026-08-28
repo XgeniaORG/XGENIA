@@ -13,6 +13,7 @@
  *   // ... callback arrives automatically, token stored
  */
 
+import { AiProviderKeyVault } from './AiProviderKeyVault';
 import { ConnectionStore, ServiceConnection, ServiceName } from './ConnectionStore';
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -299,13 +300,24 @@ export class OAuthFlowManager {
                     connectedAt: Date.now(),
                 };
 
-                // Sync to AIProviderSettingsManager so ChatPanel picks it up
+                // Store it where the ChatPanel actually reads from, and put it on
+                // the user's account so their next machine already has it.
+                //
+                // This used to call AIProviderSettingsManager.setProviderApiKey.
+                // That manager writes through SettingsBridge, whose editor-side
+                // fallbacks are `window.EditorSettings` (never set) and
+                // EditorProxy (iframe only) — so in the editor renderer it
+                // resolved to the in-MEMORY store and the key was gone on the
+                // next reload. Connecting OpenRouter by OAuth appeared to work
+                // and then silently didn't.
+                //
+                // `verified: true` is honest here and nowhere else: OpenRouter
+                // itself just minted this key in exchange for the auth code.
                 try {
-                    const { AIProviderSettingsManager } = await import('@xgenia-ai/ChatPanel/AIProviderSettings');
-                    AIProviderSettingsManager.setProviderApiKey('openrouter', key);
-                    console.log('[OAuthFlowManager] OpenRouter key synced to AIProviderSettingsManager');
+                    await AiProviderKeyVault.setOpenRouterKey(key, { verified: true });
+                    console.log('[OAuthFlowManager] OpenRouter key stored and bound to the signed-in account');
                 } catch (e: any) {
-                    console.warn('[OAuthFlowManager] Could not sync key to AIProviderSettings:', e);
+                    console.warn('[OAuthFlowManager] Could not store the OpenRouter key:', e);
                 }
             } else {
                 // Standard OAuth2 token exchange
@@ -371,7 +383,7 @@ export class OAuthFlowManager {
         }
     }
 
-    /** Save an API key for services that don't support OAuth (e.g. fal) */
+    /** Save an API key pasted into the Connected Services panel. */
     async saveApiKey(service: ServiceName, apiKey: string): Promise<void> {
         const connection: ServiceConnection = {
             service,
@@ -379,12 +391,23 @@ export class OAuthFlowManager {
             connectedAt: Date.now(),
         };
         await this.connectionStore.saveConnection(connection);
+
+        // ConnectionStore is per-machine and the AI panel does not read it, so
+        // for OpenRouter the paste has to reach the settings the panel DOES read
+        // and the account the user will sign into next. `verified` stays false:
+        // nobody has asked OpenRouter whether this key is real.
+        if (service === 'openrouter') {
+            await AiProviderKeyVault.setOpenRouterKey(apiKey, { verified: false });
+        }
         console.log(`[OAuthFlowManager] API key saved for ${service}`);
     }
 
     /** Disconnect a service */
     async disconnect(service: ServiceName): Promise<void> {
         await this.connectionStore.removeConnection(service);
+        if (service === 'openrouter') {
+            await AiProviderKeyVault.setOpenRouterKey('');
+        }
         console.log(`[OAuthFlowManager] Disconnected ${service}`);
     }
 
