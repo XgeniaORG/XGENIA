@@ -2,7 +2,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   resolveGesture,
-  parseUnitValue
+  parseUnitValue,
+  getCapabilities
 } = require('../src/editor/src/utils/TransformCommandResolver.js');
 
 // ---- parseUnitValue ----
@@ -200,6 +201,78 @@ test('resize of rotated pixi target is blocked', () => {
   );
   assert.equal(r.blocked, 'rotated-target');
 });
+// ---- dom rotate ----
+test('dom rotate adds delta to current angle, writes bare degrees', () => {
+  const r = resolveGesture(
+    { kind: 'dom', gesture: 'rotate', deltaDeg: 30 },
+    { parameters: { position: 'absolute', transformRotation: 15 } }
+  );
+  assert.deepEqual(r.writes, [{ param: 'transformRotation', value: 45 }]);
+});
+test('dom rotate from unset rotation starts at 0', () => {
+  const r = resolveGesture(
+    { kind: 'dom', gesture: 'rotate', deltaDeg: -22.5 },
+    { parameters: {} } // in-flow is fine: rotation is a pure visual transform
+  );
+  assert.deepEqual(r.writes, [{ param: 'transformRotation', value: -22.5 }]);
+});
+test('dom rotate normalizes into (-180, 180]', () => {
+  const r = resolveGesture(
+    { kind: 'dom', gesture: 'rotate', deltaDeg: 200 },
+    { parameters: { transformRotation: 170 } }
+  );
+  assert.deepEqual(r.writes, [{ param: 'transformRotation', value: 10 }]);
+});
+test('dom rotate blocked under transformed ancestor', () => {
+  const r = resolveGesture(
+    { kind: 'dom', gesture: 'rotate', deltaDeg: 30 },
+    { parameters: {}, ancestorTransformed: true }
+  );
+  assert.equal(r.blocked, 'transformed-ancestor');
+});
+
+// ---- capabilities ----
+test('capabilities: dom absolute unrotated gets everything', () => {
+  assert.deepEqual(
+    getCapabilities('dom', { position: 'absolute' }, false),
+    { movable: true, resizable: true, rotatable: true }
+  );
+});
+test('capabilities: dom in-flow cannot move but can resize and rotate', () => {
+  assert.deepEqual(
+    getCapabilities('dom', {}, false),
+    { movable: false, moveReason: 'in-flow', resizable: true, rotatable: true }
+  );
+});
+test('capabilities: rotated dom cannot resize', () => {
+  const caps = getCapabilities('dom', { position: 'absolute', transformRotation: 45 }, false);
+  assert.equal(caps.resizable, false);
+  assert.equal(caps.resizeReason, 'rotated-target');
+  assert.equal(caps.movable, true);
+  assert.equal(caps.rotatable, true);
+});
+test('capabilities: transformed ancestor blocks everything', () => {
+  assert.deepEqual(
+    getCapabilities('dom', { position: 'absolute' }, true),
+    {
+      movable: false, moveReason: 'transformed-ancestor',
+      resizable: false, resizeReason: 'transformed-ancestor',
+      rotatable: false, rotateReason: 'transformed-ancestor'
+    }
+  );
+});
+test('capabilities: pixi unrotated gets everything', () => {
+  assert.deepEqual(
+    getCapabilities('pixi', {}, false),
+    { movable: true, resizable: true, rotatable: true }
+  );
+});
+test('capabilities: rotated pixi cannot resize', () => {
+  const caps = getCapabilities('pixi', { rotation: 0.5 }, false);
+  assert.equal(caps.resizable, false);
+  assert.equal(caps.movable, true);
+});
+
 test('unknown gesture is blocked, never guessed', () => {
   const r = resolveGesture(
     { kind: 'dom', gesture: 'squeeze' },

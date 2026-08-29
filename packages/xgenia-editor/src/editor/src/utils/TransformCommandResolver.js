@@ -122,9 +122,55 @@ function resolveDom(target, params) {
       }
       return result;
     }
+    case 'rotate': {
+      // Rotation is a pure visual transform — legal for in-flow nodes too.
+      const { value: cur } = parseUnitValue(params.transformRotation, '');
+      let angle = cur + target.deltaDeg;
+      // Normalize into (-180, 180] so params stay readable after many turns.
+      angle = ((angle + 180) % 360 + 360) % 360 - 180;
+      if (angle === -180) angle = 180;
+      return {
+        writes: [{ param: 'transformRotation', value: Math.round(angle * 10) / 10 }]
+      };
+    }
     default:
       return blockedResult('unknown-gesture');
   }
 }
 
-module.exports = { resolveGesture, parseUnitValue };
+/**
+ * What can this node do in the viewport right now? Drives which gizmo
+ * affordances (arrows, handles, lollipop) are even shown — a professional
+ * gizmo never offers a gesture the resolver would refuse.
+ */
+function getCapabilities(kind, params, ancestorTransformed) {
+  params = params || {};
+  if (ancestorTransformed) {
+    return {
+      movable: false, moveReason: 'transformed-ancestor',
+      resizable: false, resizeReason: 'transformed-ancestor',
+      rotatable: false, rotateReason: 'transformed-ancestor'
+    };
+  }
+  const caps = { movable: true, resizable: true, rotatable: true };
+  if (kind === 'dom') {
+    if (params.position !== 'absolute') {
+      caps.movable = false;
+      caps.moveReason = 'in-flow';
+    }
+    const { value: rot } = parseUnitValue(params.transformRotation, '');
+    if (rot !== 0) {
+      caps.resizable = false;
+      caps.resizeReason = 'rotated-target';
+    }
+  } else if (kind === 'pixi') {
+    const { value: rot } = parseUnitValue(params.rotation, '');
+    if (rot !== 0) {
+      caps.resizable = false;
+      caps.resizeReason = 'rotated-target';
+    }
+  }
+  return caps;
+}
+
+module.exports = { resolveGesture, parseUnitValue, getCapabilities };
