@@ -196,18 +196,17 @@ function _injectSelectionStyles() {
   style.id = 'xgenia-selection-styles';
   style.textContent = `
     .xg-hover-overlay {
-      position: fixed;
-      pointer-events: none;
-      border: 1px solid rgba(103, 222, 146, 0.5);
-      background: rgba(103, 222, 146, 0.04);
-      z-index: 999998;
-      display: none;
-      transition: all 0.06s ease-out;
+      display: none !important; /* highlight appears on selection only */
     }
     .xg-selection-overlay {
       position: fixed;
       pointer-events: none;
-      border: 1px solid #67DE92;
+      border: 1px solid rgba(255, 255, 255, 0.85);
+      border-radius: 3px;
+      box-shadow:
+        0 0 0 1px rgba(10, 132, 255, 0.65),
+        0 0 0 4px rgba(10, 132, 255, 0.10),
+        0 10px 28px rgba(0, 0, 0, 0.20);
       background: transparent;
       z-index: 999999;
       display: none;
@@ -217,15 +216,17 @@ function _injectSelectionStyles() {
       pointer-events: none;
       z-index: 1000000;
       display: none;
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-size: 10px;
+      padding: 3px 9px;
+      border-radius: 8px;
+      font-size: 11px;
       font-weight: 500;
       font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
-      color: rgba(255,255,255,0.9);
-      background: rgba(30, 30, 32, 0.85);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
+      color: rgba(255,255,255,0.95);
+      background: rgba(28, 28, 30, 0.68);
+      border: 0.5px solid rgba(255, 255, 255, 0.16);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.25);
       white-space: nowrap;
       letter-spacing: 0.2px;
       transform: translateX(-50%);
@@ -235,100 +236,173 @@ function _injectSelectionStyles() {
       pointer-events: none;
       z-index: 1000000;
       display: none;
-      padding: 1px 5px;
-      border-radius: 3px;
-      font-size: 9px;
-      font-weight: 400;
+      padding: 2px 7px;
+      border-radius: 7px;
+      font-size: 10px;
+      font-weight: 500;
       font-family: -apple-system, BlinkMacSystemFont, 'SF Mono', 'Menlo', monospace;
-      color: rgba(255,255,255,0.6);
-      background: rgba(30, 30, 32, 0.75);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
+      font-variant-numeric: tabular-nums;
+      color: rgba(255,255,255,0.85);
+      background: rgba(28, 28, 30, 0.62);
+      border: 0.5px solid rgba(255, 255, 255, 0.14);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.22);
       white-space: nowrap;
       transform: translateX(-50%);
     }
+    .xg-tooltip {
+      position: fixed;
+      pointer-events: none;
+      z-index: 1000001;
+      padding: 4px 9px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 500;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      color: rgba(255,255,255,0.95);
+      background: rgba(28, 28, 30, 0.72);
+      border: 0.5px solid rgba(255, 255, 255, 0.18);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.3);
+      white-space: nowrap;
+      transform: translate(-50%, -135%);
+      opacity: 0;
+      transition: opacity 0.12s ease-out;
+    }
+    .xg-tooltip.xg-tip-on { opacity: 1; }
     .xg-handle {
       position: absolute;
-      width: 8px;
-      height: 8px;
-      background: #fff;
-      border: 1.5px solid #67DE92;
-      border-radius: 1.5px;
-      box-shadow: 0 0 3px rgba(0,0,0,0.35);
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.62);
+      border: 0.5px solid rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(14px) saturate(180%);
+      -webkit-backdrop-filter: blur(14px) saturate(180%);
+      box-shadow:
+        0 1px 5px rgba(0, 0, 0, 0.28),
+        inset 0 0 0 0.5px rgba(255, 255, 255, 0.4);
+      transition: transform 0.12s ease-out, box-shadow 0.12s ease-out;
       display: none;
     }
-    .xg-handle-nw { left: -5px; top: -5px; }
-    .xg-handle-n  { left: calc(50% - 5px); top: -5px; }
-    .xg-handle-ne { right: -5px; top: -5px; }
-    .xg-handle-e  { right: -5px; top: calc(50% - 5px); }
-    .xg-handle-se { right: -5px; bottom: -5px; }
-    .xg-handle-s  { left: calc(50% - 5px); bottom: -5px; }
-    .xg-handle-sw { left: -5px; bottom: -5px; }
-    .xg-handle-w  { left: -5px; top: calc(50% - 5px); }
+    .xg-handle.xg-hot {
+      transform: scale(1.3);
+      box-shadow:
+        0 0 0 3px rgba(10, 132, 255, 0.28),
+        0 2px 8px rgba(0, 0, 0, 0.32),
+        inset 0 0 0 0.5px rgba(255, 255, 255, 0.5);
+    }
+    .xg-handle-nw { left: -6px; top: -6px; }
+    .xg-handle-n  { left: calc(50% - 6px); top: -6px; }
+    .xg-handle-ne { right: -6px; top: -6px; }
+    .xg-handle-e  { right: -6px; top: calc(50% - 6px); }
+    .xg-handle-se { right: -6px; bottom: -6px; }
+    .xg-handle-s  { left: calc(50% - 6px); bottom: -6px; }
+    .xg-handle-sw { left: -6px; bottom: -6px; }
+    .xg-handle-w  { left: -6px; top: calc(50% - 6px); }
     .xg-rotate-stem {
       position: absolute;
       left: 50%;
-      top: -24px;
+      top: -26px;
       width: 0;
-      height: 24px;
-      border-left: 1px dashed rgba(103, 222, 146, 0.8);
+      height: 26px;
+      border-left: 1px solid rgba(255, 255, 255, 0.45);
       display: none;
     }
     .xg-rotate-handle {
       position: absolute;
       left: 50%;
-      top: -32px;
-      width: 11px;
-      height: 11px;
-      margin-left: -5.5px;
+      top: -38px;
+      width: 14px;
+      height: 14px;
+      margin-left: -7px;
       border-radius: 50%;
-      background: #fff;
-      border: 1.5px solid #67DE92;
-      box-shadow: 0 0 3px rgba(0,0,0,0.35);
+      background: rgba(255, 255, 255, 0.62);
+      border: 0.5px solid rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(14px) saturate(180%);
+      -webkit-backdrop-filter: blur(14px) saturate(180%);
+      box-shadow:
+        0 1px 5px rgba(0, 0, 0, 0.28),
+        inset 0 0 0 0.5px rgba(255, 255, 255, 0.4);
+      transition: transform 0.12s ease-out, box-shadow 0.12s ease-out;
       display: none;
     }
+    .xg-rotate-handle.xg-hot {
+      transform: scale(1.25);
+      box-shadow:
+        0 0 0 3px rgba(10, 132, 255, 0.28),
+        0 2px 8px rgba(0, 0, 0, 0.32);
+    }
+    .xg-pivot {
+      position: absolute;
+      width: 9px;
+      height: 9px;
+      margin: -4.5px 0 0 -4.5px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.55);
+      border: 0.5px solid rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px) saturate(180%);
+      -webkit-backdrop-filter: blur(10px) saturate(180%);
+      box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.35), 0 1px 4px rgba(0,0,0,0.3);
+      display: none;
+    }
+    .xg-pivot::before, .xg-pivot::after {
+      content: '';
+      position: absolute;
+      background: rgba(10, 132, 255, 0.9);
+    }
+    .xg-pivot::before { left: 50%; top: 2px; bottom: 2px; width: 1px; margin-left: -0.5px; }
+    .xg-pivot::after  { top: 50%; left: 2px; right: 2px; height: 1px; margin-top: -0.5px; }
     .xg-axis {
       position: absolute;
       display: none;
+      transition: filter 0.12s ease-out;
     }
+    .xg-axis.xg-hot { filter: brightness(1.25) drop-shadow(0 0 4px rgba(255,255,255,0.5)); }
     .xg-axis-x {
       left: 50%;
       top: 50%;
       width: 52px;
-      height: 2px;
-      margin-top: -1px;
-      background: #E5484D;
-      box-shadow: 0 0 2px rgba(0,0,0,0.3);
+      height: 3px;
+      margin-top: -1.5px;
+      border-radius: 2px;
+      background: linear-gradient(90deg, rgba(255,105,97,0.35), rgba(255,105,97,0.95));
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
     }
     .xg-axis-x::after {
       content: '';
       position: absolute;
-      right: -8px;
+      right: -9px;
       top: 50%;
       transform: translateY(-50%);
-      border-left: 8px solid #E5484D;
-      border-top: 5px solid transparent;
-      border-bottom: 5px solid transparent;
+      border-left: 9px solid rgba(255,105,97,0.98);
+      border-top: 5.5px solid transparent;
+      border-bottom: 5.5px solid transparent;
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
     }
     .xg-axis-y {
       left: 50%;
       top: 50%;
-      width: 2px;
+      width: 3px;
       height: 52px;
-      margin-left: -1px;
+      margin-left: -1.5px;
+      border-radius: 2px;
       transform: translateY(-100%);
-      background: #46A758;
-      box-shadow: 0 0 2px rgba(0,0,0,0.3);
+      background: linear-gradient(0deg, rgba(48,209,88,0.35), rgba(48,209,88,0.95));
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
     }
     .xg-axis-y::after {
       content: '';
       position: absolute;
-      top: -8px;
+      top: -9px;
       left: 50%;
       transform: translateX(-50%);
-      border-bottom: 8px solid #46A758;
-      border-left: 5px solid transparent;
-      border-right: 5px solid transparent;
+      border-bottom: 9px solid rgba(48,209,88,0.98);
+      border-left: 5.5px solid transparent;
+      border-right: 5.5px solid transparent;
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
     }
   `;
   document.head.appendChild(style);
@@ -348,13 +422,20 @@ function _createOverlayElements() {
   // visible is decided per selection by viewportCapabilities.
   _selectionOverlay = document.createElement('div');
   _selectionOverlay.className = 'xg-selection-overlay';
-  _gizmo = { handles: [], stem: null, rotate: null, axisX: null, axisY: null };
+  _gizmo = { handles: [], handleByName: {}, stem: null, rotate: null, axisX: null, axisY: null, pivot: null, tooltip: null };
   for (const name of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']) {
     const h = document.createElement('div');
     h.className = 'xg-handle xg-handle-' + name;
     _selectionOverlay.appendChild(h);
     _gizmo.handles.push(h);
+    _gizmo.handleByName[name] = h;
   }
+  _gizmo.pivot = document.createElement('div');
+  _gizmo.pivot.className = 'xg-pivot';
+  _selectionOverlay.appendChild(_gizmo.pivot);
+  _gizmo.tooltip = document.createElement('div');
+  _gizmo.tooltip.className = 'xg-tooltip';
+  document.body.appendChild(_gizmo.tooltip);
   _gizmo.stem = document.createElement('div');
   _gizmo.stem.className = 'xg-rotate-stem';
   _selectionOverlay.appendChild(_gizmo.stem);
@@ -452,6 +533,8 @@ function _updateSelectionPosition(rect) {
 
 function _hideSelection() {
   _clearLivePreview();
+  _hideActionTip();
+  _setHotZone(null);
   _selectedElement = null;
   _selectedNodeId = null;
   _selectedCaps = null;
@@ -473,12 +556,71 @@ function _applyGizmoCaps() {
   show(_gizmo.rotate, !!(caps && caps.rotatable));
   show(_gizmo.axisX, !!(caps && caps.movable));
   show(_gizmo.axisY, !!(caps && caps.movable));
+  show(_gizmo.pivot, !!(caps && (caps.rotatable || caps.movable)));
+  _positionPivot();
+}
+
+// The pivot marks the element's actual transform-origin — the point the
+// node rotates and scales around, as the graph has it wired — not just the
+// visual center of the box.
+function _transformOriginOf(el) {
+  const parts = (getComputedStyle(el).transformOrigin || '').split(' ');
+  const ox = parseFloat(parts[0]);
+  const oy = parseFloat(parts[1]);
+  const r = el.getBoundingClientRect();
+  return {
+    x: isNaN(ox) ? r.width / 2 : ox,
+    y: isNaN(oy) ? r.height / 2 : oy
+  };
+}
+
+function _positionPivot() {
+  if (!_gizmo || !_gizmo.pivot || !_selectedElement) return;
+  const o = _transformOriginOf(_selectedElement);
+  _gizmo.pivot.style.left = o.x + 'px';
+  _gizmo.pivot.style.top = o.y + 'px';
+}
+
+// --- Action tooltip (glass pill naming the gesture under the cursor) ---
+const _TIP_LABELS = {
+  rotate: 'Rotate · ⇧ 15°',
+  x: 'Move X',
+  y: 'Move Y',
+  resize: 'Resize · ⇧ ratio',
+  move: 'Move'
+};
+
+function _showActionTip(kind, x, y) {
+  if (!_gizmo || !_gizmo.tooltip) return;
+  _gizmo.tooltip.textContent = _TIP_LABELS[kind] || '';
+  _gizmo.tooltip.style.left = x + 'px';
+  _gizmo.tooltip.style.top = (y - 10) + 'px';
+  _gizmo.tooltip.classList.add('xg-tip-on');
+}
+
+function _hideActionTip() {
+  if (!_gizmo || !_gizmo.tooltip) return;
+  _gizmo.tooltip.classList.remove('xg-tip-on');
+}
+
+// Highlight the hovered control so the gizmo answers before it is touched.
+function _setHotZone(zone) {
+  if (!_gizmo) return;
+  for (const h of _gizmo.handles) h.classList.remove('xg-hot');
+  _gizmo.rotate.classList.remove('xg-hot');
+  _gizmo.axisX.classList.remove('xg-hot');
+  _gizmo.axisY.classList.remove('xg-hot');
+  if (!zone) return;
+  if (zone === 'rotate') _gizmo.rotate.classList.add('xg-hot');
+  else if (zone === 'x') _gizmo.axisX.classList.add('xg-hot');
+  else if (zone === 'y') _gizmo.axisY.classList.add('xg-hot');
+  else if (_gizmo.handleByName[zone]) _gizmo.handleByName[zone].classList.add('xg-hot');
 }
 
 function _cleanupOverlays() {
   hideHighlight();
   _hideSelection();
-  [_hoverOverlay, _selectionOverlay, _labelBadge, _sizeBadge].forEach(el => {
+  [_hoverOverlay, _selectionOverlay, _labelBadge, _sizeBadge, _gizmo && _gizmo.tooltip].forEach(el => {
     if (el && el.parentNode) el.parentNode.removeChild(el);
   });
   _hoverOverlay = null;
@@ -561,6 +703,7 @@ function _startDrag(e) {
   _dragStart = { x: e.clientX, y: e.clientY };
   _originalRect = _selectedElement.getBoundingClientRect();
   _captureLivePreviewBase();
+  _hideActionTip();
   e.preventDefault();
   e.stopPropagation();
 }
@@ -620,6 +763,7 @@ function _startResize(e, handleName) {
   _dragStart = { x: e.clientX, y: e.clientY };
   _originalRect = _selectedElement.getBoundingClientRect();
   _captureLivePreviewBase();
+  _hideActionTip();
   // Hide badges during resize — only the dynamic size badge will be shown
   if (_labelBadge) _labelBadge.style.display = 'none';
   e.preventDefault();
@@ -858,8 +1002,8 @@ function _isOnRotateHandle(x, y) {
   if (!_selectedElement || !(_selectedCaps && _selectedCaps.rotatable)) return false;
   const r = _selectedElement.getBoundingClientRect();
   const hx = r.left + r.width / 2;
-  const hy = r.top - 26.5; // lollipop circle center (top: -32px, 11px tall)
-  return Math.hypot(x - hx, y - hy) <= 9;
+  const hy = r.top - 31; // lollipop circle center (top: -38px, 14px tall)
+  return Math.hypot(x - hx, y - hy) <= 10;
 }
 
 function _axisArrowAtPoint(x, y) {
@@ -883,15 +1027,21 @@ function _lockDeltas(dx, dy, shiftKey) {
 
 // --- Rotation gesture (overlay-only preview; commits transformRotation) ---
 
+let _rotatePivot = null; // screen-space pivot; the element's transform-origin
+
 function _startRotate(e) {
   if (!_selectedElement) return;
   _isRotating = true;
   _rotateDeltaDeg = 0;
   _originalRect = _selectedElement.getBoundingClientRect();
   _captureLivePreviewBase();
-  const { cx, cy } = _selectionCenter();
-  _rotateStartAngle = Math.atan2(e.clientY - cy, e.clientX - cx);
+  // Rotate around the node's wired transform-origin, not the box center.
+  const o = _transformOriginOf(_selectedElement);
+  _rotatePivot = { x: _originalRect.left + o.x, y: _originalRect.top + o.y };
+  _selectionOverlay.style.transformOrigin = o.x + 'px ' + o.y + 'px';
+  _rotateStartAngle = Math.atan2(e.clientY - _rotatePivot.y, e.clientX - _rotatePivot.x);
   document.body.style.cursor = 'grabbing';
+  _hideActionTip();
   if (_labelBadge) _labelBadge.style.display = 'none';
   e.preventDefault();
   e.stopPropagation();
@@ -899,8 +1049,8 @@ function _startRotate(e) {
 
 function _onRotate(e) {
   if (!_isRotating || !_selectedElement) return;
-  const cx = _originalRect.left + _originalRect.width / 2;
-  const cy = _originalRect.top + _originalRect.height / 2;
+  const cx = _rotatePivot.x;
+  const cy = _rotatePivot.y;
   const angle = Math.atan2(e.clientY - cy, e.clientX - cx);
   let deltaDeg = (angle - _rotateStartAngle) * 180 / Math.PI;
   if (e.shiftKey) deltaDeg = Math.round(deltaDeg / 15) * 15; // snap to 15°
@@ -921,6 +1071,7 @@ function _endRotate(e) {
   document.body.style.cursor = 'crosshair';
   const deltaDeg = Math.round(_rotateDeltaDeg * 10) / 10;
   _selectionOverlay.style.transform = '';
+  _selectionOverlay.style.transformOrigin = '';
   if (_labelBadge) _labelBadge.style.display = 'block';
   if (Math.abs(deltaDeg) >= 0.5) {
     _sendDomGesture('rotate', { deltaDeg: deltaDeg });
@@ -980,21 +1131,36 @@ window.XgeniaEditorInspectorAPI = {
         // Skip if a gesture is in progress (those run via _globalMouseMove)
         if (_isDragging || _isResizing || _isRotating) return;
 
-        // Gizmo cursors take precedence around the selected element
+        // Gizmo cursors, hot states and action tooltips around the selection.
+        // Every control answers on hover: what it does, before it is touched.
         if (_selectedElement) {
           const axis = _axisArrowAtPoint(e.clientX, e.clientY);
           const handle = (_selectedCaps && _selectedCaps.resizable)
             ? _handleAtPoint(e.clientX, e.clientY) : null;
           if (_isOnRotateHandle(e.clientX, e.clientY)) {
             document.body.style.cursor = 'grab';
+            _setHotZone('rotate');
+            _showActionTip('rotate', e.clientX, e.clientY);
           } else if (axis) {
             document.body.style.cursor = axis === 'x' ? 'ew-resize' : 'ns-resize';
+            _setHotZone(axis);
+            _showActionTip(axis, e.clientX, e.clientY);
           } else if (handle) {
             document.body.style.cursor = handle + '-resize';
+            _setHotZone(handle);
+            _showActionTip('resize', e.clientX, e.clientY);
           } else if (_isInsideSelection(e.clientX, e.clientY)) {
             document.body.style.cursor = (_selectedCaps && _selectedCaps.movable) ? 'move' : 'crosshair';
+            _setHotZone(null);
+            if (_selectedCaps && _selectedCaps.movable) {
+              _showActionTip('move', e.clientX, e.clientY);
+            } else {
+              _hideActionTip();
+            }
           } else {
             document.body.style.cursor = 'crosshair';
+            _setHotZone(null);
+            _hideActionTip();
           }
         }
 
@@ -1002,13 +1168,12 @@ window.XgeniaEditorInspectorAPI = {
         if (!element) return;
 
         // Skip our own overlay elements
-        if (element.closest('.xg-hover-overlay, .xg-selection-overlay, .xg-label-badge, .xg-size-badge')) return;
+        if (element.closest('.xg-hover-overlay, .xg-selection-overlay, .xg-label-badge, .xg-size-badge, .xg-tooltip')) return;
 
+        // No pre-selection highlight: selection chrome appears on click only.
+        // The editor is still told what is under the cursor.
         const xgeniaNode = findXgeniaNodeForElement(element);
-        if (xgeniaNode) {
-          // Don't show hover overlay on the already-selected element
-          if (_selectedElement && element === _selectedElement) return;
-          showHighlight(element);
+        if (xgeniaNode && !(_selectedElement && element === _selectedElement)) {
           ipcRenderer.sendToHost('inspector-node-found', {
             nodeId: xgeniaNode,
             elementInfo: {
@@ -1017,8 +1182,6 @@ window.XgeniaEditorInspectorAPI = {
               id: element.id
             }
           });
-        } else {
-          hideHighlight();
         }
       };
 
