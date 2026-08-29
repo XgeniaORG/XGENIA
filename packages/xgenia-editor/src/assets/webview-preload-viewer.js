@@ -187,6 +187,7 @@ let _rotateStartAngle = 0;      // Pointer angle at rotation start (radians)
 let _rotateDeltaDeg = 0;        // Accumulated rotation delta (degrees)
 let _gizmo = null;              // Handle/lollipop/arrow elements on the selection frame
 let _selectedCaps = null;       // Capabilities of the selected node (from editor)
+let _livePreviewBase = '';      // Element's computed transform at gesture start
 
 
 function _injectSelectionStyles() {
@@ -450,6 +451,7 @@ function _updateSelectionPosition(rect) {
 }
 
 function _hideSelection() {
+  _clearLivePreview();
   _selectedElement = null;
   _selectedNodeId = null;
   _selectedCaps = null;
@@ -488,7 +490,67 @@ function _cleanupOverlays() {
   if (styleEl) styleEl.remove();
 }
 
-// --- Drag to move (overlay-only — never modifies actual DOM) ---
+// --- Live element preview during gestures ---
+// The element must move IN TANDEM with the frame (Unity/Figma feel), so we
+// preview with inline styles while the gesture runs and let the committed
+// params take over on re-render. Inline transform only — layout params are
+// never touched mid-gesture.
+
+let _livePreviewInline = null;  // element's own inline styles, restored on clear
+
+function _captureLivePreviewBase() {
+  if (!_selectedElement) { _livePreviewBase = ''; _livePreviewInline = null; return; }
+  const t = getComputedStyle(_selectedElement).transform;
+  _livePreviewBase = (t && t !== 'none') ? t : '';
+  // React authors styles inline; a blocked gesture gets no re-render, so we
+  // must put back exactly what was there rather than blanking.
+  const s = _selectedElement.style;
+  _livePreviewInline = {
+    transform: s.transform,
+    width: s.width,
+    height: s.height,
+    willChange: s.willChange
+  };
+}
+
+// Prepend keeps the delta in screen space even when the element's own
+// transform contains rotation (leftmost operation applies outermost).
+function _applyLiveMove(dx, dy) {
+  if (!_selectedElement) return;
+  _selectedElement.style.willChange = 'transform';
+  _selectedElement.style.transform =
+    'translate(' + dx + 'px, ' + dy + 'px) ' + _livePreviewBase;
+}
+
+function _applyLiveResize(newRect) {
+  if (!_selectedElement) return;
+  const dx = newRect.left - _originalRect.left;
+  const dy = newRect.top - _originalRect.top;
+  _selectedElement.style.willChange = 'transform';
+  _selectedElement.style.width = newRect.width + 'px';
+  _selectedElement.style.height = newRect.height + 'px';
+  _selectedElement.style.transform =
+    'translate(' + dx + 'px, ' + dy + 'px) ' + _livePreviewBase;
+}
+
+function _applyLiveRotate(deltaDeg) {
+  if (!_selectedElement) return;
+  _selectedElement.style.willChange = 'transform';
+  _selectedElement.style.transform =
+    _livePreviewBase + ' rotate(' + deltaDeg + 'deg)';
+}
+
+function _clearLivePreview() {
+  if (!_selectedElement || !_livePreviewInline) return;
+  const s = _selectedElement.style;
+  s.transform = _livePreviewInline.transform;
+  s.width = _livePreviewInline.width;
+  s.height = _livePreviewInline.height;
+  s.willChange = _livePreviewInline.willChange;
+  _livePreviewInline = null;
+}
+
+// --- Drag to move ---
 let _dragActive = false; // True once movement exceeds threshold
 const DRAG_THRESHOLD = 4; // px before drag actually starts
 
@@ -498,6 +560,7 @@ function _startDrag(e) {
   _dragActive = false; // Not active until threshold exceeded
   _dragStart = { x: e.clientX, y: e.clientY };
   _originalRect = _selectedElement.getBoundingClientRect();
+  _captureLivePreviewBase();
   e.preventDefault();
   e.stopPropagation();
 }
@@ -515,7 +578,8 @@ function _onDrag(e) {
     document.body.style.cursor = 'grabbing';
   }
 
-  // Move only the overlay elements — never the actual DOM element
+  // Frame and element move in tandem: overlay repositions, element gets a
+  // screen-space translate preview (params untouched until commit).
   const newRect = {
     left: _originalRect.left + dx,
     top: _originalRect.top + dy,
@@ -525,6 +589,7 @@ function _onDrag(e) {
     bottom: _originalRect.bottom + dy,
   };
   _updateSelectionPosition(newRect);
+  _applyLiveMove(dx, dy);
   _labelBadge.style.left = newRect.left + 'px';
   _labelBadge.style.top = (newRect.top - 20) + 'px';
   _sizeBadge.style.left = (newRect.right - 60) + 'px';
@@ -538,7 +603,7 @@ function _endDrag(e) {
   _dragActive = false;
   document.body.style.cursor = 'crosshair';
 
-  if (!wasDragActive) { _dragAxis = null; return; } // Was just a click, not a drag
+  if (!wasDragActive) { _dragAxis = null; _clearLivePreview(); return; } // Just a click
 
   const locked = _lockDeltas(e.clientX - _dragStart.x, e.clientY - _dragStart.y, e.shiftKey);
   _dragAxis = null;
@@ -554,6 +619,7 @@ function _startResize(e, handleName) {
   _resizeHandle = handleName;
   _dragStart = { x: e.clientX, y: e.clientY };
   _originalRect = _selectedElement.getBoundingClientRect();
+  _captureLivePreviewBase();
   // Hide badges during resize — only the dynamic size badge will be shown
   if (_labelBadge) _labelBadge.style.display = 'none';
   e.preventDefault();
@@ -590,13 +656,14 @@ function _onResize(e) {
   newW = Math.max(newW, 10);
   newH = Math.max(newH, 10);
 
-  // Move only the overlay — never the actual DOM element
+  // Frame and element resize in tandem (inline preview, committed on release)
   const visualRect = {
     left: newL, top: newT,
     width: newW, height: newH,
     right: newL + newW, bottom: newT + newH,
   };
   _updateSelectionPosition(visualRect);
+  _applyLiveResize(visualRect);
   _sizeBadge.textContent = Math.round(newW) + ' × ' + Math.round(newH);
   _sizeBadge.style.left = (visualRect.right - 60) + 'px';
   _sizeBadge.style.top = (visualRect.bottom + 4) + 'px';
@@ -624,6 +691,8 @@ function _endResize(e) {
 
   if (Math.abs(dw) > 1 || Math.abs(dh) > 1) {
     _sendDomGesture('resize', { width: Math.round(newW), height: Math.round(newH) });
+  } else {
+    _clearLivePreview();
   }
   // Restore label badge after resize
   if (_labelBadge && _selectedElement) {
@@ -737,6 +806,7 @@ function _sendDomGesture(gesture, fields) {
   makeEditorAPIRequest('viewportGesture', payload, (res) => {
     const blocked = res && res.blocked && res.blocked[0];
     if (blocked) {
+      _clearLivePreview(); // snap back — nothing was written
       _flashBlocked(blocked.reason);
     } else {
       _refreshSelectionAfterCommit();
@@ -750,6 +820,11 @@ function _sendDomGesture(gesture, fields) {
 function _refreshSelectionAfterCommit() {
   setTimeout(() => {
     if (!_selectedElement || !_selectedNodeId) return;
+    // Committed params have re-rendered; hand rendering back to the page.
+    _clearLivePreview();
+    // React may have replaced the DOM node on re-render — re-resolve it.
+    const fresh = document.querySelector('[data-xgenia-node-id="' + _selectedNodeId + '"]');
+    if (fresh) _selectedElement = fresh;
     _selectionOverlay.style.transform = '';
     const rect = _selectedElement.getBoundingClientRect();
     _updateSelectionPosition(rect);
@@ -813,6 +888,7 @@ function _startRotate(e) {
   _isRotating = true;
   _rotateDeltaDeg = 0;
   _originalRect = _selectedElement.getBoundingClientRect();
+  _captureLivePreviewBase();
   const { cx, cy } = _selectionCenter();
   _rotateStartAngle = Math.atan2(e.clientY - cy, e.clientX - cx);
   document.body.style.cursor = 'grabbing';
@@ -830,8 +906,9 @@ function _onRotate(e) {
   if (e.shiftKey) deltaDeg = Math.round(deltaDeg / 15) * 15; // snap to 15°
   _rotateDeltaDeg = deltaDeg;
 
-  // Preview on the frame only; the element re-renders after commit.
+  // Frame and element rotate in tandem (inline preview, committed on release)
   _selectionOverlay.style.transform = 'rotate(' + deltaDeg + 'deg)';
+  _applyLiveRotate(deltaDeg);
   _sizeBadge.textContent = Math.round(deltaDeg) + '°';
   _sizeBadge.style.left = (cx) + 'px';
   _sizeBadge.style.top = (_originalRect.bottom + 4) + 'px';
@@ -847,6 +924,8 @@ function _endRotate(e) {
   if (_labelBadge) _labelBadge.style.display = 'block';
   if (Math.abs(deltaDeg) >= 0.5) {
     _sendDomGesture('rotate', { deltaDeg: deltaDeg });
+  } else {
+    _clearLivePreview();
   }
 }
 
