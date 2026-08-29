@@ -374,6 +374,14 @@ export class CanvasView extends View {
 
     this.el = $(element);
 
+    // The View menu zooms the editor chrome (Chromium native zoom on the
+    // editor webContents). The <webview> showing the running project is a
+    // separate webContents and must keep the canvas zoom the user set in the
+    // topbar, so re-assert it whenever the interface zoom changes.
+    ipcRenderer.on('ui-zoom-changed', () => {
+      this.tryWebviewCall(() => (this.webview as any).setZoomFactor(this.zoomFactor || 1));
+    });
+
     // HTML capture listener
     ipcRenderer.on('embedded-viewer-get-full-html-request', async (...args) => {
       console.log('[CanvasView] 📄 Received embedded-viewer-get-full-html-request');

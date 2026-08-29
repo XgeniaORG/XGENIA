@@ -866,6 +866,11 @@ function launchApp() {
       win.webContents.on('did-finish-load', () => {
         // No longer clearing cache or reloading to avoid infinite reload loop
         console.log('[Main Process] Page loaded successfully');
+
+        // Chromium drops the zoom factor on every navigation/reload, so the
+        // user's chosen interface zoom has to be re-asserted here or it
+        // silently snaps back to 100% after a reload.
+        applyUiZoom(uiZoomFactor, { persist: false });
       });
 
       win.webContents.on('dom-ready', () => {
@@ -1079,6 +1084,11 @@ function launchApp() {
 
       floatingWindow.window.webContents.once('did-finish-load', () => {
         floatingWindow.send('floating-window-options', options.id, options.options);
+
+        // Floating windows are editor chrome - keep them on the same zoom.
+        try {
+          floatingWindow.window.webContents.setZoomFactor(uiZoomFactor);
+        } catch { }
       });
 
       floatingWindow.forwardIpcEvents(['editor-api-response']);
@@ -1157,6 +1167,89 @@ function launchApp() {
       }
     });
 
+    /**
+     * Editor UI zoom (View menu).
+     *
+     * Chromium's native zoom on the editor webContents scales the WHOLE editor
+     * chrome - topbar, panels, node graph, the chat iframe - which is what
+     * "the UI is too large" needs. The <webview> that renders the running
+     * project is a separate webContents on a different origin (localhost:8574
+     * vs the editor's file:// or localhost:8080), so it keeps its own zoom; it
+     * is re-asserted from the renderer on every change anyway.
+     *
+     * Chromium resets zoom on navigation, so it is re-applied on every
+     * did-finish-load, and persisted so it survives a restart.
+     */
+    const UI_ZOOM_STEPS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+    const UI_ZOOM_MIN = UI_ZOOM_STEPS[0];
+    const UI_ZOOM_MAX = UI_ZOOM_STEPS[UI_ZOOM_STEPS.length - 1];
+    let uiZoomFactor = 1;
+    let uiMenuInstalled = false;
+
+    function applyUiZoom(factor, options) {
+      const clamped = Math.min(UI_ZOOM_MAX, Math.max(UI_ZOOM_MIN, factor));
+      uiZoomFactor = clamped;
+
+      try {
+        if (win && !win.isDestroyed()) {
+          win.webContents.setZoomFactor(clamped);
+          // The project preview must NOT follow the editor chrome's zoom.
+          win.webContents.send('ui-zoom-changed', clamped);
+        }
+      } catch (e) {
+        console.warn('[Main Process] Failed to apply UI zoom:', e && e.message ? e.message : e);
+      }
+
+      // Floating windows are editor chrome too.
+      try {
+        Object.keys(floatingWindows).forEach((id) => {
+          const fw = floatingWindows[id];
+          const wc = fw && fw.window && !fw.window.isDestroyed() ? fw.window.webContents : null;
+          if (wc) wc.setZoomFactor(clamped);
+        });
+      } catch { }
+
+      if (!options || options.persist !== false) {
+        try {
+          jsonstorage.set('uiZoom', { factor: clamped });
+        } catch (e) {
+          console.warn('[Main Process] Failed to persist UI zoom:', e && e.message ? e.message : e);
+        }
+      }
+
+      // Refresh the "Current: N%" readout in the View menu.
+      if (uiMenuInstalled) {
+        try {
+          setupMenu();
+        } catch { }
+      }
+    }
+
+    function stepUiZoom(direction) {
+      // Snap to the nearest ladder rung, then move one rung from there.
+      let index = 0;
+      let bestDistance = Infinity;
+      for (let i = 0; i < UI_ZOOM_STEPS.length; i++) {
+        const distance = Math.abs(UI_ZOOM_STEPS[i] - uiZoomFactor);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          index = i;
+        }
+      }
+
+      const next = Math.min(UI_ZOOM_STEPS.length - 1, Math.max(0, index + direction));
+      applyUiZoom(UI_ZOOM_STEPS[next]);
+    }
+
+    // Restore the saved zoom. Re-applied again once the window finishes loading,
+    // because this read may resolve before the editor page exists.
+    jsonstorage.get('uiZoom', (data) => {
+      const saved = data && Number(data.factor);
+      if (saved && isFinite(saved)) {
+        applyUiZoom(saved, { persist: false });
+      }
+    });
+
     function setupMenu() {
       var template = [
         {
@@ -1173,6 +1266,41 @@ function launchApp() {
             { label: 'Copy', accelerator: 'CmdOrCtrl+C', selector: 'copy:' },
             { label: 'Paste', accelerator: 'CmdOrCtrl+V', selector: 'paste:' },
             { label: 'Select All', accelerator: 'CmdOrCtrl+A', selector: 'selectAll:' }
+          ]
+        },
+        {
+          label: 'View',
+          submenu: [
+            {
+              label: 'Interface Zoom: ' + Math.round(uiZoomFactor * 100) + '%',
+              enabled: false
+            },
+            { type: 'separator' },
+            {
+              label: 'Zoom In',
+              accelerator: 'CmdOrCtrl+Plus',
+              click: () => stepUiZoom(1)
+            },
+            {
+              // Same command on the unshifted key, which is what people
+              // actually press. Hidden accelerators still fire on macOS
+              // (acceleratorWorksWhenHidden defaults to true).
+              label: 'Zoom In',
+              accelerator: 'CmdOrCtrl+=',
+              visible: false,
+              acceleratorWorksWhenHidden: true,
+              click: () => stepUiZoom(1)
+            },
+            {
+              label: 'Zoom Out',
+              accelerator: 'CmdOrCtrl+-',
+              click: () => stepUiZoom(-1)
+            },
+            {
+              label: 'Actual Size',
+              accelerator: 'CmdOrCtrl+0',
+              click: () => applyUiZoom(1)
+            }
           ]
         }
       ];
@@ -1281,6 +1409,7 @@ function launchApp() {
       });
 
       Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+      uiMenuInstalled = true;
     }
 
     /**
