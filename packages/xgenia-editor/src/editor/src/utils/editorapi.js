@@ -5,6 +5,7 @@ const { EventDispatcher } = require('../../../shared/utils/EventDispatcher');
 const { CloudService } = require('@xgenia-models/CloudServices');
 const KeyboardHandler = require('@xgenia-utils/keyboardhandler');
 const { resolveGesture, getCapabilities } = require('./TransformCommandResolver');
+const { parentLayoutOf } = require('../../../../../../private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/utils/layout-intent-resolver');
 const { UndoActionGroup, UndoQueue } = require('../models/undo-queue-model');
 
 class EditorAPI {
@@ -37,14 +38,13 @@ class EditorAPI {
       }
       const result = resolveGesture(target, {
         parameters: node.parameters || {},
+        typename: node.typename || node.type,
+        parentLayout: parentLayoutOf(node),
         ancestorTransformed: target.ancestorTransformed
       });
       if (result.blocked) {
         blocked.push({ nodeId: target.nodeId, reason: result.blocked });
         continue;
-      }
-      if (result.needsExplicitSizeMode) {
-        node.setParameter('sizeMode', 'explicit', { undo: group, label });
       }
       for (const w of result.writes) {
         node.setParameter(w.param, w.value, { undo: group, label });
@@ -66,7 +66,7 @@ class EditorAPI {
       cb({ error: 'Node not found' });
       return;
     }
-    cb(getCapabilities(evt.kind || 'dom', node.parameters || {}, !!evt.ancestorTransformed));
+    cb(getCapabilities(evt.kind || 'dom', node.parameters || {}, !!evt.ancestorTransformed, parentLayoutOf(node)));
   }
 
   getProjectData(evt, cb) {

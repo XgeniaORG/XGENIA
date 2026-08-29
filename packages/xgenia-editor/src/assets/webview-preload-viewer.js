@@ -638,14 +638,17 @@ function _cleanupOverlays() {
 // params take over on re-render. Inline transform only — layout params are
 // never touched mid-gesture.
 
-let _livePreviewInline = null;  // element's own inline styles, restored on clear
+let _livePreviewInline = null;   // element's own inline styles at gesture start
+let _livePreviewApplied = null;  // the exact values WE wrote, per property
+let _lastPreviewRect = null;     // where the preview left the element (screen)
 
 function _captureLivePreviewBase() {
-  if (!_selectedElement) { _livePreviewBase = ''; _livePreviewInline = null; return; }
+  if (!_selectedElement) { _livePreviewBase = ''; _livePreviewInline = null; _livePreviewApplied = null; return; }
   const t = getComputedStyle(_selectedElement).transform;
   _livePreviewBase = (t && t !== 'none') ? t : '';
-  // React authors styles inline; a blocked gesture gets no re-render, so we
-  // must put back exactly what was there rather than blanking.
+  // React authors styles inline. We must be able to hand each property back:
+  // to React's NEW value when the commit re-rendered it, or to this captured
+  // value when React never touched it (or the gesture was blocked).
   const s = _selectedElement.style;
   _livePreviewInline = {
     transform: s.transform,
@@ -653,43 +656,65 @@ function _captureLivePreviewBase() {
     height: s.height,
     willChange: s.willChange
   };
+  _livePreviewApplied = {};
+  _lastPreviewRect = null;
+}
+
+function _writePreviewStyle(prop, value) {
+  _selectedElement.style[prop] = value;
+  _livePreviewApplied[prop] = value;
 }
 
 // Prepend keeps the delta in screen space even when the element's own
 // transform contains rotation (leftmost operation applies outermost).
 function _applyLiveMove(dx, dy) {
-  if (!_selectedElement) return;
-  _selectedElement.style.willChange = 'transform';
-  _selectedElement.style.transform =
-    'translate(' + dx + 'px, ' + dy + 'px) ' + _livePreviewBase;
+  if (!_selectedElement || !_livePreviewApplied) return;
+  _writePreviewStyle('willChange', 'transform');
+  _writePreviewStyle('transform', 'translate(' + dx + 'px, ' + dy + 'px) ' + _livePreviewBase);
+  _lastPreviewRect = {
+    left: _originalRect.left + dx, top: _originalRect.top + dy,
+    width: _originalRect.width, height: _originalRect.height
+  };
 }
 
 function _applyLiveResize(newRect) {
-  if (!_selectedElement) return;
+  if (!_selectedElement || !_livePreviewApplied) return;
   const dx = newRect.left - _originalRect.left;
   const dy = newRect.top - _originalRect.top;
-  _selectedElement.style.willChange = 'transform';
-  _selectedElement.style.width = newRect.width + 'px';
-  _selectedElement.style.height = newRect.height + 'px';
-  _selectedElement.style.transform =
-    'translate(' + dx + 'px, ' + dy + 'px) ' + _livePreviewBase;
+  _writePreviewStyle('willChange', 'transform');
+  _writePreviewStyle('width', newRect.width + 'px');
+  _writePreviewStyle('height', newRect.height + 'px');
+  _writePreviewStyle('transform', 'translate(' + dx + 'px, ' + dy + 'px) ' + _livePreviewBase);
+  _lastPreviewRect = { left: newRect.left, top: newRect.top, width: newRect.width, height: newRect.height };
 }
 
 function _applyLiveRotate(deltaDeg) {
-  if (!_selectedElement) return;
-  _selectedElement.style.willChange = 'transform';
-  _selectedElement.style.transform =
-    _livePreviewBase + ' rotate(' + deltaDeg + 'deg)';
+  if (!_selectedElement || !_livePreviewApplied) return;
+  _writePreviewStyle('willChange', 'transform');
+  _writePreviewStyle('transform', _livePreviewBase + ' rotate(' + deltaDeg + 'deg)');
+  _lastPreviewRect = null; // AABB comparison is meaningless for rotation
 }
 
+/**
+ * Remove OUR preview values only. A property whose inline value is no longer
+ * the one we wrote was re-rendered by React from the committed params — it is
+ * newer truth and must be left alone. Restoring the captured pre-gesture
+ * value over it is what made elements revert until a manual refresh.
+ */
 function _clearLivePreview() {
-  if (!_selectedElement || !_livePreviewInline) return;
+  if (!_selectedElement || !_livePreviewInline || !_livePreviewApplied) {
+    _livePreviewInline = null;
+    _livePreviewApplied = null;
+    return;
+  }
   const s = _selectedElement.style;
-  s.transform = _livePreviewInline.transform;
-  s.width = _livePreviewInline.width;
-  s.height = _livePreviewInline.height;
-  s.willChange = _livePreviewInline.willChange;
+  for (const prop of ['transform', 'width', 'height', 'willChange']) {
+    if (prop in _livePreviewApplied && s[prop] === _livePreviewApplied[prop]) {
+      s[prop] = _livePreviewInline[prop];
+    }
+  }
   _livePreviewInline = null;
+  _livePreviewApplied = null;
 }
 
 // --- Drag to move ---
@@ -921,6 +946,8 @@ function _flashBlocked(reason) {
     'transformed-ancestor': 'Inside a transformed container',
     'rotated-target': 'Rotated — resize not supported yet',
     'no-parent-box': 'No parent box to measure against',
+    'unit-mismatch': 'Offset uses % — set a px value first',
+    'size-mode-gated': 'Size is content-driven on this node',
     'editor-link': 'Editor link unavailable'
   };
   const prev = _labelBadge.textContent;
@@ -953,31 +980,33 @@ function _sendDomGesture(gesture, fields) {
       _clearLivePreview(); // snap back — nothing was written
       _flashBlocked(blocked.reason);
     } else {
-      _refreshSelectionAfterCommit();
+      _settleAfterCommit();
     }
   });
 }
 
-// After a committed gesture the preview re-renders from the new params;
-// resnap the frame to the element and re-fetch capabilities (a rotate can
-// change what is allowed next, e.g. resize becomes blocked).
-function _refreshSelectionAfterCommit() {
-  setTimeout(() => {
-    if (!_selectedElement || !_selectedNodeId) return;
-    // Committed params have re-rendered; hand rendering back to the page.
+// After a committed gesture: keep the preview up until the committed params
+// have OBSERVABLY re-rendered the element, then hand off. A fixed timer here
+// raced the model→viewer propagation and caused release-jumps.
+function _settleAfterCommit() {
+  const nodeId = _selectedNodeId;
+  const expected = _lastPreviewRect; // null for rotation
+  const baseTransform = _livePreviewBase;
+  const startedAt = Date.now();
+  const POLL_MS = 120;
+  const TIMEOUT_MS = 4000;
+
+  const finish = () => {
     _clearLivePreview();
-    // React may have replaced the DOM node on re-render — re-resolve it.
-    const fresh = document.querySelector('[data-xgenia-node-id="' + _selectedNodeId + '"]');
-    if (fresh) _selectedElement = fresh;
     _selectionOverlay.style.transform = '';
     const rect = _selectedElement.getBoundingClientRect();
     _updateSelectionPosition(rect);
     _labelBadge.style.left = (rect.left + rect.width / 2) + 'px';
     _labelBadge.style.top = (rect.top - 20) + 'px';
+    _labelBadge.style.display = 'block';
     _sizeBadge.textContent = Math.round(rect.width) + ' × ' + Math.round(rect.height);
     _sizeBadge.style.left = (rect.left + rect.width / 2) + 'px';
     _sizeBadge.style.top = (rect.bottom + 4) + 'px';
-    const nodeId = _selectedNodeId;
     makeEditorAPIRequest('viewportCapabilities', {
       nodeId: nodeId,
       kind: 'dom',
@@ -987,7 +1016,60 @@ function _refreshSelectionAfterCommit() {
       _selectedCaps = caps && !caps.error ? caps : null;
       _applyGizmoCaps();
     });
-  }, 150);
+  };
+
+  const tick = () => {
+    if (_selectedNodeId !== nodeId || !_selectedElement) return; // selection moved on
+
+    // React may have replaced the DOM node on re-render; the fresh node
+    // carries only committed styles — adopt it and we are settled.
+    const fresh = document.querySelector('[data-xgenia-node-id="' + nodeId + '"]');
+    if (fresh && fresh !== _selectedElement) {
+      _selectedElement = fresh;
+      _livePreviewInline = null;
+      _livePreviewApplied = null;
+      finish();
+      return;
+    }
+
+    // Synchronously lift our preview values, measure the underlying truth,
+    // and decide — nothing paints between these writes.
+    const s = _selectedElement.style;
+    const lifted = {};
+    if (_livePreviewApplied && _livePreviewInline) {
+      for (const prop of ['transform', 'width', 'height']) {
+        if (prop in _livePreviewApplied && s[prop] === _livePreviewApplied[prop]) {
+          lifted[prop] = _livePreviewApplied[prop];
+          s[prop] = _livePreviewInline[prop];
+        }
+      }
+    }
+    const r = _selectedElement.getBoundingClientRect();
+    const t = getComputedStyle(_selectedElement).transform;
+    const converged = expected
+      ? (Math.abs(r.left - expected.left) <= 1.5 &&
+         Math.abs(r.top - expected.top) <= 1.5 &&
+         Math.abs(r.width - expected.width) <= 1.5 &&
+         Math.abs(r.height - expected.height) <= 1.5)
+      : ((t === 'none' ? '' : t) !== baseTransform); // rotation: transform recomputed
+
+    if (converged) {
+      finish();
+      return;
+    }
+
+    // Not yet — put the preview back before the browser paints.
+    for (const prop in lifted) s[prop] = lifted[prop];
+
+    if (Date.now() - startedAt > TIMEOUT_MS) {
+      console.warn('[InteractiveEdit] Commit not visible after ' + TIMEOUT_MS + 'ms — releasing preview; check model→viewer sync');
+      finish();
+      return;
+    }
+    setTimeout(tick, POLL_MS);
+  };
+
+  setTimeout(tick, POLL_MS);
 }
 
 // --- Gizmo zone hit-tests (screen space, matching the CSS geometry) ---
@@ -1262,6 +1344,20 @@ window.XgeniaEditorInspectorAPI = {
         }
       };
 
+      // --- Double-click: send the node as a reference to the chat panel ---
+      const dblclickHandler = (e) => {
+        const element = document.elementFromPoint(e.clientX, e.clientY);
+        if (!element) return;
+        if (element.closest('.xg-hover-overlay, .xg-selection-overlay, .xg-label-badge, .xg-size-badge, .xg-tooltip')) return;
+        const nodeId = findXgeniaNodeForElement(element);
+        if (!nodeId) return;
+        e.preventDefault();
+        e.stopPropagation();
+        let nodeLabel = element.getAttribute('data-xgenia-node-label') ||
+          element.getAttribute('data-node-label') || 'Element';
+        ipcRenderer.sendToHost('inspector-node-dblclick', { nodeId: nodeId, nodeLabel: nodeLabel });
+      };
+
       // --- Mousedown handler: entry point for rotate, axis-move, edge-resize
       // and free drag. Affordances are capability-gated (viewportCapabilities)
       // so nothing is offered that the resolver would refuse; the resolver
@@ -1299,6 +1395,7 @@ window.XgeniaEditorInspectorAPI = {
       // Attach all listeners
       document.addEventListener('mousemove', mouseMoveHandler, true);
       document.addEventListener('click', clickHandler, true);
+      document.addEventListener('dblclick', dblclickHandler, true);
       document.addEventListener('mousedown', mousedownHandler, true);
       document.addEventListener('mousemove', _globalMouseMove, true);
       document.addEventListener('mouseup', _globalMouseUp, true);
@@ -1308,6 +1405,7 @@ window.XgeniaEditorInspectorAPI = {
       // Store handlers for cleanup
       window._inspectorMouseHandler = mouseMoveHandler;
       window._inspectorClickHandler = clickHandler;
+      window._inspectorDblclickHandler = dblclickHandler;
       window._inspectorMousedownHandler = mousedownHandler;
 
       // --- PixiJS Editing Bridge IPC ---
@@ -1370,6 +1468,10 @@ window.XgeniaEditorInspectorAPI = {
       if (window._inspectorClickHandler) {
         document.removeEventListener('click', window._inspectorClickHandler, true);
         window._inspectorClickHandler = null;
+      }
+      if (window._inspectorDblclickHandler) {
+        document.removeEventListener('dblclick', window._inspectorDblclickHandler, true);
+        window._inspectorDblclickHandler = null;
       }
       if (window._inspectorMousedownHandler) {
         document.removeEventListener('mousedown', window._inspectorMousedownHandler, true);
