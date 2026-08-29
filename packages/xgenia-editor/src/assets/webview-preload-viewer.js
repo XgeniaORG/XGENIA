@@ -403,13 +403,20 @@ function _showSelection(element, nodeId, nodeLabel) {
   _updateSelectionPosition(rect);
 
   // Fetch what this node can do; gizmo affordances stay hidden until known.
+  // A dead response channel must be VISIBLE, not silently gizmo-less — that
+  // exact silence hid the webview response-routing bug this watchdog guards.
   _selectedCaps = null;
   _applyGizmoCaps();
+  const capsTimer = setTimeout(() => {
+    console.warn('[InteractiveEdit] viewportCapabilities: no response from editor — IPC response routing broken?');
+    _flashBlocked('editor-link');
+  }, 1200);
   makeEditorAPIRequest('viewportCapabilities', {
     nodeId: nodeId,
     kind: 'dom',
     ancestorTransformed: _hasTransformedAncestor(element)
   }, (caps) => {
+    clearTimeout(capsTimer);
     if (_selectedNodeId !== nodeId) return; // selection changed meanwhile
     _selectedCaps = caps && !caps.error ? caps : null;
     _applyGizmoCaps();
@@ -700,7 +707,8 @@ function _flashBlocked(reason) {
     'in-flow': 'Managed by layout — reorder coming soon',
     'transformed-ancestor': 'Inside a transformed container',
     'rotated-target': 'Rotated — resize not supported yet',
-    'no-parent-box': 'No parent box to measure against'
+    'no-parent-box': 'No parent box to measure against',
+    'editor-link': 'Editor link unavailable'
   };
   const prev = _labelBadge.textContent;
   _labelBadge.textContent = messages[reason] || 'Cannot edit this element';

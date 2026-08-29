@@ -1283,6 +1283,33 @@ function launchApp() {
       Menu.setApplicationMenu(Menu.buildFromTemplate(template));
     }
 
+    /**
+     * editor-api-request/response routing.
+     *
+     * Requests can originate from ANY webContents (editor window, preview
+     * webview, floating window); they are all handled by editorapi.js in the
+     * editor window. The response must return to the webContents that asked —
+     * the old blind forward sent every response to the editor window only, so
+     * a webview could make requests but NEVER see a reply. Fire-and-forget
+     * callers hid this; the viewport gizmo was the first webview caller to
+     * depend on a response.
+     */
+    function setupEditorApiRouting() {
+      const requesters = {}; // token → webContents that sent the request
+      ipcMain.on('editor-api-request', (e, args) => {
+        if (args && args.token) requesters[args.token] = e.sender;
+        if (win && win.webContents && !win.webContents.isDestroyed()) {
+          win.webContents.send('editor-api-request', args);
+        }
+      });
+      ipcMain.on('editor-api-response', (e, args) => {
+        const requester = args && args.token ? requesters[args.token] : null;
+        if (!requester) return; // main's own tokens resolve in their own listener
+        delete requesters[args.token];
+        if (!requester.isDestroyed()) requester.send('editor-api-response', args);
+      });
+    }
+
     function forwardIpcEventsToEditorWindow(events) {
       for (const eventName of events) {
         ipcMain.on(eventName, (e, ...args) => {
@@ -1522,7 +1549,7 @@ function launchApp() {
 
       setupAskForMediaAccessIpc();
 
-      forwardIpcEventsToEditorWindow(['editor-api-request', 'editor-api-response']);
+      setupEditorApiRouting();
 
       setupFloatingWindowIpc();
 
