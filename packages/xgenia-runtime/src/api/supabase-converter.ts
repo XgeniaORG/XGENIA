@@ -1480,6 +1480,30 @@ ${originalComponentStructure}
             sourceValue = this.safePropertyAccess('config', inputName);
           }
         }
+
+        // A provably-fair draw's SERVER seed may not come from the request.
+        //
+        // Three of the branches above resolve to `config.<something>` — an
+        // unwired port, a Component Inputs port, and an aggregator request
+        // field — and all three are the caller's POST body. Feeding that into
+        // Calculate Roll would let a player pick the seed the outcome is hashed
+        // from, which is the whole of advisory XRGS-2026-0826-RNG. Checked here,
+        // after the chain, so a new payload-sourced branch cannot slip past it.
+        //
+        // `undefined` rather than an error: the node's own fallback then draws a
+        // fresh seed from the round's entropy, so a graph wired this way still
+        // compiles and still plays — it just plays honestly.
+        if (
+          RgsExtraNodeConverter.isServerSeedInput(node.typename, inputName) &&
+          /^config\b/.test(sourceValue)
+        ) {
+          console.warn(
+            `[RGS] "${node.typename}" server seed was wired to the request payload (${sourceValue}); ` +
+              'using server entropy instead — a player must not choose the server seed.'
+          );
+          sourceValue = 'undefined';
+        }
+
         inputMappings.set(inputName, sourceValue);
       });
 
