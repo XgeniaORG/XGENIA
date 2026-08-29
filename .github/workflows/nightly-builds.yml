@@ -4,7 +4,7 @@ on:
   # push:
   # branches: ['develop']
   # pull_request:
-  #   branches: ['release/v1.0.0']
+  #   branches: ['']
   # schedule:
   #   - cron: '0 0 * * *' # Runs every day at midnight UTC
   workflow_dispatch: # Allows manual triggering
@@ -170,36 +170,38 @@ jobs:
           path: publish
           retention-days: 7
 
-  release:
-    name: Publish Nightly Pre-Release
-    needs: [build-macos, build-linux, build-windows]
-    runs-on: ubuntu-latest
-    if: success()
-    permissions:
-      contents: write
-    env:
-      # Optional. Present -> the release notes get a curated-prose pass; absent
-      # -> the generated notes are published as-is. Never required.
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          # Full history and tags: the release notes are computed from the range
-          # between the last stable release tag and this commit.
-          fetch-depth: 0
+  # Temporarily disabled: the nightly build only publishes artifacts for now.
+  # Re-enable by uncommenting the `release` and `upload-to-dropbox` jobs below.
+#   release:
+#     name: Publish Nightly Pre-Release
+#     needs: [build-macos, build-linux, build-windows]
+#     runs-on: ubuntu-latest
+#     if: success()
+#     permissions:
+#       contents: write
+#     env:
+#       # Optional. Present -> the release notes get a curated-prose pass; absent
+#       # -> the generated notes are published as-is. Never required.
+#       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+#         with:
+#           # Full history and tags: the release notes are computed from the range
+#           # between the last stable release tag and this commit.
+#           fetch-depth: 0
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
+#       - name: Set up Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: '22'
 
-      - name: Get version from package.json
-        id: package-version
-        run: |
-          VERSION=$(node -p "require('./packages/xgenia-editor/package.json').version")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Read version: $VERSION"
+#       - name: Get version from package.json
+#         id: package-version
+#         run: |
+#           VERSION=$(node -p "require('./packages/xgenia-editor/package.json').version")
+#           echo "version=$VERSION" >> $GITHUB_OUTPUT
+#           echo "Read version: $VERSION"
 
       - name: Download macOS Artifacts
         uses: actions/download-artifact@v4
@@ -207,25 +209,25 @@ jobs:
           pattern: XGENIA-macOS-*
           path: release-assets/macos
 
-      - name: Download Linux Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: XGENIA-Linux-x64
-          path: release-assets/linux
+#       - name: Download Linux Artifacts
+#         uses: actions/download-artifact@v4
+#         with:
+#           name: XGENIA-Linux-x64
+#           path: release-assets/linux
 
-      - name: Download Windows Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: XGENIA-Windows-x64
-          path: release-assets/windows
+#       - name: Download Windows Artifact
+#         uses: actions/download-artifact@v4
+#         with:
+#           name: XGENIA-Windows-x64
+#           path: release-assets/windows
 
-      - name: Prepare assets for release
-        run: |
-          mkdir release-dist
-          # Collect all installers and metadata files from all download paths
-          find release-assets -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.exe" -o -name "latest*.yml" -o -name "latest*.json" \) -exec cp -v {} release-dist/ \;
-          echo "--- Assets collected for release ---"
-          ls -R release-dist
+#       - name: Prepare assets for release
+#         run: |
+#           mkdir release-dist
+#           # Collect all installers and metadata files from all download paths
+#           find release-assets -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.exe" -o -name "latest*.yml" -o -name "latest*.json" \) -exec cp -v {} release-dist/ \;
+#           echo "--- Assets collected for release ---"
+#           ls -R release-dist
 
       # A single rolling release under a fixed 'nightly' tag. Its assets carry no
       # version in the name and are replaced every run, which is what makes the
@@ -255,114 +257,114 @@ jobs:
           # app's auto-updater cannot mistake a nightly for a shipping release.
           ls -l nightly-dist
 
-      # Read before the tag is moved: this is the commit the release currently
-      # being replaced was built from, which gives the notes their "since the
-      # previous nightly" section.
-      - name: Record the nightly release's current commit
-        id: prev-nightly
-        run: |
-          SHA=$(git rev-parse -q --verify 'refs/tags/nightly^{commit}' || true)
-          if [ -z "$SHA" ]; then
-            SHA=$(git ls-remote origin refs/tags/nightly | awk '{print $1}' | head -1)
-          fi
-          echo "sha=$SHA" >> $GITHUB_OUTPUT
-          echo "Previous nightly commit: ${SHA:-none}"
+#       # Read before the tag is moved: this is the commit the release currently
+#       # being replaced was built from, which gives the notes their "since the
+#       # previous nightly" section.
+#       - name: Record the nightly release's current commit
+#         id: prev-nightly
+#         run: |
+#           SHA=$(git rev-parse -q --verify 'refs/tags/nightly^{commit}' || true)
+#           if [ -z "$SHA" ]; then
+#             SHA=$(git ls-remote origin refs/tags/nightly | awk '{print $1}' | head -1)
+#           fi
+#           echo "sha=$SHA" >> $GITHUB_OUTPUT
+#           echo "Previous nightly commit: ${SHA:-none}"
 
-      # Notes are derived from git: everything since the most recent stable
-      # release tag, grouped by kind and area, plus the delta against the
-      # nightly this build replaces. Needs no credential.
-      - name: Generate release notes
-        env:
-          VERSION: ${{ steps.package-version.outputs.version }}
-          RUN_NUMBER: ${{ github.run_number }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
-          REF_NAME: ${{ github.ref_name }}
-          PREV_NIGHTLY_SHA: ${{ steps.prev-nightly.outputs.sha }}
-        run: |
-          node .github/scripts/release-notes.mjs \
-            --out release-notes.md \
-            --digest release-notes.digest.json \
-            --assets-dir nightly-dist
-          echo "--- release notes ---"
-          cat release-notes.md
+#       # Notes are derived from git: everything since the most recent stable
+#       # release tag, grouped by kind and area, plus the delta against the
+#       # nightly this build replaces. Needs no credential.
+#       - name: Generate release notes
+#         env:
+#           VERSION: ${{ steps.package-version.outputs.version }}
+#           RUN_NUMBER: ${{ github.run_number }}
+#           REPO: ${{ github.repository }}
+#           SHA: ${{ github.sha }}
+#           REF_NAME: ${{ github.ref_name }}
+#           PREV_NIGHTLY_SHA: ${{ steps.prev-nightly.outputs.sha }}
+#         run: |
+#           node .github/scripts/release-notes.mjs \
+#             --out release-notes.md \
+#             --digest release-notes.digest.json \
+#             --assets-dir nightly-dist
+#           echo "--- release notes ---"
+#           cat release-notes.md
 
-      # Optional polish pass: rewrites the generated notes into the curated prose
-      # style of the tagged V2.x releases. Skipped entirely when the secret is
-      # absent, and cannot fail the release when it is present.
-      - name: Polish release notes with Claude
-        if: env.ANTHROPIC_API_KEY != ''
-        continue-on-error: true
-        env:
-          VERSION: ${{ steps.package-version.outputs.version }}
-          RUN_NUMBER: ${{ github.run_number }}
-          REPO: ${{ github.repository }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          WORK="$RUNNER_TEMP/notes-ai"
-          mkdir -p "$WORK"
-          cd "$WORK"
-          npm init -y > /dev/null 2>&1
-          npm install --no-audit --no-fund --loglevel=error @anthropic-ai/sdk
-          cp "$GITHUB_WORKSPACE/.github/scripts/polish-release-notes.mjs" .
-          node polish-release-notes.mjs \
-            --notes "$GITHUB_WORKSPACE/release-notes.md" \
-            --digest "$GITHUB_WORKSPACE/release-notes.digest.json"
-          echo "--- notes as published ---"
-          cat "$GITHUB_WORKSPACE/release-notes.md"
+#       # Optional polish pass: rewrites the generated notes into the curated prose
+#       # style of the tagged V2.x releases. Skipped entirely when the secret is
+#       # absent, and cannot fail the release when it is present.
+#       - name: Polish release notes with Claude
+#         if: env.ANTHROPIC_API_KEY != ''
+#         continue-on-error: true
+#         env:
+#           VERSION: ${{ steps.package-version.outputs.version }}
+#           RUN_NUMBER: ${{ github.run_number }}
+#           REPO: ${{ github.repository }}
+#           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#         run: |
+#           WORK="$RUNNER_TEMP/notes-ai"
+#           mkdir -p "$WORK"
+#           cd "$WORK"
+#           npm init -y > /dev/null 2>&1
+#           npm install --no-audit --no-fund --loglevel=error @anthropic-ai/sdk
+#           cp "$GITHUB_WORKSPACE/.github/scripts/polish-release-notes.mjs" .
+#           node polish-release-notes.mjs \
+#             --notes "$GITHUB_WORKSPACE/release-notes.md" \
+#             --digest "$GITHUB_WORKSPACE/release-notes.digest.json"
+#           echo "--- notes as published ---"
+#           cat "$GITHUB_WORKSPACE/release-notes.md"
 
-      - name: Move the nightly tag to this commit
-        run: git push -f origin HEAD:refs/tags/nightly
+#       - name: Move the nightly tag to this commit
+#         run: git push -f origin HEAD:refs/tags/nightly
 
-      # Same tag every run, so this updates the existing release in place rather
-      # than adding another one. prerelease keeps it out of "Latest release".
-      - name: Publish rolling nightly release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: nightly
-          # Quoted: an unquoted ' #' would start a YAML comment and truncate the title.
-          name: "XGENIA Nightly (V${{ steps.package-version.outputs.version }}, build #${{ github.run_number }})"
-          body_path: release-notes.md
-          draft: false
-          prerelease: true
-          make_latest: false
-          files: nightly-dist/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#       # Same tag every run, so this updates the existing release in place rather
+#       # than adding another one. prerelease keeps it out of "Latest release".
+#       - name: Publish rolling nightly release
+#         uses: softprops/action-gh-release@v2
+#         with:
+#           tag_name: nightly
+#           # Quoted: an unquoted ' #' would start a YAML comment and truncate the title.
+#           name: "XGENIA Nightly (V${{ steps.package-version.outputs.version }}, build #${{ github.run_number }})"
+#           body_path: release-notes.md
+#           draft: false
+#           prerelease: true
+#           make_latest: false
+#           files: nightly-dist/*
+#         env:
+#           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  upload-to-dropbox:
-    name: Upload Builds to Dropbox
-    needs: [build-macos, build-linux, build-windows]
-    runs-on: ubuntu-latest
-    if: success()
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+#   upload-to-dropbox:
+#     name: Upload Builds to Dropbox
+#     needs: [build-macos, build-linux, build-windows]
+#     runs-on: ubuntu-latest
+#     if: success()
+#     permissions:
+#       contents: read
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
 
-      - name: Download every platform's artifact
-        uses: actions/download-artifact@v4
-        with:
-          pattern: XGENIA-*
-          path: dropbox-assets
+#       - name: Download every platform's artifact
+#         uses: actions/download-artifact@v4
+#         with:
+#           pattern: XGENIA-*
+#           path: dropbox-assets
 
-      - name: Prepare assets for upload
-        run: |
-          mkdir dropbox-dist
-          # The same set of files that goes to the GitHub release.
-          find dropbox-assets -type f \( -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.exe" -o -name "latest*.yml" -o -name "latest*.json" \) -exec cp -v {} dropbox-dist/ \;
-          echo "--- Assets collected for Dropbox ---"
-          ls -l dropbox-dist
+#       - name: Prepare assets for upload
+#         run: |
+#           mkdir dropbox-dist
+#           # The same set of files that goes to the GitHub release.
+#           find dropbox-assets -type f \( -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.exe" -o -name "latest*.yml" -o -name "latest*.json" \) -exec cp -v {} dropbox-dist/ \;
+#           echo "--- Assets collected for Dropbox ---"
+#           ls -l dropbox-dist
 
-      # Replaces the previous version rather than piling up next to it. Removals go
-      # to Dropbox's Deleted files, and anything in the folder that is not a build
-      # artifact is left alone.
-      - name: Upload to Dropbox
-        uses: ./.github/actions/rclone-upload
-        with:
-          remote-type: dropbox
-          remote-path: ${{ vars.DROPBOX_NIGHTLY_PATH || 'XGENIA/Nightly' }}
-          rclone-token: ${{ secrets.DROPBOX_RCLONE_TOKEN }}
-          source-dir: dropbox-dist
-          folder-url: ${{ vars.DROPBOX_FOLDER_URL }}
+#       # Replaces the previous version rather than piling up next to it. Removals go
+#       # to Dropbox's Deleted files, and anything in the folder that is not a build
+#       # artifact is left alone.
+#       - name: Upload to Dropbox
+#         uses: ./.github/actions/rclone-upload
+#         with:
+#           remote-type: dropbox
+#           remote-path: ${{ vars.DROPBOX_NIGHTLY_PATH || 'XGENIA/Nightly' }}
+#           rclone-token: ${{ secrets.DROPBOX_RCLONE_TOKEN }}
+#           source-dir: dropbox-dist
+#           folder-url: ${{ vars.DROPBOX_FOLDER_URL }}

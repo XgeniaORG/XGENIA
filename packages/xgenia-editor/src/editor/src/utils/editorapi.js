@@ -46,6 +46,9 @@ class EditorAPI {
         blocked.push({ nodeId: target.nodeId, reason: result.blocked });
         continue;
       }
+      if (result.needsExplicitSizeMode) {
+        node.setParameter('sizeMode', 'explicit', { undo: group, label });
+      }
       for (const w of result.writes) {
         node.setParameter(w.param, w.value, { undo: group, label });
       }
@@ -54,19 +57,6 @@ class EditorAPI {
 
     if (!group.isEmpty()) UndoQueue.instance.push(group);
     cb({ applied, blocked });
-  }
-
-  viewportCapabilities(evt, cb) {
-    if (!ProjectModel.instance || !evt || !evt.nodeId) {
-      cb({ error: 'No project or nodeId' });
-      return;
-    }
-    const node = ProjectModel.instance.findNodeWithId(evt.nodeId);
-    if (!node) {
-      cb({ error: 'Node not found' });
-      return;
-    }
-    cb(getCapabilities(evt.kind || 'dom', node.parameters || {}, !!evt.ancestorTransformed, parentLayoutOf(node)));
   }
 
   getProjectData(evt, cb) {

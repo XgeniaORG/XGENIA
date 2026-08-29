@@ -35,6 +35,7 @@ import './src/styles/tailwind.css';
 import { EventDispatcher } from '../shared/utils/EventDispatcher';
 import { NodeLibrary } from './src/models/nodelibrary';
 import { ProjectModel } from './src/models/projectmodel';
+import { AiProviderKeyVault } from './src/services/AiProviderKeyVault';
 import { loadSharedDeployTokens } from './src/utils/rgs/deployTokens';
 
 try {
@@ -53,6 +54,12 @@ console.log('[Editor] ProjectModel exposed to window at startup for chat history
 // so ConnectionStore has them installed on window.__XGENIA_DEFAULT_TOKENS__ before the
 // user can open the Publish/Deploy panel. Fire-and-forget; the panel also awaits it.
 loadSharedDeployTokens();
+
+// The OpenRouter key belongs to the user's Primora account, not to this machine.
+// Starting here (rather than from a React effect) means the pull is already in
+// flight while the login screen is still up, so the AI panel is pre-filled by the
+// time it can be opened. Idempotent, and a no-op until somebody is signed in.
+AiProviderKeyVault.start();
 
 // CSS imports
 import '../editor/src/styles/custom-properties/animations.css';

@@ -30,6 +30,26 @@ export class EditorSettings extends Model {
   private debouncedStore: () => void;
   private initializedFromLocalStorage: boolean = false;
 
+  /**
+   * Resolves once the persisted settings have been loaded.
+   *
+   * WHY (2026-08-28, "restarting the app made the OpenRouter key prompt go
+   * away"): under Electron, JSONStorage is StorageNode — editorSettings lives in
+   * a FILE, so the synchronous localStorage bootstrap below finds nothing and
+   * every `get()` returns undefined until this async fetch lands. The AI panel
+   * asks the host for `aiProvider` over the postMessage bridge as soon as it
+   * boots; when that landed inside the window, the host answered "undefined",
+   * the panel concluded there was no API key, and raised "XGENIA AI Setup
+   * Required" at a user who had a key on disk the whole time. Restarting
+   * re-rolled the timing, which is exactly what was reported.
+   *
+   * Anything answering a question ABOUT a setting (rather than reacting to a
+   * change) should await this first. Note also that `fetch()` deep-merges with
+   * the DISK value winning for scalars, so a write issued before this resolves
+   * is silently reverted — one more reason to wait.
+   */
+  public readonly ready: Promise<void>;
+
   constructor() {
     super();
     this.settings = {};
@@ -51,7 +71,15 @@ export class EditorSettings extends Model {
     }
 
     // Continue with async fetch (will merge instead of overwrite)
-    this.fetch();
+    this.ready = this.fetch().then(
+      () => undefined,
+      (err: any) => {
+        // A failed load must not leave `ready` pending forever — callers would
+        // hang on a question that storage is never going to answer. Resolve and
+        // let them work with whatever is in memory.
+        console.error('[EditorSettings] Initial load failed; continuing with in-memory settings:', err);
+      }
+    );
 
     this.debouncedStore = debounce(() => this.store(), 1000);
   }
