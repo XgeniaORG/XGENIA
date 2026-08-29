@@ -4,7 +4,7 @@ const Exporter = require('./exporter');
 const { EventDispatcher } = require('../../../shared/utils/EventDispatcher');
 const { CloudService } = require('@xgenia-models/CloudServices');
 const KeyboardHandler = require('@xgenia-utils/keyboardhandler');
-const { resolveGesture } = require('./TransformCommandResolver');
+const { resolveGesture, getCapabilities } = require('./TransformCommandResolver');
 const { UndoActionGroup, UndoQueue } = require('../models/undo-queue-model');
 
 class EditorAPI {
@@ -54,6 +54,19 @@ class EditorAPI {
 
     if (!group.isEmpty()) UndoQueue.instance.push(group);
     cb({ applied, blocked });
+  }
+
+  viewportCapabilities(evt, cb) {
+    if (!ProjectModel.instance || !evt || !evt.nodeId) {
+      cb({ error: 'No project or nodeId' });
+      return;
+    }
+    const node = ProjectModel.instance.findNodeWithId(evt.nodeId);
+    if (!node) {
+      cb({ error: 'Node not found' });
+      return;
+    }
+    cb(getCapabilities(evt.kind || 'dom', node.parameters || {}, !!evt.ancestorTransformed));
   }
 
   getProjectData(evt, cb) {
