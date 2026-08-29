@@ -1025,6 +1025,15 @@ function _lockDeltas(dx, dy, shiftKey) {
   return { dx, dy };
 }
 
+// Pixi gizmo hover events reuse the same glass tooltip as the DOM gizmo.
+window.addEventListener('xg-gizmo-hover', (e) => {
+  if (!_gizmo || !_gizmo.tooltip || !e.detail) return;
+  const z = e.detail.zone;
+  if (!z) { _hideActionTip(); return; }
+  const kind = (z === 'rotate') ? 'rotate' : (z === 'x' || z === 'y') ? z : 'resize';
+  _showActionTip(kind, e.detail.clientX, e.detail.clientY);
+});
+
 // --- Rotation gesture (overlay-only preview; commits transformRotation) ---
 
 let _rotatePivot = null; // screen-space pivot; the element's transform-origin
