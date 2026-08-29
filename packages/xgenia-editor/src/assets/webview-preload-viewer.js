@@ -178,9 +178,15 @@ let _selectedElement = null;    // Currently selected DOM element
 let _selectedNodeId = null;     // Currently selected node ID
 let _isDragging = false;        // Whether user is currently dragging
 let _isResizing = false;        // Whether user is currently resizing
+let _isRotating = false;        // Whether user is currently rotating
 let _dragStart = null;          // Drag start coordinates
+let _dragAxis = null;           // 'x' | 'y' when dragging via an axis arrow
 let _resizeHandle = null;       // Which handle is being dragged
 let _originalRect = null;       // Element rect at start of interaction
+let _rotateStartAngle = 0;      // Pointer angle at rotation start (radians)
+let _rotateDeltaDeg = 0;        // Accumulated rotation delta (degrees)
+let _gizmo = null;              // Handle/lollipop/arrow elements on the selection frame
+let _selectedCaps = null;       // Capabilities of the selected node (from editor)
 
 
 function _injectSelectionStyles() {
@@ -240,6 +246,89 @@ function _injectSelectionStyles() {
       white-space: nowrap;
       transform: translateX(-50%);
     }
+    .xg-handle {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      background: #fff;
+      border: 1.5px solid #67DE92;
+      border-radius: 1.5px;
+      box-shadow: 0 0 3px rgba(0,0,0,0.35);
+      display: none;
+    }
+    .xg-handle-nw { left: -5px; top: -5px; }
+    .xg-handle-n  { left: calc(50% - 5px); top: -5px; }
+    .xg-handle-ne { right: -5px; top: -5px; }
+    .xg-handle-e  { right: -5px; top: calc(50% - 5px); }
+    .xg-handle-se { right: -5px; bottom: -5px; }
+    .xg-handle-s  { left: calc(50% - 5px); bottom: -5px; }
+    .xg-handle-sw { left: -5px; bottom: -5px; }
+    .xg-handle-w  { left: -5px; top: calc(50% - 5px); }
+    .xg-rotate-stem {
+      position: absolute;
+      left: 50%;
+      top: -24px;
+      width: 0;
+      height: 24px;
+      border-left: 1px dashed rgba(103, 222, 146, 0.8);
+      display: none;
+    }
+    .xg-rotate-handle {
+      position: absolute;
+      left: 50%;
+      top: -32px;
+      width: 11px;
+      height: 11px;
+      margin-left: -5.5px;
+      border-radius: 50%;
+      background: #fff;
+      border: 1.5px solid #67DE92;
+      box-shadow: 0 0 3px rgba(0,0,0,0.35);
+      display: none;
+    }
+    .xg-axis {
+      position: absolute;
+      display: none;
+    }
+    .xg-axis-x {
+      left: 50%;
+      top: 50%;
+      width: 52px;
+      height: 2px;
+      margin-top: -1px;
+      background: #E5484D;
+      box-shadow: 0 0 2px rgba(0,0,0,0.3);
+    }
+    .xg-axis-x::after {
+      content: '';
+      position: absolute;
+      right: -8px;
+      top: 50%;
+      transform: translateY(-50%);
+      border-left: 8px solid #E5484D;
+      border-top: 5px solid transparent;
+      border-bottom: 5px solid transparent;
+    }
+    .xg-axis-y {
+      left: 50%;
+      top: 50%;
+      width: 2px;
+      height: 52px;
+      margin-left: -1px;
+      transform: translateY(-100%);
+      background: #46A758;
+      box-shadow: 0 0 2px rgba(0,0,0,0.3);
+    }
+    .xg-axis-y::after {
+      content: '';
+      position: absolute;
+      top: -8px;
+      left: 50%;
+      transform: translateX(-50%);
+      border-bottom: 8px solid #46A758;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -253,9 +342,30 @@ function _createOverlayElements() {
   _hoverOverlay.className = 'xg-hover-overlay';
   document.body.appendChild(_hoverOverlay);
 
-  // Selection overlay (shown on click/select)
+  // Selection overlay (shown on click/select) with gizmo children:
+  // 8 resize handles, rotation lollipop, X/Y axis arrows. Which of them are
+  // visible is decided per selection by viewportCapabilities.
   _selectionOverlay = document.createElement('div');
   _selectionOverlay.className = 'xg-selection-overlay';
+  _gizmo = { handles: [], stem: null, rotate: null, axisX: null, axisY: null };
+  for (const name of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']) {
+    const h = document.createElement('div');
+    h.className = 'xg-handle xg-handle-' + name;
+    _selectionOverlay.appendChild(h);
+    _gizmo.handles.push(h);
+  }
+  _gizmo.stem = document.createElement('div');
+  _gizmo.stem.className = 'xg-rotate-stem';
+  _selectionOverlay.appendChild(_gizmo.stem);
+  _gizmo.rotate = document.createElement('div');
+  _gizmo.rotate.className = 'xg-rotate-handle';
+  _selectionOverlay.appendChild(_gizmo.rotate);
+  _gizmo.axisX = document.createElement('div');
+  _gizmo.axisX.className = 'xg-axis xg-axis-x';
+  _selectionOverlay.appendChild(_gizmo.axisX);
+  _gizmo.axisY = document.createElement('div');
+  _gizmo.axisY.className = 'xg-axis xg-axis-y';
+  _selectionOverlay.appendChild(_gizmo.axisY);
   document.body.appendChild(_selectionOverlay);
 
   // Label badge
@@ -292,6 +402,19 @@ function _showSelection(element, nodeId, nodeLabel) {
   const rect = element.getBoundingClientRect();
   _updateSelectionPosition(rect);
 
+  // Fetch what this node can do; gizmo affordances stay hidden until known.
+  _selectedCaps = null;
+  _applyGizmoCaps();
+  makeEditorAPIRequest('viewportCapabilities', {
+    nodeId: nodeId,
+    kind: 'dom',
+    ancestorTransformed: _hasTransformedAncestor(element)
+  }, (caps) => {
+    if (_selectedNodeId !== nodeId) return; // selection changed meanwhile
+    _selectedCaps = caps && !caps.error ? caps : null;
+    _applyGizmoCaps();
+  });
+
   // Label badge — centered 20px above element
   const label = nodeLabel || nodeId || 'Element';
   _labelBadge.textContent = label;
@@ -322,9 +445,25 @@ function _updateSelectionPosition(rect) {
 function _hideSelection() {
   _selectedElement = null;
   _selectedNodeId = null;
-  if (_selectionOverlay) _selectionOverlay.style.display = 'none';
+  _selectedCaps = null;
+  if (_selectionOverlay) {
+    _selectionOverlay.style.display = 'none';
+    _selectionOverlay.style.transform = '';
+  }
   if (_labelBadge) _labelBadge.style.display = 'none';
   if (_sizeBadge) _sizeBadge.style.display = 'none';
+}
+
+// Show only the affordances the resolver would accept for this node.
+function _applyGizmoCaps() {
+  if (!_gizmo) return;
+  const caps = _selectedCaps;
+  const show = (el, on) => { el.style.display = on ? 'block' : 'none'; };
+  for (const h of _gizmo.handles) show(h, !!(caps && caps.resizable));
+  show(_gizmo.stem, !!(caps && caps.rotatable));
+  show(_gizmo.rotate, !!(caps && caps.rotatable));
+  show(_gizmo.axisX, !!(caps && caps.movable));
+  show(_gizmo.axisY, !!(caps && caps.movable));
 }
 
 function _cleanupOverlays() {
@@ -337,6 +476,7 @@ function _cleanupOverlays() {
   _selectionOverlay = null;
   _labelBadge = null;
   _sizeBadge = null;
+  _gizmo = null;
   const styleEl = document.getElementById('xgenia-selection-styles');
   if (styleEl) styleEl.remove();
 }
@@ -357,8 +497,9 @@ function _startDrag(e) {
 
 function _onDrag(e) {
   if (!_isDragging) return;
-  const dx = e.clientX - _dragStart.x;
-  const dy = e.clientY - _dragStart.y;
+  const locked = _lockDeltas(e.clientX - _dragStart.x, e.clientY - _dragStart.y, e.shiftKey);
+  const dx = locked.dx;
+  const dy = locked.dy;
 
   // Don't activate until threshold exceeded (prevents accidental drag on click)
   if (!_dragActive) {
@@ -390,12 +531,12 @@ function _endDrag(e) {
   _dragActive = false;
   document.body.style.cursor = 'crosshair';
 
-  if (!wasDragActive) return; // Was just a click, not a drag
+  if (!wasDragActive) { _dragAxis = null; return; } // Was just a click, not a drag
 
-  const dx = e.clientX - _dragStart.x;
-  const dy = e.clientY - _dragStart.y;
+  const locked = _lockDeltas(e.clientX - _dragStart.x, e.clientY - _dragStart.y, e.shiftKey);
+  _dragAxis = null;
 
-  _sendDomGesture('move', { deltaX: dx, deltaY: dy });
+  _sendDomGesture('move', { deltaX: locked.dx, deltaY: locked.dy });
   // Overlay stays at new position — preview will re-render when parameters update
 }
 
@@ -491,11 +632,13 @@ function _endResize(e) {
 function _globalMouseMove(e) {
   if (_isDragging) { _onDrag(e); return; }
   if (_isResizing) { _onResize(e); return; }
+  if (_isRotating) { _onRotate(e); return; }
 }
 
 function _globalMouseUp(e) {
   if (_isDragging) { _endDrag(e); return; }
   if (_isResizing) { _endResize(e); return; }
+  if (_isRotating) { _endRotate(e); return; }
 }
 
 // --- Gesture payload helpers ---
@@ -571,8 +714,9 @@ function _flashBlocked(reason) {
 
 function _sendDomGesture(gesture, fields) {
   if (!_selectedNodeId || !_selectedElement) return;
+  const labels = { move: 'Move element', resize: 'Resize element', rotate: 'Rotate element' };
   const payload = {
-    label: gesture === 'move' ? 'Move element' : 'Resize element',
+    label: labels[gesture] || 'Edit element',
     targets: [Object.assign({
       nodeId: _selectedNodeId,
       kind: 'dom',
@@ -584,8 +728,118 @@ function _sendDomGesture(gesture, fields) {
   };
   makeEditorAPIRequest('viewportGesture', payload, (res) => {
     const blocked = res && res.blocked && res.blocked[0];
-    if (blocked) _flashBlocked(blocked.reason);
+    if (blocked) {
+      _flashBlocked(blocked.reason);
+    } else {
+      _refreshSelectionAfterCommit();
+    }
   });
+}
+
+// After a committed gesture the preview re-renders from the new params;
+// resnap the frame to the element and re-fetch capabilities (a rotate can
+// change what is allowed next, e.g. resize becomes blocked).
+function _refreshSelectionAfterCommit() {
+  setTimeout(() => {
+    if (!_selectedElement || !_selectedNodeId) return;
+    _selectionOverlay.style.transform = '';
+    const rect = _selectedElement.getBoundingClientRect();
+    _updateSelectionPosition(rect);
+    _labelBadge.style.left = (rect.left + rect.width / 2) + 'px';
+    _labelBadge.style.top = (rect.top - 20) + 'px';
+    _sizeBadge.textContent = Math.round(rect.width) + ' × ' + Math.round(rect.height);
+    _sizeBadge.style.left = (rect.left + rect.width / 2) + 'px';
+    _sizeBadge.style.top = (rect.bottom + 4) + 'px';
+    const nodeId = _selectedNodeId;
+    makeEditorAPIRequest('viewportCapabilities', {
+      nodeId: nodeId,
+      kind: 'dom',
+      ancestorTransformed: _hasTransformedAncestor(_selectedElement)
+    }, (caps) => {
+      if (_selectedNodeId !== nodeId) return;
+      _selectedCaps = caps && !caps.error ? caps : null;
+      _applyGizmoCaps();
+    });
+  }, 150);
+}
+
+// --- Gizmo zone hit-tests (screen space, matching the CSS geometry) ---
+
+const AXIS_LEN = 52;
+function _selectionCenter() {
+  const r = _selectedElement.getBoundingClientRect();
+  return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, rect: r };
+}
+
+function _isOnRotateHandle(x, y) {
+  if (!_selectedElement || !(_selectedCaps && _selectedCaps.rotatable)) return false;
+  const r = _selectedElement.getBoundingClientRect();
+  const hx = r.left + r.width / 2;
+  const hy = r.top - 26.5; // lollipop circle center (top: -32px, 11px tall)
+  return Math.hypot(x - hx, y - hy) <= 9;
+}
+
+function _axisArrowAtPoint(x, y) {
+  if (!_selectedElement || !(_selectedCaps && _selectedCaps.movable)) return null;
+  const { cx, cy } = _selectionCenter();
+  if (x >= cx + 6 && x <= cx + AXIS_LEN + 12 && Math.abs(y - cy) <= 7) return 'x';
+  if (y <= cy - 6 && y >= cy - AXIS_LEN - 12 && Math.abs(x - cx) <= 7) return 'y';
+  return null;
+}
+
+// Constrain a free/axis drag: explicit arrow lock wins, else Shift locks
+// to the dominant axis (standard professional-editor behavior).
+function _lockDeltas(dx, dy, shiftKey) {
+  if (_dragAxis === 'x') return { dx, dy: 0 };
+  if (_dragAxis === 'y') return { dx: 0, dy };
+  if (shiftKey) {
+    return Math.abs(dx) >= Math.abs(dy) ? { dx, dy: 0 } : { dx: 0, dy };
+  }
+  return { dx, dy };
+}
+
+// --- Rotation gesture (overlay-only preview; commits transformRotation) ---
+
+function _startRotate(e) {
+  if (!_selectedElement) return;
+  _isRotating = true;
+  _rotateDeltaDeg = 0;
+  _originalRect = _selectedElement.getBoundingClientRect();
+  const { cx, cy } = _selectionCenter();
+  _rotateStartAngle = Math.atan2(e.clientY - cy, e.clientX - cx);
+  document.body.style.cursor = 'grabbing';
+  if (_labelBadge) _labelBadge.style.display = 'none';
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+function _onRotate(e) {
+  if (!_isRotating || !_selectedElement) return;
+  const cx = _originalRect.left + _originalRect.width / 2;
+  const cy = _originalRect.top + _originalRect.height / 2;
+  const angle = Math.atan2(e.clientY - cy, e.clientX - cx);
+  let deltaDeg = (angle - _rotateStartAngle) * 180 / Math.PI;
+  if (e.shiftKey) deltaDeg = Math.round(deltaDeg / 15) * 15; // snap to 15°
+  _rotateDeltaDeg = deltaDeg;
+
+  // Preview on the frame only; the element re-renders after commit.
+  _selectionOverlay.style.transform = 'rotate(' + deltaDeg + 'deg)';
+  _sizeBadge.textContent = Math.round(deltaDeg) + '°';
+  _sizeBadge.style.left = (cx) + 'px';
+  _sizeBadge.style.top = (_originalRect.bottom + 4) + 'px';
+  _sizeBadge.style.display = 'block';
+}
+
+function _endRotate(e) {
+  if (!_isRotating) return;
+  _isRotating = false;
+  document.body.style.cursor = 'crosshair';
+  const deltaDeg = Math.round(_rotateDeltaDeg * 10) / 10;
+  _selectionOverlay.style.transform = '';
+  if (_labelBadge) _labelBadge.style.display = 'block';
+  if (Math.abs(deltaDeg) >= 0.5) {
+    _sendDomGesture('rotate', { deltaDeg: deltaDeg });
+  }
 }
 
 
@@ -636,16 +890,22 @@ window.XgeniaEditorInspectorAPI = {
 
       // --- Hover handler ---
       const mouseMoveHandler = (e) => {
-        // Skip if dragging or resizing
-        if (_isDragging || _isResizing) return;
+        // Skip if a gesture is in progress (those run via _globalMouseMove)
+        if (_isDragging || _isResizing || _isRotating) return;
 
-        // Resize/move cursors take precedence around the selected element
+        // Gizmo cursors take precedence around the selected element
         if (_selectedElement) {
-          const h = _handleAtPoint(e.clientX, e.clientY);
-          if (h) {
-            document.body.style.cursor = h + '-resize';
+          const axis = _axisArrowAtPoint(e.clientX, e.clientY);
+          const handle = (_selectedCaps && _selectedCaps.resizable)
+            ? _handleAtPoint(e.clientX, e.clientY) : null;
+          if (_isOnRotateHandle(e.clientX, e.clientY)) {
+            document.body.style.cursor = 'grab';
+          } else if (axis) {
+            document.body.style.cursor = axis === 'x' ? 'ew-resize' : 'ns-resize';
+          } else if (handle) {
+            document.body.style.cursor = handle + '-resize';
           } else if (_isInsideSelection(e.clientX, e.clientY)) {
-            document.body.style.cursor = 'move';
+            document.body.style.cursor = (_selectedCaps && _selectedCaps.movable) ? 'move' : 'crosshair';
           } else {
             document.body.style.cursor = 'crosshair';
           }
@@ -743,18 +1003,36 @@ window.XgeniaEditorInspectorAPI = {
         }
       };
 
-      // --- Mousedown handler: entry point for drag-move and edge-resize ---
-      // Constraints live editor-side in TransformCommandResolver; anything it
-      // can't translate safely comes back blocked and only flashes a hint.
+      // --- Mousedown handler: entry point for rotate, axis-move, edge-resize
+      // and free drag. Affordances are capability-gated (viewportCapabilities)
+      // so nothing is offered that the resolver would refuse; the resolver
+      // still fails closed if state changed between fetch and gesture.
       const mousedownHandler = (e) => {
         if (e.button !== 0) return;
-        const handle = _handleAtPoint(e.clientX, e.clientY);
-        if (handle) {
-          _startResize(e, handle);
+        if (_isOnRotateHandle(e.clientX, e.clientY)) {
+          _startRotate(e);
           return;
         }
-        if (_isInsideSelection(e.clientX, e.clientY)) {
+        const axis = _axisArrowAtPoint(e.clientX, e.clientY);
+        if (axis) {
           _startDrag(e);
+          _dragAxis = axis;
+          return;
+        }
+        if (_selectedCaps && _selectedCaps.resizable) {
+          const handle = _handleAtPoint(e.clientX, e.clientY);
+          if (handle) {
+            _startResize(e, handle);
+            return;
+          }
+        }
+        if (_isInsideSelection(e.clientX, e.clientY)) {
+          if (_selectedCaps && _selectedCaps.movable) {
+            _startDrag(e);
+            _dragAxis = null;
+          } else if (_selectedCaps && _selectedCaps.moveReason) {
+            _flashBlocked(_selectedCaps.moveReason);
+          }
         }
         // Otherwise fall through: clickHandler does selection/deselection.
       };
