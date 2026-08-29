@@ -38,6 +38,7 @@ import {
     setProjectBaseStyle,
     setProjectGlobalStylePrompt,
 } from '../ProjectStylesPanel/ProjectStylesPanel';
+import { PluginLoader } from './PluginLoader';
 
 interface PluginCommand {
     id: string;
@@ -175,6 +176,18 @@ export class EditorBridge {
 
     /** Listen for NodeGraphEditor active component changes via EventDispatcher */
     private listenForComponentChanges() {
+        // Viewport double-click hands a node to the chat panel as a reference.
+        EventDispatcher.instance.on(
+            'chat-add-node-reference',
+            (data: any) => {
+                if (!data || !data.nodeId) return;
+                this.pushEvent('nodeReferenced', {
+                    nodeId: data.nodeId,
+                    nodeLabel: data.nodeLabel || 'Element'
+                });
+            },
+            this
+        );
         try {
             EventDispatcher.instance.on(
                 'activeComponentChanged',
@@ -423,10 +436,37 @@ export class EditorBridge {
             this.connected = true;
             this.pluginOrigin = event.origin || '*';
 
-            // Send handshake acknowledgment to the source iframe
+            // Send handshake acknowledgment to the source iframe.
+            //
+            // (2026-08-28) The ack now carries the entitlement verdict this
+            // editor already computed. A plugin cannot work this out for itself:
+            // it is cross-origin, so `window.parent.localStorage` throws and it
+            // never sees the Supabase token. Its own check therefore fell to its
+            // "couldn't read a token" branch and returned ENTITLED for everyone,
+            // which meant opening the plugin's public URL straight in a browser
+            // handed over a fully working editor.
+            //
+            // This is not a defence against someone determined — a hostile page
+            // can host the iframe and fake this ack. It is what stops the plugin
+            // asserting an entitlement it has no way to verify, and it closes the
+            // type-the-URL-and-use-it-free path. Real protection means not
+            // serving the bundle unauthenticated; that is a hosting change.
             const sourceWindow = event.source as WindowProxy;
             if (sourceWindow) {
-                this.safePostMessage(sourceWindow, { type: 'handshake-ack' }, this.pluginOrigin);
+                const pluginId = msg.plugin === 'xgenia-image-editor' ? 'ai-image-editor' : 'ai-chat';
+                let entitled = false;
+                let tier = 'unknown';
+                try {
+                    entitled = PluginLoader.instance.isEntitled(pluginId);
+                    tier = PluginLoader.instance.getTier();
+                } catch (e) {
+                    console.warn('[EditorBridge] Could not read entitlement for handshake-ack:', e);
+                }
+                this.safePostMessage(
+                    sourceWindow,
+                    { type: 'handshake-ack', entitled, tier },
+                    this.pluginOrigin
+                );
             }
 
             // Push initial state

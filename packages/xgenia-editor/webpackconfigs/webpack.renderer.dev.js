@@ -100,7 +100,7 @@ module.exports = merge(shared, {
     ],
     headers: {
       'Content-Security-Policy':
-        "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src * 'unsafe-inline' ws: wss: data: blob:; style-src * 'unsafe-inline' data: blob:; img-src * 'unsafe-inline' data: blob:; font-src * 'unsafe-inline' data: blob:; frame-src * 'unsafe-inline' data: blob:; object-src * 'unsafe-inline' data: blob:; media-src * 'unsafe-inline' data: blob:; child-src * 'unsafe-inline' data: blob:;"
+        "default-src * 'unsafe-inline' 'unsafe-eval' data: blob: file:; script-src * 'unsafe-inline' 'unsafe-eval' data: blob: file:; connect-src * 'unsafe-inline' ws: wss: data: blob: file:; style-src * 'unsafe-inline' data: blob: file:; img-src * 'unsafe-inline' data: blob: file:; font-src * 'unsafe-inline' data: blob: file:; frame-src * 'unsafe-inline' data: blob: file:; object-src * 'unsafe-inline' data: blob: file:; media-src * 'unsafe-inline' data: blob: file:; child-src * 'unsafe-inline' data: blob: file:;"
     },
     client: {
       logging: 'warn',

@@ -85,6 +85,7 @@
       "!src/main/src",
       "!src/editor/src/**/*",
       "src/editor/src/styles/custom-properties/app-colors.css",
+      "src/editor/src/styles/custom-properties/colors.css",
       "!src/frames/viewer-frame/src",
       "!src/shared"
     ]
