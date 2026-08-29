@@ -6955,8 +6955,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelCell.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-cell",
-      "lineCount": 769,
-      "byteSize": 32240,
+      "lineCount": 776,
+      "byteSize": 32836,
       "inputFormatHints": {
         "width": {
           "displayName": "Width",
@@ -7157,8 +7157,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelColumn.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-column",
-      "lineCount": 1745,
-      "byteSize": 76494,
+      "lineCount": 1752,
+      "byteSize": 77058,
       "inputFormatHints": {
         "visibleRows": {
           "displayName": "Visible Rows",

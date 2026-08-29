@@ -39,7 +39,7 @@
         "dmg",
         "zip"
       ],
-      "artifactName": "${productName}-${version}-mac.${ext}",
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
       "hardenedRuntime": true,
       "notarize": false,
       "entitlements": "./build/entitlements.mac.plist",

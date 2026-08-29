@@ -96,6 +96,7 @@ const jsonstorage = require('../shared/utils/jsonstorage');
 const StorageApi = require('./src/StorageApi');
 const { getOAuthServer } = require('./src/oauth-callback-server');
 const CrashTelemetry = require('./src/crash-telemetry');
+const MemoryTelemetry = require('./src/memory-telemetry');
 const { ensureLinuxDesktopEntry } = require('./src/linux-desktop-entry');
 
 // (debug-export 1783408275898) Local-only minidump collection + crash-log.jsonl.
@@ -1505,6 +1506,10 @@ function launchApp() {
       // Before createWindow(): the shell resolves a window's owning app at map time, so
       // the desktop entry has to already be on disk.
       ensureLinuxDesktopEntry(path.join(appPath, 'src/assets/images/icon.png'));
+
+      // (crash 2026-08-27, OOM abort) Passive per-process memory curve to
+      // <userData>/memory-log.jsonl — main-process side, survives renderer death.
+      MemoryTelemetry.start();
 
       console.log('[Main Process] About to call createWindow()...');
       createWindow();

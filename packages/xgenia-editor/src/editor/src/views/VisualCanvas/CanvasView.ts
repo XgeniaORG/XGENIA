@@ -379,28 +379,6 @@ export class CanvasView extends View {
           x: chatX,
           y: chatY
         });
-      } else if (event.channel === 'editor-move-element') {
-        // Interactive editing: element was dragged to a new position
-        console.log('[CanvasView] 📐 Element moved:', message);
-        if (message && message.nodeId) {
-          EventDispatcher.instance.emit('viewport-move-element', {
-            nodeId: message.nodeId,
-            deltaX: message.deltaX || 0,
-            deltaY: message.deltaY || 0
-          });
-        }
-      } else if (event.channel === 'editor-resize-element') {
-        // Interactive editing: element was resized
-        console.log('[CanvasView] 📐 Element resized:', message);
-        if (message && message.nodeId) {
-          EventDispatcher.instance.emit('viewport-resize-element', {
-            nodeId: message.nodeId,
-            width: message.width,
-            height: message.height,
-            deltaWidth: message.deltaWidth || 0,
-            deltaHeight: message.deltaHeight || 0
-          });
-        }
       } else if (event.channel === 'editor-zoom-viewport') {
         // Canvas zoom — only in edit mode (inspect mode)
         if (!this.inspectMode) return; // Ignore zoom in preview mode
