@@ -20,9 +20,20 @@ function parseUnitValue(v, defaultUnit) {
   return { value: parseFloat(m[1]), unit: m[2] || '' };
 }
 
-function formatUnitValue(value, unit) {
-  const rounded = Math.round(value * 100) / 100;
-  return unit === '' ? rounded : `${rounded}${unit}`;
+/**
+ * Canonical dimension write: the property panel stores dimensions as
+ * `{value, unit, isFixed}` objects (see propertyeditor Dimension.ts), and the
+ * viewer joins them at apply time. Writing CSS strings instead renders, but
+ * desyncs the panel — value shows with the wrong unit attached (the exact
+ * "800PX but % was the type" family in dimension-value.js).
+ * `source` is the pre-gesture param, so an isFixed the user set survives.
+ */
+function dimensionParam(value, unit, source) {
+  return {
+    value: Math.round(value * 100) / 100,
+    unit: unit || 'px',
+    isFixed: !!(source && typeof source === 'object' && source.isFixed)
+  };
 }
 
 // Convert a screen-px delta into the unit of an existing param value.
@@ -86,8 +97,8 @@ function resolveDom(target, params) {
       if (dxu === null || dyu === null) return blockedResult('no-parent-box');
       return {
         writes: [
-          { param: 'marginLeft', value: formatUnitValue(ml.value + dxu, ml.unit || 'px') },
-          { param: 'marginTop', value: formatUnitValue(mt.value + dyu, mt.unit || 'px') }
+          { param: 'marginLeft', value: dimensionParam(ml.value + dxu, ml.unit, params.marginLeft) },
+          { param: 'marginTop', value: dimensionParam(mt.value + dyu, mt.unit, params.marginTop) }
         ]
       };
     }
@@ -106,19 +117,19 @@ function resolveDom(target, params) {
         if (!parentRect.width) return blockedResult('no-parent-box');
         result.writes.push({
           param: 'width',
-          value: formatUnitValue((target.width / parentRect.width) * 100, '%')
+          value: dimensionParam((target.width / parentRect.width) * 100, '%', params.width)
         });
       } else {
-        result.writes.push({ param: 'width', value: formatUnitValue(target.width, w.unit || 'px') });
+        result.writes.push({ param: 'width', value: dimensionParam(target.width, w.unit, params.width) });
       }
       if (h.unit === '%') {
         if (!parentRect.height) return blockedResult('no-parent-box');
         result.writes.push({
           param: 'height',
-          value: formatUnitValue((target.height / parentRect.height) * 100, '%')
+          value: dimensionParam((target.height / parentRect.height) * 100, '%', params.height)
         });
       } else {
-        result.writes.push({ param: 'height', value: formatUnitValue(target.height, h.unit || 'px') });
+        result.writes.push({ param: 'height', value: dimensionParam(target.height, h.unit, params.height) });
       }
       return result;
     }
@@ -129,8 +140,10 @@ function resolveDom(target, params) {
       // Normalize into (-180, 180] so params stay readable after many turns.
       angle = ((angle + 180) % 360 + 360) % 360 - 180;
       if (angle === -180) angle = 180;
+      // Object with explicit 'deg': the viewer joins bare numbers with a
+      // 'px' fallback, and rotate(45px) is invalid CSS that drops silently.
       return {
-        writes: [{ param: 'transformRotation', value: Math.round(angle * 10) / 10 }]
+        writes: [{ param: 'transformRotation', value: { value: Math.round(angle * 10) / 10, unit: 'deg' } }]
       };
     }
     default:

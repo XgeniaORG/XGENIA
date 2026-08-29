@@ -66,8 +66,8 @@ test('dom absolute move preserves px margins', () => {
     { parameters: { position: 'absolute', marginLeft: '15px', marginTop: '5px' } }
   );
   assert.deepEqual(r.writes, [
-    { param: 'marginLeft', value: '45px' },
-    { param: 'marginTop', value: '-5px' }
+    { param: 'marginLeft', value: { value: 45, unit: 'px', isFixed: false } },
+    { param: 'marginTop', value: { value: -5, unit: 'px', isFixed: false } }
   ]);
 });
 test('dom absolute move preserves % margins against parent box', () => {
@@ -81,8 +81,8 @@ test('dom absolute move preserves % margins against parent box', () => {
   );
   // 80px of 800 = +10% → 20%; 60px of 600 = +10% → 20%
   assert.deepEqual(r.writes, [
-    { param: 'marginLeft', value: '20%' },
-    { param: 'marginTop', value: '20%' }
+    { param: 'marginLeft', value: { value: 20, unit: '%', isFixed: false } },
+    { param: 'marginTop', value: { value: 20, unit: '%', isFixed: false } }
   ]);
 });
 test('dom absolute move with unset margins starts from 0px', () => {
@@ -95,8 +95,8 @@ test('dom absolute move with unset margins starts from 0px', () => {
     { parameters: { position: 'absolute' } }
   );
   assert.deepEqual(r.writes, [
-    { param: 'marginLeft', value: '12px' },
-    { param: 'marginTop', value: '7px' }
+    { param: 'marginLeft', value: { value: 12, unit: 'px', isFixed: false } },
+    { param: 'marginTop', value: { value: 7, unit: 'px', isFixed: false } }
   ]);
 });
 test('dom in-flow move is blocked (P2 reorder)', () => {
@@ -123,8 +123,8 @@ test('dom resize preserves px unit', () => {
     { parameters: { width: '200px', height: '80px' } }
   );
   assert.deepEqual(r.writes, [
-    { param: 'width', value: '250px' },
-    { param: 'height', value: '90px' }
+    { param: 'width', value: { value: 250, unit: 'px', isFixed: false } },
+    { param: 'height', value: { value: 90, unit: 'px', isFixed: false } }
   ]);
 });
 test('dom resize preserves % unit against parent box', () => {
@@ -137,8 +137,8 @@ test('dom resize preserves % unit against parent box', () => {
     { parameters: { width: '20%', height: '20%' } }
   );
   assert.deepEqual(r.writes, [
-    { param: 'width', value: '50%' },
-    { param: 'height', value: '25%' }
+    { param: 'width', value: { value: 50, unit: '%', isFixed: false } },
+    { param: 'height', value: { value: 25, unit: '%', isFixed: false } }
   ]);
 });
 test('dom resize with unset dims writes px and flags sizeMode', () => {
@@ -152,8 +152,8 @@ test('dom resize with unset dims writes px and flags sizeMode', () => {
   );
   assert.equal(r.needsExplicitSizeMode, true);
   assert.deepEqual(r.writes, [
-    { param: 'width', value: '250px' },
-    { param: 'height', value: '90px' }
+    { param: 'width', value: { value: 250, unit: 'px', isFixed: false } },
+    { param: 'height', value: { value: 90, unit: 'px', isFixed: false } }
   ]);
 });
 test('dom resize when sizeMode already explicit does not re-flag', () => {
@@ -201,27 +201,63 @@ test('resize of rotated pixi target is blocked', () => {
   );
   assert.equal(r.blocked, 'rotated-target');
 });
+test('dom move reads canonical {value,unit} params and preserves isFixed', () => {
+  const r = resolveGesture(
+    {
+      kind: 'dom', gesture: 'move', deltaX: 10, deltaY: 10,
+      startRect: { width: 100, height: 40 },
+      parentRect: { width: 800, height: 600 }
+    },
+    { parameters: {
+      position: 'absolute',
+      marginLeft: { value: 30, unit: 'px', isFixed: true },
+      marginTop: { value: 10, unit: '%', isFixed: false }
+    } }
+  );
+  assert.deepEqual(r.writes, [
+    { param: 'marginLeft', value: { value: 40, unit: 'px', isFixed: true } },
+    { param: 'marginTop', value: { value: 11.67, unit: '%', isFixed: false } }
+  ]);
+});
+test('dom resize reads canonical {value,unit} width and stays %', () => {
+  const r = resolveGesture(
+    {
+      kind: 'dom', gesture: 'resize', width: 400, height: 100,
+      startRect: { width: 200, height: 80 },
+      parentRect: { width: 1000, height: 400 }
+    },
+    { parameters: {
+      width: { value: 20, unit: '%', isFixed: false },
+      height: { value: 80, unit: 'px', isFixed: true }
+    } }
+  );
+  assert.deepEqual(r.writes, [
+    { param: 'width', value: { value: 40, unit: '%', isFixed: false } },
+    { param: 'height', value: { value: 100, unit: 'px', isFixed: true } }
+  ]);
+});
+
 // ---- dom rotate ----
 test('dom rotate adds delta to current angle, writes bare degrees', () => {
   const r = resolveGesture(
     { kind: 'dom', gesture: 'rotate', deltaDeg: 30 },
     { parameters: { position: 'absolute', transformRotation: 15 } }
   );
-  assert.deepEqual(r.writes, [{ param: 'transformRotation', value: 45 }]);
+  assert.deepEqual(r.writes, [{ param: 'transformRotation', value: { value: 45, unit: 'deg' } }]);
 });
 test('dom rotate from unset rotation starts at 0', () => {
   const r = resolveGesture(
     { kind: 'dom', gesture: 'rotate', deltaDeg: -22.5 },
     { parameters: {} } // in-flow is fine: rotation is a pure visual transform
   );
-  assert.deepEqual(r.writes, [{ param: 'transformRotation', value: -22.5 }]);
+  assert.deepEqual(r.writes, [{ param: 'transformRotation', value: { value: -22.5, unit: 'deg' } }]);
 });
 test('dom rotate normalizes into (-180, 180]', () => {
   const r = resolveGesture(
     { kind: 'dom', gesture: 'rotate', deltaDeg: 200 },
     { parameters: { transformRotation: 170 } }
   );
-  assert.deepEqual(r.writes, [{ param: 'transformRotation', value: 10 }]);
+  assert.deepEqual(r.writes, [{ param: 'transformRotation', value: { value: 10, unit: 'deg' } }]);
 });
 test('dom rotate blocked under transformed ancestor', () => {
   const r = resolveGesture(
