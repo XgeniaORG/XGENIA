@@ -27,6 +27,17 @@ const ProjectsViewTemplate = require('../templates/projectsview.html');
 
 // Styles
 require('../styles/projectsview.css');
+
+// Shown in the create-project popup when a template has no preview image (or it fails to
+// load). Inline SVG rather than an icon font: the editor ships no icon webfont, so the old
+// <span class="material-icons-outlined">image</span> rendered as the literal word "image".
+const TEMPLATE_PREVIEW_PLACEHOLDER =
+  '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<rect x="3" y="3" width="18" height="18" rx="3"></rect>' +
+  '<circle cx="8.75" cy="8.75" r="1.5"></circle>' +
+  '<path d="M3.5 16.5 8 12.5l3.5 3 3-2.5 6 5.5"></path>' +
+  '</svg>';
+
 require('../styles/projectsview.lessoncards.css');
 
 const _cache = {};
@@ -1195,12 +1206,12 @@ export class ProjectsView extends View {
           this.$('#start-pane-feed-item-big-image').css('background-image', 'url(' + uri + ')');
         } else {
           // Show a placeholder when image fails to load
-          this.$('#start-pane-feed-item-big-image').html('<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-secondary);"><span class="material-icons-outlined" style="font-size: 48px;">image</span></div>');
+          this.$('#start-pane-feed-item-big-image').html(TEMPLATE_PREVIEW_PLACEHOLDER);
         }
       });
     } else {
       // Show a placeholder when no image URL is provided
-      this.$('#start-pane-feed-item-big-image').html('<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-secondary);"><span class="material-icons-outlined" style="font-size: 48px;">image</span></div>');
+      this.$('#start-pane-feed-item-big-image').html(TEMPLATE_PREVIEW_PLACEHOLDER);
     }
 
     this.$('#create-new-project-button').prop(
@@ -1253,12 +1264,12 @@ export class ProjectsView extends View {
           _this.$('#start-pane-feed-item-big-image').css('background-image', 'url(' + uri + ')');
         } else {
           // Show a placeholder when image fails to load
-          _this.$('#start-pane-feed-item-big-image').html('<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-secondary);"><span class="material-icons-outlined" style="font-size: 48px;">image</span></div>');
+          _this.$('#start-pane-feed-item-big-image').html(TEMPLATE_PREVIEW_PLACEHOLDER);
         }
       });
     } else {
       // Show a placeholder when no image URL is provided
-      this.$('#start-pane-feed-item-big-image').html('<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-secondary);"><span class="material-icons-outlined" style="font-size: 48px;">image</span></div>');
+      this.$('#start-pane-feed-item-big-image').html(TEMPLATE_PREVIEW_PLACEHOLDER);
     }
 
     // this._setupCloudServicesSelection(scope);
