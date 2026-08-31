@@ -4,7 +4,8 @@ const Exporter = require('./exporter');
 const { EventDispatcher } = require('../../../shared/utils/EventDispatcher');
 const { CloudService } = require('@xgenia-models/CloudServices');
 const KeyboardHandler = require('@xgenia-utils/keyboardhandler');
-const { resolveGesture } = require('./TransformCommandResolver');
+const { resolveGesture, getCapabilities } = require('./TransformCommandResolver');
+const { parentLayoutOf } = require('../../../../../../private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/utils/layout-intent-resolver');
 const { UndoActionGroup, UndoQueue } = require('../models/undo-queue-model');
 
 class EditorAPI {
@@ -37,6 +38,8 @@ class EditorAPI {
       }
       const result = resolveGesture(target, {
         parameters: node.parameters || {},
+        typename: node.typename || node.type,
+        parentLayout: parentLayoutOf(node),
         ancestorTransformed: target.ancestorTransformed
       });
       if (result.blocked) {

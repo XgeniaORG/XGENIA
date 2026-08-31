@@ -178,9 +178,16 @@ let _selectedElement = null;    // Currently selected DOM element
 let _selectedNodeId = null;     // Currently selected node ID
 let _isDragging = false;        // Whether user is currently dragging
 let _isResizing = false;        // Whether user is currently resizing
+let _isRotating = false;        // Whether user is currently rotating
 let _dragStart = null;          // Drag start coordinates
+let _dragAxis = null;           // 'x' | 'y' when dragging via an axis arrow
 let _resizeHandle = null;       // Which handle is being dragged
 let _originalRect = null;       // Element rect at start of interaction
+let _rotateStartAngle = 0;      // Pointer angle at rotation start (radians)
+let _rotateDeltaDeg = 0;        // Accumulated rotation delta (degrees)
+let _gizmo = null;              // Handle/lollipop/arrow elements on the selection frame
+let _selectedCaps = null;       // Capabilities of the selected node (from editor)
+let _livePreviewBase = '';      // Element's computed transform at gesture start
 
 
 function _injectSelectionStyles() {
@@ -189,18 +196,17 @@ function _injectSelectionStyles() {
   style.id = 'xgenia-selection-styles';
   style.textContent = `
     .xg-hover-overlay {
-      position: fixed;
-      pointer-events: none;
-      border: 1px solid rgba(103, 222, 146, 0.5);
-      background: rgba(103, 222, 146, 0.04);
-      z-index: 999998;
-      display: none;
-      transition: all 0.06s ease-out;
+      display: none !important; /* highlight appears on selection only */
     }
     .xg-selection-overlay {
       position: fixed;
       pointer-events: none;
-      border: 1px solid #67DE92;
+      border: 1px solid rgba(255, 255, 255, 0.85);
+      border-radius: 3px;
+      box-shadow:
+        0 0 0 1px rgba(10, 132, 255, 0.65),
+        0 0 0 4px rgba(10, 132, 255, 0.10),
+        0 10px 28px rgba(0, 0, 0, 0.20);
       background: transparent;
       z-index: 999999;
       display: none;
@@ -210,15 +216,17 @@ function _injectSelectionStyles() {
       pointer-events: none;
       z-index: 1000000;
       display: none;
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-size: 10px;
+      padding: 3px 9px;
+      border-radius: 8px;
+      font-size: 11px;
       font-weight: 500;
       font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
-      color: rgba(255,255,255,0.9);
-      background: rgba(30, 30, 32, 0.85);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
+      color: rgba(255,255,255,0.95);
+      background: rgba(28, 28, 30, 0.68);
+      border: 0.5px solid rgba(255, 255, 255, 0.16);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.25);
       white-space: nowrap;
       letter-spacing: 0.2px;
       transform: translateX(-50%);
@@ -228,17 +236,173 @@ function _injectSelectionStyles() {
       pointer-events: none;
       z-index: 1000000;
       display: none;
-      padding: 1px 5px;
-      border-radius: 3px;
-      font-size: 9px;
-      font-weight: 400;
+      padding: 2px 7px;
+      border-radius: 7px;
+      font-size: 10px;
+      font-weight: 500;
       font-family: -apple-system, BlinkMacSystemFont, 'SF Mono', 'Menlo', monospace;
-      color: rgba(255,255,255,0.6);
-      background: rgba(30, 30, 32, 0.75);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
+      font-variant-numeric: tabular-nums;
+      color: rgba(255,255,255,0.85);
+      background: rgba(28, 28, 30, 0.62);
+      border: 0.5px solid rgba(255, 255, 255, 0.14);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.22);
       white-space: nowrap;
       transform: translateX(-50%);
+    }
+    .xg-tooltip {
+      position: fixed;
+      pointer-events: none;
+      z-index: 1000001;
+      padding: 4px 9px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 500;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      color: rgba(255,255,255,0.95);
+      background: rgba(28, 28, 30, 0.72);
+      border: 0.5px solid rgba(255, 255, 255, 0.18);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.3);
+      white-space: nowrap;
+      transform: translate(-50%, -135%);
+      opacity: 0;
+      transition: opacity 0.12s ease-out;
+    }
+    .xg-tooltip.xg-tip-on { opacity: 1; }
+    .xg-handle {
+      position: absolute;
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.62);
+      border: 0.5px solid rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(14px) saturate(180%);
+      -webkit-backdrop-filter: blur(14px) saturate(180%);
+      box-shadow:
+        0 1px 5px rgba(0, 0, 0, 0.28),
+        inset 0 0 0 0.5px rgba(255, 255, 255, 0.4);
+      transition: transform 0.12s ease-out, box-shadow 0.12s ease-out;
+      display: none;
+    }
+    .xg-handle.xg-hot {
+      transform: scale(1.3);
+      box-shadow:
+        0 0 0 3px rgba(10, 132, 255, 0.28),
+        0 2px 8px rgba(0, 0, 0, 0.32),
+        inset 0 0 0 0.5px rgba(255, 255, 255, 0.5);
+    }
+    .xg-handle-nw { left: -6px; top: -6px; }
+    .xg-handle-n  { left: calc(50% - 6px); top: -6px; }
+    .xg-handle-ne { right: -6px; top: -6px; }
+    .xg-handle-e  { right: -6px; top: calc(50% - 6px); }
+    .xg-handle-se { right: -6px; bottom: -6px; }
+    .xg-handle-s  { left: calc(50% - 6px); bottom: -6px; }
+    .xg-handle-sw { left: -6px; bottom: -6px; }
+    .xg-handle-w  { left: -6px; top: calc(50% - 6px); }
+    .xg-rotate-stem {
+      position: absolute;
+      left: 50%;
+      top: -26px;
+      width: 0;
+      height: 26px;
+      border-left: 1px solid rgba(255, 255, 255, 0.45);
+      display: none;
+    }
+    .xg-rotate-handle {
+      position: absolute;
+      left: 50%;
+      top: -38px;
+      width: 14px;
+      height: 14px;
+      margin-left: -7px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.62);
+      border: 0.5px solid rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(14px) saturate(180%);
+      -webkit-backdrop-filter: blur(14px) saturate(180%);
+      box-shadow:
+        0 1px 5px rgba(0, 0, 0, 0.28),
+        inset 0 0 0 0.5px rgba(255, 255, 255, 0.4);
+      transition: transform 0.12s ease-out, box-shadow 0.12s ease-out;
+      display: none;
+    }
+    .xg-rotate-handle.xg-hot {
+      transform: scale(1.25);
+      box-shadow:
+        0 0 0 3px rgba(10, 132, 255, 0.28),
+        0 2px 8px rgba(0, 0, 0, 0.32);
+    }
+    .xg-pivot {
+      position: absolute;
+      width: 9px;
+      height: 9px;
+      margin: -4.5px 0 0 -4.5px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.55);
+      border: 0.5px solid rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px) saturate(180%);
+      -webkit-backdrop-filter: blur(10px) saturate(180%);
+      box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.35), 0 1px 4px rgba(0,0,0,0.3);
+      display: none;
+    }
+    .xg-pivot::before, .xg-pivot::after {
+      content: '';
+      position: absolute;
+      background: rgba(10, 132, 255, 0.9);
+    }
+    .xg-pivot::before { left: 50%; top: 2px; bottom: 2px; width: 1px; margin-left: -0.5px; }
+    .xg-pivot::after  { top: 50%; left: 2px; right: 2px; height: 1px; margin-top: -0.5px; }
+    .xg-axis {
+      position: absolute;
+      display: none;
+      transition: filter 0.12s ease-out;
+    }
+    .xg-axis.xg-hot { filter: brightness(1.25) drop-shadow(0 0 4px rgba(255,255,255,0.5)); }
+    .xg-axis-x {
+      left: 50%;
+      top: 50%;
+      width: 52px;
+      height: 3px;
+      margin-top: -1.5px;
+      border-radius: 2px;
+      background: linear-gradient(90deg, rgba(255,105,97,0.35), rgba(255,105,97,0.95));
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    .xg-axis-x::after {
+      content: '';
+      position: absolute;
+      right: -9px;
+      top: 50%;
+      transform: translateY(-50%);
+      border-left: 9px solid rgba(255,105,97,0.98);
+      border-top: 5.5px solid transparent;
+      border-bottom: 5.5px solid transparent;
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
+    }
+    .xg-axis-y {
+      left: 50%;
+      top: 50%;
+      width: 3px;
+      height: 52px;
+      margin-left: -1.5px;
+      border-radius: 2px;
+      transform: translateY(-100%);
+      background: linear-gradient(0deg, rgba(48,209,88,0.35), rgba(48,209,88,0.95));
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    .xg-axis-y::after {
+      content: '';
+      position: absolute;
+      top: -9px;
+      left: 50%;
+      transform: translateX(-50%);
+      border-bottom: 9px solid rgba(48,209,88,0.98);
+      border-left: 5.5px solid transparent;
+      border-right: 5.5px solid transparent;
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
     }
   `;
   document.head.appendChild(style);
@@ -253,9 +417,37 @@ function _createOverlayElements() {
   _hoverOverlay.className = 'xg-hover-overlay';
   document.body.appendChild(_hoverOverlay);
 
-  // Selection overlay (shown on click/select)
+  // Selection overlay (shown on click/select) with gizmo children:
+  // 8 resize handles, rotation lollipop, X/Y axis arrows. Which of them are
+  // visible is decided per selection by viewportCapabilities.
   _selectionOverlay = document.createElement('div');
   _selectionOverlay.className = 'xg-selection-overlay';
+  _gizmo = { handles: [], handleByName: {}, stem: null, rotate: null, axisX: null, axisY: null, pivot: null, tooltip: null };
+  for (const name of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']) {
+    const h = document.createElement('div');
+    h.className = 'xg-handle xg-handle-' + name;
+    _selectionOverlay.appendChild(h);
+    _gizmo.handles.push(h);
+    _gizmo.handleByName[name] = h;
+  }
+  _gizmo.pivot = document.createElement('div');
+  _gizmo.pivot.className = 'xg-pivot';
+  _selectionOverlay.appendChild(_gizmo.pivot);
+  _gizmo.tooltip = document.createElement('div');
+  _gizmo.tooltip.className = 'xg-tooltip';
+  document.body.appendChild(_gizmo.tooltip);
+  _gizmo.stem = document.createElement('div');
+  _gizmo.stem.className = 'xg-rotate-stem';
+  _selectionOverlay.appendChild(_gizmo.stem);
+  _gizmo.rotate = document.createElement('div');
+  _gizmo.rotate.className = 'xg-rotate-handle';
+  _selectionOverlay.appendChild(_gizmo.rotate);
+  _gizmo.axisX = document.createElement('div');
+  _gizmo.axisX.className = 'xg-axis xg-axis-x';
+  _selectionOverlay.appendChild(_gizmo.axisX);
+  _gizmo.axisY = document.createElement('div');
+  _gizmo.axisY.className = 'xg-axis xg-axis-y';
+  _selectionOverlay.appendChild(_gizmo.axisY);
   document.body.appendChild(_selectionOverlay);
 
   // Label badge
@@ -292,6 +484,26 @@ function _showSelection(element, nodeId, nodeLabel) {
   const rect = element.getBoundingClientRect();
   _updateSelectionPosition(rect);
 
+  // Fetch what this node can do; gizmo affordances stay hidden until known.
+  // A dead response channel must be VISIBLE, not silently gizmo-less — that
+  // exact silence hid the webview response-routing bug this watchdog guards.
+  _selectedCaps = null;
+  _applyGizmoCaps();
+  const capsTimer = setTimeout(() => {
+    console.warn('[InteractiveEdit] viewportCapabilities: no response from editor — IPC response routing broken?');
+    _flashBlocked('editor-link');
+  }, 1200);
+  makeEditorAPIRequest('viewportCapabilities', {
+    nodeId: nodeId,
+    kind: 'dom',
+    ancestorTransformed: _hasTransformedAncestor(element)
+  }, (caps) => {
+    clearTimeout(capsTimer);
+    if (_selectedNodeId !== nodeId) return; // selection changed meanwhile
+    _selectedCaps = caps && !caps.error ? caps : null;
+    _applyGizmoCaps();
+  });
+
   // Label badge — centered 20px above element
   const label = nodeLabel || nodeId || 'Element';
   _labelBadge.textContent = label;
@@ -320,28 +532,192 @@ function _updateSelectionPosition(rect) {
 }
 
 function _hideSelection() {
+  _clearLivePreview();
+  _hideActionTip();
+  _setHotZone(null);
   _selectedElement = null;
   _selectedNodeId = null;
-  if (_selectionOverlay) _selectionOverlay.style.display = 'none';
+  _selectedCaps = null;
+  if (_selectionOverlay) {
+    _selectionOverlay.style.display = 'none';
+    _selectionOverlay.style.transform = '';
+  }
   if (_labelBadge) _labelBadge.style.display = 'none';
   if (_sizeBadge) _sizeBadge.style.display = 'none';
+}
+
+// Show only the affordances the resolver would accept for this node.
+function _applyGizmoCaps() {
+  if (!_gizmo) return;
+  const caps = _selectedCaps;
+  const show = (el, on) => { el.style.display = on ? 'block' : 'none'; };
+  for (const h of _gizmo.handles) show(h, !!(caps && caps.resizable));
+  show(_gizmo.stem, !!(caps && caps.rotatable));
+  show(_gizmo.rotate, !!(caps && caps.rotatable));
+  show(_gizmo.axisX, !!(caps && caps.movable));
+  show(_gizmo.axisY, !!(caps && caps.movable));
+  show(_gizmo.pivot, !!(caps && (caps.rotatable || caps.movable)));
+  _positionPivot();
+}
+
+// The pivot marks the element's actual transform-origin — the point the
+// node rotates and scales around, as the graph has it wired — not just the
+// visual center of the box.
+function _transformOriginOf(el) {
+  const parts = (getComputedStyle(el).transformOrigin || '').split(' ');
+  const ox = parseFloat(parts[0]);
+  const oy = parseFloat(parts[1]);
+  const r = el.getBoundingClientRect();
+  return {
+    x: isNaN(ox) ? r.width / 2 : ox,
+    y: isNaN(oy) ? r.height / 2 : oy
+  };
+}
+
+function _positionPivot() {
+  if (!_gizmo || !_gizmo.pivot || !_selectedElement) return;
+  const o = _transformOriginOf(_selectedElement);
+  _gizmo.pivot.style.left = o.x + 'px';
+  _gizmo.pivot.style.top = o.y + 'px';
+}
+
+// --- Action tooltip (glass pill naming the gesture under the cursor) ---
+const _TIP_LABELS = {
+  rotate: 'Rotate · ⇧ 15°',
+  x: 'Move X',
+  y: 'Move Y',
+  resize: 'Resize · ⇧ ratio',
+  move: 'Move'
+};
+
+function _showActionTip(kind, x, y) {
+  if (!_gizmo || !_gizmo.tooltip) return;
+  _gizmo.tooltip.textContent = _TIP_LABELS[kind] || '';
+  _gizmo.tooltip.style.left = x + 'px';
+  _gizmo.tooltip.style.top = (y - 10) + 'px';
+  _gizmo.tooltip.classList.add('xg-tip-on');
+}
+
+function _hideActionTip() {
+  if (!_gizmo || !_gizmo.tooltip) return;
+  _gizmo.tooltip.classList.remove('xg-tip-on');
+}
+
+// Highlight the hovered control so the gizmo answers before it is touched.
+function _setHotZone(zone) {
+  if (!_gizmo) return;
+  for (const h of _gizmo.handles) h.classList.remove('xg-hot');
+  _gizmo.rotate.classList.remove('xg-hot');
+  _gizmo.axisX.classList.remove('xg-hot');
+  _gizmo.axisY.classList.remove('xg-hot');
+  if (!zone) return;
+  if (zone === 'rotate') _gizmo.rotate.classList.add('xg-hot');
+  else if (zone === 'x') _gizmo.axisX.classList.add('xg-hot');
+  else if (zone === 'y') _gizmo.axisY.classList.add('xg-hot');
+  else if (_gizmo.handleByName[zone]) _gizmo.handleByName[zone].classList.add('xg-hot');
 }
 
 function _cleanupOverlays() {
   hideHighlight();
   _hideSelection();
-  [_hoverOverlay, _selectionOverlay, _labelBadge, _sizeBadge].forEach(el => {
+  [_hoverOverlay, _selectionOverlay, _labelBadge, _sizeBadge, _gizmo && _gizmo.tooltip].forEach(el => {
     if (el && el.parentNode) el.parentNode.removeChild(el);
   });
   _hoverOverlay = null;
   _selectionOverlay = null;
   _labelBadge = null;
   _sizeBadge = null;
+  _gizmo = null;
   const styleEl = document.getElementById('xgenia-selection-styles');
   if (styleEl) styleEl.remove();
 }
 
-// --- Drag to move (overlay-only — never modifies actual DOM) ---
+// --- Live element preview during gestures ---
+// The element must move IN TANDEM with the frame (Unity/Figma feel), so we
+// preview with inline styles while the gesture runs and let the committed
+// params take over on re-render. Inline transform only — layout params are
+// never touched mid-gesture.
+
+let _livePreviewInline = null;   // element's own inline styles at gesture start
+let _livePreviewApplied = null;  // the exact values WE wrote, per property
+let _lastPreviewRect = null;     // where the preview left the element (screen)
+
+function _captureLivePreviewBase() {
+  if (!_selectedElement) { _livePreviewBase = ''; _livePreviewInline = null; _livePreviewApplied = null; return; }
+  const t = getComputedStyle(_selectedElement).transform;
+  _livePreviewBase = (t && t !== 'none') ? t : '';
+  // React authors styles inline. We must be able to hand each property back:
+  // to React's NEW value when the commit re-rendered it, or to this captured
+  // value when React never touched it (or the gesture was blocked).
+  const s = _selectedElement.style;
+  _livePreviewInline = {
+    transform: s.transform,
+    width: s.width,
+    height: s.height,
+    willChange: s.willChange
+  };
+  _livePreviewApplied = {};
+  _lastPreviewRect = null;
+}
+
+function _writePreviewStyle(prop, value) {
+  _selectedElement.style[prop] = value;
+  _livePreviewApplied[prop] = value;
+}
+
+// Prepend keeps the delta in screen space even when the element's own
+// transform contains rotation (leftmost operation applies outermost).
+function _applyLiveMove(dx, dy) {
+  if (!_selectedElement || !_livePreviewApplied) return;
+  _writePreviewStyle('willChange', 'transform');
+  _writePreviewStyle('transform', 'translate(' + dx + 'px, ' + dy + 'px) ' + _livePreviewBase);
+  _lastPreviewRect = {
+    left: _originalRect.left + dx, top: _originalRect.top + dy,
+    width: _originalRect.width, height: _originalRect.height
+  };
+}
+
+function _applyLiveResize(newRect) {
+  if (!_selectedElement || !_livePreviewApplied) return;
+  const dx = newRect.left - _originalRect.left;
+  const dy = newRect.top - _originalRect.top;
+  _writePreviewStyle('willChange', 'transform');
+  _writePreviewStyle('width', newRect.width + 'px');
+  _writePreviewStyle('height', newRect.height + 'px');
+  _writePreviewStyle('transform', 'translate(' + dx + 'px, ' + dy + 'px) ' + _livePreviewBase);
+  _lastPreviewRect = { left: newRect.left, top: newRect.top, width: newRect.width, height: newRect.height };
+}
+
+function _applyLiveRotate(deltaDeg) {
+  if (!_selectedElement || !_livePreviewApplied) return;
+  _writePreviewStyle('willChange', 'transform');
+  _writePreviewStyle('transform', _livePreviewBase + ' rotate(' + deltaDeg + 'deg)');
+  _lastPreviewRect = null; // AABB comparison is meaningless for rotation
+}
+
+/**
+ * Remove OUR preview values only. A property whose inline value is no longer
+ * the one we wrote was re-rendered by React from the committed params — it is
+ * newer truth and must be left alone. Restoring the captured pre-gesture
+ * value over it is what made elements revert until a manual refresh.
+ */
+function _clearLivePreview() {
+  if (!_selectedElement || !_livePreviewInline || !_livePreviewApplied) {
+    _livePreviewInline = null;
+    _livePreviewApplied = null;
+    return;
+  }
+  const s = _selectedElement.style;
+  for (const prop of ['transform', 'width', 'height', 'willChange']) {
+    if (prop in _livePreviewApplied && s[prop] === _livePreviewApplied[prop]) {
+      s[prop] = _livePreviewInline[prop];
+    }
+  }
+  _livePreviewInline = null;
+  _livePreviewApplied = null;
+}
+
+// --- Drag to move ---
 let _dragActive = false; // True once movement exceeds threshold
 const DRAG_THRESHOLD = 4; // px before drag actually starts
 
@@ -351,14 +727,17 @@ function _startDrag(e) {
   _dragActive = false; // Not active until threshold exceeded
   _dragStart = { x: e.clientX, y: e.clientY };
   _originalRect = _selectedElement.getBoundingClientRect();
+  _captureLivePreviewBase();
+  _hideActionTip();
   e.preventDefault();
   e.stopPropagation();
 }
 
 function _onDrag(e) {
   if (!_isDragging) return;
-  const dx = e.clientX - _dragStart.x;
-  const dy = e.clientY - _dragStart.y;
+  const locked = _lockDeltas(e.clientX - _dragStart.x, e.clientY - _dragStart.y, e.shiftKey);
+  const dx = locked.dx;
+  const dy = locked.dy;
 
   // Don't activate until threshold exceeded (prevents accidental drag on click)
   if (!_dragActive) {
@@ -367,7 +746,8 @@ function _onDrag(e) {
     document.body.style.cursor = 'grabbing';
   }
 
-  // Move only the overlay elements — never the actual DOM element
+  // Frame and element move in tandem: overlay repositions, element gets a
+  // screen-space translate preview (params untouched until commit).
   const newRect = {
     left: _originalRect.left + dx,
     top: _originalRect.top + dy,
@@ -377,6 +757,7 @@ function _onDrag(e) {
     bottom: _originalRect.bottom + dy,
   };
   _updateSelectionPosition(newRect);
+  _applyLiveMove(dx, dy);
   _labelBadge.style.left = newRect.left + 'px';
   _labelBadge.style.top = (newRect.top - 20) + 'px';
   _sizeBadge.style.left = (newRect.right - 60) + 'px';
@@ -390,12 +771,12 @@ function _endDrag(e) {
   _dragActive = false;
   document.body.style.cursor = 'crosshair';
 
-  if (!wasDragActive) return; // Was just a click, not a drag
+  if (!wasDragActive) { _dragAxis = null; _clearLivePreview(); return; } // Just a click
 
-  const dx = e.clientX - _dragStart.x;
-  const dy = e.clientY - _dragStart.y;
+  const locked = _lockDeltas(e.clientX - _dragStart.x, e.clientY - _dragStart.y, e.shiftKey);
+  _dragAxis = null;
 
-  _sendDomGesture('move', { deltaX: dx, deltaY: dy });
+  _sendDomGesture('move', { deltaX: locked.dx, deltaY: locked.dy });
   // Overlay stays at new position — preview will re-render when parameters update
 }
 
@@ -406,6 +787,8 @@ function _startResize(e, handleName) {
   _resizeHandle = handleName;
   _dragStart = { x: e.clientX, y: e.clientY };
   _originalRect = _selectedElement.getBoundingClientRect();
+  _captureLivePreviewBase();
+  _hideActionTip();
   // Hide badges during resize — only the dynamic size badge will be shown
   if (_labelBadge) _labelBadge.style.display = 'none';
   e.preventDefault();
@@ -442,13 +825,14 @@ function _onResize(e) {
   newW = Math.max(newW, 10);
   newH = Math.max(newH, 10);
 
-  // Move only the overlay — never the actual DOM element
+  // Frame and element resize in tandem (inline preview, committed on release)
   const visualRect = {
     left: newL, top: newT,
     width: newW, height: newH,
     right: newL + newW, bottom: newT + newH,
   };
   _updateSelectionPosition(visualRect);
+  _applyLiveResize(visualRect);
   _sizeBadge.textContent = Math.round(newW) + ' × ' + Math.round(newH);
   _sizeBadge.style.left = (visualRect.right - 60) + 'px';
   _sizeBadge.style.top = (visualRect.bottom + 4) + 'px';
@@ -476,6 +860,8 @@ function _endResize(e) {
 
   if (Math.abs(dw) > 1 || Math.abs(dh) > 1) {
     _sendDomGesture('resize', { width: Math.round(newW), height: Math.round(newH) });
+  } else {
+    _clearLivePreview();
   }
   // Restore label badge after resize
   if (_labelBadge && _selectedElement) {
@@ -491,11 +877,298 @@ function _endResize(e) {
 function _globalMouseMove(e) {
   if (_isDragging) { _onDrag(e); return; }
   if (_isResizing) { _onResize(e); return; }
+  if (_isRotating) { _onRotate(e); return; }
 }
 
 function _globalMouseUp(e) {
   if (_isDragging) { _endDrag(e); return; }
   if (_isResizing) { _endResize(e); return; }
+  if (_isRotating) { _endRotate(e); return; }
+}
+
+// --- Gesture payload helpers ---
+
+function _rectOf(el) {
+  const r = el.getBoundingClientRect();
+  return { left: r.left, top: r.top, width: r.width, height: r.height };
+}
+
+function _parentRectOf(el) {
+  const p = el.parentElement;
+  return p ? _rectOf(p) : null;
+}
+
+// Screen-delta math is wrong under a rotated/scaled ancestor — fail closed.
+function _hasTransformedAncestor(el) {
+  let cur = el.parentElement;
+  while (cur && cur !== document.body) {
+    const t = getComputedStyle(cur).transform;
+    if (t && t !== 'none') {
+      // translate-only matrices are fine: matrix(1, 0, 0, 1, tx, ty)
+      const m = t.match(/^matrix\(([-\d.]+), ([-\d.]+), ([-\d.]+), ([-\d.]+),/);
+      if (!m || m[1] !== '1' || m[2] !== '0' || m[3] !== '0' || m[4] !== '1') return true;
+    }
+    cur = cur.parentElement;
+  }
+  return false;
+}
+
+// Which resize handle (if any) does a point on the selection frame correspond to?
+// 8px grab zone on edges/corners of the selected element's current rect.
+const HANDLE_ZONE = 8;
+function _handleAtPoint(x, y) {
+  if (!_selectedElement) return null;
+  const r = _selectedElement.getBoundingClientRect();
+  const nearL = Math.abs(x - r.left) <= HANDLE_ZONE;
+  const nearR = Math.abs(x - r.right) <= HANDLE_ZONE;
+  const nearT = Math.abs(y - r.top) <= HANDLE_ZONE;
+  const nearB = Math.abs(y - r.bottom) <= HANDLE_ZONE;
+  const insideX = x >= r.left - HANDLE_ZONE && x <= r.right + HANDLE_ZONE;
+  const insideY = y >= r.top - HANDLE_ZONE && y <= r.bottom + HANDLE_ZONE;
+  if (!insideX || !insideY) return null;
+  let h = '';
+  if (nearT) h += 'n'; else if (nearB) h += 's';
+  if (nearL) h += 'w'; else if (nearR) h += 'e';
+  return h || null;
+}
+
+function _isInsideSelection(x, y) {
+  if (!_selectedElement) return false;
+  const r = _selectedElement.getBoundingClientRect();
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+
+// Brief "why nothing moved" feedback on a blocked gesture, reusing the label badge.
+function _flashBlocked(reason) {
+  if (!_labelBadge || !_selectedElement) return;
+  const messages = {
+    'in-flow': 'Managed by layout — reorder coming soon',
+    'transformed-ancestor': 'Inside a transformed container',
+    'rotated-target': 'Rotated — resize not supported yet',
+    'no-parent-box': 'No parent box to measure against',
+    'unit-mismatch': 'Offset uses % — set a px value first',
+    'size-mode-gated': 'Size is content-driven on this node',
+    'editor-link': 'Editor link unavailable'
+  };
+  const prev = _labelBadge.textContent;
+  _labelBadge.textContent = messages[reason] || 'Cannot edit this element';
+  _labelBadge.style.display = 'block';
+  setTimeout(() => {
+    if (_labelBadge) _labelBadge.textContent = prev;
+    // Overlay may be stale after a blocked drag — resnap it to the element.
+    if (_selectedElement) _updateSelectionPosition(_selectedElement.getBoundingClientRect());
+  }, 1500);
+}
+
+function _sendDomGesture(gesture, fields) {
+  if (!_selectedNodeId || !_selectedElement) return;
+  const labels = { move: 'Move element', resize: 'Resize element', rotate: 'Rotate element' };
+  const payload = {
+    label: labels[gesture] || 'Edit element',
+    targets: [Object.assign({
+      nodeId: _selectedNodeId,
+      kind: 'dom',
+      gesture,
+      startRect: { width: _originalRect.width, height: _originalRect.height },
+      parentRect: _parentRectOf(_selectedElement),
+      ancestorTransformed: _hasTransformedAncestor(_selectedElement)
+    }, fields)]
+  };
+  makeEditorAPIRequest('viewportGesture', payload, (res) => {
+    const blocked = res && res.blocked && res.blocked[0];
+    if (blocked) {
+      _clearLivePreview(); // snap back — nothing was written
+      _flashBlocked(blocked.reason);
+    } else {
+      _settleAfterCommit();
+    }
+  });
+}
+
+// After a committed gesture: keep the preview up until the committed params
+// have OBSERVABLY re-rendered the element, then hand off. A fixed timer here
+// raced the model→viewer propagation and caused release-jumps.
+function _settleAfterCommit() {
+  const nodeId = _selectedNodeId;
+  const expected = _lastPreviewRect; // null for rotation
+  const baseTransform = _livePreviewBase;
+  const startedAt = Date.now();
+  const POLL_MS = 120;
+  const TIMEOUT_MS = 4000;
+
+  const finish = () => {
+    _clearLivePreview();
+    _selectionOverlay.style.transform = '';
+    const rect = _selectedElement.getBoundingClientRect();
+    _updateSelectionPosition(rect);
+    _labelBadge.style.left = (rect.left + rect.width / 2) + 'px';
+    _labelBadge.style.top = (rect.top - 20) + 'px';
+    _labelBadge.style.display = 'block';
+    _sizeBadge.textContent = Math.round(rect.width) + ' × ' + Math.round(rect.height);
+    _sizeBadge.style.left = (rect.left + rect.width / 2) + 'px';
+    _sizeBadge.style.top = (rect.bottom + 4) + 'px';
+    makeEditorAPIRequest('viewportCapabilities', {
+      nodeId: nodeId,
+      kind: 'dom',
+      ancestorTransformed: _hasTransformedAncestor(_selectedElement)
+    }, (caps) => {
+      if (_selectedNodeId !== nodeId) return;
+      _selectedCaps = caps && !caps.error ? caps : null;
+      _applyGizmoCaps();
+    });
+  };
+
+  const tick = () => {
+    if (_selectedNodeId !== nodeId || !_selectedElement) return; // selection moved on
+
+    // React may have replaced the DOM node on re-render; the fresh node
+    // carries only committed styles — adopt it and we are settled.
+    const fresh = document.querySelector('[data-xgenia-node-id="' + nodeId + '"]');
+    if (fresh && fresh !== _selectedElement) {
+      _selectedElement = fresh;
+      _livePreviewInline = null;
+      _livePreviewApplied = null;
+      finish();
+      return;
+    }
+
+    // Synchronously lift our preview values, measure the underlying truth,
+    // and decide — nothing paints between these writes.
+    const s = _selectedElement.style;
+    const lifted = {};
+    if (_livePreviewApplied && _livePreviewInline) {
+      for (const prop of ['transform', 'width', 'height']) {
+        if (prop in _livePreviewApplied && s[prop] === _livePreviewApplied[prop]) {
+          lifted[prop] = _livePreviewApplied[prop];
+          s[prop] = _livePreviewInline[prop];
+        }
+      }
+    }
+    const r = _selectedElement.getBoundingClientRect();
+    const t = getComputedStyle(_selectedElement).transform;
+    const converged = expected
+      ? (Math.abs(r.left - expected.left) <= 1.5 &&
+         Math.abs(r.top - expected.top) <= 1.5 &&
+         Math.abs(r.width - expected.width) <= 1.5 &&
+         Math.abs(r.height - expected.height) <= 1.5)
+      : ((t === 'none' ? '' : t) !== baseTransform); // rotation: transform recomputed
+
+    if (converged) {
+      finish();
+      return;
+    }
+
+    // Not yet — put the preview back before the browser paints.
+    for (const prop in lifted) s[prop] = lifted[prop];
+
+    if (Date.now() - startedAt > TIMEOUT_MS) {
+      console.warn('[InteractiveEdit] Commit not visible after ' + TIMEOUT_MS + 'ms — releasing preview; check model→viewer sync');
+      finish();
+      return;
+    }
+    setTimeout(tick, POLL_MS);
+  };
+
+  setTimeout(tick, POLL_MS);
+}
+
+// --- Gizmo zone hit-tests (screen space, matching the CSS geometry) ---
+
+const AXIS_LEN = 52;
+function _selectionCenter() {
+  const r = _selectedElement.getBoundingClientRect();
+  return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, rect: r };
+}
+
+function _isOnRotateHandle(x, y) {
+  if (!_selectedElement || !(_selectedCaps && _selectedCaps.rotatable)) return false;
+  const r = _selectedElement.getBoundingClientRect();
+  const hx = r.left + r.width / 2;
+  const hy = r.top - 31; // lollipop circle center (top: -38px, 14px tall)
+  return Math.hypot(x - hx, y - hy) <= 10;
+}
+
+function _axisArrowAtPoint(x, y) {
+  if (!_selectedElement || !(_selectedCaps && _selectedCaps.movable)) return null;
+  const { cx, cy } = _selectionCenter();
+  if (x >= cx + 6 && x <= cx + AXIS_LEN + 12 && Math.abs(y - cy) <= 7) return 'x';
+  if (y <= cy - 6 && y >= cy - AXIS_LEN - 12 && Math.abs(x - cx) <= 7) return 'y';
+  return null;
+}
+
+// Constrain a free/axis drag: explicit arrow lock wins, else Shift locks
+// to the dominant axis (standard professional-editor behavior).
+function _lockDeltas(dx, dy, shiftKey) {
+  if (_dragAxis === 'x') return { dx, dy: 0 };
+  if (_dragAxis === 'y') return { dx: 0, dy };
+  if (shiftKey) {
+    return Math.abs(dx) >= Math.abs(dy) ? { dx, dy: 0 } : { dx: 0, dy };
+  }
+  return { dx, dy };
+}
+
+// Pixi gizmo hover events reuse the same glass tooltip as the DOM gizmo.
+window.addEventListener('xg-gizmo-hover', (e) => {
+  if (!_gizmo || !_gizmo.tooltip || !e.detail) return;
+  const z = e.detail.zone;
+  if (!z) { _hideActionTip(); return; }
+  const kind = (z === 'rotate') ? 'rotate' : (z === 'x' || z === 'y') ? z : 'resize';
+  _showActionTip(kind, e.detail.clientX, e.detail.clientY);
+});
+
+// --- Rotation gesture (overlay-only preview; commits transformRotation) ---
+
+let _rotatePivot = null; // screen-space pivot; the element's transform-origin
+
+function _startRotate(e) {
+  if (!_selectedElement) return;
+  _isRotating = true;
+  _rotateDeltaDeg = 0;
+  _originalRect = _selectedElement.getBoundingClientRect();
+  _captureLivePreviewBase();
+  // Rotate around the node's wired transform-origin, not the box center.
+  const o = _transformOriginOf(_selectedElement);
+  _rotatePivot = { x: _originalRect.left + o.x, y: _originalRect.top + o.y };
+  _selectionOverlay.style.transformOrigin = o.x + 'px ' + o.y + 'px';
+  _rotateStartAngle = Math.atan2(e.clientY - _rotatePivot.y, e.clientX - _rotatePivot.x);
+  document.body.style.cursor = 'grabbing';
+  _hideActionTip();
+  if (_labelBadge) _labelBadge.style.display = 'none';
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+function _onRotate(e) {
+  if (!_isRotating || !_selectedElement) return;
+  const cx = _rotatePivot.x;
+  const cy = _rotatePivot.y;
+  const angle = Math.atan2(e.clientY - cy, e.clientX - cx);
+  let deltaDeg = (angle - _rotateStartAngle) * 180 / Math.PI;
+  if (e.shiftKey) deltaDeg = Math.round(deltaDeg / 15) * 15; // snap to 15°
+  _rotateDeltaDeg = deltaDeg;
+
+  // Frame and element rotate in tandem (inline preview, committed on release)
+  _selectionOverlay.style.transform = 'rotate(' + deltaDeg + 'deg)';
+  _applyLiveRotate(deltaDeg);
+  _sizeBadge.textContent = Math.round(deltaDeg) + '°';
+  _sizeBadge.style.left = (cx) + 'px';
+  _sizeBadge.style.top = (_originalRect.bottom + 4) + 'px';
+  _sizeBadge.style.display = 'block';
+}
+
+function _endRotate(e) {
+  if (!_isRotating) return;
+  _isRotating = false;
+  document.body.style.cursor = 'crosshair';
+  const deltaDeg = Math.round(_rotateDeltaDeg * 10) / 10;
+  _selectionOverlay.style.transform = '';
+  _selectionOverlay.style.transformOrigin = '';
+  if (_labelBadge) _labelBadge.style.display = 'block';
+  if (Math.abs(deltaDeg) >= 0.5) {
+    _sendDomGesture('rotate', { deltaDeg: deltaDeg });
+  } else {
+    _clearLivePreview();
+  }
 }
 
 // --- Gesture payload helpers ---
@@ -636,8 +1309,41 @@ window.XgeniaEditorInspectorAPI = {
 
       // --- Hover handler ---
       const mouseMoveHandler = (e) => {
-        // Skip if dragging or resizing
-        if (_isDragging || _isResizing) return;
+        // Skip if a gesture is in progress (those run via _globalMouseMove)
+        if (_isDragging || _isResizing || _isRotating) return;
+
+        // Gizmo cursors, hot states and action tooltips around the selection.
+        // Every control answers on hover: what it does, before it is touched.
+        if (_selectedElement) {
+          const axis = _axisArrowAtPoint(e.clientX, e.clientY);
+          const handle = (_selectedCaps && _selectedCaps.resizable)
+            ? _handleAtPoint(e.clientX, e.clientY) : null;
+          if (_isOnRotateHandle(e.clientX, e.clientY)) {
+            document.body.style.cursor = 'grab';
+            _setHotZone('rotate');
+            _showActionTip('rotate', e.clientX, e.clientY);
+          } else if (axis) {
+            document.body.style.cursor = axis === 'x' ? 'ew-resize' : 'ns-resize';
+            _setHotZone(axis);
+            _showActionTip(axis, e.clientX, e.clientY);
+          } else if (handle) {
+            document.body.style.cursor = handle + '-resize';
+            _setHotZone(handle);
+            _showActionTip('resize', e.clientX, e.clientY);
+          } else if (_isInsideSelection(e.clientX, e.clientY)) {
+            document.body.style.cursor = (_selectedCaps && _selectedCaps.movable) ? 'move' : 'crosshair';
+            _setHotZone(null);
+            if (_selectedCaps && _selectedCaps.movable) {
+              _showActionTip('move', e.clientX, e.clientY);
+            } else {
+              _hideActionTip();
+            }
+          } else {
+            document.body.style.cursor = 'crosshair';
+            _setHotZone(null);
+            _hideActionTip();
+          }
+        }
 
         // Resize/move cursors take precedence around the selected element
         if (_selectedElement) {
@@ -655,13 +1361,12 @@ window.XgeniaEditorInspectorAPI = {
         if (!element) return;
 
         // Skip our own overlay elements
-        if (element.closest('.xg-hover-overlay, .xg-selection-overlay, .xg-label-badge, .xg-size-badge')) return;
+        if (element.closest('.xg-hover-overlay, .xg-selection-overlay, .xg-label-badge, .xg-size-badge, .xg-tooltip')) return;
 
+        // No pre-selection highlight: selection chrome appears on click only.
+        // The editor is still told what is under the cursor.
         const xgeniaNode = findXgeniaNodeForElement(element);
-        if (xgeniaNode) {
-          // Don't show hover overlay on the already-selected element
-          if (_selectedElement && element === _selectedElement) return;
-          showHighlight(element);
+        if (xgeniaNode && !(_selectedElement && element === _selectedElement)) {
           ipcRenderer.sendToHost('inspector-node-found', {
             nodeId: xgeniaNode,
             elementInfo: {
@@ -670,8 +1375,6 @@ window.XgeniaEditorInspectorAPI = {
               id: element.id
             }
           });
-        } else {
-          hideHighlight();
         }
       };
 
@@ -743,18 +1446,51 @@ window.XgeniaEditorInspectorAPI = {
         }
       };
 
-      // --- Mousedown handler: entry point for drag-move and edge-resize ---
-      // Constraints live editor-side in TransformCommandResolver; anything it
-      // can't translate safely comes back blocked and only flashes a hint.
+      // --- Double-click: send the node as a reference to the chat panel ---
+      const dblclickHandler = (e) => {
+        const element = document.elementFromPoint(e.clientX, e.clientY);
+        if (!element) return;
+        if (element.closest('.xg-hover-overlay, .xg-selection-overlay, .xg-label-badge, .xg-size-badge, .xg-tooltip')) return;
+        const nodeId = findXgeniaNodeForElement(element);
+        if (!nodeId) return;
+        e.preventDefault();
+        e.stopPropagation();
+        let nodeLabel = element.getAttribute('data-xgenia-node-label') ||
+          element.getAttribute('data-node-label') || 'Element';
+        ipcRenderer.sendToHost('inspector-node-dblclick', { nodeId: nodeId, nodeLabel: nodeLabel });
+      };
+
+      // --- Mousedown handler: entry point for rotate, axis-move, edge-resize
+      // and free drag. Affordances are capability-gated (viewportCapabilities)
+      // so nothing is offered that the resolver would refuse; the resolver
+      // still fails closed if state changed between fetch and gesture.
       const mousedownHandler = (e) => {
         if (e.button !== 0) return;
-        const handle = _handleAtPoint(e.clientX, e.clientY);
-        if (handle) {
-          _startResize(e, handle);
+        if (_isOnRotateHandle(e.clientX, e.clientY)) {
+          _startRotate(e);
           return;
         }
-        if (_isInsideSelection(e.clientX, e.clientY)) {
+        const axis = _axisArrowAtPoint(e.clientX, e.clientY);
+        if (axis) {
           _startDrag(e);
+          _dragAxis = axis;
+          return;
+        }
+        if (_selectedCaps && _selectedCaps.resizable) {
+          const handle = _handleAtPoint(e.clientX, e.clientY);
+          if (handle) {
+            _startResize(e, handle);
+            return;
+          }
+        }
+        if (_isInsideSelection(e.clientX, e.clientY)) {
+          if (_selectedCaps && _selectedCaps.movable) {
+            _startDrag(e);
+            _dragAxis = null;
+          } else if (_selectedCaps && _selectedCaps.moveReason) {
+            _flashBlocked(_selectedCaps.moveReason);
+          }
+
         }
         // Otherwise fall through: clickHandler does selection/deselection.
       };
@@ -762,6 +1498,7 @@ window.XgeniaEditorInspectorAPI = {
       // Attach all listeners
       document.addEventListener('mousemove', mouseMoveHandler, true);
       document.addEventListener('click', clickHandler, true);
+      document.addEventListener('dblclick', dblclickHandler, true);
       document.addEventListener('mousedown', mousedownHandler, true);
       document.addEventListener('mousemove', _globalMouseMove, true);
       document.addEventListener('mouseup', _globalMouseUp, true);
@@ -771,6 +1508,7 @@ window.XgeniaEditorInspectorAPI = {
       // Store handlers for cleanup
       window._inspectorMouseHandler = mouseMoveHandler;
       window._inspectorClickHandler = clickHandler;
+      window._inspectorDblclickHandler = dblclickHandler;
       window._inspectorMousedownHandler = mousedownHandler;
 
       // --- PixiJS Editing Bridge IPC ---
@@ -833,6 +1571,10 @@ window.XgeniaEditorInspectorAPI = {
       if (window._inspectorClickHandler) {
         document.removeEventListener('click', window._inspectorClickHandler, true);
         window._inspectorClickHandler = null;
+      }
+      if (window._inspectorDblclickHandler) {
+        document.removeEventListener('dblclick', window._inspectorDblclickHandler, true);
+        window._inspectorDblclickHandler = null;
       }
       if (window._inspectorMousedownHandler) {
         document.removeEventListener('mousedown', window._inspectorMousedownHandler, true);

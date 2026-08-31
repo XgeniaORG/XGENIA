@@ -281,104 +281,19 @@ export class CanvasView extends View {
 
         // CRITICAL: Emit inspectNodes event to trigger node selection in editor
         // This is what EditorDocument listens for to select nodes
-        console.log('[CanvasView] 📡 Emitting inspectNodes event with nodeIds:', [message.nodeId]);
         EventDispatcher.instance.emit('inspectNodes', { nodeIds: [message.nodeId] });
-        console.log('[CanvasView] ✅ Emitted inspectNodes event for node selection');
 
-        // Show inline chat for the selected element
-        // Use element bounding rect if available, otherwise use click coordinates
-        const webviewRect = this.webview?.getBoundingClientRect();
-        console.log('[CanvasView] 📐 Webview rect:', webviewRect);
-        console.log('[CanvasView] 📐 Message data:', {
-          elementRect: message.elementRect,
-          clickX: message.clickX,
-          clickY: message.clickY
-        });
-
-        let chatX: number;
-        let chatY: number;
-        const chatWidth = 280; // Match the chat width
-        const chatHeight = 50; // Match the chat height
-
-        if (message.elementRect && webviewRect) {
-          // Use element's bounding rect for accurate positioning
-          // elementRect from getBoundingClientRect() is relative to webview's viewport
-          // Convert to main window coordinates by adding webview's position
-          const elementCenterX = message.elementRect.left + (message.elementRect.width / 2);
-          const elementTopY = message.elementRect.top;
-
-          chatX = webviewRect.left + elementCenterX - (chatWidth / 2); // Center chat on element
-          chatY = webviewRect.top + elementTopY - chatHeight - 10; // Position above element with spacing
-
-          console.log('[CanvasView] 📐 Calculated from elementRect:', {
-            elementCenterX,
-            elementTopY,
-            chatX,
-            chatY,
-            webviewLeft: webviewRect.left,
-            webviewTop: webviewRect.top
+        // Single click selects ONLY. The inline chat popup used to open here
+        // on every click; a node now reaches the chat via double-click, as a
+        // reference (see inspector-node-dblclick below).
+      } else if (event.channel === 'inspector-node-dblclick') {
+        // Double-click: hand the node to the chat panel as a reference.
+        if (message && message.nodeId) {
+          EventDispatcher.instance.emit('chat-add-node-reference', {
+            nodeId: message.nodeId,
+            nodeLabel: message.nodeLabel || 'Element'
           });
-
-          // Ensure chat doesn't go off-screen
-          const viewportWidth = window.innerWidth;
-          const viewportHeight = window.innerHeight;
-
-          if (chatX + chatWidth > viewportWidth - 20) {
-            chatX = viewportWidth - chatWidth - 20;
-          }
-          if (chatX < 20) {
-            chatX = 20;
-          }
-
-          // If element is near top, position below instead
-          if (chatY < 20) {
-            chatY = webviewRect.top + message.elementRect.top + message.elementRect.height + 10;
-            console.log('[CanvasView] 📐 Repositioned below element:', chatY);
-          }
-          if (chatY + chatHeight > viewportHeight - 20) {
-            chatY = viewportHeight - chatHeight - 20;
-          }
-        } else if (message.clickX !== undefined && message.clickY !== undefined && webviewRect) {
-          // Fallback to click coordinates
-          chatX = webviewRect.left + message.clickX - (chatWidth / 2); // Center chat on click
-          chatY = webviewRect.top + message.clickY - 60; // Position above click
-
-          console.log('[CanvasView] 📐 Calculated from click:', {
-            clickX: message.clickX,
-            clickY: message.clickY,
-            chatX,
-            chatY
-          });
-
-          // Ensure chat doesn't go off-screen
-          const viewportWidth = window.innerWidth;
-          if (chatX + chatWidth > viewportWidth - 20) {
-            chatX = viewportWidth - chatWidth - 20;
-          }
-          if (chatX < 20) {
-            chatX = 20;
-          }
-        } else {
-          // Last resort: use default position
-          chatX = webviewRect ? webviewRect.left + 100 : 100;
-          chatY = webviewRect ? webviewRect.top + 100 : 100;
-          console.log('[CanvasView] ⚠️ Using default position:', { chatX, chatY });
         }
-
-        console.log('[CanvasView] 🎯 SHOWING INLINE CHAT:', {
-          nodeId: message.nodeId,
-          nodeLabel: message.nodeLabel,
-          finalPosition: { x: chatX, y: chatY },
-          elementRect: message.elementRect,
-          clickX: message.clickX,
-          clickY: message.clickY,
-          webviewRect: webviewRect
-        });
-
-        this.showInlineChatForNode(message.nodeId, message.nodeLabel || 'Selected Element', {
-          x: chatX,
-          y: chatY
-        });
       } else if (event.channel === 'editor-zoom-viewport') {
         // Canvas zoom — only in edit mode (inspect mode)
         if (!this.inspectMode) return; // Ignore zoom in preview mode
@@ -458,6 +373,14 @@ export class CanvasView extends View {
     element.appendChild(reactContainer);
 
     this.el = $(element);
+
+    // The View menu zooms the editor chrome (Chromium native zoom on the
+    // editor webContents). The <webview> showing the running project is a
+    // separate webContents and must keep the canvas zoom the user set in the
+    // topbar, so re-assert it whenever the interface zoom changes.
+    ipcRenderer.on('ui-zoom-changed', () => {
+      this.tryWebviewCall(() => (this.webview as any).setZoomFactor(this.zoomFactor || 1));
+    });
 
     // HTML capture listener
     ipcRenderer.on('embedded-viewer-get-full-html-request', async (...args) => {

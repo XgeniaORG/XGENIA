@@ -27,7 +27,9 @@ export interface EntitlementsResponse {
 }
 
 const CACHE_KEY = 'xgenia_plugin_entitlements';
-const CACHE_TTL = 60 * 60 * 1000; // 1 hour
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour — when to re-fetch while online
+/** How long a cached entitlement stays usable while the server is UNREACHABLE. */
+const GRACE_TTL = 72 * 60 * 60 * 1000; // 72 hours
 
 /** URL of the local image editor Vite dev server */
 const LOCAL_IMAGE_EDITOR_URL = 'http://localhost:3002';
@@ -158,20 +160,59 @@ export class PluginLoader {
             }
         }
 
-        // Fall back to localStorage cache
+        // Fall back to the last GOOD answer the server gave us, but only for a
+        // bounded window. This is the offline grace period: a paying user on a
+        // plane, or behind a 5s timeout, keeps working. It is not open-ended.
         const cached = this.loadCache();
-        if (cached) {
-            console.log('[PluginLoader] Using cached entitlements (offline or server error)');
+        if (cached && this.isWithinGrace(cached)) {
+            const ageMin = Math.round((Date.now() - (cached.cachedAt || 0)) / 60000);
+            console.log(`[PluginLoader] Server unreachable — using cached entitlements (${ageMin}m old, grace ${GRACE_TTL / 3600000}h)`);
             if (isDev) this.mergeDev(cached, localImageEditorReachable, localAiChatReachable);
             this.entitlements = cached;
             return cached;
         }
+        if (cached) {
+            console.warn('[PluginLoader] Cached entitlements are past the offline grace period — discarding.');
+        }
 
-        // No entitlements available — use dev defaults
-        console.log('[PluginLoader] No entitlements available, using dev defaults');
-        const devFallback = this.getDevFallback(localImageEditorReachable, localAiChatReachable);
-        this.entitlements = devFallback;
-        return devFallback;
+        // (2026-08-28) FAIL CLOSED.
+        //
+        // This used to return getDevFallback() here — BOTH plugins, tier 'dev' —
+        // for any user whose entitlements fetch threw. A 5s timeout, a DNS blip
+        // or a Supabase outage therefore granted the full paid product to
+        // everyone, silently, in production. There is no path on which "we could
+        // not verify" should mean "yes".
+        //
+        // Dev keeps its fallback, because dev is a claim about THIS BUILD
+        // (see isDevEnvironment) and not something an installed copy can assert.
+        if (isDev) {
+            console.log('[PluginLoader] Dev build, no entitlements — using dev defaults');
+            const devFallback = this.getDevFallback(localImageEditorReachable, localAiChatReachable);
+            this.entitlements = devFallback;
+            return devFallback;
+        }
+
+        console.warn('[PluginLoader] Could not verify entitlements — no plugins loaded.');
+        const denied: EntitlementsResponse = { plugins: [], tier: 'unverified', cachedAt: Date.now() };
+        this.entitlements = denied;
+        this.notifyListeners(denied);
+        return denied;
+    }
+
+    /**
+     * Is a cached entitlement still usable offline?
+     *
+     * Separate from isCacheFresh (1h) on purpose: CACHE_TTL decides when to
+     * bother re-fetching while the server is reachable, GRACE_TTL decides how
+     * long we will trust a stale answer when it is NOT. A cache with no
+     * cachedAt is not trusted at all — that is the shape a hand-written
+     * localStorage entry takes.
+     */
+    private isWithinGrace(cache: EntitlementsResponse): boolean {
+        if (typeof cache.cachedAt !== 'number' || !Number.isFinite(cache.cachedAt)) return false;
+        const age = Date.now() - cache.cachedAt;
+        if (age < 0) return false; // clock moved, or a forged future timestamp
+        return age < GRACE_TTL;
     }
 
     /** Get the URL for a specific plugin by ID */
