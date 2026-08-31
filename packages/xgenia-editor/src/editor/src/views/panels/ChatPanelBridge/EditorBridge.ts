@@ -1352,7 +1352,15 @@ export class EditorBridge {
             // connections may be on graph directly or on graph.model
             const connections = graph.connections || graph.model?.connections || [];
             console.log('[EditorBridge] graph.getConnections:', connections.length, 'connections found');
-            return connections.map((c: any) => ({
+            // Corrupt entries from the old object-as-fromId addConnection bug look like
+            // `{fromId: {fromId, fromPort, toId, toPort}}` — the runtime never executes them.
+            // Surface them AS corrupt instead of mapping them to `{fromId: [object Object]}`,
+            // so callers (and audits) can see and remove them.
+            const corrupt = connections.filter((c: any) => !c || typeof c === 'string' || (c.fromId !== undefined && typeof c.fromId === 'object'));
+            if (corrupt.length > 0) {
+                console.warn(`[EditorBridge] graph.getConnections: ${corrupt.length} CORRUPT connection entrie(s) (object-valued fromId / non-object) — dead at runtime, excluded from the result. Remove them via removeConnection("undefined:undefined→undefined:undefined").`);
+            }
+            return connections.filter((c: any) => !corrupt.includes(c)).map((c: any) => ({
                 id: c.id,
                 fromId: c.fromId || c.sourceId || (c.sourceNode ? c.sourceNode.id : undefined),
                 fromPort: c.fromPort || c.fromProperty || (c.sourcePort ? (c.sourcePort.name || c.sourcePort) : undefined),
@@ -1361,18 +1369,50 @@ export class EditorBridge {
             }));
         });
 
-        h('graph.addConnection', ([from, fromPort, to, toPort]: [string, string, string, string]) => {
+        h('graph.addConnection', ([from, fromPort, to, toPort]: [string | Record<string, any>, string?, string?, string?]) => {
             const graph = this.getActiveGraph();
             if (!graph) throw new Error('No active graph');
             // CRITICAL FIX: NodeGraphModel.addConnection(model) expects a connection object,
             // NOT 4 individual string arguments. The old code passed the fromId string as `model`,
             // which got pushed raw into connections[] — causing fromId/toId to be undefined.
+            //
+            // FAIL-CLOSED (debug export 1788128222089): a caller that sent ONE connection
+            // object instead of 4 strings used to get that object persisted as `fromId`
+            // verbatim — `{fromId: {fromId, fromPort, toId, toPort}}` — a corrupt entry the
+            // runtime never executes. Unwrap the object form; reject anything else loudly
+            // rather than writing it into the project.
+            if (from !== null && typeof from === 'object') {
+                const c: any = from;
+                fromPort = c.fromPort ?? c.fromProperty;
+                to = c.toId ?? c.targetId;
+                toPort = c.toPort ?? c.toProperty;
+                from = c.fromId ?? c.sourceId;
+            }
+            for (const [k, v] of Object.entries({ from, fromPort, to, toPort })) {
+                if (typeof v !== 'string' || v.length === 0) {
+                    throw new Error(`graph.addConnection: "${k}" must be a non-empty string, got ${JSON.stringify(v)} — refusing to write a corrupt connection.`);
+                }
+            }
             const connection = {
                 fromId: from,
                 fromProperty: fromPort,
                 toId: to,
                 toProperty: toPort
             };
+            // EXACT-DUP GUARD (debug export 1788128222089): the ChatPanel-side guard only
+            // covers DATA ports ("already has 1 incoming data connection"), so identical
+            // SIGNAL edges sailed through and a tile click fired its handler twice —
+            // toggle logic then select+deselected in one click. An identical edge that
+            // already exists is returned as-is (post-create existence checks still pass);
+            // nothing is written twice.
+            const existingConns: any[] = graph.connections || graph.model?.connections || [];
+            const dup = existingConns.find((c: any) => c && typeof c.fromId === 'string'
+                && c.fromId === from && (c.fromProperty || c.fromPort) === fromPort
+                && c.toId === to && (c.toProperty || c.toPort) === toPort);
+            if (dup) {
+                console.warn(`[EditorBridge] graph.addConnection: identical connection already exists (${from}:${fromPort}→${to}:${toPort}) — returning it instead of duplicating.`);
+                return dup;
+            }
             // Pass through whatever the underlying model returns. Callers
             // already detect success via post-create connection-existence
             // checks (see safe_connection_workflow); changing the shape here
@@ -1420,10 +1460,12 @@ export class EditorBridge {
                 }
             }
 
-            // Fallback for corrupted connections (e.g., from old addConnection bug)
+            // Fallback for corrupted connections (e.g., from old addConnection bug).
+            // Covers both shapes: missing fromId entirely, and the object-as-fromId
+            // wrap (`{fromId: {…}}`, debug export 1788128222089).
             if (!conn && (connectionId === 'undefined:undefined→undefined:undefined'
                        || connectionId === 'undefined:undefined->undefined:undefined')) {
-                const corruptIdx = connections.findIndex((c: any) => !c || typeof c === 'string' || (!c.fromId && !c.id));
+                const corruptIdx = connections.findIndex((c: any) => !c || typeof c === 'string' || (!c.fromId && !c.id) || typeof c.fromId === 'object');
                 if (corruptIdx !== -1) {
                     conn = connections[corruptIdx];
                     console.warn(`[EditorBridge] Found corrupted connection object at index ${corruptIdx}. Targeting for removal.`);
@@ -1431,8 +1473,21 @@ export class EditorBridge {
             }
 
             if (!conn) {
-                console.warn(`[EditorBridge] removeConnection: no matching connection found for "${connectionId}". Available: ${connections.length}`);
-                throw new Error(`Connection not found: ${connectionId}`);
+                // NEAR-MISS HINT (debug export 1788128222089): four deletes failed on
+                // "out-success" when the live port was "out-OnSuccess". When the endpoints
+                // parse, name the real connections on that node pair so the caller can
+                // correct the port instead of concluding the connection does not exist.
+                let hint = '';
+                if (arrowIdx > 0) {
+                    const fId = connectionId.substring(0, arrowIdx).split(':')[0];
+                    const tId = connectionId.substring(arrowIdx + arrowLen).split(':')[0];
+                    const near = connections
+                        .filter((c: any) => c && typeof c.fromId === 'string' && String(c.fromId) === fId && String(c.toId) === tId)
+                        .map((c: any) => `${c.fromProperty || c.fromPort}→${c.toProperty || c.toPort}`);
+                    if (near.length > 0) hint = ` Connections that DO exist between these two nodes (check the port names): ${near.join(', ')}`;
+                }
+                console.warn(`[EditorBridge] removeConnection: no matching connection found for "${connectionId}". Available: ${connections.length}${hint}`);
+                throw new Error(`Connection not found: ${connectionId}.${hint}`);
             }
             graph.removeConnection?.(conn, { undo: this.aiUndo(), label: this.aiUndoLabel });
         });
