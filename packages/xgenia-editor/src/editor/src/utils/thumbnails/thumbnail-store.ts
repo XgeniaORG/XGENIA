@@ -159,6 +159,36 @@ export interface ThumbnailBearingEntry {
 }
 
 /**
+ * A filesystem path as a `file://` URL the renderer will actually load.
+ *
+ * ─── why this is not `'file://' + path` (2026-08-31) ────────────────────────
+ * It was, and on Windows that produced `file://C:%5CUsers%5C...%5C<id>.jpg` — wrong twice
+ * over. `encodeURI` escapes a backslash to `%5C`, so every separator became part of one long
+ * filename; and with two slashes a URL's authority runs to the next `/`, so `C:` was read as
+ * the *host*. Chromium resolved nothing and every card on the home screen rendered empty,
+ * while the capture went on writing perfectly good files into `userData/thumbs`.
+ *
+ * A POSIX path already starts with `/`, so the same concatenation happened to yield a valid
+ * `file:///Users/...` there. That is the whole reason this survived review and shipped: the
+ * bug is invisible on the platform it was written on.
+ */
+function toFileUrl(filePath: string): string {
+    // Before encoding, or the separators encode as %5C rather than being separators.
+    const slashed = filePath.replace(/\\/g, '/');
+
+    // `//host/share/...` is a UNC path, and a UNC host is exactly what a file URL's authority
+    // is for: `file://host/share/...`. Everything else — a drive path `C:/...` or a rooted
+    // POSIX path — has an empty authority and needs the third slash of `file:///`.
+    const body = slashed.startsWith('//') ? slashed.slice(2) : `/${slashed.replace(/^\/+/, '')}`;
+
+    // encodeURI leaves `/` and `:` alone, which is what keeps the separators and the drive
+    // letter readable. It also leaves characters that are legal in a path but would terminate
+    // or break out of a css `url(...)` — both call sites build that string by concatenation —
+    // so those are escaped by hand.
+    return `file://${encodeURI(body).replace(/[()'"#?]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase())}`;
+}
+
+/**
  * Where to point an <img> or a css `url()` for this project.
  *
  * Both consumers — projectsview's `background-image` string and ProjectCard's inline style — go
@@ -170,12 +200,7 @@ export interface ThumbnailBearingEntry {
 export function resolveThumbSrc(entry: ThumbnailBearingEntry | undefined | null): string {
     if (!entry) return '';
 
-    if (entry.thumbPath) {
-        // projectsview builds `url(<src>)` by concatenation, so a quote, a paren or a space in
-        // the path would emit broken css for every project in the list. encodeURI leaves the
-        // separators alone and escapes the rest.
-        return `file://${encodeURI(entry.thumbPath).replace(/[()]/g, (c) => (c === '(' ? '%28' : '%29'))}`;
-    }
+    if (entry.thumbPath) return toFileUrl(entry.thumbPath);
 
     return entry.thumbURI || '';
 }
