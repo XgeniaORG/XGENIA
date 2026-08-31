@@ -51,8 +51,12 @@ const regexList: RegExp[] = [
   /.*Setup.*\.blockmap$/,
 
   /* MacOS */
+  // Only the DMG ships. The `zip` mac target is electron-builder's auto-update
+  // payload; copying it here put a second full copy of XGENIA.app in `publish`
+  // and doubled the macOS artifact (~400MB -> ~780MB). Nightlies publish no
+  // update feed (the latest*.yml manifests are deliberately not released), so
+  // nothing consumes it. Re-add only alongside a real macOS update channel.
   /.*\.dmg$/,
-  /.*\.zip$/,
   /.*\.blockmap$/,
 
   /* Linux */
