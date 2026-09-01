@@ -2699,7 +2699,17 @@ export class EditorBridge {
             const isAbsolute = dirPath.startsWith('/') || dirPath.includes(':');
             if (!isAbsolute && !projectDir) return [];
             const fullPath = isAbsolute ? dirPath : path.join(projectDir, dirPath);
-            if (!fs.existsSync(fullPath)) return [];
+            // FAIL CLOSED on a missing directory. (2026-09-01, export 1788122750016)
+            // This used to `return []`, so a directory that does not exist under the
+            // OPEN PROJECT root came back as an empty-array SUCCESS — indistinguishable
+            // from a real empty directory. In that session the AI probed
+            // 'private/xgenia-pro-nodes/src/slot-games' (a REPO path this bridge does
+            // not serve), read [] as "the directory is empty", and concluded the
+            // engine source was unreachable. A throw becomes an {error} reply at the
+            // dispatch loop and reaches run_editor_script as success:false.
+            if (!fs.existsSync(fullPath)) {
+                throw new Error(`fs.readDir NOT_FOUND: "${dirPath}" does not exist under the open project root (${projectDir}). This bridge serves ONLY the open project directory — repo/source paths are not reachable here.`);
+            }
             return fs.readdirSync(fullPath);
         });
 
@@ -2804,7 +2814,11 @@ export class EditorBridge {
             const isAbsolute = dirPath.startsWith('/') || dirPath.includes(':');
             if (!isAbsolute && !projectDir) return [];
             const fullPath = isAbsolute ? dirPath : path.join(projectDir, dirPath);
-            if (!fs.existsSync(fullPath)) return [];
+            // FAIL CLOSED — same defect and same reasoning as fs.readDir above:
+            // a missing directory must not read as an empty one.
+            if (!fs.existsSync(fullPath)) {
+                throw new Error(`fs.readDirDetailed NOT_FOUND: "${dirPath}" does not exist under the open project root (${projectDir}). This bridge serves ONLY the open project directory — repo/source paths are not reachable here.`);
+            }
             const entries = fs.readdirSync(fullPath, { withFileTypes: true });
             return entries
                 .filter((e: any) => !e.name.startsWith('.'))
