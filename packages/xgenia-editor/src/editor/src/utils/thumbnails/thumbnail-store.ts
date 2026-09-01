@@ -171,10 +171,23 @@ export function resolveThumbSrc(entry: ThumbnailBearingEntry | undefined | null)
     if (!entry) return '';
 
     if (entry.thumbPath) {
+        // A WINDOWS PATH IS A PATH, NOT A HOSTNAME. (2026-08-31 tests, fixed 2026-09-01)
+        // thumbPath comes from electron's userData, so on Windows it is a drive path with
+        // backslashes. encodeURI treats a backslash as a character (%5C), not a separator,
+        // so `file://C:\Users\...` became a url whose HOST was "C:" and whose path was one
+        // opaque %5C-riddled segment — no thumbnail ever resolved on Windows. Normalize the
+        // separators first, then pick the authority shape the path calls for:
+        //   drive path  C:\...   → file:///C:/...   (empty authority, drive in the path)
+        //   UNC        \\nas\... → file://nas/...   (host in the authority)
+        //   posix      /Users/.. → file:///Users/.. (unchanged behavior)
+        const isUNC = entry.thumbPath.startsWith('\\\\');
+        const p = entry.thumbPath.replace(/\\/g, '/');
+        const prefix = isUNC ? 'file://' : /^[A-Za-z]:/.test(p) ? 'file:///' : 'file://';
+        const body = isUNC ? p.replace(/^\/+/, '') : p;
         // projectsview builds `url(<src>)` by concatenation, so a quote, a paren or a space in
         // the path would emit broken css for every project in the list. encodeURI leaves the
         // separators alone and escapes the rest.
-        return `file://${encodeURI(entry.thumbPath).replace(/[()]/g, (c) => (c === '(' ? '%28' : '%29'))}`;
+        return prefix + encodeURI(body).replace(/[()]/g, (c) => (c === '(' ? '%28' : '%29'));
     }
 
     return entry.thumbURI || '';
