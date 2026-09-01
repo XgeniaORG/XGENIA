@@ -123,6 +123,12 @@ export class ProjectModel extends Model {
   public modules: ProjectModule[] = [];
   public lesson: TSFixme;
   public rootNode: NodeGraphNode;
+  // Home is stored only as a node pointer (rootNode), so when the home node (or its
+  // component) is deleted nothing remembers where home was. This keeps the component so
+  // home can be restored when the deletion is undone or a new visual root is added to
+  // that component (see the Model.nodeAdded/componentAdded watchers at the end of this
+  // file). Cleared as soon as a real root is set again.
+  public _lostHomeComponent?: ComponentModel;
   public evaluatehealthScheduled: TSFixme;
   public componentAnnotations: TSFixme;
   public previews: TSFixme;
@@ -267,6 +273,7 @@ export class ProjectModel extends Model {
   // Sets the root
   setRootNode(node: NodeGraphNode) {
     this.rootNode = node;
+    if (node) this._lostHomeComponent = undefined;
 
     this.notifyListeners('rootNodeChanged', {
       model: node
@@ -387,6 +394,7 @@ export class ProjectModel extends Model {
       //reset the root node if we're deleting the root component
       if (this.rootNode?.owner?.owner === component) {
         this.setRootNode(null);
+        this._lostHomeComponent = component;
       }
 
       this.notifyListeners('componentRemoved', {
@@ -1303,7 +1311,45 @@ EventDispatcher.instance.on(
   function (e) {
     if (ProjectModel.instance && ProjectModel.instance.getRootNode() === e.args.model) {
       ProjectModel.instance.setRootNode(undefined);
+      ProjectModel.instance._lostHomeComponent = e.model.owner;
     }
+  },
+  null
+);
+
+// Restore home when a visual root comes back to the component that was home when the home
+// node was removed — an undo of that deletion, or a new visual root added to the component.
+// Without this the viewer is stuck on "No HOME component selected" even after the deletion
+// is reverted.
+EventDispatcher.instance.on(
+  'Model.nodeAdded',
+  function (e) {
+    const project = ProjectModel.instance;
+    if (!project || project.getRootNode() || !project._lostHomeComponent) return;
+
+    const graph = e.model;
+    if (!graph || graph.owner !== project._lostHomeComponent || graph.owner.owner !== project) return;
+
+    const node = e.args.model;
+    if (!node?.type?.allowAsExportRoot) return;
+    if (graph.getRoots().indexOf(node) === -1) return;
+
+    project.setRootNode(node);
+  },
+  null
+);
+
+// Same when the home component itself was deleted and the deletion is undone
+EventDispatcher.instance.on(
+  'Model.componentAdded',
+  function (e) {
+    const project = ProjectModel.instance;
+    if (!project || project.getRootNode() || !project._lostHomeComponent) return;
+
+    const component = e.args.model;
+    if (component !== project._lostHomeComponent || component.owner !== project) return;
+
+    project.setRootComponent(component);
   },
   null
 );
