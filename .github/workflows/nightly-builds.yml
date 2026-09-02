@@ -203,11 +203,11 @@ jobs:
 #           echo "version=$VERSION" >> $GITHUB_OUTPUT
 #           echo "Read version: $VERSION"
 
-      - name: Download macOS Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: XGENIA-macOS-*
-          path: release-assets/macos
+#       - name: Download macOS Artifacts
+#         uses: actions/download-artifact@v4
+#         with:
+#           pattern: XGENIA-macOS-*
+#           path: release-assets/macos
 
 #       - name: Download Linux Artifacts
 #         uses: actions/download-artifact@v4
@@ -229,33 +229,33 @@ jobs:
 #           echo "--- Assets collected for release ---"
 #           ls -R release-dist
 
-      # A single rolling release under a fixed 'nightly' tag. Its assets carry no
-      # version in the name and are replaced every run, which is what makes the
-      # download URLs permanent and stops releases piling up: one entry that is
-      # always the newest build.
-      - name: Stage stable-named installers
-        run: |
-          mkdir nightly-dist
-          stage() {
-            match=$(find release-dist -maxdepth 1 -type f -name "$1" | head -1)
-            if [ -n "$match" ]; then
-              cp -v "$match" "nightly-dist/$2"
-            else
-              echo "No $1 in this build, skipping $2"
-            fi
-          }
-          stage "*-mac-arm64.dmg" "XGENIA-nightly-macos-arm64.dmg"
-          stage "*-mac-x64.dmg"   "XGENIA-nightly-macos-x64.dmg"
-          # Legacy asset name: existing download links keep working. Points at the
-          # arm64 build, since Apple Silicon is the overwhelming majority and the
-          # Intel build now lives under the explicit -x64 name.
-          stage "*-mac-arm64.dmg" "XGENIA-nightly-macos.dmg"
-          stage "*.exe"      "XGENIA-nightly-windows.exe"
-          stage "*.deb"      "XGENIA-nightly-linux.deb"
-          stage "*.AppImage" "XGENIA-nightly-linux.AppImage"
-          # The latest*.yml updater manifests are deliberately left out, so the
-          # app's auto-updater cannot mistake a nightly for a shipping release.
-          ls -l nightly-dist
+#       # A single rolling release under a fixed 'nightly' tag. Its assets carry no
+#       # version in the name and are replaced every run, which is what makes the
+#       # download URLs permanent and stops releases piling up: one entry that is
+#       # always the newest build.
+#       - name: Stage stable-named installers
+#         run: |
+#           mkdir nightly-dist
+#           stage() {
+#             match=$(find release-dist -maxdepth 1 -type f -name "$1" | head -1)
+#             if [ -n "$match" ]; then
+#               cp -v "$match" "nightly-dist/$2"
+#             else
+#               echo "No $1 in this build, skipping $2"
+#             fi
+#           }
+#           stage "*-mac-arm64.dmg" "XGENIA-nightly-macos-arm64.dmg"
+#           stage "*-mac-x64.dmg"   "XGENIA-nightly-macos-x64.dmg"
+#           # Legacy asset name: existing download links keep working. Points at the
+#           # arm64 build, since Apple Silicon is the overwhelming majority and the
+#           # Intel build now lives under the explicit -x64 name.
+#           stage "*-mac-arm64.dmg" "XGENIA-nightly-macos.dmg"
+#           stage "*.exe"      "XGENIA-nightly-windows.exe"
+#           stage "*.deb"      "XGENIA-nightly-linux.deb"
+#           stage "*.AppImage" "XGENIA-nightly-linux.AppImage"
+#           # The latest*.yml updater manifests are deliberately left out, so the
+#           # app's auto-updater cannot mistake a nightly for a shipping release.
+#           ls -l nightly-dist
 
 #       # Read before the tag is moved: this is the commit the release currently
 #       # being replaced was built from, which gives the notes their "since the
