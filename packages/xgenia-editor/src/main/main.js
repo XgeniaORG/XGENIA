@@ -1361,30 +1361,6 @@ function launchApp() {
       });
       // }
 
-      // AI menu
-      template.push({
-        label: 'AI',
-        submenu: [
-          {
-            label: 'AI Settings',
-            accelerator: 'CmdOrCtrl+Shift+,',
-            click: () => {
-              try {
-                win && win.webContents && win.webContents.send('menu:open-ai-settings');
-              } catch { }
-            }
-          },
-          {
-            label: 'New Conversation',
-            accelerator: 'CmdOrCtrl+Shift+N',
-            click: () => {
-              try {
-                win && win.webContents && win.webContents.send('menu:new-conversation');
-              } catch { }
-            }
-          }
-        ]
-      });
 
       // Help menu
       template.push({
