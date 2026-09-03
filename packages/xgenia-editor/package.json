@@ -4,7 +4,7 @@
   "description": "Node-Based App Builder for Scalability & Rapid Development, a fork of XGENIA",
   "author": "XGENIA <contact@xgenia.ai>",
   "homepage": "https://xgenia.ai",
-  "version": "2.1.1-internal",
+  "version": "3.0.1-Beta",
   "main": "src/main/main.bundle.js",
   "scripts": {
     "build": "npm run build:node-docs && npx ts-node -P ./tsconfig.build.json ./scripts/build.ts",
