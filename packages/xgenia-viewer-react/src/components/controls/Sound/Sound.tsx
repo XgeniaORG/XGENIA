@@ -1,7 +1,8 @@
-import React, { useEffect, useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import useSound from 'use-sound';
 
 import Layout from '../../../layout';
+import Utils from '../../../nodes/controls/utils';
 import { XGENIA } from '../../../types';
 
 export interface SoundProps extends XGENIA.ReactProps {
@@ -41,6 +42,247 @@ export interface SoundControls {
   getSound: () => any;
 }
 
+/** The imperative surface the audio engine hands back to the outer component. */
+interface EngineApi {
+  play: (id?: string) => void;
+  stop: () => void;
+  pause: () => void;
+  getSound: () => any;
+  getDuration: () => number | null;
+}
+
+/** Stable per-instance suffix for the scoped stylesheet. React ids are not needed here. */
+let instanceCounter = 0;
+
+/**
+ * Strip query and hash before looking at the extension.
+ *
+ * Deployed builds append cache-busters, and `'a.m4a?v=3'.split('.').pop()` is `'m4a?v=3'`,
+ * which matches no case and fell through to the `['mp3','wav','ogg']` guess. Handing Howler a
+ * format list that does not include the real one makes it refuse the file outright, so the
+ * guess turned a working sound into a silent one the moment a version suffix appeared.
+ */
+function audioFormatsFor(url: string): string[] | undefined {
+  if (!url) return undefined;
+
+  const clean = url.split(/[?#]/)[0];
+  const dot = clean.lastIndexOf('.');
+  if (dot < 0) return undefined;
+
+  const ext = clean.substring(dot + 1).toLowerCase();
+  switch (ext) {
+    case 'mp3':
+    case 'wav':
+    case 'ogg':
+    case 'flac':
+    case 'wma':
+    case 'webm':
+      return [ext];
+    case 'm4a':
+    case 'aac':
+      return ['m4a', 'aac'];
+    default:
+      // Unknown extension: say nothing rather than guessing. Howler falls back to its own
+      // detection, which is right more often than a hardcoded list.
+      return undefined;
+  }
+}
+
+interface SoundEngineProps {
+  /** Already non-empty and already resolved by the node. */
+  soundUrl: string;
+  volume: number;
+  playbackRate: number;
+  loop: boolean;
+  interrupt: boolean;
+  spriteData?: Record<string, any>;
+  autoPlay: boolean;
+  apiRef: React.RefObject<EngineApi | null>;
+  onPlayingChange: (playing: boolean) => void;
+  onDurationChange: (duration: number | null) => void;
+  onLoadedChange: (loaded: boolean) => void;
+  handlers: React.RefObject<{
+    onPlay?: () => void;
+    onPause?: () => void;
+    onStop?: () => void;
+    onEnd?: () => void;
+    onLoad?: () => void;
+    onError?: (error: any) => void;
+  }>;
+}
+
+/**
+ * The audio half, mounted ONLY when there is a URL and remounted (via `key`) when it changes.
+ *
+ * ─── why this is a separate component (2026-09-03) ──────────────────────────
+ * `useSound` was previously called from the main component with `shouldInitializeSound ?
+ * soundUrl : ''`, and that made the node permanently silent in exported builds.
+ *
+ * In use-sound 5.0.0, `sound` is set ONLY from Howler's `onload` callback, and every one of
+ * `play`/`stop`/`pause` opens with `if (!sound) return;` — a silent no-op. Its src-change
+ * effect is guarded by `if (HowlConstructor.current && sound)`, so it can only rebuild an
+ * instance that already loaded once. Therefore ANY failure of the FIRST load is permanent and
+ * silent, and a later correct URL can never recover it.
+ *
+ * The node guarantees that first failure: `initialize()` in nodes/controls/sound.ts sets
+ * `this.props.soundUrl = ''`, so the component always mounted with an empty src. Howler failed
+ * on `['']`, `sound` stayed null, and when the real URL arrived through the `soundUrl` setter
+ * the guard above dropped it. Play did nothing, forever, with nothing logged. The same trap
+ * catches a genuine 404 — a wrong path after Stake's asset flattening, or a bad BaseUrl — which
+ * is why this reproduced on both deploy targets while often appearing to work in the editor,
+ * where the node is re-created (and so remounted) as you edit it.
+ *
+ * Mounting per-URL means the hook only ever sees a real src, and each URL gets a fresh Howl.
+ */
+function SoundEngine({
+  soundUrl,
+  volume,
+  playbackRate,
+  loop,
+  interrupt,
+  spriteData,
+  autoPlay,
+  apiRef,
+  onPlayingChange,
+  onDurationChange,
+  onLoadedChange,
+  handlers
+}: SoundEngineProps) {
+  // Read through a ref so the Howl is never rebuilt just because the node handed down a fresh
+  // closure. The node calls forceUpdate() on every parameter change, so these identities churn.
+  const [play, { stop, pause, sound, duration }] = useSound(soundUrl, {
+    volume,
+    playbackRate,
+    loop,
+    interrupt,
+    sprite: spriteData,
+    format: audioFormatsFor(soundUrl),
+    html5: true,
+    preload: true,
+    onload: () => {
+      onLoadedChange(true);
+      handlers.current.onLoad?.();
+    },
+    onloaderror: (_id: any, error: any) => {
+      // Loud, and with the URL: the whole class of bug above was invisible because a failed
+      // load looked identical to a sound nobody had triggered yet.
+      console.error('[Sound] Failed to load audio:', soundUrl, error);
+      onLoadedChange(false);
+      handlers.current.onError?.(error);
+    },
+    onplay: () => {
+      onPlayingChange(true);
+      handlers.current.onPlay?.();
+    },
+    onend: () => {
+      // Howler does not fire `end` for a looping sound, so this is a real stop.
+      onPlayingChange(false);
+      handlers.current.onEnd?.();
+    },
+    onpause: () => {
+      onPlayingChange(false);
+      handlers.current.onPause?.();
+    },
+    onstop: () => {
+      onPlayingChange(false);
+      handlers.current.onStop?.();
+    }
+  });
+
+  useEffect(() => {
+    onDurationChange(duration ?? null);
+  }, [duration, onDurationChange]);
+
+  // Howler applies `loop` at construction, and use-sound only forwards volume and rate on
+  // change, so loop has to be pushed by hand.
+  useEffect(() => {
+    if (sound) sound.loop(loop);
+  }, [sound, loop]);
+
+  /**
+   * Resume a suspended AudioContext, then run the action.
+   *
+   * Browsers start the context suspended until a user gesture. Calling this from inside a click
+   * handler keeps us within that gesture, which is what makes the resume succeed.
+   */
+  const withAudioContext = useCallback(
+    (action: () => void) => {
+      const ctx = sound?.ctx;
+      if (ctx && ctx.state === 'suspended') {
+        ctx
+          .resume()
+          .then(action)
+          .catch((error: any) => {
+            console.error('[Sound] Could not resume the audio context:', error);
+            handlers.current.onError?.(error);
+          });
+        return;
+      }
+      action();
+    },
+    [sound, handlers]
+  );
+
+  // Publish the imperative API upward. Written to a ref, so the node's `controls` object keeps a
+  // stable identity and does not re-register on every render.
+  useEffect(() => {
+    apiRef.current = {
+      play: (id?: string) => {
+        if (!sound) {
+          // Reachable while the file is still loading, and after a load error.
+          console.warn('[Sound] play() ignored — audio is not loaded:', soundUrl);
+          return;
+        }
+        withAudioContext(() => {
+          if (id && spriteData && spriteData[id]) play({ id });
+          else play();
+        });
+      },
+      stop: () => stop(),
+      pause: () => pause(),
+      getSound: () => sound,
+      getDuration: () => duration ?? null
+    };
+
+    return () => {
+      apiRef.current = null;
+    };
+  }, [apiRef, play, stop, pause, sound, duration, spriteData, soundUrl, withAudioContext]);
+
+  // Autoplay once the file is actually loaded. Before this, `play()` was called as soon as a URL
+  // existed, which is exactly when `sound` is still null and play is a no-op.
+  const autoPlayedRef = useRef(false);
+  useEffect(() => {
+    if (!autoPlay || !sound || autoPlayedRef.current) return;
+    autoPlayedRef.current = true;
+    apiRef.current?.play();
+  }, [autoPlay, sound, apiRef]);
+
+  return null;
+}
+
+/** Scoped thumb styling, so this node cannot restyle other sliders in the app. */
+function _styleTemplate(_class: string, props: { thumbColor: string }) {
+  return `.${_class}::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: ${props.thumbColor};
+  cursor: pointer;
+}
+.${_class}::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: ${props.thumbColor};
+  cursor: pointer;
+}`;
+}
+
 export function Sound(props: SoundProps) {
   const {
     soundUrl,
@@ -53,444 +295,268 @@ export function Sound(props: SoundProps) {
     autoPlay = false,
     showControls = false,
     showVolumeSlider = false,
-    onPlay,
-    onPause,
-    onStop,
-    onEnd,
-    onLoad,
-    onError,
     onComponentMount,
     onComponentUnmount
   } = props;
 
+  const engineRef = useRef<EngineApi | null>(null);
   const isPlayingRef = useRef(false);
-  const volumeRef = useRef(volume);
 
-  // Hover states for buttons
-  const [playHovered, setPlayHovered] = React.useState(false);
-  const [pauseHovered, setPauseHovered] = React.useState(false);
-  const [stopHovered, setStopHovered] = React.useState(false);
+  /**
+   * Playback state as STATE, not only a ref.
+   *
+   * It used to live solely in `isPlayingRef`, and the render read `isPlayingRef.current` for the
+   * status text, the Play label and the `disabled` of Pause and Stop. A ref write does not
+   * re-render, so the controls were frozen in their mount-time state: Pause and Stop rendered
+   * `disabled={!false}` once and never became clickable, and the status never left "Ready" even
+   * while audio played. The ref is kept alongside because the node's `isPlaying()` control reads
+   * it synchronously, where a state value would be a render behind.
+   */
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [duration, setDuration] = useState<number | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
-  // Parse sprite data
+  const setPlaying = useCallback((playing: boolean) => {
+    isPlayingRef.current = playing;
+    setIsPlaying(playing);
+  }, []);
+
+  // The node replaces these on every forceUpdate(). Holding them in a ref keeps them current
+  // without making them a reason to rebuild the Howl.
+  const handlersRef = useRef({
+    onPlay: props.onPlay,
+    onPause: props.onPause,
+    onStop: props.onStop,
+    onEnd: props.onEnd,
+    onLoad: props.onLoad,
+    onError: props.onError
+  });
+  handlersRef.current = {
+    onPlay: props.onPlay,
+    onPause: props.onPause,
+    onStop: props.onStop,
+    onEnd: props.onEnd,
+    onLoad: props.onLoad,
+    onError: props.onError
+  };
+
   const spriteData = React.useMemo(() => {
     if (!sprite) return undefined;
     try {
       return JSON.parse(sprite);
     } catch (e: any) {
-      console.error('Invalid sprite data:', e);
+      console.error('[Sound] Invalid sprite data:', e);
       return undefined;
     }
   }, [sprite]);
 
-  // Detect audio format from URL
-  const audioFormat = React.useMemo(() => {
-    if (!soundUrl) return undefined;
-    const extension = soundUrl.split('.').pop()?.toLowerCase();
-    switch (extension) {
-      case 'mp3':
-        return ['mp3'];
-      case 'wav':
-        return ['wav'];
-      case 'ogg':
-        return ['ogg'];
-      case 'm4a':
-      case 'aac':
-        return ['m4a', 'aac'];
-      case 'flac':
-        return ['flac'];
-      case 'wma':
-        return ['wma'];
-      default:
-        // Try to detect from URL or default to mp3
-        return ['mp3', 'wav', 'ogg'];
-    }
-  }, [soundUrl]);
+  const url = typeof soundUrl === 'string' ? soundUrl.trim() : '';
+  const hasUrl = url !== '';
 
-  // Configure use-sound
-  const soundConfig = React.useMemo(() => ({
-    volume: volumeRef.current,
-    playbackRate,
-    loop,
-    interrupt,
-    sprite: spriteData,
-    format: audioFormat,
-    html5: true, // Use HTML5 audio for better compatibility
-    preload: true, // Preload the audio file
-    onload: () => {
-      console.log('Audio loaded successfully:', soundUrl);
-      onLoad?.();
-    },
-    onloaderror: (_id: any, error: any) => {
-      console.error('Audio load error:', error, 'URL:', soundUrl);
-      onError?.(error);
-    },
-    onplay: () => {
-      isPlayingRef.current = true;
-      onPlay?.();
-    },
-    onend: () => {
-      isPlayingRef.current = false;
-      onEnd?.();
-    },
-    onpause: () => {
-      onPause?.();
-    },
-    onstop: () => {
-      isPlayingRef.current = false;
-      onStop?.();
-    }
-  }), [volume, playbackRate, loop, interrupt, spriteData, audioFormat, soundUrl, onLoad, onError, onPlay, onEnd, onPause, onStop]);
+  /**
+   * The node's control surface. Deliberately built once.
+   *
+   * Every method reaches through `engineRef`, so this object's identity never changes and the
+   * registration effect below runs exactly on mount and unmount. It used to depend on
+   * `[controls, onComponentMount, onComponentUnmount]`, where `controls` was rebuilt whenever
+   * the sound instance changed and the two callbacks are fresh closures from the node — so the
+   * node was re-registered on almost every render.
+   */
+  // Read at call time so a re-configured spriteId is honoured without rebuilding `controls`.
+  const spriteIdRef = useRef(spriteId);
+  spriteIdRef.current = spriteId;
 
-  // Only initialize use-sound when we have a valid URL
-  const shouldInitializeSound = soundUrl && soundUrl.trim() !== '';
-
-  // Use the useSound hook only when we have a valid URL
-  const [play, { stop, pause, sound, duration }] = useSound(
-    shouldInitializeSound ? soundUrl : '',
-    shouldInitializeSound ? soundConfig : undefined
-  );
-
-  // Handle audio context and user interaction
-  const [audioContextReady, setAudioContextReady] = React.useState(false);
-
-  React.useEffect(() => {
-    // Enable audio context on first user interaction
-    const enableAudioContext = () => {
-      if (sound && sound.ctx && sound.ctx.state === 'suspended') {
-        sound.ctx.resume().then(() => {
-          console.log('Audio context resumed');
-          setAudioContextReady(true);
-        }).catch((error) => {
-          console.error('Failed to resume audio context:', error);
-        });
-      } else {
-        setAudioContextReady(true);
-      }
-    };
-
-    // Add listeners for user interaction
-    const events = ['click', 'touchstart', 'keydown'];
-    events.forEach(event => {
-      document.addEventListener(event, enableAudioContext, { once: true });
-    });
-
-    return () => {
-      events.forEach(event => {
-        document.removeEventListener(event, enableAudioContext);
-      });
-    };
-  }, [sound]);
-
-  // Update volume when it changes
-  useEffect(() => {
-    volumeRef.current = volume;
-    if (sound) {
-      sound.volume(volume);
-    }
-  }, [volume, sound]);
-
-  // Update playback rate when it changes
-  useEffect(() => {
-    if (sound) {
-      sound.rate(playbackRate);
-    }
-  }, [playbackRate, sound]);
-
-  // Update loop when it changes
-  useEffect(() => {
-    if (sound) {
-      sound.loop(loop);
-    }
-  }, [loop, sound]);
-
-  // Auto play if requested
-  useEffect(() => {
-    if (autoPlay && soundUrl && play) {
-      play();
-    }
-  }, [autoPlay, soundUrl, play]);
-
-  // Create controls object for the node
-  const controls: SoundControls = React.useMemo(() => ({
-    play: (options) => {
-      if (!shouldInitializeSound) {
-        console.warn('Cannot play sound: No URL provided');
-        onError?.(new Error('No sound URL provided'));
-        return;
-      }
-
-      if (!play) {
-        console.warn('Cannot play sound: Sound not initialized');
-        onError?.(new Error('Sound not initialized'));
-        return;
-      }
-
-      // Prevent overlapping sounds - don't play if already playing
-      if (isPlayingRef.current) {
-        console.log('Sound is already playing, ignoring play request');
-        return;
-      }
-
-      try {
-        // Ensure audio context is ready
-        if (sound && sound.ctx && sound.ctx.state === 'suspended') {
-          sound.ctx.resume().then(() => {
-            console.log('Audio context resumed before play');
-            if (spriteId && spriteData && spriteData[spriteId]) {
-              play({ id: spriteId });
-            } else if (options?.id && spriteData && spriteData[options.id]) {
-              play({ id: options.id });
-            } else {
-              play();
-            }
-          }).catch((error) => {
-            console.error('Failed to resume audio context before play:', error);
-            onError?.(error);
-          });
-        } else {
-          if (spriteId && spriteData && spriteData[spriteId]) {
-            play({ id: spriteId });
-          } else if (options?.id && spriteData && spriteData[options.id]) {
-            play({ id: options.id });
-          } else {
-            play();
-          }
+  const controlsRef = useRef<SoundControls | null>(null);
+  if (!controlsRef.current) {
+    controlsRef.current = {
+      play: (options) => {
+        const engine = engineRef.current;
+        if (!engine) {
+          console.warn('[Sound] play() ignored — no sound URL is set.');
+          handlersRef.current.onError?.(new Error('No sound URL provided'));
+          return;
         }
-      } catch (error: any) {
-        console.error('Error playing sound:', error);
-        onError?.(error);
-      }
-    },
-    stop: () => {
-      if (stop) {
-        stop();
-      }
-    },
-    pause: () => {
-      if (sound) {
-        sound.pause();
-      }
-    },
-    isPlaying: () => isPlayingRef.current,
-    getDuration: () => duration || null,
-    getSound: () => sound
-  }), [play, stop, sound, duration, spriteId, spriteData, onError, shouldInitializeSound]);
-
-  // Register controls with the node
-  useEffect(() => {
-    if (onComponentMount) {
-      onComponentMount(controls);
-    }
-
-    return () => {
-      if (onComponentUnmount) {
-        onComponentUnmount();
-      }
+        engine.play(options?.id ?? spriteIdRef.current);
+      },
+      stop: () => engineRef.current?.stop(),
+      pause: () => engineRef.current?.pause(),
+      isPlaying: () => isPlayingRef.current,
+      getDuration: () => engineRef.current?.getDuration() ?? null,
+      getSound: () => engineRef.current?.getSound() ?? null
     };
-  }, [controls, onComponentMount, onComponentUnmount]);
-
-  // If no UI is requested, return null
-  if (!showControls) {
-    return null;
   }
 
-  // Apply layout styles
-  let style: React.CSSProperties = { ...props.style };
+  useEffect(() => {
+    const controls = controlsRef.current!;
+    onComponentMount?.(controls);
+    return () => {
+      onComponentUnmount?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Local volume so the slider can actually move. It was `value={volume}` with an onChange that
+  // only wrote a ref, i.e. a controlled input whose value never changed — it snapped straight
+  // back on every drag.
+  const [uiVolume, setUiVolume] = useState(volume);
+  useEffect(() => {
+    setUiVolume(volume);
+  }, [volume]);
+
+  const instanceIdRef = useRef<string>('');
+  if (!instanceIdRef.current) {
+    instanceIdRef.current = `ndl-controls-sound-${++instanceCounter}`;
+  }
+
+  const engine = hasUrl ? (
+    <SoundEngine
+      // A new URL means a new Howl. See the note on SoundEngine: use-sound cannot swap the src
+      // of an instance that never loaded, so remounting is the only reliable path.
+      key={url}
+      soundUrl={url}
+      volume={uiVolume}
+      playbackRate={playbackRate}
+      loop={loop}
+      interrupt={interrupt}
+      spriteData={spriteData}
+      autoPlay={autoPlay}
+      apiRef={engineRef}
+      onPlayingChange={setPlaying}
+      onDurationChange={setDuration}
+      onLoadedChange={setLoaded}
+      handlers={handlersRef}
+    />
+  ) : null;
+
+  // No UI requested: the audio still has to mount, it just renders nothing visible.
+  if (!showControls) {
+    return engine;
+  }
+
+  const style: React.CSSProperties = { ...props.style };
   Layout.size(style, props);
   Layout.align(style, props);
 
-  // Modern control styles with gradients and shadows
-  const controlsStyle: React.CSSProperties = {
-    display: 'flex',
+  const thumbColor = '#6b7280';
+  const sliderClass = instanceIdRef.current;
+  Utils.updateStylesForClass(sliderClass, { thumbColor }, _styleTemplate);
+
+  /**
+   * Neutral, and overridable through `controlsStyle`.
+   *
+   * The previous styling was a white card with pink-to-red and purple-to-indigo gradient
+   * buttons, drop shadows and a backdrop blur — invented here and matching nothing else in the
+   * viewer, where controls take their appearance from author-set props (see Button, Slider).
+   * These are developer controls surfaced inside someone's game, so they stay quiet.
+   */
+  const barStyle: React.CSSProperties = {
+    display: 'inline-flex',
     alignItems: 'center',
-    gap: '12px',
-    padding: '16px',
-    background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-    borderRadius: '12px',
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06)',
-    border: '1px solid rgba(0, 0, 0, 0.08)',
-    fontSize: '14px',
-    backdropFilter: 'blur(10px)',
+    gap: '8px',
+    padding: '6px 8px',
+    background: '#f5f5f5',
+    border: '1px solid #d4d4d4',
+    borderRadius: '4px',
+    fontFamily: 'inherit',
+    fontSize: '12px',
+    lineHeight: 1.4,
+    color: '#262626',
+    boxSizing: 'border-box',
     ...props.controlsStyle
   };
 
-  const getButtonStyle = (isActive: boolean = false, isDisabled: boolean = false, isHovered: boolean = false): React.CSSProperties => ({
-    padding: '8px 16px',
-    border: 'none',
-    borderRadius: '8px',
-    background: isActive
-      ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-      : 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-    color: '#fff',
-    cursor: isDisabled ? 'not-allowed' : 'pointer',
-    fontSize: '13px',
-    fontWeight: '500',
-    transition: 'all 0.2s ease',
-    boxShadow: isHovered && !isDisabled
-      ? (isActive
-        ? '0 6px 16px rgba(102, 126, 234, 0.5)'
-        : '0 4px 12px rgba(245, 87, 108, 0.4)')
-      : (isActive
-        ? '0 4px 12px rgba(102, 126, 234, 0.4)'
-        : '0 2px 8px rgba(245, 87, 108, 0.3)'),
-    opacity: isDisabled ? 0.6 : 1,
-    transform: isHovered && !isDisabled ? 'translateY(-1px)' : 'translateY(0)',
+  const buttonStyle = (disabled: boolean): React.CSSProperties => ({
+    padding: '4px 10px',
+    border: '1px solid #d4d4d4',
+    borderRadius: '3px',
+    background: disabled ? '#ebebeb' : '#ffffff',
+    color: disabled ? '#a3a3a3' : '#262626',
+    cursor: disabled ? 'default' : 'pointer',
+    font: 'inherit',
+    boxSizing: 'border-box'
   });
 
-  const sliderStyle: React.CSSProperties = {
-    width: '100px',
-    height: '4px',
-    borderRadius: '2px',
-    background: '#e9ecef',
-    outline: 'none',
-    WebkitAppearance: 'none',
-    appearance: 'none',
-  };
-
-  const sliderThumbStyle: React.CSSProperties = {
-    WebkitAppearance: 'none',
-    appearance: 'none',
-    width: '16px',
-    height: '16px',
-    borderRadius: '50%',
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    cursor: 'pointer',
-    border: 'none',
-    boxShadow: '0 2px 6px rgba(102, 126, 234, 0.3)',
-  };
-
-  const statusStyle: React.CSSProperties = {
-    fontSize: '12px',
-    fontWeight: '500',
-    padding: '4px 8px',
-    borderRadius: '6px',
-    color: isPlayingRef.current ? '#28a745' : shouldInitializeSound ? '#6c757d' : '#dc3545',
-    background: isPlayingRef.current ? '#d4edda' : shouldInitializeSound ? '#f8f9fa' : '#f8d7da',
-    border: `1px solid ${isPlayingRef.current ? '#c3e6cb' : shouldInitializeSound ? '#dee2e6' : '#f5c6cb'}`,
-    minWidth: '60px',
-    textAlign: 'center'
-  };
+  const statusText = !hasUrl
+    ? 'No URL'
+    : !loaded
+      ? 'Loading…'
+      : isPlaying
+        ? 'Playing'
+        : duration
+          ? `${Math.round(duration / 1000)}s`
+          : 'Ready';
 
   return (
     <div className={props.className} style={style}>
-      <div style={controlsStyle}>
-        {/* Play Button */}
+      {engine}
+      <div style={barStyle}>
         <button
-          style={getButtonStyle(isPlayingRef.current, !shouldInitializeSound || !audioContextReady, playHovered)}
-          onClick={() => controls.play()}
-          disabled={!shouldInitializeSound || !audioContextReady}
-          onMouseEnter={() => setPlayHovered(true)}
-          onMouseLeave={() => setPlayHovered(false)}
-          title={
-            !shouldInitializeSound
-              ? 'Please set a sound URL first'
-              : !audioContextReady
-                ? 'Click anywhere to enable audio'
-                : isPlayingRef.current
-                  ? 'Sound is already playing'
-                  : 'Play sound'
-          }
+          type="button"
+          style={buttonStyle(!hasUrl)}
+          // NOT disabled on "audio context not ready" any more. The context is resumed inside
+          // this handler, which is the user gesture that permits it — and a disabled button
+          // emits no click, so the old gate could never be satisfied by pressing Play. The
+          // button sat disabled behind "Click anywhere to enable audio" until the user happened
+          // to click something else first.
+          disabled={!hasUrl}
+          onClick={() => controlsRef.current?.play()}
+          title={hasUrl ? 'Play' : 'Set a sound URL first'}
         >
-          {!shouldInitializeSound ? '🔇 No URL' :
-            !audioContextReady ? '🔊 Enable' :
-              isPlayingRef.current ? '⏸️ Playing' : '▶️ Play'}
+          Play
         </button>
 
-        {/* Pause Button */}
         <button
-          style={getButtonStyle(false, !isPlayingRef.current, pauseHovered)}
-          onClick={() => controls.pause()}
-          disabled={!isPlayingRef.current}
-          onMouseEnter={() => setPauseHovered(true)}
-          onMouseLeave={() => setPauseHovered(false)}
-          title="Pause sound"
+          type="button"
+          style={buttonStyle(!isPlaying)}
+          disabled={!isPlaying}
+          onClick={() => controlsRef.current?.pause()}
+          title="Pause"
         >
-          ⏸️ Pause
+          Pause
         </button>
 
-        {/* Stop Button */}
         <button
-          style={getButtonStyle(false, !isPlayingRef.current, stopHovered)}
-          onClick={() => controls.stop()}
-          disabled={!isPlayingRef.current}
-          onMouseEnter={() => setStopHovered(true)}
-          onMouseLeave={() => setStopHovered(false)}
-          title="Stop sound"
+          type="button"
+          style={buttonStyle(!isPlaying)}
+          disabled={!isPlaying}
+          onClick={() => controlsRef.current?.stop()}
+          title="Stop"
         >
-          ⏹️ Stop
+          Stop
         </button>
 
-        {/* Volume Slider */}
         {showVolumeSlider && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '12px', fontWeight: '500', color: '#495057' }}>
-              🔊 {Math.round(volume * 100)}%
-            </span>
-            <div style={{ position: 'relative' }}>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.1"
-                value={volume}
-                style={sliderStyle}
-                onChange={(e) => {
-                  const newVolume = parseFloat(e.target.value);
-                  volumeRef.current = newVolume;
-                  if (sound) {
-                    sound.volume(newVolume);
-                  }
-                }}
-                title={`Volume: ${Math.round(volume * 100)}%`}
-              />
-              <style>{`
-                input[type="range"]::-webkit-slider-thumb {
-                  -webkit-appearance: none;
-                  appearance: none;
-                  width: 16px;
-                  height: 16px;
-                  border-radius: 50%;
-                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                  cursor: pointer;
-                  border: none;
-                  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
-                }
-                input[type="range"]::-moz-range-thumb {
-                  width: 16px;
-                  height: 16px;
-                  border-radius: 50%;
-                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                  cursor: pointer;
-                  border: none;
-                  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
-                }
-              `}</style>
-            </div>
-          </div>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ color: '#525252' }}>{Math.round(uiVolume * 100)}%</span>
+            <input
+              className={sliderClass}
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={uiVolume}
+              style={{
+                width: '80px',
+                height: '4px',
+                borderRadius: '2px',
+                background: '#d4d4d4',
+                outline: 'none',
+                WebkitAppearance: 'none',
+                appearance: 'none'
+              }}
+              onChange={(e) => {
+                const next = parseFloat(e.target.value);
+                setUiVolume(next);
+                engineRef.current?.getSound()?.volume(next);
+              }}
+              title={`Volume: ${Math.round(uiVolume * 100)}%`}
+            />
+          </label>
         )}
 
-        {/* Status Indicator */}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {spriteId && (
-            <span style={{
-              fontSize: '11px',
-              color: '#6c757d',
-              background: '#f8f9fa',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              border: '1px solid #dee2e6'
-            }}>
-              🎵 {spriteId}
-            </span>
-          )}
-          <span style={statusStyle}>
-            {isPlayingRef.current ? '🎵 Playing' :
-              shouldInitializeSound ? (duration ? `⏱️ ${Math.round(duration / 1000)}s` : '✅ Ready') : '❌ No URL'}
-          </span>
-        </div>
+        {spriteId && <span style={{ color: '#525252' }}>{spriteId}</span>}
+        <span style={{ color: '#525252' }}>{statusText}</span>
       </div>
-
-      {/* props.children */}
     </div>
   );
 }
