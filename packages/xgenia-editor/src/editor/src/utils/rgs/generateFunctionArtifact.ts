@@ -38,6 +38,20 @@ export interface FunctionArtifact {
   // an undefined value leaves whatever RGS already has untouched.
   betInputPort?: string;
   winOutputPort?: string;
+  /**
+   * Nodes in the component that no code generator can compile — see
+   * CloudFunctionConverter.getUnsupportedNodes(). Empty for a component built
+   * out of convertible nodes. A node with a non-empty `feeds` list is fatal:
+   * the maths that was meant to produce that input does not exist server-side,
+   * so the deployed script computes a different game from the one in the
+   * editor. deployMathsComponents refuses those.
+   */
+  unsupportedNodes: Array<{
+    typename: string;
+    label: string;
+    id: string;
+    feeds: Array<{ node: string; port: string }>;
+  }>;
 }
 
 // One public parameter of a cloud request/response node: its clean field name,
@@ -368,7 +382,7 @@ export function generateFunctionArtifact(component: any, project: any): Function
     buildProjectContext(project)
   );
 
-  const { script } = converter.generateRgsScript();
+  const { script, unsupportedNodes } = converter.generateRgsScript();
 
-  return { slug, functionName: slug, script, payloadExample, responseExample };
+  return { slug, functionName: slug, script, payloadExample, responseExample, unsupportedNodes };
 }
