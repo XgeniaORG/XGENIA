@@ -348,6 +348,12 @@ export interface MathsDeployResult {
   /** Set when a `betAmount` port exists but no win port could be identified. */
   betWinWarning?: string;
   /**
+   * Set when the component carries nodes with no server-side implementation
+   * that feed nothing. Ones that DO feed the maths fail the deploy outright —
+   * see the guard in this file.
+   */
+  unsupportedNodeWarning?: string;
+  /**
    * Exactly what was sent to the platform — the compiled script and the authored
    * graph. Returned so the caller can snapshot this deploy into a commit without
    * compiling everything a second time, and without re-reading it back over the
@@ -462,6 +468,41 @@ export async function deployMathsComponents(
       throw new Error(`${label} failed to compile: ${err?.message || err}`);
     }
 
+    // A node the compiler cannot express server-side, feeding maths that runs
+    // there, is a broken deploy — the script parses and runs, and computes a
+    // different game from the one in the editor because the wire it needed
+    // resolves to `undefined`. This used to resolve to a key in the caller's
+    // request body instead, so the deploy looked fine and the graph quietly
+    // read its inputs off the wire (see CloudFunctionConverter.getUnsupportedNodes).
+    //
+    // Refused here rather than warned about: the deployed script IS the maths,
+    // and an RGS that ships maths it knows to be incomplete is worse than one
+    // that will not ship it. Nodes present but feeding nothing are reported as
+    // a warning below instead.
+    const blocking = (artifact.unsupportedNodes || []).filter((u) => u.feeds.length > 0);
+    if (blocking.length > 0) {
+      const detail = blocking
+        .map(
+          (u) =>
+            `"${u.label}" (${u.typename}) → ` +
+            u.feeds.map((f) => `${f.node}.${f.port}`).join(', ')
+        )
+        .join('; ');
+      throw new Error(
+        `${label} cannot be deployed: ${blocking.length} node${blocking.length === 1 ? '' : 's'} ` +
+          `${blocking.length === 1 ? 'has' : 'have'} no server-side implementation, and ` +
+          `${blocking.length === 1 ? 'its output feeds' : 'their outputs feed'} maths that runs on the RGS — ${detail}. ` +
+          'Move that logic into a JavaScript Function node, which does compile.'
+      );
+    }
+    const unsupportedNodeWarning = (artifact.unsupportedNodes || []).length > 0
+      ? `${label} contains ${artifact.unsupportedNodes.length} node` +
+        `${artifact.unsupportedNodes.length === 1 ? '' : 's'} with no server-side implementation ` +
+        `(${[...new Set(artifact.unsupportedNodes.map((u) => u.typename))].join(', ')}). ` +
+        `${artifact.unsupportedNodes.length === 1 ? 'It does' : 'They do'} nothing in the deployed ` +
+        'maths — anything relying on it must move into a JavaScript Function node.'
+      : undefined;
+
     // 2. Deploy the compiled component into its parent Server Version.
     //
     // The bet/win mapping is derived from the component's own ports and sent only
@@ -513,6 +554,7 @@ export async function deployMathsComponents(
       betInputPort: mapBoth ? betInputPort : null,
       winOutputPort: mapBoth ? winOutputPort : null,
       betWinWarning,
+      unsupportedNodeWarning,
       script: artifact.script,
       projectJson
     });

@@ -226,6 +226,11 @@ function mergeRgsSettings(patch: Record<string, any>): void {
                 configData: result.configData,
                 componentName: component.name,
                 nodeCount: component.graph?.roots?.length || 0,
+                // Nodes the compiler cannot express server-side. Returned so a
+                // caller testing maths sees the same gap the deploy path
+                // refuses on, instead of measuring an RTP against a script
+                // that is missing part of the graph.
+                unsupportedNodes: result.unsupportedNodes,
             };
         } catch (e: any) {
             console.error('[__xrgs] generateRgsScript error:', e);
@@ -1078,6 +1083,12 @@ export function MathsPanel() {
             // the mapping is set.
             const noProject = results.filter((r) => !r.projectUploaded);
             const betWinIssue = results.find((r) => r.betWinWarning);
+            // A node the compiler cannot express server-side, present but
+            // feeding nothing: the deploy is real, and part of the graph does
+            // not exist on the platform. Said out loud for the same reason as
+            // the two above. Ones that DO feed the maths never get here — they
+            // throw out of deployMathsComponents.
+            const unsupportedIssue = results.find((r) => r.unsupportedNodeWarning);
             if (noProject.length > 0) {
                 setUploadStatus({
                     type: 'error',
@@ -1088,6 +1099,8 @@ export function MathsPanel() {
                 });
             } else if (betWinIssue) {
                 setUploadStatus({ type: 'error', message: betWinIssue.betWinWarning! });
+            } else if (unsupportedIssue) {
+                setUploadStatus({ type: 'error', message: unsupportedIssue.unsupportedNodeWarning! });
             } else {
                 // Name the removals explicitly. "Committed 3 changes" would hide the
                 // fact that an endpoint just stopped answering, which is the one

@@ -40,6 +40,77 @@ import {
 // ============================================================================
 
 /**
+ * Node types no converter registry claims, but which the code generators handle
+ * inline in generateFunctionDefinitions() / generateRgsFunctionInvocations():
+ * the script nodes, the gateway and request/response nodes, and the variable
+ * pair. Kept beside the registries so isCompilableNodeType() has one answer.
+ */
+const INLINE_COMPILED_NODE_TYPES: ReadonlySet<string> = new Set([
+  'JavaScriptFunction',
+  'Javascript2',
+  'stateManager',
+  'Variable2',
+  '/#__cloud__/Variable2',
+  'Set Variable',
+  '/#__cloud__/Set Variable',
+  'Component Inputs',
+  'Component Outputs',
+  'xgenia.cloud.request',
+  'xgenia.cloud.response',
+]);
+
+/**
+ * Node types that carry cross-call state through `ctx.state.__nodes`.
+ *
+ * The slot converter has emitted `const state = inputs.state || {}` and an
+ * `updatedState` output for its stateful nodes since it was written, but
+ * nothing ever fed the first or read the second — so every node declaring
+ * itself stateful silently restarted from its defaults on each call. This set
+ * is the compile-time half of the contract that makes it real: a listed node
+ * gets its previous `updatedState` back as `inputs.state`, and whatever it
+ * returns is persisted (see generateRgsScript's `_nodeState`).
+ *
+ * Membership is by node type, not by a converter's `isStateful` flag, because
+ * that flag also sits on nodes whose generated body ignores state entirely —
+ * turning those on would change what a deployed graph computes. Add a type here
+ * only once its generated function actually honours both halves AND bounds
+ * what it keeps.
+ *
+ * The three slot analysis nodes (Volatility Estimator, Symbol Frequency
+ * Tracker, Spin Result) honour the contract but are deliberately NOT listed.
+ * Their state is an unbounded series — Spin Result pushes one value per round
+ * onto `hitFrequencyDataSeries`/`RTPDataSeries`, and Volatility Estimator does
+ * `cumulativeValues = [...cumulativeValues, ...spin.RTPDataSeries]`, appending
+ * the WHOLE upstream series each round. Persisted, that is quadratic growth in
+ * a jsonb column read and written on every round of the money path. They stay
+ * as they are today (restart per round, which for a stats monitor is a
+ * display defect, not a money one) until they cap their series.
+ */
+const STATE_CHANNEL_NODE_TYPES: ReadonlySet<string> = new Set([
+  // Standard library — the game-type-agnostic accumulator. Its state is one
+  // number.
+  'Counter',
+]);
+
+/**
+ * A node in the compiled component that no converter can turn into server-side
+ * code — reported instead of skipped. See CloudFunctionConverter.getUnsupportedNodes().
+ */
+export interface UnsupportedNode {
+  /** The node's registered type name, e.g. "Cascade The Reels". */
+  typename: string;
+  /** The node's label in the editor, for a message a user can act on. */
+  label: string;
+  id: string;
+  /**
+   * Input ports of OTHER nodes that this node's outputs are wired into. A
+   * non-empty list means the compiled maths is materially incomplete: those
+   * inputs cannot receive this node's value.
+   */
+  feeds: Array<{ node: string; port: string }>;
+}
+
+/**
  * Supabase project configuration
  */
 export interface SupabaseConfig {
@@ -601,6 +672,13 @@ export class CloudFunctionConverter {
   // Stage-2 persistence: stateful variables (Variable2 + Set Variable writers)
   // resolved once per generateRgsScript run; null on the cloud-function path.
   private _statefulVars: Map<string, { initial: unknown; writers: Node[] }> | null = null;
+  // Nodes no converter handles, collected per generateRgsScript run. See
+  // getUnsupportedNodes() for why this has to be reported rather than skipped.
+  private _unsupportedNodes: UnsupportedNode[] = [];
+  // Ids of the nodes in this compile that carry state through
+  // `ctx.state.__nodes` (STATE_CHANNEL_NODE_TYPES). Null on the cloud-function
+  // path, where a request is a one-shot with nothing to persist between calls.
+  private _nodeStateIds: Set<string> | null = null;
 
   // Add project context for Cloud Logic components
   private readonly projectContext?: Project;
@@ -1152,11 +1230,21 @@ ${originalComponentStructure}
    * ctx = { bet: number, rng: number[], state: {}, config: {}, round: number }
    * Must return { win: number, data: {}, state: {} }
    */
-  public generateRgsScript(): { script: string; configData: Record<string, any> } {
+  public generateRgsScript(): {
+    script: string;
+    configData: Record<string, any>;
+    unsupportedNodes: UnsupportedNode[];
+  } {
     // Stage-2 cross-spin persistence: variables written via Set Variable
     // compile to a ctx.state-backed `_vars` store (see collectStatefulVariables).
     const statefulVars = this.collectStatefulVariables();
     this._statefulVars = statefulVars;
+
+    // Re-entrant: this instance may have compiled before (the Maths panel and
+    // the AI bridge both hold one), and a stale list would report a node that
+    // has since been deleted.
+    this._unsupportedNodes = [];
+    this.collectUnsupportedNodes();
 
     // Discover ALL node types — matching generateSupabaseFunction()
     const jsFunctionNodes = this.findAllNodesByType('JavaScriptFunction');
@@ -1189,6 +1277,13 @@ ${originalComponentStructure}
     ];
     const sortedFunctionNodes = this.sortNodesByExecutionOrder(allFunctionNodes);
 
+    // Which of them carry state across rounds. Resolved before the invocations
+    // are generated, because generateRgsFunctionInvocations() reads this to
+    // decide whether to hand a node its previous state and keep what it returns.
+    this._nodeStateIds = new Set(
+      sortedFunctionNodes.filter((n) => STATE_CHANNEL_NODE_TYPES.has(n.typename)).map((n) => n.id)
+    );
+
     // Shared sandbox-safe helpers (sha256 / hashToRange / uuid) used by the
     // provably-fair & data node functions — emitted once, before the node defs.
     const extraPrelude = this.rgsExtraNodeConverter.hasAnyExtraNode(allFunctionNodes.map((n) => n.typename))
@@ -1219,6 +1314,19 @@ ${originalComponentStructure}
           ),
         ].join('\n');
 
+    // Per-node state store, hydrated from ctx.state.__nodes and written back on
+    // return. Keyed by NODE ID: it is stable across recompiles of the same
+    // graph, where a generated function name shifts whenever execution order
+    // does — and a key that moves loses the accumulated value it names.
+    // Emitted only when a node in this component actually uses the channel, so
+    // every other component's script is byte-identical to before.
+    const nodeStatePrelude = (this._nodeStateIds?.size ?? 0) === 0
+      ? ''
+      : [
+          '// --- Cross-round node state (hydrated from ctx.state.__nodes) ---',
+          'var _nodeState = (ctx.state && typeof ctx.state === "object" && ctx.state.__nodes && typeof ctx.state.__nodes === "object") ? Object.assign({}, ctx.state.__nodes) : {};',
+        ].join('\n');
+
     const script = [
       '// XGENIA RGS Maths Script - Auto-generated from editor graph',
       '// Generated: ' + new Date().toISOString(),
@@ -1228,6 +1336,7 @@ ${originalComponentStructure}
       functionDefinitions,
       '',
       statefulPrelude,
+      nodeStatePrelude,
       '',
       '// --- Node invocations (wired via graph connections) ---',
       functionInvocations,
@@ -1263,16 +1372,17 @@ ${originalComponentStructure}
       'return {',
       '  win: _win,',
       '  data: _dataOut,',
-      statefulVars.size > 0
-        ? '  state: { ...ctx.state, __vars: _vars, round: ctx.round }'
-        : '  state: { ...ctx.state, round: ctx.round }',
+      '  state: { ...ctx.state, round: ctx.round'
+        + (statefulVars.size > 0 ? ', __vars: _vars' : '')
+        + ((this._nodeStateIds?.size ?? 0) > 0 ? ', __nodes: _nodeState' : '')
+        + ' }',
       '};',
     ].join('\n');
 
     // Sanitize the script to be sandbox-compatible
     const sanitizedScript = this.sanitizeForSandbox(script);
 
-    return { script: sanitizedScript, configData };
+    return { script: sanitizedScript, configData, unsupportedNodes: this._unsupportedNodes };
   }
 
   /**
@@ -1447,6 +1557,14 @@ ${originalComponentStructure}
         } else {
           // Source node is NOT in the function list — check what kind it is
           const srcNode = this.nodes.get(conn.fromId);
+          // The node that would actually have produced the value: the one
+          // resolveThroughVariables landed on when the wire came via a
+          // Variable2 hop, otherwise the wire's own source. The branches below
+          // key on `srcNode` because they are ABOUT the raw source's type
+          // (a Variable2's own initial value, a gateway port, a request field);
+          // the unconvertible-node check keys on the producer, so a hop through
+          // an unwired Variable2 cannot hide it.
+          const producerNode = this.nodes.get(resolvedFromId) || srcNode;
 
           if (srcNode && (srcNode.typename === 'Variable2' || srcNode.typename === '/#__cloud__/Variable2') && srcNode.parameters.value !== undefined) {
             // Inline Variable2 initial values directly
@@ -1476,6 +1594,28 @@ ${originalComponentStructure}
               ? conn.fromProperty.substring(3)
               : conn.fromProperty;
             sourceValue = this.safePropertyAccess('config', field);
+          } else if (producerNode && !this.isCompilableNodeType(producerNode.typename)) {
+            // The source is a node NO code generator can compile — the editor
+            // lets it be placed in a maths component, and the server has no
+            // implementation of it. It produced no function, so it is not in
+            // outputVariableMap, and it used to fall through to the last branch
+            // below and resolve to `config.<port>`: a key in the CALLER'S
+            // request body. A maths input on the RTP path would then be read
+            // off the wire — undefined in practice, but player-supplied by
+            // construction, which is the same shape as advisory
+            // XRGS-2026-0826-RNG one port over.
+            //
+            // `undefined` rather than an error, matching the server-seed guard
+            // below: the downstream node's own default applies, the script
+            // still compiles, and the DEPLOY path refuses it by reading
+            // getUnsupportedNodes() — a compile diagnostic a user can act on,
+            // instead of a graph that runs and quietly computes the wrong game.
+            this.recordUnsupportedNode(producerNode, { node: node.label || node.typename, port: inputName });
+            console.warn(
+              `[RGS] "${producerNode.typename}" has no server-side implementation; ` +
+                `"${node.label || node.typename}".${inputName} will be undefined, not read from the request payload.`
+            );
+            sourceValue = 'undefined';
           } else {
             sourceValue = this.safePropertyAccess('config', inputName);
           }
@@ -1554,6 +1694,14 @@ ${originalComponentStructure}
         inputMappings.set('betAmount', 'bet');
       }
 
+      // Hand a state-carrying node whatever it returned last round. The `state`
+      // key is set LAST so it wins over a same-named graph wire or parameter —
+      // this channel is the server's, not the graph's.
+      const usesNodeState = this._nodeStateIds?.has(node.id) === true;
+      if (usesNodeState) {
+        inputMappings.set('state', `(_nodeState[${JSON.stringify(node.id)}] || {})`);
+      }
+
       const inputObject = Array.from(inputMappings.entries())
         .map(([name, value]) => {
           const needsQuotes = /[^a-zA-Z0-9_]/.test(name);
@@ -1577,6 +1725,17 @@ ${originalComponentStructure}
         invocationCode += `/* [${nodeLabel}] not invoked: no request trigger reaches its Do */\n    `;
       } else {
         invocationCode += `if (${gate}) {\n      try { ${outputVar} = ${functionName}({ ${inputObject} }); }\n      catch(_e) { throw new Error("[${nodeLabel}] " + _e.message); }\n    }\n    `;
+      }
+
+      // Keep what a state-carrying node returned, for the next round.
+      //
+      // Guarded on the property being there rather than assigned blind: a
+      // node that was not invoked this round (an untriggered `Do`) yields {},
+      // and overwriting its accumulated series with `undefined` would erase the
+      // history the node exists to keep.
+      if (usesNodeState) {
+        invocationCode +=
+          `if (${outputVar} && ${outputVar}.updatedState) { _nodeState[${JSON.stringify(node.id)}] = ${outputVar}.updatedState; }\n    `;
       }
 
       outputVariableMap.set(node.id, outputVar);
@@ -2143,6 +2302,92 @@ ${originalComponentStructure}
       return [];
     }
     return this.component.graph.roots.filter((node) => this.rgsExtraNodeConverter.isExtraNode(node.typename));
+  }
+
+  /**
+   * Node types the RGS/cloud code generators know how to compile.
+   *
+   * Beyond the six converter registries this covers the types the dispatch in
+   * generateFunctionDefinitions() / generateRgsFunctionInvocations() handles
+   * inline: the script nodes, the gateway and request/response nodes, the
+   * variable pair, and references to nested cloud/maths components.
+   *
+   * Anything else is a node the editor lets a user place in a maths component
+   * and the compiler cannot express server-side. Those are NOT dropped quietly
+   * — see the wire-resolution fallback in generateRgsFunctionInvocations() and
+   * getUnsupportedNodes().
+   */
+  private isCompilableNodeType(typename: string): boolean {
+    const t = String(typename || '');
+    if (t.startsWith('/#__cloud__/') || t.startsWith('/#__maths__/')) return true;
+    if (
+      (this.mathNodeConverter && this.mathNodeConverter.isMathNode(t)) ||
+      (this.slotGameNodeConverter && this.slotGameNodeConverter.isSlotGameNode(t)) ||
+      (this.stdLibraryNodeConverter && this.stdLibraryNodeConverter.isStdLibraryNode(t)) ||
+      (this.signalPassthroughNodeConverter && this.signalPassthroughNodeConverter.isSignalPassthroughNode(t)) ||
+      (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(t)) ||
+      (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(t))
+    ) {
+      return true;
+    }
+    return INLINE_COMPILED_NODE_TYPES.has(t);
+  }
+
+  /**
+   * Nodes in this component that no code generator can compile.
+   *
+   * Populated by generateRgsScript(). Empty for every component built out of
+   * convertible nodes, which is all 128 deployed on 2026-09-03 — this exists to
+   * keep the NEXT one honest.
+   *
+   * Why it must be reported rather than skipped: an unconvertible node produces
+   * no function, so it never lands in `outputVariableMap`, and every wire out of
+   * it used to resolve down the chain in generateRgsFunctionInvocations() to
+   * `config.<port>` — a key in the CALLER'S request body. A downstream node on
+   * the RTP path would then read a player-supplied value (usually `undefined`,
+   * which is its own server-side crash) in place of the maths that was supposed
+   * to feed it, with nothing said at compile time. The wire now resolves to
+   * `undefined` and the node lands here so the deploy path can refuse it.
+   */
+  public getUnsupportedNodes(): UnsupportedNode[] {
+    return this._unsupportedNodes;
+  }
+
+  /** Add a node to the unsupported list, merging the ports it feeds. */
+  private recordUnsupportedNode(node: Node, feeds?: { node: string; port: string }): void {
+    let entry = this._unsupportedNodes.find((u) => u.id === node.id);
+    if (!entry) {
+      entry = {
+        typename: node.typename,
+        label: node.label || node.typename,
+        id: node.id,
+        feeds: [],
+      };
+      this._unsupportedNodes.push(entry);
+    }
+    if (feeds && !entry.feeds.some((f) => f.node === feeds.node && f.port === feeds.port)) {
+      entry.feeds.push(feeds);
+    }
+  }
+
+  /**
+   * Sweep the whole component for unconvertible nodes, not just the ones a wire
+   * happened to reach.
+   *
+   * The wire-resolution path only sees a node whose output feeds a COMPILED
+   * node. A sink — an `Export to JSON file`, a `REST` call — has inputs and no
+   * outputs, does real work in the editor, and does nothing at all on the
+   * server; a graph relying on one is just as wrong, and silent. Nodes with no
+   * connections at all are skipped: they compute nothing anywhere, so there is
+   * nothing to warn about.
+   */
+  private collectUnsupportedNodes(): void {
+    for (const node of this.component.graph.roots) {
+      if (this.isCompilableNodeType(node.typename)) continue;
+      const connected = this.connections.some((c) => c.toId === node.id || c.fromId === node.id);
+      if (!connected) continue;
+      this.recordUnsupportedNode(node);
+    }
   }
 
   /**
