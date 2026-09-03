@@ -1169,6 +1169,292 @@ function _endRotate(e) {
   } else {
     _clearLivePreview();
   }
+
+}
+
+// --- Gesture payload helpers ---
+
+function _rectOf(el) {
+  const r = el.getBoundingClientRect();
+  return { left: r.left, top: r.top, width: r.width, height: r.height };
+}
+
+function _parentRectOf(el) {
+  const p = el.parentElement;
+  return p ? _rectOf(p) : null;
+}
+
+// Screen-delta math is wrong under a rotated/scaled ancestor — fail closed.
+function _hasTransformedAncestor(el) {
+  let cur = el.parentElement;
+  while (cur && cur !== document.body) {
+    const t = getComputedStyle(cur).transform;
+    if (t && t !== 'none') {
+      // translate-only matrices are fine: matrix(1, 0, 0, 1, tx, ty)
+      const m = t.match(/^matrix\(([-\d.]+), ([-\d.]+), ([-\d.]+), ([-\d.]+),/);
+      if (!m || m[1] !== '1' || m[2] !== '0' || m[3] !== '0' || m[4] !== '1') return true;
+    }
+    cur = cur.parentElement;
+  }
+  return false;
+}
+
+// Which resize handle (if any) does a point on the selection frame correspond to?
+// 8px grab zone on edges/corners of the selected element's current rect.
+const HANDLE_ZONE = 8;
+function _handleAtPoint(x, y) {
+  if (!_selectedElement) return null;
+  const r = _selectedElement.getBoundingClientRect();
+  const nearL = Math.abs(x - r.left) <= HANDLE_ZONE;
+  const nearR = Math.abs(x - r.right) <= HANDLE_ZONE;
+  const nearT = Math.abs(y - r.top) <= HANDLE_ZONE;
+  const nearB = Math.abs(y - r.bottom) <= HANDLE_ZONE;
+  const insideX = x >= r.left - HANDLE_ZONE && x <= r.right + HANDLE_ZONE;
+  const insideY = y >= r.top - HANDLE_ZONE && y <= r.bottom + HANDLE_ZONE;
+  if (!insideX || !insideY) return null;
+  let h = '';
+  if (nearT) h += 'n'; else if (nearB) h += 's';
+  if (nearL) h += 'w'; else if (nearR) h += 'e';
+  return h || null;
+}
+
+function _isInsideSelection(x, y) {
+  if (!_selectedElement) return false;
+  const r = _selectedElement.getBoundingClientRect();
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+
+// Brief "why nothing moved" feedback on a blocked gesture, reusing the label badge.
+function _flashBlocked(reason) {
+  if (!_labelBadge || !_selectedElement) return;
+  const messages = {
+    'in-flow': 'Managed by layout — reorder coming soon',
+    'transformed-ancestor': 'Inside a transformed container',
+    'rotated-target': 'Rotated — resize not supported yet',
+    'no-parent-box': 'No parent box to measure against',
+    'unit-mismatch': 'Offset uses % — set a px value first',
+    'size-mode-gated': 'Size is content-driven on this node',
+    'editor-link': 'Editor link unavailable'
+  };
+  const prev = _labelBadge.textContent;
+  _labelBadge.textContent = messages[reason] || 'Cannot edit this element';
+  _labelBadge.style.display = 'block';
+  setTimeout(() => {
+    if (_labelBadge) _labelBadge.textContent = prev;
+    // Overlay may be stale after a blocked drag — resnap it to the element.
+    if (_selectedElement) _updateSelectionPosition(_selectedElement.getBoundingClientRect());
+  }, 1500);
+}
+
+function _sendDomGesture(gesture, fields) {
+  if (!_selectedNodeId || !_selectedElement) return;
+  const labels = { move: 'Move element', resize: 'Resize element', rotate: 'Rotate element' };
+  const payload = {
+    label: labels[gesture] || 'Edit element',
+    targets: [Object.assign({
+      nodeId: _selectedNodeId,
+      kind: 'dom',
+      gesture,
+      startRect: { width: _originalRect.width, height: _originalRect.height },
+      parentRect: _parentRectOf(_selectedElement),
+      ancestorTransformed: _hasTransformedAncestor(_selectedElement)
+    }, fields)]
+  };
+  makeEditorAPIRequest('viewportGesture', payload, (res) => {
+    const blocked = res && res.blocked && res.blocked[0];
+    if (blocked) {
+      _clearLivePreview(); // snap back — nothing was written
+      _flashBlocked(blocked.reason);
+    } else {
+      _settleAfterCommit();
+    }
+  });
+}
+
+// After a committed gesture: keep the preview up until the committed params
+// have OBSERVABLY re-rendered the element, then hand off. A fixed timer here
+// raced the model→viewer propagation and caused release-jumps.
+function _settleAfterCommit() {
+  const nodeId = _selectedNodeId;
+  const expected = _lastPreviewRect; // null for rotation
+  const baseTransform = _livePreviewBase;
+  const startedAt = Date.now();
+  const POLL_MS = 120;
+  const TIMEOUT_MS = 4000;
+
+  const finish = () => {
+    _clearLivePreview();
+    _selectionOverlay.style.transform = '';
+    const rect = _selectedElement.getBoundingClientRect();
+    _updateSelectionPosition(rect);
+    _labelBadge.style.left = (rect.left + rect.width / 2) + 'px';
+    _labelBadge.style.top = (rect.top - 20) + 'px';
+    _labelBadge.style.display = 'block';
+    _sizeBadge.textContent = Math.round(rect.width) + ' × ' + Math.round(rect.height);
+    _sizeBadge.style.left = (rect.left + rect.width / 2) + 'px';
+    _sizeBadge.style.top = (rect.bottom + 4) + 'px';
+    makeEditorAPIRequest('viewportCapabilities', {
+      nodeId: nodeId,
+      kind: 'dom',
+      ancestorTransformed: _hasTransformedAncestor(_selectedElement)
+    }, (caps) => {
+      if (_selectedNodeId !== nodeId) return;
+      _selectedCaps = caps && !caps.error ? caps : null;
+      _applyGizmoCaps();
+    });
+  };
+
+  const tick = () => {
+    if (_selectedNodeId !== nodeId || !_selectedElement) return; // selection moved on
+
+    // React may have replaced the DOM node on re-render; the fresh node
+    // carries only committed styles — adopt it and we are settled.
+    const fresh = document.querySelector('[data-xgenia-node-id="' + nodeId + '"]');
+    if (fresh && fresh !== _selectedElement) {
+      _selectedElement = fresh;
+      _livePreviewInline = null;
+      _livePreviewApplied = null;
+      finish();
+      return;
+    }
+
+    // Synchronously lift our preview values, measure the underlying truth,
+    // and decide — nothing paints between these writes.
+    const s = _selectedElement.style;
+    const lifted = {};
+    if (_livePreviewApplied && _livePreviewInline) {
+      for (const prop of ['transform', 'width', 'height']) {
+        if (prop in _livePreviewApplied && s[prop] === _livePreviewApplied[prop]) {
+          lifted[prop] = _livePreviewApplied[prop];
+          s[prop] = _livePreviewInline[prop];
+        }
+      }
+    }
+    const r = _selectedElement.getBoundingClientRect();
+    const t = getComputedStyle(_selectedElement).transform;
+    const converged = expected
+      ? (Math.abs(r.left - expected.left) <= 1.5 &&
+         Math.abs(r.top - expected.top) <= 1.5 &&
+         Math.abs(r.width - expected.width) <= 1.5 &&
+         Math.abs(r.height - expected.height) <= 1.5)
+      : ((t === 'none' ? '' : t) !== baseTransform); // rotation: transform recomputed
+
+    if (converged) {
+      finish();
+      return;
+    }
+
+    // Not yet — put the preview back before the browser paints.
+    for (const prop in lifted) s[prop] = lifted[prop];
+
+    if (Date.now() - startedAt > TIMEOUT_MS) {
+      console.warn('[InteractiveEdit] Commit not visible after ' + TIMEOUT_MS + 'ms — releasing preview; check model→viewer sync');
+      finish();
+      return;
+    }
+    setTimeout(tick, POLL_MS);
+  };
+
+  setTimeout(tick, POLL_MS);
+}
+
+// --- Gizmo zone hit-tests (screen space, matching the CSS geometry) ---
+
+const AXIS_LEN = 52;
+function _selectionCenter() {
+  const r = _selectedElement.getBoundingClientRect();
+  return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, rect: r };
+}
+
+function _isOnRotateHandle(x, y) {
+  if (!_selectedElement || !(_selectedCaps && _selectedCaps.rotatable)) return false;
+  const r = _selectedElement.getBoundingClientRect();
+  const hx = r.left + r.width / 2;
+  const hy = r.top - 31; // lollipop circle center (top: -38px, 14px tall)
+  return Math.hypot(x - hx, y - hy) <= 10;
+}
+
+function _axisArrowAtPoint(x, y) {
+  if (!_selectedElement || !(_selectedCaps && _selectedCaps.movable)) return null;
+  const { cx, cy } = _selectionCenter();
+  if (x >= cx + 6 && x <= cx + AXIS_LEN + 12 && Math.abs(y - cy) <= 7) return 'x';
+  if (y <= cy - 6 && y >= cy - AXIS_LEN - 12 && Math.abs(x - cx) <= 7) return 'y';
+  return null;
+}
+
+// Constrain a free/axis drag: explicit arrow lock wins, else Shift locks
+// to the dominant axis (standard professional-editor behavior).
+function _lockDeltas(dx, dy, shiftKey) {
+  if (_dragAxis === 'x') return { dx, dy: 0 };
+  if (_dragAxis === 'y') return { dx: 0, dy };
+  if (shiftKey) {
+    return Math.abs(dx) >= Math.abs(dy) ? { dx, dy: 0 } : { dx: 0, dy };
+  }
+  return { dx, dy };
+}
+
+// Pixi gizmo hover events reuse the same glass tooltip as the DOM gizmo.
+window.addEventListener('xg-gizmo-hover', (e) => {
+  if (!_gizmo || !_gizmo.tooltip || !e.detail) return;
+  const z = e.detail.zone;
+  if (!z) { _hideActionTip(); return; }
+  const kind = (z === 'rotate') ? 'rotate' : (z === 'x' || z === 'y') ? z : 'resize';
+  _showActionTip(kind, e.detail.clientX, e.detail.clientY);
+});
+
+// --- Rotation gesture (overlay-only preview; commits transformRotation) ---
+
+let _rotatePivot = null; // screen-space pivot; the element's transform-origin
+
+function _startRotate(e) {
+  if (!_selectedElement) return;
+  _isRotating = true;
+  _rotateDeltaDeg = 0;
+  _originalRect = _selectedElement.getBoundingClientRect();
+  _captureLivePreviewBase();
+  // Rotate around the node's wired transform-origin, not the box center.
+  const o = _transformOriginOf(_selectedElement);
+  _rotatePivot = { x: _originalRect.left + o.x, y: _originalRect.top + o.y };
+  _selectionOverlay.style.transformOrigin = o.x + 'px ' + o.y + 'px';
+  _rotateStartAngle = Math.atan2(e.clientY - _rotatePivot.y, e.clientX - _rotatePivot.x);
+  document.body.style.cursor = 'grabbing';
+  _hideActionTip();
+  if (_labelBadge) _labelBadge.style.display = 'none';
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+function _onRotate(e) {
+  if (!_isRotating || !_selectedElement) return;
+  const cx = _rotatePivot.x;
+  const cy = _rotatePivot.y;
+  const angle = Math.atan2(e.clientY - cy, e.clientX - cx);
+  let deltaDeg = (angle - _rotateStartAngle) * 180 / Math.PI;
+  if (e.shiftKey) deltaDeg = Math.round(deltaDeg / 15) * 15; // snap to 15°
+  _rotateDeltaDeg = deltaDeg;
+
+  // Frame and element rotate in tandem (inline preview, committed on release)
+  _selectionOverlay.style.transform = 'rotate(' + deltaDeg + 'deg)';
+  _applyLiveRotate(deltaDeg);
+  _sizeBadge.textContent = Math.round(deltaDeg) + '°';
+  _sizeBadge.style.left = (cx) + 'px';
+  _sizeBadge.style.top = (_originalRect.bottom + 4) + 'px';
+  _sizeBadge.style.display = 'block';
+}
+
+function _endRotate(e) {
+  if (!_isRotating) return;
+  _isRotating = false;
+  document.body.style.cursor = 'crosshair';
+  const deltaDeg = Math.round(_rotateDeltaDeg * 10) / 10;
+  _selectionOverlay.style.transform = '';
+  _selectionOverlay.style.transformOrigin = '';
+  if (_labelBadge) _labelBadge.style.display = 'block';
+  if (Math.abs(deltaDeg) >= 0.5) {
+    _sendDomGesture('rotate', { deltaDeg: deltaDeg });
+  } else {
+    _clearLivePreview();
+  }
 }
 
 

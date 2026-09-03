@@ -8,7 +8,14 @@
       "docs": "https://docsapp.xgenia.com/nodes/component-utilities/component-inputs",
       "lineCount": 48,
       "byteSize": 1168,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {},
       "shortDesc": "This node is used to define the inputs of a component."
     },
@@ -20,7 +27,14 @@
       "docs": "https://docsapp.xgenia.com/nodes/component-utilities/component-outputs",
       "lineCount": 42,
       "byteSize": 967,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {},
       "shortDesc": "This node is used to define the outputs of a component."
     },
@@ -47,6 +61,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Control"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -203,6 +223,12 @@
           "displayName": "Progress (0-1)",
           "type": "number",
           "group": "Controls"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -261,6 +287,12 @@
           "displayName": "Number of Inputs",
           "type": "number",
           "group": "Configuration"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -289,6 +321,12 @@
         "input": {
           "displayName": "Signal In",
           "type": "boolean"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -319,6 +357,12 @@
         "input": {
           "displayName": "Selector",
           "type": "boolean"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -352,6 +396,12 @@
           "displayName": "Evaluate",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -398,6 +448,12 @@
         },
         "dictKeys": {
           "type": "string"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -427,6 +483,12 @@
           "displayName": "Number of Inputs",
           "type": "number",
           "group": "Configuration"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -464,6 +526,12 @@
         },
         "dataKeys": {
           "type": "string"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -492,6 +560,12 @@
         "Data": {
           "displayName": "Data",
           "type": "*",
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         }
       },
@@ -551,6 +625,12 @@
           "displayName": "Limits Enabled",
           "type": "boolean",
           "group": "Limits"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -595,6 +675,12 @@
           "type": "stringlist",
           "notConnectable": true,
           "group": "Configuration"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -615,6 +701,12 @@
         "file": {
           "displayName": "Cloud File",
           "type": "cloudfile",
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         }
       },
@@ -658,6 +750,12 @@
         "openAutomatically": {
           "displayName": "Open Automatically",
           "type": "boolean",
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         }
       },
@@ -723,6 +821,12 @@
           "displayName": "Initial Demo Balance",
           "type": "number",
           "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -776,6 +880,12 @@
           "displayName": "Open Automatically",
           "type": "boolean",
           "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -805,7 +915,14 @@
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/query-records",
       "lineCount": 962,
       "byteSize": 33105,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {
         "items": {
           "displayName": "Items",
@@ -852,7 +969,14 @@
       "docs": "https://docsapp.xgenia.com/nodes/data/cloud-data/config",
       "lineCount": 182,
       "byteSize": 5420,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {}
     },
     "collectionName": {
@@ -863,7 +987,14 @@
       "docs": null,
       "lineCount": 890,
       "byteSize": 30284,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {}
     },
     "AddDbModelRelation": {
@@ -879,6 +1010,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -902,6 +1039,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -945,6 +1088,12 @@
           "displayName": "Fetch",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1021,6 +1170,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1054,6 +1209,12 @@
         "depositAmount": {
           "displayName": "Deposit Amount",
           "type": "number",
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         }
       },
@@ -1094,6 +1255,12 @@
           "displayName": "Filter",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1138,6 +1305,12 @@
           "displayName": "Player ID",
           "type": "string",
           "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1181,6 +1354,12 @@
           "displayName": "Player Name",
           "type": "string",
           "group": "Identify"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1239,6 +1418,12 @@
           "displayName": "Player Name",
           "type": "string",
           "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1282,6 +1467,12 @@
         "gameId": {
           "displayName": "Game Id",
           "type": "string",
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         }
       },
@@ -1331,6 +1522,12 @@
           "displayName": "Session Id",
           "type": "string",
           "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1359,7 +1556,14 @@
       "docs": null,
       "lineCount": 343,
       "byteSize": 9834,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {}
     },
     "Model2": {
@@ -1400,6 +1604,12 @@
           "displayName": "Fetch",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1472,6 +1682,12 @@
           "type": "string",
           "notSettableAsParameter": true,
           "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1495,6 +1711,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1552,6 +1774,12 @@
           "displayName": "Cancel",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1605,6 +1833,12 @@
           "displayName": "Session Data",
           "type": "*",
           "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1654,6 +1888,12 @@
             "cloud",
             "local"
           ],
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         }
       },
@@ -1710,6 +1950,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1753,6 +1999,12 @@
           "displayName": "Demo Balance",
           "type": "number",
           "group": "Update"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1811,6 +2063,12 @@
           "displayName": "Withdraw Amount",
           "type": "number",
           "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1843,6 +2101,12 @@
         "input": {
           "displayName": "Date",
           "type": "date"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1882,6 +2146,12 @@
           "displayName": "Run",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1930,6 +2200,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Control"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -1967,6 +2243,12 @@
           "displayName": "Update",
           "type": "signal",
           "group": "Control"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2000,6 +2282,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Control"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2055,6 +2343,12 @@
           "displayName": "More Than",
           "type": "number",
           "group": "Conditions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2088,6 +2382,12 @@
         "trigger": {
           "displayName": "Execute",
           "type": "signal"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2141,6 +2441,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Control"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2199,6 +2505,12 @@
           "displayName": "Abort",
           "type": "signal",
           "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2236,6 +2548,12 @@
         "input": {
           "displayName": "Signal In",
           "type": "signal"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2302,6 +2620,12 @@
           "displayName": "Number of Inputs",
           "type": "number",
           "group": "Configuration"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2340,6 +2664,12 @@
         "format": {
           "displayName": "Format",
           "type": "string"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2366,6 +2696,12 @@
           "displayName": "Default",
           "type": "string",
           "group": "Mappings"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2396,6 +2732,12 @@
         "string": {
           "displayName": "String",
           "type": "string"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2417,6 +2759,12 @@
         "new": {
           "displayName": "New",
           "type": "signal"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2448,6 +2796,12 @@
         "username": {
           "displayName": "Username",
           "type": "string",
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         }
       },
@@ -2482,6 +2836,12 @@
           "displayName": "Fetch",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2535,7 +2895,14 @@
       "docs": "https://docsapp.xgenia.com/nodes/data/boolean",
       "lineCount": 20,
       "byteSize": 353,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {}
     },
     "Number": {
@@ -2546,7 +2913,14 @@
       "docs": "https://docsapp.xgenia.com/nodes/data/number",
       "lineCount": 23,
       "byteSize": 398,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {}
     },
     "String": {
@@ -2557,7 +2931,14 @@
       "docs": "https://docsapp.xgenia.com/nodes/data/string",
       "lineCount": 42,
       "byteSize": 855,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {
         "length": {
           "displayName": "Length",
@@ -2584,6 +2965,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Control"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2618,7 +3005,14 @@
       "docs": null,
       "lineCount": 210,
       "byteSize": 7647,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {}
     },
     "Auto Bet Strategy Evaluator": {
@@ -2663,6 +3057,12 @@
         },
         "increase bet on win %": {
           "type": "number"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2707,6 +3107,12 @@
         },
         "pool size": {
           "type": "number"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2739,6 +3145,12 @@
         },
         "drawn numbers": {
           "type": "array"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2777,6 +3189,12 @@
         },
         "hit count": {
           "type": "number"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2818,6 +3236,12 @@
           "displayName": "Second Number",
           "type": "number",
           "group": "Numbers"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2863,6 +3287,12 @@
         },
         "min range": {
           "type": "number"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2897,6 +3327,12 @@
           "displayName": "Value",
           "type": "number",
           "group": "Input"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2938,6 +3374,12 @@
           "displayName": "Second Number",
           "type": "number",
           "group": "Numbers"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -2978,6 +3420,12 @@
           "displayName": "Second Number",
           "type": "number",
           "group": "Numbers"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3017,6 +3465,12 @@
           "displayName": "Value",
           "type": "number",
           "group": "Input"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3053,6 +3507,12 @@
           "displayName": "Win Amount",
           "type": "number",
           "group": "Data"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3072,8 +3532,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/maths/isaac-rng-array.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/isaac-rng-array",
-      "lineCount": 496,
-      "byteSize": 13119,
+      "lineCount": 511,
+      "byteSize": 14834,
       "inputFormatHints": {
         "size": {
           "displayName": "Size",
@@ -3094,6 +3554,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3105,7 +3571,8 @@
           "displayName": "Done",
           "type": "signal"
         }
-      }
+      },
+      "description": "Generates `size` ISAAC pseudo-random INTEGERS, each in 0..1e12 (0 <= n < 1,000,000,000,000) — NOT 0..1 floats. For a 0..1 float DIVIDE: u = n / 1e12; never clamp with Math.min(0.999999, n). Seed it by wiring True Random Number Generator.value → seed: with NEITHER seed NOR nonce wired the node seeds itself from Date.now() + Math.random() (see init), so the output is unreproducible and NOT provably fair."
     },
     "ISAAC Random Number Generator": {
       "name": "ISAAC Random Number Generator",
@@ -3130,6 +3597,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3166,6 +3639,12 @@
           "displayName": "Second Number",
           "type": "number",
           "group": "Numbers"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3210,6 +3689,12 @@
           "displayName": "Second Number",
           "type": "number",
           "group": "Numbers"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3254,6 +3739,12 @@
           "displayName": "Second Number",
           "type": "number",
           "group": "Numbers"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3290,6 +3781,12 @@
           "displayName": "Key Path",
           "type": "string",
           "group": "Object Options"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3326,6 +3823,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3378,6 +3881,12 @@
           "displayName": "Second Number",
           "type": "number",
           "group": "Numbers"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3414,6 +3923,12 @@
           "displayName": "Key Path",
           "type": "string",
           "group": "Object Options"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3450,6 +3965,12 @@
           "displayName": "Second Number",
           "type": "number",
           "group": "Numbers"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3491,6 +4012,12 @@
           "displayName": "Second Number",
           "type": "number",
           "group": "Numbers"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3521,6 +4048,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3552,6 +4085,12 @@
           "displayName": "Value",
           "type": "number",
           "group": "Input"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3593,6 +4132,12 @@
           "displayName": "Win Amount",
           "type": "number",
           "group": "Data"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3619,6 +4164,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3663,6 +4214,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3705,6 +4262,12 @@
           "displayName": "Second Number",
           "type": "number",
           "group": "Numbers"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3745,6 +4308,12 @@
           "displayName": "Key Path",
           "type": "string",
           "group": "Object Options"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3776,6 +4345,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3802,6 +4377,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3840,6 +4421,12 @@
         "minRange": {
           "displayName": "Min Range",
           "type": "number"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3875,6 +4462,12 @@
         "committedHash": {
           "displayName": "Committed Hash",
           "type": "string"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3918,6 +4511,12 @@
         "expectedHash": {
           "displayName": "Expected Hash",
           "type": "string"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -3955,6 +4554,12 @@
           "displayName": "Reset",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -4023,6 +4628,12 @@
           "displayName": "ML Server URL",
           "type": "string",
           "group": "Configuration"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -4125,6 +4736,12 @@
           "displayName": "ML Server URL",
           "type": "string",
           "group": "Configuration"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -4225,6 +4842,12 @@
           "displayName": "ML Server URL",
           "type": "string",
           "group": "Configuration"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -4298,6 +4921,12 @@
           "displayName": "ML Server URL",
           "type": "string",
           "group": "Configuration"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -4376,6 +5005,12 @@
           "displayName": "Auto Execute",
           "type": "boolean",
           "group": "Configuration"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -4419,7 +5054,14 @@
       "docs": null,
       "lineCount": 254,
       "byteSize": 11584,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {}
     },
     "pixi.AnimatedSprite": {
@@ -4498,6 +5140,12 @@
           "displayName": "Stop",
           "type": "signal",
           "group": "Signals"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -4557,6 +5205,12 @@
           "displayName": "Start Preload",
           "type": "boolean",
           "group": "Control"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -4774,6 +5428,12 @@
           "displayName": "Custom Animation Code",
           "type": "code",
           "group": "Animation"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -4908,6 +5568,12 @@
           "displayName": "Apply Now",
           "type": "signal",
           "group": "Control"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -4981,6 +5647,12 @@
           "displayName": "Check Now",
           "type": "signal",
           "group": "Control"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -5198,6 +5870,12 @@
           "displayName": "Custom Animation Code",
           "type": "code",
           "group": "Animation"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -5384,6 +6062,12 @@
           "displayName": "Reset FPS History",
           "type": "signal",
           "group": "Debug Controls"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -5610,6 +6294,12 @@
           "displayName": "Request Render On Update",
           "type": "boolean",
           "group": "Render"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -5775,6 +6465,12 @@
           "displayName": "Apply Now",
           "type": "signal",
           "group": "Control"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -6095,6 +6791,12 @@
           "displayName": "Update Now",
           "type": "signal",
           "group": "Advanced"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -6223,6 +6925,12 @@
           "displayName": "Update Now",
           "type": "signal",
           "group": "Advanced"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -6256,6 +6964,12 @@
         "ignoreRepeat": {
           "displayName": "Ignore Auto-Repeat",
           "type": "boolean",
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         }
       },
@@ -6416,6 +7130,12 @@
           "displayName": "Update Now",
           "type": "signal",
           "group": "Advanced"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -6480,6 +7200,12 @@
           "displayName": "Move Throttle (ms)",
           "type": "number",
           "group": "Performance"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -6644,6 +7370,12 @@
           "displayName": "Update Now",
           "type": "signal",
           "group": "Advanced"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -6778,6 +7510,12 @@
           "displayName": "Update Now",
           "type": "signal",
           "group": "Advanced"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -6919,6 +7657,12 @@
             "trail"
           ],
           "group": "Emitter Config"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -7110,6 +7854,12 @@
           "displayName": "Rotation",
           "type": "number",
           "group": "Transform"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -7369,6 +8119,12 @@
           "displayName": "Rotation",
           "type": "number",
           "group": "Transform"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -7458,6 +8214,12 @@
           "displayName": "Render Now",
           "type": "signal",
           "group": "Render"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -7611,6 +8373,12 @@
           "displayName": "Time Scale",
           "type": "number",
           "group": "Control"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -7882,6 +8650,12 @@
           "displayName": "Animation Duration",
           "type": "number",
           "group": "Info"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -8305,6 +9079,12 @@
           "displayName": "Update Now",
           "type": "signal",
           "group": "Advanced"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -8383,6 +9163,12 @@
           "displayName": "Reload",
           "type": "signal",
           "group": "Control"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -8510,6 +9296,12 @@
           "displayName": "Custom Code",
           "type": "code",
           "group": "Animation"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         },
         "pointerEventsEnabled": {
           "gatedBy": [
@@ -9450,6 +10242,12 @@
           "displayName": "Custom Animation Code",
           "type": "code",
           "group": "Animation"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -9638,6 +10436,12 @@
           "displayName": "Custom Animation Code",
           "type": "code",
           "group": "Animation"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -9733,6 +10537,12 @@
           "displayName": "Target",
           "type": "node",
           "group": "Target"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -9763,6 +10573,12 @@
         "active": {
           "displayName": "Active",
           "type": "boolean"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -10159,6 +10975,12 @@
           "displayName": "Auto Cascade after Win",
           "type": "boolean",
           "group": "Cascade"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -10347,6 +11169,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -10435,6 +11263,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -10518,6 +11352,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -10571,6 +11411,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -10609,6 +11455,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -10672,6 +11524,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -10735,6 +11593,12 @@
           "displayName": "Unlock",
           "type": "signal",
           "group": "Lock"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -10793,6 +11657,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -10841,6 +11711,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -10884,6 +11760,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -10937,6 +11819,12 @@
           "displayName": "Unlock",
           "type": "signal",
           "group": "Lock"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -10995,6 +11883,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -11053,6 +11947,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -11131,6 +12031,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -11314,6 +12220,12 @@
           "displayName": "Export Game Metrics",
           "type": "signal",
           "group": "Control"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -11520,6 +12432,12 @@
           "displayName": "Simulate",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -11683,6 +12601,12 @@
           "displayName": "Spin",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -11776,6 +12700,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -11929,6 +12859,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -12037,6 +12973,12 @@
           "displayName": "Reset",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -12080,6 +13022,12 @@
           "displayName": "Reset",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -12183,6 +13131,12 @@
           "displayName": "Unlock",
           "type": "signal",
           "group": "Lock"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -12216,7 +13170,14 @@
       "docs": "https://stake-engine.com/docs/rgs",
       "lineCount": 24,
       "byteSize": 477,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {
         "value": {
           "displayName": "Value",
@@ -12252,6 +13213,12 @@
           "displayName": "Enforce Bet Levels",
           "type": "boolean",
           "group": "Config"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -12315,7 +13282,14 @@
       "docs": "https://stake-engine.com/docs/rgs",
       "lineCount": 65,
       "byteSize": 1847,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {
         "updated": {
           "displayName": "Updated",
@@ -12362,6 +13336,12 @@
           "displayName": "Protocol",
           "type": "string",
           "group": "Config"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -12415,6 +13395,12 @@
           "displayName": "Trim Decimals for Integers",
           "type": "boolean",
           "group": "Options"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -12453,6 +13439,12 @@
           "displayName": "Enforce Bet Levels",
           "type": "boolean",
           "group": "Config"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -12521,6 +13513,12 @@
           "displayName": "Enforce Bet Levels",
           "type": "boolean",
           "group": "Config"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -12559,6 +13557,12 @@
           "displayName": "API Amount",
           "type": "number",
           "group": "Input"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -12607,6 +13611,12 @@
           "displayName": "Enforce Bet Levels",
           "type": "boolean",
           "group": "Config"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -12680,7 +13690,14 @@
       "docs": "https://stake-engine.com/docs/rgs",
       "lineCount": 50,
       "byteSize": 1494,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {
         "changed": {
           "displayName": "Changed",
@@ -12707,6 +13724,12 @@
           "displayName": "Decimal",
           "type": "number",
           "group": "Input"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -12809,6 +13832,12 @@
           ],
           "defaultUnit": "%",
           "group": "Dimension Constraints"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {}
@@ -12923,6 +13952,12 @@
           ],
           "defaultUnit": "%",
           "group": "Dimension Constraints"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         },
         "label": {
           "gatedBy": [
@@ -14087,6 +15122,12 @@
         "enabled": {
           "displayName": "Enabled",
           "type": "boolean",
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         },
         "iconSourceType": {
@@ -15259,6 +16300,12 @@
           ],
           "defaultUnit": "%",
           "group": "Dimension Constraints"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         },
         "iconSourceType": {
           "gatedBy": [
@@ -16467,6 +17514,12 @@
           "type": "boolean",
           "group": "General"
         },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        },
         "iconSourceType": {
           "gatedBy": [
             "useIcon"
@@ -17621,6 +18674,12 @@
           ],
           "defaultUnit": "%",
           "group": "Dimension Constraints"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -17799,6 +18858,12 @@
           "displayName": "Enabled",
           "type": "boolean",
           "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -17896,6 +18961,12 @@
         "enabled": {
           "displayName": "Enabled",
           "type": "boolean",
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         }
       },
@@ -18119,6 +19190,12 @@
           ],
           "defaultUnit": "%",
           "group": "Dimension Constraints"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         },
         "iconSourceType": {
           "gatedBy": [
@@ -19280,6 +20357,12 @@
           "displayName": "Used By Feature ID",
           "type": "string",
           "group": "Relationships"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -19339,6 +20422,12 @@
           "displayName": "Parent Goal ID",
           "type": "string",
           "group": "Relationships"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -19399,6 +20488,12 @@
             "Critical"
           ],
           "group": "Properties"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -19480,6 +20575,12 @@
           "displayName": "Depends On Task IDs",
           "type": "array",
           "group": "Dependencies"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -19566,6 +20667,12 @@
           "displayName": "Displays Data Model ID",
           "type": "string",
           "group": "Relationships"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -19651,6 +20758,12 @@
           "displayName": "Parent Feature ID",
           "type": "string",
           "group": "Relationships"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -19745,6 +20858,12 @@
           "displayName": "Touch Multiplier",
           "type": "number",
           "group": "Sensitivity"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -19808,6 +20927,12 @@
           "displayName": "Close",
           "type": "Signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {}
@@ -19835,6 +20960,12 @@
           "type": "stringlist",
           "notConnectable": true,
           "group": "Back Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {}
@@ -19868,6 +20999,12 @@
           "displayName": "Navigate",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {}
@@ -19899,6 +21036,12 @@
           "displayName": "Navigate",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -19942,6 +21085,12 @@
           "displayName": "Reset",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -19973,6 +21122,12 @@
         "queryParams": {
           "type": "stringlist",
           "group": "Query Parameters"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {}
@@ -20012,6 +21167,12 @@
           "type": "number",
           "notConnectable": true,
           "group": "Experimental Sitemap"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {}
@@ -20033,6 +21194,12 @@
         "openInNewTab": {
           "displayName": "Open in new tab",
           "type": "boolean",
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         }
       },
@@ -20133,6 +21300,12 @@
           "displayName": "Hide Loader",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -20196,6 +21369,12 @@
           "displayName": "Show",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -20222,7 +21401,14 @@
       "docs": null,
       "lineCount": 122,
       "byteSize": 3191,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {}
     },
     "AdvancedTimer": {
@@ -20278,6 +21464,12 @@
           "displayName": "Reject",
           "type": "boolean",
           "group": "Control"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -20357,6 +21549,12 @@
           "displayName": "Prevent Default",
           "type": "boolean",
           "group": "Behavior"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -20417,6 +21615,12 @@
             "easeInOut"
           ],
           "group": "Parameters"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -21041,6 +22245,12 @@
           "displayName": "Test Custom Ease Curve",
           "type": "signal",
           "group": "Animation (GSAP) | Easing"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -21657,6 +22867,12 @@
         "blendValue": {
           "displayName": "Blend Value",
           "type": "number"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -21686,6 +22902,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -21715,6 +22937,12 @@
           "displayName": "Fetch",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -21749,6 +22977,12 @@
           "displayName": "Fetch",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -21772,7 +23006,14 @@
       "docs": "https://docsapp.xgenia.com/nodes/component-utilities/set-component-object-properties",
       "lineCount": 13,
       "byteSize": 427,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {}
     },
     "net.xgenia.SetParentComponentObjectProperties": {
@@ -21783,7 +23024,14 @@
       "docs": "https://docsapp.xgenia.com/nodes/component-utilities/set-parent-component-object-properties",
       "lineCount": 52,
       "byteSize": 1757,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {}
     },
     "Cloud Function": {
@@ -21809,6 +23057,12 @@
           "displayName": "Call",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -21843,6 +23097,12 @@
           "displayName": "Call",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -21887,6 +23147,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -21915,6 +23181,12 @@
         "items": {
           "displayName": "Items",
           "type": "array",
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         }
       },
@@ -21956,6 +23228,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -21990,6 +23268,12 @@
           "displayName": "Fetch",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -22049,6 +23333,12 @@
           "displayName": "Array 2",
           "type": "array",
           "group": "Input"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -22080,6 +23370,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -22139,6 +23435,12 @@
           "displayName": "Key Path",
           "type": "string",
           "group": "Extract Options"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -22175,6 +23477,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -22211,6 +23519,12 @@
           "displayName": "Filter",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -22283,6 +23597,12 @@
           "displayName": "Refresh",
           "type": "signal",
           "group": "Appearance"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -22363,6 +23683,12 @@
           "type": "boolean",
           "notSettableAsParameter": true,
           "group": "Events"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -22453,6 +23779,12 @@
           "displayName": "Cancel Pending",
           "type": "signal",
           "group": "Loop"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -22577,6 +23909,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -22631,6 +23969,12 @@
           "displayName": "Reset",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -22665,6 +24009,12 @@
           "displayName": "Script",
           "type": "string",
           "notConnectable": true
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -22714,6 +24064,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -22779,6 +24135,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -22801,6 +24163,12 @@
         "input": {
           "displayName": "Input",
           "type": "*",
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         }
       },
@@ -22840,6 +24208,12 @@
           "displayName": "Ascending",
           "type": "boolean",
           "group": "Sort Options"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -22891,6 +24265,12 @@
             "type"
           ],
           "gateCondition": "type = json"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -22986,6 +24366,12 @@
           "displayName": "Value",
           "type": "*",
           "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -23035,6 +24421,12 @@
         "channelName": {
           "displayName": "Channel",
           "type": "string"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -23078,6 +24470,12 @@
           "type": "stringlist",
           "notConnectable": true,
           "group": "Payload"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {}
@@ -23102,6 +24500,12 @@
         "do": {
           "displayName": "Do",
           "type": "signal"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {}
@@ -23114,7 +24518,14 @@
       "docs": null,
       "lineCount": 614,
       "byteSize": 35319,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {
         "onStart": {
           "displayName": "On Start",
@@ -23198,6 +24609,12 @@
             "useExternalFile"
           ],
           "gateCondition": "useExternalFile = yes"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {},
@@ -23296,6 +24713,12 @@
           "type": "boolean",
           "notConnectable": true,
           "group": "Output Parameters"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -23328,6 +24751,12 @@
         "capture": {
           "displayName": "Capture",
           "type": "string",
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         }
       },
@@ -23372,7 +24801,14 @@
       "docs": "https://docsapp.xgenia.com/nodes/utilities/screen-resolution",
       "lineCount": 54,
       "byteSize": 1153,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {
         "width": {
           "displayName": "Width",
@@ -23418,6 +24854,12 @@
           "displayName": "Use Transitions",
           "type": "boolean",
           "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -23461,6 +24903,12 @@
         "onFromStart": {
           "displayName": "State",
           "type": "boolean",
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         }
       },
@@ -23514,6 +24962,12 @@
         "stop": {
           "displayName": "Stop",
           "type": "signal"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -23539,6 +24993,12 @@
         "input": {
           "displayName": "Input",
           "type": "*"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -23566,6 +25026,12 @@
           "displayName": "Upload",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -23639,6 +25105,12 @@
           "displayName": "Password",
           "type": "string",
           "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -23672,6 +25144,12 @@
           "displayName": "Do",
           "type": "signal",
           "group": "Actions"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -23709,6 +25187,12 @@
         "email": {
           "displayName": "Email",
           "type": "string",
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         }
       },
@@ -23759,6 +25243,12 @@
           "displayName": "New Password",
           "type": "string",
           "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -23797,6 +25287,12 @@
         "email": {
           "displayName": "Email",
           "type": "string",
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         }
       },
@@ -23847,6 +25343,12 @@
           "displayName": "Email",
           "type": "string",
           "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -23890,6 +25392,12 @@
           "displayName": "Username",
           "type": "string",
           "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -23923,6 +25431,12 @@
         "value": {
           "displayName": "Input",
           "type": "*"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -23940,7 +25454,14 @@
       "docs": "https://docsapp.xgenia.com/nodes/data/color",
       "lineCount": 21,
       "byteSize": 435,
-      "inputFormatHints": {},
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
       "outputFormatHints": {}
     },
     "Circle": {
@@ -24000,6 +25521,12 @@
           "displayName": "End Angle",
           "type": "number",
           "group": "Style"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         },
         "pointerEventsEnabled": {
           "gatedBy": [
@@ -24107,6 +25634,12 @@
             "center"
           ],
           "group": "Justify Content"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         },
         "borderWidth": {
           "gatedBy": [
@@ -24775,6 +26308,12 @@
           "type": "string",
           "notConnectable": true,
           "group": "Content"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {}
@@ -24894,6 +26433,12 @@
           ],
           "defaultUnit": "%",
           "group": "Dimension Constraints"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         },
         "pointerEventsEnabled": {
           "gatedBy": [
@@ -25105,6 +26650,12 @@
           ],
           "defaultUnit": "%",
           "group": "Dimension Constraints"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         },
         "pointerEventsEnabled": {
           "gatedBy": [
@@ -25352,6 +26903,12 @@
           "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        },
         "pointerEventsEnabled": {
           "gatedBy": [
             "pointerEventsMode"
@@ -25522,6 +27079,12 @@
         "scale": {
           "displayName": "Scale",
           "type": "number"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -25884,6 +27447,12 @@
           ],
           "defaultUnit": "%",
           "group": "Dimension Constraints"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         },
         "flexWrap": {
           "gatedBy": [
@@ -27301,6 +28870,12 @@
           "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        },
         "pointerEventsEnabled": {
           "gatedBy": [
             "pointerEventsMode"
@@ -27410,6 +28985,12 @@
       "lineCount": 56,
       "byteSize": 1392,
       "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        },
         "iconSourceType": {
           "gatedBy": [
             "useIcon"
@@ -27671,6 +29252,12 @@
           ],
           "defaultUnit": "%",
           "group": "Dimension Constraints"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         },
         "objectFit": {
           "gatedBy": [
@@ -28580,6 +30167,12 @@
           "defaultUnit": "%",
           "group": "Dimension Constraints"
         },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        },
         "pointerEventsEnabled": {
           "gatedBy": [
             "pointerEventsMode"
@@ -28762,6 +30355,12 @@
           "displayName": "Hide Loader",
           "type": "signal",
           "group": "Control"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -28954,6 +30553,12 @@
           ],
           "defaultUnit": "%",
           "group": "Dimension Constraints"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         },
         "pointerEventsEnabled": {
           "gatedBy": [
@@ -29188,6 +30793,12 @@
           ],
           "defaultUnit": "%",
           "group": "Dimension Constraints"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         },
         "pointerEventsEnabled": {
           "gatedBy": [
@@ -29441,6 +31052,12 @@
           ],
           "defaultUnit": "%",
           "group": "Dimension Constraints"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         },
         "pointerEventsEnabled": {
           "gatedBy": [
@@ -29724,6 +31341,12 @@
           ],
           "defaultUnit": "%",
           "group": "Dimension Constraints"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         },
         "pointerEventsEnabled": {
           "gatedBy": [
@@ -30371,6 +31994,12 @@
           "type": "stringlist",
           "notConnectable": true,
           "group": "Parameters"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -30430,6 +32059,12 @@
             "success",
             "failure"
           ],
+          "group": "General"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
           "group": "General"
         }
       },
@@ -30505,6 +32140,12 @@
           "type": "stringlist",
           "notConnectable": true,
           "group": "Aggregates"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
         }
       },
       "outputFormatHints": {
@@ -30876,6 +32517,1092 @@
     ]
   },
   "portIndex": {
+    "functionScript": [
+      {
+        "node": "Component Inputs",
+        "direction": "input"
+      },
+      {
+        "node": "Component Outputs",
+        "direction": "input"
+      },
+      {
+        "node": "And ",
+        "direction": "input"
+      },
+      {
+        "node": "Animation",
+        "direction": "input"
+      },
+      {
+        "node": "arrayStateManager",
+        "direction": "input"
+      },
+      {
+        "node": "Boolean To Signal",
+        "direction": "input"
+      },
+      {
+        "node": "Boolean To String",
+        "direction": "input"
+      },
+      {
+        "node": "Condition",
+        "direction": "input"
+      },
+      {
+        "node": "Convert Dict Keys to Ports",
+        "direction": "input"
+      },
+      {
+        "node": "Convert Inputs into Record",
+        "direction": "input"
+      },
+      {
+        "node": "Convert Record into Outputs",
+        "direction": "input"
+      },
+      {
+        "node": "Convert to String",
+        "direction": "input"
+      },
+      {
+        "node": "Counter",
+        "direction": "input"
+      },
+      {
+        "node": "Aggregator",
+        "direction": "input"
+      },
+      {
+        "node": "Cloud File",
+        "direction": "input"
+      },
+      {
+        "node": "CreateDeposit",
+        "direction": "input"
+      },
+      {
+        "node": "CreateNewPlayer",
+        "direction": "input"
+      },
+      {
+        "node": "CreateStripeDeposit",
+        "direction": "input"
+      },
+      {
+        "node": "DbCollection2",
+        "direction": "input"
+      },
+      {
+        "node": "DbConfig",
+        "direction": "input"
+      },
+      {
+        "node": "collectionName",
+        "direction": "input"
+      },
+      {
+        "node": "AddDbModelRelation",
+        "direction": "input"
+      },
+      {
+        "node": "RemoveDbModelRelation",
+        "direction": "input"
+      },
+      {
+        "node": "DbModel2",
+        "direction": "input"
+      },
+      {
+        "node": "DeleteDbModelProperties",
+        "direction": "input"
+      },
+      {
+        "node": "DepositBalance",
+        "direction": "input"
+      },
+      {
+        "node": "FilterDBModels",
+        "direction": "input"
+      },
+      {
+        "node": "GetBalanceByPlayerId",
+        "direction": "input"
+      },
+      {
+        "node": "GetPlayer",
+        "direction": "input"
+      },
+      {
+        "node": "GetPlayerIdByName",
+        "direction": "input"
+      },
+      {
+        "node": "ListGameSessions",
+        "direction": "input"
+      },
+      {
+        "node": "LoadGameSession",
+        "direction": "input"
+      },
+      {
+        "node": "conditionalports/extended",
+        "direction": "input"
+      },
+      {
+        "node": "Model2",
+        "direction": "input"
+      },
+      {
+        "node": "NewDbModelProperties",
+        "direction": "input"
+      },
+      {
+        "node": "NewModel",
+        "direction": "input"
+      },
+      {
+        "node": "REST2",
+        "direction": "input"
+      },
+      {
+        "node": "SaveGameSession",
+        "direction": "input"
+      },
+      {
+        "node": "SetDbModelProperties",
+        "direction": "input"
+      },
+      {
+        "node": "SetModelProperties",
+        "direction": "input"
+      },
+      {
+        "node": "UpdatePlayer",
+        "direction": "input"
+      },
+      {
+        "node": "WithdrawBalance",
+        "direction": "input"
+      },
+      {
+        "node": "Date To String",
+        "direction": "input"
+      },
+      {
+        "node": "Expression",
+        "direction": "input"
+      },
+      {
+        "node": "If",
+        "direction": "input"
+      },
+      {
+        "node": "Import from JSON file",
+        "direction": "input"
+      },
+      {
+        "node": "Inverter",
+        "direction": "input"
+      },
+      {
+        "node": "Loop",
+        "direction": "input"
+      },
+      {
+        "node": "MCP Tool",
+        "direction": "input"
+      },
+      {
+        "node": "Or ",
+        "direction": "input"
+      },
+      {
+        "node": "RunTasks",
+        "direction": "input"
+      },
+      {
+        "node": "Relay",
+        "direction": "input"
+      },
+      {
+        "node": "JavaScriptFunction",
+        "direction": "input"
+      },
+      {
+        "node": "stateManager",
+        "direction": "input"
+      },
+      {
+        "node": "String Format",
+        "direction": "input"
+      },
+      {
+        "node": "String Mapper",
+        "direction": "input"
+      },
+      {
+        "node": "Substring",
+        "direction": "input"
+      },
+      {
+        "node": "Unique Id",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.user.SetUserProperties",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.user.User",
+        "direction": "input"
+      },
+      {
+        "node": "Boolean",
+        "direction": "input"
+      },
+      {
+        "node": "Number",
+        "direction": "input"
+      },
+      {
+        "node": "String",
+        "direction": "input"
+      },
+      {
+        "node": "Export to JSON file",
+        "direction": "input"
+      },
+      {
+        "node": "@xgenia/pro-nodes",
+        "direction": "input"
+      },
+      {
+        "node": "Auto Bet Strategy Evaluator",
+        "direction": "input"
+      },
+      {
+        "node": "Calculate PF Array Draw",
+        "direction": "input"
+      },
+      {
+        "node": "Check Keno Hits",
+        "direction": "input"
+      },
+      {
+        "node": "Evaluate Keno Paytable",
+        "direction": "input"
+      },
+      {
+        "node": "Addition",
+        "direction": "input"
+      },
+      {
+        "node": "Calculate Roll",
+        "direction": "input"
+      },
+      {
+        "node": "Ceil",
+        "direction": "input"
+      },
+      {
+        "node": "Division",
+        "direction": "input"
+      },
+      {
+        "node": "Equal",
+        "direction": "input"
+      },
+      {
+        "node": "Floor",
+        "direction": "input"
+      },
+      {
+        "node": "Hit Frequency Monitor",
+        "direction": "input"
+      },
+      {
+        "node": "ISAAC Random Number Array Generator",
+        "direction": "input"
+      },
+      {
+        "node": "ISAAC Random Number Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Less Than",
+        "direction": "input"
+      },
+      {
+        "node": "Less Than Or Equal",
+        "direction": "input"
+      },
+      {
+        "node": "Max",
+        "direction": "input"
+      },
+      {
+        "node": "Max Array",
+        "direction": "input"
+      },
+      {
+        "node": "Formula-Generated Array",
+        "direction": "input"
+      },
+      {
+        "node": "Min",
+        "direction": "input"
+      },
+      {
+        "node": "Min Array",
+        "direction": "input"
+      },
+      {
+        "node": "Modulo",
+        "direction": "input"
+      },
+      {
+        "node": "Multiplication",
+        "direction": "input"
+      },
+      {
+        "node": "Random UUID Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Round",
+        "direction": "input"
+      },
+      {
+        "node": "RTP Monitor",
+        "direction": "input"
+      },
+      {
+        "node": "Server Seed Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Single Parameter Formula",
+        "direction": "input"
+      },
+      {
+        "node": "Subtraction",
+        "direction": "input"
+      },
+      {
+        "node": "Sum",
+        "direction": "input"
+      },
+      {
+        "node": "True Random Number Array Generator",
+        "direction": "input"
+      },
+      {
+        "node": "True Random Number Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Validate Outcome",
+        "direction": "input"
+      },
+      {
+        "node": "Verify Commitment",
+        "direction": "input"
+      },
+      {
+        "node": "Verify Fairness",
+        "direction": "input"
+      },
+      {
+        "node": "Volatility Monitor",
+        "direction": "input"
+      },
+      {
+        "node": "Auto ML Analyzer",
+        "direction": "input"
+      },
+      {
+        "node": "Auto ML Predictor",
+        "direction": "input"
+      },
+      {
+        "node": "Auto ML Trainer",
+        "direction": "input"
+      },
+      {
+        "node": "Client Retention Analyzer",
+        "direction": "input"
+      },
+      {
+        "node": "Retention Action Engine",
+        "direction": "input"
+      },
+      {
+        "node": "xgeniaCustomImageParser",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.AnimatedSprite",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.AssetPreloader",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.BitmapText",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Camera2D",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.CollisionDetector",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Container",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.DebugInfo",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.GSAPInertia",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.GSAPPhysics",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Graphics",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.HTMLText",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.KeyboardInput",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.MeshRope",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.MouseInput",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.NineSlicePlane",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ParticleContainer",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ParticleEmitter",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ReelCell",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.RenderTexture",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Spine",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Spritesheet",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Stage",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Text",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.TilingSprite",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.UIScaler",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.GameLoop",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      },
+      {
+        "node": "Render Paylines Pixi",
+        "direction": "input"
+      },
+      {
+        "node": "Calculate Free Spins States",
+        "direction": "input"
+      },
+      {
+        "node": "Calculate Winnings",
+        "direction": "input"
+      },
+      {
+        "node": "Cascade The Reels",
+        "direction": "input"
+      },
+      {
+        "node": "Check Jackpot",
+        "direction": "input"
+      },
+      {
+        "node": "Check Wins",
+        "direction": "input"
+      },
+      {
+        "node": "Generate Reel Strips",
+        "direction": "input"
+      },
+      {
+        "node": "Generate Symbol Weights",
+        "direction": "input"
+      },
+      {
+        "node": "Get Paytable",
+        "direction": "input"
+      },
+      {
+        "node": "Init Free Spins",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Strips Generator",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Ways Calculate Winnings",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Ways Check Wins",
+        "direction": "input"
+      },
+      {
+        "node": "Render Paylines",
+        "direction": "input"
+      },
+      {
+        "node": "SlotMainEngine",
+        "direction": "input"
+      },
+      {
+        "node": "Slot Simulation",
+        "direction": "input"
+      },
+      {
+        "node": "Slot Spin",
+        "direction": "input"
+      },
+      {
+        "node": "Spin Calculate",
+        "direction": "input"
+      },
+      {
+        "node": "Spin Result",
+        "direction": "input"
+      },
+      {
+        "node": "Symbol Frequency Tracker",
+        "direction": "input"
+      },
+      {
+        "node": "Volatility Estimator",
+        "direction": "input"
+      },
+      {
+        "node": "Weighted Reels",
+        "direction": "input"
+      },
+      {
+        "node": "stake.API_MULTIPLIER",
+        "direction": "input"
+      },
+      {
+        "node": "stake.RGSAuthenticate",
+        "direction": "input"
+      },
+      {
+        "node": "stake.BalanceUpdate",
+        "direction": "input"
+      },
+      {
+        "node": "stake.RGSBalance",
+        "direction": "input"
+      },
+      {
+        "node": "stake.DisplayAmount",
+        "direction": "input"
+      },
+      {
+        "node": "stake.RGSEndRound",
+        "direction": "input"
+      },
+      {
+        "node": "stake.RGSEvent",
+        "direction": "input"
+      },
+      {
+        "node": "stake.ParseAmount",
+        "direction": "input"
+      },
+      {
+        "node": "stake.RGSPlay",
+        "direction": "input"
+      },
+      {
+        "node": "stake.RoundActive",
+        "direction": "input"
+      },
+      {
+        "node": "stake.ToAPIAmount",
+        "direction": "input"
+      },
+      {
+        "node": "enum",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.button",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.checkbox",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.radiobutton",
+        "direction": "input"
+      },
+      {
+        "node": "Radio Button Group",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.range",
+        "direction": "input"
+      },
+      {
+        "node": "Sound",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.textinput",
+        "direction": "input"
+      },
+      {
+        "node": "hyve.DataModelNode",
+        "direction": "input"
+      },
+      {
+        "node": "hyve.FeatureNode",
+        "direction": "input"
+      },
+      {
+        "node": "hyve.GoalNode",
+        "direction": "input"
+      },
+      {
+        "node": "hyve.TaskNode",
+        "direction": "input"
+      },
+      {
+        "node": "hyve.UINode",
+        "direction": "input"
+      },
+      {
+        "node": "hyve.UserStoryNode",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.InputAction",
+        "direction": "input"
+      },
+      {
+        "node": "NavigationClosePopup",
+        "direction": "input"
+      },
+      {
+        "node": "PageStackNavigateBack",
+        "direction": "input"
+      },
+      {
+        "node": "PageStackNavigateToPath",
+        "direction": "input"
+      },
+      {
+        "node": "PageStackNavigate",
+        "direction": "input"
+      },
+      {
+        "node": "Page Stack",
+        "direction": "input"
+      },
+      {
+        "node": "PageInputs",
+        "direction": "input"
+      },
+      {
+        "node": "Page",
+        "direction": "input"
+      },
+      {
+        "node": "RouterNavigate",
+        "direction": "input"
+      },
+      {
+        "node": "Router",
+        "direction": "input"
+      },
+      {
+        "node": "NavigationShowPopup",
+        "direction": "input"
+      },
+      {
+        "node": "tr-direction",
+        "direction": "input"
+      },
+      {
+        "node": "AdvancedTimer",
+        "direction": "input"
+      },
+      {
+        "node": "logic.InputAction",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.animatetovalue",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.animationtarget",
+        "direction": "input"
+      },
+      {
+        "node": "Color Blend",
+        "direction": "input"
+      },
+      {
+        "node": "stringlist",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.ComponentObject",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.ParentComponentObject",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.SetComponentObjectProperties",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.SetParentComponentObjectProperties",
+        "direction": "input"
+      },
+      {
+        "node": "Cloud Function",
+        "direction": "input"
+      },
+      {
+        "node": "CloudFunction2",
+        "direction": "input"
+      },
+      {
+        "node": "CollectionInsert",
+        "direction": "input"
+      },
+      {
+        "node": "CollectionNew",
+        "direction": "input"
+      },
+      {
+        "node": "CollectionRemove",
+        "direction": "input"
+      },
+      {
+        "node": "Collection2",
+        "direction": "input"
+      },
+      {
+        "node": "Concatenate Array",
+        "direction": "input"
+      },
+      {
+        "node": "CopyArray",
+        "direction": "input"
+      },
+      {
+        "node": "Extract Values",
+        "direction": "input"
+      },
+      {
+        "node": "Fill-Generated Array",
+        "direction": "input"
+      },
+      {
+        "node": "Filter Collection",
+        "direction": "input"
+      },
+      {
+        "node": "For Each",
+        "direction": "input"
+      },
+      {
+        "node": "For Each Actions",
+        "direction": "input"
+      },
+      {
+        "node": "Repeater Loop",
+        "direction": "input"
+      },
+      {
+        "node": "GetArrayItem",
+        "direction": "input"
+      },
+      {
+        "node": "Iterator",
+        "direction": "input"
+      },
+      {
+        "node": "Map Collection",
+        "direction": "input"
+      },
+      {
+        "node": "ModifyObjectInArray",
+        "direction": "input"
+      },
+      {
+        "node": "Set Variable",
+        "direction": "input"
+      },
+      {
+        "node": "Show Value",
+        "direction": "input"
+      },
+      {
+        "node": "Sort Collection",
+        "direction": "input"
+      },
+      {
+        "node": "Static Data",
+        "direction": "input"
+      },
+      {
+        "node": "Variable2",
+        "direction": "input"
+      },
+      {
+        "node": "Event Receiver",
+        "direction": "input"
+      },
+      {
+        "node": "Event Sender",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.externallink",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.gsapAnimator",
+        "direction": "input"
+      },
+      {
+        "node": "Javascript2",
+        "direction": "input"
+      },
+      {
+        "node": "Number Remapper",
+        "direction": "input"
+      },
+      {
+        "node": "Open File Picker",
+        "direction": "input"
+      },
+      {
+        "node": "Screen Resolution",
+        "direction": "input"
+      },
+      {
+        "node": "States",
+        "direction": "input"
+      },
+      {
+        "node": "Switch",
+        "direction": "input"
+      },
+      {
+        "node": "Timer",
+        "direction": "input"
+      },
+      {
+        "node": "Timestamp",
+        "direction": "input"
+      },
+      {
+        "node": "Upload File",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.user.LogIn",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.user.LogOut",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.user.RequestPasswordReset",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.user.ResetPassword",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.user.SendEmailVerification",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.user.SignUp",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.user.VerifyEmail",
+        "direction": "input"
+      },
+      {
+        "node": "Value Changed",
+        "direction": "input"
+      },
+      {
+        "node": "Color",
+        "direction": "input"
+      },
+      {
+        "node": "Circle",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.visual.columns",
+        "direction": "input"
+      },
+      {
+        "node": "CSS Definition",
+        "direction": "input"
+      },
+      {
+        "node": "Debug Panel Visual",
+        "direction": "input"
+      },
+      {
+        "node": "Object Viewer",
+        "direction": "input"
+      },
+      {
+        "node": "Distribution Chart",
+        "direction": "input"
+      },
+      {
+        "node": "Drag",
+        "direction": "input"
+      },
+      {
+        "node": "Group",
+        "direction": "input"
+      },
+      {
+        "node": "Histogram Chart",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.visual.icon",
+        "direction": "input"
+      },
+      {
+        "node": "Image",
+        "direction": "input"
+      },
+      {
+        "node": "Line Chart",
+        "direction": "input"
+      },
+      {
+        "node": "xgenia.Loader",
+        "direction": "input"
+      },
+      {
+        "node": "Project Version Tag",
+        "direction": "input"
+      },
+      {
+        "node": "Reel Visualizer",
+        "direction": "input"
+      },
+      {
+        "node": "Text",
+        "direction": "input"
+      },
+      {
+        "node": "Video",
+        "direction": "input"
+      },
+      {
+        "node": "xgenia.cloud.request",
+        "direction": "input"
+      },
+      {
+        "node": "xgenia.cloud.response",
+        "direction": "input"
+      },
+      {
+        "node": "xgenia.cloud.aggregate",
+        "direction": "input"
+      }
+    ],
     "a": [
       {
         "node": "And ",
@@ -34189,12 +36916,6 @@
       },
       {
         "node": "Javascript2",
-        "direction": "input"
-      }
-    ],
-    "functionScript": [
-      {
-        "node": "JavaScriptFunction",
         "direction": "input"
       }
     ],
