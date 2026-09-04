@@ -104,6 +104,7 @@ function registerNodes(xgeniaRuntime) {
     require('./src/nodes/std-library/stringmapper'),
     require('./src/nodes/std-library/substring'),
     require('./src/nodes/std-library/stringformat'),
+    require('./src/nodes/std-library/languagesdictionary'),
     require('./src/nodes/std-library/counter'),
     require('./src/nodes/std-library/uniqueid'),
     require('./src/nodes/std-library/writeToJson'),

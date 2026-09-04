@@ -80,6 +80,11 @@ export class RgsExtraNodeConverter {
     ['Unique Id', { kind: 'logic', outputs: [{ name: 'guid', type: 'string' }] }],
     ['String Format', { kind: 'logic', outputs: [{ name: 'formatted', type: 'string' }] }],
     ['Convert to String', { kind: 'logic', outputs: [{ name: 'Result', type: 'string' }] }],
+    // Dictionary lookup — pure, no I/O, so it runs for real. Its phrase ports are
+    // dynamic, and the returned object carries one property per phrase alongside
+    // the static outputs, so name-based access resolves them the same way it does
+    // for Convert Record into Outputs.
+    ['Languages Dictionary', { kind: 'logic', outputs: [{ name: 'resolvedLanguage', type: 'string' }, { name: 'languages', type: 'array' }, { name: 'translations', type: 'object' }] }],
 
     // ── Stateful monitors (stub — need cross-call accumulation) ─────────────
     ['Hit Frequency Monitor', { kind: 'stub', outputs: [{ name: 'Hit Frequency', type: 'number' }] }],
@@ -382,6 +387,73 @@ function _rgsUuid() {
           '  _fmt = _fmt.replace(_matches[_i], _val !== undefined ? _val : "");',
           '}',
           'return { formatted: _fmt };'
+        ].join('\n      ');
+
+      case 'Languages Dictionary':
+        // Mirrors the runtime node (languagesdictionary.js): read the dictionary
+        // (the Dictionary Data port first, the node's own table/JSON/rows second),
+        // detect its layout, resolve the language loosely (exact -> case-insensitive
+        // -> base -> variant -> fallback -> first), flatten it to dot paths and
+        // return one property per phrase — the node's ports are its phrase keys, so
+        // name-based access resolves them the same way it does for Convert Record
+        // into Outputs. navigator does not exist in the sandbox, so Use Device
+        // Language falls through to the fallback: the deployed value is server-side
+        // and has no browser to read.
+        return [
+          'var _isObj = function (v) { return !!v && typeof v === "object" && !Array.isArray(v); };',
+          'var _flat = function (o, p, out) { var _ks = Object.keys(o); for (var _i = 0; _i < _ks.length; _i++) { var _v = o[_ks[_i]]; var _path = p ? p + "." + _ks[_i] : _ks[_i]; if (_isObj(_v)) { _flat(_v, _path, out); } else { out[_path] = _v; } } return out; };',
+          // Table cells may be quoted CSV-style so a translation can contain the separator.
+          'var _splitRow = function (line, sep) { var _cells = []; var _cur = ""; var _q = false; var _wasQ = false; for (var _i = 0; _i < line.length; _i++) { var _c = line.charAt(_i); if (_q) { if (_c === "\\"") { if (line.charAt(_i + 1) === "\\"") { _cur += "\\""; _i++; } else { _q = false; } } else { _cur += _c; } } else if (_c === "\\"" && _cur.replace(/^\\s+|\\s+$/g, "") === "") { _q = true; _wasQ = true; _cur = ""; } else if (_c === sep) { _cells.push(_wasQ ? _cur : _cur.replace(/^\\s+|\\s+$/g, "")); _cur = ""; _wasQ = false; } else { _cur += _c; } } _cells.push(_wasQ ? _cur : _cur.replace(/^\\s+|\\s+$/g, "")); return _cells; };',
+          'var _parseTable = function (txt) { var _lines = []; var _raw = txt.split("\\n"); for (var _i = 0; _i < _raw.length; _i++) { var _l = _raw[_i].replace(/^\\s+|\\s+$/g, ""); if (_l !== "" && _l.charAt(0) !== "#" && _l.indexOf("//") !== 0) { _lines.push(_l); } } if (_lines.length < 2) { return null; } var _sep = _lines[0].indexOf("\\t") !== -1 ? "\\t" : (_lines[0].indexOf("|") !== -1 ? "|" : ","); var _langs = _splitRow(_lines[0], _sep).slice(1); if (_langs.length === 0) { return null; } var _d = {}; for (var _k = 0; _k < _langs.length; _k++) { if (_langs[_k] !== "") { _d[_langs[_k]] = {}; } } for (var _r = 1; _r < _lines.length; _r++) { var _row = _splitRow(_lines[_r], _sep); var _key = _row[0]; if (_key === "") { continue; } for (var _c2 = 0; _c2 < _langs.length; _c2++) { var _v = _row[_c2 + 1]; if (_langs[_c2] !== "" && _v !== undefined && _v !== "") { _d[_langs[_c2]][_key] = _v; } } } return _d; };',
+          // Rows: [{ key, en, id }] or [["key","en"],["hello","Hello"]].
+          'var _rowsToDict = function (rows) { if (!rows || rows.length === 0) { return null; } var _langs; var _entries; var _i; if (Array.isArray(rows[0])) { var _header = rows[0].map(function (c) { return c === undefined || c === null ? "" : String(c).replace(/^\\s+|\\s+$/g, ""); }); _langs = _header.slice(1); _entries = rows.slice(1).map(function (row) { var _vals = {}; for (var _j = 0; _j < _langs.length; _j++) { _vals[_langs[_j]] = Array.isArray(row) ? row[_j + 1] : undefined; } return { key: Array.isArray(row) ? row[0] : undefined, values: _vals }; }); } else if (_isObj(rows[0])) { var _fields = Object.keys(rows[0]); var _keyField = _fields[0]; for (_i = 0; _i < _fields.length; _i++) { if (_fields[_i].toLowerCase() === "key") { _keyField = _fields[_i]; break; } } _langs = []; for (_i = 0; _i < rows.length; _i++) { if (!_isObj(rows[_i])) { continue; } var _rk = Object.keys(rows[_i]); for (var _f = 0; _f < _rk.length; _f++) { if (_rk[_f] !== _keyField && _langs.indexOf(_rk[_f]) === -1) { _langs.push(_rk[_f]); } } } _entries = rows.map(function (row) { if (!_isObj(row)) { return { key: undefined, values: {} }; } var _vals = {}; for (var _j = 0; _j < _langs.length; _j++) { _vals[_langs[_j]] = row[_langs[_j]]; } return { key: row[_keyField], values: _vals }; }); } else { return null; } if (_langs.length === 0) { return null; } var _d = {}; for (_i = 0; _i < _langs.length; _i++) { if (_langs[_i] !== "") { _d[_langs[_i]] = {}; } } for (_i = 0; _i < _entries.length; _i++) { var _e = _entries[_i]; var _key2 = (_e.key === undefined || _e.key === null) ? "" : String(_e.key).replace(/^\\s+|\\s+$/g, ""); if (_key2 === "") { continue; } for (var _j2 = 0; _j2 < _langs.length; _j2++) { var _v2 = _e.values[_langs[_j2]]; if (_langs[_j2] !== "" && _v2 !== undefined && _v2 !== null && _v2 !== "") { _d[_langs[_j2]][_key2] = _v2; } } } return _d; };',
+          'var _parseValue = function (v) { if (v === undefined || v === null) { return null; } if (typeof v === "string") { var _t = v.replace(/^\\s+|\\s+$/g, ""); if (_t === "") { return null; } if (_t.charAt(0) === "{" || _t.charAt(0) === "[") { try { return _parseValue(JSON.parse(_t)); } catch (_e) { return null; } } return _parseTable(_t); } if (Array.isArray(v)) { return _rowsToDict(v); } if (_isObj(v)) { return v; } return null; };',
+          // dictionaryObject / dictionaryJson / keys are the node's first-iteration
+          // port names, still accepted there and so still accepted here.
+          'var _dict = _parseValue(inputs.dictionaryData) || _parseValue(inputs.dictionaryObject) || _parseValue(inputs.dictionary) || _parseValue(inputs.dictionaryJson);',
+          'var _norm = function (s) { return String(s).toLowerCase().split("_").join("-"); };',
+          'var _match = function (req, avail) { if (!req) { return null; } var _w = String(req).replace(/^\\s+|\\s+$/g, ""); if (_w === "") { return null; } if (avail.indexOf(_w) !== -1) { return _w; } var _l = _norm(_w); var _i; for (_i = 0; _i < avail.length; _i++) { if (_norm(avail[_i]) === _l) { return avail[_i]; } } var _b = _l.split("-")[0]; for (_i = 0; _i < avail.length; _i++) { if (_norm(avail[_i]) === _b) { return avail[_i]; } } for (_i = 0; _i < avail.length; _i++) { if (_norm(avail[_i]).split("-")[0] === _b) { return avail[_i]; } } return null; };',
+          'var _keyList = function (v) { if (!v) { return []; } var _out = []; var _parts = String(v).split(/[\\n,;]/); for (var _i = 0; _i < _parts.length; _i++) { var _k = _parts[_i].replace(/^\\s+|\\s+$/g, ""); if (_k !== "" && _out.indexOf(_k) === -1) { _out.push(_k); } } return _out; };',
+          'var _keys = _keyList(inputs.extraKeys !== undefined ? inputs.extraKeys : inputs.keys);',
+          'if (inputs.key != null && String(inputs.key).replace(/^\\s+|\\s+$/g, "") !== "") { var _legacyKey = String(inputs.key).replace(/^\\s+|\\s+$/g, ""); if (_keys.indexOf(_legacyKey) === -1) { _keys.push(_legacyKey); } }',
+          'var _behavior = inputs.missingBehavior || "key";',
+          'var _missingText = inputs.missingText != null ? String(inputs.missingText) : "";',
+          'var _missingFor = function (k) { if (_behavior === "empty") { return ""; } if (_behavior === "custom") { return _missingText; } return k; };',
+          // A phrase named like a static output gets no port of its own in the
+          // editor, so it must not overwrite that output here either.
+          'var _reserved = { resolvedLanguage: true, languages: true, translations: true, Changed: true, Missing: true };',
+          'var _vars = _isObj(inputs.variables) ? inputs.variables : null;',
+          'var _interp = function (t) { if (typeof t !== "string" || t.indexOf("{") === -1) { return t; } return t.replace(/\\{([A-Za-z0-9_.]+)\\}/g, function (m, n) { if (!_vars) { return m; } var _cur = _vars; var _seg = n.split("."); for (var _i = 0; _i < _seg.length; _i++) { if (!_isObj(_cur)) { return m; } _cur = _cur[_seg[_i]]; } return (_cur === undefined || _cur === null) ? m : String(_cur); }); };',
+          'var _res = { resolvedLanguage: "", languages: [], translations: {} };',
+          'if (!_dict) { for (var _mi = 0; _mi < _keys.length; _mi++) { if (!_reserved[_keys[_mi]]) { _res[_keys[_mi]] = _missingFor(_keys[_mi]); } } return _res; }',
+          'var _top = Object.keys(_dict);',
+          'var _fmtIn = inputs.dictionaryFormat || "auto";',
+          'var _langFirst;',
+          'if (_fmtIn === "languageFirst") { _langFirst = true; } else if (_fmtIn === "keyFirst") { _langFirst = false; } else { var _containers = 0, _codes = 0; for (var _ti = 0; _ti < _top.length; _ti++) { if (_isObj(_dict[_top[_ti]])) { _containers++; } if (/^[a-z]{2,3}([-_][A-Za-z0-9]{2,8})*$/.test(_top[_ti])) { _codes++; } } _langFirst = _top.length === 0 || (_containers === _top.length && _codes * 2 > _top.length); }',
+          'var _avail;',
+          'if (_langFirst) { _avail = _top; } else { var _set = {}; var _walk = function (o, d) { var _ks = Object.keys(o); for (var _i = 0; _i < _ks.length; _i++) { var _v = o[_ks[_i]]; if (!_isObj(_v)) { continue; } var _inner = Object.keys(_v); var _leaves = true; for (var _j = 0; _j < _inner.length; _j++) { if (_isObj(_v[_inner[_j]])) { _leaves = false; } } if (_leaves && _inner.length > 0) { for (var _k = 0; _k < _inner.length; _k++) { _set[_inner[_k]] = true; } } else if (d < 4) { _walk(_v, d + 1); } } }; _walk(_dict, 0); _avail = Object.keys(_set); }',
+          'var _table = function (lang) { if (!lang) { return {}; } if (_langFirst) { var _branch = _dict[lang]; return _isObj(_branch) ? _flat(_branch, "", {}) : {}; } var _out = {}; var _all = _flat(_dict, "", {}); var _paths = Object.keys(_all); for (var _i = 0; _i < _paths.length; _i++) { var _seg = _paths[_i].split("."); var _last = _seg.pop(); if (_last === lang && _seg.length > 0) { _out[_seg.join(".")] = _all[_paths[_i]]; } } return _out; };',
+          // Falling back to the dictionary's first language keeps a typo in the
+          // Language field from turning every phrase into a bare key.
+          'var _lang = _match(inputs.language, _avail) || _match(inputs.fallbackLanguage, _avail) || (_avail.length > 0 ? _avail[0] : null);',
+          'var _fbLang = _match(inputs.fallbackLanguage, _avail);',
+          'var _main = _table(_lang);',
+          'var _fb = (_fbLang && _fbLang !== _lang) ? _table(_fbLang) : null;',
+          // Every phrase of the dictionary gets a port (up to the node's cap of 50),
+          // so the compiled function must resolve those names too.
+          'var _autoKeys = [];',
+          'var _push = function (k) { if (_autoKeys.indexOf(k) === -1) { _autoKeys.push(k); } };',
+          'if (_langFirst) { for (var _ai = 0; _ai < _top.length; _ai++) { var _branch2 = _dict[_top[_ai]]; if (!_isObj(_branch2)) { continue; } var _bk = Object.keys(_flat(_branch2, "", {})); for (var _bi = 0; _bi < _bk.length; _bi++) { _push(_bk[_bi]); } } } else { var _allPaths = Object.keys(_flat(_dict, "", {})); for (var _pi = 0; _pi < _allPaths.length; _pi++) { var _sg = _allPaths[_pi].split("."); _sg.pop(); if (_sg.length > 0) { _push(_sg.join(".")); } } }',
+          'if (_autoKeys.length <= 50) { for (var _qi = 0; _qi < _autoKeys.length; _qi++) { if (_keys.indexOf(_autoKeys[_qi]) === -1) { _keys.push(_autoKeys[_qi]); } } }',
+          // Phrase keys are matched exactly, then ignoring case and stray spaces.
+          'var _look = function (tbl, k) { if (tbl[k] !== undefined) { return tbl[k]; } var _t = String(k).replace(/^\\s+|\\s+$/g, ""); if (tbl[_t] !== undefined) { return tbl[_t]; } var _w = _t.toLowerCase(); var _names = Object.keys(tbl); for (var _i = 0; _i < _names.length; _i++) { if (_names[_i].toLowerCase() === _w) { return tbl[_names[_i]]; } } return undefined; };',
+          'var _textFor = function (k) { var _v = _look(_main, k); if (_v === undefined && _fb) { _v = _look(_fb, k); } if (_v === undefined) { return _interp(_missingFor(k)); } return _interp(typeof _v === "string" ? _v : String(_v)); };',
+          '_res.languages = _avail;',
+          '_res.resolvedLanguage = _lang || "";',
+          'var _mk = Object.keys(_main);',
+          'for (var _i2 = 0; _i2 < _mk.length; _i2++) { _res.translations[_mk[_i2]] = _interp(String(_main[_mk[_i2]])); }',
+          'for (var _i3 = 0; _i3 < _keys.length; _i3++) { if (!_reserved[_keys[_i3]]) { _res[_keys[_i3]] = _textFor(_keys[_i3]); } }',
+          'return _res;'
         ].join('\n      ');
 
       default:

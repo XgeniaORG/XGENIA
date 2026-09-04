@@ -623,6 +623,10 @@ function generateNodeLibrary(nodeRegister) {
           items: ['Substring', 'String Mapper', 'String Format', 'Date To String', 'Unique Id']
         },
         {
+          name: 'Localization',
+          items: ['Languages Dictionary']
+        },
+        {
           name: 'System',
           items: ['Screen Resolution', 'Timestamp', 'Open File Picker']
         },

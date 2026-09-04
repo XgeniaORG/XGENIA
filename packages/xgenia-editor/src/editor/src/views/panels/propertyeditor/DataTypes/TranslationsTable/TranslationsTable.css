@@ -1,0 +1,235 @@
+/* Table editor for the Languages Dictionary node's phrases. Opened from the
+   property panel (Open Table) and shown in a property popout, which the user can
+   drag by the header and resize from the grip in the bottom right corner. The
+   size comes from the component as an inline style, so it is not set here. */
+
+.translations-table {
+  display: flex;
+  flex-direction: column;
+  min-width: 420px;
+  min-height: 260px;
+  max-width: 96vw;
+  max-height: 92vh;
+  overflow: hidden;
+  background: var(--theme-color-bg-2, #2a2a2a);
+  color: var(--theme-color-fg-default, #b3b3b3);
+  font-size: 12px;
+}
+
+.translations-table__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--theme-color-bg-0, #1c1c1c);
+  background: var(--theme-color-bg-3, #3a3a3a);
+  cursor: move;
+  user-select: none;
+}
+
+.translations-table__title {
+  color: var(--theme-color-fg-highlight, #fff);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+.translations-table__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.translations-table__toolbar-actions button,
+.translations-table__empty button {
+  background: var(--theme-color-bg-2, #2a2a2a);
+  color: var(--theme-color-fg-default, #b3b3b3);
+  border: none;
+  border-radius: 2px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.translations-table__toolbar-actions button:hover,
+.translations-table__empty button:hover {
+  background: var(--theme-color-bg-4, #4a4a4a);
+  color: var(--theme-color-fg-highlight, #fff);
+}
+
+.translations-table__mode {
+  opacity: 0.8;
+}
+
+.translations-table__close {
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 8px !important;
+}
+
+.translations-table__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.translations-table table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.translations-table th,
+.translations-table td {
+  padding: 0;
+  border: 1px solid var(--theme-color-bg-0, #1c1c1c);
+  vertical-align: middle;
+}
+
+.translations-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--theme-color-bg-3, #3a3a3a);
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* Every cell is a flex row: the field takes the room that is left, the delete
+   button keeps its own. Without this the full-width input pushes the button out
+   of the cell, where it is clipped and cannot be clicked. */
+.translations-table__cell {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 27px;
+}
+
+.translations-table__cell input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.translations-table thead th input {
+  color: var(--theme-color-fg-highlight, #fff);
+  font-weight: 600;
+  min-width: 56px;
+}
+
+.translations-table input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  width: 100%;
+  min-width: 140px;
+  box-sizing: border-box;
+}
+
+.translations-table input:focus {
+  background: var(--theme-color-bg-1, #222);
+  box-shadow: inset 0 0 0 1px var(--theme-color-primary, #6a9955);
+}
+
+.translations-table__key-column {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--theme-color-bg-1, #222);
+}
+
+.translations-table thead .translations-table__key-column {
+  z-index: 3;
+  padding: 6px 8px;
+  color: var(--theme-color-fg-highlight, #fff);
+  background: var(--theme-color-bg-3, #3a3a3a);
+}
+
+.translations-table__key-column input {
+  min-width: 110px;
+  color: var(--theme-color-fg-highlight, #fff);
+}
+
+.translations-table__remove {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  border-radius: 2px;
+  color: var(--theme-color-fg-muted, #777);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  width: 20px;
+  height: 20px;
+  margin-right: 3px;
+  padding: 0;
+}
+
+.translations-table__remove:hover {
+  background: var(--theme-color-danger, #d05353);
+  color: #fff;
+}
+
+.translations-table__textarea {
+  flex: 1 1 auto;
+  min-height: 0;
+  resize: none;
+  background: var(--theme-color-bg-1, #222);
+  color: inherit;
+  border: none;
+  outline: none;
+  padding: 10px;
+  font-family: 'Menlo', 'Consolas', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.translations-table__empty {
+  padding: 16px 10px;
+  color: var(--theme-color-fg-muted, #777);
+}
+
+.translations-table__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 6px 4px 6px 10px;
+  border-top: 1px solid var(--theme-color-bg-0, #1c1c1c);
+  color: var(--theme-color-fg-muted, #777);
+}
+
+.translations-table__hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.translations-table__error {
+  color: var(--theme-color-danger, #d05353);
+}
+
+.translations-table__footer code {
+  background: var(--theme-color-bg-1, #222);
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+/* Resize grip in the bottom right corner — the same control the code editor
+   popout uses, so the gesture is already familiar. */
+.translations-table__resize {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  cursor: nwse-resize;
+}
+
+.translations-table__resize button {
+  cursor: nwse-resize;
+}
