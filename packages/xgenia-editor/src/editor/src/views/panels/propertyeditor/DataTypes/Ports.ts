@@ -33,6 +33,7 @@ import { SizeModeType } from './SizeModeType';
 import { StringListType } from './StringList/StringListType';
 import { TabGroup } from './TabGroup';
 import { TextAreaType } from './TextAreaType';
+import { TranslationsTableType } from './TranslationsTable/TranslationsTableType';
 import { TextStyleType } from './TextStyleType';
 import { VariableType } from './VariableType';
 
@@ -367,6 +368,11 @@ export class Ports extends View {
       return NodeLibrary.nameForPortType(type) === 'proplist';
     }
 
+    // Is of translations table (Languages Dictionary)
+    function isOfTranslationsTableType() {
+      return NodeLibrary.nameForPortType(type) === 'translations-table';
+    }
+
     if (isOfAlignToolsType()) return AlignToolsType;
     else if (isOfSizeModeType()) return SizeModeType;
     else if (isOfEnumType()) return EnumType;
@@ -396,6 +402,7 @@ export class Ports extends View {
     else if (isOfQuerySortingType()) return QuerySortingType;
     else if (isOfPagesType()) return PagesType;
     else if (isOfPropListType()) return PropListType;
+    else if (isOfTranslationsTableType()) return TranslationsTableType;
   }
   _getPorts(): readonly Port[] {
     let ports = this.model.getPorts('input');
