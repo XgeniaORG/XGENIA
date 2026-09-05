@@ -37,17 +37,31 @@ export function portOwnerCommand(
  *
  * Each branch matches only lines that actually describe a listener, so a header
  * row or an empty result yields null rather than a bogus pid.
+ *
+ * On win32, the port parameter filters by local-address. When undefined, the
+ * first LISTENING line wins (legacy behavior). On darwin and linux, port is ignored
+ * because the tool output already contains only the requested port.
  */
 export function parsePortOwnerPid(
   output: string,
-  platform: NodeJS.Platform = process.platform
+  platform: NodeJS.Platform = process.platform,
+  port?: number
 ): number | null {
   const lines = output.split(/\r?\n/).filter((l) => l.trim().length > 0);
 
   if (platform === 'win32') {
     for (const line of lines) {
-      const m = line.trim().match(/^TCP\s+\S+\s+\S+\s+LISTENING\s+(\d+)$/i);
-      if (m) return Number(m[1]);
+      const m = line.trim().match(/^TCP\s+(\S+)\s+\S+\s+LISTENING\s+(\d+)$/i);
+      if (!m) continue;
+      const localAddr = m[1];
+      const pid = Number(m[2]);
+      // If port is specified, match it at the end of the local address (IPv4 or IPv6)
+      if (port !== undefined) {
+        if (localAddr.endsWith(`:${port}`)) return pid;
+      } else {
+        // Legacy: no port specified, return first LISTENING
+        return pid;
+      }
     }
     return null;
   }
