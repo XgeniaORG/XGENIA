@@ -22,7 +22,9 @@ describe('chat frame selectors', () => {
     expect(el.hasAttribute('data-empty')).toBe(true);
   });
 
-  it('finds exactly one of the busy/idle buttons', () => {
+  it('finds at least one of the mutually exclusive busy/idle buttons', () => {
+    // Stop and Send are mutually exclusive by design (busy vs idle panel
+    // state), so this only asserts that one of them is present -- not which.
     const stop = doc.querySelectorAll(SELECTORS.chatStop).length;
     const send = doc.querySelectorAll(SELECTORS.chatSend).length;
     expect(stop + send).toBeGreaterThan(0);
@@ -34,6 +36,23 @@ describe('editor page selectors', () => {
 
   it('finds the chat iframe', () => {
     expect(doc.querySelector(SELECTORS.chatIframe)).not.toBeNull();
+  });
+
+  it("capture script's page-finder matches SELECTORS.editorPageUrlSuffix", () => {
+    // capture-fixtures.mjs is a plain .mjs run directly by node -- it cannot
+    // import selectors.ts without a build step, so it hardcodes its own copy
+    // of the editor page URL suffix to find the right CDP target. This test
+    // is what keeps that copy honest: if it drifts from SELECTORS here, the
+    // capture script silently stops finding the editor page (or someone
+    // "fixes" the script and this constant goes stale instead).
+    const scriptPath = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '..',
+      'scripts',
+      'capture-fixtures.mjs'
+    );
+    const scriptSource = fs.readFileSync(scriptPath, 'utf8');
+    expect(scriptSource).toContain(SELECTORS.editorPageUrlSuffix);
   });
 });
 
