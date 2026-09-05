@@ -1,4 +1,5 @@
 // Advanced Timer Node inspired by ct-js timer system
+import { tickerAdd, tickerRemove } from '../../pixi-ticker-safety';
 const AdvancedTimerNode = {
   name: 'AdvancedTimer',
   displayNodeName: 'Advanced Timer',
@@ -293,7 +294,7 @@ const AdvancedTimerNode = {
           (window.xgeniaTicker || window.xgeniaUiTicker);
         
         if (ticker) {
-          ticker.add(this._onTick);
+          tickerAdd(ticker, this._onTick);
           this._internal.tickerAttached = true;
         }
       } else if (!shouldBeTicking && this._internal.tickerAttached) {
@@ -302,7 +303,7 @@ const AdvancedTimerNode = {
           (window.xgeniaTicker || window.xgeniaUiTicker);
         
         if (ticker) {
-          ticker.remove(this._onTick);
+          tickerRemove(ticker, this._onTick);
           this._internal.tickerAttached = false;
         }
       }
@@ -355,7 +356,7 @@ const AdvancedTimerNode = {
           (window.xgeniaTicker || window.xgeniaUiTicker);
         
         if (ticker) {
-          ticker.remove(this._onTick);
+          tickerRemove(ticker, this._onTick);
         }
       }
     }

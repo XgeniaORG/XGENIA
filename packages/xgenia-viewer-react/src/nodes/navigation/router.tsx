@@ -671,7 +671,12 @@ const RouterNode: RouterNodeDefinition = {
         //       remainingNavigationPath is undefined, since it have to run
         //       matchPageFromUrl to get the path. So it feels like it needs
         //       some bigger refactoring to make it understandable.
-        component = this._internal.pages.startPage;
+        // `pages` is set from an input (see the setter above) and is undefined until the
+        // router has one, which is why the sibling branch guards the very same read. This one
+        // did not, and threw `Cannot read properties of undefined (reading 'startPage')` out of
+        // resetAsync as an unhandled rejection when a parameter reset re-ran the router before
+        // its pages input had been fed. `component === undefined` is already handled below.
+        component = this._internal.pages !== undefined ? this._internal.pages.startPage : undefined;
         params = {};
       }
 

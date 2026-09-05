@@ -110,6 +110,13 @@ View.prototype.bindView = function (el, obj) {
     return resolved.obj[resolved.prop];
   };
 
+  function escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
   function resolveStaticOrFromPath(attribute, obj) {
     if (attribute.startsWith('path:')) {
       const path = attribute.split('path:')[1];
@@ -142,15 +149,30 @@ View.prototype.bindView = function (el, obj) {
         var el = $(this);
 
         let tooltip = resolveStaticOrFromPath(el.attr('data-tooltip'), obj);
-        if (!tooltip) return;
+
+        // A label clipped by its column (overflow:hidden + text-overflow:ellipsis) hides the
+        // rest of its own text, and hovering it was a dead end whenever the port carried no
+        // tooltip of its own. Whatever got cut off is exactly what the reader is hovering to
+        // find out, so lead the tooltip with the full text.
+        const node = el[0];
+        const clipped = node && node.scrollWidth > node.clientWidth + 1 ? node.textContent : null;
+
+        if (!tooltip && !clipped) return;
 
         let content, extendedContent;
 
-        if (typeof tooltip === 'object') {
+        if (tooltip && typeof tooltip === 'object') {
           content = tooltip.standard;
           extendedContent = tooltip.extended;
         } else {
           content = tooltip;
+        }
+
+        if (clipped) {
+          const title = '<h3>' + escapeHtml(clipped) + '</h3>';
+          // A port tooltip may already be an HTML block (createTooltip emits <h3>/<p>), and
+          // wrapping that in a <p> would break the nesting, so only wrap plain text.
+          content = !content ? title : title + (/^\s*</.test(content) ? content : '<p>' + content + '</p>');
         }
 
         const position = el.attr('data-tooltip-position');

@@ -1,4 +1,5 @@
 // Advanced Input Action Node inspired by ct-js input system
+import { tickerAdd, tickerRemove } from '../../pixi-ticker-safety';
 const PixiInputActionNode = {
   name: 'pixi.InputAction',
   displayNodeName: 'Input Action',
@@ -271,10 +272,10 @@ const PixiInputActionNode = {
       const shouldBeTicking = this._internal.app && this._internal.methods.size > 0;
       
       if (shouldBeTicking && !this._internal.tickerAttached) {
-        this._internal.app.ticker.add(this._onTick);
+        tickerAdd(this._internal.app.ticker, this._onTick);
         this._internal.tickerAttached = true;
       } else if (!shouldBeTicking && this._internal.tickerAttached) {
-        this._internal.app.ticker.remove(this._onTick);
+        tickerRemove(this._internal.app.ticker, this._onTick);
         this._internal.tickerAttached = false;
       }
     },
@@ -495,7 +496,7 @@ const PixiInputActionNode = {
     
     _onNodeDeleted() {
       if (this._internal.app && this._internal.tickerAttached) {
-        this._internal.app.ticker.remove(this._onTick);
+        tickerRemove(this._internal.app.ticker, this._onTick);
       }
       
       // Remove event listeners

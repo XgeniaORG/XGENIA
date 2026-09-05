@@ -2307,6 +2307,128 @@
         }
       }
     },
+    "Languages Dictionary": {
+      "name": "Languages Dictionary",
+      "file": "languagesdictionary.js",
+      "relativePath": "packages/xgenia-runtime/src/nodes/std-library/languagesdictionary.js",
+      "category": "Utilities",
+      "docs": "https://docsapp.xgenia.com/nodes/utilities/localization/languages-dictionary",
+      "lineCount": 1188,
+      "byteSize": 38957,
+      "inputFormatHints": {
+        "dictionary": {
+          "displayName": "Dictionary",
+          "type": "translations-table",
+          "notConnectable": true,
+          "group": "Dictionary"
+        },
+        "language": {
+          "displayName": "Language",
+          "type": "string",
+          "group": "Language"
+        },
+        "fallbackLanguage": {
+          "displayName": "Fallback Language",
+          "type": "string",
+          "group": "Language"
+        },
+        "autoDetectLanguage": {
+          "displayName": "Use Device Language",
+          "type": "boolean",
+          "group": "Language"
+        },
+        "variables": {
+          "displayName": "Variables",
+          "type": "object",
+          "group": "Translation"
+        },
+        "dictionaryData": {
+          "displayName": "Dictionary Data",
+          "type": "*",
+          "group": "Advanced"
+        },
+        "extraKeys": {
+          "displayName": "Extra Keys",
+          "type": "string",
+          "group": "Advanced"
+        },
+        "dictionaryFormat": {
+          "displayName": "Dictionary Format",
+          "type": "enum",
+          "enums": [
+            "auto",
+            "languageFirst",
+            "keyFirst"
+          ],
+          "notConnectable": true,
+          "group": "Advanced"
+        },
+        "missingBehavior": {
+          "displayName": "When Missing",
+          "type": "enum",
+          "enums": [
+            "key",
+            "empty",
+            "custom"
+          ],
+          "notConnectable": true,
+          "group": "Advanced"
+        },
+        "missingText": {
+          "displayName": "Missing Text",
+          "type": "string",
+          "group": "Advanced"
+        },
+        "Translate": {
+          "displayName": "Translate",
+          "type": "signal",
+          "group": "Advanced"
+        },
+        "dictionaryJson": {
+          "type": "string"
+        },
+        "dictionaryObject": {
+          "type": "*"
+        },
+        "keys": {
+          "type": "string"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        }
+      },
+      "outputFormatHints": {
+        "resolvedLanguage": {
+          "displayName": "Resolved Language",
+          "type": "string",
+          "group": "Result"
+        },
+        "languages": {
+          "displayName": "Languages",
+          "type": "array",
+          "group": "Result"
+        },
+        "translations": {
+          "displayName": "Translations",
+          "type": "object",
+          "group": "Result"
+        },
+        "Changed": {
+          "displayName": "Changed",
+          "type": "signal",
+          "group": "Events"
+        },
+        "Missing": {
+          "displayName": "Missing",
+          "type": "signal",
+          "group": "Events"
+        }
+      },
+      "shortDesc": "Fill in a table of phrases and get every one of them as an output, in any language."
+    },
     "Loop": {
       "name": "Loop",
       "file": "loop.js",
@@ -2603,8 +2725,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/stateManager.js",
       "category": "Logic",
       "docs": "https://docsapp.xgenia.com/nodes/utilities/logic/statemanager",
-      "lineCount": 428,
-      "byteSize": 13137,
+      "lineCount": 492,
+      "byteSize": 16242,
       "inputFormatHints": {
         "update": {
           "displayName": "Update",
@@ -2619,6 +2741,11 @@
         "numInputs": {
           "displayName": "Number of Inputs",
           "type": "number",
+          "group": "Configuration"
+        },
+        "initialValues": {
+          "displayName": "Initial Values",
+          "type": "*",
           "group": "Configuration"
         },
         "functionScript": {
@@ -5242,8 +5369,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiBitmapText.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-bitmap-text/",
-      "lineCount": 468,
-      "byteSize": 24150,
+      "lineCount": 469,
+      "byteSize": 24241,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -5486,8 +5613,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiCamera2D.js",
       "category": "Pixi|Camera",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-camera2d/",
-      "lineCount": 289,
-      "byteSize": 11298,
+      "lineCount": 290,
+      "byteSize": 11379,
       "inputFormatHints": {
         "target": {
           "displayName": "Target",
@@ -5601,8 +5728,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiCollisionDetectorNode.js",
       "category": "Pixi|Logic",
       "docs": "https://en.wikipedia.org/wiki/Collision_detection",
-      "lineCount": 187,
-      "byteSize": 7137,
+      "lineCount": 188,
+      "byteSize": 7218,
       "inputFormatHints": {
         "a": {
           "displayName": "Object A",
@@ -5685,8 +5812,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiContainer.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-stage/",
-      "lineCount": 757,
-      "byteSize": 37410,
+      "lineCount": 758,
+      "byteSize": 37484,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -5923,8 +6050,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiDebugInfoNode.js",
       "category": "Pixi|Debug",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-debug-info/",
-      "lineCount": 817,
-      "byteSize": 22870,
+      "lineCount": 818,
+      "byteSize": 22944,
       "inputFormatHints": {
         "visible": {
           "displayName": "Visible",
@@ -6498,8 +6625,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiGraphics.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-graphics/",
-      "lineCount": 952,
-      "byteSize": 49630,
+      "lineCount": 953,
+      "byteSize": 49704,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -7023,8 +7150,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiMeshRope.js",
       "category": "Pixi",
       "docs": "https://pixijs.download/release/docs/scene.MeshRope.html",
-      "lineCount": 365,
-      "byteSize": 15970,
+      "lineCount": 366,
+      "byteSize": 16044,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -7413,8 +7540,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiParticleContainer.js",
       "category": "Pixi",
       "docs": "https://pixijs.download/release/docs/scene.ParticleContainer.html",
-      "lineCount": 376,
-      "byteSize": 16124,
+      "lineCount": 377,
+      "byteSize": 16215,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -7533,8 +7660,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiParticleEmitter.js",
       "category": "Pixi|Effects",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-particle-emitter/",
-      "lineCount": 1601,
-      "byteSize": 63946,
+      "lineCount": 1602,
+      "byteSize": 64027,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -7699,8 +7826,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelCell.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-cell",
-      "lineCount": 776,
-      "byteSize": 32836,
+      "lineCount": 777,
+      "byteSize": 32928,
       "inputFormatHints": {
         "width": {
           "displayName": "Width",
@@ -7907,8 +8034,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelColumn.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-column",
-      "lineCount": 1752,
-      "byteSize": 77058,
+      "lineCount": 1753,
+      "byteSize": 77150,
       "inputFormatHints": {
         "visibleRows": {
           "displayName": "Visible Rows",
@@ -8242,8 +8369,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiRevoltFX.js",
       "category": "Pixi|Effects",
       "docs": "https://github.com/bma73/revolt-fx-examples",
-      "lineCount": 767,
-      "byteSize": 26779,
+      "lineCount": 768,
+      "byteSize": 26860,
       "inputFormatHints": {
         "mode": {
           "displayName": "Load Mode",
@@ -8713,8 +8840,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiSpriteNode.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-sprite/",
-      "lineCount": 626,
-      "byteSize": 41008,
+      "lineCount": 627,
+      "byteSize": 41082,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -9211,8 +9338,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiStage.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-stage/",
-      "lineCount": 878,
-      "byteSize": 42905,
+      "lineCount": 879,
+      "byteSize": 42997,
       "inputFormatHints": {
         "width": {
           "displayName": "Design Width",
@@ -10012,8 +10139,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiText.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-text/",
-      "lineCount": 412,
-      "byteSize": 18236,
+      "lineCount": 413,
+      "byteSize": 18310,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -10295,8 +10422,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiTilingSprite.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-tiling-sprite/",
-      "lineCount": 369,
-      "byteSize": 17210,
+      "lineCount": 370,
+      "byteSize": 17284,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -10602,8 +10729,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 2315,
-      "byteSize": 120164,
+      "lineCount": 2323,
+      "byteSize": 120771,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
@@ -10801,12 +10928,12 @@
           "group": "Auto Layout"
         },
         "columnPadding": {
-          "displayName": "Column Padding (gap between reels)",
+          "displayName": "Column Padding",
           "type": "number",
           "group": "Auto Layout"
         },
         "cellPadding": {
-          "displayName": "Cell Padding (gap between rows)",
+          "displayName": "Cell Padding",
           "type": "number",
           "group": "Auto Layout"
         },
@@ -11092,8 +11219,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/RenderPaylinesPixi.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/render-paylines-pixi",
-      "lineCount": 479,
-      "byteSize": 20185,
+      "lineCount": 480,
+      "byteSize": 20264,
       "inputFormatHints": {
         "winningLinesDetails": {
           "displayName": "Winning Lines Details",
@@ -20814,8 +20941,8 @@
       "relativePath": "input/PixiInputActionNode.js",
       "category": "Input",
       "docs": "https://docsapp.xgenia.com/nodes/logic/input-action",
-      "lineCount": 519,
-      "byteSize": 15131,
+      "lineCount": 520,
+      "byteSize": 15220,
       "inputFormatHints": {
         "actionName": {
           "displayName": "Action Name",
@@ -21220,8 +21347,8 @@
       "relativePath": "navigation/router.tsx",
       "category": "Visuals",
       "docs": "https://docsapp.xgenia.com/nodes/navigation/page-router",
-      "lineCount": 1157,
-      "byteSize": 39545,
+      "lineCount": 1162,
+      "byteSize": 40065,
       "inputFormatHints": {
         "name": {
           "displayName": "Name",
@@ -21420,8 +21547,8 @@
       "relativePath": "std-library/AdvancedTimerNode.js",
       "category": "Utilities",
       "docs": "https://docsapp.xgenia.com/nodes/utilities/advanced-timer",
-      "lineCount": 365,
-      "byteSize": 9085,
+      "lineCount": 366,
+      "byteSize": 9174,
       "inputFormatHints": {
         "duration": {
           "displayName": "Duration (ms)",
@@ -21524,8 +21651,8 @@
       "relativePath": "std-library/InputAction.js",
       "category": "Logic|Input",
       "docs": "https://docsapp.xgenia.com/nodes/logic/input-action/",
-      "lineCount": 126,
-      "byteSize": 5859,
+      "lineCount": 127,
+      "byteSize": 5941,
       "inputFormatHints": {
         "name": {
           "displayName": "Action Name",
@@ -32207,6 +32334,7 @@
       "Boolean To String",
       "Convert to String",
       "Date To String",
+      "Languages Dictionary",
       "Loop",
       "String Mapper",
       "AdvancedTimer",
@@ -32707,6 +32835,10 @@
       },
       {
         "node": "Inverter",
+        "direction": "input"
+      },
+      {
+        "node": "Languages Dictionary",
         "direction": "input"
       },
       {
@@ -36790,6 +36922,130 @@
         "direction": "input"
       }
     ],
+    "dictionary": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "input"
+      }
+    ],
+    "language": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "input"
+      }
+    ],
+    "fallbackLanguage": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "input"
+      }
+    ],
+    "autoDetectLanguage": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "input"
+      }
+    ],
+    "variables": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "input"
+      }
+    ],
+    "dictionaryData": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "input"
+      }
+    ],
+    "extraKeys": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "input"
+      }
+    ],
+    "dictionaryFormat": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "input"
+      }
+    ],
+    "missingBehavior": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "input"
+      }
+    ],
+    "missingText": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "input"
+      }
+    ],
+    "Translate": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "input"
+      }
+    ],
+    "dictionaryJson": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "input"
+      }
+    ],
+    "dictionaryObject": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "input"
+      }
+    ],
+    "keys": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.KeyboardInput",
+        "direction": "input"
+      }
+    ],
+    "key": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "input"
+      }
+    ],
+    "resolvedLanguage": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "output"
+      }
+    ],
+    "languages": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "output"
+      }
+    ],
+    "translations": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "output"
+      }
+    ],
+    "Changed": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "output"
+      }
+    ],
+    "Missing": [
+      {
+        "node": "Languages Dictionary",
+        "direction": "output"
+      }
+    ],
     "next": [
       {
         "node": "Loop",
@@ -36919,6 +37175,12 @@
       },
       {
         "node": "Javascript2",
+        "direction": "input"
+      }
+    ],
+    "initialValues": [
+      {
+        "node": "stateManager",
         "direction": "input"
       }
     ],
@@ -40833,12 +41095,6 @@
     "styleJSON": [
       {
         "node": "pixi.HTMLText",
-        "direction": "input"
-      }
-    ],
-    "keys": [
-      {
-        "node": "pixi.KeyboardInput",
         "direction": "input"
       }
     ],
