@@ -34,13 +34,25 @@ export function isDevLauncher(command: string): boolean {
  *
  * POSIX only: on win32 the caller must never reach this (see killTree) because
  * `processChain` shells out to `ps`, which does not exist there.
+ *
+ * Never fabricates a pid to kill. An empty chain — which happens whenever
+ * `processChain` cannot read the port owner, e.g. because it exited between
+ * `portOwner()` and `processChain()`, exactly the window a restart operates in
+ * — or a chain that bottoms out at pid <= 1 (pid 1 is init/launchd) returns
+ * `null` instead of falling back to `0`. `killTree(0)` would otherwise walk
+ * every process whose ppid is 0 in the real process table (observed: 676
+ * processes including pid 1 and the harness's own process) — the one defect
+ * in this project that can take down the whole machine, not just a project.
+ * Callers MUST abort the kill and report failure on `null`, never substitute
+ * another pid.
  */
-export function pickKillRoot(chain: { pid: number; command: string }[]): number {
+export function pickKillRoot(chain: { pid: number; command: string }[]): number | null {
   let root: number | null = null;
   for (const link of chain) {
     if (isDevLauncher(link.command)) root = link.pid;
   }
-  return root ?? chain[0]?.pid ?? 0;
+  const candidate = root ?? chain[0]?.pid ?? null;
+  return candidate !== null && candidate > 1 ? candidate : null;
 }
 
 function processChain(pid: number): { pid: number; command: string }[] {
@@ -89,6 +101,13 @@ export function descendantsOf(
   pid: number,
   snapshot: { pid: number; ppid: number }[]
 ): number[] {
+  // Refuse a root of 0 or 1 outright, independent of any caller's guard. Real
+  // `ps -eo pid=,ppid=` output contains processes whose ppid is 0, so
+  // descendantsOf(0, ...) would otherwise walk every one of those top-level
+  // processes and everything beneath them — a machine-wide sweep, not a
+  // process-tree kill. This is the last of three independent guards (the
+  // others are in pickKillRoot and killTree) against that exact failure.
+  if (pid <= 1) return [];
   const children = new Map<number, number[]>();
   for (const row of snapshot) {
     if (!children.has(row.ppid)) children.set(row.ppid, []);
@@ -117,35 +136,51 @@ function processSnapshot(): { pid: number; ppid: number }[] {
 }
 
 /**
- * Kill a process tree rooted at `pid`.
+ * Kill a process tree rooted at `pid`. Returns whether anything was actually
+ * signalled, so callers can distinguish "nothing to kill" from "kill attempted"
+ * rather than assuming success from a `void` return.
+ *
+ * Refuses outright — signals nothing, returns `false` — unless `pid` is an
+ * integer greater than 1. Pid 0 on POSIX targets the caller's own process
+ * group, and pid 1 is init/launchd. This guard is independent of, and in
+ * addition to, the ones in `pickKillRoot` and `descendantsOf`: three separate
+ * checks (defense in depth) against the one defect in this project that can
+ * take down the whole machine rather than just a project.
  *
  * Correction 2: win32 must never go through `processChain`/`pickKillRoot` at
  * all. `processChain` shells out to `ps`, which does not exist on Windows —
- * there it throws, `processChain` returns `[]`, and `pickKillRoot([])` yields
- * `0`, so `killTree(0)` would run. `taskkill /T` already walks the child
- * process tree itself, which is exactly what `pickKillRoot` + `descendantsOf`
- * exist to emulate on POSIX, so on win32 the port-owner pid is passed straight
- * to `killTreeCommand` and the ancestry walk is skipped entirely.
+ * there it throws, `processChain` returns `[]`, and (pre-fix) `pickKillRoot([])`
+ * yielded `0`, so `killTree(0)` would run. `taskkill /T` already walks the
+ * child process tree itself, which is exactly what `pickKillRoot` +
+ * `descendantsOf` exist to emulate on POSIX, so on win32 the port-owner pid is
+ * passed straight to `killTreeCommand` and the ancestry walk is skipped
+ * entirely.
  */
-function killTree(pid: number, force: boolean): void {
+export function killTree(pid: number, force: boolean): boolean {
+  if (!Number.isInteger(pid) || pid <= 1) return false;
+
   if (process.platform === 'win32') {
     const { cmd, args } = killTreeCommand(pid, process.platform, force);
     try {
       execFileSync(cmd, args, { stdio: 'ignore' });
+      return true;
     } catch {
-      // Already gone.
+      // Already gone, or taskkill itself failed.
+      return false;
     }
-    return;
   }
 
   // Children first, so a supervisor cannot respawn what we just killed.
+  let signalled = false;
   for (const target of descendantsOf(pid, processSnapshot())) {
     try {
       process.kill(target, force ? 'SIGKILL' : 'SIGTERM');
+      signalled = true;
     } catch {
       // Already gone.
     }
   }
+  return signalled;
 }
 
 export function recoveryFilePath(): string {
@@ -251,6 +286,21 @@ function fail(code: string, tried: string, hint: string) {
   return { error: code, tried, hint };
 }
 
+/**
+ * Poll a port's owner until it's free (returns null) or the timeout elapses
+ * (returns the pid still holding it). Used after a force-kill so a failed
+ * kill (EPERM, e.g.) is reported honestly instead of assumed successful.
+ */
+async function pollPortFree(port: number, timeoutMs: number, pollMs = 500): Promise<number | null> {
+  const deadline = Date.now() + timeoutMs;
+  let owner = portOwner(port);
+  while (owner && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, pollMs));
+    owner = portOwner(port);
+  }
+  return owner;
+}
+
 export async function launch(opts: { target?: Target | 'auto' } = {}) {
   const requested = opts.target ?? 'auto';
 
@@ -324,17 +374,74 @@ export async function restart(opts: { force?: boolean } = {}) {
   // already walks the child tree — that's the Windows equivalent of what
   // pickKillRoot/descendantsOf do on POSIX by enumerating `ps` output, which
   // doesn't exist on win32.
-  const root = process.platform === 'win32' ? owner : pickKillRoot(processChain(owner));
+  let root: number;
+  if (process.platform === 'win32') {
+    root = owner;
+  } else {
+    const picked = pickKillRoot(processChain(owner));
+    // CRITICAL 1: pickKillRoot returns null, never a fabricated pid, when it
+    // cannot justify one (empty chain, or a chain resolving to pid <= 1) —
+    // e.g. the owner exited between portOwner() and processChain() above,
+    // exactly the window a restart operates in. Abort rather than substitute
+    // any other pid; killing an unverified/unknown root is how a machine-wide
+    // sweep happens.
+    if (picked === null) {
+      return fail(
+        'not-running',
+        `process chain for port ${port} owner pid ${owner} could not be resolved to a safe root`,
+        'The owning process may have already exited, or ps could not be read. Refusing to kill an unverified process tree; try again.'
+      );
+    }
+    root = picked;
+  }
+
+  // CRITICAL 2: capture which pids belong to the tree we're about to kill
+  // BEFORE killing it, so the dev-port sweep below can only ever touch a pid
+  // provably in that set — never an unrelated user process that happens to
+  // own one of those common dev ports (3001 and 8080 in particular are two of
+  // the most common ports in existence). On win32, processSnapshot() has
+  // nothing to enumerate (no `ps`), so this degrades to just `{root}`, which
+  // is conservative rather than unsafe.
+  const treePids = new Set(descendantsOf(root, processSnapshot()));
 
   killTree(root, false);
   await new Promise((r) => setTimeout(r, 5000));
-  if (portOwner(port)) killTree(root, true);
 
-  // Free the dev ports too, so a relaunch cannot collide.
+  let stillOwner = portOwner(port);
+  let forceSignalled = false;
+  if (stillOwner) {
+    forceSignalled = killTree(root, true);
+    stillOwner = await pollPortFree(port, 10_000);
+  }
+
+  // IMPORTANT 3: a failed kill must never be reported as a success. If the
+  // port is still held after SIGTERM and a force SIGKILL (or the force kill
+  // signalled nothing at all — EPERM, e.g.), stop here instead of relaunching
+  // on top of the still-running old process and claiming `restarted: true`.
+  if (stillOwner) {
+    return fail(
+      'not-running',
+      `port ${port} is still held by pid ${stillOwner} after SIGTERM${forceSignalled ? ' and SIGKILL' : ''}`,
+      forceSignalled
+        ? 'The force kill did not take (possibly EPERM). The old process is still running; nothing was restarted.'
+        : 'The force kill signalled nothing — the resolved root may already be gone from this process\'s view. The old process is still running; nothing was restarted.'
+    );
+  }
+
+  // Free the dev ports too, so a relaunch cannot collide — but only a port
+  // whose owner is provably part of the tree just killed. A port owned by
+  // something outside that set is left untouched and reported, never killed
+  // on the assumption that "it's probably ours".
+  const declinedPorts: { port: number; pid: number }[] = [];
   if (target === 'dev') {
     for (const p of [8080, 8574, 3001, 3051]) {
       const pid = portOwner(p);
-      if (pid) killTree(pid, true);
+      if (!pid) continue;
+      if (treePids.has(pid)) {
+        killTree(pid, true);
+      } else {
+        declinedPorts.push({ port: p, pid });
+      }
     }
   }
 
@@ -345,9 +452,17 @@ export async function restart(opts: { force?: boolean } = {}) {
 
   const recovery = readRecovery();
   let reopened = null;
+  // IMPORTANT 4: carry the failure reason forward instead of collapsing it to
+  // `project: null`, which is honest but useless for diagnosing WHY the
+  // project didn't come back.
+  let recoveryError: { error: string; tried: string; hint: string } | null = null;
   if (recovery?.dir) {
     const result = await openProject({ dir: recovery.dir });
-    reopened = 'error' in result ? null : result.project;
+    if ('error' in result) {
+      recoveryError = result;
+    } else {
+      reopened = result.project;
+    }
   }
 
   const { page: page2 } = await connect();
@@ -357,6 +472,8 @@ export async function restart(opts: { force?: boolean } = {}) {
     restarted: true,
     target,
     project: reopened,
+    recoveryError,
+    declinedPorts,
     chat: { restored: chat2.mounted, messageCount: chat2.messageCount },
     inFlightTurnLost: chat.busy
   };
