@@ -1,14 +1,17 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { Page } from 'playwright-core';
 import { spawn, execFileSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { appLaunchCandidates, killTreeCommand, portOwner } from './platform.js';
 import {
-  appLaunchCandidates,
-  killTreeCommand,
-  parsePortOwnerPid,
-  portOwnerCommand
-} from './platform.js';
-import { connect, discoverPort, resetConnection, DEFAULT_PORT, type Target } from './connection.js';
+  connect,
+  discoverPort,
+  resetConnection,
+  DEFAULT_PORT,
+  CONNECT_TIMEOUT_MS,
+  type Target
+} from './connection.js';
 import {
   readProject,
   readChatState,
@@ -79,19 +82,6 @@ function processChain(pid: number): { pid: number; command: string }[] {
     }
   }
   return chain;
-}
-
-function portOwner(port: number): number | null {
-  const { cmd, args } = portOwnerCommand(port);
-  try {
-    const out = execFileSync(cmd, args, { encoding: 'utf8' });
-    // The port is passed through so netstat's unfiltered TCP table (win32) is
-    // matched to the right listener instead of returning whichever row is
-    // first — see the Correction 1 note on parsePortOwnerPid.
-    return parsePortOwnerPid(out, process.platform, port);
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -662,7 +652,13 @@ type SaveOutcomeOrNothingOpen =
 export type KillOutcome =
   | {
       killed: true;
-      target: Target;
+      /**
+       * `null` when the pre-kill `connect()` never succeeded at all (a
+       * wedged editor with `force` set) — the target could only ever be
+       * learned by asking the page, which is exactly what wasn't available.
+       * `restart()` falls back to `'auto'` for the relaunch in that case.
+       */
+      target: Target | null;
       port: number;
       project: ProjectInfo | null;
       saveOutcome: SaveOutcomeOrNothingOpen;

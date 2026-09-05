@@ -1,5 +1,6 @@
 import path from 'node:path';
 import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 
 /**
  * The Electron userData directory for one specific connected target.
@@ -100,6 +101,29 @@ export function parsePortOwnerPid(
     if (m) return Number(m[1]);
   }
   return null;
+}
+
+/**
+ * Which pid, if any, is currently listening on `port`.
+ *
+ * Moved here (out of lifecycle.ts, where it started life as a private
+ * helper) because `connect()` needs it too: distinguishing "nothing is
+ * listening on the CDP port" (`not-running`) from "something is listening
+ * but the connection/page never became usable" (`editor-unresponsive`)
+ * requires the exact same port-owner lookup the kill path already uses to
+ * find the process to signal. lifecycle.ts and connection.ts both import
+ * this rather than each keeping its own copy, and connection.ts cannot
+ * import from lifecycle.ts without creating an import cycle (lifecycle.ts
+ * already imports `connect` from connection.ts).
+ */
+export function portOwner(port: number, platform: NodeJS.Platform = process.platform): number | null {
+  const { cmd, args } = portOwnerCommand(port, platform);
+  try {
+    const out = execFileSync(cmd, args, { encoding: 'utf8' });
+    return parsePortOwnerPid(out, platform, port);
+  } catch {
+    return null;
+  }
 }
 
 export function killTreeCommand(
