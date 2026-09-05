@@ -2558,22 +2558,23 @@ export class EditorBridge {
         h('auth.refreshJwt', async () => {
             const g: any = window as any;
             if (g.__xgeniaAuthRefreshInFlight) {
-                try { return await g.__xgeniaAuthRefreshInFlight; } catch { return null; }
+                // Share the outcome — including the thrown reason — with the in-flight caller.
+                return await g.__xgeniaAuthRefreshInFlight;
             }
             const run = (async () => {
-                try {
-                    const { data, error } = await supabase.auth.refreshSession();
-                    if (error) {
-                        // "Already Used" means the family is revoked server-side — no client-side
-                        // retry can recover it, and adding one would only spend more tokens.
-                        console.warn('[EditorBridge] auth.refreshJwt failed:', error.message);
-                        return null;
-                    }
-                    return data?.session?.access_token || null;
-                } catch (e: any) {
-                    console.warn('[EditorBridge] auth.refreshJwt threw:', e?.message || e);
-                    return null;
+                const { data, error } = await supabase.auth.refreshSession();
+                if (error) {
+                    // "Already Used" means the family is revoked server-side — no client-side
+                    // retry can recover it, and adding one would only spend more tokens.
+                    // (2026-09-05) THROW the message instead of returning null: the bridge turns
+                    // a throw into `{ error }`, and the panel puts that text on its
+                    // "Session Expired" card. A null only ever said "the editor couldn't".
+                    console.warn('[EditorBridge] auth.refreshJwt failed:', error.message);
+                    throw new Error(error.message);
                 }
+                const token = data?.session?.access_token;
+                if (!token) throw new Error('refreshSession returned no session');
+                return token;
             })();
             g.__xgeniaAuthRefreshInFlight = run;
             try { return await run; } finally { g.__xgeniaAuthRefreshInFlight = null; }
