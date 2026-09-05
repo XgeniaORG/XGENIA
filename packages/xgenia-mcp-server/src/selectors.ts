@@ -24,7 +24,9 @@ export const SELECTORS = Object.freeze({
   /** A project tile on the projects screen. */
   projectItem: '.projects-item',
   /** The visible label inside a project tile. */
-  projectItemLabel: '.projects-item-label span'
+  projectItemLabel: '.projects-item-label span',
+  /** The node graph canvas element. */
+  canvas: 'canvas'
 });
 
 export type SelectorKey = keyof typeof SELECTORS;

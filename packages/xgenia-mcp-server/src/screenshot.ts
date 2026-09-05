@@ -3,7 +3,11 @@ import { SELECTORS } from './selectors.js';
 
 export function pngSize(buf: Buffer): { width: number; height: number } | null {
   if (buf.length < 24) return null;
+  // Verify full 8-byte PNG signature: 89 50 4E 47 0D 0A 1A 0A
   if (buf.readUInt32BE(0) !== 0x89504e47) return null;
+  if (buf.readUInt32BE(4) !== 0x0d0a1a0a) return null;
+  // Verify IHDR chunk type at offset 12
+  if (buf.toString('ascii', 12, 16) !== 'IHDR') return null;
   return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
 }
 
@@ -16,6 +20,17 @@ export function jpegSize(buf: Buffer): { width: number; height: number } | null 
       continue;
     }
     const marker = buf.readUInt8(offset + 1);
+    // Fill bytes: padding 0xFF 0xFF ... is legal before a marker.
+    if (marker === 0xff) {
+      offset += 1;
+      continue;
+    }
+    // Standalone markers with no length field: RST0-RST7 (0xD0-0xD7), TEM (0x01), SOI (0xD8), EOI (0xD9).
+    const isStandalone = marker === 0x01 || marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7);
+    if (isStandalone) {
+      offset += 2;
+      continue;
+    }
     // SOF0..SOF3 and SOF5..SOF15 carry the frame dimensions; the excluded
     // markers in that range are DHT (c4), JPG (c8) and DAC (cc).
     const isSof =
@@ -54,7 +69,7 @@ export async function screenshot(
 
   let clip: { x: number; y: number; width: number; height: number } | undefined;
   if (region !== 'full') {
-    const selector = region === 'chat' ? SELECTORS.chatIframe : 'canvas';
+    const selector = region === 'chat' ? SELECTORS.chatIframe : SELECTORS.canvas;
     clip = await page.evaluate((sel) => {
       const el = document.querySelector(sel);
       if (!el) return undefined;
