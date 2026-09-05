@@ -1,5 +1,5 @@
 import type { Page } from 'playwright-core';
-import { connect, getChatFrame, type Target } from './connection.js';
+import { connect, discoverPort, getChatFrame, type Target } from './connection.js';
 import { SELECTORS } from './selectors.js';
 import { recentsFilePath, readRecents, type RecentEntry } from './recents.js';
 
@@ -248,10 +248,56 @@ export interface HealthReport {
    * `window.ProjectModel` being defined does not imply anyone is signed in.
    */
   authenticated: boolean | 'unknown';
+  /**
+   * Present only when `running` is false: why `connect()` itself could not
+   * reach the editor at all. `not-running` means nothing is listening on
+   * the CDP port; `editor-unresponsive` means something is listening but
+   * the connection (or its pages) never became usable within the connect
+   * timeout -- e.g. a renderer whose main thread is wedged. This used to be
+   * indistinguishable: `health()` simply threw whatever `connect()` threw,
+   * so a caller saw a generic `page-unresponsive` failure from `guard()`
+   * with no `HealthReport` shape at all, rather than a report they could
+   * inspect (`running: false` plus the reason).
+   */
+  code?: string;
+  /** The human-readable detail behind `code`, present under the same condition. */
+  hint?: string;
+}
+
+/**
+ * Build the `HealthReport` for "connect() itself failed" -- pure and
+ * stub-testable independent of a real CDP connection, matching the pattern
+ * of the other decision points in this package (`combinePreKillReads`,
+ * `unresponsiveRefusal`, etc.).
+ */
+export function unresponsiveHealthReport(port: number, code: string, hint: string): HealthReport {
+  return {
+    running: false,
+    target: null,
+    port,
+    pageResponsive: false,
+    projectOpen: false,
+    project: null,
+    chatMounted: false,
+    chatBusy: false,
+    busyForMs: null,
+    pageTitle: null,
+    authenticated: 'unknown',
+    code,
+    hint
+  };
 }
 
 export async function health(): Promise<HealthReport> {
-  const { page, target, port } = await connect();
+  const port = discoverPort();
+  let page: Page;
+  let target: Target;
+  try {
+    ({ page, target } = await connect(port));
+  } catch (e) {
+    const err = e as Error & { code?: string };
+    return unresponsiveHealthReport(port, err.code ?? 'not-running', err.message);
+  }
 
   let pageResponsive = false;
   try {

@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ChatState, ProjectInfo } from './editor-state.js';
+import { resetConnection } from './connection.js';
 import {
   isDevLauncher,
   pickKillRoot,
@@ -18,7 +19,9 @@ import {
   TIMED_OUT,
   combinePreKillReads,
   unresponsiveRefusal,
-  shouldEscalateToSigkill
+  shouldEscalateToSigkill,
+  restart,
+  quit
 } from './lifecycle.js';
 
 // Captured from a live `npm run dev`, leaf first.
@@ -375,6 +378,91 @@ describe('combinePreKillReads', () => {
       project: null,
       chat
     });
+  });
+
+  // Defect 3: `saveKillVerify` now calls `combinePreKillReads(TIMED_OUT,
+  // TIMED_OUT)` verbatim whenever the pre-kill `connect()` itself fails and
+  // `force` is set -- no page was ever reached, so neither read is even
+  // attempted, rather than retried against a page that doesn't exist. This
+  // is the exact call production code makes for that case; pinned here so
+  // the "force skips every page read on a failed connect" behaviour is
+  // covered independent of a real Playwright connection.
+  it('degrades fully when both reads are given as already-timed-out (the failed-connect case)', () => {
+    expect(combinePreKillReads(TIMED_OUT, TIMED_OUT)).toEqual({
+      pageUnresponsive: true,
+      project: null,
+      chat: { mounted: false, busy: false, messageCount: 0, unavailable: 'evaluate-failed' }
+    });
+  });
+});
+
+// Defect 3: `restart()`/`quit()` used to be able to throw instead of
+// returning {error, tried, hint} -- reproduced live as
+// `restart({force:true})` throwing from `connect()` inside `saveKillVerify`,
+// crashing the calling process, because the pre-kill connect was an
+// unguarded precondition rather than a best-effort read. These exercise the
+// REAL exported functions (no mocking, matching this suite's existing
+// preference for light real I/O) against a port nothing is listening on --
+// picked via XGENIA_CDP_PORT so this can never reach a real running editor
+// on the machine running the tests -- and confirm both the with- and
+// without-force paths return the documented failure shape, never throw, and
+// never hang out the old 30s (or even the new 10s) connect timeout, since a
+// refused TCP connect fails near-instantly.
+describe('restart / quit never throw when nothing is listening on the port', () => {
+  const port = 65532;
+  const file = recoveryFilePath(port);
+  let originalPort: string | undefined;
+
+  const withTestPort = () => {
+    originalPort = process.env.XGENIA_CDP_PORT;
+    process.env.XGENIA_CDP_PORT = String(port);
+    resetConnection();
+  };
+
+  afterEach(() => {
+    if (originalPort === undefined) delete process.env.XGENIA_CDP_PORT;
+    else process.env.XGENIA_CDP_PORT = originalPort;
+    resetConnection();
+    try {
+      fs.unlinkSync(file);
+    } catch {
+      // restart({force:true}) writes a recovery snapshot before discovering
+      // there's nothing to kill; not every test in this block reaches that
+      // point, so the file may not exist. Either way, don't leak it.
+    }
+  });
+
+  it('restart() without force returns {error: "not-running"} instead of throwing', async () => {
+    withTestPort();
+    const start = Date.now();
+    const result = await restart({});
+    expect(result).toMatchObject({ error: 'not-running' });
+    expect(Date.now() - start).toBeLessThan(5000);
+  });
+
+  it('restart({force:true}) also returns a failure shape instead of throwing or hanging, with nothing to kill', async () => {
+    withTestPort();
+    const start = Date.now();
+    const result = await restart({ force: true });
+    // Force reaches the port-owner/kill sequence (bypassing the connect and
+    // pre-kill-read refusals entirely), but there is genuinely nothing
+    // listening on this port, so the kill path's own owner check is what
+    // ultimately fails it -- still `not-running`, still a clean {error}, not
+    // a throw.
+    expect(result).toMatchObject({ error: 'not-running' });
+    expect(Date.now() - start).toBeLessThan(5000);
+  });
+
+  it('quit() without force returns {error: "not-running"} instead of throwing', async () => {
+    withTestPort();
+    const result = await quit({});
+    expect(result).toMatchObject({ error: 'not-running' });
+  });
+
+  it('quit({force:true}) also returns a failure shape instead of throwing or hanging', async () => {
+    withTestPort();
+    const result = await quit({ force: true });
+    expect(result).toMatchObject({ error: 'not-running' });
   });
 });
 

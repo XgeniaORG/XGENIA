@@ -700,29 +700,93 @@ export type KillOutcome =
  * straight to the port-owner/kill sequence below, which touches no page at
  * all, reporting the honest gaps that leaves (`project: null`, the save
  * unconfirmed, `inFlightTurnLost` as `'unknown'`) rather than guessing.
+ *
+ * That bounding used to start one layer too low: it protected the three
+ * in-page reads, but the `connect()` call in front of them — which opens a
+ * fresh CDP session and waits for the browser's page targets to attach —
+ * was still made as an unguarded precondition. Reproduced live: a wedged
+ * renderer's main thread never finishes initialising, so `connectOverCDP`
+ * sat for its full 30s default and then *threw*, and that throw happened
+ * before `force` was ever consulted — the kill path this exists to reach
+ * needs only a port number and a process table, nothing from the page at
+ * all, and yet it was unreachable on exactly the editor state it exists to
+ * rescue. `connect()` itself is now bounded (`CONNECT_TIMEOUT_MS`, in
+ * connection.ts) and its failure is handled here as data
+ * (`attemptConnect`), not as an exception: with `force` unset, a failed
+ * connect fails this call closed with an explanation instead of hanging or
+ * throwing; with `force` set, it degrades straight to the same
+ * `combinePreKillReads(TIMED_OUT, TIMED_OUT)` bundle a mid-flight timeout
+ * produces, so it flows through every guard below exactly like the
+ * page-went-unresponsive-mid-read case already did.
  */
+type ConnectAttempt =
+  | { ok: true; page: Page; target: Target }
+  | { ok: false; error: Error & { code?: string } };
+
+async function attemptConnect(port: number): Promise<ConnectAttempt> {
+  try {
+    const { page, target } = await connect(port);
+    return { ok: true, page, target };
+  } catch (e) {
+    return { ok: false, error: e as Error & { code?: string } };
+  }
+}
+
 async function saveKillVerify(opts: {
   force?: boolean;
   action: 'restart' | 'quit';
-  onReady?: (info: { target: Target; port: number; project: ProjectInfo | null }) => void;
+  onReady?: (info: { target: Target | null; port: number; project: ProjectInfo | null }) => void;
 }): Promise<KillOutcome> {
   const { action } = opts;
-  const { page, target, port } = await connect();
+  const port = discoverPort();
+  const attempt = await attemptConnect(port);
+  const target: Target | null = attempt.ok ? attempt.target : null;
 
-  const projectRead = await withReadTimeout(readProject(page), PRE_KILL_READ_TIMEOUT_MS);
-  // Skip the remaining read entirely once the page has already proven
-  // unresponsive — attempting it too would just add another hang.
-  const chatRead =
-    projectRead === TIMED_OUT
-      ? TIMED_OUT
-      : await withReadTimeout(readChatState(page), PRE_KILL_READ_TIMEOUT_MS);
-  const { pageUnresponsive, project, chat } = combinePreKillReads(projectRead, chatRead);
+  // Once `force` is set, a connect failure is treated exactly like every
+  // pre-kill read timing out mid-flight: no page ever became available, so
+  // every read is skipped rather than attempted (`combinePreKillReads`'s own
+  // TIMED_OUT/TIMED_OUT case — reused, not reimplemented) instead of being
+  // retried against a page that was never reached in the first place.
+  let pageUnresponsive: boolean;
+  let project: ProjectInfo | null;
+  let chat: ChatState;
+  if (attempt.ok) {
+    const projectRead = await withReadTimeout(readProject(attempt.page), PRE_KILL_READ_TIMEOUT_MS);
+    // Skip the remaining read entirely once the page has already proven
+    // unresponsive — attempting it too would just add another hang.
+    const chatRead =
+      projectRead === TIMED_OUT
+        ? TIMED_OUT
+        : await withReadTimeout(readChatState(attempt.page), PRE_KILL_READ_TIMEOUT_MS);
+    ({ pageUnresponsive, project, chat } = combinePreKillReads(projectRead, chatRead));
+  } else {
+    ({ pageUnresponsive, project, chat } = combinePreKillReads(TIMED_OUT, TIMED_OUT));
+  }
 
+  // The exact same `unresponsiveRefusal(pageUnresponsive, force)` decision
+  // now governs both ways the editor can turn out to be unreachable: a
+  // connect failure (`!attempt.ok`) and a page that connected fine but then
+  // wedged mid-read. Only the code and wording of the resulting failure
+  // differ, and only for one sub-case: a connect failure that turns out to
+  // mean "nothing is running at all" gets its own faithful `not-running`,
+  // because promising "pass force to kill it anyway" when there is nothing
+  // to kill would be actively misleading.
   if (unresponsiveRefusal(pageUnresponsive, !!opts.force)) {
+    if (!attempt.ok && attempt.error.code === 'not-running') {
+      return fail(
+        'not-running',
+        `connect to the editor before ${action} (bounded at ${CONNECT_TIMEOUT_MS}ms)`,
+        `${attempt.error.message} Nothing to ${action}.`
+      );
+    }
+    const tried = attempt.ok
+      ? `read project/chat state before ${action} (bounded at ${PRE_KILL_READ_TIMEOUT_MS}ms)`
+      : `connect to the editor before ${action} (bounded at ${CONNECT_TIMEOUT_MS}ms)`;
+    const detail = attempt.ok ? '' : ` (${attempt.error.message})`;
     return fail(
       'editor-unresponsive',
-      `read project/chat state before ${action} (bounded at ${PRE_KILL_READ_TIMEOUT_MS}ms)`,
-      `The editor is not responding, so the pre-${action} save and busy-check cannot be performed safely. ${action === 'restart' ? 'Restarting' : 'Quitting'} anyway would risk losing unsaved work and any in-flight AI turn. Pass force to ${action} anyway — it will kill the editor without confirming a save.`
+      tried,
+      `The editor is not responding${detail}, so the pre-${action} save and busy-check cannot be performed safely. ${action === 'restart' ? 'Restarting' : 'Quitting'} anyway would risk losing unsaved work and any in-flight AI turn. Pass force to ${action} anyway — it will kill the editor without confirming a save.`
     );
   }
 
@@ -755,11 +819,13 @@ async function saveKillVerify(opts: {
   // call itself is also bounded (SAVE_READ_TIMEOUT_MS): a wedged renderer
   // means the in-page 5s ceiling above can never fire either, so without an
   // external bound this was the third of the three unbounded pre-kill reads.
-  // `project` is already null whenever `pageUnresponsive` was true, so this
-  // naturally does not run in that case.
+  // `project` is already null whenever `pageUnresponsive` was true — which
+  // includes the connect-itself-failed case (`!attempt.ok`) — so this
+  // naturally does not run in that case; `attempt.ok` is checked too so
+  // TypeScript knows `attempt.page` is actually there.
   let saveOutcome: SaveOutcomeOrNothingOpen | null = null;
-  if (project?.dir) {
-    const saveRead = await withReadTimeout(saveOpenProject(page), SAVE_READ_TIMEOUT_MS);
+  if (attempt.ok && project?.dir) {
+    const saveRead = await withReadTimeout(saveOpenProject(attempt.page), SAVE_READ_TIMEOUT_MS);
     saveOutcome =
       saveRead === TIMED_OUT ? { confirmed: false, reason: 'unresponsive' as const } : saveRead;
     if (!saveOutcome.confirmed && !opts.force) {
@@ -866,9 +932,17 @@ async function saveKillVerify(opts: {
   // there to enumerate a broader tree — see its capture above), so a decline
   // there means "we cannot tell", not "this definitely isn't ours"; the
   // reason field says which.
+  //
+  // `target` is `null` when the connect attempt above never succeeded at
+  // all (a wedged editor killed with `force`), so it's unknown whether this
+  // was a dev run or a packaged app — sweep anyway rather than skip: the
+  // treePids membership check right above is what actually keeps this safe,
+  // never "it's probably ours", so checking a few extra ports that a
+  // packaged app never touches costs nothing beyond a handful of harmless
+  // `portOwner` lookups that all come back empty.
   const treeMembershipKnown = process.platform !== 'win32';
   const declinedPorts: DeclinedPort[] = [];
-  if (target === 'dev') {
+  if (target !== 'app') {
     for (const p of [8080, 8574, 3001, 3051]) {
       const pid = portOwner(p);
       if (!pid) continue;
@@ -898,72 +972,95 @@ async function saveKillVerify(opts: {
   };
 }
 
+/**
+ * `saveKillVerify` never throws (see its doc comment), but `restart()` still
+ * does real I/O after it returns — relaunching, reopening a recovered
+ * project, reconnecting to read the post-relaunch chat state — none of
+ * which is expected to fail once a relaunch has been confirmed, but "not
+ * expected to" is not the same guarantee as "cannot". Every tool is
+ * supposed to return `{error, tried, hint}` rather than throw; `guard()` in
+ * index.ts catches an escaping exception too, but that is a safety net for
+ * the MCP surface, not a substitute for this function honouring its own
+ * contract in a direct-call context. This is exactly the gap the live wedge
+ * test caught: `restart({force:true})` threw instead of returning, from
+ * `connect()` inside what was then an unguarded precondition.
+ */
 export async function restart(opts: { force?: boolean } = {}) {
-  const result = await saveKillVerify({
-    force: opts.force,
-    action: 'restart',
-    onReady: ({ target, port, project }) => {
-      writeRecovery(port, { dir: project?.dir ?? null, target, savedAt: Date.now() });
+  try {
+    const result = await saveKillVerify({
+      force: opts.force,
+      action: 'restart',
+      onReady: ({ target, port, project }) => {
+        writeRecovery(port, { dir: project?.dir ?? null, target, savedAt: Date.now() });
+      }
+    });
+    if ('error' in result) return result;
+
+    // `result.target` is `null` only when the pre-kill connect never
+    // succeeded at all (a wedged editor killed with `force`) — `'auto'` is
+    // exactly the value `launch()` already defines for "figure out which
+    // build to start", so this is not a new guess, just reusing the
+    // existing one for the one case where the target genuinely isn't known.
+    const relaunched = await launch({ target: result.target ?? 'auto' });
+    if ('error' in relaunched) {
+      // R2 IMPORTANT 4: a relaunch timeout after a dev restart is very often
+      // explained by exactly the ports this sweep declined to free (e.g.
+      // webpack still holding :8080 blocks a clean `npm run dev`). Fold that
+      // into the returned hint rather than discarding it — the error shape
+      // stays {error, tried, hint}, just with a richer hint.
+      const declinedNote = result.declinedPorts.length
+        ? ` Also, ${result.declinedPorts.length} dev port(s) were left occupied and not freed: ${result.declinedPorts
+            .map((d) => `${d.port} (pid ${d.pid}, ${d.reason})`)
+            .join(', ')}.`
+        : '';
+      return { ...relaunched, hint: `${relaunched.hint}${declinedNote}` };
     }
-  });
-  if ('error' in result) return result;
 
-  const relaunched = await launch({ target: result.target });
-  if ('error' in relaunched) {
-    // R2 IMPORTANT 4: a relaunch timeout after a dev restart is very often
-    // explained by exactly the ports this sweep declined to free (e.g.
-    // webpack still holding :8080 blocks a clean `npm run dev`). Fold that
-    // into the returned hint rather than discarding it — the error shape
-    // stays {error, tried, hint}, just with a richer hint.
-    const declinedNote = result.declinedPorts.length
-      ? ` Also, ${result.declinedPorts.length} dev port(s) were left occupied and not freed: ${result.declinedPorts
-          .map((d) => `${d.port} (pid ${d.pid}, ${d.reason})`)
-          .join(', ')}.`
-      : '';
-    return { ...relaunched, hint: `${relaunched.hint}${declinedNote}` };
-  }
-
-  // R2 IMPORTANT 5: a failed or absent recovery read must not look identical
-  // to "there was genuinely nothing open before the restart" — see readRecovery.
-  const recovery = readRecovery(result.port);
-  let reopened = null;
-  // IMPORTANT 4 (round 1): carry the failure reason forward instead of
-  // collapsing it to `project: null`, which is honest but useless for
-  // diagnosing WHY the project didn't come back.
-  let recoveryError: { error: string; tried: string; hint: string } | null = null;
-  if (recovery.ok && recovery.dir) {
-    const reopenedResult = await openProject({ dir: recovery.dir });
-    if ('error' in reopenedResult) {
-      recoveryError = reopenedResult;
-    } else {
-      reopened = reopenedResult.project;
+    // R2 IMPORTANT 5: a failed or absent recovery read must not look identical
+    // to "there was genuinely nothing open before the restart" — see readRecovery.
+    const recovery = readRecovery(result.port);
+    let reopened = null;
+    // IMPORTANT 4 (round 1): carry the failure reason forward instead of
+    // collapsing it to `project: null`, which is honest but useless for
+    // diagnosing WHY the project didn't come back.
+    let recoveryError: { error: string; tried: string; hint: string } | null = null;
+    if (recovery.ok && recovery.dir) {
+      const reopenedResult = await openProject({ dir: recovery.dir });
+      if ('error' in reopenedResult) {
+        recoveryError = reopenedResult;
+      } else {
+        reopened = reopenedResult.project;
+      }
+    } else if (!recovery.ok) {
+      recoveryError = fail(
+        'recovery-read-failed',
+        `reading recovery snapshot for port ${result.port}`,
+        recovery.reason === 'missing'
+          ? 'The recovery snapshot written just before the kill is missing. Cannot tell what project, if any, was open before this restart.'
+          : 'The recovery snapshot could not be parsed. Cannot tell what project, if any, was open before this restart.'
+      );
     }
-  } else if (!recovery.ok) {
-    recoveryError = fail(
-      'recovery-read-failed',
-      `reading recovery snapshot for port ${result.port}`,
-      recovery.reason === 'missing'
-        ? 'The recovery snapshot written just before the kill is missing. Cannot tell what project, if any, was open before this restart.'
-        : 'The recovery snapshot could not be parsed. Cannot tell what project, if any, was open before this restart.'
-    );
+    // else: recovery.ok && !recovery.dir — nothing was open before the
+    // restart, so there is genuinely nothing to reopen; not an error.
+
+    const { page: page2 } = await connect();
+    const chat2 = await readChatState(page2);
+
+    return {
+      restarted: true,
+      target: result.target,
+      project: reopened,
+      recoveryError,
+      declinedPorts: result.declinedPorts,
+      save: result.saveOutcome,
+      chat: { restored: chat2.mounted, messageCount: chat2.messageCount },
+      inFlightTurnLost: result.inFlightTurnLost,
+      hardKilled: result.hardKilled
+    };
+  } catch (e) {
+    const err = e as Error & { code?: string };
+    return fail(err.code ?? 'page-unresponsive', 'restart', err.message ?? String(e));
   }
-  // else: recovery.ok && !recovery.dir — nothing was open before the
-  // restart, so there is genuinely nothing to reopen; not an error.
-
-  const { page: page2 } = await connect();
-  const chat2 = await readChatState(page2);
-
-  return {
-    restarted: true,
-    target: result.target,
-    project: reopened,
-    recoveryError,
-    declinedPorts: result.declinedPorts,
-    save: result.saveOutcome,
-    chat: { restored: chat2.mounted, messageCount: chat2.messageCount },
-    inFlightTurnLost: result.inFlightTurnLost,
-    hardKilled: result.hardKilled
-  };
 }
 
 /**
@@ -971,19 +1068,29 @@ export async function restart(opts: { force?: boolean } = {}) {
  * relaunching — but never relaunch and never write a recovery snapshot.
  * Nothing will be running afterward; `launch()` is how XGENIA comes back,
  * with no project reopened automatically since none was recorded.
+ *
+ * Wrapped the same way `restart()` is: `saveKillVerify` itself never throws,
+ * but this still honours the {result}-or-{error,tried,hint} contract for
+ * itself rather than leaning on `guard()` in index.ts to paper over an
+ * escaping exception.
  */
 export async function quit(opts: { force?: boolean } = {}) {
-  const result = await saveKillVerify({ force: opts.force, action: 'quit' });
-  if ('error' in result) return result;
+  try {
+    const result = await saveKillVerify({ force: opts.force, action: 'quit' });
+    if ('error' in result) return result;
 
-  return {
-    quit: true,
-    target: result.target,
-    port: result.port,
-    project: result.project,
-    save: result.saveOutcome,
-    declinedPorts: result.declinedPorts,
-    inFlightTurnLost: result.inFlightTurnLost,
-    hardKilled: result.hardKilled
-  };
+    return {
+      quit: true,
+      target: result.target,
+      port: result.port,
+      project: result.project,
+      save: result.saveOutcome,
+      declinedPorts: result.declinedPorts,
+      inFlightTurnLost: result.inFlightTurnLost,
+      hardKilled: result.hardKilled
+    };
+  } catch (e) {
+    const err = e as Error & { code?: string };
+    return fail(err.code ?? 'page-unresponsive', 'quit', err.message ?? String(e));
+  }
 }

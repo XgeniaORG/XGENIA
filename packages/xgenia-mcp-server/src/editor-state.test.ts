@@ -9,6 +9,7 @@ import {
   isLoginScreen,
   describePageState,
   describePageStateText,
+  unresponsiveHealthReport,
   type ProjectInfo
 } from './editor-state.js';
 
@@ -235,6 +236,39 @@ describe('describePageState', () => {
     const state = await describePageState(page);
     expect(state.kind).toBe('unreadable');
     expect('error' in state && state.error).toContain('boom: page navigated mid-evaluate');
+  });
+});
+
+// Defect 3: `health()` used to simply throw whatever `connect()` threw, so a
+// wedged or absent editor never produced a `HealthReport` at all -- only
+// `guard()`'s generic {error, tried, hint} in index.ts, losing the
+// running:false shape a caller could otherwise inspect directly.
+// unresponsiveHealthReport is the pure builder `health()`'s catch block now
+// calls; pinned here independent of a real connect() attempt.
+describe('unresponsiveHealthReport', () => {
+  it('reports running:false with the given code, hint and port, and every other field honestly empty', () => {
+    const report = unresponsiveHealthReport(9223, 'editor-unresponsive', 'boom: timed out');
+    expect(report).toEqual({
+      running: false,
+      target: null,
+      port: 9223,
+      pageResponsive: false,
+      projectOpen: false,
+      project: null,
+      chatMounted: false,
+      chatBusy: false,
+      busyForMs: null,
+      pageTitle: null,
+      authenticated: 'unknown',
+      code: 'editor-unresponsive',
+      hint: 'boom: timed out'
+    });
+  });
+
+  it('passes the not-running code through just as faithfully', () => {
+    const report = unresponsiveHealthReport(9223, 'not-running', 'boom: ECONNREFUSED');
+    expect(report.code).toBe('not-running');
+    expect(report.running).toBe(false);
   });
 });
 

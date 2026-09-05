@@ -6,7 +6,8 @@ import {
   killTreeCommand,
   userDataDirs,
   userDataDirForTarget,
-  appLaunchCandidates
+  appLaunchCandidates,
+  portOwner
 } from './platform.js';
 
 const LSOF = `COMMAND    PID   USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
@@ -150,5 +151,19 @@ describe('userDataDirForTarget', () => {
       userDataDirForTarget('app', 'darwin', '/Users/x'),
       userDataDirForTarget('dev', 'darwin', '/Users/x')
     ]);
+  });
+});
+
+// Moved here from lifecycle.ts (Defect 3): connect()'s not-running/
+// editor-unresponsive classification needs the exact same port-owner lookup
+// the kill path already uses, and connection.ts cannot import lifecycle.ts
+// without an import cycle -- lifecycle.ts already imports `connect` from
+// connection.ts. Real, light I/O (an actual port lookup) rather than a
+// mock, matching this suite's existing preference.
+describe('portOwner', () => {
+  it('returns null for a port nothing is listening on', () => {
+    // A high, unlikely-to-collide port distinct from the ones the
+    // connection/lifecycle test files use for the same purpose.
+    expect(portOwner(65531)).toBeNull();
   });
 });
