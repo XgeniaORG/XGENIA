@@ -786,7 +786,10 @@ export class CanvasView extends View {
       React.createElement(VisualCanvas, {
         zoom: this.zoomFactor,
         onWebView: this.props.onWebView,
-        deviceName: this.props.deviceName
+        deviceName: this.props.deviceName,
+        // setViewportSize() calls renderReact(), so these stay current with the frame.
+        viewportWidth: this.viewportWidth ?? null,
+        viewportHeight: this.viewportHeight ?? null
       })
     );
   }

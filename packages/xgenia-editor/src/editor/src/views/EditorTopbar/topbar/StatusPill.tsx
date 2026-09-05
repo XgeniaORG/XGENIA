@@ -190,10 +190,35 @@ export function StatusPill({
   const warn = state.warnings > 0 && state.kind !== 'typing' && (
     <>
       <span className={css.Divider} />
-      <span className={classNames(css.Seg, css.Danger)} onClick={onShowWarnings} title="Show warnings">
+      <span className={classNames(css.Seg, css.Danger)}
+        // VersionControlPanel/MergeConflicts.tsx does
+        //   document.getElementById('editortopbar-warning-button').click()
+        // with no null guard. The id moved here with the badge; dropping it turned that
+        // panel's "Open warnings" button into a TypeError.
+        id="editortopbar-warning-button" onClick={onShowWarnings} title="Show warnings">
         <Hi icon="warning" size={13} color="var(--theme-color-danger)" />
         {state.warnings}
       </span>
+    </>
+  );
+
+  // The surface switch is rendered in EVERY state, not only in the idle body.
+  //
+  // It used to live inside the default case, so while the AI was working, or for the
+  // seconds the pill showed a publish result, there was no way to leave the AI browser
+  // and no indication anywhere that a browser session even existed. The frame is a
+  // different surface from the bar's status — one must not hide the other.
+  const surfaceSwitch = (
+    <>
+      <span
+        className={css.Seg}
+        onClick={toggleSurface}
+        title={surface === 'viewport' ? 'Show AI browser' : 'Show viewport'}
+      >
+        <Hi icon={surface === 'viewport' ? 'monitor' : 'globe'} size={15} />
+        {browser.active && surface === 'viewport' && <span className={css.Pulse} />}
+      </span>
+      <span className={css.Divider} />
     </>
   );
 
@@ -283,7 +308,6 @@ export function StatusPill({
         <>
           <span className={css.Seg} onClick={toggleSurface} title="Back to viewport">
             <span className={css.Pulse} />
-            <Hi icon="globe" size={15} />
             <span className={css.Route}>Browsing {state.url}</span>
           </span>
           <span className={css.Shy}>
@@ -295,15 +319,6 @@ export function StatusPill({
     default:
       body = (
         <>
-          <span
-            className={css.Seg}
-            onClick={toggleSurface}
-            title={state.surface === 'viewport' ? 'Show AI browser' : 'Show viewport'}
-          >
-            <Hi icon={state.surface === 'viewport' ? 'monitor' : 'globe'} size={15} />
-            {state.browserActive && state.surface === 'viewport' && <span className={css.Pulse} />}
-          </span>
-          <span className={css.Divider} />
           <span className={css.Seg} onClick={beginTyping} title="Pages and commands (⌘L)">
             <span className={css.Muted}>
               <Hi icon="home" size={14} />
@@ -320,6 +335,7 @@ export function StatusPill({
   return (
     <>
       <div ref={setRootEl} className={css.Pill}>
+        {state.kind !== 'typing' && surfaceSwitch}
         {body}
         {warn}
       </div>

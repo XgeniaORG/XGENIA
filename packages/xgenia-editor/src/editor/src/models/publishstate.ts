@@ -100,7 +100,14 @@ export function wirePublishState() {
     (payload: { message: string | null; toastId: string } | undefined) => {
       if (!payload || payload.toastId !== DEPLOY_TOAST_ID) return;
       const message = payload.message;
-      if (typeof message === 'string' && message.length > 0) PublishState.progress(message.replace(/\.\.\.$/, '…'));
+      if (typeof message === 'string' && message.length > 0) {
+        PublishState.progress(message.replace(/\.\.\.$/, '…'));
+      } else {
+        // hideActivity: the deploy toast is gone, so the step it named is over. Without
+        // this the pill kept showing the last step ("Deploying to Vercel…") through
+        // every stretch where the pipeline deliberately hides the toast.
+        PublishState.progress('');
+      }
     },
     group
   );

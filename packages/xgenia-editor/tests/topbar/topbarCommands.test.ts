@@ -106,3 +106,22 @@ test('returned matches are frozen so a consumer cannot corrupt the parser', () =
   const s = suggestCommands('', { routes })[0] as any;
   assert.ok(Object.isFrozen(s));
 });
+
+// --- regression: the bar this replaced was a free-text URL field ---
+test('a path-shaped input navigates even when no page matches it', () => {
+  assert.deepEqual(parseTopbarInput('/#/not-indexed-yet', { routes }), {
+    kind: 'route',
+    path: '/#/not-indexed-yet',
+    title: '/#/not-indexed-yet'
+  });
+  assert.equal(parseTopbarInput('/deep/link/42', { routes }).kind, 'route');
+  assert.equal(parseTopbarInput('#/hash-only', { routes }).kind, 'route');
+});
+
+test('non-path gibberish still matches nothing', () => {
+  assert.deepEqual(parseTopbarInput('qqzzx', { routes }), { kind: 'none' });
+});
+
+test('a known route still wins over the free-text fallback', () => {
+  assert.equal((parseTopbarInput('/#/game', { routes }) as any).title, 'Base game');
+});

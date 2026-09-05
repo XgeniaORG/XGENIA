@@ -24,7 +24,13 @@
 
   @media (prefers-reduced-motion: no-preference) {
     transition: width var(--motion-pill), background-color 120ms ease;
-  }
+    // The bar centres this in a grid track that can shrink. Cap it and let long bodies
+  // (a browsed host, a deploy step label) ellipsise instead of pushing the track wide
+  // enough to collide with the clusters either side.
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
 }
 
 .Seg {
@@ -48,6 +54,9 @@
 .Route {
   font-size: 13px;
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .RouteStrong {

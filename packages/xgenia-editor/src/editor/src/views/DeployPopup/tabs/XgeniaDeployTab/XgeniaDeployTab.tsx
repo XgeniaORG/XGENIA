@@ -6,6 +6,7 @@ import * as os from 'os';
 import { CloudService } from '@xgenia-models/CloudServices';
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import { projectFromDirectory } from '@xgenia-models/projectmodel.editor';
+import { PublishState } from '@xgenia-models/publishstate';
 import { createEditorCompilation } from '@xgenia-utils/compilation/compilation.editor';
 import * as Exporter from '@xgenia-utils/exporter';
 // Publishing no longer compiles or deploys logic: Math Components are compiled and
@@ -1143,6 +1144,9 @@ export function XgeniaDeployTab() {
       // show the user, resolved from the domains Vercel really bound to us.
       const deploymentHttpsUrl = `https://${deploymentURL}`;
       const aliasUrl = await resolveLiveUrl(domainName, deploymentURL, deploymentAliases);
+      // Here rather than at the call sites: deployToVercel is called from both the RGS
+      // path and the plain path, and this is the one point where the live URL is known.
+      PublishState.succeed(aliasUrl);
       console.log(`🔗 Live URL resolved to ${aliasUrl}`);
 
       return {
@@ -1633,11 +1637,15 @@ export function XgeniaDeployTab() {
     // game B while every endpoint in the build belongs to game A.
     const game = getActiveGame();
     if (!rgs?.apiKey) {
+      // Early return: this bypasses onDeployToVercelClicked's outer catch, so the
+      // publish state has to be closed here or the Publish button spins forever.
+      PublishState.fail('Not connected to XGENIA RGS. Connect in the Maths RGS panel first.');
       ToastLayer.hideActivity(activityId);
       ToastLayer.showError('Not connected to XGENIA RGS. Connect in the Maths RGS panel first.');
       return;
     }
     if (!game?.id) {
+      PublishState.fail('No game selected. Select one in the Maths RGS panel first.');
       ToastLayer.hideActivity(activityId);
       ToastLayer.showError('No game selected. Select one in the Maths RGS panel first.');
       return;
@@ -1788,6 +1796,7 @@ export function XgeniaDeployTab() {
     }
 
     const activityId = 'deploying-to-vercel';
+    PublishState.begin();
     setIsDeploying(true);
     setDomainError('');
     setSuccessMessage('');
@@ -1798,11 +1807,15 @@ export function XgeniaDeployTab() {
       const availability = await checkDomainAvailability(domainName.trim());
       if (!availability.available) {
         ToastLayer.hideActivity(activityId);
-        setDomainError(
+        // Same family as the two RGS guards below: an early return inside this try
+        // never reaches the outer catch, so the publish state has to be closed here
+        // or the Publish button spins forever on a refused name.
+        const unavailableMessage =
           availability.reason === 'taken-elsewhere'
             ? `${domainName.trim()}.vercel.app is already taken by another Vercel account (the .vercel.app namespace is shared globally). Pick a more unique name, e.g. "${domainName.trim()}-${Math.random().toString(36).slice(2, 6)}".`
-            : 'Domain name is already in use on Vercel. Please choose a different name.'
-        );
+            : 'Domain name is already in use on Vercel. Please choose a different name.';
+        PublishState.fail(unavailableMessage);
+        setDomainError(unavailableMessage);
         return;
       }
 
@@ -1896,6 +1909,7 @@ export function XgeniaDeployTab() {
       }
 
     } catch (error: any) {
+      PublishState.fail(error?.message || String(error));
       ToastLayer.hideActivity(activityId);
       ToastLayer.showError(`Deployment failed: ${error.message}`);
       console.error('Deployment error:', error);

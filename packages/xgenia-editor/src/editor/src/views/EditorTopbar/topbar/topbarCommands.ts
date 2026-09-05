@@ -103,6 +103,14 @@ function parseRoute(raw: string, routes: RouteInfo[]): TopbarMatch {
       r.title.toLowerCase().startsWith(t)
   );
   if (prefix) return { kind: 'route', path: prefix.path, title: prefix.title };
+
+  // Anything path-shaped navigates even when it matches no known page. The bar this
+  // replaces was a free-text URL field, and routes are frequently typed before they
+  // are indexed — a Router path with a parameter, a page added seconds ago, a deep
+  // link a designer was given. Refusing to navigate would be a silent no-op on Enter.
+  if (raw.startsWith('/') || raw.startsWith('#')) {
+    return { kind: 'route', path: raw, title: raw };
+  }
   return { kind: 'none' };
 }
 

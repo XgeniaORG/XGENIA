@@ -23,6 +23,19 @@ export interface FrameResizeHandlesProps {
 }
 
 type Axis = 'x' | 'y' | 'xy';
+
+/**
+ * Minimum gap between size requests while dragging.
+ *
+ * EditorDocument throttles viewer IPC at 100ms per event name AND counts every
+ * throttled call as "blocked"; 100 blocked events PERMANENTLY disable all viewer IPC
+ * for the session (EditorDocument.tsx:46-65). A 60fps drag emitting per pointermove
+ * burns that budget in under two seconds and takes route navigation, zoom, inspect
+ * mode and detach down with it. Stay just above the throttle window so a drag never
+ * contributes a single blocked event. The size chip still updates every frame — it is
+ * local state and costs nothing.
+ */
+const EMIT_INTERVAL_MS = 120;
 const PRESETS = screenSizesWithDividers.filter((s) => typeof s !== 'string') as {
   name: string;
   width: number | null;
@@ -55,6 +68,10 @@ export function FrameResizeHandles({ width, height, scale, deviceName, rect }: F
     scale: number;
     pointerId: number;
     last: { w: number; h: number; name: string | null };
+    /** Timestamp of the last emitted size request, for the cadence above. */
+    lastEmit: number;
+    /** True when `last` has not been emitted yet, so release can flush it. */
+    pending: boolean;
   } | null>(null);
 
   const showChip = useCallback((w: number, h: number, name: string | null, sticky: boolean) => {
@@ -76,10 +93,21 @@ export function FrameResizeHandles({ width, height, scale, deviceName, rect }: F
   useEffect(() => {
     if (!dragAxis) return;
 
+    const emitSize = (size: { w: number; h: number; name: string | null }) => {
+      EventDispatcher.instance.emit('preview-size-request', {
+        width: size.w,
+        height: size.h,
+        deviceName: size.name || 'Custom'
+      });
+    };
+
     const endGesture = () => {
       const g = gesture.current;
       gesture.current = null;
       setDragAxis(null);
+      // Always land on the size the user released at, even if the last move fell
+      // inside the cadence window and was coalesced away.
+      if (g && g.pending) emitSize(g.last);
       // Read the final size from the gesture, not from `chip`: pointermove is a
       // continuous event that React 18 commits at normal priority, while pointerup is
       // discrete and flushes synchronously, so the last move's state may not have
@@ -101,13 +129,18 @@ export function FrameResizeHandles({ width, height, scale, deviceName, rect }: F
       const w = g.axis === 'y' ? g.w0 : g.w0 + dx;
       const h = g.axis === 'x' ? g.h0 : g.h0 + dy;
       const r = snapSize(w, h, PRESETS, 24);
+      const changed = r.width !== g.last.w || r.height !== g.last.h;
       g.last = { w: r.width, h: r.height, name: r.deviceName };
       showChip(r.width, r.height, r.deviceName, true);
-      EventDispatcher.instance.emit('preview-size-request', {
-        width: r.width,
-        height: r.height,
-        deviceName: r.deviceName || 'Custom'
-      });
+      if (changed) {
+        g.pending = true;
+        const now = performance.now();
+        if (now - g.lastEmit >= EMIT_INTERVAL_MS) {
+          g.lastEmit = now;
+          emitSize(g.last);
+          g.pending = false;
+        }
+      }
     };
 
     const onUp = (e: PointerEvent) => {
@@ -146,7 +179,9 @@ export function FrameResizeHandles({ width, height, scale, deviceName, rect }: F
       // the delta that was already accumulated.
       scale: Math.max(scale, 0.05),
       pointerId: e.pointerId,
-      last: { w: width, h: height, name: deviceName ?? null }
+      last: { w: width, h: height, name: deviceName ?? null },
+      lastEmit: 0,
+      pending: false
     };
     setDragAxis(axis);
     showChip(width, height, deviceName ?? null, true);

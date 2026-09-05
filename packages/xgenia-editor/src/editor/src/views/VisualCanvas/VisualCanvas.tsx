@@ -11,6 +11,7 @@ import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import { useTrackBounds } from '@xgenia-core-ui/hooks/useTrackBounds';
 
 import { CanvasView } from './CanvasView';
+import { FrameResizeHandles } from './FrameResizeHandles';
 import css from './VisualCanvas.module.scss';
 
 export interface VisualCanvasProps {
@@ -18,9 +19,19 @@ export interface VisualCanvasProps {
   deviceName?: string;
   zoom: number;
   onReloadWebview?: () => void;
+  /** Device pixels of the current preview viewport; null = "Fit viewport". */
+  viewportWidth: number | null;
+  viewportHeight: number | null;
 }
 
-export function VisualCanvas({ onWebView, deviceName, zoom, onReloadWebview }: VisualCanvasProps) {
+export function VisualCanvas({
+  onWebView,
+  deviceName,
+  zoom,
+  onReloadWebview,
+  viewportWidth,
+  viewportHeight
+}: VisualCanvasProps) {
   const webviewRef = useRef<Electron.WebviewTag>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const webviewDomReadyRef = useRef<boolean>(false);
@@ -230,6 +241,28 @@ export function VisualCanvas({ onWebView, deviceName, zoom, onReloadWebview }: V
     return () => clearTimeout(timer);
   }, [preloadKey]); // Re-run when webview is recreated
 
+  // The webview's visual box, expressed relative to .WebviewContainer (its positioned
+  // parent). getBoundingClientRect() on a CSS-transformed element returns the VISUAL
+  // box, which is what the handles have to sit on — the container is a centering flex
+  // box that is normally much larger than the frame.
+  const frameRect =
+    webviewBounds && containerBounds && webviewBounds.width > 0
+      ? {
+        left: webviewBounds.left - containerBounds.left,
+        top: webviewBounds.top - containerBounds.top,
+        width: webviewBounds.width,
+        height: webviewBounds.height
+      }
+      : null;
+
+  // The scale that maps pointer pixels onto device pixels. NOT the `zoom` prop:
+  // CanvasView.renderReact() passes `this.zoomFactor` (the user's content zoom, applied
+  // via webview.setZoomFactor, which does not change the element's box), while the
+  // element is transformed by the fitScale that updateViewportSize() writes to
+  // `this.props.zoom` — a value nothing forwards to this component. Measuring the
+  // visual box against the device width gives that fitScale directly.
+  const frameScale = frameRect && viewportWidth > 0 ? frameRect.width / viewportWidth : zoom;
+
   return (
     <div className={css.Background}>
       {showViewportSize && (
@@ -270,6 +303,14 @@ export function VisualCanvas({ onWebView, deviceName, zoom, onReloadWebview }: V
           // Preload to inject XgeniaEditorAPI into the preview content
           preload={preloadPath}
           suppressHydrationWarning={true}
+        />
+
+        <FrameResizeHandles
+          width={viewportWidth}
+          height={viewportHeight}
+          scale={frameScale}
+          deviceName={deviceName}
+          rect={frameRect}
         />
       </div>
 

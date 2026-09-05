@@ -1,61 +1,97 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { HugeiconsIcon } from '@hugeicons/react';
 // @ts-ignore
-import ComputerIcon from '@hugeicons/core-free-icons/ComputerIcon';
-// @ts-ignore
 import GlobeIcon from '@hugeicons/core-free-icons/GlobeIcon';
 // @ts-ignore
 import Cancel01Icon from '@hugeicons/core-free-icons/Cancel01Icon';
 import { AiBrowserManager, AiBrowserState } from '@xgenia-ai/ChatPanel/AiBrowserManager';
+
+import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import { Frame, FrameProps } from '../common/Frame/Frame';
 import css from './PreviewSurface.module.scss';
 
-type ActiveTab = 'viewport' | 'browser';
+type Surface = 'viewport' | 'browser';
 
-interface CanvasWithBrowserTabsProps {
-    /** The CanvasView instance to render in the Viewport tab */
+interface PreviewSurfaceProps {
+    /** The CanvasView instance to render on the viewport surface */
     canvasViewInstance: FrameProps['instance'];
     /** Resize callback from Frame */
     onResize?: (bounds: DOMRect) => void;
 }
 
 /**
- * Wraps the viewport preview canvas with a tab bar that lets users
- * switch between the "Viewport" view and the AI "Browser" view.
- * 
- * The browser tab auto-activates when the AI opens a URL.
- * The webview is owned by AiBrowserManager (persistent hidden container)
- * and reparented into this component when the Browser tab is active.
+ * Hosts the viewport preview and the AI browser in one frame.
+ *
+ * There is no tab row any more: the surface switch lives in the top bar's status pill,
+ * which emits `preview-surface`. Every change made here — the pill's request, the
+ * auto-switch when AiBrowserManager reports a session, and the close button's return to
+ * the viewport — is reported back with `preview-surface-changed` so the pill mirrors the
+ * surface that is actually showing. Echoing the pill's own value back is harmless: the
+ * pill only setStates on `preview-surface-changed`, it never re-emits (StatusPill.tsx).
+ *
+ * The webview is owned by AiBrowserManager (persistent hidden container) and reparented
+ * into this component while the browser surface is shown.
  */
-export function CanvasWithBrowserTabs({ canvasViewInstance, onResize }: CanvasWithBrowserTabsProps) {
-    const [activeTab, setActiveTab] = useState<ActiveTab>('viewport');
+export function PreviewSurface({ canvasViewInstance, onResize }: PreviewSurfaceProps) {
+    const [surface, setSurfaceState] = useState<Surface>('viewport');
     const [browserState, setBrowserState] = useState<AiBrowserState>(AiBrowserManager.getState());
     const browserContainerRef = useRef<HTMLDivElement>(null);
 
-    // Subscribe to AiBrowserManager state changes
+    /** Single write path for the surface, so no change can skip the mirror event. */
+    const setSurface = useCallback((s: Surface) => {
+        setSurfaceState(s);
+        EventDispatcher.instance.emit('preview-surface-changed', s);
+    }, []);
+
+    // Subscribe once: AiBrowserManager state + the pill's surface requests.
+    // Announce the current surface on mount. This component remounts whenever the
+    // document layout changes (vertical <-> horizontal, detach/attach), and the pill's
+    // copy of the surface is updated ONLY by this event — without an initial emit the
+    // indicator in the bar could disagree with what the frame is actually showing.
     useEffect(() => {
-        const unsubscribe = AiBrowserManager.onStateChange((s) => {
+        EventDispatcher.instance.emit('preview-surface-changed', surface);
+        // Mount only: every later change already emits through setSurface.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useEffect(() => {
+        const eventGroup = {};
+
+        const unsubscribe = AiBrowserManager.onStateChange((s: AiBrowserState) => {
             setBrowserState(s);
 
-            // Auto-switch to browser tab when AI opens a URL
-            if (s.active) {
-                setActiveTab('browser');
+            // Auto-switch to the browser when the AI opens a URL — and tell the pill.
+            if (s && s.active) {
+                setSurface('browser');
             }
         });
-        return () => unsubscribe();
-    }, []);
+
+        EventDispatcher.instance.on(
+            'preview-surface',
+            (s: Surface) => {
+                // Fail closed on a malformed payload rather than showing a blank surface.
+                if (s === 'viewport' || s === 'browser') setSurface(s);
+            },
+            eventGroup
+        );
+
+        return () => {
+            unsubscribe();
+            EventDispatcher.instance.off(eventGroup);
+        };
+    }, [setSurface]);
 
     // Reparent the manager-owned webview into the browser container
     useEffect(() => {
-        if (activeTab !== 'browser' || !browserContainerRef.current) return;
+        if (surface !== 'browser' || !browserContainerRef.current) return;
 
         const webviewEl = AiBrowserManager.getWebviewElement();
         if (webviewEl && !browserContainerRef.current.contains(webviewEl)) {
             browserContainerRef.current.appendChild(webviewEl);
         }
-    }, [activeTab, browserState.active]);
+    }, [surface, browserState.active]);
 
-    // On unmount, return webview to hidden container  
+    // On unmount, return webview to hidden container
     useEffect(() => {
         return () => {
             AiBrowserManager.returnWebviewToHiddenContainer();
@@ -64,60 +100,38 @@ export function CanvasWithBrowserTabs({ canvasViewInstance, onResize }: CanvasWi
 
     const handleCloseSession = useCallback(() => {
         AiBrowserManager.close();
-        setActiveTab('viewport');
-    }, []);
+        setSurface('viewport');
+    }, [setSurface]);
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
-            {/* Tab bar */}
-            <div className={css.TabBar}>
-                <button
-                    className={`${css.Tab} ${activeTab === 'viewport' ? css.TabActive : ''}`}
-                    onClick={() => setActiveTab('viewport')}
-                >
-                    <HugeiconsIcon icon={ComputerIcon} size={14} color="currentColor" className={css.TabIcon} />
-                    Viewport
-                </button>
-                <button
-                    className={`${css.Tab} ${activeTab === 'browser' ? css.TabActive : ''}`}
-                    onClick={() => setActiveTab('browser')}
-                >
-                    <HugeiconsIcon icon={GlobeIcon} size={14} color="currentColor" className={css.TabIcon} />
-                    Browser
-                    {browserState.active && <span className={css.AiDot} />}
-                </button>
+        <div className={css.ContentArea}>
+            {/* Viewport surface — always mounted, hidden when not showing */}
+            <div className={css.FrameWrapper} style={{ display: surface === 'viewport' ? 'block' : 'none' }}>
+                <Frame instance={canvasViewInstance} onResize={onResize} />
             </div>
 
-            {/* Content area */}
-            <div className={css.ContentArea}>
-                {/* Viewport tab — always mounted, hidden when not active */}
-                <div className={css.FrameWrapper} style={{ display: activeTab === 'viewport' ? 'block' : 'none' }}>
-                    <Frame instance={canvasViewInstance} onResize={onResize} />
-                </div>
-
-                {/* Browser tab */}
-                {activeTab === 'browser' && (
-                    <div className={css.BrowserContainer}>
-                        {browserState.active ? (
-                            <>
-                                <div className={css.BrowserHeader}>
-                                    <span className={css.AiDot} />
-                                    <span className={css.BrowserUrl}>{browserState.url}</span>
-                                    <button className={css.BrowserCloseBtn} onClick={handleCloseSession} title="Close session">
-                                        <HugeiconsIcon icon={Cancel01Icon} size={14} color="currentColor" />
-                                    </button>
-                                </div>
-                                <div ref={browserContainerRef} className={css.BrowserWebview} />
-                            </>
-                        ) : (
-                            <div className={css.BrowserEmpty}>
-                                <HugeiconsIcon icon={GlobeIcon} size={36} color="currentColor" className={css.BrowserEmptyIcon} />
-                                <span className={css.BrowserEmptyText}>No browser session active</span>
+            {/* Browser surface */}
+            {surface === 'browser' && (
+                <div className={css.BrowserContainer}>
+                    {browserState.active ? (
+                        <>
+                            <div className={css.BrowserHeader}>
+                                <span className={css.AiDot} />
+                                <span className={css.BrowserUrl}>{browserState.url}</span>
+                                <button className={css.BrowserCloseBtn} onClick={handleCloseSession} title="Close session">
+                                    <HugeiconsIcon icon={Cancel01Icon} size={14} color="currentColor" />
+                                </button>
                             </div>
-                        )}
-                    </div>
-                )}
-            </div>
+                            <div ref={browserContainerRef} className={css.BrowserWebview} />
+                        </>
+                    ) : (
+                        <div className={css.BrowserEmpty}>
+                            <HugeiconsIcon icon={GlobeIcon} size={36} color="currentColor" className={css.BrowserEmptyIcon} />
+                            <span className={css.BrowserEmptyText}>No browser session active</span>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }

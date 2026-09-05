@@ -41,6 +41,15 @@ export function createPublishStore(deps: PublishStoreDeps): PublishStore {
    * `dirty` on success, otherwise the change is silently reported as live.
    */
   let dirtiedDuringPublish = false;
+  /**
+   * `dirty` as it stood when the current publish started.
+   *
+   * begin() optimistically clears the flag (and persists that), so a publish that then
+   * FAILS used to leave the project marked clean. After a reload the bar painted a
+   * green "Live" chip for the previous deployment with no unpublished-changes dot —
+   * a direct claim that work which was never deployed is live.
+   */
+  let dirtyBeforePublish = false;
 
   function notify() {
     // One throwing subscriber must not starve the others, and must never propagate
@@ -96,6 +105,7 @@ export function createPublishStore(deps: PublishStoreDeps): PublishStore {
         } catch { raw = {}; }
       }
       dirtiedDuringPublish = false;
+      dirtyBeforePublish = false;
       snap = {
         phase: 'idle',
         url: str(raw.url),
@@ -106,15 +116,31 @@ export function createPublishStore(deps: PublishStoreDeps): PublishStore {
       };
       notify();
     },
-    begin() { dirtiedDuringPublish = false; set({ phase: 'publishing', label: undefined, error: undefined, dirty: false }); },
-    progress(label) { if (snap.phase === 'publishing') set({ label }); },
+    begin() {
+      dirtiedDuringPublish = false;
+      dirtyBeforePublish = snap.dirty;
+      set({ phase: 'publishing', label: undefined, error: undefined, dirty: false });
+    },
+    progress(label) {
+      // An empty label CLEARS the step rather than setting a blank one, so the pill
+      // falls back to its generic 'Publishing…' text instead of showing a stale step.
+      if (snap.phase === 'publishing') set({ label: label || undefined });
+    },
     succeed(url) {
       // Edits made mid-publish are NOT in the bundle that just went live.
       const carried = dirtiedDuringPublish;
       dirtiedDuringPublish = false;
+      dirtyBeforePublish = false;
       set({ phase: 'live', url, publishedAt: deps.now(), publishCount: snap.publishCount + 1, dirty: carried, label: undefined, error: undefined });
     },
-    fail(error) { dirtiedDuringPublish = false; set({ phase: 'failed', error, label: undefined }); },
+    fail(error) {
+      // Nothing was deployed, so every change that was pending before the attempt is
+      // still pending — plus anything edited while it ran.
+      const restored = dirtyBeforePublish || dirtiedDuringPublish;
+      dirtiedDuringPublish = false;
+      dirtyBeforePublish = false;
+      set({ phase: 'failed', error, label: undefined, dirty: restored });
+    },
     markDirty() {
       if (snap.phase === 'publishing') { dirtiedDuringPublish = true; return; }
       if (!snap.dirty) set({ dirty: true });

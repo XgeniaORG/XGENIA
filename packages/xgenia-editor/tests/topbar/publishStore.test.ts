@@ -123,3 +123,41 @@ test('load resets a pending mid-publish dirty flag', () => {
   s.begin(); s.succeed('https://x');
   assert.equal(s.getSnapshot().dirty, false, 'mid-publish flag leaked across projects');
 });
+
+// --- regression: a failed publish must not look like a clean one ---
+test('failure restores the pending-changes flag that begin() cleared', () => {
+  const s = createPublishStore({ storage: mem(), now });
+  s.begin(); s.succeed('https://v1');
+  s.markDirty();
+  assert.equal(s.getSnapshot().dirty, true);
+  s.begin();
+  assert.equal(s.getSnapshot().dirty, false, 'optimistically cleared while running');
+  s.fail('vercel refused');
+  assert.equal(s.getSnapshot().dirty, true, 'nothing was deployed, so the changes are still pending');
+});
+
+test('failure keeps dirty true for an edit made during the attempt', () => {
+  const s = createPublishStore({ storage: mem(), now });
+  s.begin(); s.succeed('https://v1');
+  s.begin();
+  s.markDirty();
+  s.fail('network down');
+  assert.equal(s.getSnapshot().dirty, true);
+});
+
+test('a failed publish persists as dirty across a reload', () => {
+  const storage = mem();
+  const a = createPublishStore({ storage, now });
+  a.load('proj'); a.begin(); a.succeed('https://v1'); a.markDirty(); a.begin(); a.fail('boom');
+  const b = createPublishStore({ storage, now });
+  b.load('proj');
+  assert.equal(b.getSnapshot().dirty, true, 'reload showed a clean Live chip for an undeployed change');
+  assert.equal(b.getSnapshot().url, 'https://v1');
+});
+
+test('a clean project that fails to publish does not become dirty', () => {
+  const s = createPublishStore({ storage: mem(), now });
+  s.begin(); s.succeed('https://v1');
+  s.begin(); s.fail('boom');
+  assert.equal(s.getSnapshot().dirty, false);
+});
