@@ -1,14 +1,23 @@
 {
-  "name": "xgenia-mcp",
+  "name": "@xgenia/mcp-server",
   "version": "1.0.0",
   "type": "module",
-  "description": "MCP harness that drives the XGENIA editor over the Chrome DevTools Protocol",
+  "description": "MCP server that drives the XGENIA editor: launch it, open or create projects, send prompts to its AI chat, monitor the conversation, screenshot, and restart it when it wedges.",
   "license": "MIT",
-  "bin": { "xgenia-mcp": "dist/index.js" },
+  "bin": {
+    "xgenia-mcp": "dist/index.js"
+  },
   "main": "dist/index.js",
-  "files": ["dist"],
-  "engines": { "node": ">=18" },
-  "publishConfig": { "registry": "https://registry.npmjs.org", "access": "public" },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rimraf dist",
@@ -28,5 +37,28 @@
     "rimraf": "^3.0.2",
     "typescript": "^5.9.3",
     "vitest": "^4.1.9"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "xgenia",
+    "claude",
+    "llm",
+    "ai-agent",
+    "electron",
+    "automation",
+    "low-code",
+    "cdp",
+    "playwright"
+  ],
+  "author": "XGENIA <contact@xgenia.io>",
+  "homepage": "https://xgenia.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/XgeniaORG/XGENIA.git",
+    "directory": "packages/xgenia-mcp-server"
+  },
+  "bugs": {
+    "url": "https://github.com/XgeniaORG/XGENIA/issues"
   }
 }
