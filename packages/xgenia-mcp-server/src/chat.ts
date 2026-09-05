@@ -1,14 +1,19 @@
+import type { Frame } from 'playwright-core';
 import { connect, getChatFrame } from './connection.js';
 import { SELECTORS } from './selectors.js';
 import { readChatState, summariseMessages, type ChatMessage, type ChatMessageOut } from './editor-state.js';
 
 const MESSAGE_CAP = 2000;
+const DEFAULT_TAIL_LIMIT = 5;
 
 /**
- * Chrome lines the panel prints above the transcript.
+ * Chrome lines the panel prints in and around the transcript.
  *
  * These carry no conversation content and change on every render (costs, token
- * counts), so keeping them would make every read look different from the last.
+ * counts, "N older messages" counters), so keeping them would make every read
+ * look different from the last. They can appear anywhere in the innerText —
+ * not just as a leading preamble — so every line is checked, not only a
+ * leading run.
  */
 const CHROME = [
   /^▶$/,
@@ -17,26 +22,84 @@ const CHROME = [
   /^Dashboard$/,
   /^[\d.]+% of context$/,
   /^[\d.]+k \/ [\d.]+k · \d+ msgs$/,
-  /^Load \d+ older messages?$/
+  /^Load \d+ older messages?$/,
+  /^Showing last \d+ of \d+ messages for performance\.?(\s*Full conversation saved\.?)?$/,
+  /^Full conversation saved\.?$/
 ];
 
+/**
+ * Fallback parser for a panel that renders no `.message-container` elements at
+ * all (unexpected version, or one that only exposes the flat transcript).
+ *
+ * The panel exposes no per-message role in plain innerText, so the whole body
+ * comes back as one block with role 'unknown' — inventing 'assistant' here
+ * would be a confident guess with nothing behind it. `readStructuredMessages`
+ * is the real path; this is only reached when that finds zero containers.
+ */
 export function parseTranscript(innerText: string): ChatMessage[] {
   const lines = innerText.split('\n');
-  let start = 0;
-  while (start < lines.length) {
-    const line = lines[start].trim();
-    if (line === '' || CHROME.some((re) => re.test(line))) {
-      start += 1;
-      continue;
-    }
-    break;
-  }
-  const body = lines.slice(start).join('\n').trim();
+  const kept = lines.filter((line) => {
+    const trimmed = line.trim();
+    if (trimmed === '') return false;
+    return !CHROME.some((re) => re.test(trimmed));
+  });
+  const body = kept.join('\n').trim();
   if (!body) return [];
-  // The panel does not expose per-message roles in innerText. One block is
-  // returned; callers that need turn boundaries use messageCount from
-  // readChatState, which counts the per-message copy buttons.
-  return [{ role: 'assistant', text: body }];
+  return [{ role: 'unknown', text: body }];
+}
+
+interface RawMessageRow {
+  /** The message container's parent element's class list, as read live. */
+  parentClasses: string[];
+  text: string;
+}
+
+/**
+ * A container's parent class is the only role signal the DOM exposes.
+ * `assistant-group` means assistant; nothing marks a user turn (there is no
+ * `user-group` and no `data-*` role attribute), so anything else is
+ * 'unknown' rather than an assumed 'user'.
+ */
+function mapRawRow(row: RawMessageRow): ChatMessage {
+  return {
+    role: row.parentClasses.includes('assistant-group') ? 'assistant' : 'unknown',
+    text: row.text.trim()
+  };
+}
+
+/**
+ * Read the transcript as real per-message DOM nodes: one `.message-container`
+ * per message, matching `messageCount` exactly. This is what makes "the last
+ * reply" reachable at all — the innerText blob has no message boundaries, so
+ * `parseTranscript` alone could never return less than the entire transcript.
+ */
+export async function readStructuredMessages(frame: Frame): Promise<ChatMessage[]> {
+  const rows = (await frame.evaluate(() =>
+    Array.from(document.querySelectorAll('.message-container')).map((el) => ({
+      parentClasses: el.parentElement ? Array.from(el.parentElement.classList) : [],
+      text: (el as HTMLElement).innerText
+    }))
+  )) as RawMessageRow[];
+
+  if (rows.length === 0) {
+    // Structured query found nothing — degrade to the whole-blob parse
+    // instead of reporting an empty transcript.
+    const raw = (await frame.evaluate(() => document.body.innerText)) as string;
+    return parseTranscript(raw);
+  }
+
+  return rows.map(mapRawRow);
+}
+
+/**
+ * Which absolute index to start a read from when the caller did not specify
+ * `since`. Monitoring a live conversation wants the newest messages, so the
+ * default is the tail of the transcript, not the head — the head is what a
+ * naive `since ?? 0` gives you, and it is useless for "what did it just say".
+ */
+export function resolveReadWindow(total: number, since: number | undefined, limit: number): number {
+  if (since !== undefined) return since;
+  return Math.max(0, total - limit);
 }
 
 function fail(code: string, tried: string, hint: string) {
@@ -69,15 +132,11 @@ export async function chatRead(opts: { since?: number; limit?: number } = {}) {
     return fail('chat-frame-missing', SELECTORS.chatIframe, unavailableHint(state));
   }
 
-  const raw = await frame.evaluate(() => document.body.innerText);
-  const messages = parseTranscript(raw);
+  const messages = await readStructuredMessages(frame);
+  const limit = opts.limit ?? DEFAULT_TAIL_LIMIT;
+  const since = resolveReadWindow(messages.length, opts.since, limit);
 
-  const out: ChatMessageOut[] = summariseMessages(
-    messages,
-    opts.since ?? 0,
-    opts.limit ?? 20,
-    MESSAGE_CAP
-  );
+  const out: ChatMessageOut[] = summariseMessages(messages, since, limit, MESSAGE_CAP);
 
   return { total: messages.length, messageCount: state.messageCount, busy: state.busy, messages: out };
 }
