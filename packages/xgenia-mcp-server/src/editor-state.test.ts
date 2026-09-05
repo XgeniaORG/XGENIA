@@ -1,7 +1,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { busySince, resetBusyTracking, summariseMessages } from './editor-state.js';
+import type { Page } from 'playwright-core';
+import { busySince, resetBusyTracking, summariseMessages, readChatState } from './editor-state.js';
 
 beforeEach(() => resetBusyTracking());
+
+/** Minimal stand-in for a Playwright Frame, just enough for getChatFrame + evaluate. */
+function stubPage(frame: { url: () => string; evaluate: (...args: unknown[]) => unknown } | null): Page {
+  return {
+    frames: () => (frame ? [frame] : [])
+  } as unknown as Page;
+}
 
 describe('busySince', () => {
   it('returns null while idle', () => {
@@ -48,5 +56,38 @@ describe('summariseMessages', () => {
   it('respects the limit', () => {
     const src = [1, 2, 3, 4].map((n) => ({ role: 'user' as const, text: String(n) }));
     expect(summariseMessages(src, 0, 2, 2000)).toHaveLength(2);
+  });
+});
+
+describe('readChatState', () => {
+  it('reports no-frame when no chat iframe is found', async () => {
+    const page = stubPage(null);
+    const state = await readChatState(page);
+    expect(state.mounted).toBe(false);
+    expect(state.unavailable).toBe('no-frame');
+    expect(state.error).toBeUndefined();
+  });
+
+  it('reports evaluate-failed when the frame exists but evaluate throws', async () => {
+    const page = stubPage({
+      url: () => 'https://xgenia-ai-app.vercel.app/panel',
+      evaluate: () => {
+        throw new Error('boom: cross-origin read failed');
+      }
+    });
+    const state = await readChatState(page);
+    expect(state.mounted).toBe(false);
+    expect(state.unavailable).toBe('evaluate-failed');
+    expect(state.error).toContain('boom: cross-origin read failed');
+  });
+
+  it('passes through real values on success with unavailable absent', async () => {
+    const page = stubPage({
+      url: () => 'https://xgenia-ai-app.vercel.app/panel',
+      evaluate: async () => ({ mounted: true, busy: false, messageCount: 3 })
+    });
+    const state = await readChatState(page);
+    expect(state).toEqual({ mounted: true, busy: false, messageCount: 3 });
+    expect(state.unavailable).toBeUndefined();
   });
 });

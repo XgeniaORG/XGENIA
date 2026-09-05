@@ -43,11 +43,25 @@ export async function readProject(page: Page): Promise<ProjectInfo | null> {
   });
 }
 
-export async function readChatState(
-  page: Page
-): Promise<{ mounted: boolean; busy: boolean; messageCount: number }> {
+export interface ChatState {
+  mounted: boolean;
+  busy: boolean;
+  messageCount: number;
+  /**
+   * Present only when the read produced no real data. Distinguishes "no chat
+   * iframe at all" from "the iframe is there but the read inside it failed" —
+   * the latter must not be reported to an operator as "not mounted".
+   */
+  unavailable?: 'no-frame' | 'evaluate-failed';
+  /** The thrown message when `unavailable === 'evaluate-failed'`, trimmed. */
+  error?: string;
+}
+
+const MAX_ERROR_LEN = 300;
+
+export async function readChatState(page: Page): Promise<ChatState> {
   const frame = getChatFrame(page);
-  if (!frame) return { mounted: false, busy: false, messageCount: 0 };
+  if (!frame) return { mounted: false, busy: false, messageCount: 0, unavailable: 'no-frame' };
   try {
     return await frame.evaluate(
       (sel) => ({
@@ -57,8 +71,15 @@ export async function readChatState(
       }),
       { chatInput: SELECTORS.chatInput, chatStop: SELECTORS.chatStop }
     );
-  } catch {
-    return { mounted: false, busy: false, messageCount: 0 };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return {
+      mounted: false,
+      busy: false,
+      messageCount: 0,
+      unavailable: 'evaluate-failed',
+      error: message.slice(0, MAX_ERROR_LEN)
+    };
   }
 }
 
@@ -102,6 +123,12 @@ export interface HealthReport {
   chatMounted: boolean;
   chatBusy: boolean;
   busyForMs: number | null;
+  /**
+   * Why `chatMounted`/`chatBusy` read as false-and-empty when they aren't
+   * trustworthy: no chat iframe found at all, vs. an iframe present whose
+   * read threw. Absent when the read succeeded.
+   */
+  chatUnavailable?: 'no-frame' | 'evaluate-failed';
   /** The editor page's <title>. Always the literal "XGENIA" — carries no version. */
   pageTitle: string | null;
 }
@@ -141,6 +168,7 @@ export async function health(): Promise<HealthReport> {
     chatMounted: chat.mounted,
     chatBusy: chat.busy,
     busyForMs: busySince(chat.busy),
+    chatUnavailable: chat.unavailable,
     pageTitle
   };
 }
