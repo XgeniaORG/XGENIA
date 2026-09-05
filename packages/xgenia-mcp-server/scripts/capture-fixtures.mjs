@@ -13,7 +13,11 @@
  *     plus the outerHTML of the first 3 `.projects-item` tiles.
  *     Requires: the projects screen showing (no project open).
  *
- * Both modes connect to a running XGENIA over CDP (`--remote-debugging-port`,
+ *   node scripts/capture-fixtures.mjs --login [--port 9223]
+ *     Captures fixtures/login-screen.html: the login overlay's outerHTML.
+ *     Requires: the (unauthenticated) login screen showing.
+ *
+ * All modes connect to a running XGENIA over CDP (`--remote-debugging-port`,
  * default 9223) and capture real markup so selectors.test.ts can assert
  * SELECTORS (src/selectors.ts) against it without a running app.
  *
@@ -27,10 +31,13 @@
  * (component-scoped CSS, inlined thumbnails) that no selector depends on and
  * that would otherwise bloat the fixture to well over a megabyte.
  *
- * The --projects fixture is captured WITHOUT this sanitisation: it exists
- * specifically to pin real project-tile markup including the label text (see
- * selectors.test.ts and Task 4 brief Override 1), and only ever holds project
- * names, never chat content.
+ * The --projects and --login fixtures are captured WITHOUT this
+ * sanitisation: --projects exists specifically to pin real project-tile
+ * markup including the label text (see selectors.test.ts and Task 4 brief
+ * Override 1), and only ever holds project names, never chat content.
+ * --login holds nothing but the login form's own static copy and empty
+ * input fields -- no user data ever passes through this harness's reach of
+ * that screen (see the "no credential handling" rule in the project brief).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -42,6 +49,7 @@ const args = process.argv.slice(2);
 const portArg = args.indexOf('--port');
 const port = portArg > -1 ? Number(args[portArg + 1]) : 9223;
 const projectsMode = args.includes('--projects');
+const loginMode = args.includes('--login');
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures');
 
 /**
@@ -104,6 +112,17 @@ if (projectsMode) {
   }
   fs.writeFileSync(path.join(dir, 'projects-screen.html'), html);
   console.log('Captured fixtures/projects-screen.html (unsanitised, labels intact) to', dir);
+} else if (loginMode) {
+  const html = await page.evaluate(() => {
+    const password = document.querySelector('input[type="password"]');
+    const form = password?.closest('form');
+    return form ? form.outerHTML : null;
+  });
+  if (!html) {
+    throw new Error('No login <form> with a password input found. Is the login screen showing?');
+  }
+  fs.writeFileSync(path.join(dir, 'login-screen.html'), html);
+  console.log('Captured fixtures/login-screen.html (unsanitised, static copy only) to', dir);
 } else {
   const editorHtml = await page.content();
   fs.writeFileSync(path.join(dir, 'editor-page.html'), sanitizeHtml(editorHtml));

@@ -39,7 +39,8 @@ server.registerTool(
     title: 'XGENIA health',
     description:
       'Liveness of the XGENIA editor: whether it is running, dev or packaged, which project is open, whether the AI chat panel is mounted and how long it has been generating. Call this first. ' +
-      'busyForMs is NOT wall-clock time since generation began — it is measured from this harness process\'s first observation of the busy state, because the underlying tracker is in-memory and has no earlier signal. A panel that has been stuck generating for hours looks identical to one that just started: both can read a small busyForMs right after this server starts. Treat busyForMs as a lower bound on how long it has been busy, never as the true duration.',
+      'busyForMs is NOT wall-clock time since generation began — it is measured from this harness process\'s first observation of the busy state, because the underlying tracker is in-memory and has no earlier signal. A panel that has been stuck generating for hours looks identical to one that just started: both can read a small busyForMs right after this server starts. Treat busyForMs as a lower bound on how long it has been busy, never as the true duration. ' +
+      'authenticated reports whether the editor is past the login screen (window.ProjectModel is defined on the login screen too, so nothing else here implies anyone is signed in) — it is "unknown", not a confident true, whenever pageResponsive is false.',
     inputSchema: {}
   },
   () => guard('connect + evaluate', health)
@@ -61,7 +62,8 @@ server.registerTool(
   {
     title: 'Launch XGENIA',
     description:
-      'Attach to a running XGENIA, or start one. target "app" uses the installed build, "dev" runs npm run dev from a repo checkout, "auto" prefers whichever is available.',
+      'Attach to a running XGENIA, or start one. target "app" uses the installed build, "dev" runs npm run dev from a repo checkout, "auto" prefers whichever is available. ' +
+      'Returns {error: "not-authenticated"} — not a false success — if the editor comes up (or was already up) sitting at the login screen instead of the projects/editor UI. This harness never types, stores or reads credentials: a human has to sign in once before this tool, or xgenia_open_project, can proceed.',
     inputSchema: { target: z.enum(['app', 'dev', 'auto']).optional() }
   },
   ({ target }) => guard('launch', () => launch({ target }))
@@ -73,7 +75,8 @@ server.registerTool(
     title: 'Restart XGENIA',
     description:
       'Save, kill and relaunch XGENIA, then reopen the project that was open. Refuses while the AI chat is mid-generation unless force is set, because that turn would be lost. ' +
-      'The result carries more than restarted/project: recoveryError explains why the project failed to reopen after relaunch (project is null in that case, but the failure reason survives instead of being swallowed), and declinedPorts lists dev ports the harness found still occupied but refused to free because their owner was not part of the process tree it just killed. Check both before assuming a clean restart.',
+      'The result carries more than restarted/project: recoveryError explains why the project failed to reopen after relaunch (project is null in that case, but the failure reason survives instead of being swallowed), and declinedPorts lists dev ports the harness found still occupied but refused to free because their owner was not part of the process tree it just killed. Check both before assuming a clean restart. ' +
+      'Every pre-kill read of the old editor is bounded, so a wedged editor (pageResponsive:false in xgenia_health) cannot hang this call forever: without force it returns {error: "editor-unresponsive"} explaining that the pre-restart save and busy-check could not be performed; with force it skips those reads entirely and proceeds straight to the kill, reporting the honest gaps that leaves (project: null, save unconfirmed, inFlightTurnLost: "unknown").',
     inputSchema: { force: z.boolean().optional() }
   },
   ({ force }) => guard('restart', () => restart({ force }))
@@ -85,7 +88,8 @@ server.registerTool(
     title: 'Quit XGENIA',
     description:
       'Save, then kill XGENIA — the same safety sequence xgenia_restart uses (refuse while the AI chat is mid-generation unless force is set, confirm the save, kill the right process tree for the connected target, verify the port is actually free) — but do NOT relaunch it. ' +
-      'Nothing will be running after this call succeeds: there is no editor to attach to, and no project is reopened automatically. xgenia_launch is how you bring XGENIA back; it will start with no project open unless you also call xgenia_open_project afterward.',
+      'Nothing will be running after this call succeeds: there is no editor to attach to, and no project is reopened automatically. xgenia_launch is how you bring XGENIA back; it will start with no project open unless you also call xgenia_open_project afterward. ' +
+      'Shares xgenia_restart\'s bounded pre-kill reads: on an unresponsive editor it fails closed with {error: "editor-unresponsive"} unless force is set, in which case it kills anyway and reports project: null, save unconfirmed, and inFlightTurnLost: "unknown" rather than guessing.',
     inputSchema: { force: z.boolean().optional() }
   },
   ({ force }) => guard('quit', () => quit({ force }))
@@ -107,7 +111,8 @@ server.registerTool(
   {
     title: 'Open an XGENIA project',
     description:
-      'Open a project by absolute directory or by name. A directory not in the recents list is added to it first. Verifies the editor actually landed on that project.',
+      'Open a project by absolute directory or by name. A directory not in the recents list is added to it first. Verifies the editor actually landed on that project. ' +
+      'Waits patiently for the projects screen to actually render tiles (this machine has been observed rendering 300+ recents entries right after a cold launch) before waiting for the specific one requested; a timeout reports which state the page was actually in — the login screen ({error: "not-authenticated"}), a projects screen with zero tiles, or an editor already holding a different project — instead of a bare selector-missing.',
     inputSchema: { dir: z.string().optional(), name: z.string().optional() }
   },
   ({ dir, name }) => guard('open project', () => openProject({ dir, name }))

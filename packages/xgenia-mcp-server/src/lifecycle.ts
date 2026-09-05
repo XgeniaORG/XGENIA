@@ -9,7 +9,13 @@ import {
   portOwnerCommand
 } from './platform.js';
 import { connect, discoverPort, resetConnection, DEFAULT_PORT, type Target } from './connection.js';
-import { readProject, readChatState, type ChatState, type ProjectInfo } from './editor-state.js';
+import {
+  readProject,
+  readChatState,
+  isLoginScreen,
+  type ChatState,
+  type ProjectInfo
+} from './editor-state.js';
 import { openProject, saveOpenProject } from './project.js';
 
 /** Scripts that root a `npm run dev` tree. Ordered outermost-last is irrelevant; presence is what matters. */
@@ -257,22 +263,49 @@ export function readRecovery(port: number = DEFAULT_PORT): RecoveryRead {
   }
 }
 
-async function waitForEditor(port: number, timeoutMs: number): Promise<boolean> {
+export type EditorWaitOutcome = 'ready' | 'login-screen' | 'timeout';
+
+/**
+ * Decide what a poll of the editor page found, given its two independent
+ * DOM signals.
+ *
+ * Pure and stub-testable on purpose: `window.ProjectModel` is defined by the
+ * router before the app decides whether anyone is signed in (see
+ * `isLoginScreen`'s doc comment), so "ProjectModel is defined" was never
+ * sufficient on its own to mean "the editor is usable" — it also matches
+ * the login screen, which is exactly what let `launch()` report success
+ * while the editor sat unusable in front of a real person. Returns `null`
+ * while the app has not booted far enough to define `ProjectModel` yet, so
+ * the caller keeps polling.
+ */
+export function classifyEditorReadiness(
+  projectModelDefined: boolean,
+  loginScreen: boolean
+): 'ready' | 'login-screen' | null {
+  if (!projectModelDefined) return null;
+  return loginScreen ? 'login-screen' : 'ready';
+}
+
+async function waitForEditor(port: number, timeoutMs: number): Promise<EditorWaitOutcome> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     resetConnection();
     try {
       const { page } = await connect(port);
-      const ready = await page.evaluate(
+      const projectModelDefined = await page.evaluate(
         () => typeof (window as unknown as Record<string, unknown>).ProjectModel !== 'undefined'
       );
-      if (ready) return true;
+      const outcome = classifyEditorReadiness(
+        projectModelDefined,
+        projectModelDefined ? await isLoginScreen(page) : false
+      );
+      if (outcome) return outcome;
     } catch {
       // Not up yet.
     }
     await new Promise((r) => setTimeout(r, 2000));
   }
-  return false;
+  return 'timeout';
 }
 
 function repoRoot(): string | null {
@@ -417,6 +450,87 @@ export function inFlightTurnLostValue(chat: Pick<ChatState, 'busy' | 'unavailabl
   return chat.unavailable ? 'unknown' : chat.busy;
 }
 
+/** How long a single pre-kill in-page read may take before it's treated as a wedged renderer. */
+const PRE_KILL_READ_TIMEOUT_MS = 5000;
+/**
+ * `saveOpenProject`'s own in-page ceiling is 5000ms, but that ceiling is a
+ * `setTimeout` running INSIDE the page — it cannot fire once the renderer's
+ * main thread is blocked, which is exactly the state this exists to guard
+ * against. This Node-side backstop is deliberately looser than the in-page
+ * one so a save that is merely slow (not wedged) still gets to finish and
+ * report a real outcome.
+ */
+const SAVE_READ_TIMEOUT_MS = 7000;
+
+/** Sentinel returned by `withReadTimeout` when the Node-side timer wins the race. */
+export const TIMED_OUT = Symbol('xgenia-mcp:pre-kill-read-timed-out');
+
+/**
+ * Race an in-page read against a Node-side timer, the same pattern
+ * `health()`'s `pageResponsive` check already uses.
+ *
+ * Playwright's `page.evaluate`/`frame.evaluate` have no default timeout of
+ * their own, and on a truly wedged renderer the promise they return never
+ * settles at all — not slowly, never. `restart()`/`quit()` used to run three
+ * such unbounded reads (`readProject`, `readChatState`, `saveOpenProject`)
+ * before ever checking `force`, so the documented escape hatch for a stuck
+ * editor was unreachable on exactly the editor state it exists to unwedge.
+ * This does not cancel the underlying promise — Node has no way to do that —
+ * it just stops waiting on it, which is all a caller needs to move on.
+ */
+export function withReadTimeout<T>(promise: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+  return Promise.race([
+    promise,
+    new Promise<typeof TIMED_OUT>((resolve) => setTimeout(() => resolve(TIMED_OUT), ms))
+  ]);
+}
+
+/** The honest, nothing-actually-known shape reported when the page turned out to be unresponsive. */
+const UNRESPONSIVE_CHAT: ChatState = {
+  mounted: false,
+  busy: false,
+  messageCount: 0,
+  unavailable: 'evaluate-failed'
+};
+
+export interface PreKillReads {
+  pageUnresponsive: boolean;
+  project: ProjectInfo | null;
+  chat: ChatState;
+}
+
+/**
+ * Combine the two bounded pre-kill reads into what `saveKillVerify` acts on.
+ *
+ * Pure and stub-testable independent of a real Playwright page: pass plain
+ * values (or `TIMED_OUT`) in, get the resulting state out. Either read
+ * timing out — including `chatRead` never having been attempted at all,
+ * because `readProject` itself already timed out and the caller skipped the
+ * remaining read rather than risk it hanging too — degrades the WHOLE
+ * bundle to the honest "unknown" shape: a caller cannot trust a project read
+ * from a page that turned out to be unresponsive moments later, so this
+ * does not report partial data.
+ */
+export function combinePreKillReads(
+  projectRead: ProjectInfo | null | typeof TIMED_OUT,
+  chatRead: ChatState | typeof TIMED_OUT
+): PreKillReads {
+  const pageUnresponsive = projectRead === TIMED_OUT || chatRead === TIMED_OUT;
+  return {
+    pageUnresponsive,
+    project: pageUnresponsive ? null : (projectRead as ProjectInfo | null),
+    chat: pageUnresponsive ? UNRESPONSIVE_CHAT : (chatRead as ChatState)
+  };
+}
+
+/**
+ * Whether `saveKillVerify` must refuse outright because the page is
+ * unresponsive and the caller did not accept that risk with `force`.
+ */
+export function unresponsiveRefusal(pageUnresponsive: boolean, force: boolean): boolean {
+  return pageUnresponsive && !force;
+}
+
 /**
  * Poll a port's owner until it's free (returns null) or the timeout elapses
  * (returns the pid still holding it). Used after a force-kill so a failed
@@ -432,12 +546,24 @@ async function pollPortFree(port: number, timeoutMs: number, pollMs = 500): Prom
   return owner;
 }
 
+/**
+ * The one message explaining the `not-authenticated` outcome, shared by
+ * every path that can produce it: this harness must never type, store, read
+ * or transmit credentials, so the only correct response to finding the
+ * login screen is to say so and stop.
+ */
+const NOT_AUTHENTICATED_HINT =
+  'The editor launched fine, but nobody is signed in. A human must sign in once — this harness cannot and must not handle credentials.';
+
 export async function launch(opts: { target?: Target | 'auto' } = {}) {
   const requested = opts.target ?? 'auto';
 
   // Already up?
   try {
     const { page, target, port } = await connect();
+    if (await isLoginScreen(page)) {
+      return fail('not-authenticated', `attached to ${target} on port ${port}`, NOT_AUTHENTICATED_HINT);
+    }
     return { launched: false, attached: true, target, port, project: await readProject(page) };
   } catch {
     // Not running; fall through.
@@ -468,12 +594,19 @@ export async function launch(opts: { target?: Target | 'auto' } = {}) {
 
   const timeout = chosen === 'app' ? 90_000 : 240_000;
   const port = process.env.XGENIA_CDP_PORT ? discoverPort() : DEFAULT_PORT;
-  const ready = await waitForEditor(port, timeout);
-  if (!ready) {
+  const outcome = await waitForEditor(port, timeout);
+  if (outcome === 'timeout') {
     return fail(
       'timeout',
       `waited ${timeout}ms for the editor page on ${port}`,
       chosen === 'dev' ? 'Check the dev log in the temp directory.' : 'Is XGENIA installed?'
+    );
+  }
+  if (outcome === 'login-screen') {
+    return fail(
+      'not-authenticated',
+      `waited for the editor page on ${port}; it launched and rendered the login screen`,
+      NOT_AUTHENTICATED_HINT
     );
   }
 
@@ -489,7 +622,8 @@ export interface DeclinedPort {
 
 type SaveOutcomeOrNothingOpen =
   | Awaited<ReturnType<typeof saveOpenProject>>
-  | { confirmed: true; reason: 'nothing-open' };
+  | { confirmed: true; reason: 'nothing-open' }
+  | { confirmed: false; reason: 'unresponsive' };
 
 export type KillOutcome =
   | {
@@ -517,6 +651,18 @@ export type KillOutcome =
  * only seam, used by `restart()` to snapshot the recovery file at the same
  * point in the sequence it always has: right after the busy check, before
  * the save.
+ *
+ * Every pre-kill in-page read (`readProject`, `readChatState`,
+ * `saveOpenProject`) is bounded with `withReadTimeout`, because a truly
+ * wedged renderer never settles the promise `page.evaluate` returns — not
+ * eventually, never — and `force` used to be consulted only after these
+ * reads, making it unreachable on exactly the editor state it exists to
+ * unwedge. The first read to time out means the page is unresponsive: every
+ * read after it is skipped rather than attempted (see
+ * `combinePreKillReads`), and when `force` is set the function proceeds
+ * straight to the port-owner/kill sequence below, which touches no page at
+ * all, reporting the honest gaps that leaves (`project: null`, the save
+ * unconfirmed, `inFlightTurnLost` as `'unknown'`) rather than guessing.
  */
 async function saveKillVerify(opts: {
   force?: boolean;
@@ -526,11 +672,28 @@ async function saveKillVerify(opts: {
   const { action } = opts;
   const { page, target, port } = await connect();
 
-  const project = await readProject(page);
-  const chat = await readChatState(page);
+  const projectRead = await withReadTimeout(readProject(page), PRE_KILL_READ_TIMEOUT_MS);
+  // Skip the remaining read entirely once the page has already proven
+  // unresponsive — attempting it too would just add another hang.
+  const chatRead =
+    projectRead === TIMED_OUT
+      ? TIMED_OUT
+      : await withReadTimeout(readChatState(page), PRE_KILL_READ_TIMEOUT_MS);
+  const { pageUnresponsive, project, chat } = combinePreKillReads(projectRead, chatRead);
+
+  if (unresponsiveRefusal(pageUnresponsive, !!opts.force)) {
+    return fail(
+      'editor-unresponsive',
+      `read project/chat state before ${action} (bounded at ${PRE_KILL_READ_TIMEOUT_MS}ms)`,
+      `The editor is not responding, so the pre-${action} save and busy-check cannot be performed safely. ${action === 'restart' ? 'Restarting' : 'Quitting'} anyway would risk losing unsaved work and any in-flight AI turn. Pass force to ${action} anyway — it will kill the editor without confirming a save.`
+    );
+  }
 
   // R2 IMPORTANT 2: refuse when the chat state could not be determined at
   // all, not only when it's confirmed busy — see busyRefusal's doc comment.
+  // This already covers the pageUnresponsive+force case correctly: `chat`
+  // there is UNRESPONSIVE_CHAT (unavailable set), and busyRefusal treats
+  // `force` as bypassing every refusal regardless of why chat is unavailable.
   const refusal = busyRefusal(chat, !!opts.force);
   if (refusal.refuse) {
     return fail(
@@ -551,10 +714,17 @@ async function saveKillVerify(opts: {
   // can no longer resolve as if it succeeded when it didn't (a read-only
   // project.json, a save slower than its own 5s ceiling, or a thrown evaluate
   // all used to look identical to a real save right before the tree was torn
-  // down, silently destroying unsaved work while reporting success).
-  let saveOutcome: Awaited<ReturnType<typeof saveOpenProject>> | null = null;
+  // down, silently destroying unsaved work while reporting success). The
+  // call itself is also bounded (SAVE_READ_TIMEOUT_MS): a wedged renderer
+  // means the in-page 5s ceiling above can never fire either, so without an
+  // external bound this was the third of the three unbounded pre-kill reads.
+  // `project` is already null whenever `pageUnresponsive` was true, so this
+  // naturally does not run in that case.
+  let saveOutcome: SaveOutcomeOrNothingOpen | null = null;
   if (project?.dir) {
-    saveOutcome = await saveOpenProject(page);
+    const saveRead = await withReadTimeout(saveOpenProject(page), SAVE_READ_TIMEOUT_MS);
+    saveOutcome =
+      saveRead === TIMED_OUT ? { confirmed: false, reason: 'unresponsive' as const } : saveRead;
     if (!saveOutcome.confirmed && !opts.force) {
       return fail(
         'save-unconfirmed',

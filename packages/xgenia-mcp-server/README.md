@@ -17,12 +17,13 @@ needs enabling.
 
 | Tool | What it does |
 | --- | --- |
-| `xgenia_health` | Liveness: running or not, dev or packaged, which project is open, whether the AI chat panel is mounted, and how long it's been generating. Call this first. |
+| `xgenia_health` | Liveness: running or not, dev or packaged, which project is open, whether the AI chat panel is mounted, how long it's been generating, and whether anyone is signed in (`authenticated`). Call this first. |
 | `xgenia_probe` | Report which DOM selectors the harness depends on currently resolve. Use when another tool returns `selector-missing`. |
-| `xgenia_launch` | Attach to a running XGENIA, or start one — the installed build, a repo checkout's `npm run dev`, or whichever is available. |
-| `xgenia_restart` | Save, kill and relaunch XGENIA, then reopen the project that was open. |
+| `xgenia_launch` | Attach to a running XGENIA, or start one — the installed build, a repo checkout's `npm run dev`, or whichever is available. Reports `not-authenticated` rather than false success if it lands on the login screen. |
+| `xgenia_restart` | Save, kill and relaunch XGENIA, then reopen the project that was open. Fails closed (`editor-unresponsive`) rather than hanging if the editor is wedged, unless `force` is set. |
+| `xgenia_quit` | Save, then kill XGENIA — `xgenia_restart`'s safety sequence without the relaunch. Same unresponsive-editor handling as `xgenia_restart`. |
 | `xgenia_project_status` | Which project is open, if any; when none is, also returns the 25 most recent projects. |
-| `xgenia_open_project` | Open a project by absolute directory or by name. Verifies the editor actually landed on it. |
+| `xgenia_open_project` | Open a project by absolute directory or by name. Verifies the editor actually landed on it. Waits patiently for the projects screen to render tiles, and reports which state the page was actually in (login screen, empty projects screen, or a different project open) on timeout. |
 | `xgenia_chat_send` | Type a prompt into the AI chat panel and send it. Returns only after confirming the input cleared and the transcript advanced. |
 | `xgenia_chat_read` | Read the AI chat transcript, paged from an index. |
 | `xgenia_chat_wait_idle` | Block until the AI chat panel stops generating; returns `timedOut` instead of throwing. |
@@ -58,6 +59,27 @@ needs enabling.
   the harness found still occupied but refused to free, because their owner
   was outside the XGENIA process tree it just killed). Check both before
   assuming the restart actually worked.
+- **This harness never handles credentials — it detects the login screen and
+  stops.** `window.ProjectModel` is defined by XGENIA's router before the app
+  decides whether anyone is signed in, so its presence does not mean the
+  editor is usable — it's also there on the unauthenticated login screen,
+  which used to make `xgenia_launch` report success while the editor sat in
+  front of a login form indefinitely. `xgenia_launch`, `xgenia_open_project`,
+  and `xgenia_health` (via its `authenticated` field) all surface this now.
+  There is no tool, flag, or environment variable that types, stores, reads
+  or transmits a password — signing in is a one-time action only a human can
+  take.
+- **`xgenia_restart`/`xgenia_quit` fail closed, not silently forever, on a
+  wedged editor.** Every pre-kill in-page read (the project, the chat panel
+  state, the save confirmation) is bounded with a Node-side timeout, because
+  a truly wedged renderer's main thread can never settle a `page.evaluate`
+  promise or fire an in-page `setTimeout` — not eventually, never. Without
+  `force`, an unresponsive editor now fails fast with `editor-unresponsive`
+  instead of hanging the call forever. With `force`, both tools skip the
+  remaining reads and go straight to the kill, reporting the honest gaps
+  that leaves: `project: null`, the save reported unconfirmed
+  (`reason: "unresponsive"`), and `inFlightTurnLost: "unknown"` rather than a
+  confident `false`.
 - Screenshots return a **measured** `scale`. It is neither 1 nor a fixed 2 —
   live measurements have shown ~1.25, from an Electron zoom factor of 0.8 on a
   2x-density display — and it moves whenever the user changes zoom. Convert
@@ -80,11 +102,36 @@ needs enabling.
   panel visible, and captures the chat/editor fixtures. `--projects` mode
   (`node scripts/capture-fixtures.mjs --projects`) instead needs the projects
   screen showing with no project open, and refreshes the projects-screen
-  fixture. The chat and editor fixtures are sanitised before being written —
-  every text node's content is replaced with a placeholder, structure and
-  markup kept — because the live panel holds the user's real conversation;
-  the projects-screen fixture is not sanitised, since it only ever holds
-  project names.
+  fixture. `--login` mode (`node scripts/capture-fixtures.mjs --login`) needs
+  the (unauthenticated) login screen showing, and refreshes the login-screen
+  fixture used to pin `isLoginScreen`'s selectors. The chat and editor
+  fixtures are sanitised before being written — every text node's content is
+  replaced with a placeholder, structure and markup kept — because the live
+  panel holds the user's real conversation; the projects-screen and
+  login-screen fixtures are not sanitised, since they only ever hold project
+  names and the login form's own static copy respectively — never user data.
+
+## Error codes
+
+Every tool that fails returns `{ error, tried, hint }` instead of throwing.
+`tried` names what was attempted; `hint` explains what to do next. These are
+the codes in use:
+
+| Code | Meaning |
+| --- | --- |
+| `not-running` | Nothing is reachable on the CDP port, or nothing owns it. |
+| `no-editor-page` | Connected over CDP, but no page matched the editor's URL. |
+| `not-authenticated` | The editor is up and reachable, but sitting at the login screen. This harness cannot and must not sign in for you — a human has to do it once, in the editor. Returned by `xgenia_launch` and `xgenia_open_project`; `xgenia_health`'s `authenticated` field surfaces the same state without failing the call. |
+| `editor-unresponsive` | The editor page did not respond to a bounded pre-kill read within its timeout. Returned by `xgenia_restart`/`xgenia_quit` when `force` is not set; pass `force` to kill anyway. |
+| `busy-refused` | An AI turn is in flight (or its state could not be determined), and `force` was not set. |
+| `save-unconfirmed` | The pre-kill/pre-close save could not be confirmed, and `force` was not set. |
+| `selector-missing` | A DOM selector the harness depends on did not resolve in time. Run `xgenia_probe`. |
+| `project-dir-missing` | The requested project directory/name could not be resolved, or is invalid. |
+| `project-mismatch` | A project tile was clicked, but the editor did not end up reporting that directory as open. |
+| `chat-frame-missing` | The AI chat panel iframe isn't present. Open it in XGENIA. |
+| `recovery-read-failed` | `xgenia_restart`'s pre-kill recovery snapshot could not be read back after relaunch. |
+| `timeout` | A bounded wait (e.g. for the editor page to come up) elapsed. |
+| `page-unresponsive` | Fallback code for an uncaught exception with no more specific `code` attached. |
 
 ## Development
 

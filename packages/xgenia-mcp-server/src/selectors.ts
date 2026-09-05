@@ -26,7 +26,19 @@ export const SELECTORS = Object.freeze({
   /** The visible label inside a project tile. */
   projectItemLabel: '.projects-item-label span',
   /** The node graph canvas element. */
-  canvas: 'canvas'
+  canvas: 'canvas',
+  /**
+   * Login form's email input. The login screen carries no class names or
+   * ids at all -- it's inline-styled React -- so the detector matches on
+   * the presence of BOTH this and loginPasswordInput (see isLoginScreen in
+   * editor-state.ts) rather than one exact selector or sentence. Copy like
+   * "Login with XGENIA" changes far more easily than a form needing an
+   * email + password field to actually authenticate, which is why the
+   * detector keys on structure, not text.
+   */
+  loginEmailInput: 'input[type="email"]',
+  /** Login form's password input. See loginEmailInput. */
+  loginPasswordInput: 'input[type="password"]'
 });
 
 export type SelectorKey = keyof typeof SELECTORS;

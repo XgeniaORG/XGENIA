@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import type { ChatState, ProjectInfo } from './editor-state.js';
 import {
   isDevLauncher,
   pickKillRoot,
@@ -11,7 +12,12 @@ import {
   inFlightTurnLostValue,
   recoveryFilePath,
   readRecovery,
-  spawnChildWithErrorCapture
+  spawnChildWithErrorCapture,
+  classifyEditorReadiness,
+  withReadTimeout,
+  TIMED_OUT,
+  combinePreKillReads,
+  unresponsiveRefusal
 } from './lifecycle.js';
 
 // Captured from a live `npm run dev`, leaf first.
@@ -286,5 +292,102 @@ describe('spawnChildWithErrorCapture', () => {
     });
     expect(result.error).toBeNull();
     expect(result.child).not.toBeNull();
+  });
+});
+
+// Defect 1: `window.ProjectModel` being defined is necessary but not
+// sufficient for "the editor is usable" -- the router defines it on the
+// login screen too. classifyEditorReadiness is the pure decision waitForEditor
+// polls on; this pins that decision independent of a real page/CDP connection.
+describe('classifyEditorReadiness', () => {
+  it('keeps polling (returns null) while ProjectModel is not yet defined', () => {
+    expect(classifyEditorReadiness(false, false)).toBeNull();
+    // Even a stray login-screen read must not matter before ProjectModel exists.
+    expect(classifyEditorReadiness(false, true)).toBeNull();
+  });
+
+  it('reports ready once ProjectModel is defined and it is not the login screen', () => {
+    expect(classifyEditorReadiness(true, false)).toBe('ready');
+  });
+
+  it('reports login-screen once ProjectModel is defined but the login form is present', () => {
+    expect(classifyEditorReadiness(true, true)).toBe('login-screen');
+  });
+});
+
+// Defect 2: restart()/quit() used to run three UNBOUNDED page.evaluate calls
+// before ever consulting `force`, so a truly wedged renderer (whose promise
+// never settles, not even eventually) hung both calls forever -- including
+// the force:true escape hatch. withReadTimeout is the fix's core primitive.
+describe('withReadTimeout', () => {
+  it('resolves with the real value when the promise settles before the timeout', async () => {
+    const result = await withReadTimeout(Promise.resolve('real value'), 200);
+    expect(result).toBe('real value');
+  });
+
+  it('resolves to TIMED_OUT when the promise never settles within the bound', async () => {
+    const neverSettles = new Promise(() => {});
+    const result = await withReadTimeout(neverSettles, 20);
+    expect(result).toBe(TIMED_OUT);
+  });
+
+  it('propagates a genuine rejection rather than swallowing it as a timeout', async () => {
+    await expect(withReadTimeout(Promise.reject(new Error('boom')), 200)).rejects.toThrow('boom');
+  });
+});
+
+describe('combinePreKillReads', () => {
+  const project: ProjectInfo = { name: 'Amazing thing', id: 'p1', dir: '/tmp/x', componentCount: 3 };
+  const chat: ChatState = { mounted: true, busy: false, messageCount: 2 };
+
+  it('reports pageUnresponsive:false and passes through real reads unchanged', () => {
+    expect(combinePreKillReads(project, chat)).toEqual({
+      pageUnresponsive: false,
+      project,
+      chat
+    });
+  });
+
+  it('degrades the whole bundle to the honest unknown shape when the project read timed out', () => {
+    const result = combinePreKillReads(TIMED_OUT, chat);
+    expect(result.pageUnresponsive).toBe(true);
+    expect(result.project).toBeNull();
+    expect(result.chat.unavailable).toBe('evaluate-failed');
+  });
+
+  it('degrades the whole bundle even when only the chat read timed out (project read had already succeeded)', () => {
+    // Per the spec: once ANY pre-kill read times out, the bundle reports
+    // project: null rather than the partial project data that happened to
+    // arrive before the wedge showed up -- a caller cannot trust a project
+    // read from a page that turned out unresponsive moments later.
+    const result = combinePreKillReads(project, TIMED_OUT);
+    expect(result.pageUnresponsive).toBe(true);
+    expect(result.project).toBeNull();
+    expect(result.chat.unavailable).toBe('evaluate-failed');
+  });
+
+  it('reports nothing open (project: null) as pageUnresponsive:false, not unresponsive', () => {
+    // A real "no project open" read must not be confused with "could not
+    // determine whether a project was open".
+    expect(combinePreKillReads(null, chat)).toEqual({
+      pageUnresponsive: false,
+      project: null,
+      chat
+    });
+  });
+});
+
+describe('unresponsiveRefusal', () => {
+  it('does not refuse when the page is responsive', () => {
+    expect(unresponsiveRefusal(false, false)).toBe(false);
+    expect(unresponsiveRefusal(false, true)).toBe(false);
+  });
+
+  it('refuses when unresponsive and not forced', () => {
+    expect(unresponsiveRefusal(true, false)).toBe(true);
+  });
+
+  it('does not refuse when unresponsive but forced -- force is the documented escape hatch', () => {
+    expect(unresponsiveRefusal(true, true)).toBe(false);
   });
 });

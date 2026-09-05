@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { Page } from 'playwright-core';
 import { connect } from './connection.js';
 import { SELECTORS } from './selectors.js';
-import { readProject } from './editor-state.js';
+import { readProject, describePageState, describePageStateText } from './editor-state.js';
 import { recentsFilePath, readRecents, addRecentEntry, type RecentEntry } from './recents.js';
 
 export function projectNameFromDir(dir: string): string | null {
@@ -32,6 +32,28 @@ export function validateProjectDir(
 function fail(code: string, tried: string, hint: string) {
   return { error: code, tried, hint };
 }
+
+/**
+ * How long `openProject` waits for the projects screen to render ANY tile
+ * at all, before even looking for the specific one requested.
+ *
+ * The old single 20s wait on just the target tile was observed to fail
+ * against a real machine that renders 317 recents entries while a freshly
+ * launched dev build is still settling — indistinguishable, under that one
+ * wait, from the login screen never having rendered the screen at all (see
+ * NOT_TILE_TIMEOUT_MS below and describePageState). This ceiling is
+ * deliberately far more patient than that.
+ */
+const PROJECTS_LIST_TIMEOUT_MS = 90_000;
+/**
+ * How long `openProject` waits for the SPECIFIC named tile once the screen
+ * has already proven it can render at least one tile. Shorter than
+ * PROJECTS_LIST_TIMEOUT_MS because by this point the list is already
+ * rendering — the remaining risk is that this particular entry (just added
+ * to recents) needs one more render pass, not that the screen itself is
+ * still booting.
+ */
+const PROJECT_TILE_TIMEOUT_MS = 30_000;
 
 /**
  * Canonicalise a project directory for comparison.
@@ -335,13 +357,51 @@ export async function openProject(q: { dir?: string; name?: string }) {
     })
     .first();
 
+  // Phase 1: wait for the projects screen to have rendered ANY tile at all
+  // — not the specific one yet — before concluding anything about the
+  // specific tile's absence. A generic "the selector did not appear" here
+  // used to send the caller hunting for a renamed selector when the real
+  // cause could be the login gate (Defect 1) or simply a slow-to-settle
+  // screen (Defect 3), so a timeout at this phase is diagnosed against the
+  // page's actual state instead of guessed at.
   try {
-    await tile.waitFor({ state: 'visible', timeout: 20_000 });
+    await page.locator(SELECTORS.projectItem).first().waitFor({
+      state: 'visible',
+      timeout: PROJECTS_LIST_TIMEOUT_MS
+    });
   } catch {
+    const state = await describePageState(page);
+    if (state.kind === 'login-screen') {
+      return fail(
+        'not-authenticated',
+        `${SELECTORS.projectItem} (any) within ${PROJECTS_LIST_TIMEOUT_MS}ms`,
+        'The projects screen never appeared because nobody is signed in. A human must sign in once — this harness cannot and must not handle credentials.'
+      );
+    }
     return fail(
       'selector-missing',
-      `${SELECTORS.projectItem} containing '${valid.name}'`,
-      'The project tile did not appear on the projects screen. Run xgenia_probe.'
+      `${SELECTORS.projectItem} (any) within ${PROJECTS_LIST_TIMEOUT_MS}ms`,
+      `The projects screen never rendered any tiles. Actual state: ${describePageStateText(state)}. Run xgenia_probe.`
+    );
+  }
+
+  // Phase 2: the screen can render, so now wait specifically for the tile
+  // just added to recents.
+  try {
+    await tile.waitFor({ state: 'visible', timeout: PROJECT_TILE_TIMEOUT_MS });
+  } catch {
+    const state = await describePageState(page);
+    if (state.kind === 'login-screen') {
+      return fail(
+        'not-authenticated',
+        `${SELECTORS.projectItem} containing '${valid.name}' within ${PROJECT_TILE_TIMEOUT_MS}ms`,
+        'The projects screen was replaced by the login screen mid-wait — nobody is signed in. A human must sign in once — this harness cannot and must not handle credentials.'
+      );
+    }
+    return fail(
+      'selector-missing',
+      `${SELECTORS.projectItem} containing '${valid.name}' within ${PROJECT_TILE_TIMEOUT_MS}ms`,
+      `The projects screen rendered tiles, but not one named '${valid.name}'. Actual state: ${describePageStateText(state)}. Run xgenia_probe.`
     );
   }
 

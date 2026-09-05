@@ -43,6 +43,78 @@ export async function readProject(page: Page): Promise<ProjectInfo | null> {
   });
 }
 
+/**
+ * Detect the (unauthenticated) login screen.
+ *
+ * `window.ProjectModel` is defined by the router before the app decides
+ * whether anyone is signed in, so its presence alone cannot distinguish an
+ * authenticated editor from the login screen sitting in front of it — that
+ * was the whole cause of `launch()` reporting success while the user stared
+ * at an unusable login form. The login screen carries no class names or ids
+ * (inline-styled React), so this matches on the structural presence of BOTH
+ * an email and a password input rather than one exact selector, and rather
+ * than the literal "Login with XGENIA" copy — copy changes far more easily
+ * than a form that has to keep an email + password field to actually
+ * authenticate. Neither selector appears anywhere in the authenticated
+ * editor, the projects screen, or the chat panel (see selectors.test.ts).
+ */
+export async function isLoginScreen(page: Page): Promise<boolean> {
+  return page.evaluate(
+    (sel) =>
+      !!document.querySelector(sel.loginEmailInput) &&
+      !!document.querySelector(sel.loginPasswordInput),
+    { loginEmailInput: SELECTORS.loginEmailInput, loginPasswordInput: SELECTORS.loginPasswordInput }
+  );
+}
+
+export type PageState =
+  | { kind: 'login-screen' }
+  | { kind: 'project-open'; project: ProjectInfo }
+  | { kind: 'projects-screen'; tileCount: number }
+  | { kind: 'unreadable'; error: string };
+
+/**
+ * Classify what the page is actually showing right now.
+ *
+ * Exists so a caller stuck waiting for a selector that never appeared (e.g.
+ * `openProject`'s project-tile wait) can report which of the three very
+ * different real situations it hit — nobody signed in, an empty-but-real
+ * projects screen, or an editor already holding a different project —
+ * instead of a generic "the selector did not appear", which sends the
+ * caller hunting for a renamed selector when the actual cause is something
+ * else entirely.
+ */
+export async function describePageState(page: Page): Promise<PageState> {
+  try {
+    if (await isLoginScreen(page)) return { kind: 'login-screen' };
+    const project = await readProject(page);
+    if (project) return { kind: 'project-open', project };
+    const tileCount = await page.evaluate(
+      (sel) => document.querySelectorAll(sel).length,
+      SELECTORS.projectItem
+    );
+    return { kind: 'projects-screen', tileCount };
+  } catch (e) {
+    return { kind: 'unreadable', error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Render a `PageState` as a human-readable fragment for an error hint. */
+export function describePageStateText(state: PageState): string {
+  switch (state.kind) {
+    case 'login-screen':
+      return 'the login screen (nobody is signed in)';
+    case 'project-open':
+      return `an editor already holding a different project ('${state.project.name}')`;
+    case 'projects-screen':
+      return state.tileCount > 0
+        ? `the projects screen with ${state.tileCount} tile(s) rendered`
+        : 'the projects screen with zero tiles rendered';
+    case 'unreadable':
+      return `a page that could not be read (${state.error})`;
+  }
+}
+
 export interface ChatState {
   mounted: boolean;
   busy: boolean;
@@ -131,6 +203,15 @@ export interface HealthReport {
   chatUnavailable?: 'no-frame' | 'evaluate-failed';
   /** The editor page's <title>. Always the literal "XGENIA" — carries no version. */
   pageTitle: string | null;
+  /**
+   * Whether the editor is past the login screen. `'unknown'` — not a
+   * confident `true` — when `pageResponsive` is false, since the read that
+   * would tell us is exactly what didn't respond. This is the field a
+   * caller checks instead of inferring auth state from `selector-missing`
+   * failures elsewhere: see `isLoginScreen`'s doc comment for why
+   * `window.ProjectModel` being defined does not imply anyone is signed in.
+   */
+  authenticated: boolean | 'unknown';
 }
 
 export async function health(): Promise<HealthReport> {
@@ -158,6 +239,8 @@ export async function health(): Promise<HealthReport> {
         .catch(() => null)
     : null;
 
+  const loginScreen = pageResponsive ? await isLoginScreen(page).catch(() => false) : false;
+
   return {
     running: true,
     target,
@@ -169,7 +252,8 @@ export async function health(): Promise<HealthReport> {
     chatBusy: chat.busy,
     busyForMs: busySince(chat.busy),
     chatUnavailable: chat.unavailable,
-    pageTitle
+    pageTitle,
+    authenticated: pageResponsive ? !loginScreen : 'unknown'
   };
 }
 
