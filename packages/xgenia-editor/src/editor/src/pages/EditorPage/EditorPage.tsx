@@ -380,8 +380,16 @@ export function EditorPage({ route }: EditorPageProps) {
                                             <FrameDivider
                                                 first={frameDividerSize > 0 ? <SidePanel /> : null}
                                                 second={
-                                                    <div style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden' }}>
-                                                        <div style={{ flex: 1, position: 'relative', minWidth: 0, height: '100%' }}>
+                                                    // `position: relative` here, and NOT on the document column below, is what
+                                                    // keeps the editor top bar still when the right inspector opens. The bar is
+                                                    // absolutely positioned and resolves against its nearest positioned ancestor;
+                                                    // when that was the document column, opening the inspector narrowed the column
+                                                    // and the bar's centre pill and Publish button slid left with it. Anchored to
+                                                    // this row instead, the bar spans document + inspector and does not move.
+                                                    // The inspector is a floating card with a 46px top margin, so it already
+                                                    // clears the bar.
+                                                    <div style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden', position: 'relative' }}>
+                                                        <div style={{ flex: 1, minWidth: 0, height: '100%' }}>
                                                             <ErrorBoundary>{Boolean(Document) && <Document />}</ErrorBoundary>
                                                         </div>
                                                         {isRightPanelActive && (

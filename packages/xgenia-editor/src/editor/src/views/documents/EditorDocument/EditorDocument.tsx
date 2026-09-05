@@ -601,7 +601,11 @@ function EditorDocument() {
   useCaptureThumbnails(canvasView, viewerDetached);
 
   return (
-    <Container direction={ContainerDirection.Vertical} isFill UNSAFE_style={{ position: 'relative' }}>
+    // Deliberately NOT position: relative. The top bar is absolutely positioned and must
+    // resolve against EditorPage's document+inspector row, so that opening the right
+    // inspector does not narrow the bar and shift its contents. Positioning this element
+    // would capture the bar back into the document column and reintroduce that jump.
+    <Container direction={ContainerDirection.Vertical} isFill>
       <EditorTopbar
         instance={titlebarViewInstance}
         routeInfos={routeInfos}
