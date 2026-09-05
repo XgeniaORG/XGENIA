@@ -82,17 +82,29 @@ export function resolveByName(entries: RecentEntry[], name: string): NameResolut
   return { ok: true, dir: canonicalDir(matches[0].retainedProjectDirectory) };
 }
 
+export type SaveOutcome =
+  | { confirmed: true; reason: 'saved' }
+  | { confirmed: false; reason: 'no-project' | 'timeout' }
+  | { confirmed: false; reason: 'evaluate-threw'; error: string };
+
 /**
- * Write the open project to disk using the editor's own save call.
+ * Write the open project to disk using the editor's own save call, and report
+ * what actually happened instead of always resolving as if it succeeded.
  *
- * Resolves either way: a save that never calls back must not strand the caller,
- * and the 5s ceiling is far longer than a real save of a loaded project.
+ * The previous version returned `Promise<void>` unconditionally: the in-page
+ * promise resolved the same way whether `pm.toDirectory`'s own callback fired
+ * (a real save) or the 5s ceiling fired first (a save that never confirmed),
+ * and the whole `evaluate` was wrapped in a blanket `.catch(() => undefined)`.
+ * A caller could not distinguish "saved", "gave up waiting", "the read itself
+ * threw", and "there was nothing to save" — a read-only project.json, a save
+ * slower than 5s, or a thrown evaluate all looked identical to success right
+ * before a kill or reload that would discard unsaved work.
  */
-export async function saveOpenProject(page: Page): Promise<void> {
-  await page
-    .evaluate(
+export async function saveOpenProject(page: Page): Promise<SaveOutcome> {
+  try {
+    const result = await page.evaluate(
       () =>
-        new Promise<void>((resolve) => {
+        new Promise<{ reason: 'saved' | 'no-project' | 'timeout' }>((resolve) => {
           const pm = (
             window as unknown as {
               ProjectModel?: {
@@ -103,19 +115,31 @@ export async function saveOpenProject(page: Page): Promise<void> {
               };
             }
           ).ProjectModel?.instance;
-          if (!pm?.toDirectory || !pm._retainedProjectDirectory) return resolve();
+          if (!pm?.toDirectory || !pm._retainedProjectDirectory) {
+            resolve({ reason: 'no-project' });
+            return;
+          }
           let done = false;
-          const finish = () => {
+          const finish = (reason: 'saved' | 'timeout') => {
             if (!done) {
               done = true;
-              resolve();
+              resolve({ reason });
             }
           };
-          setTimeout(finish, 5000);
-          pm.toDirectory(pm._retainedProjectDirectory, finish);
+          setTimeout(() => finish('timeout'), 5000);
+          pm.toDirectory(pm._retainedProjectDirectory, () => finish('saved'));
         })
-    )
-    .catch(() => undefined);
+    );
+    return result.reason === 'saved'
+      ? { confirmed: true, reason: 'saved' }
+      : { confirmed: false, reason: result.reason };
+  } catch (e) {
+    return {
+      confirmed: false,
+      reason: 'evaluate-threw',
+      error: e instanceof Error ? e.message : String(e)
+    };
+  }
 }
 
 /**
@@ -218,7 +242,20 @@ export async function openProject(q: { dir?: string; name?: string }) {
   // screen, so a reload gets there with no selector at all. Save first, because
   // a reload discards anything autosave has not flushed.
   if (current) {
-    await saveOpenProject(page);
+    // A reload discards anything unsaved exactly like a kill does, so the
+    // save must actually be confirmed before proceeding — see saveOpenProject's
+    // doc comment for why the previous unconditional call could not tell a
+    // real save from a save that silently failed to confirm.
+    const saveOutcome = await saveOpenProject(page);
+    if (!saveOutcome.confirmed) {
+      return fail(
+        'save-unconfirmed',
+        `save '${current.name}' before switching away from it`,
+        `The editor's save could not be confirmed (${saveOutcome.reason}${
+          'error' in saveOutcome ? `: ${saveOutcome.error}` : ''
+        }) before reloading to switch projects. Reloading now would risk unsaved work, so the switch was refused. Retry, or save manually first.`
+      );
+    }
     await page.reload({ waitUntil: 'domcontentloaded' });
     try {
       await page.waitForSelector(SELECTORS.projectItem, { timeout: 60_000 });

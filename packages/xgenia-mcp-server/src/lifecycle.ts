@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, execFileSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import {
   appLaunchCandidates,
   killTreeCommand,
@@ -9,7 +9,7 @@ import {
   portOwnerCommand
 } from './platform.js';
 import { connect, discoverPort, resetConnection, DEFAULT_PORT, type Target } from './connection.js';
-import { readProject, readChatState } from './editor-state.js';
+import { readProject, readChatState, type ChatState } from './editor-state.js';
 import { openProject, saveOpenProject } from './project.js';
 
 /** Scripts that root a `npm run dev` tree. Ordered outermost-last is irrelevant; presence is what matters. */
@@ -136,6 +136,22 @@ function processSnapshot(): { pid: number; ppid: number }[] {
 }
 
 /**
+ * Which of `pids` are still present in `snapshot` — i.e. actually still alive.
+ *
+ * Used to escalate a force-kill against the pids that genuinely survived the
+ * initial SIGTERM, instead of re-deriving descendants of the (by then, usually
+ * already-reaped) original root from a fresh snapshot: `descendantsOf(root,
+ * freshSnapshot)` taken several seconds after `root` was SIGTERMed typically
+ * finds no trace of `root` in the snapshot at all, so the walk falls through
+ * to returning just `[root]` again — never reaching a child, such as the
+ * Electron process, that outlived its parent.
+ */
+export function stillAlive(pids: Iterable<number>, snapshot: { pid: number; ppid: number }[]): number[] {
+  const alive = new Set(snapshot.map((row) => row.pid));
+  return [...pids].filter((pid) => alive.has(pid));
+}
+
+/**
  * Kill a process tree rooted at `pid`. Returns whether anything was actually
  * signalled, so callers can distinguish "nothing to kill" from "kill attempted"
  * rather than assuming success from a `void` return.
@@ -173,31 +189,71 @@ export function killTree(pid: number, force: boolean): boolean {
   // Children first, so a supervisor cannot respawn what we just killed.
   let signalled = false;
   for (const target of descendantsOf(pid, processSnapshot())) {
-    try {
-      process.kill(target, force ? 'SIGKILL' : 'SIGTERM');
-      signalled = true;
-    } catch {
-      // Already gone.
-    }
+    if (killPid(target, force ? 'SIGKILL' : 'SIGTERM')) signalled = true;
   }
   return signalled;
 }
 
-export function recoveryFilePath(): string {
-  return path.join(os.tmpdir(), 'xgenia-harness', 'recovery.json');
+/**
+ * Signal a single pid directly, with the same integer-and->1 guard as
+ * `killTree`. Used both by `killTree`'s POSIX loop and by `restart()`'s force
+ * escalation, which signals specific still-alive survivors (see `stillAlive`)
+ * rather than re-walking a tree from a root that's typically already dead.
+ */
+function killPid(pid: number, signal: NodeJS.Signals): boolean {
+  if (!Number.isInteger(pid) || pid <= 1) return false;
+  try {
+    process.kill(pid, signal);
+    return true;
+  } catch {
+    // Already gone.
+    return false;
+  }
 }
 
-function writeRecovery(data: unknown): void {
-  const file = recoveryFilePath();
+/**
+ * Where the recovery snapshot for a given CDP port lives.
+ *
+ * Qualified by port, not shared across all instances: two harness processes
+ * driving two different editors (e.g. one on the default port, one on a
+ * `XGENIA_CDP_PORT`-overridden port) would otherwise read and write the exact
+ * same file, so instance A restarting could reopen instance B's project and
+ * report it as its own. The port is what actually identifies which editor a
+ * given harness call is driving, so it's what the recovery file is keyed on.
+ */
+export function recoveryFilePath(port: number = DEFAULT_PORT): string {
+  return path.join(os.tmpdir(), 'xgenia-harness', `recovery-${port}.json`);
+}
+
+function writeRecovery(port: number, data: unknown): void {
+  const file = recoveryFilePath(port);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
 
-function readRecovery(): { dir?: string; target?: Target } | null {
+export type RecoveryRead =
+  | { ok: true; dir: string | null; target?: Target }
+  | { ok: false; reason: 'missing' | 'parse-error' };
+
+/**
+ * Read back the recovery snapshot for `port`, distinguishing "there was
+ * nothing open" (`ok: true, dir: null`) from "the snapshot could not be read
+ * at all" (`ok: false`) — a failed read must not silently look identical to a
+ * clean "nothing to recover", because a caller needs to know whether it can
+ * trust the absence of a project as ground truth or as a read failure.
+ */
+export function readRecovery(port: number = DEFAULT_PORT): RecoveryRead {
+  let raw: string;
   try {
-    return JSON.parse(fs.readFileSync(recoveryFilePath(), 'utf8'));
+    raw = fs.readFileSync(recoveryFilePath(port), 'utf8');
   } catch {
-    return null;
+    return { ok: false, reason: 'missing' };
+  }
+  try {
+    const data = JSON.parse(raw) as { dir?: string | null; target?: Target };
+    return { ok: true, dir: data?.dir ?? null, target: data?.target };
+  } catch {
+    return { ok: false, reason: 'parse-error' };
   }
 }
 
@@ -254,36 +310,111 @@ function childEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-function spawnApp(): boolean {
-  for (const { cmd, args, probe } of appLaunchCandidates()) {
-    if (cmd !== 'open' && !fs.existsSync(probe)) continue;
+/**
+ * Spawn a detached child and wait a short grace window to see whether the OS
+ * accepted it, capturing the failure instead of letting it surface later.
+ *
+ * `spawn()` throws synchronously only for a narrow set of option-validation
+ * errors. The common failure — the executable does not exist (ENOENT), e.g.
+ * `npm` not on PATH, common for a GUI-launched MCP client that did not inherit
+ * a shell's PATH, or under nvm — is delivered asynchronously via the child's
+ * `'error'` event. With no listener attached, Node's default behaviour for an
+ * unhandled EventEmitter `'error'` is to throw, crashing this process — and
+ * because the event fires on a later tick, that crash would land AFTER the
+ * caller (`launch`/`restart`) already believed the spawn succeeded and moved
+ * on, in `restart()`'s case after the previous editor was already killed. A
+ * real ENOENT/EACCES surfaces within a few milliseconds of the spawn attempt,
+ * so a short bounded wait is enough to catch it while adding negligible delay
+ * to a real launch.
+ */
+export function spawnChildWithErrorCapture(
+  cmd: string,
+  args: string[],
+  opts: SpawnOptions,
+  graceMs = 250
+): Promise<{ child: ChildProcess | null; error: string | null }> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let child: ChildProcess;
     try {
-      const child = spawn(cmd, args, { detached: true, stdio: 'ignore', env: childEnv() });
-      child.unref();
-      return true;
-    } catch {
-      // Try the next candidate.
+      child = spawn(cmd, args, opts);
+    } catch (e) {
+      resolve({ child: null, error: e instanceof Error ? e.message : String(e) });
+      return;
     }
-  }
-  return false;
+    child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      resolve({ child: null, error: err instanceof Error ? err.message : String(err) });
+    });
+    setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.unref();
+      resolve({ child, error: null });
+    }, graceMs);
+  });
 }
 
-function spawnDev(root: string): boolean {
+async function spawnApp(): Promise<{ started: boolean; error?: string }> {
+  let lastError: string | undefined;
+  for (const { cmd, args, probe } of appLaunchCandidates()) {
+    if (cmd !== 'open' && !fs.existsSync(probe)) continue;
+    const result = await spawnChildWithErrorCapture(cmd, args, {
+      detached: true,
+      stdio: 'ignore',
+      env: childEnv()
+    });
+    if (!result.error) return { started: true };
+    lastError = result.error;
+  }
+  return { started: false, error: lastError };
+}
+
+async function spawnDev(root: string): Promise<{ started: boolean; error?: string }> {
   const logDir = path.join(os.tmpdir(), 'xgenia-harness');
   fs.mkdirSync(logDir, { recursive: true });
   const log = fs.openSync(path.join(logDir, 'dev.log'), 'a');
-  const child = spawn('npm', ['run', 'dev'], {
+  const result = await spawnChildWithErrorCapture('npm', ['run', 'dev'], {
     cwd: root,
     detached: true,
     stdio: ['ignore', log, log],
     env: childEnv()
   });
-  child.unref();
-  return true;
+  return result.error ? { started: false, error: result.error } : { started: true };
 }
 
 function fail(code: string, tried: string, hint: string) {
   return { error: code, tried, hint };
+}
+
+/**
+ * Decide whether `restart()` must refuse rather than proceed, given the
+ * chat panel's read and whether `force` was passed.
+ *
+ * `readChatState` can report `busy: false` for two very different reasons:
+ * the panel really is idle, or the read could not determine anything at all
+ * (`unavailable` set — no chat iframe found, or the in-frame evaluate threw).
+ * Treating the second case as "not busy" lets a momentarily-erroring or
+ * navigating panel sail through the guard that exists specifically to protect
+ * an in-flight AI turn, so "could not determine" must refuse exactly like
+ * "definitely busy" does, unless the caller accepts the risk with `force`.
+ */
+export function busyRefusal(
+  chat: Pick<ChatState, 'busy' | 'unavailable'>,
+  force: boolean
+): { refuse: true; unavailable: boolean } | { refuse: false } {
+  if (force) return { refuse: false };
+  if (chat.busy) return { refuse: true, unavailable: false };
+  if (chat.unavailable) return { refuse: true, unavailable: true };
+  return { refuse: false };
+}
+
+/** Whether an in-flight AI turn was lost — `'unknown'`, not a confident `false`, when the read that would tell us was itself unreliable. */
+export type InFlightTurnLost = boolean | 'unknown';
+
+export function inFlightTurnLostValue(chat: Pick<ChatState, 'busy' | 'unavailable'>): InFlightTurnLost {
+  return chat.unavailable ? 'unknown' : chat.busy;
 }
 
 /**
@@ -326,9 +457,13 @@ export async function launch(opts: { target?: Target | 'auto' } = {}) {
     );
   }
 
-  const started = chosen === 'app' ? spawnApp() : spawnDev(root!);
-  if (!started) {
-    return fail('not-running', `target ${chosen}`, 'Could not start XGENIA.');
+  const started = chosen === 'app' ? await spawnApp() : await spawnDev(root!);
+  if (!started.started) {
+    return fail(
+      'not-running',
+      `target ${chosen}${started.error ? `: ${started.error}` : ''}`,
+      started.error ? `Could not start XGENIA: ${started.error}` : 'Could not start XGENIA.'
+    );
   }
 
   const timeout = chosen === 'app' ? 90_000 : 240_000;
@@ -352,18 +487,42 @@ export async function restart(opts: { force?: boolean } = {}) {
   const project = await readProject(page);
   const chat = await readChatState(page);
 
-  if (chat.busy && !opts.force) {
+  // R2 IMPORTANT 2: refuse when the chat state could not be determined at
+  // all, not only when it's confirmed busy — see busyRefusal's doc comment.
+  const refusal = busyRefusal(chat, !!opts.force);
+  if (refusal.refuse) {
     return fail(
       'busy-refused',
-      'chat is mid-generation',
-      'An AI turn is in flight and would be lost. Wait, or pass force to restart anyway.'
+      refusal.unavailable ? 'chat panel state could not be read' : 'chat is mid-generation',
+      refusal.unavailable
+        ? `Whether an AI turn is in flight could not be determined (${chat.unavailable}${
+            chat.error ? `: ${chat.error}` : ''
+          }). Restarting could silently lose an in-flight turn. Wait and retry, or pass force to restart anyway.`
+        : 'An AI turn is in flight and would be lost. Wait, or pass force to restart anyway.'
     );
   }
 
-  writeRecovery({ dir: project?.dir ?? null, target, savedAt: Date.now() });
+  writeRecovery(port, { dir: project?.dir ?? null, target, savedAt: Date.now() });
 
-  // Ask the editor to save the way its own save does.
-  if (project?.dir) await saveOpenProject(page);
+  // R2 CRITICAL: ask the editor to save the way its own save does, and
+  // require actual confirmation before proceeding to a kill — saveOpenProject
+  // can no longer resolve as if it succeeded when it didn't (a read-only
+  // project.json, a save slower than its own 5s ceiling, or a thrown evaluate
+  // all used to look identical to a real save right before the tree was torn
+  // down, silently destroying unsaved work while reporting `restarted: true`).
+  let saveOutcome: Awaited<ReturnType<typeof saveOpenProject>> | null = null;
+  if (project?.dir) {
+    saveOutcome = await saveOpenProject(page);
+    if (!saveOutcome.confirmed && !opts.force) {
+      return fail(
+        'save-unconfirmed',
+        `save project '${project.name}' (dir: ${project.dir}) before restart`,
+        `The editor's save could not be confirmed (${saveOutcome.reason}${
+          'error' in saveOutcome ? `: ${saveOutcome.error}` : ''
+        }). Restarting would risk losing unsaved work. Wait and retry, or pass force to restart anyway (the report will note the save was unconfirmed).`
+      );
+    }
+  }
 
   const owner = portOwner(port);
   if (!owner) {
@@ -410,7 +569,24 @@ export async function restart(opts: { force?: boolean } = {}) {
   let stillOwner = portOwner(port);
   let forceSignalled = false;
   if (stillOwner) {
-    forceSignalled = killTree(root, true);
+    // R2 IMPORTANT 1: escalate against the pids that are actually still alive,
+    // not by re-deriving descendants of `root` from a fresh snapshot — by
+    // this point (~5s after the SIGTERM) `root` itself is typically already
+    // reaped, so `descendantsOf(root, freshSnapshot)` would find no trace of
+    // it and fall through to returning just `[root]` again, leaving any
+    // surviving child (the Electron process is the one that matters)
+    // un-signalled. `treePids`, captured before anything was killed, is the
+    // right set; filter it to who's still around and SIGKILL those directly.
+    //
+    // win32 has no broader tree to re-derive in the first place (Correction 2
+    // routes it straight to `killTreeCommand`/`taskkill /T`, which re-walks
+    // from `root` itself on the OS side) so it keeps using killTree(root, true).
+    if (process.platform === 'win32') {
+      forceSignalled = killTree(root, true);
+    } else {
+      const survivors = stillAlive(treePids, processSnapshot());
+      forceSignalled = survivors.map((pid) => killPid(pid, 'SIGKILL')).some(Boolean);
+    }
     stillOwner = await pollPortFree(port, 10_000);
   }
 
@@ -431,8 +607,13 @@ export async function restart(opts: { force?: boolean } = {}) {
   // Free the dev ports too, so a relaunch cannot collide — but only a port
   // whose owner is provably part of the tree just killed. A port owned by
   // something outside that set is left untouched and reported, never killed
-  // on the assumption that "it's probably ours".
-  const declinedPorts: { port: number; pid: number }[] = [];
+  // on the assumption that "it's probably ours". On win32, `treePids` can
+  // only ever be `{root}` (no `ps` there to enumerate a broader tree — see
+  // its capture above), so a decline there means "we cannot tell", not "this
+  // definitely isn't ours"; the reason field says which.
+  const treeMembershipKnown = process.platform !== 'win32';
+  const declinedPorts: { port: number; pid: number; reason: 'outside-tree' | 'tree-membership-unknown-on-platform' }[] =
+    [];
   if (target === 'dev') {
     for (const p of [8080, 8574, 3001, 3051]) {
       const pid = portOwner(p);
@@ -440,7 +621,11 @@ export async function restart(opts: { force?: boolean } = {}) {
       if (treePids.has(pid)) {
         killTree(pid, true);
       } else {
-        declinedPorts.push({ port: p, pid });
+        declinedPorts.push({
+          port: p,
+          pid,
+          reason: treeMembershipKnown ? 'outside-tree' : 'tree-membership-unknown-on-platform'
+        });
       }
     }
   }
@@ -448,22 +633,46 @@ export async function restart(opts: { force?: boolean } = {}) {
   resetConnection();
 
   const relaunched = await launch({ target });
-  if ('error' in relaunched) return relaunched;
+  if ('error' in relaunched) {
+    // R2 IMPORTANT 4: a relaunch timeout after a dev restart is very often
+    // explained by exactly the ports this sweep declined to free (e.g.
+    // webpack still holding :8080 blocks a clean `npm run dev`). Fold that
+    // into the returned hint rather than discarding it — the error shape
+    // stays {error, tried, hint}, just with a richer hint.
+    const declinedNote = declinedPorts.length
+      ? ` Also, ${declinedPorts.length} dev port(s) were left occupied and not freed: ${declinedPorts
+          .map((d) => `${d.port} (pid ${d.pid}, ${d.reason})`)
+          .join(', ')}.`
+      : '';
+    return { ...relaunched, hint: `${relaunched.hint}${declinedNote}` };
+  }
 
-  const recovery = readRecovery();
+  // R2 IMPORTANT 5: a failed or absent recovery read must not look identical
+  // to "there was genuinely nothing open before the restart" — see readRecovery.
+  const recovery = readRecovery(port);
   let reopened = null;
-  // IMPORTANT 4: carry the failure reason forward instead of collapsing it to
-  // `project: null`, which is honest but useless for diagnosing WHY the
-  // project didn't come back.
+  // IMPORTANT 4 (round 1): carry the failure reason forward instead of
+  // collapsing it to `project: null`, which is honest but useless for
+  // diagnosing WHY the project didn't come back.
   let recoveryError: { error: string; tried: string; hint: string } | null = null;
-  if (recovery?.dir) {
+  if (recovery.ok && recovery.dir) {
     const result = await openProject({ dir: recovery.dir });
     if ('error' in result) {
       recoveryError = result;
     } else {
       reopened = result.project;
     }
+  } else if (!recovery.ok) {
+    recoveryError = fail(
+      'recovery-read-failed',
+      `reading recovery snapshot for port ${port}`,
+      recovery.reason === 'missing'
+        ? 'The recovery snapshot written just before the kill is missing. Cannot tell what project, if any, was open before this restart.'
+        : 'The recovery snapshot could not be parsed. Cannot tell what project, if any, was open before this restart.'
+    );
   }
+  // else: recovery.ok && !recovery.dir — nothing was open before the
+  // restart, so there is genuinely nothing to reopen; not an error.
 
   const { page: page2 } = await connect();
   const chat2 = await readChatState(page2);
@@ -474,7 +683,8 @@ export async function restart(opts: { force?: boolean } = {}) {
     project: reopened,
     recoveryError,
     declinedPorts,
+    save: saveOutcome ?? { confirmed: true, reason: 'nothing-open' as const },
     chat: { restored: chat2.mounted, messageCount: chat2.messageCount },
-    inFlightTurnLost: chat.busy
+    inFlightTurnLost: inFlightTurnLostValue(chat)
   };
 }

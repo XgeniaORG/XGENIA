@@ -2,14 +2,21 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { Page } from 'playwright-core';
 import {
   projectNameFromDir,
   validateProjectDir,
   canonicalDir,
   escapeRegExp,
-  resolveByName
+  resolveByName,
+  saveOpenProject
 } from './project.js';
 import type { RecentEntry } from './recents.js';
+
+/** Minimal stand-in for a Playwright Page, just enough for saveOpenProject's evaluate call. */
+function stubPage(evaluate: (...args: unknown[]) => unknown): Page {
+  return { evaluate } as unknown as Page;
+}
 
 let tmp: string;
 
@@ -124,5 +131,39 @@ describe('resolveByName', () => {
     ];
     const r = resolveByName(entries, 'Amazing thing. ');
     expect(r).toEqual({ ok: true, dir: canonicalDir('/tmp/amazing') });
+  });
+});
+
+// The stub's `evaluate` never actually runs the in-page callback saveOpenProject
+// passes it (same limitation as editor-state.test.ts's stubPage) — it just
+// substitutes a canned resolution, so these test the Node-side wrapper's
+// handling of the evaluate OUTCOME: does it correctly turn "saved" / "timeout"
+// / "no-project" / a thrown evaluate into the right SaveOutcome, not whether
+// the in-browser toDirectory/timeout logic itself is correct (that can only
+// be verified live).
+describe('saveOpenProject', () => {
+  it('reports confirmed when the in-page save callback fired', async () => {
+    const page = stubPage(async () => ({ reason: 'saved' }));
+    expect(await saveOpenProject(page)).toEqual({ confirmed: true, reason: 'saved' });
+  });
+
+  it('reports unconfirmed with reason no-project when there is nothing to save', async () => {
+    const page = stubPage(async () => ({ reason: 'no-project' }));
+    expect(await saveOpenProject(page)).toEqual({ confirmed: false, reason: 'no-project' });
+  });
+
+  it('reports unconfirmed with reason timeout when the save never called back within 5s', async () => {
+    const page = stubPage(async () => ({ reason: 'timeout' }));
+    expect(await saveOpenProject(page)).toEqual({ confirmed: false, reason: 'timeout' });
+  });
+
+  it('reports unconfirmed with reason evaluate-threw and the error message when evaluate rejects', async () => {
+    const page = stubPage(async () => {
+      throw new Error('boom: page navigated mid-evaluate');
+    });
+    const result = await saveOpenProject(page);
+    expect(result.confirmed).toBe(false);
+    expect(result.reason).toBe('evaluate-threw');
+    expect('error' in result && result.error).toContain('boom: page navigated mid-evaluate');
   });
 });
