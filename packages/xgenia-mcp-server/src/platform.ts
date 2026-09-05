@@ -126,6 +126,80 @@ export function portOwner(port: number, platform: NodeJS.Platform = process.plat
   }
 }
 
+/**
+ * Classify which XGENIA build a process command line belongs to, without
+ * needing a working page at all.
+ *
+ * Normally the target is learned from `connect()`, which classifies by page
+ * URL (`classifyTarget` in connection.ts) — but that needs a CDP session and
+ * a page target to actually finish initialising, which is exactly what a
+ * wedged renderer cannot provide. The command line is available regardless:
+ * the dev build always runs Electron out of THIS repo's own
+ * `node_modules/electron` with `dev-main.js` as its entry script, while the
+ * packaged build always runs the installed app binary — one of
+ * `appLaunchCandidates`' `probe` paths (e.g.
+ * `/Applications/XGENIA.app/Contents/MacOS/XGENIA` on darwin: the probe is
+ * the `.app` bundle path, which is a substring of the actual executable path
+ * inside it). These two shapes never collide, so this is unambiguous
+ * whenever a command line is available — and returns `null`, never a guess,
+ * when it matches neither (an unrecognised layout, an empty string from a
+ * process that could not be read, or a custom `XGENIA_APP_PATH` override
+ * that doesn't match what's actually running).
+ */
+const DEV_ELECTRON_PATH = /node_modules[\\/]electron/;
+
+export function classifyTargetFromCommand(
+  command: string,
+  platform: NodeJS.Platform = process.platform
+): 'app' | 'dev' | null {
+  if (!command) return null;
+  if (command.includes('dev-main.js') || DEV_ELECTRON_PATH.test(command)) return 'dev';
+  if (appLaunchCandidates(platform).some(({ probe }) => probe && command.includes(probe))) {
+    return 'app';
+  }
+  return null;
+}
+
+/**
+ * The full command line of a running process, or `null` when it cannot be
+ * read: the process already exited, `ps` itself failed, or — win32 — there
+ * is no `ps` to shell out to at all.
+ *
+ * POSIX only, exactly like `processChain` in lifecycle.ts, which shells out
+ * to the same tool for the same reason: `ps` does not exist on Windows.
+ * Unlike that walk, this reads exactly one pid — classifying a build only
+ * ever needs the CDP port's own owner, never its ancestors.
+ */
+export function commandLineForPid(
+  pid: number,
+  platform: NodeJS.Platform = process.platform
+): string | null {
+  if (platform === 'win32') return null;
+  try {
+    const out = execFileSync('ps', ['-o', 'command=', '-p', String(pid)], {
+      encoding: 'utf8'
+    }).trim();
+    return out || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Classify which build owns `pid` by reading its live command line — the
+ * process-lookup half of the wedged-restart target fix (see
+ * `classifyTargetFromCommand`'s doc comment for why this needs no page).
+ * Returns `null` exactly when either the command line could not be read or
+ * it matched neither known shape; never a guess.
+ */
+export function classifyTargetForPid(
+  pid: number,
+  platform: NodeJS.Platform = process.platform
+): 'app' | 'dev' | null {
+  const command = commandLineForPid(pid, platform);
+  return command ? classifyTargetFromCommand(command, platform) : null;
+}
+
 export function killTreeCommand(
   pid: number,
   platform: NodeJS.Platform = process.platform,

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import {
   parsePortOwnerPid,
   portOwnerCommand,
@@ -7,7 +8,10 @@ import {
   userDataDirs,
   userDataDirForTarget,
   appLaunchCandidates,
-  portOwner
+  portOwner,
+  classifyTargetFromCommand,
+  commandLineForPid,
+  classifyTargetForPid
 } from './platform.js';
 
 const LSOF = `COMMAND    PID   USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
@@ -165,5 +169,100 @@ describe('portOwner', () => {
     // A high, unlikely-to-collide port distinct from the ones the
     // connection/lifecycle test files use for the same purpose.
     expect(portOwner(65531)).toBeNull();
+  });
+});
+
+// Defect 1: on a wedged editor, connect() (page-URL classification) never
+// succeeds, so the target must be determinable from the process that owns
+// the CDP port instead — its command line distinguishes the two builds
+// unambiguously. Pure and stub-testable against captured command-line
+// strings, the same way parsePortOwnerPid is above; the dev-build string is
+// the exact one lifecycle.test.ts's CHAIN fixture captured from a live
+// `npm run dev`.
+describe('classifyTargetFromCommand', () => {
+  const DEV_COMMAND =
+    '/repo/node_modules/electron/dist/Electron.app/.../Electron dev-main.js --dev';
+  const PACKAGED_DARWIN = '/Applications/XGENIA.app/Contents/MacOS/XGENIA';
+
+  it('classifies the dev build by its dev-main.js entry script', () => {
+    expect(classifyTargetFromCommand(DEV_COMMAND, 'darwin')).toBe('dev');
+  });
+
+  it('classifies the dev build by node_modules/electron alone (backslash form too)', () => {
+    expect(classifyTargetFromCommand('C:\\repo\\node_modules\\electron\\electron.exe', 'darwin')).toBe(
+      'dev'
+    );
+  });
+
+  it('classifies the packaged darwin build by the installed app bundle path', () => {
+    expect(classifyTargetFromCommand(PACKAGED_DARWIN, 'darwin')).toBe('app');
+  });
+
+  it('classifies the packaged win32 build by its installed .exe path', () => {
+    const programs = 'C:\\Program Files';
+    const restore = process.env.PROGRAMFILES;
+    process.env.PROGRAMFILES = programs;
+    try {
+      const exe = path.join(programs, 'XGENIA', 'XGENIA.exe');
+      expect(classifyTargetFromCommand(`"${exe}"`, 'win32')).toBe('app');
+    } finally {
+      if (restore === undefined) delete process.env.PROGRAMFILES;
+      else process.env.PROGRAMFILES = restore;
+    }
+  });
+
+  it('returns null, never a guess, for an unrecognised command line', () => {
+    expect(classifyTargetFromCommand('/usr/bin/some-other-app --flag', 'darwin')).toBeNull();
+  });
+
+  it('returns null for an empty command line', () => {
+    expect(classifyTargetFromCommand('', 'darwin')).toBeNull();
+  });
+
+  it('an XGENIA_APP_PATH override that does not match the running command still returns null rather than a false positive', () => {
+    const restore = process.env.XGENIA_APP_PATH;
+    process.env.XGENIA_APP_PATH = '/custom/place/XGENIA';
+    try {
+      expect(classifyTargetFromCommand(PACKAGED_DARWIN, 'darwin')).toBeNull();
+    } finally {
+      if (restore === undefined) delete process.env.XGENIA_APP_PATH;
+      else process.env.XGENIA_APP_PATH = restore;
+    }
+  });
+});
+
+describe('commandLineForPid', () => {
+  it('returns null outright on win32 without attempting to shell out (no `ps` there)', () => {
+    expect(commandLineForPid(1, 'win32')).toBeNull();
+  });
+
+  it('reads this test process\'s own real command line on POSIX', () => {
+    if (process.platform === 'win32') return;
+    const command = commandLineForPid(process.pid);
+    expect(command).not.toBeNull();
+    expect(command!.length).toBeGreaterThan(0);
+  });
+
+  it('returns null for a pid that does not exist', () => {
+    if (process.platform === 'win32') return;
+    // spawnSync returns only once the child has already exited, so this pid
+    // is guaranteed both valid-shaped for this platform and already dead --
+    // unlike a huge literal (e.g. 2**30), which some `ps` implementations
+    // reject as out-of-range with their own noisy stderr message rather than
+    // a clean "not found".
+    const dead = spawnSync(process.execPath, ['-e', 'process.exit(0)']).pid!;
+    expect(commandLineForPid(dead)).toBeNull();
+  });
+});
+
+describe('classifyTargetForPid', () => {
+  it('returns null on win32 unconditionally', () => {
+    expect(classifyTargetForPid(1, 'win32')).toBeNull();
+  });
+
+  it('returns null for a pid that cannot be read, never a guess', () => {
+    if (process.platform === 'win32') return;
+    const dead = spawnSync(process.execPath, ['-e', 'process.exit(0)']).pid!;
+    expect(classifyTargetForPid(dead)).toBeNull();
   });
 });

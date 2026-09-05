@@ -20,6 +20,8 @@ import {
   combinePreKillReads,
   unresponsiveRefusal,
   shouldEscalateToSigkill,
+  determineTarget,
+  nothingOpenOrUnresponsive,
   restart,
   quit
 } from './lifecycle.js';
@@ -488,6 +490,51 @@ describe('unresponsiveRefusal', () => {
 // is the pure decision saveKillVerify now makes only after the extended
 // SIGTERM_GRACE_MS grace period (see lifecycle.ts), not before it -- pinned
 // here independent of the real process polling around it.
+// Defect 1: on a wedged editor, connect() (page-URL classification) fails,
+// so the pre-kill target must come from one of two page-free sources
+// instead of being reported null (which used to make restart() fall back to
+// a best-effort 'auto' relaunch -- silently switching a dev user's build to
+// the installed app on exactly the restart meant to restore their
+// environment). determineTarget is the pure preference-order decision
+// saveKillVerify now makes from already-looked-up candidates; pinned here
+// independent of any real process table, CDP connection, or filesystem.
+describe('determineTarget', () => {
+  it('prefers the live connect classification when available, even if the others disagree', () => {
+    expect(determineTarget('dev', 'app', 'app')).toEqual({ target: 'dev', source: 'connect' });
+  });
+
+  it('falls back to the process command-line classification when connect is unavailable', () => {
+    expect(determineTarget(null, 'dev', 'app')).toEqual({ target: 'dev', source: 'process' });
+  });
+
+  it('falls back to the recovery snapshot only once the process lookup also comes up empty', () => {
+    expect(determineTarget(null, null, 'app')).toEqual({ target: 'app', source: 'recovery' });
+  });
+
+  it('reports unknown, never a guess, when none of the three sources could tell', () => {
+    expect(determineTarget(null, null, null)).toEqual({ target: null, source: 'unknown' });
+  });
+});
+
+// Defect 2: `saveKillVerify` used to report `{confirmed: true, reason:
+// 'nothing-open'}` whenever no real save was attempted, whether or not the
+// pre-kill reads that would justify "nothing was open" ever actually ran --
+// reproduced live as `restart({force:true})` on a genuinely unreadable page
+// reporting a confident "nothing was open" it had no way to know.
+// nothingOpenOrUnresponsive is the pure decision that replaces that
+// unconditional fallback; reason: 'unresponsive' reuses the exact vocabulary
+// saveOpenProject's own timeout path already reports, rather than inventing
+// a parallel one.
+describe('nothingOpenOrUnresponsive', () => {
+  it('reports a confirmed nothing-open only when the page was actually read', () => {
+    expect(nothingOpenOrUnresponsive(false)).toEqual({ confirmed: true, reason: 'nothing-open' });
+  });
+
+  it('reports unconfirmed/unresponsive -- never a confident nothing-open -- when the reads were skipped or timed out', () => {
+    expect(nothingOpenOrUnresponsive(true)).toEqual({ confirmed: false, reason: 'unresponsive' });
+  });
+});
+
 describe('shouldEscalateToSigkill', () => {
   it('does not escalate when the process exited on its own within the grace period (port free, pollPortFree returned null)', () => {
     expect(shouldEscalateToSigkill(null)).toBe(false);

@@ -3,7 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Page } from 'playwright-core';
 import { spawn, execFileSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import { appLaunchCandidates, killTreeCommand, portOwner } from './platform.js';
+import {
+  appLaunchCandidates,
+  killTreeCommand,
+  portOwner,
+  classifyTargetForPid
+} from './platform.js';
 import {
   connect,
   discoverPort,
@@ -251,6 +256,48 @@ export function readRecovery(port: number = DEFAULT_PORT): RecoveryRead {
   } catch {
     return { ok: false, reason: 'parse-error' };
   }
+}
+
+/**
+ * How the pre-kill `target` was actually determined.
+ *
+ * `'connect'` is the normal, most-trustworthy case: the page itself answered
+ * and was classified by URL. The other three only ever apply when `connect()`
+ * failed outright (a wedged editor) — `'process'` (the pid that owns the CDP
+ * port, classified by its command line) is preferred over `'recovery'` (the
+ * target the last restart that DID know it wrote to disk) because it
+ * reflects who is holding the port right now rather than a possibly-stale
+ * breadcrumb; `'unknown'` means neither source could tell.
+ */
+export type TargetSource = 'connect' | 'process' | 'recovery' | 'unknown';
+
+export interface TargetDetermination {
+  target: Target | null;
+  source: TargetSource;
+}
+
+/**
+ * Decide the pre-kill target from already-looked-up candidates, in
+ * preference order — pure, so the preference order itself (not the I/O that
+ * produces the candidates) is directly testable.
+ *
+ * This is Defect 1's fix: a wedged editor's `connect()` fails, so the target
+ * used to be reported `null` and `restart()` fell back to a best-effort
+ * `'auto'` relaunch — which prefers the installed app — silently switching
+ * a dev user's build to the packaged one on exactly the restart that most
+ * needs to restore their environment exactly. `connected` wins outright when
+ * available (it needs no guessing at all); `fromProcess` and `fromRecovery`
+ * only ever get consulted when it's null.
+ */
+export function determineTarget(
+  connected: Target | null,
+  fromProcess: Target | null,
+  fromRecovery: Target | null
+): TargetDetermination {
+  if (connected) return { target: connected, source: 'connect' };
+  if (fromProcess) return { target: fromProcess, source: 'process' };
+  if (fromRecovery) return { target: fromRecovery, source: 'recovery' };
+  return { target: null, source: 'unknown' };
 }
 
 export type EditorWaitOutcome = 'ready' | 'login-screen' | 'timeout';
@@ -644,21 +691,49 @@ export interface DeclinedPort {
   reason: 'outside-tree' | 'tree-membership-unknown-on-platform';
 }
 
-type SaveOutcomeOrNothingOpen =
+export type SaveOutcomeOrNothingOpen =
   | Awaited<ReturnType<typeof saveOpenProject>>
   | { confirmed: true; reason: 'nothing-open' }
   | { confirmed: false; reason: 'unresponsive' };
+
+/**
+ * What to report as the save outcome when no real save was even attempted —
+ * either because there was genuinely nothing open, or because the pre-kill
+ * reads that would tell us that were skipped or timed out.
+ *
+ * Defect 2: `confirmed: true, reason: 'nothing-open'` must only ever be
+ * reported when the pre-kill reads actually ran and genuinely found no
+ * project open. Reported unconditionally whenever `saveOutcome` was `null`,
+ * it used to collide with the wedged-editor case too — reproduced live as
+ * `restart({force:true})` returning `{confirmed: true, reason:
+ * 'nothing-open'}` from a page that was never actually read, a confident
+ * wrong answer about the exact thing that determines whether the user just
+ * lost work. `reason: 'unresponsive'` is not a new value invented for this:
+ * it's the same one `saveOpenProject`'s own timeout path
+ * (`SAVE_READ_TIMEOUT_MS`) already reports for "a save was attempted but
+ * could not be confirmed" — reused here for "no save could even be
+ * attempted," the same honest vocabulary rather than a parallel one.
+ */
+export function nothingOpenOrUnresponsive(pageUnresponsive: boolean): SaveOutcomeOrNothingOpen {
+  return pageUnresponsive
+    ? { confirmed: false, reason: 'unresponsive' }
+    : { confirmed: true, reason: 'nothing-open' };
+}
 
 export type KillOutcome =
   | {
       killed: true;
       /**
-       * `null` when the pre-kill `connect()` never succeeded at all (a
-       * wedged editor with `force` set) — the target could only ever be
-       * learned by asking the page, which is exactly what wasn't available.
-       * `restart()` falls back to `'auto'` for the relaunch in that case.
+       * Best-known target before the kill. `null` only when NONE of the
+       * three sources in `determineTarget` could tell — see `targetSource`
+       * for which source, if any, actually supplied this value.
+       * `restart()` falls back to `'auto'` for the relaunch only in the
+       * `null` case, and reports what `'auto'` actually chose so a caller
+       * can see whether a switch happened.
        */
       target: Target | null;
+      /** How `target` was determined — see `determineTarget`'s doc comment. */
+      targetSource: TargetSource;
       port: number;
       project: ProjectInfo | null;
       saveOutcome: SaveOutcomeOrNothingOpen;
@@ -740,7 +815,8 @@ async function saveKillVerify(opts: {
   const { action } = opts;
   const port = discoverPort();
   const attempt = await attemptConnect(port);
-  const target: Target | null = attempt.ok ? attempt.target : null;
+  let target: Target | null = attempt.ok ? attempt.target : null;
+  let targetSource: TargetSource = attempt.ok ? 'connect' : 'unknown';
 
   // Once `force` is set, a connect failure is treated exactly like every
   // pre-kill read timing out mid-flight: no page ever became available, so
@@ -788,6 +864,25 @@ async function saveKillVerify(opts: {
       tried,
       `The editor is not responding${detail}, so the pre-${action} save and busy-check cannot be performed safely. ${action === 'restart' ? 'Restarting' : 'Quitting'} anyway would risk losing unsaved work and any in-flight AI turn. Pass force to ${action} anyway — it will kill the editor without confirming a save.`
     );
+  }
+
+  // Defect 1: reaching here with `!attempt.ok` means `force` was set on a
+  // connect failure (the only way `unresponsiveRefusal` above lets that
+  // through) — a wedged editor. `connect()`'s page-URL classification was
+  // never available, so ask the two page-free sources instead of leaving
+  // `target` (and the recovery snapshot `onReady` is about to write) as
+  // `null`: the pid that owns the CDP port right now, classified by its
+  // command line, and — if even that comes back empty (owner already gone,
+  // or an unrecognised command line) — the target the last restart that DID
+  // know it wrote to the recovery file. Skipped entirely when `attempt.ok`,
+  // since `target` is already known there with certainty and neither lookup
+  // would be used anyway (see `determineTarget`'s preference order).
+  if (!attempt.ok) {
+    const owner = portOwner(port);
+    const fromProcess = owner !== null ? classifyTargetForPid(owner) : null;
+    const recovery = readRecovery(port);
+    const fromRecovery = recovery.ok ? recovery.target ?? null : null;
+    ({ target, source: targetSource } = determineTarget(null, fromProcess, fromRecovery));
   }
 
   // R2 IMPORTANT 2: refuse when the chat state could not be determined at
@@ -963,9 +1058,15 @@ async function saveKillVerify(opts: {
   return {
     killed: true,
     target,
+    targetSource,
     port,
     project,
-    saveOutcome: saveOutcome ?? { confirmed: true, reason: 'nothing-open' },
+    // Defect 2: `saveOutcome` is still `null` here in two very different
+    // cases — genuinely nothing was open (a real read said so), or the
+    // reads that would tell us were skipped/timed out (`pageUnresponsive`).
+    // See `nothingOpenOrUnresponsive`'s doc comment for why these must not
+    // collapse to the same report.
+    saveOutcome: saveOutcome ?? nothingOpenOrUnresponsive(pageUnresponsive),
     declinedPorts,
     inFlightTurnLost: inFlightTurnLostValue(chat),
     hardKilled
@@ -996,11 +1097,17 @@ export async function restart(opts: { force?: boolean } = {}) {
     });
     if ('error' in result) return result;
 
-    // `result.target` is `null` only when the pre-kill connect never
-    // succeeded at all (a wedged editor killed with `force`) — `'auto'` is
-    // exactly the value `launch()` already defines for "figure out which
-    // build to start", so this is not a new guess, just reusing the
-    // existing one for the one case where the target genuinely isn't known.
+    // Defect 1: `result.target` is `null` only when NONE of `determineTarget`'s
+    // three sources (the live connect, the CDP port owner's command line, the
+    // last-written recovery snapshot) could tell — see its doc comment.
+    // `'auto'` is exactly the value `launch()` already defines for "figure
+    // out which build to start", so this is not a new guess, just reusing
+    // the existing one for the one case where the target genuinely could not
+    // be determined at all. When `result.target` IS known (`targetSource !==
+    // 'unknown'`), it's passed through explicitly, so `launch()` starts that
+    // exact build rather than applying its own 'auto' preference for the
+    // installed app — this is what stops a wedged dev editor's restart from
+    // silently coming back as the packaged app.
     const relaunched = await launch({ target: result.target ?? 'auto' });
     if ('error' in relaunched) {
       // R2 IMPORTANT 4: a relaunch timeout after a dev restart is very often
@@ -1048,7 +1155,17 @@ export async function restart(opts: { force?: boolean } = {}) {
 
     return {
       restarted: true,
-      target: result.target,
+      // The build actually relaunched — equal to `result.target` whenever
+      // that was known (launch() honours an explicit target exactly), and
+      // otherwise whatever launch()'s own 'auto' preference chose. Reporting
+      // this rather than `result.target` verbatim means a caller sees the
+      // real post-restart state even in the 'unknown' case, instead of a
+      // `null` that masks a build switch.
+      target: relaunched.target,
+      // How confidently the PRE-kill target was known — 'unknown' is the
+      // signal that 'auto' had to guess above, so `target` may not match
+      // whatever build was running before this restart.
+      targetSource: result.targetSource,
       project: reopened,
       recoveryError,
       declinedPorts: result.declinedPorts,
@@ -1082,6 +1199,7 @@ export async function quit(opts: { force?: boolean } = {}) {
     return {
       quit: true,
       target: result.target,
+      targetSource: result.targetSource,
       port: result.port,
       project: result.project,
       save: result.saveOutcome,
