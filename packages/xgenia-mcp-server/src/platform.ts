@@ -2,25 +2,45 @@ import path from 'node:path';
 import os from 'node:os';
 
 /**
- * Candidate Electron userData directories, installed build first.
+ * The Electron userData directory for one specific connected target.
  *
  * A packaged XGENIA uses the productName ("XGENIA"); a dev run from this repo
- * uses the default Electron name, so both are probed.
+ * uses the default Electron name ("Electron"). These two profiles are
+ * entirely separate on disk — separate recents files, separate everything —
+ * so once the target a harness call is actually driving is known, this is
+ * the only directory that call may read from. Guessing between the two (see
+ * `userDataDirs`) is only ever correct when the target is genuinely unknown.
+ */
+export function userDataDirForTarget(
+  target: 'app' | 'dev',
+  platform: NodeJS.Platform = process.platform,
+  home: string = os.homedir()
+): string {
+  const name = target === 'app' ? 'XGENIA' : 'Electron';
+  if (platform === 'darwin') {
+    return path.join(home, 'Library', 'Application Support', name);
+  }
+  if (platform === 'win32') {
+    const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+    return path.join(appData, name);
+  }
+  const configHome = process.env.XDG_CONFIG_HOME || path.join(home, '.config');
+  return path.join(configHome, name);
+}
+
+/**
+ * Candidate Electron userData directories, installed build first.
+ *
+ * Only useful when the target is genuinely unknown (e.g. locating the CDP
+ * `DevToolsActivePort` file before a connection exists at all, where either
+ * profile is a plausible guess). Once a target is known, use
+ * `userDataDirForTarget` instead — never guess when the answer is known.
  */
 export function userDataDirs(
   platform: NodeJS.Platform = process.platform,
   home: string = os.homedir()
 ): string[] {
-  const names = ['XGENIA', 'Electron'];
-  if (platform === 'darwin') {
-    return names.map((n) => path.join(home, 'Library', 'Application Support', n));
-  }
-  if (platform === 'win32') {
-    const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
-    return names.map((n) => path.join(appData, n));
-  }
-  const configHome = process.env.XDG_CONFIG_HOME || path.join(home, '.config');
-  return names.map((n) => path.join(configHome, n));
+  return (['app', 'dev'] as const).map((t) => userDataDirForTarget(t, platform, home));
 }
 
 export function portOwnerCommand(

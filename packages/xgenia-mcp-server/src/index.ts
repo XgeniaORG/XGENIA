@@ -5,8 +5,8 @@ import { z } from 'zod';
 import { health, probe, projectStatus } from './editor-state.js';
 import { chatSend, chatRead, chatWaitIdle } from './chat.js';
 import { screenshot } from './screenshot.js';
-import { openProject } from './project.js';
-import { launch, restart } from './lifecycle.js';
+import { openProject, newProject, closeProject } from './project.js';
+import { launch, restart, quit } from './lifecycle.js';
 
 const server = new McpServer({ name: 'xgenia-mcp', version: '1.0.0' });
 
@@ -80,6 +80,18 @@ server.registerTool(
 );
 
 server.registerTool(
+  'xgenia_quit',
+  {
+    title: 'Quit XGENIA',
+    description:
+      'Save, then kill XGENIA — the same safety sequence xgenia_restart uses (refuse while the AI chat is mid-generation unless force is set, confirm the save, kill the right process tree for the connected target, verify the port is actually free) — but do NOT relaunch it. ' +
+      'Nothing will be running after this call succeeds: there is no editor to attach to, and no project is reopened automatically. xgenia_launch is how you bring XGENIA back; it will start with no project open unless you also call xgenia_open_project afterward.',
+    inputSchema: { force: z.boolean().optional() }
+  },
+  ({ force }) => guard('quit', () => quit({ force }))
+);
+
+server.registerTool(
   'xgenia_project_status',
   {
     title: 'XGENIA project status',
@@ -99,6 +111,31 @@ server.registerTool(
     inputSchema: { dir: z.string().optional(), name: z.string().optional() }
   },
   ({ dir, name }) => guard('open project', () => openProject({ dir, name }))
+);
+
+server.registerTool(
+  'xgenia_new_project',
+  {
+    title: 'Create a new XGENIA project',
+    description:
+      'Create a project directory with a fresh, empty project.json (one root Group node, no components beyond /App) and open it. ' +
+      'If dir is omitted, a sibling directory of the most recently opened project is used (or the home directory if there is no recents history yet). Refuses — rather than overwriting — when the resolved directory already exists and is non-empty. ' +
+      'This reuses xgenia_open_project internally, so it inherits the same recents handling and verify-by-value check; the result carries everything xgenia_open_project returns plus createdDir.',
+    inputSchema: { name: z.string(), dir: z.string().optional() }
+  },
+  ({ name, dir }) => guard('new project', () => newProject({ name, dir }))
+);
+
+server.registerTool(
+  'xgenia_close_project',
+  {
+    title: 'Close the current XGENIA project',
+    description:
+      'Save the open project and return to the projects screen. There is no clickable exit control in the editor UI for this harness to target, so it saves, reloads the page, and waits for a project tile to appear — which discards any unsaved work the save did not capture. ' +
+      'Refuses when the save cannot be confirmed unless force is set. Reports whether a project was actually closed, or that none was open.',
+    inputSchema: { force: z.boolean().optional() }
+  },
+  ({ force }) => guard('close project', () => closeProject({ force }))
 );
 
 server.registerTool(

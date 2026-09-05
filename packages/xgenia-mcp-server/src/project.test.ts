@@ -9,8 +9,12 @@ import {
   canonicalDir,
   escapeRegExp,
   resolveByName,
-  saveOpenProject
+  saveOpenProject,
+  defaultProjectJson,
+  defaultProjectsParentDir,
+  checkProjectDirClobber
 } from './project.js';
+import { addRecentEntry } from './recents.js';
 import type { RecentEntry } from './recents.js';
 
 /** Minimal stand-in for a Playwright Page, just enough for saveOpenProject's evaluate call. */
@@ -165,5 +169,87 @@ describe('saveOpenProject', () => {
     expect(result.confirmed).toBe(false);
     expect(result.reason).toBe('evaluate-threw');
     expect('error' in result && result.error).toContain('boom: page navigated mid-evaluate');
+  });
+});
+
+describe('defaultProjectJson', () => {
+  it('matches the exact shape the editor\'s own no-template branch writes', () => {
+    expect(defaultProjectJson('My Project')).toEqual({
+      name: 'My Project',
+      version: '4',
+      settings: {},
+      components: [
+        {
+          name: '/App',
+          graph: {
+            roots: [
+              { id: 'root-node', type: 'Group', x: 0, y: 0, parameters: {}, ports: [], children: [] }
+            ],
+            connections: []
+          }
+        }
+      ],
+      rootNodeId: 'root-node'
+    });
+  });
+
+  it('does not trim or otherwise alter a name carrying a trailing space', () => {
+    const json = defaultProjectJson('Amazing thing. ');
+    expect(json.name).toBe('Amazing thing. ');
+  });
+});
+
+describe('defaultProjectsParentDir', () => {
+  it('falls back to home when there is no recents file', () => {
+    expect(defaultProjectsParentDir(null, '/Users/x')).toBe('/Users/x');
+  });
+
+  it('falls back to home when the recents file has no entries', () => {
+    const file = path.join(tmp, 'recently_opened_project.json');
+    fs.writeFileSync(file, JSON.stringify({ recentProjects: [] }));
+    expect(defaultProjectsParentDir(file, '/Users/x')).toBe('/Users/x');
+  });
+
+  it('uses the parent directory of the most recently accessed entry', () => {
+    const file = path.join(tmp, 'recently_opened_project.json');
+    addRecentEntry(file, '/Users/x/Downloads/Old', 'Old');
+    addRecentEntry(file, '/Users/x/Downloads/Newer', 'Newer');
+    // Force the access-time ordering explicitly rather than relying on
+    // Date.now() ticking between the two addRecentEntry calls above.
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    raw.recentProjects[0].latestAccessed = 1000;
+    raw.recentProjects[1].latestAccessed = 2000;
+    fs.writeFileSync(file, JSON.stringify(raw));
+
+    expect(defaultProjectsParentDir(file, '/Users/x')).toBe('/Users/x/Downloads');
+  });
+});
+
+describe('checkProjectDirClobber', () => {
+  it('allows a directory that does not exist yet', () => {
+    expect(checkProjectDirClobber(path.join(tmp, 'brand-new'))).toEqual({ ok: true });
+  });
+
+  it('allows a directory that exists but is empty', () => {
+    const dir = path.join(tmp, 'empty');
+    fs.mkdirSync(dir);
+    expect(checkProjectDirClobber(dir)).toEqual({ ok: true });
+  });
+
+  it('refuses a directory that exists and holds files, without deleting anything', () => {
+    const dir = path.join(tmp, 'occupied');
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, 'project.json'), '{"name":"Existing"}');
+    const result = checkProjectDirClobber(dir);
+    expect(result.ok).toBe(false);
+    // Nothing was touched.
+    expect(fs.readdirSync(dir)).toEqual(['project.json']);
+  });
+
+  it('refuses a path that exists but is a file, not a directory', () => {
+    const file = path.join(tmp, 'not-a-dir');
+    fs.writeFileSync(file, 'x');
+    const result = checkProjectDirClobber(file);
+    expect(result.ok).toBe(false);
   });
 });

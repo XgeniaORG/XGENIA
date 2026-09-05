@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { parsePortOwnerPid, portOwnerCommand, killTreeCommand, userDataDirs, appLaunchCandidates } from './platform.js';
+import path from 'node:path';
+import {
+  parsePortOwnerPid,
+  portOwnerCommand,
+  killTreeCommand,
+  userDataDirs,
+  userDataDirForTarget,
+  appLaunchCandidates
+} from './platform.js';
 
 const LSOF = `COMMAND    PID   USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
 Electron 16268 markfm   36u  IPv4 0x8a8ac2440fcee53f      0t0  TCP 127.0.0.1:9223 (LISTEN)`;
@@ -104,5 +112,43 @@ describe('userDataDirs', () => {
     const dirs = userDataDirs('darwin', '/Users/x');
     expect(dirs[0]).toContain('XGENIA');
     expect(dirs[1]).toContain('Electron');
+  });
+});
+
+describe('userDataDirForTarget', () => {
+  // CRITICAL: this is the resolution the recents-file bug fix depends on —
+  // 'app' must resolve to the XGENIA profile and 'dev' to the Electron
+  // profile, unconditionally, never a guess between the two.
+  it('maps app to the XGENIA profile and dev to the Electron profile on darwin', () => {
+    expect(userDataDirForTarget('app', 'darwin', '/Users/x')).toBe(
+      '/Users/x/Library/Application Support/XGENIA'
+    );
+    expect(userDataDirForTarget('dev', 'darwin', '/Users/x')).toBe(
+      '/Users/x/Library/Application Support/Electron'
+    );
+  });
+
+  it('maps app to the XGENIA profile and dev to the Electron profile on win32', () => {
+    // path.join uses this (POSIX) OS's separator regardless of the `platform`
+    // argument being simulated, exactly like the function under test does —
+    // so the expectation is built the same way, not with a hardcoded `\`.
+    const appData = 'C:\\Users\\x\\AppData\\Roaming';
+    const restore = process.env.APPDATA;
+    process.env.APPDATA = appData;
+    try {
+      expect(userDataDirForTarget('app', 'win32', 'C:\\Users\\x')).toBe(path.join(appData, 'XGENIA'));
+      expect(userDataDirForTarget('dev', 'win32', 'C:\\Users\\x')).toBe(path.join(appData, 'Electron'));
+    } finally {
+      if (restore === undefined) delete process.env.APPDATA;
+      else process.env.APPDATA = restore;
+    }
+  });
+
+  it('agrees with userDataDirs: [app, dev] in that order', () => {
+    const dirs = userDataDirs('darwin', '/Users/x');
+    expect(dirs).toEqual([
+      userDataDirForTarget('app', 'darwin', '/Users/x'),
+      userDataDirForTarget('dev', 'darwin', '/Users/x')
+    ]);
   });
 });

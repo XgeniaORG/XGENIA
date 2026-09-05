@@ -9,7 +9,7 @@ import {
   portOwnerCommand
 } from './platform.js';
 import { connect, discoverPort, resetConnection, DEFAULT_PORT, type Target } from './connection.js';
-import { readProject, readChatState, type ChatState } from './editor-state.js';
+import { readProject, readChatState, type ChatState, type ProjectInfo } from './editor-state.js';
 import { openProject, saveOpenProject } from './project.js';
 
 /** Scripts that root a `npm run dev` tree. Ordered outermost-last is irrelevant; presence is what matters. */
@@ -481,7 +481,49 @@ export async function launch(opts: { target?: Target | 'auto' } = {}) {
   return { launched: true, attached: false, target, port, project: await readProject(page) };
 }
 
-export async function restart(opts: { force?: boolean } = {}) {
+export interface DeclinedPort {
+  port: number;
+  pid: number;
+  reason: 'outside-tree' | 'tree-membership-unknown-on-platform';
+}
+
+type SaveOutcomeOrNothingOpen =
+  | Awaited<ReturnType<typeof saveOpenProject>>
+  | { confirmed: true; reason: 'nothing-open' };
+
+export type KillOutcome =
+  | {
+      killed: true;
+      target: Target;
+      port: number;
+      project: ProjectInfo | null;
+      saveOutcome: SaveOutcomeOrNothingOpen;
+      declinedPorts: DeclinedPort[];
+      inFlightTurnLost: InFlightTurnLost;
+    }
+  | ReturnType<typeof fail>;
+
+/**
+ * The sequence `restart()` and `quit()` share: refuse while an AI turn is in
+ * flight (unless forced), save the open project (unless there is none),
+ * kill the right process tree for the connected target — never a fabricated
+ * or unverified pid — free the dev ports that tree owned, and confirm the
+ * CDP port is actually free afterward.
+ *
+ * This is the safety-critical part (the pid guards, the tree-membership port
+ * sweep, the busy/save refusal) and must not fork between the two callers.
+ * What differs between them — relaunching afterward and reopening the
+ * recovered project — stays entirely out of this function; `onReady` is the
+ * only seam, used by `restart()` to snapshot the recovery file at the same
+ * point in the sequence it always has: right after the busy check, before
+ * the save.
+ */
+async function saveKillVerify(opts: {
+  force?: boolean;
+  action: 'restart' | 'quit';
+  onReady?: (info: { target: Target; port: number; project: ProjectInfo | null }) => void;
+}): Promise<KillOutcome> {
+  const { action } = opts;
   const { page, target, port } = await connect();
 
   const project = await readProject(page);
@@ -497,36 +539,36 @@ export async function restart(opts: { force?: boolean } = {}) {
       refusal.unavailable
         ? `Whether an AI turn is in flight could not be determined (${chat.unavailable}${
             chat.error ? `: ${chat.error}` : ''
-          }). Restarting could silently lose an in-flight turn. Wait and retry, or pass force to restart anyway.`
-        : 'An AI turn is in flight and would be lost. Wait, or pass force to restart anyway.'
+          }). ${action === 'restart' ? 'Restarting' : 'Quitting'} could silently lose an in-flight turn. Wait and retry, or pass force to ${action} anyway.`
+        : `An AI turn is in flight and would be lost. Wait, or pass force to ${action} anyway.`
     );
   }
 
-  writeRecovery(port, { dir: project?.dir ?? null, target, savedAt: Date.now() });
+  opts.onReady?.({ target, port, project });
 
   // R2 CRITICAL: ask the editor to save the way its own save does, and
   // require actual confirmation before proceeding to a kill — saveOpenProject
   // can no longer resolve as if it succeeded when it didn't (a read-only
   // project.json, a save slower than its own 5s ceiling, or a thrown evaluate
   // all used to look identical to a real save right before the tree was torn
-  // down, silently destroying unsaved work while reporting `restarted: true`).
+  // down, silently destroying unsaved work while reporting success).
   let saveOutcome: Awaited<ReturnType<typeof saveOpenProject>> | null = null;
   if (project?.dir) {
     saveOutcome = await saveOpenProject(page);
     if (!saveOutcome.confirmed && !opts.force) {
       return fail(
         'save-unconfirmed',
-        `save project '${project.name}' (dir: ${project.dir}) before restart`,
+        `save project '${project.name}' (dir: ${project.dir}) before ${action}`,
         `The editor's save could not be confirmed (${saveOutcome.reason}${
           'error' in saveOutcome ? `: ${saveOutcome.error}` : ''
-        }). Restarting would risk losing unsaved work. Wait and retry, or pass force to restart anyway (the report will note the save was unconfirmed).`
+        }). ${action === 'restart' ? 'Restarting' : 'Quitting'} would risk losing unsaved work. Wait and retry, or pass force to ${action} anyway (the report will note the save was unconfirmed).`
       );
     }
   }
 
   const owner = portOwner(port);
   if (!owner) {
-    return fail('not-running', `no process owns port ${port}`, 'Nothing to restart.');
+    return fail('not-running', `no process owns port ${port}`, `Nothing to ${action}.`);
   }
 
   // Correction 2: win32 skips the ancestry walk entirely. `taskkill /T`
@@ -541,8 +583,8 @@ export async function restart(opts: { force?: boolean } = {}) {
     // CRITICAL 1: pickKillRoot returns null, never a fabricated pid, when it
     // cannot justify one (empty chain, or a chain resolving to pid <= 1) —
     // e.g. the owner exited between portOwner() and processChain() above,
-    // exactly the window a restart operates in. Abort rather than substitute
-    // any other pid; killing an unverified/unknown root is how a machine-wide
+    // exactly the window this operates in. Abort rather than substitute any
+    // other pid; killing an unverified/unknown root is how a machine-wide
     // sweep happens.
     if (picked === null) {
       return fail(
@@ -592,28 +634,27 @@ export async function restart(opts: { force?: boolean } = {}) {
 
   // IMPORTANT 3: a failed kill must never be reported as a success. If the
   // port is still held after SIGTERM and a force SIGKILL (or the force kill
-  // signalled nothing at all — EPERM, e.g.), stop here instead of relaunching
-  // on top of the still-running old process and claiming `restarted: true`.
+  // signalled nothing at all — EPERM, e.g.), stop here instead of continuing
+  // on top of the still-running old process and claiming success.
   if (stillOwner) {
     return fail(
       'not-running',
       `port ${port} is still held by pid ${stillOwner} after SIGTERM${forceSignalled ? ' and SIGKILL' : ''}`,
       forceSignalled
-        ? 'The force kill did not take (possibly EPERM). The old process is still running; nothing was restarted.'
-        : 'The force kill signalled nothing — the resolved root may already be gone from this process\'s view. The old process is still running; nothing was restarted.'
+        ? 'The force kill did not take (possibly EPERM). The old process is still running.'
+        : "The force kill signalled nothing — the resolved root may already be gone from this process's view. The old process is still running."
     );
   }
 
-  // Free the dev ports too, so a relaunch cannot collide — but only a port
-  // whose owner is provably part of the tree just killed. A port owned by
-  // something outside that set is left untouched and reported, never killed
-  // on the assumption that "it's probably ours". On win32, `treePids` can
-  // only ever be `{root}` (no `ps` there to enumerate a broader tree — see
-  // its capture above), so a decline there means "we cannot tell", not "this
-  // definitely isn't ours"; the reason field says which.
+  // Free the dev ports too — but only a port whose owner is provably part of
+  // the tree just killed. A port owned by something outside that set is left
+  // untouched and reported, never killed on the assumption that "it's
+  // probably ours". On win32, `treePids` can only ever be `{root}` (no `ps`
+  // there to enumerate a broader tree — see its capture above), so a decline
+  // there means "we cannot tell", not "this definitely isn't ours"; the
+  // reason field says which.
   const treeMembershipKnown = process.platform !== 'win32';
-  const declinedPorts: { port: number; pid: number; reason: 'outside-tree' | 'tree-membership-unknown-on-platform' }[] =
-    [];
+  const declinedPorts: DeclinedPort[] = [];
   if (target === 'dev') {
     for (const p of [8080, 8574, 3001, 3051]) {
       const pid = portOwner(p);
@@ -632,15 +673,36 @@ export async function restart(opts: { force?: boolean } = {}) {
 
   resetConnection();
 
-  const relaunched = await launch({ target });
+  return {
+    killed: true,
+    target,
+    port,
+    project,
+    saveOutcome: saveOutcome ?? { confirmed: true, reason: 'nothing-open' },
+    declinedPorts,
+    inFlightTurnLost: inFlightTurnLostValue(chat)
+  };
+}
+
+export async function restart(opts: { force?: boolean } = {}) {
+  const result = await saveKillVerify({
+    force: opts.force,
+    action: 'restart',
+    onReady: ({ target, port, project }) => {
+      writeRecovery(port, { dir: project?.dir ?? null, target, savedAt: Date.now() });
+    }
+  });
+  if ('error' in result) return result;
+
+  const relaunched = await launch({ target: result.target });
   if ('error' in relaunched) {
     // R2 IMPORTANT 4: a relaunch timeout after a dev restart is very often
     // explained by exactly the ports this sweep declined to free (e.g.
     // webpack still holding :8080 blocks a clean `npm run dev`). Fold that
     // into the returned hint rather than discarding it — the error shape
     // stays {error, tried, hint}, just with a richer hint.
-    const declinedNote = declinedPorts.length
-      ? ` Also, ${declinedPorts.length} dev port(s) were left occupied and not freed: ${declinedPorts
+    const declinedNote = result.declinedPorts.length
+      ? ` Also, ${result.declinedPorts.length} dev port(s) were left occupied and not freed: ${result.declinedPorts
           .map((d) => `${d.port} (pid ${d.pid}, ${d.reason})`)
           .join(', ')}.`
       : '';
@@ -649,23 +711,23 @@ export async function restart(opts: { force?: boolean } = {}) {
 
   // R2 IMPORTANT 5: a failed or absent recovery read must not look identical
   // to "there was genuinely nothing open before the restart" — see readRecovery.
-  const recovery = readRecovery(port);
+  const recovery = readRecovery(result.port);
   let reopened = null;
   // IMPORTANT 4 (round 1): carry the failure reason forward instead of
   // collapsing it to `project: null`, which is honest but useless for
   // diagnosing WHY the project didn't come back.
   let recoveryError: { error: string; tried: string; hint: string } | null = null;
   if (recovery.ok && recovery.dir) {
-    const result = await openProject({ dir: recovery.dir });
-    if ('error' in result) {
-      recoveryError = result;
+    const reopenedResult = await openProject({ dir: recovery.dir });
+    if ('error' in reopenedResult) {
+      recoveryError = reopenedResult;
     } else {
-      reopened = result.project;
+      reopened = reopenedResult.project;
     }
   } else if (!recovery.ok) {
     recoveryError = fail(
       'recovery-read-failed',
-      `reading recovery snapshot for port ${port}`,
+      `reading recovery snapshot for port ${result.port}`,
       recovery.reason === 'missing'
         ? 'The recovery snapshot written just before the kill is missing. Cannot tell what project, if any, was open before this restart.'
         : 'The recovery snapshot could not be parsed. Cannot tell what project, if any, was open before this restart.'
@@ -679,12 +741,33 @@ export async function restart(opts: { force?: boolean } = {}) {
 
   return {
     restarted: true,
-    target,
+    target: result.target,
     project: reopened,
     recoveryError,
-    declinedPorts,
-    save: saveOutcome ?? { confirmed: true, reason: 'nothing-open' as const },
+    declinedPorts: result.declinedPorts,
+    save: result.saveOutcome,
     chat: { restored: chat2.mounted, messageCount: chat2.messageCount },
-    inFlightTurnLost: inFlightTurnLostValue(chat)
+    inFlightTurnLost: result.inFlightTurnLost
+  };
+}
+
+/**
+ * Save, kill and verify — exactly `restart()`'s sequence up to the point of
+ * relaunching — but never relaunch and never write a recovery snapshot.
+ * Nothing will be running afterward; `launch()` is how XGENIA comes back,
+ * with no project reopened automatically since none was recorded.
+ */
+export async function quit(opts: { force?: boolean } = {}) {
+  const result = await saveKillVerify({ force: opts.force, action: 'quit' });
+  if ('error' in result) return result;
+
+  return {
+    quit: true,
+    target: result.target,
+    port: result.port,
+    project: result.project,
+    save: result.saveOutcome,
+    declinedPorts: result.declinedPorts,
+    inFlightTurnLost: result.inFlightTurnLost
   };
 }

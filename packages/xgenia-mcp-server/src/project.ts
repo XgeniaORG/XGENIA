@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { Page } from 'playwright-core';
 import { connect } from './connection.js';
@@ -181,6 +182,58 @@ async function waitForRetainedDirectory(
 }
 
 /**
+ * Close the current project and return to the projects screen.
+ *
+ * There is no clickable exit control to target: `SidePanel` passes a `header`
+ * prop, so `SideNavigation`'s `onExitClick` logo never renders, and the other
+ * exit is an unlabelled IconButton inside a Tooltip. `App.instance` is not on
+ * `window` either. What IS guaranteed is that the router boots to the
+ * projects screen, so a reload gets there with nothing more than waiting for
+ * a project tile. Save first, because a reload discards anything autosave
+ * has not flushed — exactly like a kill does.
+ *
+ * `openProject` used to inline this exact sequence for leaving whatever
+ * project was open before switching to another one; it now calls this
+ * instead, so there is one implementation of "how to leave a project",
+ * not two.
+ */
+export async function closeProject(opts: { force?: boolean } = {}) {
+  const { page } = await connect();
+  const current = await readProject(page);
+  if (!current) {
+    return { closed: false as const, reason: 'no-project' as const };
+  }
+
+  // A reload discards anything unsaved exactly like a kill does, so the save
+  // must actually be confirmed before proceeding — see saveOpenProject's doc
+  // comment for why the previous unconditional call could not tell a real
+  // save from a save that silently failed to confirm.
+  const saveOutcome = await saveOpenProject(page);
+  if (!saveOutcome.confirmed && !opts.force) {
+    return fail(
+      'save-unconfirmed',
+      `save '${current.name}' before closing it`,
+      `The editor's save could not be confirmed (${saveOutcome.reason}${
+        'error' in saveOutcome ? `: ${saveOutcome.error}` : ''
+      }) before reloading to close the project. Reloading now would risk unsaved work, so the close was refused. Retry, or pass force to close anyway.`
+    );
+  }
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  try {
+    await page.waitForSelector(SELECTORS.projectItem, { timeout: 60_000 });
+  } catch {
+    return fail(
+      'selector-missing',
+      `${SELECTORS.projectItem} after reload`,
+      'The projects screen did not appear after reloading the editor.'
+    );
+  }
+
+  return { closed: true as const, project: current, save: saveOutcome };
+}
+
+/**
  * Open a project by directory or by name.
  *
  * The editor's own `openProjectFromFolder` is unreachable — the router exposes
@@ -194,13 +247,19 @@ export async function openProject(q: { dir?: string; name?: string }) {
     return fail('project-dir-missing', 'no argument', 'Pass either dir or name.');
   }
 
-  const { page } = await connect();
-  const file = recentsFilePath();
+  const { page, target } = await connect();
+  // CRITICAL: read from the recents file for the target we are actually
+  // connected to, never from whichever profile's file happens to exist. An
+  // installed XGENIA and a dev checkout keep entirely separate recents
+  // files, and both commonly exist on the same machine, so guessing here
+  // used to open the wrong profile's projects — see recentsFilePath's doc
+  // comment.
+  const file = recentsFilePath(target);
   if (!file) {
     return fail(
       'project-dir-missing',
       'recently_opened_project.json',
-      'No recents file found in any Electron userData directory.'
+      `No recents file found in the ${target} userData directory.`
     );
   }
 
@@ -233,38 +292,14 @@ export async function openProject(q: { dir?: string; name?: string }) {
     return { opened: true, alreadyOpen: true, project: current };
   }
 
-  // Leave the current project first, so no in-project write races our append.
-  //
-  // There is no clickable exit control to target. SidePanel passes a `header`
-  // prop, so SideNavigation's `onExitClick` logo never renders, and the other
-  // exit is an unlabelled IconButton inside a Tooltip. `App.instance` is not on
-  // window either. What IS guaranteed is that the router boots to the projects
-  // screen, so a reload gets there with no selector at all. Save first, because
-  // a reload discards anything autosave has not flushed.
+  // Leave the current project first, so no in-project write races our
+  // append. `closeProject` never overrides an unconfirmed save with `force`
+  // here, matching this function's previous behaviour of refusing outright
+  // rather than risking unsaved work.
   if (current) {
-    // A reload discards anything unsaved exactly like a kill does, so the
-    // save must actually be confirmed before proceeding — see saveOpenProject's
-    // doc comment for why the previous unconditional call could not tell a
-    // real save from a save that silently failed to confirm.
-    const saveOutcome = await saveOpenProject(page);
-    if (!saveOutcome.confirmed) {
-      return fail(
-        'save-unconfirmed',
-        `save '${current.name}' before switching away from it`,
-        `The editor's save could not be confirmed (${saveOutcome.reason}${
-          'error' in saveOutcome ? `: ${saveOutcome.error}` : ''
-        }) before reloading to switch projects. Reloading now would risk unsaved work, so the switch was refused. Retry, or save manually first.`
-      );
-    }
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    try {
-      await page.waitForSelector(SELECTORS.projectItem, { timeout: 60_000 });
-    } catch {
-      return fail(
-        'selector-missing',
-        `${SELECTORS.projectItem} after reload`,
-        'The projects screen did not appear after reloading the editor.'
-      );
+    const closeResult = await closeProject({ force: false });
+    if ('error' in closeResult) {
+      return closeResult;
     }
   }
 
@@ -324,4 +359,106 @@ export async function openProject(q: { dir?: string; name?: string }) {
   }
 
   return { opened: true, alreadyOpen: false, project: await readProject(page) };
+}
+
+/**
+ * The exact `project.json` shape the editor's own no-template branch writes.
+ * Reproduced verbatim (down to key order and the literal `'root-node'` id)
+ * so the editor loads a harness-created project without complaint.
+ */
+export function defaultProjectJson(name: string): Record<string, unknown> {
+  return {
+    name,
+    version: '4',
+    settings: {},
+    components: [
+      {
+        name: '/App',
+        graph: {
+          roots: [
+            { id: 'root-node', type: 'Group', x: 0, y: 0, parameters: {}, ports: [], children: [] }
+          ],
+          connections: []
+        }
+      }
+    ],
+    rootNodeId: 'root-node'
+  };
+}
+
+/**
+ * Where to put a new project when the caller doesn't supply a directory: a
+ * sibling of whatever project was opened most recently in the given recents
+ * file, falling back to `home` when there is no recents file for this
+ * target, or it holds no entries.
+ *
+ * Takes the recents file path rather than resolving it itself so this stays
+ * a pure function of its inputs — the target-to-file resolution (and the
+ * critical "never guess between profiles" rule it enforces) lives in
+ * `recentsFilePath` alone.
+ */
+export function defaultProjectsParentDir(
+  recentsFile: string | null,
+  home: string = os.homedir()
+): string {
+  if (recentsFile) {
+    const entries = readRecents(recentsFile);
+    if (entries.length > 0) {
+      const mostRecent = entries.reduce((a, b) => (b.latestAccessed > a.latestAccessed ? b : a));
+      return path.dirname(mostRecent.retainedProjectDirectory);
+    }
+  }
+  return home;
+}
+
+/**
+ * Refuse to let `newProject` clobber existing work: a path that exists and
+ * is non-empty (including one that exists but isn't even a directory) fails
+ * closed rather than being written into.
+ */
+export function checkProjectDirClobber(dir: string): { ok: true } | { ok: false; reason: string } {
+  if (!fs.existsSync(dir)) return { ok: true };
+  if (!fs.statSync(dir).isDirectory()) {
+    return { ok: false, reason: `${dir} exists and is not a directory.` };
+  }
+  if (fs.readdirSync(dir).length > 0) {
+    return {
+      ok: false,
+      reason: `${dir} already exists and is not empty. Pass a different dir, or remove it first.`
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Create a new project directory with a fresh `project.json`, then open it.
+ *
+ * The editor's own `LocalProjectsModel.newProject` is module-scoped and
+ * unreachable from `window`, exactly like `openProjectFromFolder` was, so
+ * this writes the same no-template `project.json` shape the editor itself
+ * would and then reuses `openProject` — inheriting its recents handling, its
+ * tile click, and its verify-by-value check — rather than duplicating any of
+ * that.
+ */
+export async function newProject(q: { name: string; dir?: string }) {
+  if (!q.name) {
+    return fail('project-dir-missing', 'no name', 'Pass a name for the new project.');
+  }
+
+  const { target } = await connect();
+
+  const dir = q.dir
+    ? canonicalDir(q.dir)
+    : canonicalDir(path.join(defaultProjectsParentDir(recentsFilePath(target)), q.name));
+
+  const clobberCheck = checkProjectDirClobber(dir);
+  if (!clobberCheck.ok) {
+    return fail('project-dir-missing', dir, clobberCheck.reason);
+  }
+
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'project.json'), JSON.stringify(defaultProjectJson(q.name), null, 2));
+
+  const opened = await openProject({ dir });
+  return { ...opened, createdDir: dir };
 }

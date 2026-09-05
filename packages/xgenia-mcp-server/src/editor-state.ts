@@ -229,11 +229,11 @@ export async function projectStatus(): Promise<{
   project: ProjectInfo | null;
   recents?: Pick<RecentEntry, 'name' | 'retainedProjectDirectory' | 'latestAccessed'>[];
 }> {
-  const { page } = await connect();
+  const { page, target } = await connect();
   const project = await readProject(page);
   if (project) return { open: true, project };
 
-  const file = recentsFilePath();
+  const file = recentsFilePath(target);
   const recents = file
     ? readRecents(file)
         .sort((a, b) => b.latestAccessed - a.latestAccessed)
