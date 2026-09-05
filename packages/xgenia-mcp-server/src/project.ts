@@ -4,7 +4,7 @@ import type { Page } from 'playwright-core';
 import { connect } from './connection.js';
 import { SELECTORS } from './selectors.js';
 import { readProject } from './editor-state.js';
-import { recentsFilePath, readRecents, findRecent, addRecentEntry } from './recents.js';
+import { recentsFilePath, readRecents, addRecentEntry, type RecentEntry } from './recents.js';
 
 export function projectNameFromDir(dir: string): string | null {
   const file = path.join(dir, 'project.json');
@@ -30,6 +30,56 @@ export function validateProjectDir(
 
 function fail(code: string, tried: string, hint: string) {
   return { error: code, tried, hint };
+}
+
+/**
+ * Canonicalise a project directory for comparison.
+ *
+ * `path.resolve` collapses a trailing slash and any `.`/`..` segments, which
+ * is exactly what lets a caller-supplied path and the editor's own stored
+ * value agree despite superficial differences. Nothing beyond `path.resolve`
+ * may be applied here: real project directories on this machine carry
+ * meaningful trailing spaces (`"...Amazing thing. "`), so a `.trim()` or any
+ * case-folding would break every one of them.
+ */
+export function canonicalDir(dir: string): string {
+  return path.resolve(dir);
+}
+
+/** Escape a string for safe use inside a `new RegExp(...)`. No dependency. */
+export function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export type NameResolution =
+  | { ok: true; dir: string }
+  | { ok: false; kind: 'not-found' }
+  | { ok: false; kind: 'ambiguous'; reason: string };
+
+/**
+ * Resolve a recents `name` to exactly one directory, or fail closed.
+ *
+ * `findRecent` (recents.ts) returns the first match in file order with no
+ * signal that more exist, which is fine for its own contract but wrong for
+ * this call site: this machine has 317 recents entries with nothing
+ * enforcing name uniqueness, so a bare first-match here could silently open
+ * the wrong one of several identically-named projects. This scans every
+ * entry and refuses to guess when more than one matches.
+ */
+export function resolveByName(entries: RecentEntry[], name: string): NameResolution {
+  const matches = entries.filter((e) => e.name === name);
+  if (matches.length === 0) return { ok: false, kind: 'not-found' };
+  if (matches.length > 1) {
+    const candidates = matches
+      .map((m) => `${m.retainedProjectDirectory} (latestAccessed: ${m.latestAccessed})`)
+      .join(', ');
+    return {
+      ok: false,
+      kind: 'ambiguous',
+      reason: `Ambiguous: ${matches.length} recents entries are named '${name}'. Candidates: ${candidates}. Pass dir instead.`
+    };
+  }
+  return { ok: true, dir: canonicalDir(matches[0].retainedProjectDirectory) };
 }
 
 /**
@@ -69,6 +119,44 @@ export async function saveOpenProject(page: Page): Promise<void> {
 }
 
 /**
+ * Poll the editor's own model until its retained directory - canonicalised
+ * the same way as the caller's - matches, or time out.
+ *
+ * The comparison cannot run inside the page: `path.resolve` needs Node, and
+ * a caller's directory can differ from the editor's stored value by nothing
+ * more than a trailing slash, which a raw `===` inside `page.evaluate` would
+ * treat as a mismatch. So the editor's value is read out with a plain
+ * `page.evaluate` and compared here, in Node, with `canonicalDir` applied to
+ * both sides.
+ */
+async function waitForRetainedDirectory(
+  page: Page,
+  expected: string,
+  timeoutMs: number,
+  pollMs = 250
+): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    let current: string | null;
+    try {
+      current = await page.evaluate(() => {
+        const pm = (
+          window as unknown as {
+            ProjectModel?: { instance?: { _retainedProjectDirectory?: string } };
+          }
+        ).ProjectModel;
+        return pm?.instance?._retainedProjectDirectory ?? null;
+      });
+    } catch {
+      return null;
+    }
+    if (current !== null && canonicalDir(current) === expected) return current;
+    if (Date.now() >= deadline) return null;
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+}
+
+/**
  * Open a project by directory or by name.
  *
  * The editor's own `openProjectFromFolder` is unreachable — the router exposes
@@ -92,18 +180,24 @@ export async function openProject(q: { dir?: string; name?: string }) {
     );
   }
 
-  // Resolve the request to a concrete directory.
-  let dir = q.dir ?? null;
+  // Resolve the request to a concrete directory. Canonicalised once, here,
+  // and that resolved value is what's used everywhere downstream: the
+  // already-open check, validateProjectDir, addRecentEntry, and the final
+  // verification.
+  let dir = q.dir ? canonicalDir(q.dir) : null;
   if (!dir && q.name) {
-    const match = findRecent(readRecents(file), { name: q.name });
-    if (!match) {
+    const resolved = resolveByName(readRecents(file), q.name);
+    if (!resolved.ok) {
+      if (resolved.kind === 'ambiguous') {
+        return fail('project-dir-missing', q.name, resolved.reason);
+      }
       return fail(
         'project-dir-missing',
         `name '${q.name}' in recents`,
         'No recent project by that name. Pass an absolute dir instead.'
       );
     }
-    dir = match.retainedProjectDirectory;
+    dir = resolved.dir;
   }
 
   const valid = validateProjectDir(dir!);
@@ -111,7 +205,7 @@ export async function openProject(q: { dir?: string; name?: string }) {
 
   // Already there? Nothing to do.
   const current = await readProject(page);
-  if (current?.dir === dir) {
+  if (current?.dir && canonicalDir(current.dir) === dir) {
     return { opened: true, alreadyOpen: true, project: current };
   }
 
@@ -156,9 +250,17 @@ export async function openProject(q: { dir?: string; name?: string }) {
   await page.mouse.move(10, 10);
   await page.mouse.move(11, 11);
 
+  // Exact label match, not substring: `hasText` with a string matches
+  // anywhere in the label, so a project named "Amazing thing" would also
+  // match a tile labelled "Amazing thing 2". Anchoring on the raw (untrimmed)
+  // name — labels genuinely carry a trailing space — makes the match exact.
   const tile = page
     .locator(SELECTORS.projectItem)
-    .filter({ has: page.locator(SELECTORS.projectItemLabel, { hasText: valid.name }) })
+    .filter({
+      has: page.locator(SELECTORS.projectItemLabel, {
+        hasText: new RegExp(`^${escapeRegExp(valid.name)}$`)
+      })
+    })
     .first();
 
   try {
@@ -174,20 +276,8 @@ export async function openProject(q: { dir?: string; name?: string }) {
   await tile.click();
 
   // Verify by value, not by "the click did not throw".
-  try {
-    await page.waitForFunction(
-      (expected) => {
-        const pm = (
-          window as unknown as {
-            ProjectModel?: { instance?: { _retainedProjectDirectory?: string } };
-          }
-        ).ProjectModel;
-        return pm?.instance?._retainedProjectDirectory === expected;
-      },
-      dir!,
-      { timeout: 60_000 }
-    );
-  } catch {
+  const finalDir = await waitForRetainedDirectory(page, dir!, 60_000);
+  if (finalDir === null) {
     const now = await readProject(page);
     return fail(
       'project-mismatch',
