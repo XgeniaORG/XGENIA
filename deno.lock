@@ -304,8 +304,11 @@
           "dependencies": [
             "npm:@modelcontextprotocol/sdk@1",
             "npm:@types/node@^18.19.100",
+            "npm:jsdom@^20.0.3",
             "npm:playwright-core@^1.50.1",
+            "npm:rimraf@^3.0.2",
             "npm:typescript@^5.9.3",
+            "npm:vitest@^4.1.9",
             "npm:zod@^3.23.8"
           ]
         }
