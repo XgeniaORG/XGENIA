@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import type { Frame } from 'playwright-core';
-import { parseTranscript, readStructuredMessages, resolveReadWindow } from './chat.js';
+import {
+  parseTranscript,
+  readStructuredMessages,
+  resolveReadWindow,
+  normaliseWhitespace,
+  promptSlice,
+  transcriptContainsPrompt,
+  confirmSent
+} from './chat.js';
 import { summariseMessages, type ChatMessage } from './editor-state.js';
 
 describe('parseTranscript', () => {
@@ -140,5 +148,127 @@ describe('chatRead windowing (resolveReadWindow + summariseMessages together)', 
     expect(out[0].truncated).toBe(true);
     expect(out[1].text).toBe('short reply');
     expect(out[1].truncated).toBe(false);
+  });
+});
+
+describe('normaliseWhitespace', () => {
+  it('collapses runs of spaces and newlines into one space', () => {
+    expect(normaliseWhitespace('hello   world\n\nagain')).toBe('hello world again');
+  });
+
+  it('trims leading and trailing whitespace', () => {
+    expect(normaliseWhitespace('  padded  ')).toBe('padded');
+  });
+});
+
+describe('promptSlice', () => {
+  it('returns the whole normalised text when shorter than the slice length', () => {
+    expect(promptSlice('hi   there')).toBe('hi there');
+  });
+
+  it('truncates a long prompt to the slice length after normalising', () => {
+    const long = 'word '.repeat(50); // far longer than CONFIRM_SLICE_LEN once normalised
+    const slice = promptSlice(long, 20);
+    expect(slice).toHaveLength(20);
+    expect(slice).toBe(normaliseWhitespace(long).slice(0, 20));
+  });
+});
+
+describe('transcriptContainsPrompt', () => {
+  it('matches when the transcript contains the leading slice, whitespace differences aside', () => {
+    const sent = 'Please   refactor\nthe reel stop logic';
+    const transcript = 'some chrome\nPlease refactor the reel stop logic and also explain why\nmore chrome';
+    expect(transcriptContainsPrompt(transcript, sent)).toBe(true);
+  });
+
+  it('matches a long prompt on its leading slice even when the tail never rendered verbatim', () => {
+    // Simulates the panel truncating a long prompt or inserting markup partway
+    // through it — a whole-string match would false-negative here even though
+    // the prompt genuinely landed.
+    const sent = 'x'.repeat(200);
+    const transcript = `${'x'.repeat(60)}... [truncated by panel] ...`;
+    expect(transcriptContainsPrompt(transcript, sent)).toBe(true);
+  });
+
+  it('does not match when the prompt never appears', () => {
+    expect(transcriptContainsPrompt('completely unrelated content', 'my actual prompt text')).toBe(false);
+  });
+
+  it('never confirms an empty or whitespace-only sent text', () => {
+    expect(transcriptContainsPrompt('anything at all', '   ')).toBe(false);
+    expect(transcriptContainsPrompt('anything at all', '')).toBe(false);
+  });
+});
+
+/**
+ * Stub Frame whose evaluate alternates between two FIXED answers forever —
+ * unlike the one-shot `sequence` stub used above, this one is safe to poll an
+ * unknown number of times (confirmSent's loop timing is not deterministic
+ * enough to predict an exact call count).
+ */
+function stubConfirmFrame(cleared: boolean, transcriptText: string): Frame {
+  let call = 0;
+  return {
+    evaluate: async () => (call++ % 2 === 0 ? cleared : transcriptText)
+  } as unknown as Frame;
+}
+
+describe('confirmSent', () => {
+  const SENT = 'refactor the reel stop logic please';
+
+  it('confirms when the input is cleared AND the prompt is found in the transcript', async () => {
+    const frame = stubConfirmFrame(true, `some chat chrome\n${SENT}\nmore chrome`);
+    const result = await confirmSent(frame, SENT, 50, 5);
+    expect(result).toEqual({
+      confirmed: true,
+      inputCleared: true,
+      promptFoundInTranscript: true,
+      matchedSlice: promptSlice(SENT)
+    });
+  });
+
+  it('does not confirm when the input cleared but the prompt never rendered', async () => {
+    const frame = stubConfirmFrame(true, 'transcript with no relation to the sent text');
+    const result = await confirmSent(frame, SENT, 50, 5);
+    expect(result.confirmed).toBe(false);
+    expect(result.inputCleared).toBe(true);
+    expect(result.promptFoundInTranscript).toBe(false);
+  });
+
+  it('does not confirm when the prompt rendered but the input never cleared', async () => {
+    const frame = stubConfirmFrame(false, `chrome\n${SENT}\nchrome`);
+    const result = await confirmSent(frame, SENT, 50, 5);
+    expect(result.confirmed).toBe(false);
+    expect(result.inputCleared).toBe(false);
+    expect(result.promptFoundInTranscript).toBe(true);
+  });
+
+  it('does not confirm when neither the input cleared nor the prompt rendered', async () => {
+    const frame = stubConfirmFrame(false, 'unrelated transcript content');
+    const result = await confirmSent(frame, SENT, 50, 5);
+    expect(result.confirmed).toBe(false);
+    expect(result.inputCleared).toBe(false);
+    expect(result.promptFoundInTranscript).toBe(false);
+  });
+
+  // This is the real defect this whole function replaced: a live run showed
+  // messageCount (the count of `[aria-label="Copy message to clipboard"]`
+  // elements) going 19 -> 17 across a single successful send, because the
+  // panel virtualises its transcript. confirmSent takes no messageCount
+  // parameter at all — it cannot regress on that axis by construction — so
+  // this pins the real-world case: input cleared and the prompt genuinely
+  // rendered must confirm success regardless of what any message count did.
+  it('confirms success on the real-world case that broke the old messageCount check: cleared + prompt present, independent of any message count', async () => {
+    const frame = stubConfirmFrame(true, `Chat (17 messages)\nshowing last 100 of 200 messages\n${SENT}\nassistant reply chrome`);
+    const result = await confirmSent(frame, SENT, 50, 5);
+    expect(result.confirmed).toBe(true);
+  });
+
+  it('times out (never confirms) within the given deadline when both signals stay false', async () => {
+    const frame = stubConfirmFrame(false, 'nope');
+    const start = Date.now();
+    const result = await confirmSent(frame, SENT, 30, 10);
+    expect(result.confirmed).toBe(false);
+    expect(Date.now() - start).toBeLessThan(500); // bounded, not the real 10s default
   });
 });

@@ -106,6 +106,96 @@ function fail(code: string, tried: string, hint: string) {
   return { error: code, tried, hint };
 }
 
+/** Collapse runs of whitespace to a single space and trim, so a re-wrapped or reflowed render still compares equal to the original. */
+export function normaliseWhitespace(s: string): string {
+  return s.trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * How much of the sent text must match, whitespace-normalised, in the
+ * rendered transcript to count as confirmed. Long enough that a coincidental
+ * substring match is unlikely, short enough to survive the panel truncating a
+ * long prompt or inserting markup between words partway through it — so a
+ * whole-string match would false-negative on a prompt that genuinely landed.
+ */
+export const CONFIRM_SLICE_LEN = 60;
+
+/** The leading, whitespace-normalised slice of `text` that `transcriptContainsPrompt` looks for. */
+export function promptSlice(text: string, maxLen: number = CONFIRM_SLICE_LEN): string {
+  return normaliseWhitespace(text).slice(0, maxLen);
+}
+
+/**
+ * Whether the transcript shows the sent prompt actually landed.
+ *
+ * Matches a leading, whitespace-normalised slice of `sentText` against the
+ * whitespace-normalised `transcriptText`, never the whole string: the panel
+ * may re-wrap or collapse whitespace on either side, and for a long prompt it
+ * may truncate the rendered copy or insert markup mid-string, so anchoring on
+ * the complete text would false-negative on a prompt that genuinely landed.
+ * An empty (or whitespace-only) `sentText` has nothing distinctive to look
+ * for, so it never confirms.
+ */
+export function transcriptContainsPrompt(transcriptText: string, sentText: string): boolean {
+  const slice = promptSlice(sentText);
+  if (!slice) return false;
+  return normaliseWhitespace(transcriptText).includes(slice);
+}
+
+export interface SendConfirmation {
+  confirmed: boolean;
+  inputCleared: boolean;
+  promptFoundInTranscript: boolean;
+  matchedSlice: string;
+}
+
+/**
+ * Poll the chat frame for the two facts that together confirm a send: the
+ * input actually cleared, and the sent text actually rendered into the
+ * transcript. Bounded by `deadlineMs` from the moment this is called.
+ *
+ * This replaced a `messageCount`-based check (`now.messageCount >
+ * before.messageCount || now.busy`) that broke in exactly the situation it
+ * was written for. `messageCount` — the count of
+ * `[aria-label="Copy message to clipboard"]` elements — is NOT monotonic: the
+ * panel virtualises its transcript ("Showing last 100 of N messages"), so the
+ * count moves in both directions as the list re-renders; measured live across
+ * a single send, it went 19 down to 17. And `|| now.busy` made that
+ * (already-unsound) count irrelevant on precisely the busy-panel case `force`
+ * exists for, since a busy panel makes the whole OR trivially true regardless
+ * of whether anything was actually sent. Evidence here is instead: did the
+ * input clear, and does the sent text (or a distinctive leading slice of it —
+ * see `transcriptContainsPrompt`) now appear in the rendered transcript. Both
+ * conditions are read from the SAME iteration before declaring success, so by
+ * the time `promptFoundInTranscript` is true alongside `inputCleared`, the
+ * input has already emptied and cannot be the (contenteditable, so
+ * text-bearing) source of that match — the transcript body is what's left.
+ */
+export async function confirmSent(
+  frame: Frame,
+  text: string,
+  deadlineMs = 10_000,
+  pollMs = 250
+): Promise<SendConfirmation> {
+  const slice = promptSlice(text);
+  const deadline = Date.now() + deadlineMs;
+  let cleared = false;
+  let promptFound = false;
+  while (Date.now() < deadline) {
+    cleared = await frame
+      .evaluate(
+        (sel) => document.querySelector(sel)?.getAttribute('data-empty') === 'true',
+        SELECTORS.chatInput
+      )
+      .catch(() => false);
+    const transcriptText = await frame.evaluate(() => document.body.innerText).catch(() => '');
+    promptFound = transcriptContainsPrompt(transcriptText, text);
+    if (cleared && promptFound) break;
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+  return { confirmed: cleared && promptFound, inputCleared: cleared, promptFoundInTranscript: promptFound, matchedSlice: slice };
+}
+
 /**
  * Fold `readChatState`'s unavailable reason into a hint, so a caller told
  * "the panel isn't usable" can tell "no iframe at all" apart from "the iframe
@@ -174,10 +264,11 @@ export async function chatWaitIdle(timeoutMs = 300_000) {
 /**
  * Type a prompt into the panel and send it.
  *
- * Success requires evidence: the input must have cleared AND the message count
- * must have grown. A keypress that went nowhere leaves both unchanged, and
- * reporting success there would strand the caller waiting for a reply to a
- * prompt that was never sent.
+ * Success requires evidence: the input must have cleared AND the sent text
+ * must actually appear in the rendered transcript (see `confirmSent`). A
+ * keypress that went nowhere leaves both unchanged, and reporting success
+ * there would strand the caller waiting for a reply to a prompt that was
+ * never sent.
  */
 export async function chatSend(
   text: string,
@@ -208,34 +299,20 @@ export async function chatSend(
   await input.type(text, { delay: 5 });
   await page.keyboard.press('Enter');
 
-  // Give the panel a moment to clear the box and append the turn.
-  const deadline = Date.now() + 10_000;
-  let cleared = false;
-  let grew = false;
-  while (Date.now() < deadline) {
-    const now = await readChatState(page);
-    const empty = await frame
-      .evaluate(
-        (sel) => document.querySelector(sel)?.getAttribute('data-empty') === 'true',
-        SELECTORS.chatInput
-      )
-      .catch(() => false);
-    cleared = empty;
-    grew = now.messageCount > before.messageCount || now.busy;
-    if (cleared && grew) break;
-    await new Promise((r) => setTimeout(r, 250));
-  }
-
-  if (!cleared || !grew) {
+  const confirmation = await confirmSent(frame, text);
+  if (!confirmation.confirmed) {
     return fail(
       'timeout',
       `typed ${text.length} chars into ${SELECTORS.chatInput}, waited 10s for confirmation`,
-      `Input cleared: ${cleared}. Transcript advanced: ${grew}. The prompt may not have been sent.`
+      `Input cleared: ${confirmation.inputCleared}. Prompt text found in transcript: ${confirmation.promptFoundInTranscript}. The prompt may not have been sent.`
     );
   }
 
-  if (!opts.waitIdle) return { sent: true, busy: true };
+  if (!opts.waitIdle) {
+    const after = await readChatState(page);
+    return { sent: true, busy: after.busy, evidence: confirmation };
+  }
 
   const waited = await chatWaitIdle(opts.timeoutMs ?? 300_000);
-  return { sent: true, ...waited };
+  return { sent: true, evidence: confirmation, ...waited };
 }
