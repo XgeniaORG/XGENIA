@@ -28,6 +28,34 @@ export const SELECTORS = Object.freeze({
   /** The node graph canvas element. */
   canvas: 'canvas',
   /**
+   * An icon button in the left sidebar rail (Add node, Chat, Assets,
+   * Settings, Exit project, ...).
+   *
+   * CSS Modules append a build-specific hash to the class name at bundle
+   * time (e.g. `IconButton-module__Root___a1b2c`), so matching the literal
+   * string would break on the very next rebuild. `[class*=...]` instead
+   * matches the stable, source-file-derived prefix — it only changes if the
+   * component itself is renamed or moved, exactly like the rest of this
+   * file's other `[class*=...]` selectors.
+   *
+   * None of these buttons carry an id, an aria-label or a data-testid, so
+   * there is no way to identify a specific one (e.g. "Chat") except by
+   * hovering it and reading its `tooltip` (below). This selector alone also
+   * matches icon buttons elsewhere in the app that happen to reuse the same
+   * component — verified live, the sidebar rail's own buttons all sit at
+   * `x < 58` CSS pixels, which is what actually narrows a match down to the
+   * rail.
+   */
+  sidebarIconButton: 'button[class*=IconButton-module__Root]',
+  /**
+   * A tooltip bubble revealed on hover. Matched three ways because which
+   * one actually renders was determined empirically (hover a button, wait
+   * ~450ms, read whichever of these has non-empty text), not read off the
+   * tooltip library's source — and, like sidebarIconButton, by substring so
+   * a CSS-module hash suffix can't break it.
+   */
+  tooltip: '[class*=Tooltip], [class*=tooltip], [role=tooltip]',
+  /**
    * Login form's email input. The login screen carries no class names or
    * ids at all -- it's inline-styled React -- so the detector matches on
    * the presence of BOTH this and loginPasswordInput (see isLoginScreen in

@@ -15,6 +15,7 @@ import {
   checkProjectDirClobber,
   withChatReadiness
 } from './project.js';
+import { resetChatButtonCache } from './chat.js';
 import { addRecentEntry } from './recents.js';
 import type { RecentEntry } from './recents.js';
 
@@ -36,6 +37,7 @@ let tmp: string;
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'proj-'));
+  resetChatButtonCache();
 });
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -194,16 +196,23 @@ describe('withChatReadiness', () => {
       url: () => 'https://xgenia-ai-app.vercel.app/panel',
       evaluate: async () => ({ mounted: true, busy: false, messageCount: 4 })
     });
-    const result = await withChatReadiness(page, { opened: true }, 200, 10);
+    const result = await withChatReadiness(page, { opened: true }, { timeoutMs: 200, pollMs: 10 });
     expect(result).toEqual({ opened: true, chatReady: true, chatUnavailable: undefined, chatError: undefined });
   });
 
-  it('reports chatReady:false with unavailable "no-frame" when the iframe never appears within the wait', async () => {
+  // These two pin the base readiness-reporting behaviour with the escalation
+  // attempt turned off (attemptOpen: false) -- stubFramePage's stub carries
+  // no `mouse`, matching a caller that genuinely wants the panel probed, not
+  // nudged. The escalation path itself (attemptOpen defaulting to true) is
+  // covered separately below, and exhaustively at the unit level by
+  // ensureChatPanelOpen's own tests in chat.test.ts.
+  it('reports chatReady:false with unavailable "no-frame" when the iframe never appears within the wait, and attemptOpen:false is honoured', async () => {
     const page = stubFramePage(null);
-    const result = await withChatReadiness(page, { opened: true }, 30, 10);
+    const result = await withChatReadiness(page, { opened: true }, { timeoutMs: 30, pollMs: 10, attemptOpen: false });
     expect(result.opened).toBe(true);
     expect(result.chatReady).toBe(false);
     expect(result.chatUnavailable).toBe('no-frame');
+    expect(result.chatOpenAttempt).toBeUndefined();
   });
 
   it('reports chatReady:false with no reason (not a failure) when the panel is legitimately closed/gated -- iframe never mounts, but readably so', async () => {
@@ -211,7 +220,7 @@ describe('withChatReadiness', () => {
       url: () => 'https://xgenia-ai-app.vercel.app/panel',
       evaluate: async () => ({ mounted: false, busy: false, messageCount: 0 })
     });
-    const result = await withChatReadiness(page, { opened: true }, 30, 10);
+    const result = await withChatReadiness(page, { opened: true }, { timeoutMs: 30, pollMs: 10, attemptOpen: false });
     expect(result.opened).toBe(true);
     expect(result.chatReady).toBe(false);
     expect(result.chatUnavailable).toBeUndefined();
@@ -223,11 +232,107 @@ describe('withChatReadiness', () => {
       evaluate: async () => ({ mounted: true, busy: true, messageCount: 9 })
     });
     const project = { name: 'Amazing thing. ', id: 'p1', dir: '/tmp/x', componentCount: 1 };
-    const result = await withChatReadiness(page, { opened: true, alreadyOpen: false, project }, 200, 10);
+    const result = await withChatReadiness(
+      page,
+      { opened: true, alreadyOpen: false, project },
+      { timeoutMs: 200, pollMs: 10 }
+    );
     expect(result.opened).toBe(true);
     expect(result.alreadyOpen).toBe(false);
     expect(result.project).toEqual(project);
     expect(result.chatReady).toBe(true);
+  });
+
+  /**
+   * Minimal stand-in for a Playwright Page complete enough to drive
+   * `ensureChatPanelOpen`'s escalation path: `evaluateSequence` answers
+   * ordered `page.evaluate` calls one at a time (the box scan first, then
+   * one tooltip read per button hovered, in the exact order
+   * `ensureChatPanelOpen` makes them), and clicking flips whether `frames()`
+   * reports the chat frame present from then on -- mirroring a real click
+   * actually mounting the panel.
+   */
+  function stubEscalationPage(opts: {
+    evaluateSequence: unknown[];
+    mountsOnClick?: boolean;
+  }): { page: Page; clicks: [number, number][] } {
+    let call = 0;
+    let chatOpen = false;
+    const clicks: [number, number][] = [];
+    const chatFrame = {
+      url: () => 'https://xgenia-ai-app.vercel.app/panel',
+      evaluate: async () => ({ mounted: true, busy: false, messageCount: 0 })
+    };
+    const page = {
+      frames: () => (chatOpen ? [chatFrame] : []),
+      evaluate: async () => opts.evaluateSequence[call++],
+      mouse: {
+        move: async () => {},
+        click: async (x: number, y: number) => {
+          clicks.push([x, y]);
+          if (opts.mountsOnClick !== false) chatOpen = true;
+        }
+      }
+    };
+    return { page: page as unknown as Page, clicks };
+  }
+
+  // The gap this whole task exists to close: a fresh project opens with the
+  // chat panel hidden, so the initial wait above always fails on one. This
+  // pins that withChatReadiness's default (attemptOpen: true) actually
+  // drives the sidebar click through to a ready panel, using tiny
+  // timeouts/hover delay so the test stays fast.
+  it('opens the panel from the sidebar when the initial wait fails, and reports chatReady:true on success', async () => {
+    const { page, clicks } = stubEscalationPage({
+      evaluateSequence: [
+        [
+          { cx: 10, cy: 48 },
+          { cx: 10, cy: 525 }
+        ], // box scan finds two rail buttons
+        ['Add node'], // first button's tooltip -- not a match
+        ['Chat'] // second button's tooltip -- match
+      ]
+    });
+    const result = await withChatReadiness(
+      page,
+      { opened: true },
+      { timeoutMs: 200, pollMs: 5, hoverDelayMs: 1 }
+    );
+    expect(result.chatReady).toBe(true);
+    expect(result.chatOpenAttempt).toBeUndefined();
+    expect(clicks).toEqual([[10, 525]]);
+  });
+
+  it('reports chatReady:false with chatOpenAttempt describing the failure when no sidebar button is labelled Chat', async () => {
+    const { page, clicks } = stubEscalationPage({
+      evaluateSequence: [
+        [{ cx: 10, cy: 48 }, { cx: 10, cy: 483 }],
+        ['Add node'],
+        ['AI Image Editor']
+      ]
+    });
+    const result = await withChatReadiness(
+      page,
+      { opened: true },
+      { timeoutMs: 200, pollMs: 5, hoverDelayMs: 1 }
+    );
+    expect(result.chatReady).toBe(false);
+    expect(result.chatOpenAttempt?.opened).toBe(false);
+    expect(result.chatOpenAttempt?.reason).toBe('no-chat-button');
+    expect(result.chatOpenAttempt?.labelsSeen).toEqual(['Add node', 'AI Image Editor']);
+    expect(clicks).toEqual([]);
+  });
+
+  it('does not attempt to open the panel when attemptOpen is false, even though it defaults to true', async () => {
+    const { page, clicks } = stubEscalationPage({ evaluateSequence: [] });
+    const result = await withChatReadiness(
+      page,
+      { opened: true },
+      { timeoutMs: 30, pollMs: 10, attemptOpen: false }
+    );
+    expect(result.chatReady).toBe(false);
+    expect(result.chatOpenAttempt).toBeUndefined();
+    expect(clicks).toEqual([]);
   });
 });
 

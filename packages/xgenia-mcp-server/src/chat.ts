@@ -1,4 +1,4 @@
-import type { Frame } from 'playwright-core';
+import type { Frame, Page } from 'playwright-core';
 import { connect, getChatFrame } from './connection.js';
 import { SELECTORS } from './selectors.js';
 import {
@@ -239,6 +239,223 @@ export function chatNotReadyHint(state: Pick<ChatState, 'unavailable' | 'error'>
     return `The AI chat panel's iframe did not appear in the DOM within ${waitedMs}ms. If it is genuinely closed or entitlement-gated, open it in XGENIA; if it should already be open, run xgenia_probe.`;
   }
   return `The AI chat panel's iframe is present, but its input never rendered within ${waitedMs}ms. If the panel is genuinely closed or entitlement-gated, open it in XGENIA; otherwise run xgenia_probe.`;
+}
+
+/**
+ * Max x-coordinate (CSS px) of a genuine sidebar rail button. Verified live
+ * against a running editor: every rail icon sits at x < 58; anything found
+ * by `SELECTORS.sidebarIconButton` further right belongs to some other icon
+ * button reusing the same component elsewhere in the app, not the rail.
+ */
+const SIDEBAR_RAIL_MAX_X = 58;
+
+/** How long to wait, after moving the mouse onto a button, for its Tooltip to actually render. Verified live: ~450ms. */
+const TOOLTIP_HOVER_DELAY_MS = 450;
+
+/**
+ * A real tooltip label is short. This filters out any element matched by
+ * `SELECTORS.tooltip` that is coincidentally present but not a label bubble
+ * (e.g. a much longer hint or an unrelated element that happens to share a
+ * hashed class substring).
+ */
+const TOOLTIP_MAX_LEN = 40;
+
+/** How long `ensureChatPanelOpen` waits, after clicking the identified button, for the panel to actually mount. */
+const CHAT_OPEN_TIMEOUT_MS = 15_000;
+
+/** The exact (case-insensitive, trimmed) label the sidebar button must carry. */
+const CHAT_BUTTON_LABEL = 'chat';
+
+/**
+ * Whether a tooltip label identifies the Chat button.
+ *
+ * Case-insensitive and trimmed — real tooltip text is not guaranteed to
+ * arrive in one exact casing — but requires an exact match, never a
+ * substring: "AI Image Editor" must never match, and neither should a
+ * future "Chat History" button that XGENIA might add later. `.includes()`
+ * would silently start opening the wrong panel the day either exists.
+ */
+export function isChatButtonLabel(label: string): boolean {
+  return label.trim().toLowerCase() === CHAT_BUTTON_LABEL;
+}
+
+interface SidebarButtonPoint {
+  /** Viewport-relative center point to hover/click, in CSS pixels. */
+  cx: number;
+  cy: number;
+}
+
+/**
+ * Read the center point of every sidebar rail button currently in the DOM.
+ *
+ * Filtering by `x < SIDEBAR_RAIL_MAX_X` and a non-zero box happens inside
+ * the page, not here, because the whole point is one round trip per scan
+ * rather than one per candidate.
+ */
+async function readSidebarButtonPoints(page: Page): Promise<SidebarButtonPoint[]> {
+  return page.evaluate(
+    ({ sel, maxX }) => {
+      const out: { cx: number; cy: number }[] = [];
+      document.querySelectorAll(sel).forEach((el) => {
+        const r = (el as HTMLElement).getBoundingClientRect();
+        if (r.width > 0 && r.height > 0 && r.x < maxX) {
+          out.push({ cx: r.x + r.width / 2, cy: r.y + r.height / 2 });
+        }
+      });
+      return out;
+    },
+    { sel: SELECTORS.sidebarIconButton, maxX: SIDEBAR_RAIL_MAX_X }
+  );
+}
+
+/** The tooltip text currently rendered, if any — see SELECTORS.tooltip's doc comment for why three selectors and a length cap. */
+async function readTooltipLabel(page: Page): Promise<string> {
+  const texts = (await page.evaluate(
+    (sel) => Array.from(document.querySelectorAll(sel)).map((el) => (el as HTMLElement).innerText ?? ''),
+    SELECTORS.tooltip
+  )) as string[];
+  for (let i = texts.length - 1; i >= 0; i--) {
+    const t = texts[i].trim();
+    if (t && t.length < TOOLTIP_MAX_LEN) return t;
+  }
+  return '';
+}
+
+/** Move the mouse onto a point, wait for its Tooltip to render, and read the label. `hoverDelayMs` is a test seam — production callers always use the default ~450ms. */
+async function hoverAndReadLabel(page: Page, point: SidebarButtonPoint, hoverDelayMs: number): Promise<string> {
+  await page.mouse.move(point.cx, point.cy);
+  await new Promise((r) => setTimeout(r, hoverDelayMs));
+  return readTooltipLabel(page);
+}
+
+/**
+ * Cached location of the sidebar's Chat button, so a caller opening several
+ * projects in one session does not pay the ~450ms-per-button hover scan
+ * every time. Session-local (module state), never persisted.
+ */
+let cachedChatButtonPoint: SidebarButtonPoint | null = null;
+
+/** Forget the cached Chat button location, forcing the next `ensureChatPanelOpen` to re-scan. Exported for tests. */
+export function resetChatButtonCache(): void {
+  cachedChatButtonPoint = null;
+}
+
+interface ChatButtonScan {
+  point: SidebarButtonPoint | null;
+  /** Every tooltip label actually observed, in scan order — the exact list a maintainer needs when XGENIA renames the button. */
+  labelsSeen: string[];
+}
+
+/** Hover every sidebar rail button in turn until one's tooltip reads "Chat", or the rail is exhausted. */
+async function scanForChatButton(page: Page, hoverDelayMs: number): Promise<ChatButtonScan> {
+  const points = await readSidebarButtonPoints(page);
+  const labelsSeen: string[] = [];
+  for (const point of points) {
+    const label = await hoverAndReadLabel(page, point, hoverDelayMs);
+    labelsSeen.push(label);
+    if (isChatButtonLabel(label)) return { point, labelsSeen };
+  }
+  return { point: null, labelsSeen };
+}
+
+export interface ChatPanelOpenResult {
+  opened: boolean;
+  /** True when the chat iframe was already present and nothing was clicked. */
+  alreadyOpen: boolean;
+  /** True when the sidebar button was actually clicked (whether or not the panel then rendered). */
+  clicked: boolean;
+  reason?: 'no-chat-button' | 'clicked-but-not-rendered';
+  /** Present only when a scan actually ran (a cache hit skips it) — see scanForChatButton. */
+  labelsSeen?: string[];
+  hint?: string;
+}
+
+/**
+ * Make sure the AI chat panel is showing, opening it from the sidebar if it
+ * is not.
+ *
+ * Every newly created project (and plenty of existing ones) opens with this
+ * panel hidden — its visibility is per-project UI state, not something
+ * `newProject`'s no-template `project.json` carries — so with nothing to
+ * act on that, every chat tool failed closed with `chat-frame-missing` even
+ * though a human at the keyboard could fix it with one click. This is that
+ * click, driven the only way it can be: the sidebar's icon buttons carry no
+ * id, aria-label or data-testid, only a Tooltip revealed on hover, so
+ * finding "the Chat button" means hovering candidates and reading their
+ * tooltips until one matches (see `isChatButtonLabel`).
+ *
+ * Already open is a real short circuit: if `SELECTORS.chatIframe` already
+ * resolves to a frame, this returns immediately without hovering or
+ * clicking anything, exactly per spec — a caller must never see this nudge
+ * a panel that was already showing.
+ */
+export async function ensureChatPanelOpen(
+  page: Page,
+  opts: { timeoutMs?: number; pollMs?: number; hoverDelayMs?: number } = {}
+): Promise<ChatPanelOpenResult> {
+  const timeoutMs = opts.timeoutMs ?? CHAT_OPEN_TIMEOUT_MS;
+  const hoverDelayMs = opts.hoverDelayMs ?? TOOLTIP_HOVER_DELAY_MS;
+
+  if (getChatFrame(page)) {
+    return { opened: true, alreadyOpen: true, clicked: false };
+  }
+
+  let point: SidebarButtonPoint | null = null;
+  let labelsSeen: string[] | undefined;
+
+  // Re-verify the cached point before trusting it: the rail can reflow
+  // (window resize, a panel toggling elsewhere), so a stale cached point
+  // might now hover nothing, or something else entirely. Only a fresh,
+  // passing tooltip read earns the click.
+  if (cachedChatButtonPoint) {
+    const label = await hoverAndReadLabel(page, cachedChatButtonPoint, hoverDelayMs);
+    if (isChatButtonLabel(label)) {
+      point = cachedChatButtonPoint;
+    } else {
+      cachedChatButtonPoint = null;
+    }
+  }
+
+  if (!point) {
+    const scan = await scanForChatButton(page, hoverDelayMs);
+    labelsSeen = scan.labelsSeen;
+    if (!scan.point) {
+      return {
+        opened: false,
+        alreadyOpen: false,
+        clicked: false,
+        reason: 'no-chat-button',
+        labelsSeen,
+        hint: `No sidebar rail button's tooltip read "Chat". Tooltip labels actually seen, top to bottom: ${
+          labelsSeen.length ? labelsSeen.map((l) => `"${l || '(empty)'}"`).join(', ') : '(none — no rail buttons found at all)'
+        }. If XGENIA renamed the button, update what this harness looks for.`
+      };
+    }
+    point = scan.point;
+    cachedChatButtonPoint = point;
+  }
+
+  await page.mouse.click(point.cx, point.cy);
+
+  const readiness = await waitForChatReady(page, timeoutMs, opts.pollMs);
+  if (!readiness.ready) {
+    return {
+      opened: false,
+      alreadyOpen: false,
+      clicked: true,
+      reason: 'clicked-but-not-rendered',
+      labelsSeen,
+      hint: `Clicked the sidebar's Chat button, but the panel never rendered: ${chatNotReadyHint(readiness.state, timeoutMs)}`
+    };
+  }
+
+  return { opened: true, alreadyOpen: false, clicked: true };
+}
+
+/** `ensureChatPanelOpen`, attached to the live editor. What `xgenia_open_chat_panel` calls. */
+export async function openChatPanel(opts: { timeoutMs?: number } = {}): Promise<ChatPanelOpenResult> {
+  const { page } = await connect();
+  return ensureChatPanelOpen(page, opts);
 }
 
 export async function chatRead(opts: { since?: number; limit?: number } = {}) {

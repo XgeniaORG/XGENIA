@@ -3,7 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { health, probe, projectStatus } from './editor-state.js';
-import { chatSend, chatRead, chatWaitIdle } from './chat.js';
+import { chatSend, chatRead, chatWaitIdle, openChatPanel } from './chat.js';
 import { screenshot } from './screenshot.js';
 import { openProject, newProject, closeProject } from './project.js';
 import { launch, restart, quit } from './lifecycle.js';
@@ -115,10 +115,10 @@ server.registerTool(
     description:
       'Open a project by absolute directory or by name. A directory not in the recents list is added to it first. Verifies the editor actually landed on that project. ' +
       'Waits patiently for the projects screen to actually render tiles (this machine has been observed rendering 300+ recents entries right after a cold launch) before waiting for the specific one requested; a timeout reports which state the page was actually in — the login screen ({error: "not-authenticated"}), a projects screen with zero tiles, or an editor already holding a different project — instead of a bare selector-missing. ' +
-      'Before returning, it also waits briefly for the AI chat panel to finish mounting (observed live to still be mounting for a few seconds right after the project verifiably opens) and reports chatReady: true/false on success — false does not mean the open failed, only that the chat panel is not usable yet (e.g. still mounting, closed, or entitlement-gated); chatUnavailable/chatError carry the reason from the panel read when there is one.',
-    inputSchema: { dir: z.string().optional(), name: z.string().optional() }
+      'Before returning, it also waits briefly for the AI chat panel to finish mounting (observed live to still be mounting for a few seconds right after the project verifiably opens). Every newly created project — and plenty of existing ones — opens with the panel hidden, so if it is still not present after that wait this now attempts to open it from the sidebar (the same click xgenia_open_chat_panel performs) before giving up; pass openChatIfClosed: false to skip that and leave a closed panel alone. Reports chatReady: true/false either way — false does not mean the open failed, only that the chat panel is not usable (still mounting, genuinely closed, entitlement-gated, or the open attempt itself failed); chatUnavailable/chatError carry the reason from the panel read, and chatOpenAttempt (present only when an attempt was actually made and did not succeed) carries what that attempt found, including every sidebar tooltip label it saw.',
+    inputSchema: { dir: z.string().optional(), name: z.string().optional(), openChatIfClosed: z.boolean().optional() }
   },
-  ({ dir, name }) => guard('open project', () => openProject({ dir, name }))
+  ({ dir, name, openChatIfClosed }) => guard('open project', () => openProject({ dir, name, openChatIfClosed }))
 );
 
 server.registerTool(
@@ -128,10 +128,10 @@ server.registerTool(
     description:
       'Create a project directory with a fresh, empty project.json (one root Group node, no components beyond /App) and open it. ' +
       'If dir is omitted, a sibling directory of the most recently opened project is used (or the home directory if there is no recents history yet). Refuses — rather than overwriting — when the resolved directory already exists and is non-empty. ' +
-      'This reuses xgenia_open_project internally, so it inherits the same recents handling, verify-by-value check, and chatReady/chatUnavailable/chatError reporting for the AI chat panel; the result carries everything xgenia_open_project returns plus createdDir.',
-    inputSchema: { name: z.string(), dir: z.string().optional() }
+      'This reuses xgenia_open_project internally, so it inherits the same recents handling, verify-by-value check, and chatReady/chatUnavailable/chatError/chatOpenAttempt reporting for the AI chat panel — including that a brand-new project always opens with the panel hidden, so by default this attempts to open it from the sidebar before reporting chatReady; pass openChatIfClosed: false to leave a closed panel alone. The result carries everything xgenia_open_project returns plus createdDir.',
+    inputSchema: { name: z.string(), dir: z.string().optional(), openChatIfClosed: z.boolean().optional() }
   },
-  ({ name, dir }) => guard('new project', () => newProject({ name, dir }))
+  ({ name, dir, openChatIfClosed }) => guard('new project', () => newProject({ name, dir, openChatIfClosed }))
 );
 
 server.registerTool(
@@ -144,6 +144,18 @@ server.registerTool(
     inputSchema: { force: z.boolean().optional() }
   },
   ({ force }) => guard('close project', () => closeProject({ force }))
+);
+
+server.registerTool(
+  'xgenia_open_chat_panel',
+  {
+    title: 'Open the XGENIA AI chat panel',
+    description:
+      'Click the sidebar\'s "Chat" button to open the AI chat panel. Normally unnecessary — xgenia_open_project and xgenia_new_project already attempt this automatically whenever the panel is not showing after opening a project, which is every newly created project and plenty of existing ones. Use this directly only when the panel was closed by hand after that (a person toggled it shut), or a caller deliberately opened a project with openChatIfClosed: false and now wants the panel after all. ' +
+      'Returns {opened: true, alreadyOpen: true, clicked: false} immediately, without hovering or clicking anything, if the panel is already showing. Otherwise it identifies the button by hovering every icon in the left sidebar rail and reading its tooltip for an exact (case-insensitive) match on "Chat" — the button carries no id, aria-label or data-testid, only that tooltip — clicks it, and waits for the panel to actually render before reporting {opened: true, clicked: true}. On failure it reports which of the two things went wrong (reason: "no-chat-button" or "clicked-but-not-rendered") plus every tooltip label it actually saw (labelsSeen) and a hint — exactly what a maintainer needs if XGENIA ever renames the button.',
+    inputSchema: { timeoutMs: z.number().optional() }
+  },
+  ({ timeoutMs }) => guard('open chat panel', () => openChatPanel({ timeoutMs }))
 );
 
 server.registerTool(

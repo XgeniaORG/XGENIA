@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { Page } from 'playwright-core';
 import { connect } from './connection.js';
 import { SELECTORS } from './selectors.js';
+import { ensureChatPanelOpen, type ChatPanelOpenResult } from './chat.js';
 import {
   readProject,
   describePageState,
@@ -87,19 +88,56 @@ const CHAT_READY_TIMEOUT_MS = 20_000;
  * entitlement-gated). A project can legitimately be open with the AI panel
  * closed, so this is never a hard failure — it lets a caller tell "ready to
  * chat" apart from "project open, chat unavailable" without guessing.
+ *
+ * A panel that is not present after the initial wait is no longer the end
+ * of the story: every newly created project (and plenty of existing ones)
+ * opens with this panel hidden, which used to leave `chatReady: false` with
+ * nothing any caller could do about it short of a human clicking the
+ * sidebar by hand — making "create a project, then build it via chat", the
+ * harness's primary workflow, impossible on a fresh project. Unless
+ * `attemptOpen` is false, a panel that is not ready after the initial wait
+ * gets one attempt via `ensureChatPanelOpen` before this gives up; a caller
+ * who deliberately wants the panel left alone (e.g. probing state without
+ * side effects) can pass `attemptOpen: false` to skip that.
  */
 export async function withChatReadiness<T extends Record<string, unknown>>(
   page: Page,
   result: T,
-  timeoutMs: number = CHAT_READY_TIMEOUT_MS,
-  pollMs = 250
-): Promise<T & { chatReady: boolean; chatUnavailable?: 'no-frame' | 'evaluate-failed'; chatError?: string }> {
-  const chat: ChatReadiness = await waitForChatReady(page, timeoutMs, pollMs);
+  opts: { timeoutMs?: number; pollMs?: number; attemptOpen?: boolean; hoverDelayMs?: number } = {}
+): Promise<
+  T & {
+    chatReady: boolean;
+    chatUnavailable?: 'no-frame' | 'evaluate-failed';
+    chatError?: string;
+    /** Present only when the initial wait failed and an open attempt was actually made — success or failure, so a caller can see exactly what the attempt found. */
+    chatOpenAttempt?: ChatPanelOpenResult;
+  }
+> {
+  const timeoutMs = opts.timeoutMs ?? CHAT_READY_TIMEOUT_MS;
+  const pollMs = opts.pollMs ?? 250;
+  const attemptOpen = opts.attemptOpen ?? true;
+
+  const initial: ChatReadiness = await waitForChatReady(page, timeoutMs, pollMs);
+  if (initial.ready || !attemptOpen) {
+    return {
+      ...result,
+      chatReady: initial.ready,
+      chatUnavailable: initial.state.unavailable,
+      chatError: initial.state.error
+    };
+  }
+
+  const chatOpenAttempt = await ensureChatPanelOpen(page, { timeoutMs, pollMs, hoverDelayMs: opts.hoverDelayMs });
+  if (chatOpenAttempt.opened) {
+    return { ...result, chatReady: true, chatUnavailable: undefined, chatError: undefined };
+  }
+
   return {
     ...result,
-    chatReady: chat.ready,
-    chatUnavailable: chat.state.unavailable,
-    chatError: chat.state.error
+    chatReady: false,
+    chatUnavailable: initial.state.unavailable,
+    chatError: initial.state.error,
+    chatOpenAttempt
   };
 }
 
@@ -311,11 +349,20 @@ export async function closeProject(opts: { force?: boolean } = {}) {
  * this drives the projects screen the way a person would. The recents file is
  * the seam: the projects screen re-reads it from disk on render and on mouse
  * movement, so a directory the harness appends there becomes clickable.
+ *
+ * `openChatIfClosed` (default true) controls what `withChatReadiness` does
+ * when the AI chat panel is not showing once the project is confirmed open:
+ * by default it attempts to open the panel from the sidebar before giving
+ * up (see `ensureChatPanelOpen` in chat.ts) so a fresh project — which
+ * always opens with the panel hidden — is still immediately usable for a
+ * "create a project, then build it via chat" workflow. Pass `false` to
+ * leave a closed panel alone.
  */
-export async function openProject(q: { dir?: string; name?: string }) {
+export async function openProject(q: { dir?: string; name?: string; openChatIfClosed?: boolean }) {
   if (!q.dir && !q.name) {
     return fail('project-dir-missing', 'no argument', 'Pass either dir or name.');
   }
+  const attemptOpen = q.openChatIfClosed ?? true;
 
   const { page, target } = await connect();
   // CRITICAL: read from the recents file for the target we are actually
@@ -359,7 +406,7 @@ export async function openProject(q: { dir?: string; name?: string }) {
   // Already there? Nothing to do.
   const current = await readProject(page);
   if (current?.dir && canonicalDir(current.dir) === dir) {
-    return withChatReadiness(page, { opened: true, alreadyOpen: true, project: current });
+    return withChatReadiness(page, { opened: true, alreadyOpen: true, project: current }, { attemptOpen });
   }
 
   // Leave the current project first, so no in-project write races our
@@ -466,7 +513,11 @@ export async function openProject(q: { dir?: string; name?: string }) {
     );
   }
 
-  return withChatReadiness(page, { opened: true, alreadyOpen: false, project: await readProject(page) });
+  return withChatReadiness(
+    page,
+    { opened: true, alreadyOpen: false, project: await readProject(page) },
+    { attemptOpen }
+  );
 }
 
 /**
@@ -548,7 +599,7 @@ export function checkProjectDirClobber(dir: string): { ok: true } | { ok: false;
  * tile click, and its verify-by-value check — rather than duplicating any of
  * that.
  */
-export async function newProject(q: { name: string; dir?: string }) {
+export async function newProject(q: { name: string; dir?: string; openChatIfClosed?: boolean }) {
   if (!q.name) {
     return fail('project-dir-missing', 'no name', 'Pass a name for the new project.');
   }
@@ -567,6 +618,6 @@ export async function newProject(q: { name: string; dir?: string }) {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'project.json'), JSON.stringify(defaultProjectJson(q.name), null, 2));
 
-  const opened = await openProject({ dir });
+  const opened = await openProject({ dir, openChatIfClosed: q.openChatIfClosed });
   return { ...opened, createdDir: dir };
 }

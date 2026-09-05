@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import type { Frame } from 'playwright-core';
+import { describe, it, expect, beforeEach } from 'vitest';
+import type { Frame, Page } from 'playwright-core';
 import {
   parseTranscript,
   readStructuredMessages,
@@ -8,7 +8,10 @@ import {
   promptSlice,
   transcriptContainsPrompt,
   confirmSent,
-  chatNotReadyHint
+  chatNotReadyHint,
+  isChatButtonLabel,
+  ensureChatPanelOpen,
+  resetChatButtonCache
 } from './chat.js';
 import { summariseMessages, type ChatMessage } from './editor-state.js';
 
@@ -308,5 +311,170 @@ describe('chatNotReadyHint', () => {
     // still mounting. The present-but-unmounted case must not lead with that.
     const hint = chatNotReadyHint({}, 6000);
     expect(hint.startsWith('Open the AI panel')).toBe(false);
+  });
+});
+
+describe('isChatButtonLabel', () => {
+  it('matches "Chat" exactly, case-insensitively and trimmed', () => {
+    expect(isChatButtonLabel('Chat')).toBe(true);
+    expect(isChatButtonLabel('chat')).toBe(true);
+    expect(isChatButtonLabel('CHAT')).toBe(true);
+    expect(isChatButtonLabel('  Chat  ')).toBe(true);
+  });
+
+  it('never matches a label that merely contains "chat" as a substring', () => {
+    // The two names the task calls out explicitly: a real sibling button
+    // ("AI Image Editor") that must never be mistaken for Chat, and a
+    // plausible future button ("Chat History") that also must not match.
+    expect(isChatButtonLabel('AI Image Editor')).toBe(false);
+    expect(isChatButtonLabel('Chat History')).toBe(false);
+    expect(isChatButtonLabel('Live Chat')).toBe(false);
+    expect(isChatButtonLabel('')).toBe(false);
+  });
+});
+
+/**
+ * Minimal stand-in for a Playwright Page complete enough to drive
+ * `ensureChatPanelOpen`: `frames()` reflects whether the chat frame is
+ * "mounted" right now (flipped by a click, unless `mountsOnClick: false`),
+ * and `evaluate` answers each ordered call from `evaluateSequence` in turn
+ * -- the box scan first, then one tooltip read per button hovered, in the
+ * exact order the implementation makes them, matching this file's existing
+ * `stubFrame(sequence)` convention above.
+ */
+function stubChatPanelPage(opts: {
+  evaluateSequence?: unknown[];
+  alreadyOpen?: boolean;
+  mountsOnClick?: boolean;
+}): { page: Page; clicks: [number, number][]; moves: [number, number][] } {
+  let call = 0;
+  let chatOpen = !!opts.alreadyOpen;
+  const clicks: [number, number][] = [];
+  const moves: [number, number][] = [];
+  const chatFrame = {
+    url: () => 'https://xgenia-ai-app.vercel.app/panel',
+    evaluate: async () => ({ mounted: true, busy: false, messageCount: 0 })
+  };
+  const page = {
+    frames: () => (chatOpen ? [chatFrame] : []),
+    evaluate: async () => (opts.evaluateSequence ?? [])[call++],
+    mouse: {
+      move: async (x: number, y: number) => {
+        moves.push([x, y]);
+      },
+      click: async (x: number, y: number) => {
+        clicks.push([x, y]);
+        if (opts.mountsOnClick !== false) chatOpen = true;
+      }
+    }
+  };
+  return { page: page as unknown as Page, clicks, moves };
+}
+
+describe('ensureChatPanelOpen', () => {
+  beforeEach(() => resetChatButtonCache());
+
+  it('returns immediately, without hovering or clicking anything, when the chat iframe is already present', async () => {
+    const { page, clicks, moves } = stubChatPanelPage({ alreadyOpen: true });
+    const result = await ensureChatPanelOpen(page);
+    expect(result).toEqual({ opened: true, alreadyOpen: true, clicked: false });
+    expect(clicks).toEqual([]);
+    expect(moves).toEqual([]);
+  });
+
+  it('scans the sidebar, clicks the button whose tooltip reads "Chat", and reports success once the panel renders', async () => {
+    const { page, clicks } = stubChatPanelPage({
+      evaluateSequence: [
+        [
+          { cx: 10, cy: 48 },
+          { cx: 10, cy: 483 },
+          { cx: 10, cy: 525 }
+        ], // box scan: three rail buttons
+        ['Add node'],
+        ['AI Image Editor'],
+        ['Chat'] // third button matches
+      ]
+    });
+    const result = await ensureChatPanelOpen(page, { hoverDelayMs: 1, timeoutMs: 200, pollMs: 5 });
+    expect(result).toEqual({ opened: true, alreadyOpen: false, clicked: true });
+    expect(clicks).toEqual([[10, 525]]);
+  });
+
+  it('reports no-chat-button and every label it saw when no tooltip reads "Chat"', async () => {
+    const { page, clicks } = stubChatPanelPage({
+      evaluateSequence: [
+        [{ cx: 10, cy: 48 }, { cx: 10, cy: 483 }],
+        ['Add node'],
+        ['AI Image Editor']
+      ]
+    });
+    const result = await ensureChatPanelOpen(page, { hoverDelayMs: 1, timeoutMs: 30, pollMs: 5 });
+    expect(result.opened).toBe(false);
+    expect(result.alreadyOpen).toBe(false);
+    expect(result.clicked).toBe(false);
+    expect(result.reason).toBe('no-chat-button');
+    expect(result.labelsSeen).toEqual(['Add node', 'AI Image Editor']);
+    expect(result.hint).toContain('Add node');
+    expect(result.hint).toContain('AI Image Editor');
+    expect(clicks).toEqual([]);
+  });
+
+  it('reports clicked-but-not-rendered when the button is found and clicked but the panel never mounts', async () => {
+    const { page, clicks } = stubChatPanelPage({
+      evaluateSequence: [[{ cx: 10, cy: 525 }], ['Chat']],
+      mountsOnClick: false
+    });
+    const result = await ensureChatPanelOpen(page, { hoverDelayMs: 1, timeoutMs: 30, pollMs: 5 });
+    expect(result.opened).toBe(false);
+    expect(result.clicked).toBe(true);
+    expect(result.reason).toBe('clicked-but-not-rendered');
+    expect(clicks).toEqual([[10, 525]]);
+  });
+
+  it('caches the identified point and skips the full scan on a later call', async () => {
+    const first = stubChatPanelPage({
+      evaluateSequence: [[{ cx: 10, cy: 48 }, { cx: 10, cy: 525 }], ['Add node'], ['Chat']]
+    });
+    const firstResult = await ensureChatPanelOpen(first.page, { hoverDelayMs: 1, timeoutMs: 200, pollMs: 5 });
+    expect(firstResult.opened).toBe(true);
+
+    // A later call against a *different* page instance (panel closed again,
+    // e.g. a new project) whose evaluateSequence holds only ONE call's worth
+    // of result: if the cache were not reused, the implementation would try
+    // to read a full box-scan array from that single entry and every
+    // tooltip check would fail, never reaching a match.
+    const second = stubChatPanelPage({
+      evaluateSequence: [['Chat']] // only the cache re-verify hover read
+    });
+    const secondResult = await ensureChatPanelOpen(second.page, { hoverDelayMs: 1, timeoutMs: 200, pollMs: 5 });
+    expect(secondResult.opened).toBe(true);
+    expect(secondResult.labelsSeen).toBeUndefined(); // no scan ran
+    expect(second.clicks).toEqual([[10, 525]]);
+  });
+
+  it('falls back to a fresh scan when the cached point no longer reads "Chat" (stale cache)', async () => {
+    const first = stubChatPanelPage({
+      evaluateSequence: [[{ cx: 10, cy: 525 }], ['Chat']]
+    });
+    const firstResult = await ensureChatPanelOpen(first.page, { hoverDelayMs: 1, timeoutMs: 200, pollMs: 5 });
+    expect(firstResult.opened).toBe(true);
+
+    // The rail reflowed: the cached coordinate now hovers something else,
+    // so the cache re-verify must fail closed and re-scan rather than
+    // clicking the wrong button.
+    const second = stubChatPanelPage({
+      evaluateSequence: [
+        ['Settings'], // cache re-verify at the old point -- no longer Chat
+        [{ cx: 10, cy: 356 }, { cx: 10, cy: 609 }], // fresh scan
+        ['Components'],
+        ['Chat']
+      ]
+    });
+    const secondResult = await ensureChatPanelOpen(second.page, { hoverDelayMs: 1, timeoutMs: 200, pollMs: 5 });
+    // The click landing on the freshly-scanned point (356, not the stale
+    // 525) is the proof the fallback scan ran and found the right button --
+    // labelsSeen is only attached on a failed attempt (see ChatPanelOpenResult).
+    expect(secondResult.opened).toBe(true);
+    expect(second.clicks).toEqual([[10, 609]]);
   });
 });
