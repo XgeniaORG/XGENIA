@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "xgenia": {
-      "command": "node",
-      "args": ["packages/xgenia-mcp-server/dist/index.js"]
-    }
-  }
-}
