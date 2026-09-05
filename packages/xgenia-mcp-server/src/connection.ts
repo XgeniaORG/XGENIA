@@ -50,13 +50,31 @@ export function resetConnection(): void {
 }
 
 /**
+ * Check if a cached connection is valid for the requested port.
+ * A cache hit requires the browser to be connected, page not closed, and port to match.
+ */
+export function isCacheHit(cached: Connection | null, port: number): boolean {
+  return (
+    cached !== null &&
+    cached.browser.isConnected() &&
+    !cached.page.isClosed() &&
+    cached.port === port
+  );
+}
+
+/**
  * Attach to the editor window.
  *
  * The page is selected by URL, never by position: a running editor also exposes
  * a viewer webview and a cloud-runtime page, and their order is not a contract.
  */
 export async function connect(port = discoverPort()): Promise<Connection> {
-  if (cached && cached.browser.isConnected() && !cached.page.isClosed()) return cached;
+  if (isCacheHit(cached, port)) return cached!;
+
+  // If there's a cached connection to a different port, dispose of it
+  if (cached) {
+    await cached.browser.close().catch(() => {});
+  }
   cached = null;
 
   let browser: Browser;
@@ -85,5 +103,5 @@ export async function connect(port = discoverPort()): Promise<Connection> {
 }
 
 export function getChatFrame(page: Page): Frame | null {
-  return page.frames().find((f) => f.url().includes('xgenia-ai-app')) ?? null;
+  return page.frames().find((f) => f.url().includes(SELECTORS.chatFrameUrlSubstring)) ?? null;
 }

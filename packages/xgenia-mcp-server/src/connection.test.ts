@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { readDevToolsActivePort, discoverPort, classifyTarget } from './connection.js';
+import { readDevToolsActivePort, discoverPort, classifyTarget, isCacheHit } from './connection.js';
 
 let tmp: string;
 
@@ -52,5 +52,51 @@ describe('classifyTarget', () => {
 
   it('calls a file page a packaged app', () => {
     expect(classifyTarget('file:///Applications/XGENIA.app/.../src/editor/index.html')).toBe('app');
+  });
+});
+
+describe('isCacheHit', () => {
+  it('returns false when cached is null', () => {
+    expect(isCacheHit(null, 9223)).toBe(false);
+  });
+
+  it('returns false when port does not match', () => {
+    const mockConnection = {
+      browser: { isConnected: () => true } as any,
+      page: { isClosed: () => false } as any,
+      target: 'dev' as const,
+      port: 9223,
+    };
+    expect(isCacheHit(mockConnection, 9224)).toBe(false);
+  });
+
+  it('returns false when browser is not connected', () => {
+    const mockConnection = {
+      browser: { isConnected: () => false } as any,
+      page: { isClosed: () => false } as any,
+      target: 'dev' as const,
+      port: 9223,
+    };
+    expect(isCacheHit(mockConnection, 9223)).toBe(false);
+  });
+
+  it('returns false when page is closed', () => {
+    const mockConnection = {
+      browser: { isConnected: () => true } as any,
+      page: { isClosed: () => true } as any,
+      target: 'dev' as const,
+      port: 9223,
+    };
+    expect(isCacheHit(mockConnection, 9223)).toBe(false);
+  });
+
+  it('returns true when all conditions are met', () => {
+    const mockConnection = {
+      browser: { isConnected: () => true } as any,
+      page: { isClosed: () => false } as any,
+      target: 'dev' as const,
+      port: 9223,
+    };
+    expect(isCacheHit(mockConnection, 9223)).toBe(true);
   });
 });
