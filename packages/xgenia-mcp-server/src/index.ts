@@ -76,7 +76,8 @@ server.registerTool(
     description:
       'Save, kill and relaunch XGENIA, then reopen the project that was open. Refuses while the AI chat is mid-generation unless force is set, because that turn would be lost. ' +
       'The result carries more than restarted/project: recoveryError explains why the project failed to reopen after relaunch (project is null in that case, but the failure reason survives instead of being swallowed), and declinedPorts lists dev ports the harness found still occupied but refused to free because their owner was not part of the process tree it just killed. Check both before assuming a clean restart. ' +
-      'Every pre-kill read of the old editor is bounded, so a wedged editor (pageResponsive:false in xgenia_health) cannot hang this call forever: without force it returns {error: "editor-unresponsive"} explaining that the pre-restart save and busy-check could not be performed; with force it skips those reads entirely and proceeds straight to the kill, reporting the honest gaps that leaves (project: null, save unconfirmed, inFlightTurnLost: "unknown").',
+      'Every pre-kill read of the old editor is bounded, so a wedged editor (pageResponsive:false in xgenia_health) cannot hang this call forever: without force it returns {error: "editor-unresponsive"} explaining that the pre-restart save and busy-check could not be performed; with force it skips those reads entirely and proceeds straight to the kill, reporting the honest gaps that leaves (project: null, save unconfirmed, inFlightTurnLost: "unknown"). ' +
+      'Shutdown is graceful by default: SIGTERM is given a generous grace period to let the Electron renderer flush localStorage/IndexedDB before SIGKILL is even considered, and the process is polled so an editor that exits promptly is not slowed down. hardKilled reports whether that grace period actually expired and SIGKILL was needed — true is the case where losing unflushed state (e.g. an auth session) is plausible, so check it after any restart.',
     inputSchema: { force: z.boolean().optional() }
   },
   ({ force }) => guard('restart', () => restart({ force }))
@@ -89,7 +90,8 @@ server.registerTool(
     description:
       'Save, then kill XGENIA — the same safety sequence xgenia_restart uses (refuse while the AI chat is mid-generation unless force is set, confirm the save, kill the right process tree for the connected target, verify the port is actually free) — but do NOT relaunch it. ' +
       'Nothing will be running after this call succeeds: there is no editor to attach to, and no project is reopened automatically. xgenia_launch is how you bring XGENIA back; it will start with no project open unless you also call xgenia_open_project afterward. ' +
-      'Shares xgenia_restart\'s bounded pre-kill reads: on an unresponsive editor it fails closed with {error: "editor-unresponsive"} unless force is set, in which case it kills anyway and reports project: null, save unconfirmed, and inFlightTurnLost: "unknown" rather than guessing.',
+      'Shares xgenia_restart\'s bounded pre-kill reads: on an unresponsive editor it fails closed with {error: "editor-unresponsive"} unless force is set, in which case it kills anyway and reports project: null, save unconfirmed, and inFlightTurnLost: "unknown" rather than guessing. ' +
+      'Also shares xgenia_restart\'s graceful-by-default shutdown: SIGTERM gets a generous grace period (polled, so a prompt exit is not slowed down) to let the Electron renderer flush localStorage/IndexedDB before SIGKILL is considered at all. hardKilled reports whether that grace period expired and a hard kill was actually needed — true is the case where losing unflushed state (e.g. an auth session) is plausible.',
     inputSchema: { force: z.boolean().optional() }
   },
   ({ force }) => guard('quit', () => quit({ force }))
@@ -112,7 +114,8 @@ server.registerTool(
     title: 'Open an XGENIA project',
     description:
       'Open a project by absolute directory or by name. A directory not in the recents list is added to it first. Verifies the editor actually landed on that project. ' +
-      'Waits patiently for the projects screen to actually render tiles (this machine has been observed rendering 300+ recents entries right after a cold launch) before waiting for the specific one requested; a timeout reports which state the page was actually in — the login screen ({error: "not-authenticated"}), a projects screen with zero tiles, or an editor already holding a different project — instead of a bare selector-missing.',
+      'Waits patiently for the projects screen to actually render tiles (this machine has been observed rendering 300+ recents entries right after a cold launch) before waiting for the specific one requested; a timeout reports which state the page was actually in — the login screen ({error: "not-authenticated"}), a projects screen with zero tiles, or an editor already holding a different project — instead of a bare selector-missing. ' +
+      'Before returning, it also waits briefly for the AI chat panel to finish mounting (observed live to still be mounting for a few seconds right after the project verifiably opens) and reports chatReady: true/false on success — false does not mean the open failed, only that the chat panel is not usable yet (e.g. still mounting, closed, or entitlement-gated); chatUnavailable/chatError carry the reason from the panel read when there is one.',
     inputSchema: { dir: z.string().optional(), name: z.string().optional() }
   },
   ({ dir, name }) => guard('open project', () => openProject({ dir, name }))
@@ -125,7 +128,7 @@ server.registerTool(
     description:
       'Create a project directory with a fresh, empty project.json (one root Group node, no components beyond /App) and open it. ' +
       'If dir is omitted, a sibling directory of the most recently opened project is used (or the home directory if there is no recents history yet). Refuses — rather than overwriting — when the resolved directory already exists and is non-empty. ' +
-      'This reuses xgenia_open_project internally, so it inherits the same recents handling and verify-by-value check; the result carries everything xgenia_open_project returns plus createdDir.',
+      'This reuses xgenia_open_project internally, so it inherits the same recents handling, verify-by-value check, and chatReady/chatUnavailable/chatError reporting for the AI chat panel; the result carries everything xgenia_open_project returns plus createdDir.',
     inputSchema: { name: z.string(), dir: z.string().optional() }
   },
   ({ name, dir }) => guard('new project', () => newProject({ name, dir }))

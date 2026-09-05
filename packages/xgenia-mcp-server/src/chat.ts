@@ -1,10 +1,31 @@
 import type { Frame } from 'playwright-core';
 import { connect, getChatFrame } from './connection.js';
 import { SELECTORS } from './selectors.js';
-import { readChatState, summariseMessages, type ChatMessage, type ChatMessageOut } from './editor-state.js';
+import {
+  readChatState,
+  summariseMessages,
+  waitForChatReady,
+  type ChatMessage,
+  type ChatMessageOut,
+  type ChatState
+} from './editor-state.js';
 
 const MESSAGE_CAP = 2000;
 const DEFAULT_TAIL_LIMIT = 5;
+
+/**
+ * How long `chatRead`/`chatSend`/`chatWaitIdle` retry when the chat panel is
+ * not yet ready before giving up and reporting `chat-frame-missing`.
+ *
+ * Deliberately much shorter than `openProject`'s chat-readiness wait
+ * (project.ts's `CHAT_READY_TIMEOUT_MS`): a caller that opened the project
+ * through this harness has already waited out the mounting race documented
+ * there, so by the time these functions are reached directly the panel is
+ * normally already up. This is a smaller safety net for a caller that skips
+ * that step, or catches a fresh toggle of the panel mid-mount — not the
+ * primary wait.
+ */
+const CHAT_FRAME_RETRY_MS = 6_000;
 
 /**
  * Chrome lines the panel prints in and around the transcript.
@@ -197,29 +218,51 @@ export async function confirmSent(
 }
 
 /**
- * Fold `readChatState`'s unavailable reason into a hint, so a caller told
- * "the panel isn't usable" can tell "no iframe at all" apart from "the iframe
- * is there but the read inside it is throwing" instead of chasing the wrong
- * cause.
+ * Hint for a `chat-frame-missing` failure once the retry window
+ * (`CHAT_FRAME_RETRY_MS`) has elapsed without the panel becoming ready.
+ *
+ * Distinguishes three very different situations `readChatState` can report,
+ * rather than always saying "Open the AI panel in XGENIA" — a caller who
+ * opened a project moments earlier does not need to open anything; the panel
+ * is not missing, it just did not finish mounting within the wait:
+ *  - `no-frame`: the iframe never appeared in the DOM at all.
+ *  - `evaluate-failed`: the iframe is there, but the read inside it threw.
+ *  - neither: the iframe is there and readable, but its input never
+ *    rendered — could still be a genuinely closed or entitlement-gated
+ *    panel, which is why this never claims the panel is "missing" outright.
  */
-function unavailableHint(state: { unavailable?: 'no-frame' | 'evaluate-failed'; error?: string }): string {
+export function chatNotReadyHint(state: Pick<ChatState, 'unavailable' | 'error'>, waitedMs: number): string {
   if (state.unavailable === 'evaluate-failed') {
-    return `The AI panel's read failed: ${state.error ?? '(no message)'}`;
+    return `The AI panel's read failed after waiting ${waitedMs}ms: ${state.error ?? '(no message)'}`;
   }
   if (state.unavailable === 'no-frame') {
-    return 'Open the AI panel in XGENIA.';
+    return `The AI chat panel's iframe did not appear in the DOM within ${waitedMs}ms. If it is genuinely closed or entitlement-gated, open it in XGENIA; if it should already be open, run xgenia_probe.`;
   }
-  return 'Open the AI panel in XGENIA.';
+  return `The AI chat panel's iframe is present, but its input never rendered within ${waitedMs}ms. If the panel is genuinely closed or entitlement-gated, open it in XGENIA; otherwise run xgenia_probe.`;
 }
 
 export async function chatRead(opts: { since?: number; limit?: number } = {}) {
   const { page } = await connect();
-  const frame = getChatFrame(page);
-  if (!frame) return fail('chat-frame-missing', SELECTORS.chatIframe, 'Open the AI panel in XGENIA.');
 
-  const state = await readChatState(page);
-  if (state.unavailable) {
-    return fail('chat-frame-missing', SELECTORS.chatIframe, unavailableHint(state));
+  const readiness = await waitForChatReady(page, CHAT_FRAME_RETRY_MS);
+  if (!readiness.ready) {
+    return fail(
+      'chat-frame-missing',
+      SELECTORS.chatIframe,
+      chatNotReadyHint(readiness.state, CHAT_FRAME_RETRY_MS)
+    );
+  }
+
+  const frame = getChatFrame(page);
+  if (!frame) {
+    // The mount was observed a moment ago but the frame is gone now (e.g. a
+    // navigation raced this call) — report it the same way as never having
+    // appeared, rather than pressing on with a null frame below.
+    return fail(
+      'chat-frame-missing',
+      SELECTORS.chatIframe,
+      chatNotReadyHint({ unavailable: 'no-frame' }, CHAT_FRAME_RETRY_MS)
+    );
   }
 
   const messages = await readStructuredMessages(frame);
@@ -228,18 +271,41 @@ export async function chatRead(opts: { since?: number; limit?: number } = {}) {
 
   const out: ChatMessageOut[] = summariseMessages(messages, since, limit, MESSAGE_CAP);
 
-  return { total: messages.length, messageCount: state.messageCount, busy: state.busy, messages: out };
+  return {
+    total: messages.length,
+    messageCount: readiness.state.messageCount,
+    busy: readiness.state.busy,
+    messages: out
+  };
 }
 
 export async function chatWaitIdle(timeoutMs = 300_000) {
   const { page } = await connect();
   const startedAt = Date.now();
-  const before = (await readChatState(page)).messageCount;
+
+  // Give the panel the same short retry window as chatRead/chatSend before
+  // concluding it is genuinely absent — see CHAT_FRAME_RETRY_MS.
+  const initial = await waitForChatReady(page, CHAT_FRAME_RETRY_MS);
+  if (!initial.ready) {
+    return fail(
+      'chat-frame-missing',
+      SELECTORS.chatInput,
+      chatNotReadyHint(initial.state, CHAT_FRAME_RETRY_MS)
+    );
+  }
+  const before = initial.state.messageCount;
 
   while (Date.now() - startedAt < timeoutMs) {
     const state = await readChatState(page);
     if (!state.mounted) {
-      return fail('chat-frame-missing', SELECTORS.chatInput, unavailableHint(state));
+      // Readiness was already established above; a panel that disappears
+      // partway through a long wait (project closed, editor reloaded) is a
+      // genuine loss, not the initial mounting race — fail immediately here.
+      return fail(
+        'chat-frame-missing',
+        SELECTORS.chatInput,
+        chatNotReadyHint(state, Date.now() - startedAt)
+      );
     }
     if (!state.busy) {
       return {
@@ -275,16 +341,26 @@ export async function chatSend(
   opts: { waitIdle?: boolean; force?: boolean; timeoutMs?: number } = {}
 ) {
   const { page } = await connect();
-  const frame = getChatFrame(page);
-  if (!frame) return fail('chat-frame-missing', SELECTORS.chatIframe, 'Open the AI panel in XGENIA.');
 
-  const before = await readChatState(page);
-  if (before.unavailable) {
-    return fail('chat-frame-missing', SELECTORS.chatIframe, unavailableHint(before));
+  const readiness = await waitForChatReady(page, CHAT_FRAME_RETRY_MS);
+  if (!readiness.ready) {
+    return fail(
+      'chat-frame-missing',
+      SELECTORS.chatIframe,
+      chatNotReadyHint(readiness.state, CHAT_FRAME_RETRY_MS)
+    );
   }
-  if (!before.mounted) {
-    return fail('selector-missing', SELECTORS.chatInput, 'Run xgenia_probe to see what resolved.');
+
+  const frame = getChatFrame(page);
+  if (!frame) {
+    return fail(
+      'chat-frame-missing',
+      SELECTORS.chatIframe,
+      chatNotReadyHint({ unavailable: 'no-frame' }, CHAT_FRAME_RETRY_MS)
+    );
   }
+
+  const before = readiness.state;
   if (before.busy && !opts.force) {
     return fail(
       'busy-refused',

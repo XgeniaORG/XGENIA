@@ -155,6 +155,42 @@ export async function readChatState(page: Page): Promise<ChatState> {
   }
 }
 
+export interface ChatReadiness {
+  ready: boolean;
+  /** The last observed `ChatState`, whether or not it ever became ready — so a caller that gave up can still report why. */
+  state: ChatState;
+}
+
+/**
+ * Poll `readChatState` until it reports `mounted`, or a bounded timeout
+ * elapses.
+ *
+ * Exists because `openProject` was observed live to return as soon as the
+ * right project was verified open, while the AI chat panel iframe had not
+ * mounted yet — a caller that opened a project and immediately called
+ * `chatRead`/`chatSend` got `chat-frame-missing` even though the panel was
+ * never actually missing, only still mounting (confirmed mounted a few
+ * seconds later on repeated sampling). Shared by `openProject` (wait out
+ * that whole mounting window before reporting a project ready) and the chat
+ * functions (`chatRead`/`chatSend`/`chatWaitIdle` retry briefly on a panel
+ * that is a moment from ready instead of failing on the very first read) so
+ * there is exactly one implementation of "wait for the chat panel to
+ * mount", tuned once, not two independently-guessed copies.
+ */
+export async function waitForChatReady(
+  page: Page,
+  timeoutMs: number,
+  pollMs = 250
+): Promise<ChatReadiness> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const state = await readChatState(page);
+    if (state.mounted) return { ready: true, state };
+    if (Date.now() >= deadline) return { ready: false, state };
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+}
+
 let busyStartedAt: number | null = null;
 
 export function resetBusyTracking(): void {

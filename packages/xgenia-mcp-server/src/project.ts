@@ -4,7 +4,13 @@ import path from 'node:path';
 import type { Page } from 'playwright-core';
 import { connect } from './connection.js';
 import { SELECTORS } from './selectors.js';
-import { readProject, describePageState, describePageStateText } from './editor-state.js';
+import {
+  readProject,
+  describePageState,
+  describePageStateText,
+  waitForChatReady,
+  type ChatReadiness
+} from './editor-state.js';
 import { recentsFilePath, readRecents, addRecentEntry, type RecentEntry } from './recents.js';
 
 export function projectNameFromDir(dir: string): string | null {
@@ -54,6 +60,48 @@ const PROJECTS_LIST_TIMEOUT_MS = 90_000;
  * still booting.
  */
 const PROJECT_TILE_TIMEOUT_MS = 30_000;
+
+/**
+ * How long `openProject` waits, after confirming the right project is open,
+ * for the AI chat panel to finish mounting before reporting the project
+ * ready to a caller.
+ *
+ * Measured live: right after `waitForRetainedDirectory` confirmed the
+ * correct project was open, the chat iframe's `.rich-chat-input` was NOT yet
+ * present — a caller driving "open a project, then use the chat", the
+ * harness's primary workflow, got `chat-frame-missing` on the very first
+ * attempt even though the panel was never actually missing, only still
+ * mounting. Sampling the same editor every 10s afterward showed it mounted
+ * at every sample from t+10s on, so it settles within a few seconds. This
+ * ceiling is deliberately about double that observed worst case, and
+ * `waitForChatReady` returns the moment it's actually ready rather than
+ * always waiting the full window.
+ */
+const CHAT_READY_TIMEOUT_MS = 20_000;
+
+/**
+ * Attach chat-readiness fields to an `openProject`/`newProject` success
+ * result: whether the AI chat panel finished mounting, and — when it did
+ * not — the reason straight from `readChatState` (no-frame /
+ * evaluate-failed / neither, meaning the panel is genuinely closed or
+ * entitlement-gated). A project can legitimately be open with the AI panel
+ * closed, so this is never a hard failure — it lets a caller tell "ready to
+ * chat" apart from "project open, chat unavailable" without guessing.
+ */
+export async function withChatReadiness<T extends Record<string, unknown>>(
+  page: Page,
+  result: T,
+  timeoutMs: number = CHAT_READY_TIMEOUT_MS,
+  pollMs = 250
+): Promise<T & { chatReady: boolean; chatUnavailable?: 'no-frame' | 'evaluate-failed'; chatError?: string }> {
+  const chat: ChatReadiness = await waitForChatReady(page, timeoutMs, pollMs);
+  return {
+    ...result,
+    chatReady: chat.ready,
+    chatUnavailable: chat.state.unavailable,
+    chatError: chat.state.error
+  };
+}
 
 /**
  * Canonicalise a project directory for comparison.
@@ -311,7 +359,7 @@ export async function openProject(q: { dir?: string; name?: string }) {
   // Already there? Nothing to do.
   const current = await readProject(page);
   if (current?.dir && canonicalDir(current.dir) === dir) {
-    return { opened: true, alreadyOpen: true, project: current };
+    return withChatReadiness(page, { opened: true, alreadyOpen: true, project: current });
   }
 
   // Leave the current project first, so no in-project write races our
@@ -418,7 +466,7 @@ export async function openProject(q: { dir?: string; name?: string }) {
     );
   }
 
-  return { opened: true, alreadyOpen: false, project: await readProject(page) };
+  return withChatReadiness(page, { opened: true, alreadyOpen: false, project: await readProject(page) });
 }
 
 /**

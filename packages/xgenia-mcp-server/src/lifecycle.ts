@@ -547,6 +547,40 @@ async function pollPortFree(port: number, timeoutMs: number, pollMs = 500): Prom
 }
 
 /**
+ * How long `saveKillVerify` waits after SIGTERM before concluding the
+ * process needs a harder push and escalating to SIGKILL.
+ *
+ * Deliberately long. On receiving SIGTERM, an Electron renderer needs to
+ * flush pending `localStorage`/IndexedDB writes to disk before it actually
+ * exits, and that flush is asynchronous, not instantaneous. The previous 5s
+ * grace period was measured to be too aggressive in exactly the way that
+ * matters: after a `quit()` followed by `launch()`, the editor came back to
+ * a login screen with NO auth token in `localStorage` at all, forcing a
+ * fresh manual sign-in. Whether that specific loss was caused by the kill
+ * truncating a pending flush, or by the Supabase session simply expiring on
+ * its own in the hours in between, cannot be proven either way from here —
+ * but escalating this fast is too aggressive regardless of which
+ * explanation is true, so shutdown now defaults to patient. This does not
+ * slow down the common case: `pollPortFree` below returns the moment the
+ * port actually frees up, so only a process that is genuinely still alive
+ * after the full window pays for it.
+ */
+const SIGTERM_GRACE_MS = 30_000;
+
+/**
+ * Whether the extended SIGTERM grace period expired without the process
+ * exiting — i.e. whether SIGKILL escalation is needed.
+ *
+ * Pure so the escalation decision itself, not the process polling around
+ * it, is directly testable: `stillOwnerAfterGrace` is whatever
+ * `pollPortFree` returned after waiting out `SIGTERM_GRACE_MS` (the pid
+ * still holding the port, or `null` once it freed on its own).
+ */
+export function shouldEscalateToSigkill(stillOwnerAfterGrace: number | null): boolean {
+  return stillOwnerAfterGrace !== null;
+}
+
+/**
  * The one message explaining the `not-authenticated` outcome, shared by
  * every path that can produce it: this harness must never type, store, read
  * or transmit credentials, so the only correct response to finding the
@@ -634,6 +668,13 @@ export type KillOutcome =
       saveOutcome: SaveOutcomeOrNothingOpen;
       declinedPorts: DeclinedPort[];
       inFlightTurnLost: InFlightTurnLost;
+      /**
+       * Whether the extended SIGTERM grace period expired and SIGKILL had to
+       * be sent. This is the case where an unflushed `localStorage`/IndexedDB
+       * write (e.g. an auth session) could plausibly have been lost — see
+       * SIGTERM_GRACE_MS's doc comment.
+       */
+      hardKilled: boolean;
     }
   | ReturnType<typeof fail>;
 
@@ -776,19 +817,25 @@ async function saveKillVerify(opts: {
   const treePids = new Set(descendantsOf(root, processSnapshot()));
 
   killTree(root, false);
-  await new Promise((r) => setTimeout(r, 5000));
 
-  let stillOwner = portOwner(port);
+  // Poll for the port to free up during the grace period rather than
+  // sleeping the whole window — a process that exits promptly is reported
+  // promptly; only a process that is genuinely still alive after the full
+  // SIGTERM_GRACE_MS pays for it. See SIGTERM_GRACE_MS's doc comment for why
+  // that window is now generous rather than the previous flat 5s.
+  let stillOwner = await pollPortFree(port, SIGTERM_GRACE_MS);
+  const hardKilled = shouldEscalateToSigkill(stillOwner);
   let forceSignalled = false;
-  if (stillOwner) {
+  if (hardKilled) {
     // R2 IMPORTANT 1: escalate against the pids that are actually still alive,
     // not by re-deriving descendants of `root` from a fresh snapshot — by
-    // this point (~5s after the SIGTERM) `root` itself is typically already
-    // reaped, so `descendantsOf(root, freshSnapshot)` would find no trace of
-    // it and fall through to returning just `[root]` again, leaving any
-    // surviving child (the Electron process is the one that matters)
-    // un-signalled. `treePids`, captured before anything was killed, is the
-    // right set; filter it to who's still around and SIGKILL those directly.
+    // this point (SIGTERM_GRACE_MS after the SIGTERM) `root` itself is
+    // typically already reaped, so `descendantsOf(root, freshSnapshot)` would
+    // find no trace of it and fall through to returning just `[root]` again,
+    // leaving any surviving child (the Electron process is the one that
+    // matters) un-signalled. `treePids`, captured before anything was killed,
+    // is the right set; filter it to who's still around and SIGKILL those
+    // directly.
     //
     // win32 has no broader tree to re-derive in the first place (Correction 2
     // routes it straight to `killTreeCommand`/`taskkill /T`, which re-walks
@@ -850,7 +897,8 @@ async function saveKillVerify(opts: {
     project,
     saveOutcome: saveOutcome ?? { confirmed: true, reason: 'nothing-open' },
     declinedPorts,
-    inFlightTurnLost: inFlightTurnLostValue(chat)
+    inFlightTurnLost: inFlightTurnLostValue(chat),
+    hardKilled
   };
 }
 
@@ -917,7 +965,8 @@ export async function restart(opts: { force?: boolean } = {}) {
     declinedPorts: result.declinedPorts,
     save: result.saveOutcome,
     chat: { restored: chat2.mounted, messageCount: chat2.messageCount },
-    inFlightTurnLost: result.inFlightTurnLost
+    inFlightTurnLost: result.inFlightTurnLost,
+    hardKilled: result.hardKilled
   };
 }
 
@@ -938,6 +987,7 @@ export async function quit(opts: { force?: boolean } = {}) {
     project: result.project,
     save: result.saveOutcome,
     declinedPorts: result.declinedPorts,
-    inFlightTurnLost: result.inFlightTurnLost
+    inFlightTurnLost: result.inFlightTurnLost,
+    hardKilled: result.hardKilled
   };
 }

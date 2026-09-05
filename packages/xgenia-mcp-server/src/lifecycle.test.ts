@@ -17,7 +17,8 @@ import {
   withReadTimeout,
   TIMED_OUT,
   combinePreKillReads,
-  unresponsiveRefusal
+  unresponsiveRefusal,
+  shouldEscalateToSigkill
 } from './lifecycle.js';
 
 // Captured from a live `npm run dev`, leaf first.
@@ -389,5 +390,22 @@ describe('unresponsiveRefusal', () => {
 
   it('does not refuse when unresponsive but forced -- force is the documented escape hatch', () => {
     expect(unresponsiveRefusal(true, true)).toBe(false);
+  });
+});
+
+// Defect 2: a forced quit was observed to come back to a login screen with
+// NO auth token in localStorage at all -- plausibly because the prior 5s
+// SIGTERM grace period was too short for an Electron renderer to finish
+// flushing localStorage/IndexedDB before being SIGKILLed. shouldEscalateToSigkill
+// is the pure decision saveKillVerify now makes only after the extended
+// SIGTERM_GRACE_MS grace period (see lifecycle.ts), not before it -- pinned
+// here independent of the real process polling around it.
+describe('shouldEscalateToSigkill', () => {
+  it('does not escalate when the process exited on its own within the grace period (port free, pollPortFree returned null)', () => {
+    expect(shouldEscalateToSigkill(null)).toBe(false);
+  });
+
+  it('escalates when the process is still alive once the grace period expires (pollPortFree returned the surviving pid)', () => {
+    expect(shouldEscalateToSigkill(12345)).toBe(true);
   });
 });

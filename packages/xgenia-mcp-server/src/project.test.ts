@@ -12,7 +12,8 @@ import {
   saveOpenProject,
   defaultProjectJson,
   defaultProjectsParentDir,
-  checkProjectDirClobber
+  checkProjectDirClobber,
+  withChatReadiness
 } from './project.js';
 import { addRecentEntry } from './recents.js';
 import type { RecentEntry } from './recents.js';
@@ -20,6 +21,15 @@ import type { RecentEntry } from './recents.js';
 /** Minimal stand-in for a Playwright Page, just enough for saveOpenProject's evaluate call. */
 function stubPage(evaluate: (...args: unknown[]) => unknown): Page {
   return { evaluate } as unknown as Page;
+}
+
+/**
+ * Minimal stand-in for a Playwright Page with a chat frame (or none), just
+ * enough for `withChatReadiness` -> `waitForChatReady` -> `readChatState` ->
+ * `getChatFrame`, which reads `page.frames()`.
+ */
+function stubFramePage(frame: { url: () => string; evaluate: (...args: unknown[]) => unknown } | null): Page {
+  return { frames: () => (frame ? [frame] : []) } as unknown as Page;
 }
 
 let tmp: string;
@@ -169,6 +179,55 @@ describe('saveOpenProject', () => {
     expect(result.confirmed).toBe(false);
     expect(result.reason).toBe('evaluate-threw');
     expect('error' in result && result.error).toContain('boom: page navigated mid-evaluate');
+  });
+});
+
+// Defect 1a: openProject was observed live to report a project ready while
+// the AI chat panel iframe had not mounted yet. withChatReadiness is what
+// openProject now calls right before returning success, so these pin the
+// shape it attaches to a result: a project can legitimately be open with the
+// chat panel unavailable (closed, entitlement-gated, or just not mounted
+// yet), so this must never fail the whole call -- only report the fact.
+describe('withChatReadiness', () => {
+  it('reports chatReady:true and no reason when the panel is already mounted', async () => {
+    const page = stubFramePage({
+      url: () => 'https://xgenia-ai-app.vercel.app/panel',
+      evaluate: async () => ({ mounted: true, busy: false, messageCount: 4 })
+    });
+    const result = await withChatReadiness(page, { opened: true }, 200, 10);
+    expect(result).toEqual({ opened: true, chatReady: true, chatUnavailable: undefined, chatError: undefined });
+  });
+
+  it('reports chatReady:false with unavailable "no-frame" when the iframe never appears within the wait', async () => {
+    const page = stubFramePage(null);
+    const result = await withChatReadiness(page, { opened: true }, 30, 10);
+    expect(result.opened).toBe(true);
+    expect(result.chatReady).toBe(false);
+    expect(result.chatUnavailable).toBe('no-frame');
+  });
+
+  it('reports chatReady:false with no reason (not a failure) when the panel is legitimately closed/gated -- iframe never mounts, but readably so', async () => {
+    const page = stubFramePage({
+      url: () => 'https://xgenia-ai-app.vercel.app/panel',
+      evaluate: async () => ({ mounted: false, busy: false, messageCount: 0 })
+    });
+    const result = await withChatReadiness(page, { opened: true }, 30, 10);
+    expect(result.opened).toBe(true);
+    expect(result.chatReady).toBe(false);
+    expect(result.chatUnavailable).toBeUndefined();
+  });
+
+  it('never drops the caller-supplied result fields', async () => {
+    const page = stubFramePage({
+      url: () => 'https://xgenia-ai-app.vercel.app/panel',
+      evaluate: async () => ({ mounted: true, busy: true, messageCount: 9 })
+    });
+    const project = { name: 'Amazing thing. ', id: 'p1', dir: '/tmp/x', componentCount: 1 };
+    const result = await withChatReadiness(page, { opened: true, alreadyOpen: false, project }, 200, 10);
+    expect(result.opened).toBe(true);
+    expect(result.alreadyOpen).toBe(false);
+    expect(result.project).toEqual(project);
+    expect(result.chatReady).toBe(true);
   });
 });
 

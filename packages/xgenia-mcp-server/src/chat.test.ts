@@ -7,7 +7,8 @@ import {
   normaliseWhitespace,
   promptSlice,
   transcriptContainsPrompt,
-  confirmSent
+  confirmSent,
+  chatNotReadyHint
 } from './chat.js';
 import { summariseMessages, type ChatMessage } from './editor-state.js';
 
@@ -270,5 +271,42 @@ describe('confirmSent', () => {
     const result = await confirmSent(frame, SENT, 30, 10);
     expect(result.confirmed).toBe(false);
     expect(Date.now() - start).toBeLessThan(500); // bounded, not the real 10s default
+  });
+});
+
+// Defect 1b: chatRead/chatSend/chatWaitIdle must not tell a caller to "open
+// the AI panel" when the panel isn't missing, only a moment from ready --
+// that hint used to be the same regardless of which of these three very
+// different situations was actually observed. chatNotReadyHint is what
+// produces the hint text after the retry window (waitForChatReady) gives up;
+// these pin that only the message differs per reason, not the underlying
+// retry-then-fail behaviour (covered live and by waitForChatReady's own
+// tests in editor-state.test.ts).
+describe('chatNotReadyHint', () => {
+  it('names the wait and says the iframe never appeared in the DOM for "no-frame"', () => {
+    const hint = chatNotReadyHint({ unavailable: 'no-frame' }, 6000);
+    expect(hint).toContain('6000ms');
+    expect(hint).toContain('did not appear in the DOM');
+  });
+
+  it('surfaces the underlying error message for "evaluate-failed"', () => {
+    const hint = chatNotReadyHint({ unavailable: 'evaluate-failed', error: 'boom: cross-origin' }, 6000);
+    expect(hint).toContain('6000ms');
+    expect(hint).toContain('boom: cross-origin');
+  });
+
+  it('describes a present-but-unmounted iframe distinctly, without any unavailable reason', () => {
+    const hint = chatNotReadyHint({}, 6000);
+    expect(hint).toContain('6000ms');
+    expect(hint).toContain('iframe is present');
+    expect(hint).toContain('input never rendered');
+  });
+
+  it('never tells the caller to open a panel that is not actually missing (no-frame case aside)', () => {
+    // The old hint was the same literal "Open the AI panel in XGENIA." for
+    // every reason, which is actively misleading when the panel is simply
+    // still mounting. The present-but-unmounted case must not lead with that.
+    const hint = chatNotReadyHint({}, 6000);
+    expect(hint.startsWith('Open the AI panel')).toBe(false);
   });
 });
