@@ -1,12 +1,21 @@
 {
-  "name": "@xgenia/mcp-server",
+  "name": "xgenia-mcp",
   "version": "1.0.0",
   "type": "module",
-  "description": "Headless harness MCP server for XGENIA using Playwright CDP",
+  "description": "MCP harness that drives the XGENIA editor over the Chrome DevTools Protocol",
+  "license": "MIT",
+  "bin": { "xgenia-mcp": "dist/index.js" },
   "main": "dist/index.js",
+  "files": ["dist"],
+  "engines": { "node": ">=18" },
+  "publishConfig": { "registry": "https://registry.npmjs.org", "access": "public" },
   "scripts": {
-    "start": "npx tsx src/index.ts",
-    "dev": "npx tsx watch src/index.ts"
+    "build": "tsc -p tsconfig.json",
+    "clean": "rimraf dist",
+    "test": "vitest run",
+    "smoke": "node dist/smoke.js",
+    "smoke:full": "node dist/smoke.js --destructive",
+    "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -15,6 +24,9 @@
   },
   "devDependencies": {
     "@types/node": "^18.19.100",
-    "typescript": "^5.9.3"
+    "jsdom": "^20.0.3",
+    "rimraf": "^3.0.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
   }
 }

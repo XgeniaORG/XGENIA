@@ -14,6 +14,7 @@ const StateManagerNode = {
     this._internal.outputValues = {};
     this._internal.aliases = {};
     this._internal.stateObject = null;
+    this._internal.initialValues = {};
   },
 
   getInspectInfo() {
@@ -47,6 +48,31 @@ const StateManagerNode = {
       set: function (value) {
         const numInputs = Math.max(0, Math.floor(value || 0));
         this._internal.numInputs = numInputs;
+        // Slots that came into existence with this change get their seed too.
+        this.applyInitialValues();
+      }
+    },
+    // ─── THE SEED THAT IS NOT AN INPUT (2026-09-04, export 1788537867593 "Heist Drive") ───
+    // A slot's static input value is SHADOWED the moment a wire drives that input — and the
+    // canonical accumulator wires SpinCalc.capital back into input0. So the "starting balance"
+    // of 1000 typed on input0 never existed at runtime: output0 read 0, the first spin took it
+    // to -1, and every attempt to seed it through the wire (a constant, a merge node, the reset
+    // signal) either shadowed the write-back or wiped the state. ~25 tool calls, then a
+    // reviewer-rejected magic number in the consumer's script.
+    //
+    // initialValues is applied to the OUTPUT side at start and again on reset, keyed by slot
+    // (input0…) or by alias (capital…). Inputs remain single-writer; the seed is not one.
+    initialValues: {
+      type: '*',
+      displayName: 'Initial Values',
+      group: 'Configuration',
+      set: function (value) {
+        let obj = value;
+        if (typeof value === 'string') {
+          try { obj = JSON.parse(value); } catch (e) { obj = null; }
+        }
+        this._internal.initialValues = obj && typeof obj === 'object' && !Array.isArray(obj) ? obj : {};
+        this.applyInitialValues();
       }
     }
   },
@@ -126,6 +152,34 @@ const StateManagerNode = {
             return this._internal.outputValues[inputName];
           }
         });
+      }
+    },
+
+    /**
+     * Seed every slot whose OUTPUT has no value yet from initialValues — by slot name (input0) or
+     * by alias (capital). Never overwrites a value an update has committed; reset clears first,
+     * then calls this, which is what makes reset return to the seed rather than to null.
+     */
+    applyInitialValues: function () {
+      const internal = this._internal;
+      const init = internal.initialValues || {};
+      if (Object.keys(init).length === 0) return;
+      const numInputs = internal.numInputs || 3;
+      for (let i = 0; i < numInputs; i++) {
+        const inputName = `input${i}`;
+        const alias = String(internal.aliases[`alias${i}`] || '').trim();
+        let seed;
+        if (init[inputName] !== undefined) seed = init[inputName];
+        else if (alias && init[alias] !== undefined) seed = init[alias];
+        if (seed === undefined) continue;
+        const current = internal.outputValues[inputName];
+        if (current !== undefined && current !== null) continue;
+        internal.outputValues[inputName] = seed;
+        // Read side too, so the first `update` does not overwrite the seed with undefined
+        // when nothing has driven the input yet.
+        if (internal.inputValues[inputName] === undefined) internal.inputValues[inputName] = seed;
+        const outputName = `output${i}`;
+        if (this.hasOutput(outputName)) this.flagOutputDirty(outputName);
       }
     },
 
@@ -210,6 +264,9 @@ const StateManagerNode = {
       this.flagOutputDirty('stateObject');
       this.flagOutputDirty('objectId');
 
+      // Reset returns to the SEED, not to null (see initialValues).
+      this.applyInitialValues();
+
       // Emit Reset Done signal
       if (this.hasOutput('Reset Done')) this.sendSignalOnOutput('Reset Done');
     }
@@ -242,6 +299,13 @@ function updatePorts(nodeId, parameters, editorConnection) {
       group: 'Configuration',
       name: 'numInputs',
       displayName: 'Number of Inputs'
+    },
+    {
+      type: '*',
+      plug: 'input',
+      group: 'Configuration',
+      name: 'initialValues',
+      displayName: 'Initial Values'
     }
   );
 

@@ -1,4 +1,5 @@
 // Unified input action: map multiple input codes to a single action value with pressed/released detection.
+import { tickerAdd, tickerRemove } from '../../pixi-ticker-safety';
 const InputActionNode = {
   name: 'logic.InputAction',
   displayNodeName: 'Input Action',
@@ -70,7 +71,7 @@ const InputActionNode = {
       window.addEventListener('blur', () => { this._registry = Object.create(null); this._update(); });
       const app = window.__PIXI_UPDATE_MANAGER?.pixiApp || window.__PIXI_APP;
       if (app && app.ticker){
-        app.ticker.add(this._tick);
+        tickerAdd(app.ticker, this._tick);
       } else {
         // Fallback to rAF loop if app ticker isn't ready
         this._rafId = window.requestAnimationFrame(this._rafTick);
@@ -83,7 +84,7 @@ const InputActionNode = {
       window.removeEventListener('mousedown', this._mouseDown);
       window.removeEventListener('mouseup', this._mouseUp);
       const app = window.__PIXI_UPDATE_MANAGER?.pixiApp || window.__PIXI_APP;
-      if (app && app.ticker){ app.ticker.remove(this._tick); }
+      if (app && app.ticker){ tickerRemove(app.ticker, this._tick); }
       if (this._rafId){ window.cancelAnimationFrame(this._rafId); this._rafId = null; }
     },
     _onKey(e, v){

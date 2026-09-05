@@ -731,7 +731,22 @@ export class EditorBridge {
                     return;
                 }
 
-                project.listFilesInProjectDirectory(
+                /* (2026-09-04) Was listFilesInProjectDirectory, which walks the
+                 * ENTIRE project tree — its own doc comment on listProjectAssets
+                 * says so. The image picker therefore offered internal files as
+                 * if they were project art: every AI-generated image appeared
+                 * TWICE, once as its saved name and once as the raw
+                 * `.xgenia-image-staging/img_<id>.png` copy that exists only so a
+                 * generation survives a reload. Those staged entries are the
+                 * "empty boxes" — no thumbnail, a timestamp for a name. Alongside
+                 * them came `.styles/reference-image.png` and anything image-like
+                 * in .git or node_modules.
+                 *
+                 * listProjectAssets is the purpose-built safe walker: rooted at
+                 * <project>/assets, depth-capped, hidden/heavy dirs skipped, and
+                 * the same set the AI's own asset tool reports.
+                 */
+                project.listProjectAssets(
                     (files: any[]) => {
                         try {
                             const results = (files || []).map(f => {
@@ -751,7 +766,7 @@ export class EditorBridge {
                             resolve([]);
                         }
                     },
-                    ['png', 'jpeg', 'jpg', 'svg', 'gif', 'webp']
+                    { types: ['png', 'jpeg', 'jpg', 'svg', 'gif', 'webp'] }
                 );
             });
         });
@@ -783,7 +798,51 @@ export class EditorBridge {
                     const buffer = fs.readFileSync(fullPath);
                     const ext = path.extname(fullPath).toLowerCase().substring(1) || 'png';
                     const mimeType = ext === 'svg' ? 'image/svg+xml' : (ext === 'jpg' ? 'image/jpeg' : `image/${ext}`);
-                    
+
+                    /* (2026-09-04) Actually make a THUMBNAIL.
+                     *
+                     * This shipped the whole file as base64 — a 5MB PNG became a
+                     * ~6.7MB string sent across postMessage for a 64px tile. Large
+                     * assets showed "No Preview" in the picker for that reason
+                     * alone, and every small one cost the renderer a needless
+                     * multi-megabyte string.
+                     *
+                     * SVG is vector and already small, so it passes through
+                     * untouched. Anything else is downscaled with nativeImage,
+                     * which is already in-process here. If that fails for any
+                     * reason we fall back to the original bytes: a slow preview
+                     * beats no preview.
+                     */
+                    const MAX_EDGE = 320;
+                    if (ext !== 'svg') {
+                        try {
+                            const { nativeImage } = require('electron');
+                            const img = nativeImage.createFromBuffer(buffer);
+                            const size = img.isEmpty() ? null : img.getSize();
+                            if (size && Math.max(size.width, size.height) > MAX_EDGE) {
+                                const resized = size.width >= size.height
+                                    ? img.resize({ width: MAX_EDGE, quality: 'good' })
+                                    : img.resize({ height: MAX_EDGE, quality: 'good' });
+                                resolve({
+                                    dataUrl: `data:image/png;base64,${resized.toPNG().toString('base64')}`,
+                                    width: size.width,
+                                    height: size.height
+                                });
+                                return;
+                            }
+                            if (size) {
+                                resolve({
+                                    dataUrl: `data:${mimeType};base64,${buffer.toString('base64')}`,
+                                    width: size.width,
+                                    height: size.height
+                                });
+                                return;
+                            }
+                        } catch (e) {
+                            console.warn('[EditorBridge] Thumbnail downscale unavailable, sending original:', e);
+                        }
+                    }
+
                     resolve({
                         dataUrl: `data:${mimeType};base64,${buffer.toString('base64')}`
                     });
@@ -2833,6 +2892,35 @@ export class EditorBridge {
         h('project.getDirectory', () => {
             try {
                 return (ProjectModel.instance as any)?._retainedProjectDirectory || null;
+            } catch {
+                return null;
+            }
+        });
+
+        /**
+         * Where a plugin can load this project's files over HTTP.
+         *
+         * (2026-09-04) The image editor used to load every disk-backed asset by
+         * reading the whole file over this bridge as base64 and rendering the
+         * resulting `data:` URL. A 5MB video cost about 13MB as a UTF-16 string
+         * plus a transient structured-clone copy, for every asset in the
+         * project, whether or not it was on screen.
+         *
+         * The editor already serves the project directory over HTTP with Range
+         * support (see web-server.js `serveFile`), so a `<video>` pointed at
+         * this origin streams the bytes it needs instead of holding the file in
+         * renderer memory. 127.0.0.1 is a potentially trustworthy origin, so
+         * this is not mixed content inside the plugin's https frame, and unlike
+         * `file://` it survives `crossOrigin="anonymous"` — which the image
+         * editor needs for export, merge and layer flatten.
+         *
+         * Returns null when there is no server to talk to, which is the signal
+         * for the plugin to fall back to reading bytes over this bridge.
+         */
+        h('project.getAssetOrigin', () => {
+            try {
+                const port = (typeof process !== 'undefined' && process.env && process.env.XGENIAPORT) || 8574;
+                return `http://127.0.0.1:${port}`;
             } catch {
                 return null;
             }

@@ -1215,11 +1215,21 @@ function serveFile(filePath, request, response) {
       // Wait for the file to actually open before sending headers, so open
       // failures still get a clean error status.
       fileStream.on('open', function () {
+        // (2026-09-04) The 200 branch below has always sent CORS headers; this
+        // one sent none, so a ranged request was the one shape of asset fetch
+        // that could taint a canvas. The image editor reads pixels back through
+        // a canvas for export, merge and layer flatten, and it streams video by
+        // range — so a video asset worked on screen and then failed on export.
+        // Same headers on both paths, plus Content-Range exposed so a fetch()
+        // caller can read it rather than only a media element.
         const responseHeaders = {
           'Content-Range': 'bytes ' + start + '-' + end + '/' + stat.size,
           'Content-Length': start == end ? 0 : end - start + 1,
           'Content-Type': getContentType(request),
           'Accept-Ranges': 'bytes',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET',
+          'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
           'Cache-Control': 'no-cache',
           'Last-Modified': stat.mtime.toUTCString(),
           ETag: '"' + stat.mtimeMs + '-' + stat.size + '"'
@@ -1239,6 +1249,10 @@ function serveFile(filePath, request, response) {
           'Content-Type': getContentType(request),
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET',
+          // Advertised so a client knows it may range-request this file at all;
+          // without it a media element downloads the whole thing before playing.
+          'Accept-Ranges': 'bytes',
+          'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
           'Last-Modified': stat.mtime.toUTCString(),
           ETag: '"' + stat.mtimeMs + '-' + stat.size + '"',
           'Cache-Control': 'no-cache'

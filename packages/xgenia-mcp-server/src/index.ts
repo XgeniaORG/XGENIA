@@ -1,128 +1,193 @@
+#!/usr/bin/env node
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { chromium, Browser, Page } from 'playwright-core';
 import { z } from 'zod';
+import { health, probe, projectStatus } from './editor-state.js';
+import { chatSend, chatRead, chatWaitIdle } from './chat.js';
+import { screenshot } from './screenshot.js';
+import { openProject } from './project.js';
+import { launch, restart } from './lifecycle.js';
 
-const server = new McpServer({
-  name: "xgenia-playwright-mcp",
-  version: "1.0.0"
+const server = new McpServer({ name: 'xgenia-mcp', version: '1.0.0' });
+
+const text = (value: unknown) => ({
+  content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }]
 });
 
-let browser: Browser | null = null;
-let page: Page | null = null;
-
-async function getPage() {
-  if (page && !page.isClosed()) return page;
-  
-  if (!browser || !browser.isConnected()) {
-    try {
-      // Electron apps with --remote-debugging-port=9222 expose CDP here
-      browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-    } catch (e) {
-      throw new Error(`Failed to connect to XGENIA on port 9222. Ensure XGENIA is running with --remote-debugging-port=9222. Error: ${e}`);
-    }
+/**
+ * Turn a thrown error into the same shape a handled failure returns.
+ *
+ * Every tool reports either a verified result or {error, tried, hint}; letting an
+ * exception escape would break that contract for the caller.
+ */
+async function guard(tried: string, fn: () => Promise<unknown>) {
+  try {
+    return text(await fn());
+  } catch (e) {
+    const err = e as Error & { code?: string };
+    return text({
+      error: err.code ?? 'page-unresponsive',
+      tried,
+      hint: err.message ?? String(e)
+    });
   }
-
-  const contexts = browser.contexts();
-  if (contexts.length === 0) throw new Error("No browser contexts found.");
-  
-  const pages = contexts[0].pages();
-  if (pages.length === 0) throw new Error("No pages found.");
-  
-  // The first page is typically the main Electron BrowserWindow
-  page = pages[0];
-  return page;
 }
 
-server.tool(
-  "xgenia_screenshot",
-  "Captures a screenshot of the active XGENIA editor window",
-  {},
-  async () => {
-    const p = await getPage();
-    const buffer = await p.screenshot();
-    const base64 = buffer.toString('base64');
-    return {
-      content: [{ type: "image", data: base64, mimeType: "image/png" }]
-    };
-  }
-);
-
-server.tool(
-  "xgenia_click",
-  "Simulates a physical mouse click at the specified viewport coordinates",
+server.registerTool(
+  'xgenia_health',
   {
-    x: z.number().describe("X coordinate to click"),
-    y: z.number().describe("Y coordinate to click")
+    title: 'XGENIA health',
+    description:
+      'Liveness of the XGENIA editor: whether it is running, dev or packaged, which project is open, whether the AI chat panel is mounted and how long it has been generating. Call this first. ' +
+      'busyForMs is NOT wall-clock time since generation began — it is measured from this harness process\'s first observation of the busy state, because the underlying tracker is in-memory and has no earlier signal. A panel that has been stuck generating for hours looks identical to one that just started: both can read a small busyForMs right after this server starts. Treat busyForMs as a lower bound on how long it has been busy, never as the true duration.',
+    inputSchema: {}
   },
-  async ({ x, y }) => {
-    const p = await getPage();
-    await p.mouse.move(x, y);
-    await p.mouse.down();
-    await p.mouse.up();
-    return { content: [{ type: "text", text: `Clicked successfully at (${x}, ${y})` }] };
-  }
+  () => guard('connect + evaluate', health)
 );
 
-server.tool(
-  "xgenia_type",
-  "Simulates physical keyboard typing in the currently focused element",
+server.registerTool(
+  'xgenia_probe',
   {
-    text: z.string().describe("Text to type")
+    title: 'Probe XGENIA selectors',
+    description:
+      'Report which DOM selectors the harness depends on currently resolve. Use when another tool returns selector-missing, to see what actually changed.',
+    inputSchema: {}
   },
-  async ({ text }) => {
-    const p = await getPage();
-    await p.keyboard.type(text);
-    return { content: [{ type: "text", text: `Typed: "${text}"` }] };
-  }
+  () => guard('selector probe', probe)
 );
 
-server.tool(
-  "xgenia_get_ui_tree",
-  "Gets a simplified DOM tree of interactive elements in the XGENIA editor to help determine click coordinates",
-  {},
-  async () => {
-    const p = await getPage();
-    const uiTree = await p.evaluate(() => {
-      // Find all potentially interactive elements
-      const elements = Array.from(document.querySelectorAll('button, input, textarea, a, [role="button"], [role="treeitem"], [role="tab"]'));
-      return elements.map(el => {
-        const rect = el.getBoundingClientRect();
-        // Skip hidden or zero-size elements
-        if (rect.width === 0 || rect.height === 0 || rect.top < 0 || rect.left < 0) return null;
-        
-        let text = (el.textContent || '').trim();
-        if (!text && el.tagName.toLowerCase() === 'input') {
-          text = (el as HTMLInputElement).value || (el as HTMLInputElement).placeholder;
-        }
+server.registerTool(
+  'xgenia_launch',
+  {
+    title: 'Launch XGENIA',
+    description:
+      'Attach to a running XGENIA, or start one. target "app" uses the installed build, "dev" runs npm run dev from a repo checkout, "auto" prefers whichever is available.',
+    inputSchema: { target: z.enum(['app', 'dev', 'auto']).optional() }
+  },
+  ({ target }) => guard('launch', () => launch({ target }))
+);
 
-        return {
-          tag: el.tagName.toLowerCase(),
-          text: text.substring(0, 50),
-          id: el.id,
-          className: el.className,
-          // Center coordinate for clicking
-          clickX: Math.round(rect.left + rect.width / 2),
-          clickY: Math.round(rect.top + rect.height / 2),
-          width: Math.round(rect.width),
-          height: Math.round(rect.height)
-        };
-      }).filter(Boolean);
-    });
-    
-    return {
-      content: [{ type: "text", text: JSON.stringify(uiTree, null, 2) }]
-    };
+server.registerTool(
+  'xgenia_restart',
+  {
+    title: 'Restart XGENIA',
+    description:
+      'Save, kill and relaunch XGENIA, then reopen the project that was open. Refuses while the AI chat is mid-generation unless force is set, because that turn would be lost. ' +
+      'The result carries more than restarted/project: recoveryError explains why the project failed to reopen after relaunch (project is null in that case, but the failure reason survives instead of being swallowed), and declinedPorts lists dev ports the harness found still occupied but refused to free because their owner was not part of the process tree it just killed. Check both before assuming a clean restart.',
+    inputSchema: { force: z.boolean().optional() }
+  },
+  ({ force }) => guard('restart', () => restart({ force }))
+);
+
+server.registerTool(
+  'xgenia_project_status',
+  {
+    title: 'XGENIA project status',
+    description:
+      'Which project is open, if any. When none is open, also returns the 25 most recent projects so you can pick one.',
+    inputSchema: {}
+  },
+  () => guard('project status', projectStatus)
+);
+
+server.registerTool(
+  'xgenia_open_project',
+  {
+    title: 'Open an XGENIA project',
+    description:
+      'Open a project by absolute directory or by name. A directory not in the recents list is added to it first. Verifies the editor actually landed on that project.',
+    inputSchema: { dir: z.string().optional(), name: z.string().optional() }
+  },
+  ({ dir, name }) => guard('open project', () => openProject({ dir, name }))
+);
+
+server.registerTool(
+  'xgenia_chat_send',
+  {
+    title: 'Send a prompt to the XGENIA AI chat',
+    description:
+      'Type a prompt into the AI chat panel and send it. Refuses while a turn is in flight unless force is set. Returns only after confirming the input cleared and the transcript advanced.',
+    inputSchema: {
+      text: z.string(),
+      waitIdle: z.boolean().optional(),
+      force: z.boolean().optional(),
+      timeoutMs: z.number().optional()
+    }
+  },
+  ({ text: prompt, waitIdle, force, timeoutMs }) =>
+    guard('chat send', () => chatSend(prompt, { waitIdle, force, timeoutMs }))
+);
+
+server.registerTool(
+  'xgenia_chat_read',
+  {
+    title: 'Read the XGENIA AI chat transcript',
+    description:
+      'Read the AI chat transcript, paged from an index. Long messages are truncated; the message count and busy flag come from the live panel.',
+    inputSchema: { since: z.number().optional(), limit: z.number().optional() }
+  },
+  ({ since, limit }) => guard('chat read', () => chatRead({ since, limit }))
+);
+
+server.registerTool(
+  'xgenia_chat_wait_idle',
+  {
+    title: 'Wait for the XGENIA AI chat to finish',
+    description:
+      'Block until the AI chat panel stops generating. On timeout it returns timedOut instead of throwing, so you can screenshot and decide.',
+    inputSchema: { timeoutMs: z.number().optional() }
+  },
+  ({ timeoutMs }) => guard('chat wait idle', () => chatWaitIdle(timeoutMs ?? 300_000))
+);
+
+server.registerTool(
+  'xgenia_screenshot',
+  {
+    title: 'Screenshot XGENIA',
+    description:
+      'Capture the editor window, the chat panel, or the canvas. Returns base64 plus cssSize, imageSize and a measured scale factor. ' +
+      'ALWAYS convert any coordinate you read off the returned image through that scale before using it (e.g. with page.mouse or another tool that expects CSS pixels) — imageSize is in physical pixels of the capture, cssSize is not. scale is measured per capture, not a constant: it is neither 1 nor a fixed 2, because the editor runs at an Electron zoom factor (live measurements have shown ~1.25, from zoom 0.8 on a 2x-density display), and it moves whenever the user changes zoom.',
+    inputSchema: {
+      region: z.enum(['full', 'chat', 'canvas']).optional(),
+      format: z.enum(['jpeg', 'png']).optional()
+    }
+  },
+  async ({ region, format }) => {
+    try {
+      const result = await screenshot({ region, format });
+      if ('error' in result) return text(result);
+      return {
+        content: [
+          { type: 'image' as const, data: result.image, mimeType: result.mimeType },
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                region: result.region,
+                cssSize: result.cssSize,
+                imageSize: result.imageSize,
+                scale: result.scale,
+                bytes: result.bytes
+              },
+              null,
+              2
+            )
+          }
+        ]
+      };
+    } catch (e) {
+      const err = e as Error & { code?: string };
+      return text({ error: err.code ?? 'page-unresponsive', tried: 'screenshot', hint: err.message });
+    }
   }
 );
 
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error("XGENIA Playwright MCP Server started and listening via stdio.");
+  await server.connect(new StdioServerTransport());
+  console.error('xgenia-mcp listening on stdio');
 }
 
-main().catch(e => {
-  console.error("Error starting XGENIA MCP server:", e);
+main().catch((e) => {
+  console.error('xgenia-mcp failed to start:', e);
   process.exit(1);
 });
