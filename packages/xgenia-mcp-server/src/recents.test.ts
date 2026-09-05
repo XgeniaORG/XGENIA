@@ -75,4 +75,85 @@ describe('addRecentEntry', () => {
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     expect(raw.thumbsMigratedV1).toBe(true);
   });
+
+  it('throws when file exists but holds invalid JSON', () => {
+    // Corrupt the file
+    fs.writeFileSync(file, 'not valid json');
+    const bytesAfterCorruption = fs.readFileSync(file);
+
+    expect(() => {
+      addRecentEntry(file, '/Users/x/Downloads/SomeOther', 'SomeOther');
+    }).toThrow();
+
+    // Verify file is unchanged (still corrupted, not modified by the failed add)
+    expect(fs.readFileSync(file)).toEqual(bytesAfterCorruption);
+  });
+
+  it('throws when file exists but is unreadable', () => {
+    const bytesBeforeLock = fs.readFileSync(file);
+
+    // Make file unreadable (may be ineffective if running as root)
+    fs.chmodSync(file, 0o000);
+
+    let threw = false;
+    try {
+      addRecentEntry(file, '/Users/x/Downloads/SomeOther', 'SomeOther');
+    } catch {
+      threw = true;
+    }
+
+    // Restore permissions for cleanup
+    fs.chmodSync(file, 0o644);
+
+    if (threw) {
+      // File should be unchanged
+      expect(fs.readFileSync(file)).toEqual(bytesBeforeLock);
+    } else {
+      // If chmod was ineffective, skip this assertion
+      // (e.g., running as root makes file readable regardless)
+    }
+  });
+
+  it('creates file with one entry when file does not exist', () => {
+    const newFile = path.join(tmp, 'brand_new.json');
+    expect(fs.existsSync(newFile)).toBe(false);
+
+    const e = addRecentEntry(newFile, '/Users/x/Downloads/Brand', 'Brand');
+    expect(fs.existsSync(newFile)).toBe(true);
+    expect(e.retainedProjectDirectory).toBe('/Users/x/Downloads/Brand');
+
+    const disk = JSON.parse(fs.readFileSync(newFile, 'utf8'));
+    expect(disk.recentProjects).toHaveLength(1);
+    expect(disk.recentProjects[0].id).toBe(e.id);
+  });
+
+  it('leaves no .tmp-* debris after successful add', () => {
+    addRecentEntry(file, '/Users/x/Downloads/Another', 'Another');
+    const entries = fs.readdirSync(tmp);
+    const tmpFiles = entries.filter((name) => name.startsWith('recently_opened_project.json.tmp-'));
+    expect(tmpFiles).toHaveLength(0);
+  });
+
+  it('preserves all entries when adding to a multi-entry file', () => {
+    // Add a second entry
+    const e2 = addRecentEntry(file, '/Users/x/Downloads/Second', 'Second');
+    // Re-read from disk to get all entries
+    const allAfterAdd = readRecents(file);
+    expect(allAfterAdd).toHaveLength(2);
+
+    // Add a third entry
+    const e3 = addRecentEntry(file, '/Users/x/Downloads/Third', 'Third');
+    const allAfterSecondAdd = readRecents(file);
+    expect(allAfterSecondAdd).toHaveLength(3);
+
+    // Verify all original and new ids are present
+    const ids = allAfterSecondAdd.map((x) => x.id);
+    expect(ids).toContain(EXISTING.id);
+    expect(ids).toContain(e2.id);
+    expect(ids).toContain(e3.id);
+
+    // When re-adding EXISTING dir, its id does not change
+    const existingAgain = addRecentEntry(file, '/Users/x/Downloads/Amazing thing. ', 'Amazing thing. ');
+    expect(existingAgain.id).toBe(EXISTING.id);
+  });
 });

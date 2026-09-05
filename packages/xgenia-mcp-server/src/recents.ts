@@ -62,11 +62,20 @@ export function findRecent(
  */
 export function addRecentEntry(file: string, dir: string, name: string): RecentEntry {
   let raw: Record<string, unknown> = {};
-  try {
-    raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    raw = {};
+
+  // Distinguish "file doesn't exist" (ENOENT) from "file exists but unreadable"
+  if (fs.existsSync(file)) {
+    try {
+      raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch (err) {
+      // File exists but cannot be read or parsed. Fail closed to avoid data loss.
+      throw new Error(
+        `Failed to read or parse recents file at ${file}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
   }
+  // If file does not exist, raw stays as {}
+
   const list = Array.isArray(raw.recentProjects) ? (raw.recentProjects as RecentEntry[]) : [];
 
   const existing = list.find((e) => e.retainedProjectDirectory === dir);
@@ -81,6 +90,21 @@ export function addRecentEntry(file: string, dir: string, name: string): RecentE
   };
   list.push(entry);
   raw.recentProjects = list;
-  fs.writeFileSync(file, JSON.stringify(raw));
+
+  // Atomic write: write to temp file then rename over target
+  const tmpFile = `${file}.tmp-${process.pid}`;
+  try {
+    fs.writeFileSync(tmpFile, JSON.stringify(raw));
+    fs.renameSync(tmpFile, file);
+  } catch (err) {
+    // Clean up temp file on failure
+    try {
+      fs.unlinkSync(tmpFile);
+    } catch {
+      // Ignore cleanup errors
+    }
+    throw err;
+  }
+
   return entry;
 }
