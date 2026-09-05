@@ -18,6 +18,21 @@
 
   --glass-divider: rgba(255, 255, 255, 0.12);
 
+  /* Segmented controls (Edit|Preview, the zoom row). Defined once so the two
+     controls that sit side by side in the same bar cannot drift apart. The inactive
+     label is deliberately 50% white rather than a dimmer grey: at 11px over glass it
+     is the lowest value that still clears 4.5:1 on the composited background. */
+  --glass-seg-fg: rgba(255, 255, 255, 0.5);
+  --glass-seg-fg-active: rgba(255, 255, 255, 0.92);
+  --glass-seg-bg-active: rgba(255, 255, 255, 0.14);
+
+  /* Preview frame resize handles. Brighter than the glass control values on purpose:
+     these sit on top of live game art, not on the bar, so they need to read against
+     an arbitrary background. */
+  --frame-handle: rgba(255, 255, 255, 0.38);
+  --frame-handle-hover: rgba(255, 255, 255, 0.7);
+  --frame-handle-ring: rgba(255, 255, 255, 0.45);
+
   --theme-color-publish: #34D399;
   --theme-color-attention: #FBBF24;
 

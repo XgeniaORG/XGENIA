@@ -8,7 +8,7 @@ import GlobeIcon from '@hugeicons/core-free-icons/GlobeIcon';
 import Cancel01Icon from '@hugeicons/core-free-icons/Cancel01Icon';
 import { AiBrowserManager, AiBrowserState } from '@xgenia-ai/ChatPanel/AiBrowserManager';
 import { Frame, FrameProps } from '../common/Frame/Frame';
-import css from './CanvasWithBrowserTabs.module.scss';
+import css from './PreviewSurface.module.scss';
 
 type ActiveTab = 'viewport' | 'browser';
 

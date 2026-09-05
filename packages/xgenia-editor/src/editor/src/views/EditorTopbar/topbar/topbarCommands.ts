@@ -24,19 +24,25 @@ const PRESET_WORDS: Record<string, 'Mobile' | 'Tablet' | 'Desktop'> = {
   desktop: 'Desktop', pc: 'Desktop'
 };
 
-const PLAIN: Record<string, TopbarMatch> = Object.freeze({
+const PLAIN: Record<string, TopbarMatch> = deepFreeze({
   fit: { kind: 'command', id: 'fit', label: 'Fit to window' },
   detach: { kind: 'command', id: 'detach', label: 'Detach preview' },
   devtools: { kind: 'command', id: 'devtools', label: 'Open dev tools' },
   import: { kind: 'command', id: 'import', label: 'Import design' },
   publish: { kind: 'command', id: 'publish', label: 'Publish' },
   refresh: { kind: 'command', id: 'refresh', label: 'Refresh preview' }
-} as Record<string, TopbarMatch>);
+});
+
+/** Freeze the table and every entry in it, preserving the declared type. */
+function deepFreeze(table: Record<string, TopbarMatch>): Record<string, TopbarMatch> {
+  Object.values(table).forEach((m) => Object.freeze(m));
+  return Object.freeze(table);
+}
 
 /** Frozen: both exports hand these back by reference, and a consumer that decorates a
  *  match in place (adding `selected`, sorting, annotating) would otherwise rewrite the
  *  parser's own tables for the rest of the session. */
-const ALL_COMMANDS: readonly TopbarMatch[] = Object.freeze([
+const ALL_COMMANDS: readonly TopbarMatch[] = ([
   { kind: 'command', id: 'preset', group: 'Mobile', label: 'Phone preview' },
   { kind: 'command', id: 'fit', label: 'Fit to window' },
   { kind: 'command', id: 'detach', label: 'Detach preview' },
@@ -45,7 +51,7 @@ const ALL_COMMANDS: readonly TopbarMatch[] = Object.freeze([
   { kind: 'command', id: 'split', direction: 'vertical', label: 'Split vertically' },
   { kind: 'command', id: 'split', direction: 'horizontal', label: 'Split horizontally' },
   PLAIN.devtools, PLAIN.import, PLAIN.publish, PLAIN.refresh
-].map((m) => Object.freeze(m)));
+] as TopbarMatch[]).map((m) => Object.freeze(m));
 
 function stripHash(p: string): string {
   return p.replace(/^\/#/, '');

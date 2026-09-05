@@ -1,0 +1,93 @@
+// PageMenu.module.scss — the pages + typed-commands list inside the pill's GlassPopover.
+// The glass plate, dividers and section labels come from GlassPopover.module.scss;
+// this file only styles the rows.
+
+.Row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  padding: 0 10px;
+  border-radius: 8px;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--glass-ctrl-bg);
+  }
+
+  &.isCurrent {
+    background: var(--glass-ctrl-bg);
+  }
+}
+
+.Thumb {
+  width: 52px;
+  height: 30px;
+  border-radius: 4px;
+  flex: none;
+  // Placeholder plate until page thumbnails exist. Tokens only — no raw hex.
+  background: radial-gradient(120% 90% at 50% 10%, var(--theme-color-bg-3) 0%, var(--theme-color-bg-1) 70%);
+  border: 1px solid var(--glass-ctrl-border);
+}
+
+.Text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.Title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--theme-color-fg-highlight);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.Sub {
+  font-size: 11px;
+  color: var(--theme-color-fg-default-shy);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.Cmd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--theme-color-fg-default);
+  font-size: 12px;
+
+  &:hover {
+    background: var(--glass-ctrl-bg);
+  }
+}
+
+.Empty {
+  // Same metrics as .Cmd but it is a statement, not a target.
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 10px;
+  color: var(--theme-color-fg-default-shy);
+  font-size: 12px;
+  cursor: default;
+}
+
+.Spacer {
+  flex: 1;
+}
+
+.Keys {
+  display: flex;
+  gap: 3px;
+  flex: none;
+}

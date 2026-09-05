@@ -1,0 +1,60 @@
+// Edit | Preview segmented control for the top bar.
+//
+// Every colour here resolves from a custom property: the container reuses the
+// --glass-ctrl-* control tokens, and the two tinted states are derived from
+// --theme-color-fg-highlight / --theme-color-primary with color-mix() rather than
+// being written out as literals. Chromium 126 (Electron 31) supports color-mix.
+
+.Seg {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border-radius: 7px;
+  height: 26px;
+  flex: none;
+  background: var(--glass-ctrl-bg);
+  border: 1px solid var(--glass-ctrl-border);
+  box-shadow: var(--glass-ctrl-shadow);
+}
+
+// Tooltip renders its trigger as a `display: block` wrapper, which would break the
+// vertical rhythm of the bar's flex row. Passed as UNSAFE_triggerClassName.
+.SegTrigger {
+  display: flex !important;
+  align-items: center;
+  flex: none;
+}
+
+.SegBtn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  height: 20px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+  color: var(--glass-seg-fg);
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  transition: background var(--motion-pill), color var(--motion-pill);
+
+  &:hover {
+    color: var(--theme-color-fg-highlight);
+  }
+
+  &.isActive {
+    background: var(--glass-seg-bg-active);
+    color: var(--glass-seg-fg-active);
+  }
+
+  &.isPreview {
+    background: color-mix(in srgb, var(--theme-color-primary) 16%, transparent);
+    color: var(--theme-color-primary);
+  }
+}

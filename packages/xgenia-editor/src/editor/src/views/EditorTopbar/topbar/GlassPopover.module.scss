@@ -1,0 +1,45 @@
+.Host {
+  // This class lands on BaseDialog's .VisibleDialog element, which sets
+  // filter: drop-shadow(), box-shadow, and width: var(--width) (from the trigger's
+  // bounds). All of those must be neutralised so .Glass owns the whole appearance.
+  // The opaque plate painted by .VisibleDialog::after (background-color: var(--background))
+  // is neutralised through BaseDialog's own API instead — GlassPopover passes
+  // background={DialogBackground.Transparent}, which sets --background to transparent.
+  background: transparent !important;
+  box-shadow: none !important;
+  filter: none !important;
+  border: none !important;
+  padding: 0 !important;
+  width: auto !important;
+}
+
+.Glass {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--glass-pop-bg);
+  -webkit-backdrop-filter: var(--glass-pop-blur);
+  backdrop-filter: var(--glass-pop-blur);
+  border: 1px solid var(--glass-pop-border);
+  box-shadow: var(--glass-pop-shadow);
+  color: var(--theme-color-fg-default);
+  font-family: var(--font-family-regular);
+}
+
+.Divider {
+  height: 1px;
+  margin: 2px 6px;
+  background: var(--glass-divider);
+  opacity: 0.7;
+}
+
+.SectionLabel {
+  padding: 0 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--theme-color-fg-default-shy);
+}

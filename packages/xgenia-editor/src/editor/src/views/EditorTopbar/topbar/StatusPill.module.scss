@@ -1,0 +1,173 @@
+// StatusPill.module.scss — the one morphing control in the middle of the bar.
+//
+// Every colour, radius and blur is a token. The two rgba() literals the plan sketched
+// here (the hairline track and PageMenu's thumb) are replaced by the nearest existing
+// token: glass.css is the only file allowed to hold raw rgba().
+
+.Pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 14px 0 12px;
+  border-radius: 16px;
+  background: var(--glass-ctrl-bg);
+  border: 1px solid var(--glass-ctrl-border);
+  box-shadow: var(--glass-ctrl-shadow);
+  -webkit-backdrop-filter: var(--glass-ctrl-blur);
+  backdrop-filter: var(--glass-ctrl-blur);
+  color: var(--theme-color-fg-highlight);
+  font-family: var(--font-family-regular);
+  white-space: nowrap;
+  user-select: none;
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition: width var(--motion-pill), background-color 120ms ease;
+  }
+}
+
+.Seg {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+
+.Seg:hover {
+  color: var(--theme-color-fg-highlight);
+}
+
+.Divider {
+  width: 1px;
+  height: 16px;
+  background: var(--glass-divider);
+  flex: none;
+}
+
+.Route {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.RouteStrong {
+  // The AI state wants the label at full contrast while the icon stays tinted.
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--theme-color-fg-highlight);
+}
+
+.Muted {
+  color: var(--theme-color-fg-default);
+}
+
+.Shy {
+  color: var(--theme-color-fg-default-shy);
+}
+
+.Danger {
+  color: var(--theme-color-danger);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.Primary {
+  color: var(--theme-color-primary);
+}
+
+.Publish {
+  color: var(--theme-color-publish);
+}
+
+.Input {
+  width: 220px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--theme-color-fg-highlight);
+  font: inherit;
+  font-size: 13px;
+  padding: 0;
+}
+
+.Caret {
+  display: flex;
+  align-items: center;
+}
+
+.isOpen {
+  @media (prefers-reduced-motion: no-preference) {
+    transition: transform var(--motion-pill);
+  }
+
+  transform: rotate(180deg);
+}
+
+.Pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--theme-color-primary);
+  box-shadow: 0 0 6px var(--theme-color-primary);
+
+  @media (prefers-reduced-motion: no-preference) {
+    animation: pillPulse 1.8s ease-in-out infinite;
+  }
+}
+
+@keyframes pillPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.Hairline {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--glass-ctrl-bg);
+  overflow: hidden;
+}
+
+.HairlineBar {
+  height: 100%;
+  width: 40%;
+  border-radius: 1px;
+  background: var(--theme-color-primary);
+
+  @media (prefers-reduced-motion: no-preference) {
+    animation: hairlineSlide 1.4s ease-in-out infinite;
+  }
+}
+
+.HairlineBar.isPublish {
+  background: var(--theme-color-publish);
+}
+
+@keyframes hairlineSlide {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+.Kbd {
+  font-size: 10px;
+  color: var(--theme-color-fg-default-shy);
+  padding: 2px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--glass-ctrl-border);
+  line-height: 1;
+}
