@@ -265,23 +265,56 @@ export function Rail() {
     SidebarModel.instance.setUserOrder(full);
   };
 
+  // The gesture in progress, if any: which pointer owns it, which item it started on, and
+  // where it started. Set once at pointerdown and never mutated for the life of the
+  // gesture (unlike `dragRef`, which tracks the moving `from`/`to`) — this is what makes a
+  // second pointer's pointerdown a no-op (see the single-owner check below) and what lets
+  // the window listeners below filter every event to this one pointer.
+  const gestureRef = useRef<{ pointerId: number; startY: number; target: HTMLDivElement } | null>(null);
+  // Mirrors whether a gesture is active, purely to gate the effect that owns the window
+  // listeners — the effect reads gesture details from `gestureRef`, not from this state.
+  const [gesturePointerId, setGesturePointerId] = useState<number | null>(null);
+
   const onItemPointerDown = (id: string, index: number) => (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
+    // Single-owner: a second pointer pressing a different item while a hold is pending or
+    // a drag is running must not steal or corrupt the first gesture — ignore it outright.
+    if (gestureRef.current) return;
     justDraggedRef.current = false;
-    const startY = e.clientY;
     const target = e.currentTarget;
     const pointerId = e.pointerId;
+    gestureRef.current = { pointerId, startY: e.clientY, target };
+    holdTimer.current = setTimeout(() => {
+      holdTimer.current = null;
+      target.setPointerCapture(pointerId);
+      applyDrag({ id, from: index, to: index, y: 0 });
+    }, 400);
+    // Triggers the effect below to attach the window listeners for this gesture; it stays
+    // live through the pending-hold phase too, since an early move past the threshold has
+    // to be able to cancel the pending hold.
+    setGesturePointerId(pointerId);
+  };
+
+  // The window listeners for an in-progress gesture live in an effect gated on
+  // `gesturePointerId`, not attached imperatively inside the pointerdown handler, so that
+  // if Rail unmounts mid-gesture React's own cleanup removes them — mirroring how
+  // LeftPanelCard's resize drag (and RightPropertyPanel's) attaches its listeners.
+  useEffect(() => {
+    if (gesturePointerId === null) return;
+    const g = gestureRef.current;
+    if (!g) return;
 
     const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== g.pointerId) return; // ignore any other pointer
       // A move past a small threshold before the hold has fired reads as a scroll-ish
       // gesture, not a hold: cancel the pending timer so it never turns into a drag.
-      if (holdTimer.current && Math.abs(ev.clientY - startY) > 4) {
+      if (holdTimer.current && Math.abs(ev.clientY - g.startY) > 4) {
         clearTimeout(holdTimer.current);
         holdTimer.current = null;
       }
       const current = dragRef.current;
       if (!current) return;
-      const dy = ev.clientY - startY;
+      const dy = ev.clientY - g.startY;
       const to = Math.max(0, Math.min(topRef.current.length - 1, current.from + Math.round(dy / RAIL_SLOT)));
       applyDrag({ ...current, y: dy, to });
     };
@@ -289,9 +322,10 @@ export function Rail() {
     // Every way a drag can end funnels through here: a normal release (commit), the
     // pointer being cancelled by the platform, or the window losing focus mid-hold —
     // either of the latter two must abandon the reorder rather than apply a half-formed
-    // one, and all three must equally release the pointer capture and the listeners so
-    // nothing is left lifted or leaking.
-    const endDrag = (commit: boolean) => {
+    // one, and all three must equally release the pointer capture and hand the gesture
+    // back (nulling `gestureRef` and the `gesturePointerId` state that gates this effect,
+    // whose cleanup below then removes these listeners).
+    const endGesture = (commit: boolean) => {
       if (holdTimer.current) {
         clearTimeout(holdTimer.current);
         holdTimer.current = null;
@@ -302,28 +336,39 @@ export function Rail() {
         if (commit && finished.from !== finished.to) persistReorder(finished.from, finished.to);
       }
       applyDrag(null);
-      if (target.hasPointerCapture?.(pointerId)) {
-        try { target.releasePointerCapture(pointerId); } catch { /* already released */ }
+      if (g.target.hasPointerCapture?.(g.pointerId)) {
+        try { g.target.releasePointerCapture(g.pointerId); } catch { /* already released */ }
       }
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onCancel);
-      window.removeEventListener('blur', onCancel);
+      gestureRef.current = null;
+      setGesturePointerId(null);
     };
-    const onUp = () => endDrag(true);
-    const onCancel = () => endDrag(false);
-
-    holdTimer.current = setTimeout(() => {
-      holdTimer.current = null;
-      target.setPointerCapture(pointerId);
-      applyDrag({ id, from: index, to: index, y: 0 });
-    }, 400);
+    const onUp = (ev: PointerEvent) => { if (ev.pointerId === g.pointerId) endGesture(true); };
+    const onCancel = (ev: PointerEvent) => { if (ev.pointerId === g.pointerId) endGesture(false); };
+    // `blur` carries no pointerId — the window losing focus abandons whatever gesture this
+    // effect instance owns, regardless of which pointer it was.
+    const onBlur = () => endGesture(false);
 
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onCancel);
-    window.addEventListener('blur', onCancel);
-  };
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, [gesturePointerId]);
+
+  // A hold still pending (its 400ms timer not yet fired) when Rail unmounts would otherwise
+  // fire later and call `applyDrag` — a setState on an unmounted component. Every other way
+  // a gesture ends already clears this timer (see `endGesture` above); this is only for the
+  // unmount case none of those cover.
+  useEffect(() => {
+    return () => {
+      if (holdTimer.current) clearTimeout(holdTimer.current);
+    };
+  }, []);
 
   // Render-time only: `drag` (state, always fresh during a render) is fine to read here,
   // unlike inside the listeners above.
