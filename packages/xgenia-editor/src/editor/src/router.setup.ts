@@ -249,12 +249,16 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
   // "Project settings" and "Editor settings" were merged into one entry
   // (2026-08-12). The two scopes live on as the panel's Project/Editor tabs —
   // see SettingsPanel for why they are tabs and not one flat section list.
+  // Not rendered as a rail button — reachable only from the identity chip's project menu
+  // (ProjectMenu.tsx). Still fully registered and dispatchable: `railHidden` only affects
+  // the rail's own rendering (see Rail.tsx), not `SidebarModel.switch`/`dispatch`.
   SidebarModel.instance.register({
     id: SettingsPanel_ID,
     name: 'Settings',
     order: 30,
     placement: 'bottom',
     icon: SideSettings,
+    railHidden: true,
     panel: SettingsPanel
   });
 

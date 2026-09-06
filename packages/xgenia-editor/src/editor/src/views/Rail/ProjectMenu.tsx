@@ -71,7 +71,10 @@ export function ProjectMenu({ triggerRef, isVisible, onClose }: Props) {
         <span>Rename project</span>
       </button>
       <Item icon={SideRevealIcon} label="Reveal in Finder" onClick={() => shell.showItemInFolder(Path.normalize(dir + '/project.json'))} />
-      <Item icon={SideSettings} label="Project settings" onClick={() => SidebarModel.instance.dispatch({ type: 'click', id: 'settings' })} />
+      {/* The rail no longer carries its own Settings icon (Task: clean up the bottom
+          cluster) — this is now the one way in, so it reads as "Settings" rather than
+          "Project settings", matching the panel itself (it also covers the Editor tab). */}
+      <Item icon={SideSettings} label="Settings" onClick={() => SidebarModel.instance.dispatch({ type: 'click', id: 'settings' })} />
       <div className={css.MenuRule} />
       <Item icon={SideLogout} label="Close project" danger onClick={() => App.instance.exitProject()} />
     </GlassPopover>

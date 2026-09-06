@@ -50,6 +50,13 @@ export interface SidebarItem<TProps = Record<string, unknown>> {
   /** This panel is the card's home — the one docked when nothing is stored. */
   isDefaultDocked?: boolean;
 
+  /**
+   * Registered and fully dispatchable (`SidebarModel.switch`, the settings panel's own
+   * "Project settings" menu item, etc.) but not rendered as a rail button — e.g.
+   * Settings, reachable only from the identity chip's project menu.
+   */
+  railHidden?: boolean;
+
   isDisabled?: boolean /** Default: false */;
 
   /** Default: false */

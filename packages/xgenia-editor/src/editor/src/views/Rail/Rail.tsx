@@ -60,7 +60,10 @@ function ChatRailButton(props: RailButtonProps & { ai: AiActivitySnapshot; aiSin
 
 export function Rail() {
   const sidebar = useModernModel(SidebarModel.instance, [SidebarModelEvent.itemsChanged, SidebarModelEvent.layoutChanged]);
-  const items = sidebar.getVisibleItems();
+  // `railHidden` panels (Settings) stay fully registered and dispatchable — they are just
+  // not rendered as a rail button, so a rail-only filter here is the whole change; nothing
+  // else reads `items` from this component.
+  const items = sidebar.getVisibleItems().filter((i) => !i.railHidden);
   const layout = sidebar.Layout;
   const active = layout.open ? activePanelId(layout) : null;
   const tips = useTooltipGroup();
