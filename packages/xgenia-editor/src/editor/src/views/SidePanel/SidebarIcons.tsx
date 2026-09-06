@@ -18,13 +18,7 @@ import Settings01Icon from '@hugeicons/core-free-icons/Settings01Icon';
 // @ts-ignore
 import GitBranchIcon from '@hugeicons/core-free-icons/GitBranchIcon';
 // @ts-ignore
-import CloudIcon from '@hugeicons/core-free-icons/CloudIcon';
-// @ts-ignore
-import FlashIcon from '@hugeicons/core-free-icons/FlashIcon';
-// @ts-ignore
 import Brain01Icon from '@hugeicons/core-free-icons/Brain01Icon';
-// @ts-ignore
-import Telescope01Icon from '@hugeicons/core-free-icons/Telescope01Icon';
 // @ts-ignore
 import Link01Icon from '@hugeicons/core-free-icons/Link01Icon';
 // @ts-ignore
@@ -76,18 +70,14 @@ function makeIcon(iconData: any, displayName: string) {
 export const SideComponents = makeIcon(DashboardSquare01Icon, 'SideComponents');
 export const SideSearch = makeIcon(Search01Icon, 'SideSearch');
 export const SideVersionControl = makeIcon(GitBranchIcon, 'SideVersionControl');
-export const SideCloud = makeIcon(CloudIcon, 'SideCloud');
-export const SideCloudFunctions = makeIcon(FlashIcon, 'SideCloudFunctions');
 /** Gear — the merged Project/Editor Settings panel. */
 export const SideSettings = makeIcon(Settings01Icon, 'SideSettings');
 export const SideChatPanel = makeIcon(Brain01Icon, 'SideChatPanel');
-export const SideAiPanel = makeIcon(Telescope01Icon, 'SideAiPanel');
 export const SideProjectStyles = makeIcon(PaintBrush01Icon, 'SideProjectStyles');
 
 export const SideNodeReferences = makeIcon(Link01Icon, 'SideNodeReferences');
 export const SideFeedback = makeIcon(Comment01Icon, 'SideFeedback');
 export const SideImageEditor = makeIcon(Image01Icon, 'SideImageEditor');
-export const SideMemoryPanel = makeIcon(Brain01Icon, 'SideMemoryPanel');
 export const SideMaths = makeIcon(CalculatorIcon, 'SideMaths');
 export const SideAssets = makeIcon(FolderLibraryIcon, 'SideAssets');
 export const SideAddNode = makeIcon(Add01Icon, 'SideAddNode');

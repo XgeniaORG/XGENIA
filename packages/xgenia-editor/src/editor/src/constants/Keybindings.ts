@@ -26,4 +26,12 @@ export namespace Keybindings {
   export const PROPERTY_PANEL_EDIT_LABEL = new Keybinding(KeyCode.Enter);
   export const PROPERTY_PANEL_EDIT_LABEL2 = new Keybinding(KeyCode.F2);
   export const PROPERTY_PANEL_DELETE = new Keybinding(KeyCode.Delete); // Actually node graph delete
+
+  /** Show/hide the left panel card. The rail itself always stays. */
+  export const TOGGLE_LEFT_PANEL = new Keybinding(KeyMod.CtrlCmd, KeyCode.KEY_B);
+  /** ⌘⌥1 … ⌘⌥9: the nth item in the rail's top cluster. */
+  export const RAIL_ITEMS = [
+    KeyCode.KEY_1, KeyCode.KEY_2, KeyCode.KEY_3, KeyCode.KEY_4, KeyCode.KEY_5,
+    KeyCode.KEY_6, KeyCode.KEY_7, KeyCode.KEY_8, KeyCode.KEY_9
+  ].map((k) => new Keybinding(KeyMod.CtrlCmd, KeyMod.Alt, k));
 }

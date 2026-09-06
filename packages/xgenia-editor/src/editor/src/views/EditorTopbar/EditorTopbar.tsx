@@ -15,6 +15,8 @@ import { Keybindings } from '@xgenia-constants/Keybindings';
 import { AiActivity, AiActivitySnapshot } from '@xgenia-models/aiactivity';
 import { PublishSnapshot } from '@xgenia-models/publishStore';
 import { PublishState, wirePublishState } from '@xgenia-models/publishstate';
+import { SidebarModel } from '@xgenia-models/sidebar';
+import { SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
 import { WarningsModel } from '@xgenia-models/warningsmodel';
 
 import { IconName, IconSize } from '@xgenia-core-ui/components/common/Icon';
@@ -91,9 +93,15 @@ export function EditorTopbar({
   const [isDeployVisible, setIsDeployVisible] = useState(false);
   const [isFigmaDialogVisible, setIsFigmaDialogVisible] = useState(false);
   const [isWarningsDialogVisible, setIsWarningsDialogVisible] = useState(false);
-  const [isLeftPanelVisible, setIsLeftPanelVisible] = useState(true);
+  const [isLeftPanelVisible, setIsLeftPanelVisible] = useState(() => SidebarModel.instance.Layout.open);
   const [publishSnap, setPublishSnap] = useState<PublishSnapshot>(() => PublishState.getSnapshot());
   const [aiSnap, setAiSnap] = useState<AiActivitySnapshot>(() => AiActivity.getSnapshot());
+
+  useEffect(() => {
+    const group = {};
+    SidebarModel.instance.on(SidebarModelEvent.layoutChanged, (layout) => setIsLeftPanelVisible(layout.open), group);
+    return () => { SidebarModel.instance.off(group); };
+  }, []);
 
   const triggerRerender = useTriggerRerender();
 
@@ -261,11 +269,7 @@ export function EditorTopbar({
             icon={isLeftPanelVisible ? TopbarPanelClose : TopbarPanelOpen}
             variant={IconButtonVariant.Transparent}
             size={IconSize.Small}
-            onClick={() => {
-              const next = !isLeftPanelVisible;
-              setIsLeftPanelVisible(next);
-              EventDispatcher.instance.emit('toggle-left-panel', next);
-            }}
+            onClick={() => SidebarModel.instance.toggleCard()}
           />
         </Tooltip>
 
