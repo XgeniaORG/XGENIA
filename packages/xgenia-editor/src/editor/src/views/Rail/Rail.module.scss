@@ -1,0 +1,166 @@
+.Root {
+  position: relative;
+  flex: 0 0 var(--rail-width);
+  width: var(--rail-width);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--glass-bar-bg);
+  -webkit-backdrop-filter: var(--glass-bar-blur);
+  backdrop-filter: var(--glass-bar-blur);
+  border-right: 1px solid var(--glass-bar-border);
+  box-sizing: border-box;
+  user-select: none;
+
+  @supports not (backdrop-filter: blur(1px)) {
+    background: var(--theme-color-bg-2);
+  }
+}
+
+.Top {
+  position: relative;
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.Bottom {
+  margin-top: auto;
+  margin-bottom: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--glass-bar-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.Item {
+  position: relative;
+  width: 28px;
+  height: 28px;
+}
+
+.Button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--theme-color-fg-default-shy, var(--theme-color-fg-default));
+
+  .is-active & {
+    background: var(--glass-ctrl-bg);
+    box-shadow: var(--glass-ctrl-shadow);
+    color: var(--theme-color-fg-highlight);
+  }
+}
+
+/* One accent bar travels between active items. `top: 7px` inside a 28px slot = 14px tall, centred. */
+.Indicator {
+  position: absolute;
+  left: calc((var(--rail-width) - 28px) / -2);
+  top: 0;
+  width: 2px;
+  height: 14px;
+  border-radius: 0 1px 1px 0;
+  background: var(--theme-color-presence);
+  pointer-events: none;
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition: transform var(--speed-move) var(--easing-base);
+  }
+}
+
+.Count {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 7px;
+  box-sizing: border-box;
+  font: 600 9px/14px var(--font-family-regular);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: #1a1405;
+  background: var(--theme-color-attention);
+  pointer-events: none;
+}
+
+.Unseen {
+  position: absolute;
+  right: -1px;
+  top: -1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--theme-color-attention);
+  box-shadow: 0 0 0 2px var(--theme-color-bg-1);
+  pointer-events: none;
+}
+
+/*
+ * `@property --rail-ring-angle` (an animated custom property driving `conic-gradient(from
+ * var(--rail-ring-angle), ...)`) is untried in this webpack + sass + css-loader pipeline and
+ * sits inside a `.module.scss` where css-loader also processes at-rules. If it silently
+ * failed to register, the custom property could never be animated and the ring would sit
+ * still with no error. Instead the gradient is static (starts at the default 0deg) and the
+ * `.Ring` element itself is rotated with `transform` — the mask composites two
+ * linear-gradients with `xor` into an annulus, which is rotationally symmetric, so rotating
+ * the element rotates only the visible sweep. Visually identical, no untried at-rule.
+ */
+.Ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 11px;
+  padding: 2px;
+  background: conic-gradient(var(--theme-color-presence) 0 25%, transparent 25% 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+
+  @media (prefers-reduced-motion: no-preference) {
+    animation: rail-ring-spin 1.4s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    inset: auto -2px -2px auto;
+    width: 8px;
+    height: 8px;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--theme-color-presence);
+    -webkit-mask: none;
+    mask: none;
+  }
+}
+
+@keyframes rail-ring-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.Digit {
+  position: absolute;
+  right: -5px;
+  top: -5px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 2px;
+  border-radius: 4px;
+  box-sizing: border-box;
+  font: 600 9px/13px var(--font-family-regular);
+  text-align: center;
+  color: var(--theme-color-bg-1);
+  background: var(--theme-color-fg-highlight);
+  pointer-events: none;
+}
+
+.is-drop-dimmed { opacity: 0.35; }
+.is-drop-target .Button {
+  transform: scale(1.12);
+  box-shadow: 0 0 0 2px var(--theme-color-presence);
+}
