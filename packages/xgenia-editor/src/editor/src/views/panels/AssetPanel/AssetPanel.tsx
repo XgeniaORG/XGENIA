@@ -19,7 +19,7 @@ import { useProjectAssets } from './useProjectAssets';
 import { useProjectFolderTree } from './useProjectFolderTree';
 import { AssetFolderTree } from './AssetFolderTree';
 import { useAssetSelection } from './useAssetSelection';
-import { deleteToTrash, renameAsset, createFolder, duplicate, revealInOS, moveAsset } from './assetOps';
+import { deleteToTrash, renameAsset, createFolder, duplicate, revealInOS, moveAsset, importFiles } from './assetOps';
 import { AssetKind } from './asset-classification';
 import {
   getAssetMeta,
@@ -471,21 +471,13 @@ function AssetPanelInner() {
     const handleFilesImport = useCallback(async (files: FileList) => {
       if (!files || files.length === 0) return;
       setIsImporting(true);
-      const fileArray = Array.from(files);
       try {
-        for (const file of fileArray) {
-          const assetKey = `asset_${Date.now()}_${file.name}`;
-          localStorage.setItem(assetKey, JSON.stringify({
-            name: file.name,
-            type: file.type,
-            size: file.size,
-            path: currentPath === '/' ? `/${file.name}` : `${currentPath}/${file.name}`,
-            lastModified: file.lastModified
-          }));
-        }
+        const destRel = currentPath === '/' || currentPath === '' ? 'assets' : `assets${currentPath}`;
+        await importFiles(files, destRel);
         refetch();
       } catch (error: any) {
         console.error('Error importing files:', error);
+        ToastLayer.showError(`Import failed: ${error?.message || error}`);
       } finally {
         setIsImporting(false);
       }

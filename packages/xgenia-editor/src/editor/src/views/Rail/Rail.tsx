@@ -9,6 +9,8 @@ import { AiActivity, AiActivitySnapshot } from '@xgenia-models/aiactivity';
 
 import { Keybindings } from '../../constants/Keybindings';
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
+import { ToastLayer } from '../ToastLayer';
+import { importFiles } from '../panels/AssetPanel/assetOps';
 import { IdentityChip } from './IdentityChip';
 import { RailButton, RailButtonProps } from './RailButton';
 import { activePanelId } from './railLayout';
@@ -115,6 +117,64 @@ export function Rail() {
     return () => EventDispatcher.instance.off(group);
   }, []);
 
+  // Task 17: dropping files from Finder onto the rail. `dropMode` is entered from a
+  // window-level dragenter that actually carries files (a plain in-editor node drag has no
+  // 'Files' type on the DataTransfer, so it never trips this) and only when the Assets
+  // panel — experimental, togglable in settings — is currently registered: with it switched
+  // off there is no target to land a drop on, so the whole rail must stay inert rather than
+  // dimming every button with nothing highlighted. Depth is counted because dragenter/
+  // dragleave fire per element as the pointer crosses child boundaries while it moves around
+  // inside the window, not once for the window as a whole — a plain boolean would drop out
+  // of drop mode the instant the pointer crossed into a child and flicker for the rest of
+  // the drag. drop/dragend both hard-reset the counter so a drop, or the drag being
+  // abandoned outside the window, can never leave the rail dimmed forever.
+  const [dropMode, setDropMode] = useState(false);
+  useEffect(() => {
+    let depth = 0;
+    const hasFiles = (e: DragEvent) => !!e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files');
+    const onEnter = (e: DragEvent) => {
+      if (!hasFiles(e) || !SidebarModel.instance.getPanel('assets')) return;
+      depth += 1;
+      setDropMode(true);
+    };
+    const onLeave = () => {
+      if (depth === 0) return;
+      depth -= 1;
+      if (depth === 0) setDropMode(false);
+    };
+    const onDrop = () => {
+      depth = 0;
+      setDropMode(false);
+    };
+    window.addEventListener('dragenter', onEnter);
+    window.addEventListener('dragleave', onLeave);
+    window.addEventListener('drop', onDrop);
+    window.addEventListener('dragend', onDrop);
+    return () => {
+      window.removeEventListener('dragenter', onEnter);
+      window.removeEventListener('dragleave', onLeave);
+      window.removeEventListener('drop', onDrop);
+      window.removeEventListener('dragend', onDrop);
+    };
+  }, []);
+
+  const onDropAssets = async (files: FileList) => {
+    // Re-check at drop time too: the panel could in principle be switched off in the
+    // (small) window between dragenter and drop. Fails closed rather than throwing.
+    if (!SidebarModel.instance.getPanel('assets')) return;
+    try {
+      await importFiles(files, 'assets');
+      EventDispatcher.instance.emit('project-assets-changed', { path: 'assets' });
+      // `switch`, not the removed `peek` — this design shows one panel at a time, and
+      // `switch` is the "ensure this panel is visible" call every other rail-adjacent
+      // caller already uses.
+      SidebarModel.instance.switch('assets');
+    } catch (error: any) {
+      console.error('[Rail] import failed', error);
+      ToastLayer.showError(`Import failed: ${error?.message || error}`);
+    }
+  };
+
   const rootRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
   useLayoutEffect(() => {
@@ -191,6 +251,9 @@ export function Rail() {
             isDisabled: item.isDisabled,
             showAfterMs: tips.showAfterMs,
             onTooltipClosed: tips.noteClosed,
+            isDropTarget: dropMode && item.id === 'assets',
+            isDropDimmed: dropMode && item.id !== 'assets',
+            onDrop: item.id === 'assets' ? onDropAssets : undefined,
             onClick: () => {
               SidebarModel.instance.dispatch({ type: 'click', id: item.id });
               item.onClick?.();
@@ -224,6 +287,9 @@ export function Rail() {
             onTooltipClosed={tips.noteClosed}
             badge={badgeFor(item, { presence, git, ai })}
             tooltipSuffix={tooltipSuffixFor(item, { presence, git })}
+            isDropTarget={dropMode && item.id === 'assets'}
+            isDropDimmed={dropMode && item.id !== 'assets'}
+            onDrop={item.id === 'assets' ? onDropAssets : undefined}
             onClick={() => {
               SidebarModel.instance.dispatch({ type: 'click', id: item.id });
               item.onClick?.();
