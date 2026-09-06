@@ -193,6 +193,14 @@ export interface SendConfirmation {
   confirmed: boolean;
   inputCleared: boolean;
   promptFoundInTranscript: boolean;
+  /**
+   * Whether the INPUT itself still holds the prompt text.
+   *
+   * The transcript check reads the whole frame body, and the input is contenteditable — so before
+   * a submit the typed text is in that body too. This is what tells the two apart: a match in the
+   * body while the input no longer holds the text can only have come from the transcript.
+   */
+  inputStillHoldsPrompt: boolean;
   matchedSlice: string;
 }
 
@@ -243,7 +251,21 @@ export const CONFIRM_DEADLINE_MS = 25_000;
 export function describeUnconfirmedSend(c: {
   inputCleared: boolean;
   promptFoundInTranscript: boolean;
+  inputStillHoldsPrompt?: boolean;
 }): { code: 'render-lag' | 'not-submitted'; hint: string } {
+  // (2026-09-06, second pass) The first version keyed only on `inputCleared`, and live use
+  // immediately produced its mirror image: `inputCleared: false` on a send whose prompt was
+  // already in the transcript and being answered. Advising a resend there is the same expensive
+  // mistake in the other direction. The transcript is the stronger evidence, so it is read first.
+  if (c.promptFoundInTranscript && !c.inputStillHoldsPrompt) {
+    return {
+      code: 'render-lag',
+      hint:
+        'The prompt is already in the transcript and is no longer in the input, so it WAS sent — '
+        + 'only the input\'s cleared flag did not confirm it in time. Treat this as SENT: read with '
+        + 'xgenia_chat_read or wait with xgenia_chat_wait_idle. Do NOT send it again.',
+    };
+  }
   if (c.inputCleared) {
     return {
       code: 'render-lag',
@@ -273,19 +295,36 @@ export async function confirmSent(
   const deadline = Date.now() + deadlineMs;
   let cleared = false;
   let promptFound = false;
+  let inputHolds = false;
   while (Date.now() < deadline) {
-    cleared = await frame
+    const read = await frame
       .evaluate(
-        (sel) => document.querySelector(sel)?.getAttribute('data-empty') === 'true',
+        (sel) => {
+          const el = document.querySelector(sel);
+          return {
+            cleared: el?.getAttribute('data-empty') === 'true',
+            inputText: (el as HTMLElement | null)?.innerText ?? '',
+            bodyText: document.body.innerText,
+          };
+        },
         SELECTORS.chatInput
       )
-      .catch(() => false);
-    const transcriptText = await frame.evaluate(() => document.body.innerText).catch(() => '');
-    promptFound = transcriptContainsPrompt(transcriptText, text);
-    if (cleared && promptFound) break;
+      .catch(() => ({ cleared: false, inputText: '', bodyText: '' }));
+    cleared = read.cleared;
+    promptFound = transcriptContainsPrompt(read.bodyText, text);
+    inputHolds = transcriptContainsPrompt(read.inputText, text);
+    // Rendered in the transcript and gone from the input is proof on its own — `data-empty` has
+    // been observed false on a send that had already landed, so it cannot be the sole gate.
+    if (promptFound && (cleared || !inputHolds)) break;
     await new Promise((r) => setTimeout(r, pollMs));
   }
-  return { confirmed: cleared && promptFound, inputCleared: cleared, promptFoundInTranscript: promptFound, matchedSlice: slice };
+  return {
+    confirmed: promptFound && (cleared || !inputHolds),
+    inputCleared: cleared,
+    promptFoundInTranscript: promptFound,
+    inputStillHoldsPrompt: inputHolds,
+    matchedSlice: slice,
+  };
 }
 
 /**

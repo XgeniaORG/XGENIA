@@ -198,10 +198,14 @@ describe('transcriptContainsPrompt', () => {
  * unknown number of times (confirmSent's loop timing is not deterministic
  * enough to predict an exact call count).
  */
-function stubConfirmFrame(cleared: boolean, transcriptText: string): Frame {
-  let call = 0;
+/**
+ * `inputText` defaults to empty: the common case is a submitted send, where the box no longer
+ * holds the prompt. Pass it to model the case that matters — an UNSENT prompt still sitting in the
+ * contenteditable input, which appears in document.body.innerText and must not read as a send.
+ */
+function stubConfirmFrame(cleared: boolean, bodyText: string, inputText = ''): Frame {
   return {
-    evaluate: async () => (call++ % 2 === 0 ? cleared : transcriptText)
+    evaluate: async () => ({ cleared, inputText, bodyText })
   } as unknown as Frame;
 }
 
@@ -215,6 +219,7 @@ describe('confirmSent', () => {
       confirmed: true,
       inputCleared: true,
       promptFoundInTranscript: true,
+      inputStillHoldsPrompt: false,
       matchedSlice: promptSlice(SENT)
     });
   });
@@ -227,12 +232,24 @@ describe('confirmSent', () => {
     expect(result.promptFoundInTranscript).toBe(false);
   });
 
-  it('does not confirm when the prompt rendered but the input never cleared', async () => {
-    const frame = stubConfirmFrame(false, `chrome\n${SENT}\nchrome`);
+  it('does NOT confirm when the prompt is only in the body because the input still holds it', async () => {
+    // The input is contenteditable, so an unsent prompt is inside document.body.innerText. Without
+    // reading the input separately, that reads as a send that never happened.
+    const frame = stubConfirmFrame(false, `chrome\n${SENT}\nchrome`, SENT);
     const result = await confirmSent(frame, SENT, 50, 5);
     expect(result.confirmed).toBe(false);
+    expect(result.inputStillHoldsPrompt).toBe(true);
+  });
+
+  it('DOES confirm when the prompt is in the transcript and gone from the input, cleared flag or not', async () => {
+    // (2026-09-06, live) An actual send came back with data-empty false while the panel was
+    // already answering the prompt. The flag is not the authority; the transcript is.
+    const frame = stubConfirmFrame(false, `chrome\n${SENT}\nchrome`, '');
+    const result = await confirmSent(frame, SENT, 50, 5);
+    expect(result.confirmed).toBe(true);
     expect(result.inputCleared).toBe(false);
     expect(result.promptFoundInTranscript).toBe(true);
+    expect(result.inputStillHoldsPrompt).toBe(false);
   });
 
   it('does not confirm when neither the input cleared nor the prompt rendered', async () => {
@@ -530,6 +547,32 @@ describe('an unconfirmed send says which of the two things happened', () => {
     expect(d.hint).toMatch(/Treat this as SENT/);
     expect(d.hint).toMatch(/Do NOT\s+send it again/);
     expect(d.hint).toMatch(/xgenia_chat_read/);
+  });
+
+  it('already in the transcript and gone from the input: SENT, whatever the cleared flag says', () => {
+    // (2026-09-06, live) The very next send after the first version shipped returned
+    // `inputCleared: false, promptFoundInTranscript: true` — and the panel was already answering
+    // it. Keying only on the cleared flag would have advised a resend: the same expensive mistake
+    // as before, pointing the other way.
+    const d = describeUnconfirmedSend({
+      inputCleared: false,
+      promptFoundInTranscript: true,
+      inputStillHoldsPrompt: false,
+    });
+    expect(d.code).toBe('render-lag');
+    expect(d.hint).toMatch(/WAS sent/);
+    expect(d.hint).toMatch(/Do NOT send it again/);
+  });
+
+  it('but text sitting in the input is NOT evidence of a send', () => {
+    // The input is contenteditable, so an unsent prompt is in document.body.innerText too. That
+    // is the whole reason the input is read separately.
+    const d = describeUnconfirmedSend({
+      inputCleared: false,
+      promptFoundInTranscript: true,
+      inputStillHoldsPrompt: true,
+    });
+    expect(d.code).toBe('not-submitted');
   });
 
   it('input still full: never submitted, resending is safe', () => {
