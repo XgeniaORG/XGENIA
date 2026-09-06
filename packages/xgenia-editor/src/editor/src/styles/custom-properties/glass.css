@@ -43,6 +43,17 @@
 
   --topbar-height: 44px;
   --motion-pill: 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* ---- left rail + floating panel cards (2026-09-06) ---- */
+  --rail-width: 48px;
+  --card-bg: rgba(22, 22, 24, 0.62);
+  --card-blur: blur(40px) saturate(180%);
+  --card-radius: 12px;
+  --card-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 8px 40px rgba(0, 0, 0, 0.45), 0 2px 12px rgba(0, 0, 0, 0.3);
+  --card-shadow-peek: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 24px 64px rgba(0, 0, 0, 0.6), 0 4px 16px rgba(0, 0, 0, 0.4);
+  --speed-snap: 180ms;
+  --speed-move: 220ms;
+  --theme-color-presence: var(--theme-color-publish);
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
