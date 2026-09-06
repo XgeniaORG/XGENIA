@@ -4,7 +4,11 @@ import { Keybindings } from '@xgenia-constants/Keybindings';
 import { AppRegistry } from '@xgenia-models/app_registry';
 import { SidebarModel } from '@xgenia-models/sidebar';
 
-import { IconName } from '@xgenia-core-ui/components/common/Icon';
+import {
+  SideComponents, SideSearch, SideVersionControl, SideSettings, SideChatPanel, SideProjectStyles,
+  SideNodeReferences, SideFeedback, SideImageEditor, SideMaths, SideAssets, SideAddNode
+} from './views/SidePanel/SidebarIcons';
+import { AddNodeAction } from './views/panels/componentspanel/AddNodeAction';
 
 import { ComponentDiffDocumentProvider } from './views/documents/ComponentDiffDocument';
 import { EditorDocumentProvider } from './views/documents/EditorDocument';
@@ -93,16 +97,17 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     transient: true,
     id: 'node-picker',
     name: 'Add node',
-    order: 0.5,
-    icon: IconName.Plus,
+    order: 5,
+    icon: SideAddNode,
     panel: NodePickerPanel
   });
 
   SidebarModel.instance.register({
     id: 'components',
     name: 'Components',
-    order: 1,
-    icon: IconName.Components,
+    order: 20,
+    icon: SideComponents,
+    headerAction: AddNodeAction,
     onOpen: () => {
       if (appRegistry.CurrentDocumentId !== EditorDocumentProvider.ID) {
         appRegistry.openDocument(EditorDocumentProvider.ID);
@@ -122,54 +127,57 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     id: 'search',
     name: 'Search',
     fineType: Keybindings.SEARCH.label,
-    order: 2,
-    icon: IconName.Search,
+    order: 30,
+    icon: SideSearch,
     panel: SearchPanel
   });
 
   SidebarModel.instance.register({
     id: FeedbackPanel_ID,
     name: 'Feedback',
-    order: 5.7,
-    icon: IconName.Bug, // Using Bug icon since it's perfect for feedback/bug reports
+    order: 20,
+    placement: 'bottom',
+    icon: SideFeedback,
     panel: FeedbackPanel
   });
 
   SidebarModel.instance.register({
     id: VersionControlPanel_ID,
     name: 'Version control',
-    order: 5,
+    order: 10,
     placement: 'bottom',
-    icon: IconName.StructureCircle,
+    icon: SideVersionControl,
     panel: VersionControlPanel
   });
   SidebarModel.instance.register({
     id: ChatPanel_ID,
     name: 'Chat',
-    order: 5.6,
-    icon: IconName.Chat,
+    order: 10,
+    icon: SideChatPanel,
+    chromeless: true,
+    defaultWidth: 450,
     panel: ChatPanel
   });
   SidebarModel.instance.register({
     id: MathsPanel_ID,
     name: 'Maths RGS',
-    order: 5.3,
-    icon: IconName.Code,
+    order: 60,
+    icon: SideMaths,
     panel: MathsPanel
   });
   SidebarModel.instance.register({
     id: 'image-editor',
     name: 'AI Image Editor',
-    order: 5.4,
-    icon: IconName.Image,
+    order: 70,
+    icon: SideImageEditor,
     panel: ImageEditorPanel
   });
 
   SidebarModel.instance.register({
     id: 'project-styles',
     name: 'Project Styles',
-    order: 5.45,
-    icon: IconName.Palette,
+    order: 50,
+    icon: SideProjectStyles,
     panel: ProjectStylesPanel
   });
 
@@ -256,9 +264,9 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
   SidebarModel.instance.register({
     id: SettingsPanel_ID,
     name: 'Settings',
-    order: 8,
+    order: 30,
     placement: 'bottom',
-    icon: IconName.Setting,
+    icon: SideSettings,
     panel: SettingsPanel
   });
 
@@ -282,8 +290,8 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     id: NodeReferencesPanel_ID,
     name: 'Node References',
     description: 'Node References Panel is showing how many times each core node and component is used.',
-    order: 23,
-    icon: IconName.Component,
+    order: 80,
+    icon: SideNodeReferences,
     panel: NodeReferencesPanel
   });
 
@@ -295,8 +303,8 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     name: 'Assets',
     description:
       'Asset browser (experimental): browse, search, sort and preview project assets. Drag-into-graph, rename and stable asset IDs are still in progress.',
-    order: 22,
-    icon: IconName.FolderClosed,
+    order: 40,
+    icon: SideAssets,
     panel: AssetPanel
   });
 
