@@ -54,6 +54,9 @@
   --speed-snap: 180ms;
   --speed-move: 220ms;
   --theme-color-presence: var(--theme-color-publish);
+  --rail-badge-fg: #1a1405;
+  --rail-identity-from: #3b2f6e;
+  --rail-identity-to: #1d3a33;
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
