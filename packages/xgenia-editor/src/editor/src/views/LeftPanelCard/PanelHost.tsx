@@ -42,7 +42,9 @@ export function PanelHost({ visibleId, keepMounted }: Props) {
       () => nextTick(() => setPanels({})),
       group
     );
-    return () => SidebarModel.instance.off(group);
+    return () => {
+      SidebarModel.instance.off(group);
+    };
   }, []);
 
   return (

@@ -26,7 +26,9 @@ export function IdentityChip() {
     };
     ProjectModel.instance.on('thumbnailChanged', refresh, group);
     ProjectModel.instance.on('renamed', refresh, group);
-    return () => ProjectModel.instance.off(group);
+    return () => {
+      ProjectModel.instance.off(group);
+    };
   }, []);
 
   const initial = identity.name.trim().charAt(0).toUpperCase() || '·';
