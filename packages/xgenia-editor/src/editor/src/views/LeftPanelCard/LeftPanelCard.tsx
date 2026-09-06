@@ -11,7 +11,7 @@ import { Tooltip } from '@xgenia-core-ui/components/popups/Tooltip';
 
 import { PanelHost } from './PanelHost';
 import {
-  clampPanelWidth, PANEL_WIDTH_DEFAULT, PANEL_WIDTH_MAX, PANEL_WIDTH_MIN, readPanelWidth, writePanelWidth
+  clampPanelWidth, PANEL_WIDTH_DEFAULT, PANEL_WIDTH_MAX, PANEL_WIDTH_MIN, readPanelWidth, snapPanelWidth, writePanelWidth
 } from './panelWidth';
 import css from './LeftPanelCard.module.scss';
 
@@ -61,6 +61,18 @@ export function PanelCard({ panelId, isHidden, onClose }: CardProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrolled, setScrolled] = useState(false);
 
+  // Live width readout while dragging the edge. `chip` holds the last snapped value shown
+  // during (and briefly after) a drag; the fade-out timer lives in a ref — not local to the
+  // resize effect below — so an unmount mid-drag can still clear it in the dedicated cleanup
+  // effect instead of letting a detached setTimeout fire setState on an unmounted component.
+  const [chip, setChip] = useState<number | null>(null);
+  const chipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (chipTimer.current) clearTimeout(chipTimer.current);
+    };
+  }, []);
+
   // Skipped while the card is hidden: a `display: none` subtree has an empty rect, so the
   // observer would report the sentinel as off screen and leave the scrolled-state shadow
   // under the header, showing for a frame the next time the card opens.
@@ -86,13 +98,21 @@ export function PanelCard({ panelId, isHidden, onClose }: CardProps) {
     const onMove = (ev: MouseEvent) => {
       const d = drag.current;
       if (!d) return;
-      setWidth(clampPanelWidth(d.startWidth + (ev.clientX - d.startX)));
+      const raw = clampPanelWidth(d.startWidth + (ev.clientX - d.startX));
+      const snapped = snapPanelWidth(raw);
+      setWidth(snapped);
+      setChip(snapped);
     };
     const onUp = (ev: MouseEvent) => {
       const d = drag.current;
       drag.current = null;
       setIsResizing(false);
-      if (d) commit(d.startWidth + (ev.clientX - d.startX));
+      if (d) commit(snapPanelWidth(clampPanelWidth(d.startWidth + (ev.clientX - d.startX))));
+      if (chipTimer.current) clearTimeout(chipTimer.current);
+      chipTimer.current = setTimeout(() => {
+        chipTimer.current = null;
+        setChip(null);
+      }, 600);
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -153,6 +173,7 @@ export function PanelCard({ panelId, isHidden, onClose }: CardProps) {
         onDoubleClick={() => commit(fallback)}
         title="Drag to resize — double-click to reset"
       />
+      {chip !== null && <div className={css.WidthChip} aria-hidden="true">{chip}</div>}
     </div>
   );
 }

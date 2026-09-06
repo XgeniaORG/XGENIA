@@ -82,6 +82,26 @@
   .is-resizing &::after { background: rgba(255, 255, 255, 0.28); }
 }
 
+/* Live width readout while dragging the resize handle. Sits above the handle (z-index 4)
+   and never intercepts the pointer, so it can float over the edge without stealing the drag. */
+.WidthChip {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--glass-pop-bg);
+  border: 1px solid var(--glass-ctrl-border);
+  font: 500 11px/22px var(--font-family-regular);
+  font-variant-numeric: tabular-nums;
+  color: var(--theme-color-fg-highlight);
+  pointer-events: none;
+  z-index: 4;
+  @media (prefers-reduced-motion: no-preference) { transition: opacity 120ms ease; }
+}
+
 /* Panel switch: incoming panel cross-fades in. No slide, no scale — the card is chrome,
    not a window. */
 .PanelItem[data-enter] { animation: panel-fade 120ms ease; }
