@@ -12,6 +12,13 @@
   border-right: 1px solid var(--glass-bar-border);
   box-sizing: border-box;
   user-select: none;
+  /* The minimum breathing room between the chip, the +, the panel cluster and the
+   * bottom cluster. It is a floor, not the spacing: .Top and .Bottom both take an auto
+   * top margin, so whatever height is left over after the four blocks is split evenly
+   * between them and the panel icons sit in the middle of the rail rather than stacked
+   * under the chip. On a short window the autos collapse to nothing and this is all
+   * that is left. */
+  gap: 12px;
 
   @supports not (backdrop-filter: blur(1px)) {
     background: var(--theme-color-bg-2);
@@ -20,7 +27,7 @@
 
 .Top {
   position: relative;
-  margin-top: 22px;
+  margin-top: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
