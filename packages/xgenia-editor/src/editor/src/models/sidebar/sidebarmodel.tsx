@@ -51,6 +51,9 @@ export interface SidebarItem<TProps = Record<string, unknown>> {
 
   placement?: 'top' | 'bottom';
 
+  /** This panel is the card's home — the one docked when nothing is stored. */
+  isDefaultDocked?: boolean;
+
   isDisabled?: boolean /** Default: false */;
 
   /** Default: false */
@@ -175,11 +178,23 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
     return { ...this.layout };
   }
 
-  /** Which panel id should be docked when nothing is stored. */
+  /**
+   * Which panel id should be docked when nothing is stored.
+   *
+   * Declarative, not string-matched: a panel opts in with `isDefaultDocked` on its own
+   * registration (router.setup.ts sets it on whichever chat implementation actually
+   * loaded, under either id it may resolve to) rather than the model guessing an id.
+   * Falling back to "first item" without a placement filter previously let a bottom-cluster
+   * utility panel (version control, settings) win a tie in `order` against the intended
+   * default just because it happened to register first — a stable sort preserves
+   * registration order on equal keys. Restricting the fallback to the top cluster closes
+   * that door structurally, not by picking a different tiebreak.
+   */
   private defaultDockedId(): string {
-    if (this.items.some((x) => x.id === 'chat-panel')) return 'chat-panel';
-    const first = this.getVisibleItems()[0];
-    return first ? first.id : 'components';
+    const preferred = this.items.find((x) => x.isDefaultDocked && !x.transient);
+    if (preferred) return preferred.id;
+    const topItem = this.getVisibleItems().find((x) => x.placement !== 'bottom');
+    return topItem ? topItem.id : 'components';
   }
 
   /**
