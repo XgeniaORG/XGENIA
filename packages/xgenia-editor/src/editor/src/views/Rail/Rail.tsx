@@ -286,7 +286,25 @@ export function Rail() {
     gestureRef.current = { pointerId, startY: e.clientY, target };
     holdTimer.current = setTimeout(() => {
       holdTimer.current = null;
-      target.setPointerCapture(pointerId);
+      // The pointer can be gone by the time this fires — released outside the window
+      // before 400ms elapsed, with no pointerup/pointercancel/blur ever reaching us to run
+      // `endGesture`. `setPointerCapture` on an already-inactive pointer (or a target that
+      // stopped being part of the top cluster while the hold was pending) throws. Every
+      // path out of this callback must release ownership — the single-owner guard above
+      // means an ungoverned throw here would leave `gestureRef` populated forever and
+      // permanently disable press-and-hold for the rest of the session.
+      try {
+        target.setPointerCapture(pointerId);
+      } catch {
+        // Abandon exactly as a cancelled gesture would: no drag ever started, so there is
+        // nothing to undo in `dragRef`/`drag`, only ownership to release. Clearing both
+        // `gestureRef` and `gesturePointerId` (not just the ref) also tears down the
+        // listener effect below, so no window listener is left attached to this dead
+        // pointer either.
+        gestureRef.current = null;
+        setGesturePointerId(null);
+        return;
+      }
       applyDrag({ id, from: index, to: index, y: 0 });
     }, 400);
     // Triggers the effect below to attach the window listeners for this gesture; it stays
@@ -330,17 +348,24 @@ export function Rail() {
         clearTimeout(holdTimer.current);
         holdTimer.current = null;
       }
-      const finished = dragRef.current;
-      if (finished) {
-        justDraggedRef.current = true;
-        if (commit && finished.from !== finished.to) persistReorder(finished.from, finished.to);
+      // `persistReorder` calls out to `SidebarModel.setUserOrder` (EditorSettings I/O) —
+      // if that throws, ownership must still be released: the `finally` below is what
+      // makes this hold regardless, the same invariant the hold-timer's catch above
+      // upholds for its own failure mode.
+      try {
+        const finished = dragRef.current;
+        if (finished) {
+          justDraggedRef.current = true;
+          if (commit && finished.from !== finished.to) persistReorder(finished.from, finished.to);
+        }
+      } finally {
+        applyDrag(null);
+        if (g.target.hasPointerCapture?.(g.pointerId)) {
+          try { g.target.releasePointerCapture(g.pointerId); } catch { /* already released */ }
+        }
+        gestureRef.current = null;
+        setGesturePointerId(null);
       }
-      applyDrag(null);
-      if (g.target.hasPointerCapture?.(g.pointerId)) {
-        try { g.target.releasePointerCapture(g.pointerId); } catch { /* already released */ }
-      }
-      gestureRef.current = null;
-      setGesturePointerId(null);
     };
     const onUp = (ev: PointerEvent) => { if (ev.pointerId === g.pointerId) endGesture(true); };
     const onCancel = (ev: PointerEvent) => { if (ev.pointerId === g.pointerId) endGesture(false); };
