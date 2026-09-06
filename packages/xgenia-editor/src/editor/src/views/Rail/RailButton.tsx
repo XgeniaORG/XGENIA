@@ -80,6 +80,7 @@ export function RailButton(props: RailButtonProps) {
         <IconButton
           icon={props.icon}
           size={IconSize.Small}
+          selfPaintedIcon
           variant={IconButtonVariant.Transparent}
           state={props.isActive ? IconButtonState.Active : IconButtonState.Default}
           isDisabled={props.isDisabled}

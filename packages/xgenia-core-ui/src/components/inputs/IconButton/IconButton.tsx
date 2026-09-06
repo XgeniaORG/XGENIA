@@ -35,6 +35,13 @@ export interface IconButtonProps extends UnsafeStyleProps {
   label?: string;
   // Optional: explicit icon color override for external icon components
   iconColor?: string;
+  /**
+   * Set for an icon component that paints itself — one drawn from gradients rather than
+   * from a single `fill`, such as the left rail's glass icons. External icons are
+   * normally flattened to `fill: none !important` so the button can colour their strokes;
+   * that rule reaches into <defs> and would erase the artwork here, so this opts out of it.
+   */
+  selfPaintedIcon?: boolean;
 
   isDisabled?: boolean;
   testId?: string;
@@ -74,6 +81,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
       UNSAFE_style,
       id,
       iconColor: iconColorOverride,
+      selfPaintedIcon,
       'aria-label': ariaLabel
     }: IconButtonProps,
     ref
@@ -96,7 +104,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
           css[state],
           css[buttonSize],
           isIconName && css[`is-icon-variant-${iconVariant}`],
-          !isIconName && css['is-external-icon'],
+          !isIconName && !selfPaintedIcon && css['is-external-icon'],
           UNSAFE_className
         )}
         onClick={onClick}

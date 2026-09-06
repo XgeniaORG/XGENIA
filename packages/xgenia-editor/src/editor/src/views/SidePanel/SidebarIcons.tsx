@@ -1,36 +1,30 @@
 /**
  * SidebarIcons.tsx
  *
- * Adapter layer that wraps Hugeicons into React components matching the
- * (size, color, fill, style) interface expected by IconButton.
+ * Every icon the editor's left bar draws, under one name each, so a slot can
+ * change its artwork without every call site moving with it.
  *
- * Each wrapper simply forwards `size` and `color` to <HugeiconsIcon />.
+ * Two families live here. The rail strip's ten panel icons come from
+ * ./GlassIcons — Nucleo's glass set, painted by CSS tokens. Everything else is
+ * a Hugeicon wrapped to the (size, color, fill, style) interface IconButton
+ * expects, forwarding `size` and `color` to <HugeiconsIcon />.
  */
 import React from 'react';
 import { HugeiconsIcon } from '@hugeicons/react';
 
+import {
+    GlassAssets, GlassChat, GlassComponents, GlassImageEditor, GlassMaths, GlassMore,
+    GlassNodeReferences, GlassProjectStyles, GlassSearch, GlassVersionControl
+} from './GlassIcons';
+
 // @ts-ignore – sub-path import; moduleResolution:'node' can't resolve package exports maps
-import DashboardSquare01Icon from '@hugeicons/core-free-icons/DashboardSquare01Icon';
-// @ts-ignore
-import Search01Icon from '@hugeicons/core-free-icons/Search01Icon';
-// @ts-ignore
 import Settings01Icon from '@hugeicons/core-free-icons/Settings01Icon';
-// @ts-ignore
-import GitBranchIcon from '@hugeicons/core-free-icons/GitBranchIcon';
-// @ts-ignore
-import Brain01Icon from '@hugeicons/core-free-icons/Brain01Icon';
-// @ts-ignore
-import Link01Icon from '@hugeicons/core-free-icons/Link01Icon';
-// @ts-ignore
-import Image01Icon from '@hugeicons/core-free-icons/Image01Icon';
 // @ts-ignore
 import Add01Icon from '@hugeicons/core-free-icons/Add01Icon';
 // @ts-ignore
 import Logout01Icon from '@hugeicons/core-free-icons/Logout01Icon';
 // @ts-ignore
 import Download04Icon from '@hugeicons/core-free-icons/Download04Icon';
-// @ts-ignore
-import PaintBrush01Icon from '@hugeicons/core-free-icons/PaintBrush01Icon';
 // @ts-ignore
 import PanelLeftOpenIcon from '@hugeicons/core-free-icons/PanelLeftOpenIcon';
 // @ts-ignore
@@ -40,15 +34,9 @@ import PinIcon from '@hugeicons/core-free-icons/PinIcon';
 // @ts-ignore
 import PinOffIcon from '@hugeicons/core-free-icons/PinOffIcon';
 // @ts-ignore
-import CalculatorIcon from '@hugeicons/core-free-icons/CalculatorIcon';
-// @ts-ignore
-import FolderLibraryIcon from '@hugeicons/core-free-icons/FolderLibraryIcon';
-// @ts-ignore
 import Edit02Icon from '@hugeicons/core-free-icons/Edit02Icon';
 // @ts-ignore
 import FolderOpenIcon from '@hugeicons/core-free-icons/FolderOpenIcon';
-// @ts-ignore
-import MoreHorizontalIcon from '@hugeicons/core-free-icons/MoreHorizontalIcon';
 
 interface IconProps {
     size?: number;
@@ -66,19 +54,29 @@ function makeIcon(iconData: any, displayName: string) {
     return Component;
 }
 
-// ── Sidebar icon wrappers ───────────────────────────────────────────
-export const SideComponents = makeIcon(DashboardSquare01Icon, 'SideComponents');
-export const SideSearch = makeIcon(Search01Icon, 'SideSearch');
-export const SideVersionControl = makeIcon(GitBranchIcon, 'SideVersionControl');
-/** Gear — the merged Project/Editor Settings panel. */
-export const SideSettings = makeIcon(Settings01Icon, 'SideSettings');
-export const SideChatPanel = makeIcon(Brain01Icon, 'SideChatPanel');
-export const SideProjectStyles = makeIcon(PaintBrush01Icon, 'SideProjectStyles');
+// ── Rail panel icons ────────────────────────────────────────────────
+// The ten icons that sit in the left rail strip are Nucleo glass icons (see
+// GlassIcons.tsx), not Hugeicons: at the rail's 20px they read as small lit
+// objects rather than as hairline strokes, and they take their colour from the
+// --gi-* tokens the rail sets per state. Everything below this block is still a
+// Hugeicon — the project menu draws its icons at 14px in currentColor (including
+// a red "Close project"), and the + is an accent-filled affordance; glass would
+// lose the tint in one and the legibility in the other.
+export const SideComponents = GlassComponents;
+export const SideSearch = GlassSearch;
+export const SideVersionControl = GlassVersionControl;
+export const SideChatPanel = GlassChat;
+export const SideProjectStyles = GlassProjectStyles;
+export const SideNodeReferences = GlassNodeReferences;
+export const SideImageEditor = GlassImageEditor;
+export const SideMaths = GlassMaths;
+export const SideAssets = GlassAssets;
+/** The rail's ⋯ overflow button, folding the tail of the top cluster at short heights. */
+export const SideMore = GlassMore;
 
-export const SideNodeReferences = makeIcon(Link01Icon, 'SideNodeReferences');
-export const SideImageEditor = makeIcon(Image01Icon, 'SideImageEditor');
-export const SideMaths = makeIcon(CalculatorIcon, 'SideMaths');
-export const SideAssets = makeIcon(FolderLibraryIcon, 'SideAssets');
+// ── Hugeicons wrappers ──────────────────────────────────────────────
+/** Gear — the merged Project/Editor Settings panel, reached from the project menu. */
+export const SideSettings = makeIcon(Settings01Icon, 'SideSettings');
 export const SideAddNode = makeIcon(Add01Icon, 'SideAddNode');
 export const SideLogout = makeIcon(Logout01Icon, 'SideLogout');
 export const TopbarImport = makeIcon(Download04Icon, 'TopbarImport');
@@ -89,5 +87,3 @@ export const TopbarUnpinned = makeIcon(PinOffIcon, 'TopbarUnpinned');
 /** Rail identity chip's project menu. */
 export const SideRenameIcon = makeIcon(Edit02Icon, 'SideRenameIcon');
 export const SideRevealIcon = makeIcon(FolderOpenIcon, 'SideRevealIcon');
-/** The rail's ⋯ overflow button, folding the tail of the top cluster at short heights. */
-export const SideMore = makeIcon(MoreHorizontalIcon, 'SideMore');

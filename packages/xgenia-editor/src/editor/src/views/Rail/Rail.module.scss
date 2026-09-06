@@ -69,10 +69,44 @@
   border-radius: 8px;
   color: var(--theme-color-fg-default-shy, var(--theme-color-fg-default));
 
+  /* The rail's icons are Nucleo glass (views/SidePanel/GlassIcons.tsx): little lit
+   * objects rather than strokes, so `color` no longer reaches them. They read their
+   * five colours from these tokens instead, which is why one copy of the artwork
+   * covers every state. Only the body gradient and the face's opacity move — the
+   * translucent face over a darker body is what keeps the inner detail (the grid's
+   * squares, the chart's bars) legible at this size, and flattening it is what makes
+   * a glass icon turn into a blob. */
+  --gi-body-1: #8E8E9A;
+  --gi-body-2: #5C5C66;
+  --gi-face-alpha: 0.5;
+
+  /* 16px is what IconSize.Small hands a Hugeicon. These are drawn on a 24px grid with
+   * real interior detail, and need the extra two pixels the 28px button can spare. */
+  svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  &:not(:disabled):hover {
+    --gi-body-1: #B6B6C2;
+    --gi-body-2: #7A7A86;
+    --gi-face-alpha: 0.54;
+  }
+
+  &:disabled {
+    --gi-body-1: #5A5A62;
+    --gi-body-2: #3E3E46;
+    --gi-face-alpha: 0.3;
+  }
+
   .is-active & {
     background: var(--glass-ctrl-bg);
     box-shadow: var(--glass-ctrl-shadow);
     color: var(--theme-color-fg-highlight);
+
+    --gi-body-1: #D2D2DE;
+    --gi-body-2: #92929E;
+    --gi-face-alpha: 0.58;
   }
 }
 
