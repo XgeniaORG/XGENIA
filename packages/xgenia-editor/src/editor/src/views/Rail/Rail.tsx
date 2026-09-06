@@ -7,15 +7,18 @@ import { SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
 import { RailPresence } from '@xgenia-models/railpresence';
 import { GitStatus } from '@xgenia-models/gitstatus';
 import { AiActivity, AiActivitySnapshot } from '@xgenia-models/aiactivity';
+import { DialogRenderDirection } from '@xgenia-core-ui/components/layout/BaseDialog';
+import { MenuDialog } from '@xgenia-core-ui/components/popups/MenuDialog';
 
 import { Keybindings } from '../../constants/Keybindings';
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import { ToastLayer } from '../ToastLayer';
 import { importFiles } from '../panels/AssetPanel/assetOps';
+import { SideMore } from '../SidePanel/SidebarIcons';
 import { IdentityChip } from './IdentityChip';
 import { RailButton, RailButtonProps } from './RailButton';
 import { activePanelId } from './railLayout';
-import { badgeFor, tooltipSuffixFor } from './railBadges';
+import { badgeFor, tooltipSuffixFor, type RailBadge } from './railBadges';
 import { arrangeRail, railCapacity, RAIL_SLOT } from './railOrder';
 import { useTooltipGroup } from './useTooltipGroup';
 import css from './Rail.module.scss';
@@ -165,11 +168,21 @@ export function Rail() {
   }, []);
 
   const bottomCount = items.filter((i) => i.placement === 'bottom').length;
+  // 99 before the first ResizeObserver measurement: with no real height yet, `railCapacity`
+  // has nothing to divide, and a capacity of 0 would render everything into overflow (or,
+  // worse, nothing at all) for that first frame. 99 comfortably exceeds any real top
+  // cluster, so nothing folds until a real measurement replaces it.
   const capacity = height ? railCapacity(height, bottomCount) : 99;
-  const arrangement = useMemo(
-    () => arrangeRail(items, sidebar.getUserOrder(), capacity),
-    [items, capacity, sidebar]
-  );
+  const arrangement = useMemo(() => {
+    const userOrder = sidebar.getUserOrder();
+    const first = arrangeRail(items, userOrder, capacity);
+    if (first.overflow.length === 0) return first;
+    // The ⋯ button that will hold the overflow is itself a slot in the same column — fit
+    // one fewer top item so it doesn't get pushed out by the very button meant to hold it.
+    // Overflow is already non-empty at `capacity`, so dropping one more slot can only ever
+    // keep it non-empty (never re-empty it) — a single recompute is enough, no loop needed.
+    return arrangeRail(items, userOrder, Math.max(0, capacity - 1));
+  }, [items, capacity, sidebar]);
 
   // Sliding indicator: index of the active item within the rendered top cluster.
   const activeTopIndex = arrangement.top.findIndex((i) => i.id === active);
@@ -321,6 +334,28 @@ export function Rail() {
     return 'none';
   };
 
+  // Task 19: fold the tail of the top cluster into a ⋯ menu at short heights.
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const overflowRef = useRef<HTMLDivElement>(null);
+  // The window growing tall enough that nothing overflows any more removes the ⋯ button
+  // (and its ref target) out from under an open menu — close it rather than leave a
+  // dialog anchored to nothing.
+  useEffect(() => {
+    if (arrangement.overflow.length === 0) setOverflowOpen(false);
+  }, [arrangement.overflow.length]);
+
+  // One badge per folded item, computed once via the shared composition helper (never a
+  // second, divergent "does anything in here want attention" rule) and reused both for the
+  // ⋯ button's own rolled-up badge and for marking which menu row it came from.
+  const overflowItemBadges: Record<string, RailBadge> = {};
+  for (const item of arrangement.overflow) {
+    overflowItemBadges[item.id] = badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai });
+  }
+  const overflowBadge: RailBadge = {
+    unseen: arrangement.overflow.some((item) => overflowItemBadges[item.id].unseen),
+    ring: arrangement.overflow.some((item) => overflowItemBadges[item.id].ring)
+  };
+
   return (
     <div
       ref={rootRef}
@@ -381,6 +416,36 @@ export function Rail() {
             </div>
           );
         })}
+        {arrangement.overflow.length > 0 && (
+          <div ref={overflowRef}>
+            <RailButton
+              id="rail-overflow"
+              name="More panels"
+              icon={SideMore}
+              isActive={arrangement.overflow.some((item) => item.id === active)}
+              showAfterMs={tips.showAfterMs}
+              onTooltipClosed={tips.noteClosed}
+              badge={overflowBadge}
+              onClick={() => setOverflowOpen((v) => !v)}
+            />
+          </div>
+        )}
+        {arrangement.overflow.length > 0 && (
+          <MenuDialog
+            isVisible={overflowOpen}
+            onClose={() => setOverflowOpen(false)}
+            triggerRef={overflowRef}
+            renderDirection={DialogRenderDirection.Horizontal}
+            items={arrangement.overflow.map((item) => ({
+              key: item.id,
+              label: overflowItemBadges[item.id].unseen ? `${item.name} •` : item.name,
+              onClick: () => {
+                setOverflowOpen(false);
+                SidebarModel.instance.dispatch({ type: 'click', id: item.id });
+              }
+            }))}
+          />
+        )}
       </div>
 
       <div className={css.Bottom}>

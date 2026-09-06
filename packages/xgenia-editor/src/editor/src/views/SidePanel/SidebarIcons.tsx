@@ -49,6 +49,8 @@ import FolderLibraryIcon from '@hugeicons/core-free-icons/FolderLibraryIcon';
 import Edit02Icon from '@hugeicons/core-free-icons/Edit02Icon';
 // @ts-ignore
 import FolderOpenIcon from '@hugeicons/core-free-icons/FolderOpenIcon';
+// @ts-ignore
+import MoreHorizontalIcon from '@hugeicons/core-free-icons/MoreHorizontalIcon';
 
 interface IconProps {
     size?: number;
@@ -90,3 +92,5 @@ export const TopbarUnpinned = makeIcon(PinOffIcon, 'TopbarUnpinned');
 /** Rail identity chip's project menu. */
 export const SideRenameIcon = makeIcon(Edit02Icon, 'SideRenameIcon');
 export const SideRevealIcon = makeIcon(FolderOpenIcon, 'SideRevealIcon');
+/** The rail's ⋯ overflow button, folding the tail of the top cluster at short heights. */
+export const SideMore = makeIcon(MoreHorizontalIcon, 'SideMore');
