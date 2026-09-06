@@ -15,17 +15,25 @@ test('badgeFor: count alone', () => {
   assert.deepEqual(badge, { count: 5 });
 });
 
-test('badgeFor: ring alone', () => {
-  const badge = badgeFor({ itemId: 'chat-panel', presenceEntry: undefined, gitCount: null, ai: workingAi });
+test('badgeFor: ring alone, driven by the showsAiActivity flag — NOT the item id', () => {
+  // The shipping config's chat panel id is 'ChatPanel' (iframe); the open-source shell
+  // fallback is 'chat-panel'. Either must get the ring as long as its registration set
+  // `showsAiActivity` — badgeFor must never go back to string-matching one literal id,
+  // which is exactly how the ring went dark in the shipping build.
+  const badge = badgeFor({ itemId: 'ChatPanel', presenceEntry: undefined, gitCount: null, ai: workingAi, showsAiActivity: true });
   assert.deepEqual(badge, { ring: true });
 });
 
+test('badgeFor: an item with a chat-like id but no showsAiActivity flag gets no ring', () => {
+  const badge = badgeFor({ itemId: 'chat-panel', presenceEntry: undefined, gitCount: null, ai: workingAi });
+  assert.deepEqual(badge, {});
+});
+
 test('badgeFor: chat carries BOTH a ring and an unseen dot at once', () => {
-  // Not a real-world combination today (RailPresence never records a family for
-  // 'chat-panel'), but badgeFor must not drop either field if it ever did — that is
-  // exactly the "one badge={{...}} clobbers another" failure mode this module exists
-  // to close off.
-  const badge = badgeFor({ itemId: 'chat-panel', presenceEntry: { unseen: 3, lastAt: 200 }, gitCount: null, ai: workingAi });
+  // Not a real-world combination today (RailPresence never records a family for the chat
+  // panel), but badgeFor must not drop either field if it ever did — that is exactly the
+  // "one badge={{...}} clobbers another" failure mode this module exists to close off.
+  const badge = badgeFor({ itemId: 'ChatPanel', presenceEntry: { unseen: 3, lastAt: 200 }, gitCount: null, ai: workingAi, showsAiActivity: true });
   assert.deepEqual(badge, { unseen: true, ring: true });
 });
 

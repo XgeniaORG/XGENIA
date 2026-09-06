@@ -34,6 +34,16 @@ export interface BadgeInput {
   presenceEntry: PresenceEntry | undefined;
   gitCount: number | null;
   ai: AiActivityInput;
+  /**
+   * This item is the one that shows AI activity (the chat) — mirrors the
+   * `showsAiActivity` flag on the panel's own `SidebarItem` registration. NOT an id
+   * comparison: the chat panel's id is `'ChatPanel'` (iframe, the shipping
+   * configuration) or `'chat-panel'` (the open-source shell fallback), decided at
+   * runtime by router.setup.ts — a literal id here would silently miss whichever one
+   * isn't currently loaded, which is exactly how the ring and elapsed-time tooltip went
+   * dark in the shipping build.
+   */
+  showsAiActivity?: boolean;
 }
 
 export function badgeFor(input: BadgeInput): RailBadge {
@@ -46,7 +56,7 @@ export function badgeFor(input: BadgeInput): RailBadge {
   // function keeps that guarantee even if some future caller hands it a stray entry.
   if (!isVersionControl && (input.presenceEntry?.unseen ?? 0) > 0) badge.unseen = true;
   if (isVersionControl) badge.count = input.gitCount ?? undefined;
-  if (input.itemId === 'chat-panel') badge.ring = input.ai.active;
+  if (input.showsAiActivity) badge.ring = input.ai.active;
   return badge;
 }
 

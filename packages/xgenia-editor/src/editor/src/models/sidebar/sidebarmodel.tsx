@@ -51,6 +51,15 @@ export interface SidebarItem<TProps = Record<string, unknown>> {
   isDefaultDocked?: boolean;
 
   /**
+   * This panel shows AI activity — its rail button gets the "AI working" ring and
+   * elapsed-time tooltip, and callers that need to route the user to "wherever the AI
+   * is" (MathsPanel's dispatchCommand) resolve the id through this flag rather than a
+   * literal id. Declarative, like `isDefaultDocked`: router.setup.ts sets it on whichever
+   * chat implementation actually loaded, under either id it may resolve to.
+   */
+  showsAiActivity?: boolean;
+
+  /**
    * Registered and fully dispatchable (`SidebarModel.switch`, the settings panel's own
    * "Project settings" menu item, etc.) but not rendered as a rail button — e.g.
    * Settings, reachable only from the identity chip's project menu.
@@ -398,6 +407,16 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
 
   public getVisibleItems(): readonly SidebarItem[] {
     return this.getItems().filter((x) => !x.transient);
+  }
+
+  /**
+   * The id of the panel that shows AI activity (the chat), if one is registered.
+   * Declarative lookup via `showsAiActivity`, mirroring `defaultDockedId()` above — a
+   * caller that needs "the chat panel's id" (MathsPanel's dispatchCommand) must not guess
+   * a literal id, since it differs between the iframe and shell chat implementations.
+   */
+  public getAiActivityPanelId(): string | null {
+    return this.items.find((x) => x.showsAiActivity)?.id ?? null;
   }
 
   public getExperimentalItems() {

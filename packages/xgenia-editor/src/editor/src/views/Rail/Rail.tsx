@@ -423,7 +423,7 @@ export function Rail() {
   // ⋯ button's own rolled-up badge and for marking which menu row it came from.
   const overflowItemBadges: Record<string, RailBadge> = {};
   for (const item of arrangement.overflow) {
-    overflowItemBadges[item.id] = badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai });
+    overflowItemBadges[item.id] = badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai, showsAiActivity: item.showsAiActivity });
   }
   const overflowBadge: RailBadge = {
     unseen: arrangement.overflow.some((item) => overflowItemBadges[item.id].unseen),
@@ -472,12 +472,12 @@ export function Rail() {
               item.onClick?.();
             }
           };
-          const button = item.id === 'chat-panel'
-            ? <ChatRailButton {...common} badge={badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai })} ai={ai} aiSince={aiSince} />
+          const button = item.showsAiActivity
+            ? <ChatRailButton {...common} badge={badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai, showsAiActivity: item.showsAiActivity })} ai={ai} aiSince={aiSince} />
             : (
               <RailButton
                 {...common}
-                badge={badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai })}
+                badge={badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai, showsAiActivity: item.showsAiActivity })}
                 tooltipSuffix={tooltipSuffixFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count })}
               />
             );
@@ -535,7 +535,7 @@ export function Rail() {
             isDisabled={item.isDisabled}
             showAfterMs={tips.showAfterMs}
             onTooltipClosed={tips.noteClosed}
-            badge={badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai })}
+            badge={badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai, showsAiActivity: item.showsAiActivity })}
             tooltipSuffix={tooltipSuffixFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count })}
             isDropTarget={dropMode && item.id === 'assets'}
             isDropDimmed={dropMode && item.id !== 'assets'}

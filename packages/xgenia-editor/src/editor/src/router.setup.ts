@@ -144,6 +144,7 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     icon: SideChatPanel,
     defaultWidth: 450,
     isDefaultDocked: true,
+    showsAiActivity: true,
     panel: ChatPanel
   });
   SidebarModel.instance.register({
