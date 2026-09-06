@@ -141,18 +141,15 @@ export function EditorPage({ route }: EditorPageProps) {
             eventGroup
         );
 
-        // The editor must not paint before the stored layout lands. `restoreLayout` awaits
-        // EditorSettings, which under Electron is a real file read, so releasing the loading
-        // gate first renders the default panel and then swaps it for the stored one — a
-        // visible flash of the wrong panel on every project open. This is also why nothing
-        // else may set the active panel during startup: one authority, one paint.
-        // The editor still opens, on defaults, if the settings read fails — but the failure
-        // is reported rather than swallowed, and the gate is released either way so a bad
-        // read can never strand the editor on the spinner.
+        // `restoreLayout` applies the stored layout synchronously before it awaits anything,
+        // so the model is already correct here and the editor's first frame paints the right
+        // panel. Do NOT await it before releasing the loading gate: settings live in a file
+        // under Electron, so awaiting holds the ENTIRE editor on the spinner behind a disk
+        // read, which trades a panel that flashes for a whole window that does.
         void SidebarModel.instance
             .restoreLayout()
-            .catch((err) => console.error('[EditorPage] Failed to restore the panel layout:', err))
-            .finally(() => setIsLoading(false));
+            .catch((err) => console.error('[EditorPage] Failed to restore the panel layout:', err));
+        setIsLoading(false);
         void GitStatus.refresh();
         ipcRenderer.send('project-opened', ProjectModel.instance.name);
 

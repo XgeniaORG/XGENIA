@@ -213,7 +213,20 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
    * removed chat panel must never strand the user with no way home.
    */
   public async restoreLayout(): Promise<void> {
+    // Apply whatever settings are readable RIGHT NOW, before awaiting anything, so the
+    // caller can paint a correct first frame. EditorSettings mirrors itself into
+    // localStorage, which is synchronous, so on any launch after the first this already
+    // has the stored answer. Awaiting the file read before applying anything is what made
+    // the editor paint its default panel and then visibly swap it.
+    this.applyStoredLayout();
+    // The file is still the authority — it may hold settings this window has never seen —
+    // so apply again once it lands. The reducer returns the same state when nothing
+    // changed, and dispatch() drops that, so the common case notifies nobody twice.
     await EditorSettings.instance.ready;
+    this.applyStoredLayout();
+  }
+
+  private applyStoredLayout(): void {
     const storedActive = EditorSettings.instance.get(SidebarModel.SETTINGS_ACTIVE);
     const storedDocked = EditorSettings.instance.get(SidebarModel.SETTINGS_DOCKED_LEGACY);
     const storedOpen = EditorSettings.instance.get(SidebarModel.SETTINGS_OPEN);

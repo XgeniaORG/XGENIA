@@ -89,10 +89,39 @@ export class EditorSettings extends Model {
     // Merge into current settings to prevent overwriting values set before fetch completes
     const incoming = local.settings || {};
     this.settings = deepMerge(this.settings || {}, incoming);
+    // Prime the synchronous mirror as soon as the real settings land, so the NEXT launch
+    // can answer get() before its first paint instead of waiting for this read.
+    this.writeLocalStorageMirror();
   }
 
   async store() {
     await JSONStorage.set('editorSettings', { settings: this.settings });
+    this.writeLocalStorageMirror();
+  }
+
+  /**
+   * Mirror the settings into localStorage, which is synchronous and therefore readable
+   * before the first paint.
+   *
+   * This is the write half of the bootstrap in the constructor and the lazy read in
+   * `get()`. Both look for `editorSettings` in localStorage and nothing had ever put it
+   * there, so under Electron — where JSONStorage is a FILE — all three read sites always
+   * missed, and `get()` returned undefined for every caller that could not await `ready`.
+   * That is what the WHY note on `ready` describes as unavoidable; it was not, the mirror
+   * was simply never written.
+   *
+   * Written after the real store, never before, so the mirror can only lag the file and
+   * never claim a value the file rejected. A full or unavailable localStorage is logged
+   * and ignored: it must not fail the write that actually persists.
+   */
+  private writeLocalStorageMirror() {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      localStorage.setItem('editorSettings', JSON.stringify({ settings: this.settings }));
+      this.initializedFromLocalStorage = true;
+    } catch (err: any) {
+      console.error('[EditorSettings] Failed to mirror settings to localStorage:', err);
+    }
   }
 
   // @ts-expect-error Property 'set' in type 'EditorSettings' is not assignable to the same property in base type 'Model'.
