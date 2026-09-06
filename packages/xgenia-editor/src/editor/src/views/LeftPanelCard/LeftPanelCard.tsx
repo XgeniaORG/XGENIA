@@ -16,7 +16,18 @@ import {
 } from './panelWidth';
 import css from './LeftPanelCard.module.scss';
 
-const storage = typeof window !== 'undefined' ? window.localStorage : null;
+function getStorage(): Storage | null {
+  try {
+    return typeof window !== 'undefined' ? window.localStorage : null;
+  } catch {
+    // Some contexts (locked-down webviews, certain privacy modes) throw on the accessor
+    // itself rather than on a call — readPanelWidth/writePanelWidth already tolerate a
+    // null storage, so failing closed here removes the whole class of module-load crashes.
+    return null;
+  }
+}
+
+const storage = getStorage();
 
 function usePanelWidth(panelId: string | null) {
   const item = panelId ? SidebarModel.instance.getPanel(panelId) : null;
@@ -62,23 +73,36 @@ export function PanelCard({ panelId, mode, onClose, onPin }: CardProps) {
     return () => { io.disconnect(); sentinel.remove(); };
   }, []);
 
+  // Listeners live on window (not the handle) so the drag survives the pointer leaving the
+  // 8px strip, and live in an effect gated on `isResizing` — not attached imperatively inside
+  // the mousedown handler — so React's cleanup removes them if the card unmounts mid-drag
+  // (e.g. a later task's Escape-closes-peek) instead of leaving them to fire stale closures.
+  // Mirrors RightPropertyPanel.tsx's resize effect.
+  useEffect(() => {
+    if (!isResizing) return;
+    const onMove = (ev: MouseEvent) => {
+      const d = drag.current;
+      if (!d) return;
+      setWidth(clampPanelWidth(d.startWidth + (ev.clientX - d.startX)));
+    };
+    const onUp = (ev: MouseEvent) => {
+      const d = drag.current;
+      drag.current = null;
+      setIsResizing(false);
+      if (d) commit(d.startWidth + (ev.clientX - d.startX));
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isResizing, commit]);
+
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault();
     drag.current = { startX: e.clientX, startWidth: width };
     setIsResizing(true);
-    const onMove = (ev: MouseEvent) => {
-      if (!drag.current) return;
-      setWidth(clampPanelWidth(drag.current.startWidth + (ev.clientX - drag.current.startX)));
-    };
-    const onUp = (ev: MouseEvent) => {
-      if (drag.current) commit(drag.current.startWidth + (ev.clientX - drag.current.startX));
-      drag.current = null;
-      setIsResizing(false);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
   };
 
   const onHandleKeyDown = (e: React.KeyboardEvent) => {

@@ -1,5 +1,5 @@
 import { nextTick } from 'process';
-import React, { ReactNode, useEffect, useState } from 'react';
+import React, { ReactNode, useEffect, useRef, useState } from 'react';
 
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
@@ -19,10 +19,22 @@ interface Props {
  * switching back is instant and keeps its state — and, for remote iframes, avoids
  * re-booting a whole application on every switch. `PanelActiveContext` tells a hidden
  * panel it is off screen so the expensive ones can idle. `unmountWhenHidden` on the item
- * is the stronger opt-out. This is the same policy the old SidePanel had.
+ * is the stronger opt-out. This mount/hide policy is the same one the old SidePanel had —
+ * and, on `HotReload`, so is the recovery: the currently visible panel's component is
+ * re-created (not just wiped), the same way `SidePanel.tsx`'s HotReload handler recreates
+ * `SidebarModel.instance.ActiveId` instead of leaving the panel blank until the user
+ * switches away and back.
  */
 export function PanelHost({ visibleId, keepMounted }: Props) {
   const [panels, setPanels] = useState<Record<string, ReactNode>>({});
+
+  // HotReload fires from a model event, not a prop change, so the handler below (subscribed
+  // once, deliberately not re-subscribed on every panel switch) reads the current `visibleId`
+  // through this ref rather than closing over the value from whichever render first attached it.
+  const visibleIdRef = useRef(visibleId);
+  useEffect(() => {
+    visibleIdRef.current = visibleId;
+  }, [visibleId]);
 
   useEffect(() => {
     if (!visibleId) return;
@@ -39,7 +51,13 @@ export function PanelHost({ visibleId, keepMounted }: Props) {
     const group = {};
     SidebarModel.instance.on(
       SidebarModelEvent.HotReload,
-      () => nextTick(() => setPanels({})),
+      () =>
+        nextTick(() => {
+          const currentId = visibleIdRef.current;
+          if (!currentId) return;
+          const component = SidebarModel.instance.getPanelComponent(currentId);
+          setPanels(component ? { [currentId]: React.createElement(component) } : {});
+        }),
       group
     );
     return () => {
