@@ -172,6 +172,9 @@
 }
 @media (prefers-reduced-motion: reduce) { .is-ping .Button { animation: none; box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.55); } }
 
+.is-recount .Count { animation: rail-recount 200ms ease; }
+@keyframes rail-recount { 50% { transform: scale(1.15); } }
+
 .Identity {
   width: 28px;
   height: 28px;

@@ -4,6 +4,7 @@ import { useModernModel } from '@xgenia-hooks/useModel';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
 import { RailPresence } from '@xgenia-models/railpresence';
+import { GitStatus } from '@xgenia-models/gitstatus';
 
 import { Keybindings } from '../../constants/Keybindings';
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
@@ -18,17 +19,26 @@ type RailBadge = { count?: number; unseen?: boolean; ring?: boolean };
 type PresenceState = Record<string, { unseen: number; lastAt: number }>;
 
 // The one RailButton renders the assets/versioncontrol/chat presence signals — the AI
-// touched this panel's domain (Task 13, an amber dot; more signals join this same
-// composition point in Tasks 14-15). Every RailButton call site below reads
-// badge={badgeFor(item)} so later additions extend this instead of clobbering it.
-function badgeFor(item: { id: string }, ctx: { presence: PresenceState }): RailBadge {
+// touched this panel's domain (Task 13, an amber dot), how many files are uncommitted
+// (Task 14, a live count on Version control; the chat's ring joins in Task 15). Every
+// RailButton call site below reads badge={badgeFor(item)} so each family of signal only
+// ever touches its own field instead of one badge={{...}} literal clobbering another.
+function badgeFor(item: { id: string }, ctx: { presence: PresenceState; git: { count: number | null } }): RailBadge {
   const badge: RailBadge = {};
+  // Version control's badge is a live count, not a "did you miss something" dot — an
+  // unseen dot on top of a count would just be noise, and RailPresence.noteCommand
+  // already refuses to record 'versioncontrol' as a family, so this is never true for it.
   if ((ctx.presence[item.id]?.unseen ?? 0) > 0) badge.unseen = true;
+  if (item.id === 'versioncontrol') badge.count = ctx.git.count ?? undefined;
   return badge;
 }
 
-/** Tooltip suffix for the presence dot: "· 2 new since you looked". */
-function tooltipSuffixFor(item: { id: string }, ctx: { presence: PresenceState }): string | undefined {
+/** Tooltip suffix: "· 2 new since you looked" for a touched panel, or the uncommitted
+ *  file count for Version control. */
+function tooltipSuffixFor(item: { id: string }, ctx: { presence: PresenceState; git: { count: number | null } }): string | undefined {
+  if (item.id === 'versioncontrol') {
+    return ctx.git.count ? `· ${ctx.git.count} uncommitted file${ctx.git.count === 1 ? '' : 's'}` : undefined;
+  }
   const p = ctx.presence[item.id];
   return p?.unseen ? `· ${p.unseen} new since you looked` : undefined;
 }
@@ -51,6 +61,14 @@ export function Rail() {
   useEffect(() => {
     if (layout.open) RailPresence.markSeen(activePanelId(layout));
   }, [layout.open, layout.activeId]);
+
+  // Git status (Task 14): uncommitted file count for the Version control badge.
+  const [git, setGit] = useState(GitStatus.getSnapshot);
+  useEffect(() => {
+    const group = {};
+    EventDispatcher.instance.on('git-status-changed', (s: { count: number | null }) => setGit(s), group);
+    return () => EventDispatcher.instance.off(group);
+  }, []);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
@@ -129,8 +147,8 @@ export function Rail() {
             isDisabled={item.isDisabled}
             showAfterMs={tips.showAfterMs}
             onTooltipClosed={tips.noteClosed}
-            badge={badgeFor(item, { presence })}
-            tooltipSuffix={tooltipSuffixFor(item, { presence })}
+            badge={badgeFor(item, { presence, git })}
+            tooltipSuffix={tooltipSuffixFor(item, { presence, git })}
             onClick={() => {
               SidebarModel.instance.dispatch({ type: 'click', id: item.id });
               item.onClick?.();
@@ -151,8 +169,8 @@ export function Rail() {
             isDisabled={item.isDisabled}
             showAfterMs={tips.showAfterMs}
             onTooltipClosed={tips.noteClosed}
-            badge={badgeFor(item, { presence })}
-            tooltipSuffix={tooltipSuffixFor(item, { presence })}
+            badge={badgeFor(item, { presence, git })}
+            tooltipSuffix={tooltipSuffixFor(item, { presence, git })}
             onClick={() => {
               SidebarModel.instance.dispatch({ type: 'click', id: item.id });
               item.onClick?.();

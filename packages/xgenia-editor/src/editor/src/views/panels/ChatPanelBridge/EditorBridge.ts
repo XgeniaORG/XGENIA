@@ -20,6 +20,7 @@ import { recordAssetProvenance, loadAssetMeta, migrateAssetMeta } from '../Asset
 import { reconcileGraphAssetRefs } from '../AssetPanel/assetGraphRefs';
 import { AiActivity } from '@xgenia-models/aiactivity';
 import { RailPresence } from '@xgenia-models/railpresence';
+import { GitStatus } from '@xgenia-models/gitstatus';
 import { ComponentModel } from '@xgenia-models/componentmodel';
 import { NodeGraphModel, NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 import { NodeLibrary } from '@xgenia-models/nodelibrary';
@@ -2012,6 +2013,7 @@ export class EditorBridge {
                 const g = new Git(mergeProject);
                 await g.openRepository(pm._retainedProjectDirectory);
                 const sha = await g.commit(message);
+                void GitStatus.refresh();
                 return { success: true, sha, message };
             } catch (e: any) {
                 return { success: false, error: e?.message || String(e) };
@@ -2128,6 +2130,7 @@ export class EditorBridge {
                     };
                 }
                 const ok = await g.push();
+                if (ok) void GitStatus.refresh();
                 return { success: !!ok };
             } catch (e: any) {
                 return { success: false, error: e?.message || String(e) };

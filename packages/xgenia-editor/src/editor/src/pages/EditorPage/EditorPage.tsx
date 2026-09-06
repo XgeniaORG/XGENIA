@@ -15,6 +15,8 @@ import { ProjectModel } from '@xgenia-models/projectmodel';
 import { projectFromDirectory, unzipIntoDirectory } from '@xgenia-models/projectmodel.editor';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
+import { GitStatus } from '@xgenia-models/gitstatus';
+import { RailPresence } from '@xgenia-models/railpresence';
 import { UndoQueue } from '@xgenia-models/undo-queue-model';
 import { exportProjectComponents } from '@xgenia-utils/exportProjectComponets';
 import FileSystem from '@xgenia-utils/filesystem';
@@ -151,6 +153,7 @@ export function EditorPage({ route }: EditorPageProps) {
             .restoreLayout()
             .catch((err) => console.error('[EditorPage] Failed to restore the panel layout:', err))
             .finally(() => setIsLoading(false));
+        void GitStatus.refresh();
         ipcRenderer.send('project-opened', ProjectModel.instance.name);
 
         // Initialize the ToolsModel and listen for tool updates
@@ -207,8 +210,20 @@ export function EditorPage({ route }: EditorPageProps) {
             CloudService.instance.reset();
             SidebarModel.instance.reset();
             UndoQueue.instance.clear();
+            GitStatus.reset();
+            RailPresence.reset();
         };
     }, []); // Empty dependency array: runs once on mount
+
+    // Version control badge: recheck on an undo-history change (debounced) and whenever the
+    // window regains focus (a commit or push made outside the editor, e.g. from a terminal).
+    useEffect(() => {
+        const group = {};
+        EventDispatcher.instance.on('Model.undoHistoryChanged', () => GitStatus.scheduleRefresh(5000), group);
+        const onFocus = () => void GitStatus.refresh();
+        window.addEventListener('focus', onFocus);
+        return () => { EventDispatcher.instance.off(group); window.removeEventListener('focus', onFocus); };
+    }, []);
 
     // Track when right-side panel changes (independent of left sidebar)
     useEffect(() => {

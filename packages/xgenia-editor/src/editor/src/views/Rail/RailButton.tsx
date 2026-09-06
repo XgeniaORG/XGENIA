@@ -47,6 +47,19 @@ export function RailButton(props: RailButtonProps) {
     return () => clearTimeout(t);
   }, [badge?.unseen]);
 
+  // Version control's count recount pulse: a 200ms pulse whenever the number itself
+  // changes, initialised to the current count so mounting never counts as a change.
+  const prevCountRef = useRef(badge?.count);
+  const [isRecounting, setIsRecounting] = useState(false);
+  useEffect(() => {
+    const prevCount = prevCountRef.current;
+    prevCountRef.current = badge?.count;
+    if (badge?.count === undefined || prevCount === undefined || badge.count === prevCount) return;
+    setIsRecounting(true);
+    const t = setTimeout(() => setIsRecounting(false), 200);
+    return () => clearTimeout(t);
+  }, [badge?.count]);
+
   return (
     <div
       className={classNames(
@@ -54,7 +67,8 @@ export function RailButton(props: RailButtonProps) {
         props.isActive && css['is-active'],
         props.isDropTarget && css['is-drop-target'],
         props.isDropDimmed && css['is-drop-dimmed'],
-        isPinging && css['is-ping']
+        isPinging && css['is-ping'],
+        isRecounting && css['is-recount']
       )}
       data-rail-id={props.id}
       onPointerDownCapture={props.onPointerDownCapture}
