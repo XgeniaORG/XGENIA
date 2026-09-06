@@ -370,23 +370,62 @@ const TOOLTIP_HOVER_DELAY_MS = 450;
  */
 const TOOLTIP_MAX_LEN = 40;
 
+/**
+ * A keyboard-shortcut "fine type" hint always opens with a Mac modifier
+ * glyph — confirmed live against the rail's own output: "⌘+⌥+1" .. "⌘+⌥+8",
+ * "⌘+F". A panel name never does. `readTooltipLabel` uses this to tell the
+ * two apart when a button's Tooltip renders both as separate elements (see
+ * that function's doc comment for why they can't just be read as one).
+ */
+const MODIFIER_KEY_GLYPH = /^[⌘⌥⇧⌃]/;
+
 /** How long `ensureChatPanelOpen` waits, after clicking the identified button, for the panel to actually mount. */
 const CHAT_OPEN_TIMEOUT_MS = 15_000;
 
-/** The exact (case-insensitive, trimmed) label the sidebar button must carry. */
-const CHAT_BUTTON_LABEL = 'chat';
+/**
+ * The Chat panel's registered NAME — stable across builds even though its
+ * id is not (the editor picks its chat implementation at load time: id is
+ * `ChatPanel` in the default build, `chat-panel` in the open-source
+ * fallback). This is what both lookup paths in `ensureChatPanelOpen` match
+ * against: the fast path via `aria-label`, the fallback via tooltip text.
+ */
+const CHAT_BUTTON_NAME = 'Chat';
 
 /**
- * Whether a tooltip label identifies the Chat button.
+ * Whether a label — an `aria-label`, or a tooltip's rendered text — names
+ * `name`: either exactly, or with a trailing suffix XGENIA renders after a
+ * panel's name in some tooltips (a live count, "Version control · 16
+ * uncommitted files"; since the 2026-09 rail redesign, a keyboard-shortcut
+ * hint on the top cluster).
  *
- * Case-insensitive and trimmed — real tooltip text is not guaranteed to
- * arrive in one exact casing — but requires an exact match, never a
- * substring: "AI Image Editor" must never match, and neither should a
- * future "Chat History" button that XGENIA might add later. `.includes()`
- * would silently start opening the wrong panel the day either exists.
+ * Case-insensitive and trimmed — real label text is not guaranteed to
+ * arrive in one exact casing — but the match on `name` itself is exact,
+ * never a substring: "AI Image Editor" must never match "Chat", and neither
+ * should a "Chat History" button XGENIA might add later. A trailing suffix
+ * is accepted only when it could not be mistaken for more of the same
+ * plain-English name: it must contain a digit or a symbol no ordinary word
+ * does. That is what lets "Chat ⌘⌥3" match "Chat" while "Chat History"
+ * still does not — "History" is nothing but letters, so it reads as a
+ * different name, not a hint tacked onto this one.
  */
+export function labelNames(label: string, name: string): boolean {
+  const trimmed = label.trim();
+  if (!trimmed) return false;
+  const target = name.trim();
+  const lower = trimmed.toLowerCase();
+  const lowerTarget = target.toLowerCase();
+  if (lower === lowerTarget) return true;
+  if (!lower.startsWith(lowerTarget)) return false;
+  const rest = trimmed.slice(target.length);
+  if (/^[A-Za-z]/.test(rest)) return false; // glued straight into another word, e.g. "Chats"
+  const suffix = rest.trim();
+  if (!suffix) return false;
+  return /[^A-Za-z\s]/.test(suffix); // a digit or symbol -- a hint, not more of the name
+}
+
+/** Whether a label (an `aria-label`, or a tooltip's rendered text) identifies the Chat button. See `labelNames`. */
 export function isChatButtonLabel(label: string): boolean {
-  return label.trim().toLowerCase() === CHAT_BUTTON_LABEL;
+  return labelNames(label, CHAT_BUTTON_NAME);
 }
 
 interface SidebarButtonPoint {
@@ -395,21 +434,39 @@ interface SidebarButtonPoint {
   cy: number;
 }
 
+interface RailButtonCandidate extends SidebarButtonPoint {
+  /**
+   * The button's `aria-label`, or `null` on a build that predates the rail
+   * redesign forwarding it through `IconButton`. `null`, not `''`, is what
+   * tells `ensureChatPanelOpen` a button carries no accessible name at all.
+   */
+  ariaLabel: string | null;
+}
+
 /**
- * Read the center point of every sidebar rail button currently in the DOM.
+ * Read every sidebar rail button currently in the DOM: its center point,
+ * and its `aria-label` if the build sets one.
  *
  * Filtering by `x < SIDEBAR_RAIL_MAX_X` and a non-zero box happens inside
  * the page, not here, because the whole point is one round trip per scan
- * rather than one per candidate.
+ * rather than one per candidate. This single read backs BOTH lookup paths —
+ * the fast accessible-name match tried first, and the hover-and-read
+ * fallback tried after it — so a build that has `aria-label` never pays for
+ * a second round trip just to find that out, and a build that does not
+ * still gets the fallback's candidate list for free.
  */
-async function readSidebarButtonPoints(page: Page): Promise<SidebarButtonPoint[]> {
+async function readSidebarButtonCandidates(page: Page): Promise<RailButtonCandidate[]> {
   return page.evaluate(
     ({ sel, maxX }) => {
-      const out: { cx: number; cy: number }[] = [];
+      const out: { cx: number; cy: number; ariaLabel: string | null }[] = [];
       document.querySelectorAll(sel).forEach((el) => {
         const r = (el as HTMLElement).getBoundingClientRect();
         if (r.width > 0 && r.height > 0 && r.x < maxX) {
-          out.push({ cx: r.x + r.width / 2, cy: r.y + r.height / 2 });
+          out.push({
+            cx: r.x + r.width / 2,
+            cy: r.y + r.height / 2,
+            ariaLabel: (el as HTMLElement).getAttribute('aria-label')
+          });
         }
       });
       return out;
@@ -418,17 +475,32 @@ async function readSidebarButtonPoints(page: Page): Promise<SidebarButtonPoint[]
   );
 }
 
-/** The tooltip text currently rendered, if any — see SELECTORS.tooltip's doc comment for why three selectors and a length cap. */
+/**
+ * The tooltip text currently rendered, if any — see SELECTORS.tooltip's doc
+ * comment for why three selectors and a length cap.
+ *
+ * XGENIA's Tooltip renders the panel name and an optional keyboard-shortcut
+ * "fine type" hint as separate SIBLING elements (core-ui's `Tooltip.tsx`:
+ * `Root` holds the name, `FineType` holds the hint, neither contains the
+ * other) — both matched by `SELECTORS.tooltip`, with no shared ancestor
+ * whose own innerText carries both texts at once. Picking "whichever
+ * element rendered last" (the original approach) means picking the hint
+ * over the name the instant a button has one, because `FineType` follows
+ * `Root` in document order — that is exactly what broke this harness when
+ * the rail's top cluster gained shortcuts: the name was thrown away, not
+ * merely appended to. So a candidate that looks like a shortcut hint (see
+ * `MODIFIER_KEY_GLYPH`) is only ever returned when it is literally the only
+ * candidate there is.
+ */
 async function readTooltipLabel(page: Page): Promise<string> {
   const texts = (await page.evaluate(
     (sel) => Array.from(document.querySelectorAll(sel)).map((el) => (el as HTMLElement).innerText ?? ''),
     SELECTORS.tooltip
   )) as string[];
-  for (let i = texts.length - 1; i >= 0; i--) {
-    const t = texts[i].trim();
-    if (t && t.length < TOOLTIP_MAX_LEN) return t;
-  }
-  return '';
+  const candidates = texts.map((t) => t.trim()).filter((t) => t && t.length < TOOLTIP_MAX_LEN);
+  const named = candidates.filter((t) => !MODIFIER_KEY_GLYPH.test(t));
+  const pool = named.length ? named : candidates;
+  return pool[pool.length - 1] ?? '';
 }
 
 /** Move the mouse onto a point, wait for its Tooltip to render, and read the label. `hoverDelayMs` is a test seam — production callers always use the default ~450ms. */
@@ -439,9 +511,12 @@ async function hoverAndReadLabel(page: Page, point: SidebarButtonPoint, hoverDel
 }
 
 /**
- * Cached location of the sidebar's Chat button, so a caller opening several
- * projects in one session does not pay the ~450ms-per-button hover scan
- * every time. Session-local (module state), never persisted.
+ * Cached location of the sidebar's Chat button, used only by the
+ * hover-and-read fallback — the accessible-name path is a single cheap DOM
+ * read with no hovering, so it is not worth caching (see
+ * `ensureChatPanelOpen`) — so a caller stuck on a build with no
+ * `aria-label` does not pay the ~450ms-per-button hover scan every time.
+ * Session-local (module state), never persisted.
  */
 let cachedChatButtonPoint: SidebarButtonPoint | null = null;
 
@@ -456,11 +531,23 @@ interface ChatButtonScan {
   labelsSeen: string[];
 }
 
-/** Hover every sidebar rail button in turn until one's tooltip reads "Chat", or the rail is exhausted. */
-async function scanForChatButton(page: Page, hoverDelayMs: number): Promise<ChatButtonScan> {
-  const points = await readSidebarButtonPoints(page);
+/**
+ * Hover every candidate rail button in turn until one's tooltip reads
+ * "Chat", or the candidates are exhausted.
+ *
+ * Fallback only, reached when no candidate carried a matching `aria-label`
+ * at all — an older build predating the rail redesign forwarding it. Takes
+ * the already-fetched candidates rather than reading the DOM again, so this
+ * build still costs only the one box-scan round trip `ensureChatPanelOpen`
+ * already paid for, not a second one.
+ */
+async function scanForChatButtonByHover(
+  candidates: SidebarButtonPoint[],
+  page: Page,
+  hoverDelayMs: number
+): Promise<ChatButtonScan> {
   const labelsSeen: string[] = [];
-  for (const point of points) {
+  for (const point of candidates) {
     const label = await hoverAndReadLabel(page, point, hoverDelayMs);
     labelsSeen.push(label);
     if (isChatButtonLabel(label)) return { point, labelsSeen };
@@ -475,9 +562,24 @@ export interface ChatPanelOpenResult {
   /** True when the sidebar button was actually clicked (whether or not the panel then rendered). */
   clicked: boolean;
   reason?: 'no-chat-button' | 'clicked-but-not-rendered';
-  /** Present only when a scan actually ran (a cache hit skips it) — see scanForChatButton. */
+  /** Present only when the hover-and-read fallback actually ran — a cache hit, or the fast path succeeding, both skip it. See `scanForChatButtonByHover`. */
   labelsSeen?: string[];
   hint?: string;
+  /**
+   * Which lookup found the button — how a caller tells the two paths apart:
+   *
+   * - `'aria-label'`: the fast direct path. A rail button carried
+   *   `aria-label="Chat"`, matched with a single DOM read and no hovering
+   *   at all. This is the current build (2026-09 rail redesign).
+   * - `'tooltip-scan'`: the slow fallback. No rail button carried an
+   *   accessible name at all, so the button was found (or not) by hovering
+   *   candidates in turn and reading each one's tooltip. This is an older
+   *   build predating that redesign.
+   *
+   * Absent when the panel was already open (nothing was looked up), or when
+   * neither path found a match.
+   */
+  method?: 'aria-label' | 'tooltip-scan';
 }
 
 /**
@@ -489,15 +591,24 @@ export interface ChatPanelOpenResult {
  * `newProject`'s no-template `project.json` carries — so with nothing to
  * act on that, every chat tool failed closed with `chat-frame-missing` even
  * though a human at the keyboard could fix it with one click. This is that
- * click, driven the only way it can be: the sidebar's icon buttons carry no
- * id, aria-label or data-testid, only a Tooltip revealed on hover, so
- * finding "the Chat button" means hovering candidates and reading their
- * tooltips until one matches (see `isChatButtonLabel`).
+ * click.
+ *
+ * Two ways to find the button, tried in order:
+ *
+ * 1. By accessible name: every rail button carries `aria-label="<panel
+ *    name>"` since the 2026-09 rail redesign forwarded it through
+ *    `IconButton`, so this is one cheap DOM read with no hovering at all.
+ *    Matched by NAME, not id — the panel's id is not stable (`ChatPanel` in
+ *    the default build, `chat-panel` in the open-source fallback), but its
+ *    registered name is always exactly "Chat" (see `CHAT_BUTTON_NAME`).
+ * 2. Hovering candidates and reading their tooltip text, for a build that
+ *    predates that forwarding and so carries no accessible name on any rail
+ *    button at all (see `scanForChatButtonByHover`).
  *
  * Already open is a real short circuit: if `SELECTORS.chatIframe` already
- * resolves to a frame, this returns immediately without hovering or
- * clicking anything, exactly per spec — a caller must never see this nudge
- * a panel that was already showing.
+ * resolves to a frame, this returns immediately without reading any
+ * attribute, hovering, or clicking anything, exactly per spec — a caller
+ * must never see this nudge a panel that was already showing.
  */
 export async function ensureChatPanelOpen(
   page: Page,
@@ -511,38 +622,55 @@ export async function ensureChatPanelOpen(
   }
 
   let point: SidebarButtonPoint | null = null;
+  let method: 'aria-label' | 'tooltip-scan' | undefined;
   let labelsSeen: string[] | undefined;
 
-  // Re-verify the cached point before trusting it: the rail can reflow
-  // (window resize, a panel toggling elsewhere), so a stale cached point
-  // might now hover nothing, or something else entirely. Only a fresh,
-  // passing tooltip read earns the click.
-  if (cachedChatButtonPoint) {
-    const label = await hoverAndReadLabel(page, cachedChatButtonPoint, hoverDelayMs);
-    if (isChatButtonLabel(label)) {
-      point = cachedChatButtonPoint;
-    } else {
-      cachedChatButtonPoint = null;
-    }
+  // Fast path, tried on every call: one DOM read of every rail button's box
+  // AND aria-label together. Cheap enough — no hovering, no waiting for a
+  // Tooltip to render — that it is not worth caching; only the slow
+  // fallback below needs that.
+  const candidates = await readSidebarButtonCandidates(page);
+  const direct = candidates.find((c) => c.ariaLabel && isChatButtonLabel(c.ariaLabel));
+  if (direct) {
+    point = { cx: direct.cx, cy: direct.cy };
+    method = 'aria-label';
+    cachedChatButtonPoint = point;
   }
 
   if (!point) {
-    const scan = await scanForChatButton(page, hoverDelayMs);
-    labelsSeen = scan.labelsSeen;
-    if (!scan.point) {
-      return {
-        opened: false,
-        alreadyOpen: false,
-        clicked: false,
-        reason: 'no-chat-button',
-        labelsSeen,
-        hint: `No sidebar rail button's tooltip read "Chat". Tooltip labels actually seen, top to bottom: ${
-          labelsSeen.length ? labelsSeen.map((l) => `"${l || '(empty)'}"`).join(', ') : '(none — no rail buttons found at all)'
-        }. If XGENIA renamed the button, update what this harness looks for.`
-      };
+    // Re-verify a cached point before trusting it: the rail can reflow
+    // (window resize, a panel toggling elsewhere), so a stale cached point
+    // might now hover nothing, or something else entirely. Only a fresh,
+    // passing tooltip read earns the click.
+    if (cachedChatButtonPoint) {
+      const label = await hoverAndReadLabel(page, cachedChatButtonPoint, hoverDelayMs);
+      if (isChatButtonLabel(label)) {
+        point = cachedChatButtonPoint;
+        method = 'tooltip-scan';
+      } else {
+        cachedChatButtonPoint = null;
+      }
     }
-    point = scan.point;
-    cachedChatButtonPoint = point;
+
+    if (!point) {
+      const scan = await scanForChatButtonByHover(candidates, page, hoverDelayMs);
+      labelsSeen = scan.labelsSeen;
+      if (!scan.point) {
+        return {
+          opened: false,
+          alreadyOpen: false,
+          clicked: false,
+          reason: 'no-chat-button',
+          labelsSeen,
+          hint: `No rail button carried aria-label="Chat", and no sidebar rail button's tooltip read "Chat" either. Tooltip labels actually seen, top to bottom: ${
+            labelsSeen.length ? labelsSeen.map((l) => `"${l || '(empty)'}"`).join(', ') : '(none — no rail buttons found at all)'
+          }. If XGENIA renamed the button, update what this harness looks for.`
+        };
+      }
+      point = scan.point;
+      method = 'tooltip-scan';
+      cachedChatButtonPoint = point;
+    }
   }
 
   await page.mouse.click(point.cx, point.cy);
@@ -555,11 +683,12 @@ export async function ensureChatPanelOpen(
       clicked: true,
       reason: 'clicked-but-not-rendered',
       labelsSeen,
+      method,
       hint: `Clicked the sidebar's Chat button, but the panel never rendered: ${chatNotReadyHint(readiness.state, timeoutMs)}`
     };
   }
 
-  return { opened: true, alreadyOpen: false, clicked: true };
+  return { opened: true, alreadyOpen: false, clicked: true, method };
 }
 
 /** `ensureChatPanelOpen`, attached to the live editor. What `xgenia_open_chat_panel` calls. */

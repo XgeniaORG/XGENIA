@@ -38,13 +38,23 @@ export const SELECTORS = Object.freeze({
    * component itself is renamed or moved, exactly like the rest of this
    * file's other `[class*=...]` selectors.
    *
-   * None of these buttons carry an id, an aria-label or a data-testid, so
-   * there is no way to identify a specific one (e.g. "Chat") except by
-   * hovering it and reading its `tooltip` (below). This selector alone also
-   * matches icon buttons elsewhere in the app that happen to reuse the same
-   * component — verified live, the sidebar rail's own buttons all sit at
-   * `x < 58` CSS pixels, which is what actually narrows a match down to the
-   * rail.
+   * Since the 2026-09 icon-rail redesign, every rail button also carries
+   * `data-test="<panelId>-panel"` and `aria-label="<panel name>"` (both
+   * forwarded by core-ui's `IconButton`). chat.ts matches the Chat button by
+   * that `aria-label` (the registered panel NAME, "Chat", which is stable)
+   * rather than by id, because the id itself is NOT stable — the editor
+   * picks its chat implementation at load time, so it is `ChatPanel` in the
+   * default build and `chat-panel` in the open-source fallback build. The
+   * older hover-and-read-the-Tooltip approach (see `tooltip` below) still
+   * exists in chat.ts as a fallback for a build that predates this
+   * forwarding and so carries no accessible name at all — a comment here
+   * that claimed no id/aria-label/data-testid existed would now be false,
+   * which is worse than no comment.
+   *
+   * This selector alone also matches icon buttons elsewhere in the app that
+   * happen to reuse the same component — verified live, the sidebar rail's
+   * own buttons all sit at `x < 58` CSS pixels, which is what actually
+   * narrows a match down to the rail.
    */
   sidebarIconButton: 'button[class*=IconButton-module__Root]',
   /**
@@ -53,6 +63,10 @@ export const SELECTORS = Object.freeze({
    * ~450ms, read whichever of these has non-empty text), not read off the
    * tooltip library's source — and, like sidebarIconButton, by substring so
    * a CSS-module hash suffix can't break it.
+   *
+   * chat.ts only falls back to reading this when a rail button carries no
+   * `aria-label` at all (see sidebarIconButton's comment) — a button that
+   * has one is matched directly and never needs to be hovered.
    */
   tooltip: '[class*=Tooltip], [class*=tooltip], [role=tooltip]',
   /**

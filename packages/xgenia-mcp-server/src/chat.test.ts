@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import type { Frame, Page } from 'playwright-core';
-import { parseTranscript, readStructuredMessages, resolveReadWindow, normaliseWhitespace, promptSlice, transcriptContainsPrompt, confirmSent, chatNotReadyHint, isChatButtonLabel, ensureChatPanelOpen, resetChatButtonCache, describeUnconfirmedSend, CONFIRM_DEADLINE_MS } from './chat.js';
+import { parseTranscript, readStructuredMessages, resolveReadWindow, normaliseWhitespace, promptSlice, transcriptContainsPrompt, confirmSent, chatNotReadyHint, isChatButtonLabel, labelNames, ensureChatPanelOpen, resetChatButtonCache, describeUnconfirmedSend, CONFIRM_DEADLINE_MS } from './chat.js';
 import { summariseMessages, type ChatMessage } from './editor-state.js';
 
 describe('parseTranscript', () => {
@@ -337,6 +337,45 @@ describe('isChatButtonLabel', () => {
     expect(isChatButtonLabel('Live Chat')).toBe(false);
     expect(isChatButtonLabel('')).toBe(false);
   });
+
+  // (2026-09-06) The icon-rail redesign gave every top-cluster button a
+  // keyboard-shortcut hint rendered alongside its name. A tooltip label that
+  // ends up carrying both ("Chat ⌘⌥3") must still be recognised as Chat --
+  // an exact-equality check would be defeated by the very hint the redesign
+  // added, exactly as it was live ("no-chat-button" was returned because
+  // every label read back was a bare shortcut like "⌘+⌥+3").
+  it('matches "Chat" with a keyboard-shortcut suffix rendered alongside the name', () => {
+    expect(isChatButtonLabel('Chat ⌘⌥3')).toBe(true);
+    expect(isChatButtonLabel('Chat ⌘+⌥+3')).toBe(true);
+  });
+});
+
+describe('labelNames (tolerant name + suffix matching, used by isChatButtonLabel)', () => {
+  it('matches the name exactly, with no suffix', () => {
+    expect(labelNames('Chat', 'Chat')).toBe(true);
+  });
+
+  it('matches a name followed by a keyboard-shortcut suffix', () => {
+    expect(labelNames('Chat ⌘⌥3', 'Chat')).toBe(true);
+  });
+
+  // The exact real-world label the task calls out: a live count appended
+  // after the name, with a middle-dot separator, on a DIFFERENT button --
+  // proving the tolerance is general, not special-cased to Chat or to
+  // keyboard shortcuts specifically.
+  it('matches a name followed by a live-count suffix -- the real "Version control · 16 uncommitted files" shape', () => {
+    expect(labelNames('Version control · 16 uncommitted files', 'Version control')).toBe(true);
+  });
+
+  it('never matches a genuinely different label that merely starts with the same word', () => {
+    expect(labelNames('Chat History', 'Chat')).toBe(false);
+    expect(labelNames('Live Chat', 'Chat')).toBe(false);
+    expect(labelNames('Chats', 'Chat')).toBe(false);
+  });
+
+  it('never matches an empty label', () => {
+    expect(labelNames('', 'Chat')).toBe(false);
+  });
 });
 
 /**
@@ -388,25 +427,80 @@ describe('ensureChatPanelOpen', () => {
     expect(moves).toEqual([]);
   });
 
-  it('scans the sidebar, clicks the button whose tooltip reads "Chat", and reports success once the panel renders', async () => {
+  // The fast direct path (item 2/3 of the fix): a rail button carrying
+  // aria-label="Chat" is found from ONE DOM read, with no hovering and no
+  // Tooltip involved at all -- this is what actually survives the icon-rail
+  // redesign, since it never has to parse a tooltip that might now contain
+  // a keyboard-shortcut hint instead of the name.
+  it('finds the chat button by its accessible name directly, with no hovering and no tooltip read', async () => {
+    const { page, clicks, moves } = stubChatPanelPage({
+      evaluateSequence: [
+        [
+          { cx: 10, cy: 48, ariaLabel: 'Add node' },
+          { cx: 10, cy: 483, ariaLabel: 'AI Image Editor' },
+          { cx: 10, cy: 525, ariaLabel: 'Chat' }
+        ] // one candidates read: box + aria-label together
+      ]
+    });
+    const result = await ensureChatPanelOpen(page, { hoverDelayMs: 1, timeoutMs: 200, pollMs: 5 });
+    expect(result).toEqual({ opened: true, alreadyOpen: false, clicked: true, method: 'aria-label' });
+    expect(result.labelsSeen).toBeUndefined();
+    expect(clicks).toEqual([[10, 525]]);
+    expect(moves).toEqual([]); // the whole point: never hovered anything
+  });
+
+  it('reports clicked-but-not-rendered via the direct path too, tagging which lookup found the button', async () => {
+    const { page, clicks } = stubChatPanelPage({
+      evaluateSequence: [[{ cx: 10, cy: 525, ariaLabel: 'Chat' }]],
+      mountsOnClick: false
+    });
+    const result = await ensureChatPanelOpen(page, { hoverDelayMs: 1, timeoutMs: 30, pollMs: 5 });
+    expect(result.opened).toBe(false);
+    expect(result.clicked).toBe(true);
+    expect(result.reason).toBe('clicked-but-not-rendered');
+    expect(result.method).toBe('aria-label');
+    expect(clicks).toEqual([[10, 525]]);
+  });
+
+  // The fallback (item 3 of the fix): an older build whose rail buttons
+  // carry no aria-label at all. ensureChatPanelOpen must still find Chat by
+  // hovering candidates and reading their tooltips.
+  it('falls back to the tooltip-hover scan when no rail button carries an accessible name (older build), and reports which path ran', async () => {
     const { page, clicks } = stubChatPanelPage({
       evaluateSequence: [
         [
           { cx: 10, cy: 48 },
           { cx: 10, cy: 483 },
           { cx: 10, cy: 525 }
-        ], // box scan: three rail buttons
+        ], // candidates read: no ariaLabel field at all on any of them
         ['Add node'],
         ['AI Image Editor'],
-        ['Chat'] // third button matches
+        ['Chat'] // third button's tooltip matches
       ]
     });
     const result = await ensureChatPanelOpen(page, { hoverDelayMs: 1, timeoutMs: 200, pollMs: 5 });
-    expect(result).toEqual({ opened: true, alreadyOpen: false, clicked: true });
+    expect(result).toEqual({ opened: true, alreadyOpen: false, clicked: true, method: 'tooltip-scan' });
     expect(clicks).toEqual([[10, 525]]);
   });
 
-  it('reports no-chat-button and every label it saw when no tooltip reads "Chat"', async () => {
+  // The regression itself, reproduced directly: a tooltip that renders the
+  // name and a keyboard-shortcut "fine type" hint as two separate elements
+  // (see readTooltipLabel's doc comment) must not let the shortcut win --
+  // the fallback has to still recognise "Chat" underneath it.
+  it('is not defeated by a shortcut hint rendered as a second tooltip element alongside the name (the live regression)', async () => {
+    const { page, clicks } = stubChatPanelPage({
+      evaluateSequence: [
+        [{ cx: 10, cy: 525 }], // one candidate, no aria-label -- older build
+        ['Chat', '⌘+⌥+3'] // BOTH tooltip elements matched: name, then the hint
+      ]
+    });
+    const result = await ensureChatPanelOpen(page, { hoverDelayMs: 1, timeoutMs: 200, pollMs: 5 });
+    expect(result.opened).toBe(true);
+    expect(result.method).toBe('tooltip-scan');
+    expect(clicks).toEqual([[10, 525]]);
+  });
+
+  it('reports no-chat-button and every label it saw when neither path finds "Chat"', async () => {
     const { page, clicks } = stubChatPanelPage({
       evaluateSequence: [
         [{ cx: 10, cy: 48 }, { cx: 10, cy: 483 }],
@@ -419,68 +513,70 @@ describe('ensureChatPanelOpen', () => {
     expect(result.alreadyOpen).toBe(false);
     expect(result.clicked).toBe(false);
     expect(result.reason).toBe('no-chat-button');
+    expect(result.method).toBeUndefined();
     expect(result.labelsSeen).toEqual(['Add node', 'AI Image Editor']);
     expect(result.hint).toContain('Add node');
     expect(result.hint).toContain('AI Image Editor');
     expect(clicks).toEqual([]);
   });
 
-  it('reports clicked-but-not-rendered when the button is found and clicked but the panel never mounts', async () => {
-    const { page, clicks } = stubChatPanelPage({
-      evaluateSequence: [[{ cx: 10, cy: 525 }], ['Chat']],
-      mountsOnClick: false
-    });
-    const result = await ensureChatPanelOpen(page, { hoverDelayMs: 1, timeoutMs: 30, pollMs: 5 });
-    expect(result.opened).toBe(false);
-    expect(result.clicked).toBe(true);
-    expect(result.reason).toBe('clicked-but-not-rendered');
-    expect(clicks).toEqual([[10, 525]]);
-  });
-
-  it('caches the identified point and skips the full scan on a later call', async () => {
+  it('caches the tooltip-scan point and skips the full hover scan on a later call', async () => {
     const first = stubChatPanelPage({
-      evaluateSequence: [[{ cx: 10, cy: 48 }, { cx: 10, cy: 525 }], ['Add node'], ['Chat']]
+      evaluateSequence: [
+        [{ cx: 10, cy: 48 }, { cx: 10, cy: 525 }], // candidates: no aria-label
+        ['Add node'],
+        ['Chat']
+      ]
     });
     const firstResult = await ensureChatPanelOpen(first.page, { hoverDelayMs: 1, timeoutMs: 200, pollMs: 5 });
     expect(firstResult.opened).toBe(true);
+    expect(firstResult.method).toBe('tooltip-scan');
 
     // A later call against a *different* page instance (panel closed again,
-    // e.g. a new project) whose evaluateSequence holds only ONE call's worth
-    // of result: if the cache were not reused, the implementation would try
-    // to read a full box-scan array from that single entry and every
-    // tooltip check would fail, never reaching a match.
+    // e.g. a new project): the fast path's own candidates read still runs
+    // (and here finds nothing, as an older build would), but the cache
+    // re-verify hover read alone is enough to confirm the button and skip
+    // the full per-button hover scan entirely.
     const second = stubChatPanelPage({
-      evaluateSequence: [['Chat']] // only the cache re-verify hover read
+      evaluateSequence: [
+        [], // fast path: no candidates at all this time
+        ['Chat'] // cache re-verify hover read at the cached point
+      ]
     });
     const secondResult = await ensureChatPanelOpen(second.page, { hoverDelayMs: 1, timeoutMs: 200, pollMs: 5 });
     expect(secondResult.opened).toBe(true);
-    expect(secondResult.labelsSeen).toBeUndefined(); // no scan ran
+    expect(secondResult.method).toBe('tooltip-scan');
+    expect(secondResult.labelsSeen).toBeUndefined(); // no full scan ran
     expect(second.clicks).toEqual([[10, 525]]);
   });
 
-  it('falls back to a fresh scan when the cached point no longer reads "Chat" (stale cache)', async () => {
+  it('falls back to a fresh hover scan when the cached point no longer reads "Chat" (stale cache)', async () => {
     const first = stubChatPanelPage({
-      evaluateSequence: [[{ cx: 10, cy: 525 }], ['Chat']]
+      evaluateSequence: [
+        [{ cx: 10, cy: 525 }], // candidates: no aria-label
+        ['Chat']
+      ]
     });
     const firstResult = await ensureChatPanelOpen(first.page, { hoverDelayMs: 1, timeoutMs: 200, pollMs: 5 });
     expect(firstResult.opened).toBe(true);
 
     // The rail reflowed: the cached coordinate now hovers something else,
-    // so the cache re-verify must fail closed and re-scan rather than
+    // so the cache re-verify must fail closed and re-scan the FRESH
+    // candidates (356, 609) the fast-path read already fetched, rather than
     // clicking the wrong button.
     const second = stubChatPanelPage({
       evaluateSequence: [
-        ['Settings'], // cache re-verify at the old point -- no longer Chat
-        [{ cx: 10, cy: 356 }, { cx: 10, cy: 609 }], // fresh scan
-        ['Components'],
-        ['Chat']
+        [{ cx: 10, cy: 356 }, { cx: 10, cy: 609 }], // fast path's candidates read (no aria-label)
+        ['Settings'], // cache re-verify at the OLD point (525) -- no longer Chat
+        ['Components'], // hover the fresh candidate at 356
+        ['Chat'] // hover the fresh candidate at 609 -- matches
       ]
     });
     const secondResult = await ensureChatPanelOpen(second.page, { hoverDelayMs: 1, timeoutMs: 200, pollMs: 5 });
-    // The click landing on the freshly-scanned point (356, not the stale
-    // 525) is the proof the fallback scan ran and found the right button --
-    // labelsSeen is only attached on a failed attempt (see ChatPanelOpenResult).
+    // The click landing on the freshly-scanned point (609, not the stale
+    // 525) is the proof the fallback scan ran and found the right button.
     expect(secondResult.opened).toBe(true);
+    expect(secondResult.method).toBe('tooltip-scan');
     expect(second.clicks).toEqual([[10, 609]]);
   });
 });
