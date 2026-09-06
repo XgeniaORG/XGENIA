@@ -132,7 +132,7 @@ export function PanelCard({ panelId, mode, onClose, onPin }: CardProps) {
         {!chromeless && HeaderAction && <HeaderAction />}
         {mode === 'peek' && onPin && (
           <Tooltip content="Pin panel" renderDirection={DialogRenderDirection.Below}>
-            <IconButton icon={TopbarPinned} variant={IconButtonVariant.Transparent} onClick={onPin} testId="left-card-pin" />
+            <IconButton icon={TopbarPinned} variant={IconButtonVariant.Transparent} onClick={onPin} />
           </Tooltip>
         )}
         <Tooltip content="Close panel" renderDirection={DialogRenderDirection.Below}>

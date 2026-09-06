@@ -83,80 +83,39 @@ export function Rail() {
   const onRailEnter = () => {
     if (layoutRef.current.open) return;
     if (leaveTimer.current) { clearTimeout(leaveTimer.current); leaveTimer.current = null; }
-    // Guard against arming a second timer behind the first if the pointer crosses the rail
-    // boundary repeatedly before the first 400ms is up; reset to null when it fires (not just
-    // when cleared) so a later hover can arm again instead of finding the ref permanently truthy.
-    if (!hoverTimer.current) {
-      hoverTimer.current = setTimeout(() => {
-        hoverTimer.current = null;
-        hoverPeeked.current = true;
-        SidebarModel.instance.dispatch({ type: 'peek', id: layoutRef.current.dockedId });
-      }, 400);
-    }
+    hoverTimer.current = setTimeout(() => {
+      hoverPeeked.current = true;
+      SidebarModel.instance.dispatch({ type: 'peek', id: layoutRef.current.dockedId });
+    }, 400);
   };
   const onRailLeave = () => {
     if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
   };
 
-  // A hover-peek can end five different ways: the pointer leaving (below), Escape or
-  // click-away (both dispatch `esc` from LeftPanelCard.tsx's effect), the peek's own × button
-  // (also `esc`, via its onClose prop), or pinning it. `esc` never touches `open` on its own
-  // (see railLayout.ts) — a peek dropped on top of an already-expanded card stays expanded on
-  // purpose, since that is the right behavior for an ordinary click-opened peek. But a
-  // hover-opened one must fall all the way back to collapsed, not stop at expanded. Rather than
-  // have every dismissal path know that, one rule here owns it: whenever the peek clears while
-  // `hoverPeeked` is still set and the card is still open, that was a hover-peek ending, so
-  // finish the job with `toggle`. Because `dispatch` fires this listener synchronously and the
-  // `toggle` dispatch fires it again, `hoverPeeked` is already false by the time this runs a
-  // second time for that same toggle — so it can never double-fire from one ending.
   useEffect(() => {
-    const group = {};
-    SidebarModel.instance.on(
-      SidebarModelEvent.layoutChanged,
-      (next) => {
-        if (hoverPeeked.current && !next.peekId && next.open) {
-          hoverPeeked.current = false;
-          SidebarModel.instance.dispatch({ type: 'toggle' });
-        }
-      },
-      group
-    );
-    return () => {
-      SidebarModel.instance.off(group);
-    };
-  }, []);
-
-  useEffect(() => {
-    // The hover-peek's own close (300ms after the pointer leaves both the rail and the peek
-    // card) just drops the peek — the rule above turns that into a full collapse. Two clicks
-    // are excluded from counting as "the peek ended" here because they mean something else:
-    // pressing Pin (which promotes this exact panel to docked — collapsing it right back would
-    // undo the pin) and clicking a different rail item (which is a deliberate choice of a new
-    // panel, not a dismissal — from then on it behaves like any other click-opened peek).
+    // The hover-peek closes 300ms after the pointer leaves both the rail and the peek card,
+    // unless the user clicked inside it (then Esc/click-away own it). `esc` alone would leave
+    // `open: true` (a peek dropped on top of an open card) — since this peek was opened from
+    // a COLLAPSED card, follow it with `toggle` to actually return to collapsed.
     const onMove = (e: PointerEvent) => {
       if (!hoverPeeked.current) return;
       const t = e.target as Element | null;
       const inside = !!t && (!!t.closest('[data-test="rail"]') || !!t.closest('[data-test="left-card-peek"]'));
       if (inside) { if (leaveTimer.current) { clearTimeout(leaveTimer.current); leaveTimer.current = null; } return; }
       if (!leaveTimer.current) leaveTimer.current = setTimeout(() => {
+        hoverPeeked.current = false;
         leaveTimer.current = null;
         SidebarModel.instance.dispatch({ type: 'esc' });
+        SidebarModel.instance.dispatch({ type: 'toggle' });
       }, 300);
     };
     const onDown = (e: PointerEvent) => {
       const t = e.target as Element | null;
-      if (t?.closest('[data-test="rail"]') || t?.closest('[data-test="left-card-pin"]')) hoverPeeked.current = false;
+      if (t?.closest('[data-test="left-card-peek"]')) hoverPeeked.current = false;
     };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerdown', onDown, true);
-    return () => {
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerdown', onDown, true);
-      // Unmounting mid-timer must not leave a callback that fires later against the (by then
-      // unrelated) singleton SidebarModel with nothing on screen to reflect it.
-      if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
-      if (leaveTimer.current) { clearTimeout(leaveTimer.current); leaveTimer.current = null; }
-    };
+    return () => { document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerdown', onDown, true); };
   }, []);
 
   return (
