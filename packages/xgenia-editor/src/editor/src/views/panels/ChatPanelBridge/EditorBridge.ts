@@ -19,6 +19,7 @@ import { isBloatPort, isTooLargeToSerialize, unwrapValueUnit, portUnitInfo } fro
 import { recordAssetProvenance, loadAssetMeta, migrateAssetMeta } from '../AssetPanel/assetMeta';
 import { reconcileGraphAssetRefs } from '../AssetPanel/assetGraphRefs';
 import { AiActivity } from '@xgenia-models/aiactivity';
+import { RailPresence } from '@xgenia-models/railpresence';
 import { ComponentModel } from '@xgenia-models/componentmodel';
 import { NodeGraphModel, NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 import { NodeLibrary } from '@xgenia-models/nodelibrary';
@@ -522,6 +523,7 @@ export class EditorBridge {
             // never lit the top bar at all. AiActivity ends itself on an idle window,
             // so there is no matching end() to place here.
             AiActivity.begin();
+            RailPresence.noteCommand(msg.command);
             this.executeCommand(msg as PluginCommand, event);
             return;
         }

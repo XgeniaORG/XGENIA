@@ -165,6 +165,13 @@
   box-shadow: 0 0 0 2px var(--theme-color-presence);
 }
 
+.is-ping .Button { animation: rail-ping 600ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes rail-ping {
+  0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55); }
+  100% { box-shadow: 0 0 0 9px rgba(52, 211, 153, 0); }
+}
+@media (prefers-reduced-motion: reduce) { .is-ping .Button { animation: none; box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.55); } }
+
 .Identity {
   width: 28px;
   height: 28px;

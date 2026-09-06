@@ -3,6 +3,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { useModernModel } from '@xgenia-hooks/useModel';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
+import { RailPresence } from '@xgenia-models/railpresence';
 
 import { Keybindings } from '../../constants/Keybindings';
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
@@ -13,12 +14,43 @@ import { arrangeRail, railCapacity, RAIL_SLOT } from './railOrder';
 import { useTooltipGroup } from './useTooltipGroup';
 import css from './Rail.module.scss';
 
+type RailBadge = { count?: number; unseen?: boolean; ring?: boolean };
+type PresenceState = Record<string, { unseen: number; lastAt: number }>;
+
+// The one RailButton renders the assets/versioncontrol/chat presence signals — the AI
+// touched this panel's domain (Task 13, an amber dot; more signals join this same
+// composition point in Tasks 14-15). Every RailButton call site below reads
+// badge={badgeFor(item)} so later additions extend this instead of clobbering it.
+function badgeFor(item: { id: string }, ctx: { presence: PresenceState }): RailBadge {
+  const badge: RailBadge = {};
+  if ((ctx.presence[item.id]?.unseen ?? 0) > 0) badge.unseen = true;
+  return badge;
+}
+
+/** Tooltip suffix for the presence dot: "· 2 new since you looked". */
+function tooltipSuffixFor(item: { id: string }, ctx: { presence: PresenceState }): string | undefined {
+  const p = ctx.presence[item.id];
+  return p?.unseen ? `· ${p.unseen} new since you looked` : undefined;
+}
+
 export function Rail() {
   const sidebar = useModernModel(SidebarModel.instance, [SidebarModelEvent.itemsChanged, SidebarModelEvent.layoutChanged]);
   const items = sidebar.getVisibleItems();
   const layout = sidebar.Layout;
   const active = layout.open ? activePanelId(layout) : null;
   const tips = useTooltipGroup();
+
+  // Presence (Task 13): which panel's domain the AI just touched.
+  const [presence, setPresence] = useState<PresenceState>(RailPresence.getSnapshot);
+  useEffect(() => {
+    const group = {};
+    EventDispatcher.instance.on('rail-presence-changed', (s: PresenceState) => setPresence(s), group);
+    return () => EventDispatcher.instance.off(group);
+  }, []);
+  // Opening a panel clears its own dot. Closed/inactive panels keep theirs.
+  useEffect(() => {
+    if (layout.open) RailPresence.markSeen(activePanelId(layout));
+  }, [layout.open, layout.activeId]);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
@@ -97,6 +129,8 @@ export function Rail() {
             isDisabled={item.isDisabled}
             showAfterMs={tips.showAfterMs}
             onTooltipClosed={tips.noteClosed}
+            badge={badgeFor(item, { presence })}
+            tooltipSuffix={tooltipSuffixFor(item, { presence })}
             onClick={() => {
               SidebarModel.instance.dispatch({ type: 'click', id: item.id });
               item.onClick?.();
@@ -117,6 +151,8 @@ export function Rail() {
             isDisabled={item.isDisabled}
             showAfterMs={tips.showAfterMs}
             onTooltipClosed={tips.noteClosed}
+            badge={badgeFor(item, { presence })}
+            tooltipSuffix={tooltipSuffixFor(item, { presence })}
             onClick={() => {
               SidebarModel.instance.dispatch({ type: 'click', id: item.id });
               item.onClick?.();

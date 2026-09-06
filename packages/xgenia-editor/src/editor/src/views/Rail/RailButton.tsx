@@ -1,5 +1,5 @@
 import classNames from 'classnames';
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { IconName, IconSize } from '@xgenia-core-ui/components/common/Icon';
 import { IconButton, IconButtonState, IconButtonVariant } from '@xgenia-core-ui/components/inputs/IconButton';
@@ -31,9 +31,31 @@ export function RailButton(props: RailButtonProps) {
   const { badge } = props;
   const content = props.tooltipSuffix ? `${props.name} ${props.tooltipSuffix}` : props.name;
 
+  // "Changed since you looked" ping: a 600ms pulse the moment the unseen dot appears
+  // (false → true), not on every render while it stays true. Initialised from the
+  // current value so a panel that mounts already-unseen (e.g. the AI wrote while the
+  // rail was still loading) doesn't pulse on mount.
+  const prevUnseenRef = useRef(!!badge?.unseen);
+  const [isPinging, setIsPinging] = useState(false);
+  useEffect(() => {
+    const unseenNow = !!badge?.unseen;
+    const wasUnseen = prevUnseenRef.current;
+    prevUnseenRef.current = unseenNow;
+    if (!unseenNow || wasUnseen) return;
+    setIsPinging(true);
+    const t = setTimeout(() => setIsPinging(false), 600);
+    return () => clearTimeout(t);
+  }, [badge?.unseen]);
+
   return (
     <div
-      className={classNames(css.Item, props.isActive && css['is-active'], props.isDropTarget && css['is-drop-target'], props.isDropDimmed && css['is-drop-dimmed'])}
+      className={classNames(
+        css.Item,
+        props.isActive && css['is-active'],
+        props.isDropTarget && css['is-drop-target'],
+        props.isDropDimmed && css['is-drop-dimmed'],
+        isPinging && css['is-ping']
+      )}
       data-rail-id={props.id}
       onPointerDownCapture={props.onPointerDownCapture}
       onMouseLeave={props.onTooltipClosed}
