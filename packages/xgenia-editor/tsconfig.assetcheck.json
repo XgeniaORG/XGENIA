@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["@include-types", "src/assets.d.ts"],
+  "files": [
+    "src/editor/src/views/panels/AssetPanel/assetRoles.ts",
+    "src/editor/src/views/panels/AssetPanel/assetVersions.ts",
+    "src/editor/src/views/panels/AssetPanel/assetIndex.ts",
+    "src/editor/src/views/panels/AssetPanel/graphRefs.ts",
+    "src/editor/src/views/panels/AssetPanel/assetMeta.ts",
+    "src/editor/src/views/panels/AssetPanel/useAssetIndex.ts"
+  ]
+}
