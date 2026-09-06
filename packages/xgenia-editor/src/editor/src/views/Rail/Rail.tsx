@@ -1,3 +1,4 @@
+import classNames from 'classnames';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { useModernModel } from '@xgenia-hooks/useModel';
@@ -20,6 +21,16 @@ import { useTooltipGroup } from './useTooltipGroup';
 import css from './Rail.module.scss';
 
 type PresenceState = Record<string, { unseen: number; lastAt: number }>;
+
+/** A press-and-hold reorder in progress. `from`/`to` are indices into the visible top
+ *  cluster (`arrangement.top`) — the only items a hold can reach. `y` is the live pointer
+ *  offset from the press-down point, driving the dragged item's transform directly. */
+interface RailDragState {
+  id: string;
+  from: number;
+  to: number;
+  y: number;
+}
 
 /**
  * The chat item's tooltip carries a live "· AI working · 14s" suffix while a turn runs.
@@ -194,6 +205,122 @@ export function Rail() {
     return () => EventDispatcher.instance.off(group);
   }, []);
 
+  // Task 18: press-and-hold to reorder the top cluster. The FULL top-cluster order (visible
+  // + whatever Task 19 has folded into overflow), kept for persisting a reorder without
+  // dropping a currently-hidden panel's place in the list — see persistReorder below.
+  const topAllRef = useRef([...arrangement.top, ...arrangement.overflow]);
+  topAllRef.current = [...arrangement.top, ...arrangement.overflow];
+
+  // `dragRef` is the single source of truth read by the pointermove/pointerup listeners
+  // below — those closures are created once, when the pointer goes down, and never see a
+  // later React re-render, so a state variable read inside them would be frozen at
+  // whatever it was at press time and the drag would stop tracking the pointer after the
+  // very first move. `drag` (state) exists only so the render below can show the lift.
+  const dragRef = useRef<RailDragState | null>(null);
+  const [drag, setDrag] = useState<RailDragState | null>(null);
+  const applyDrag = (next: RailDragState | null) => {
+    dragRef.current = next;
+    setDrag(next);
+  };
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Set the instant a hold graduates into a drag and read by the click handler below so a
+  // click that follows a completed hold never also switches panels. A ref, not state, for
+  // the same reason as `dragRef`: it must be readable synchronously the moment `click`
+  // fires, without waiting on a re-render that may not have landed yet.
+  const justDraggedRef = useRef(false);
+
+  // Persist a reorder by id, not by raw index, against the full top-cluster order (visible
+  // + overflow) rather than the visible slice alone — a panel currently folded into the ⋯
+  // menu is never `from`/`to` (a hold can't reach it) but must not be silently dropped from
+  // what gets written to EditorSettings either. Rebuilding `full` from the live top-cluster
+  // items on every call also means any id `setUserOrder` previously stored for a panel that
+  // no longer exists (an experimental panel switched off, say) is dropped here for free —
+  // arrangeRail already tolerates a stale id on read, this keeps what gets written sane too.
+  const persistReorder = (from: number, to: number) => {
+    const visible = topRef.current;
+    const movedId = visible[from]?.id;
+    const targetId = visible[to]?.id;
+    if (!movedId || !targetId || movedId === targetId) return;
+    const full = topAllRef.current.map((i) => i.id);
+    const fromFull = full.indexOf(movedId);
+    if (fromFull === -1) return;
+    full.splice(fromFull, 1);
+    let toFull = full.indexOf(targetId);
+    if (toFull === -1) toFull = full.length;
+    else if (to > from) toFull += 1; // moving down: land after the item it displaced
+    full.splice(toFull, 0, movedId);
+    SidebarModel.instance.setUserOrder(full);
+  };
+
+  const onItemPointerDown = (id: string, index: number) => (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    justDraggedRef.current = false;
+    const startY = e.clientY;
+    const target = e.currentTarget;
+    const pointerId = e.pointerId;
+
+    const onMove = (ev: PointerEvent) => {
+      // A move past a small threshold before the hold has fired reads as a scroll-ish
+      // gesture, not a hold: cancel the pending timer so it never turns into a drag.
+      if (holdTimer.current && Math.abs(ev.clientY - startY) > 4) {
+        clearTimeout(holdTimer.current);
+        holdTimer.current = null;
+      }
+      const current = dragRef.current;
+      if (!current) return;
+      const dy = ev.clientY - startY;
+      const to = Math.max(0, Math.min(topRef.current.length - 1, current.from + Math.round(dy / RAIL_SLOT)));
+      applyDrag({ ...current, y: dy, to });
+    };
+
+    // Every way a drag can end funnels through here: a normal release (commit), the
+    // pointer being cancelled by the platform, or the window losing focus mid-hold —
+    // either of the latter two must abandon the reorder rather than apply a half-formed
+    // one, and all three must equally release the pointer capture and the listeners so
+    // nothing is left lifted or leaking.
+    const endDrag = (commit: boolean) => {
+      if (holdTimer.current) {
+        clearTimeout(holdTimer.current);
+        holdTimer.current = null;
+      }
+      const finished = dragRef.current;
+      if (finished) {
+        justDraggedRef.current = true;
+        if (commit && finished.from !== finished.to) persistReorder(finished.from, finished.to);
+      }
+      applyDrag(null);
+      if (target.hasPointerCapture?.(pointerId)) {
+        try { target.releasePointerCapture(pointerId); } catch { /* already released */ }
+      }
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('blur', onCancel);
+    };
+    const onUp = () => endDrag(true);
+    const onCancel = () => endDrag(false);
+
+    holdTimer.current = setTimeout(() => {
+      holdTimer.current = null;
+      target.setPointerCapture(pointerId);
+      applyDrag({ id, from: index, to: index, y: 0 });
+    }, 400);
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('blur', onCancel);
+  };
+
+  // Render-time only: `drag` (state, always fresh during a render) is fine to read here,
+  // unlike inside the listeners above.
+  const shiftFor = (index: number): string => {
+    if (!drag || index === drag.from) return 'none';
+    if (drag.from < drag.to && index > drag.from && index <= drag.to) return `translateY(-${RAIL_SLOT}px)`;
+    if (drag.from > drag.to && index >= drag.to && index < drag.from) return `translateY(${RAIL_SLOT}px)`;
+    return 'none';
+  };
+
   return (
     <div
       ref={rootRef}
@@ -208,6 +335,7 @@ export function Rail() {
       <div className={css.Top}>
         {indicatorY !== null && <span className={css.Indicator} style={{ transform: `translateY(${indicatorY}px)` }} aria-hidden="true" />}
         {arrangement.top.map((item, index) => {
+          const isLifted = drag?.id === item.id;
           const common = {
             id: item.id,
             name: item.name,
@@ -221,21 +349,36 @@ export function Rail() {
             isDropTarget: dropMode && item.id === 'assets',
             isDropDimmed: dropMode && item.id !== 'assets',
             onDrop: item.id === 'assets' ? onDropAssets : undefined,
+            onPointerDownCapture: onItemPointerDown(item.id, index),
             onClick: () => {
+              // A completed hold must not also switch panels — justDraggedRef is set the
+              // instant that hold's pointerup/cancel/blur lands, synchronously, so this is
+              // never stale even if the re-render from setDrag(null) hasn't landed yet.
+              if (justDraggedRef.current) {
+                justDraggedRef.current = false;
+                return;
+              }
               SidebarModel.instance.dispatch({ type: 'click', id: item.id });
               item.onClick?.();
             }
           };
-          if (item.id === 'chat-panel') {
-            return <ChatRailButton key={item.id} {...common} badge={badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai })} ai={ai} aiSince={aiSince} />;
-          }
+          const button = item.id === 'chat-panel'
+            ? <ChatRailButton {...common} badge={badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai })} ai={ai} aiSince={aiSince} />
+            : (
+              <RailButton
+                {...common}
+                badge={badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai })}
+                tooltipSuffix={tooltipSuffixFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count })}
+              />
+            );
           return (
-            <RailButton
+            <div
               key={item.id}
-              {...common}
-              badge={badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai })}
-              tooltipSuffix={tooltipSuffixFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count })}
-            />
+              className={classNames(css.DragSlot, isLifted && css['is-lifting'])}
+              style={isLifted ? { transform: `translateY(${drag!.y}px) scale(1.06)`, zIndex: 2 } : { transform: shiftFor(index) }}
+            >
+              {button}
+            </div>
           );
         })}
       </div>

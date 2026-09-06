@@ -44,6 +44,25 @@
   height: 28px;
 }
 
+/* Wraps each top-cluster RailButton so a press-and-hold reorder (Task 18) can transform the
+ * slot itself — RailButton's own `.Item` box stays untouched — while every other slot
+ * slides out of the way with the same eased transition. */
+.DragSlot {
+  position: relative;
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition: transform var(--speed-move) var(--easing-base);
+  }
+}
+
+.is-lifting {
+  transition: none !important;
+}
+.is-lifting .Button {
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6);
+  background: var(--glass-ctrl-bg);
+}
+
 .Button {
   width: 28px;
   height: 28px;
