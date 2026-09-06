@@ -111,6 +111,19 @@ module.exports = merge(shared, {
       reconnect: 3 // Limit reconnection attempts
     },
     hot: true,
+    // Hot-apply what HMR can, but NEVER fall back to reloading the page.
+    //
+    // Measured 2026-09-06: with liveReload on, every save of an editor source file that HMR
+    // cannot accept reloads the whole renderer. The editor does not restore the open project
+    // across a reload, so each one flashes the entire window and drops the user back to the
+    // lobby. With several agent sessions editing this package at once that fired every few
+    // tens of seconds — three commits landed inside one minute while this was being
+    // diagnosed — and it is what "the panels flash" actually was.
+    //
+    // The cost: a change HMR cannot accept now does nothing until you reload by hand
+    // (Cmd+R). The running editor can therefore be older than the source, so confirm what
+    // build you are looking at before concluding a fix did not work.
+    liveReload: false,
     host: 'localhost', // Default: '0.0.0.0' that is causing issues on some OS / net interfaces
     port: 8080,
     onListening(devServer) {
