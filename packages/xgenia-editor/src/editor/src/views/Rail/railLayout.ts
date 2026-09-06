@@ -1,51 +1,49 @@
-// Pure layout reducer for the left rail + panel card. No editor imports: tested with
-// Node's runner. `dockedId` is the panel that lives in the card; `peekId` is a panel shown
-// in a second card in front of it; `open` is whether the docked card is visible at all.
+// Pure layout reducer for the left rail + panel card. No editor imports: tested with Node's
+// runner. One panel shows at a time: `activeId` is the panel in the card, `homeId` is the panel
+// a second click or Escape returns to (the chat), and `open` is whether the card shows at all.
 
 export interface RailLayout {
-  dockedId: string;
-  peekId: string | null;
+  /** The panel currently in the card. */
+  activeId: string;
+  /** The panel a second click, or Escape, returns to. The chat. */
+  homeId: string;
+  /** Whether the card is showing at all. */
   open: boolean;
 }
 
 export type RailAction =
   | { type: 'click'; id: string }
-  | { type: 'peek'; id: string }
-  | { type: 'pin' }
-  | { type: 'close' }
-  | { type: 'esc' }
+  | { type: 'home' }
   | { type: 'toggle' }
-  | { type: 'dock'; id: string };
+  | { type: 'close' }
+  | { type: 'restore'; homeId: string; activeId: string; open: boolean };
 
 /** The panel the user is looking at (or would be, if the card were open). */
 export function activePanelId(state: RailLayout): string {
-  return state.peekId ?? state.dockedId;
+  return state.activeId;
 }
 
 export function reduceRailLayout(state: RailLayout, action: RailAction): RailLayout {
   switch (action.type) {
     case 'click': {
-      if (action.id === state.peekId) return { ...state, peekId: null };
-      if (action.id === state.dockedId) {
-        if (state.peekId) return { ...state, peekId: null, open: true };
-        return { ...state, open: !state.open };
-      }
-      return { ...state, peekId: action.id, open: true };
-    }
-    case 'peek':
-      return { ...state, peekId: action.id, open: true };
-    case 'pin':
-      if (!state.peekId) return state;
-      return { dockedId: state.peekId, peekId: null, open: true };
-    case 'close':
-      if (state.peekId) return { ...state, peekId: null };
+      if (action.id !== state.activeId) return { ...state, activeId: action.id, open: true };
+      if (!state.open) return { ...state, open: true };
+      if (state.activeId !== state.homeId) return { ...state, activeId: state.homeId };
       return { ...state, open: false };
-    case 'esc':
-      return state.peekId ? { ...state, peekId: null } : state;
+    }
+    case 'home':
+      if (state.activeId === state.homeId && state.open) return state;
+      return { ...state, activeId: state.homeId, open: true };
     case 'toggle':
-      return { ...state, peekId: null, open: !state.open };
-    case 'dock':
-      return { dockedId: action.id, peekId: null, open: true };
+      return { ...state, open: !state.open };
+    case 'close':
+      if (!state.open) return state;
+      return { ...state, open: false };
+    case 'restore':
+      if (state.homeId === action.homeId && state.activeId === action.activeId && state.open === action.open) {
+        return state;
+      }
+      return { homeId: action.homeId, activeId: action.activeId, open: action.open };
     default:
       return state;
   }

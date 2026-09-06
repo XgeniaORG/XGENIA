@@ -2,73 +2,91 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reduceRailLayout, activePanelId, RailLayout } from '../../src/editor/src/views/Rail/railLayout';
 
-const docked = (id = 'chat-panel', open = true): RailLayout => ({ dockedId: id, peekId: null, open });
+const state = (activeId = 'chat-panel', homeId = 'chat-panel', open = true): RailLayout => ({ activeId, homeId, open });
 
-test('click on another id opens it as a peek', () => {
-  const s = reduceRailLayout(docked(), { type: 'click', id: 'components' });
-  assert.deepEqual(s, { dockedId: 'chat-panel', peekId: 'components', open: true });
+// click branch 1: a different id always switches to it and opens the card.
+test('click on a different id shows it and opens the card', () => {
+  const s = reduceRailLayout(state(), { type: 'click', id: 'components' });
+  assert.deepEqual(s, { activeId: 'components', homeId: 'chat-panel', open: true });
   assert.equal(activePanelId(s), 'components');
 });
 
-test('click on the peeked id closes the peek', () => {
-  const s = reduceRailLayout({ dockedId: 'chat-panel', peekId: 'components', open: true }, { type: 'click', id: 'components' });
-  assert.deepEqual(s, docked());
+test('click on a non-registered-but-different id still switches (the reducer does not validate ids)', () => {
+  const s = reduceRailLayout(state(), { type: 'click', id: 'not-a-real-panel' });
+  assert.deepEqual(s, { activeId: 'not-a-real-panel', homeId: 'chat-panel', open: true });
 });
 
-test('click on the docked id toggles the card when nothing is peeking', () => {
-  assert.equal(reduceRailLayout(docked(), { type: 'click', id: 'chat-panel' }).open, false);
-  assert.equal(reduceRailLayout(docked('chat-panel', false), { type: 'click', id: 'chat-panel' }).open, true);
+// click branch 2: same id, card closed, just opens it back up on the same panel.
+test('click on the active id while closed just opens the card', () => {
+  const s = reduceRailLayout(state('components', 'chat-panel', false), { type: 'click', id: 'components' });
+  assert.deepEqual(s, { activeId: 'components', homeId: 'chat-panel', open: true });
 });
 
-test('click on the docked id while peeking closes the peek and keeps the card open', () => {
-  const s = reduceRailLayout({ dockedId: 'chat-panel', peekId: 'search', open: true }, { type: 'click', id: 'chat-panel' });
-  assert.deepEqual(s, docked());
+// click branch 3: same id, open, and it is not home -> go home.
+test('click on the open active id that is not home goes home', () => {
+  const s = reduceRailLayout(state('components', 'chat-panel', true), { type: 'click', id: 'components' });
+  assert.deepEqual(s, { activeId: 'chat-panel', homeId: 'chat-panel', open: true });
 });
 
-test('click while the card is closed opens it with a peek', () => {
-  const s = reduceRailLayout(docked('chat-panel', false), { type: 'click', id: 'assets' });
-  assert.deepEqual(s, { dockedId: 'chat-panel', peekId: 'assets', open: true });
+// click branch 4: same id, open, and it IS home -> collapse.
+test('click on the open home id collapses the card', () => {
+  const s = reduceRailLayout(state('chat-panel', 'chat-panel', true), { type: 'click', id: 'chat-panel' });
+  assert.deepEqual(s, { activeId: 'chat-panel', homeId: 'chat-panel', open: false });
 });
 
-test('pin docks the peek', () => {
-  const s = reduceRailLayout({ dockedId: 'chat-panel', peekId: 'components', open: true }, { type: 'pin' });
-  assert.deepEqual(s, docked('components'));
+test('home from a tool panel returns to home and opens the card', () => {
+  const s = reduceRailLayout(state('components', 'chat-panel', true), { type: 'home' });
+  assert.deepEqual(s, { activeId: 'chat-panel', homeId: 'chat-panel', open: true });
 });
 
-test('pin with no peek is a no-op', () => {
-  assert.deepEqual(reduceRailLayout(docked(), { type: 'pin' }), docked());
+test('home from home itself is a no-op returning the same reference', () => {
+  const s = state('chat-panel', 'chat-panel', true);
+  assert.equal(reduceRailLayout(s, { type: 'home' }), s);
 });
 
-test('close closes the peek first, then the card', () => {
-  const peeking: RailLayout = { dockedId: 'chat-panel', peekId: 'components', open: true };
-  const s1 = reduceRailLayout(peeking, { type: 'close' });
-  assert.deepEqual(s1, docked());
-  const s2 = reduceRailLayout(s1, { type: 'close' });
-  assert.deepEqual(s2, docked('chat-panel', false));
+test('home while closed reopens on the home panel', () => {
+  const s = reduceRailLayout(state('components', 'chat-panel', false), { type: 'home' });
+  assert.deepEqual(s, { activeId: 'chat-panel', homeId: 'chat-panel', open: true });
 });
 
-test('esc only closes a peek', () => {
-  assert.deepEqual(reduceRailLayout({ dockedId: 'chat-panel', peekId: 'x', open: true }, { type: 'esc' }), docked());
-  assert.deepEqual(reduceRailLayout(docked(), { type: 'esc' }), docked());
+test('toggle flips open both directions', () => {
+  assert.deepEqual(reduceRailLayout(state('components', 'chat-panel', true), { type: 'toggle' }), state('components', 'chat-panel', false));
+  assert.deepEqual(reduceRailLayout(state('components', 'chat-panel', false), { type: 'toggle' }), state('components', 'chat-panel', true));
 });
 
-test('toggle flips open and drops any peek', () => {
-  assert.deepEqual(reduceRailLayout({ dockedId: 'chat-panel', peekId: 'x', open: true }, { type: 'toggle' }), docked('chat-panel', false));
-  assert.deepEqual(reduceRailLayout(docked('chat-panel', false), { type: 'toggle' }), docked());
+test('close when open collapses the card', () => {
+  const s = reduceRailLayout(state('components', 'chat-panel', true), { type: 'close' });
+  assert.deepEqual(s, state('components', 'chat-panel', false));
 });
 
-test('peek opens the card and sets the peek even for the docked id', () => {
-  const s = reduceRailLayout(docked('chat-panel', false), { type: 'peek', id: 'chat-panel' });
-  assert.deepEqual(s, { dockedId: 'chat-panel', peekId: 'chat-panel', open: true });
+test('close when already closed is a no-op returning the same reference', () => {
+  const s = state('components', 'chat-panel', false);
+  assert.equal(reduceRailLayout(s, { type: 'close' }), s);
 });
 
-test('dock replaces the docked id, opens, and drops the peek', () => {
-  const s = reduceRailLayout({ dockedId: 'a', peekId: 'b', open: false }, { type: 'dock', id: 'c' });
-  assert.deepEqual(s, docked('c'));
+test('restore replaces every field', () => {
+  const s = reduceRailLayout(state('components', 'chat-panel', false), {
+    type: 'restore',
+    homeId: 'chat-panel',
+    activeId: 'assets',
+    open: true
+  });
+  assert.deepEqual(s, { activeId: 'assets', homeId: 'chat-panel', open: true });
+});
+
+test('restore to an identical state is a no-op returning the same reference', () => {
+  const s = state('assets', 'chat-panel', true);
+  const result = reduceRailLayout(s, { type: 'restore', homeId: 'chat-panel', activeId: 'assets', open: true });
+  assert.equal(result, s);
+});
+
+test('activePanelId agrees with activeId', () => {
+  const s = state('assets', 'chat-panel', true);
+  assert.equal(activePanelId(s), s.activeId);
 });
 
 test('reducer never mutates its input', () => {
-  const before = docked();
+  const before = state();
   const frozen = Object.freeze({ ...before });
   reduceRailLayout(frozen, { type: 'click', id: 'components' });
   assert.deepEqual(frozen, before);
