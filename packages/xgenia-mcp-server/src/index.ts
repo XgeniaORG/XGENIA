@@ -207,8 +207,11 @@ server.registerTool(
   {
     title: 'Screenshot XGENIA',
     description:
-      'Capture the editor window, the chat panel, or the canvas. Returns base64 plus cssSize, imageSize and a measured scale factor. ' +
-      'ALWAYS convert any coordinate you read off the returned image through that scale before using it (e.g. with page.mouse or another tool that expects CSS pixels) — imageSize is in physical pixels of the capture, cssSize is not. scale is measured per capture, not a constant: it is neither 1 nor a fixed 2, because the editor runs at an Electron zoom factor (live measurements have shown ~1.25, from zoom 0.8 on a 2x-density display), and it moves whenever the user changes zoom.',
+      'Capture the editor window, the chat panel, or the canvas. Returns base64 plus cssSize, imageSize, contentSize and scale. ' +
+      'Convert any coordinate you read off the image through `scale` before using it with page.mouse or anything else expecting CSS pixels. ' +
+      'IMAGE PIXELS ARE NOT ALL PAGE: `imageSize` is the whole buffer, `contentSize` is the part of it the editor is actually drawn in, anchored top-left. ' +
+      'The editor runs at an Electron zoom factor, and the capture surface is allocated at the display backing scale rather than the zoomed one, so with zoom 0.8 the buffer comes back 25% wider than the page and the last 20% of it is blank. ' +
+      'When `note` says the image is padded, treat anything beyond contentSize as empty space, not as editor UI with nothing in it. When `note` says it is cropped (zoomed in past the surface), the right and bottom of the page are missing from the image entirely.',
     inputSchema: {
       region: z.enum(['full', 'chat', 'canvas']).optional(),
       format: z.enum(['jpeg', 'png']).optional()
