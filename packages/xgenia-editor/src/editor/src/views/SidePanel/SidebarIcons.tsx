@@ -22,8 +22,6 @@ import Brain01Icon from '@hugeicons/core-free-icons/Brain01Icon';
 // @ts-ignore
 import Link01Icon from '@hugeicons/core-free-icons/Link01Icon';
 // @ts-ignore
-import Comment01Icon from '@hugeicons/core-free-icons/Comment01Icon';
-// @ts-ignore
 import Image01Icon from '@hugeicons/core-free-icons/Image01Icon';
 // @ts-ignore
 import Add01Icon from '@hugeicons/core-free-icons/Add01Icon';
@@ -78,7 +76,6 @@ export const SideChatPanel = makeIcon(Brain01Icon, 'SideChatPanel');
 export const SideProjectStyles = makeIcon(PaintBrush01Icon, 'SideProjectStyles');
 
 export const SideNodeReferences = makeIcon(Link01Icon, 'SideNodeReferences');
-export const SideFeedback = makeIcon(Comment01Icon, 'SideFeedback');
 export const SideImageEditor = makeIcon(Image01Icon, 'SideImageEditor');
 export const SideMaths = makeIcon(CalculatorIcon, 'SideMaths');
 export const SideAssets = makeIcon(FolderLibraryIcon, 'SideAssets');

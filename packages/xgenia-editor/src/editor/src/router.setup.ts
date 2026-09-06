@@ -6,7 +6,7 @@ import { SidebarModel } from '@xgenia-models/sidebar';
 
 import {
   SideComponents, SideSearch, SideVersionControl, SideSettings, SideChatPanel, SideProjectStyles,
-  SideNodeReferences, SideFeedback, SideImageEditor, SideMaths, SideAssets, SideAddNode
+  SideNodeReferences, SideImageEditor, SideMaths, SideAssets, SideAddNode
 } from './views/SidePanel/SidebarIcons';
 
 import { ComponentDiffDocumentProvider } from './views/documents/ComponentDiffDocument';
@@ -48,7 +48,6 @@ if (AI_LOAD_STRATEGY === 'iframe') {
 // import { CloudServicePanel } from './views/panels/CloudServicePanel/CloudServicePanel';
 import { ComponentPortsComponent } from './views/panels/componentports';
 import { ComponentsPanel } from './views/panels/componentspanel';
-import { FeedbackPanel, FeedbackPanel_ID } from './views/panels/FeedbackPanel';
 import MemoryPanel from './views/panels/MemoryPanel/MemoryPanel';
 import { NodeReferencesPanel_ID } from './views/panels/NodeReferencesPanel';
 import { NodeReferencesPanel } from './views/panels/NodeReferencesPanel/NodeReferencesPanel';
@@ -128,15 +127,6 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     order: 30,
     icon: SideSearch,
     panel: SearchPanel
-  });
-
-  SidebarModel.instance.register({
-    id: FeedbackPanel_ID,
-    name: 'Feedback',
-    order: 20,
-    placement: 'bottom',
-    icon: SideFeedback,
-    panel: FeedbackPanel
   });
 
   SidebarModel.instance.register({
