@@ -774,11 +774,25 @@ function launchApp() {
           acceptFirstMouse: true,
           backgroundColor: '#272625',
           center: true,
+          // PURE borderless, on every platform. No `titleBarStyle`, no traffic lights.
+          //
+          // (2026-09-07) The whole window flashed — other panels showing for a frame — on
+          // hover, on scroll and while the chat streamed, on an M5 under macOS 26.0. Bisected
+          // in a bare Electron app with none of XGENIA's code (scratch 'flashrepro'): a glass
+          // bar, a hover-lifting list and a scaled <webview> guest. Same on Electron 31 and
+          // 44, so not a Chromium version. Removing the guest, the glass, or the four
+          // command-line switches changed nothing. What decided it was the WINDOW STYLE:
+          //   frame:false alone .......................... never flashed
+          //   titleBarStyle 'hidden' (what we had) ....... flashed
+          //   titleBarStyle 'hiddenInset' ................ flashed
+          //   frame:false + 'customButtonsOnHover' ....... flashed, rarely
+          //   a normal framed window ..................... never flashed
+          // Every style that keeps a native title bar view under our content flickers on
+          // this OS; a plain borderless NSWindow does not. So the traffic lights are gone and
+          // BaseWindow draws its own controls on macOS, as it already did on Windows/Linux.
           frame: false,
           minWidth: 600,
           minHeight: 300,
-          titleBarStyle: 'hidden',
-          trafficLightPosition: { x: 12, y: 12 },
           icon: path.join(appPath, 'src/assets/images/icon.png'),
           webPreferences,
           show: false
