@@ -1,14 +1,14 @@
 .Card {
   position: relative;
   flex-shrink: 0;
-  margin: 46px 0 8px 8px;
+  margin: 46px 0 8px 0; /* flush left against the rail */
   z-index: 10;
   display: flex;
   flex-direction: column;
   background: var(--card-bg);
   -webkit-backdrop-filter: var(--card-blur);
   backdrop-filter: var(--card-blur);
-  border-radius: var(--card-radius);
+  border-radius: 0 var(--card-radius) var(--card-radius) 0; /* square left corners, rounded right */
   box-shadow: var(--card-shadow);
   overflow: hidden;
   box-sizing: border-box;
@@ -82,50 +82,10 @@
   .is-resizing &::after { background: rgba(255, 255, 255, 0.28); }
 }
 
-.Docked {
-  display: contents;
-  &.is-under .Card { opacity: 0.55; pointer-events: none; }
-  .Card { transition: opacity 120ms ease; }
-}
-
-.PeekLayer {
-  position: absolute;
-  left: 20px;
-  top: 58px;
-  bottom: 20px;
-  z-index: 11;
-  display: flex;
-
-  .Card {
-    margin: 0;
-    height: 100%;
-    box-shadow: var(--card-shadow-peek);
-    transform-origin: 0 var(--origin-y, 60px);
-    @media (prefers-reduced-motion: no-preference) {
-      animation: card-open var(--speed-snap) var(--easing-base);
-    }
-    @media (prefers-reduced-motion: reduce) {
-      animation: card-fade 100ms ease;
-    }
-  }
-}
-
-.Card.is-peek { margin: 0; }
-
-@keyframes card-open {
-  from { opacity: 0; transform: scale(0.97) translateX(-6px); }
-  to { opacity: 1; transform: none; }
-}
-@keyframes card-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-/* Docked switch: incoming panel fades in with a 4px slide (direction from the rail). */
-.PanelItem[data-enter='down'] { animation: panel-in-down 120ms ease; }
-.PanelItem[data-enter='up'] { animation: panel-in-up 120ms ease; }
-@keyframes panel-in-down { from { opacity: 0; transform: translateY(4px); } }
-@keyframes panel-in-up { from { opacity: 0; transform: translateY(-4px); } }
+/* Panel switch: incoming panel cross-fades in. No slide, no scale — the card is chrome,
+   not a window. */
+.PanelItem[data-enter] { animation: panel-fade 120ms ease; }
+@keyframes panel-fade { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .PanelItem[data-enter] { animation: none; }
 }

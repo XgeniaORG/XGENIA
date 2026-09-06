@@ -72,52 +72,6 @@ export function Rail() {
     return () => EventDispatcher.instance.off(group);
   }, []);
 
-  // Hover-peek: dwelling on the rail while the card is fully collapsed brings the docked
-  // panel back as a temporary peek, so a glance doesn't require permanently reopening it.
-  const layoutRef = useRef(layout);
-  layoutRef.current = layout;
-  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hoverPeeked = useRef(false);
-
-  const onRailEnter = () => {
-    if (layoutRef.current.open) return;
-    if (leaveTimer.current) { clearTimeout(leaveTimer.current); leaveTimer.current = null; }
-    hoverTimer.current = setTimeout(() => {
-      hoverPeeked.current = true;
-      SidebarModel.instance.dispatch({ type: 'peek', id: layoutRef.current.dockedId });
-    }, 400);
-  };
-  const onRailLeave = () => {
-    if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
-  };
-
-  useEffect(() => {
-    // The hover-peek closes 300ms after the pointer leaves both the rail and the peek card,
-    // unless the user clicked inside it (then Esc/click-away own it). `esc` alone would leave
-    // `open: true` (a peek dropped on top of an open card) — since this peek was opened from
-    // a COLLAPSED card, follow it with `toggle` to actually return to collapsed.
-    const onMove = (e: PointerEvent) => {
-      if (!hoverPeeked.current) return;
-      const t = e.target as Element | null;
-      const inside = !!t && (!!t.closest('[data-test="rail"]') || !!t.closest('[data-test="left-card-peek"]'));
-      if (inside) { if (leaveTimer.current) { clearTimeout(leaveTimer.current); leaveTimer.current = null; } return; }
-      if (!leaveTimer.current) leaveTimer.current = setTimeout(() => {
-        hoverPeeked.current = false;
-        leaveTimer.current = null;
-        SidebarModel.instance.dispatch({ type: 'esc' });
-        SidebarModel.instance.dispatch({ type: 'toggle' });
-      }, 300);
-    };
-    const onDown = (e: PointerEvent) => {
-      const t = e.target as Element | null;
-      if (t?.closest('[data-test="left-card-peek"]')) hoverPeeked.current = false;
-    };
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerdown', onDown, true);
-    return () => { document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerdown', onDown, true); };
-  }, []);
-
   return (
     <div
       ref={rootRef}
@@ -126,8 +80,6 @@ export function Rail() {
       aria-orientation="vertical"
       aria-label="Panels"
       data-test="rail"
-      onPointerEnter={onRailEnter}
-      onPointerLeave={onRailLeave}
     >
       <IdentityChip />
 
@@ -145,10 +97,7 @@ export function Rail() {
             isDisabled={item.isDisabled}
             showAfterMs={tips.showAfterMs}
             onTooltipClosed={tips.noteClosed}
-            onClick={(e) => {
-              const r = (e?.currentTarget as HTMLElement | undefined)?.getBoundingClientRect?.();
-              const root = rootRef.current?.getBoundingClientRect();
-              if (r && root) EventDispatcher.instance.emit('rail-origin-y', r.top - root.top + r.height / 2);
+            onClick={() => {
               SidebarModel.instance.dispatch({ type: 'click', id: item.id });
               item.onClick?.();
             }}
@@ -168,10 +117,7 @@ export function Rail() {
             isDisabled={item.isDisabled}
             showAfterMs={tips.showAfterMs}
             onTooltipClosed={tips.noteClosed}
-            onClick={(e) => {
-              const r = (e?.currentTarget as HTMLElement | undefined)?.getBoundingClientRect?.();
-              const root = rootRef.current?.getBoundingClientRect();
-              if (r && root) EventDispatcher.instance.emit('rail-origin-y', r.top - root.top + r.height / 2);
+            onClick={() => {
               SidebarModel.instance.dispatch({ type: 'click', id: item.id });
               item.onClick?.();
             }}

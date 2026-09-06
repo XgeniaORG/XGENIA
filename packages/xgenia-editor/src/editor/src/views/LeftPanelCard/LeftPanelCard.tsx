@@ -9,8 +9,6 @@ import { IconButton, IconButtonVariant } from '@xgenia-core-ui/components/inputs
 import { DialogRenderDirection } from '@xgenia-core-ui/components/layout/BaseDialog';
 import { Tooltip } from '@xgenia-core-ui/components/popups/Tooltip';
 
-import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
-import { TopbarPinned } from '../SidePanel/SidebarIcons';
 import { PanelHost } from './PanelHost';
 import {
   clampPanelWidth, PANEL_WIDTH_DEFAULT, PANEL_WIDTH_MAX, PANEL_WIDTH_MIN, readPanelWidth, writePanelWidth
@@ -50,12 +48,10 @@ function usePanelWidth(panelId: string | null) {
 
 interface CardProps {
   panelId: string;
-  mode: 'docked' | 'peek';
   onClose: () => void;
-  onPin?: () => void;
 }
 
-export function PanelCard({ panelId, mode, onClose, onPin }: CardProps) {
+export function PanelCard({ panelId, onClose }: CardProps) {
   const item = SidebarModel.instance.getPanel(panelId);
   const { width, setWidth, commit, fallback } = usePanelWidth(panelId);
   const [isResizing, setIsResizing] = useState(false);
@@ -77,8 +73,8 @@ export function PanelCard({ panelId, mode, onClose, onPin }: CardProps) {
   // Listeners live on window (not the handle) so the drag survives the pointer leaving the
   // 8px strip, and live in an effect gated on `isResizing` — not attached imperatively inside
   // the mousedown handler — so React's cleanup removes them if the card unmounts mid-drag
-  // (e.g. a later task's Escape-closes-peek) instead of leaving them to fire stale closures.
-  // Mirrors RightPropertyPanel.tsx's resize effect.
+  // instead of leaving them to fire stale closures. Mirrors RightPropertyPanel.tsx's resize
+  // effect.
   useEffect(() => {
     if (!isResizing) return;
     const onMove = (ev: MouseEvent) => {
@@ -121,26 +117,21 @@ export function PanelCard({ panelId, mode, onClose, onPin }: CardProps) {
 
   return (
     <div
-      className={classNames(css.Card, mode === 'peek' && css['is-peek'], isResizing && css['is-resizing'])}
+      className={classNames(css.Card, isResizing && css['is-resizing'])}
       style={{ width }}
-      data-test={`left-card-${mode}`}
+      data-test="left-card"
       data-panel-id={panelId}
     >
       <div className={classNames(css.Header, chromeless && css['is-chromeless'], scrolled && css['is-scrolled'])}>
         {!chromeless && <span className={css.Title}>{item?.name}</span>}
         <span className={css.Grow} />
         {!chromeless && HeaderAction && <HeaderAction />}
-        {mode === 'peek' && onPin && (
-          <Tooltip content="Pin panel" renderDirection={DialogRenderDirection.Below}>
-            <IconButton icon={TopbarPinned} variant={IconButtonVariant.Transparent} onClick={onPin} />
-          </Tooltip>
-        )}
         <Tooltip content="Close panel" renderDirection={DialogRenderDirection.Below}>
           <IconButton icon={IconName.Close} variant={IconButtonVariant.Transparent} onClick={onClose} />
         </Tooltip>
       </div>
       <div ref={scrollRef} className={css.Content}>
-        <PanelHost visibleId={panelId} keepMounted={mode === 'docked'} />
+        <PanelHost visibleId={panelId} />
       </div>
       <div
         className={css.ResizeHandle}
@@ -163,61 +154,26 @@ export function PanelCard({ panelId, mode, onClose, onPin }: CardProps) {
 export function LeftPanelCard() {
   const sidebar = useModernModel(SidebarModel.instance, [SidebarModelEvent.layoutChanged]);
   const layout = sidebar.Layout;
-  const peekRef = useRef<HTMLDivElement>(null);
-  const [originY, setOriginY] = useState(60);
 
+  // Escape returns home, but only when it originates inside the card (via `data-test`, so
+  // no extra wrapper element is needed around the card itself), and only when the card
+  // isn't already showing home — the canvas uses Escape too, and this must not swallow it
+  // once there is nowhere further home to go.
   useEffect(() => {
-    const group = {};
-    EventDispatcher.instance.on('rail-origin-y', (y: number) => setOriginY(y), group);
-    return () => EventDispatcher.instance.off(group);
-  }, []);
-
-  // Esc and click-away close a peek. The rail is excluded so a second rail click reaches
-  // the reducer (which treats "click the peeked id" as close, and "click another" as switch).
-  useEffect(() => {
-    if (!layout.peekId) return;
+    if (!layout.open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.stopPropagation(); SidebarModel.instance.dispatch({ type: 'esc' }); }
-    };
-    const onPointer = (e: PointerEvent) => {
+      if (e.key !== 'Escape') return;
       const t = e.target as Element | null;
-      if (!t) return;
-      if (peekRef.current?.contains(t)) return;
-      if (t.closest('[data-test="rail"]')) return;
-      if (t.closest('[role="dialog"], [data-glass-popover]')) return; // popovers spawned from the peek
-      SidebarModel.instance.dispatch({ type: 'esc' });
+      if (!t?.closest('[data-test="left-card"]')) return;
+      if (layout.activeId === layout.homeId) return;
+      e.stopPropagation();
+      SidebarModel.instance.goHome();
     };
     window.addEventListener('keydown', onKey, true);
-    document.addEventListener('pointerdown', onPointer, true);
-    return () => {
-      window.removeEventListener('keydown', onKey, true);
-      document.removeEventListener('pointerdown', onPointer, true);
-    };
-  }, [layout.peekId]);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [layout.open, layout.activeId, layout.homeId]);
 
   if (!layout.open) return null;
 
-  return (
-    <>
-      {/* Hover-peek dispatches `peek(dockedId)`, so `peekId === dockedId` is a legal state
-          (see Rail.tsx's onRailEnter): the same panel would otherwise be drawn twice, once
-          dimmed underneath its own peek. Skip the docked card entirely in that case. */}
-      {layout.peekId !== layout.dockedId && (
-        <div className={classNames(css.Docked, layout.peekId && css['is-under'])}>
-          <PanelCard panelId={layout.dockedId} mode="docked" onClose={() => SidebarModel.instance.dispatch({ type: 'close' })} />
-        </div>
-      )}
-      {layout.peekId && (
-        <div ref={peekRef} className={css.PeekLayer} style={{ ['--origin-y' as any]: `${originY}px` }}>
-          <PanelCard
-            key={layout.peekId}
-            panelId={layout.peekId}
-            mode="peek"
-            onClose={() => SidebarModel.instance.dispatch({ type: 'esc' })}
-            onPin={() => SidebarModel.instance.pin()}
-          />
-        </div>
-      )}
-    </>
-  );
+  return <PanelCard panelId={layout.activeId} onClose={() => SidebarModel.instance.dispatch({ type: 'close' })} />;
 }

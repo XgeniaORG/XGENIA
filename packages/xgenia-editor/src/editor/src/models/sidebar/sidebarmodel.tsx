@@ -18,7 +18,7 @@ export interface SidebarItem<TProps = Record<string, unknown>> {
   icon?: IconName | React.ElementType;
   /** Rendered in the panel card's header, right of the title (e.g. Components' Add node). */
   headerAction?: React.ComponentType;
-  /** The panel draws its own header (an iframe); the card shows pin/close only. */
+  /** The panel draws its own header (an iframe); the card shows close only. */
   chromeless?: boolean;
   /** Card width before the user drags it. Default 380. */
   defaultWidth?: number;
@@ -113,7 +113,7 @@ export enum SidebarModelEvent {
   HotReload = 'HotReload',
   /** Occurs when the right-side panel changes (independent of left sidebar). */
   rightPanelChanged = 'rightPanelChanged',
-  /** Occurs when the docked/peek/open layout of the left card changes. */
+  /** Occurs when the active panel or open state of the left card changes. */
   layoutChanged = 'layoutChanged'
 }
 
@@ -168,11 +168,13 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
 
   private groupRef = {};
 
-  private static readonly SETTINGS_DOCKED = 'rail.docked';
+  /** Older key, read as a fallback when `rail.active` has never been written. */
+  private static readonly SETTINGS_DOCKED_LEGACY = 'rail.docked';
+  private static readonly SETTINGS_ACTIVE = 'rail.active';
   private static readonly SETTINGS_OPEN = 'rail.open';
   private static readonly SETTINGS_ORDER = 'rail.order';
 
-  private layout: RailLayout = { dockedId: 'components', peekId: null, open: true };
+  private layout: RailLayout = { activeId: 'components', homeId: 'components', open: true };
 
   public get Layout(): RailLayout {
     return { ...this.layout };
@@ -202,19 +204,23 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
    *
    * Awaits `EditorSettings.instance.ready` first: under Electron, settings live in a
    * file and `get()` returns undefined until the async fetch lands (see the comment on
-   * `ready` in utils/editorsettings.ts) — without this, the docked panel and open state
+   * `ready` in utils/editorsettings.ts) — without this, the active panel and open state
    * would be silently discarded on every launch, which is the bug this method exists to fix.
+   * Do not add a pre-await staleness check here: an earlier attempt at one discarded the
+   * user's stored layout on ordinary project loads.
+   *
+   * `homeId` always comes from `defaultDockedId()`, never from storage — a renamed or
+   * removed chat panel must never strand the user with no way home.
    */
   public async restoreLayout(): Promise<void> {
     await EditorSettings.instance.ready;
-    const storedDocked = EditorSettings.instance.get(SidebarModel.SETTINGS_DOCKED);
+    const storedActive = EditorSettings.instance.get(SidebarModel.SETTINGS_ACTIVE);
+    const storedDocked = EditorSettings.instance.get(SidebarModel.SETTINGS_DOCKED_LEGACY);
     const storedOpen = EditorSettings.instance.get(SidebarModel.SETTINGS_OPEN);
-    const dockedId =
-      typeof storedDocked === 'string' && this.items.some((x) => x.id === storedDocked && !x.transient)
-        ? storedDocked
-        : this.defaultDockedId();
-    this.dispatch({ type: 'dock', id: dockedId });
-    if (storedOpen === false) this.dispatch({ type: 'toggle' });
+    const homeId = this.defaultDockedId();
+    const stored = typeof storedActive === 'string' ? storedActive : storedDocked;
+    const activeId = typeof stored === 'string' && this.items.some((x) => x.id === stored && !x.transient) ? stored : homeId;
+    this.dispatch({ type: 'restore', homeId, activeId, open: storedOpen !== false });
   }
 
   public getUserOrder(): string[] {
@@ -241,8 +247,7 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
     let next: RailLayout;
     try {
       next = reduceRailLayout(before, action);
-      this.ensurePanel(next.dockedId);
-      if (next.peekId) this.ensurePanel(next.peekId);
+      this.ensurePanel(next.activeId);
     } catch (error) {
       // A missing panel (user code, hot reload) must not wedge the rail.
       console.error(error);
@@ -261,7 +266,7 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
     this.activeId = nextActive;
     this.layout = next;
 
-    if (next.dockedId !== before.dockedId) EditorSettings.instance.set(SidebarModel.SETTINGS_DOCKED, next.dockedId);
+    if (next.activeId !== before.activeId) EditorSettings.instance.set(SidebarModel.SETTINGS_ACTIVE, next.activeId);
     if (next.open !== before.open) EditorSettings.instance.set(SidebarModel.SETTINGS_OPEN, next.open);
 
     this.notifyListeners(SidebarModelEvent.layoutChanged, this.Layout);
@@ -272,16 +277,9 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
     }
   }
 
-  public peek(id: string): void {
-    this.dispatch({ type: 'peek', id });
-  }
-
-  public pin(): void {
-    this.dispatch({ type: 'pin' });
-  }
-
-  public closePeek(): void {
-    this.dispatch({ type: 'esc' });
+  /** Returns to the home panel (the chat), opening the card if it was closed. */
+  public goHome(): void {
+    this.dispatch({ type: 'home' });
   }
 
   public toggleCard(): void {
@@ -352,7 +350,7 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
     this.panels = {};
     this.rightPanelId = null;
     this.rightPanelComponent = null;
-    this.layout = { dockedId: 'components', peekId: null, open: true };
+    this.layout = { activeId: 'components', homeId: 'components', open: true };
   }
 
   // TODO: Rename to getActive()
@@ -427,11 +425,11 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
       console.error(`Panel not found. (${id})`);
       return false;
     }
-    // `switch` means "ensure visible", not "toggle": the reducer's `click` case flips
-    // `open` when `id` is already the docked panel, which would close a panel that is
-    // already showing. Callers (⌘F, component.switchTo, onOpen hooks) want "make visible";
-    // only the rail's own click handler wants toggle-to-close, and it calls
-    // `dispatch({ type: 'click' })` directly.
+    // `switch` means "ensure visible", not "toggle": the reducer's `click` case, when `id`
+    // is already `activeId` and the card is open, either goes home or collapses — either
+    // way it stops showing `id`. Callers (⌘F, component.switchTo, onOpen hooks, settings
+    // and hot-reload restore) want "make visible"; only the rail's own click handler wants
+    // that go-home/collapse behavior, and it calls `dispatch({ type: 'click' })` directly.
     if (activePanelId(this.layout) === id && this.layout.open) {
       return true;
     }

@@ -9,9 +9,8 @@ import { PanelActiveContext } from '../panels/useIsActivePanel';
 import css from './LeftPanelCard.module.scss';
 
 interface Props {
-  /** The panel to show. Others stay mounted and hidden when `keepMounted` is true. */
+  /** The panel to show. Others stay mounted and hidden. */
   visibleId: string | null;
-  keepMounted: boolean;
 }
 
 /**
@@ -19,13 +18,13 @@ interface Props {
  * switching back is instant and keeps its state — and, for remote iframes, avoids
  * re-booting a whole application on every switch. `PanelActiveContext` tells a hidden
  * panel it is off screen so the expensive ones can idle. `unmountWhenHidden` on the item
- * is the stronger opt-out. This mount/hide policy is the same one the old SidePanel had —
- * and, on `HotReload`, so is the recovery: the currently visible panel's component is
- * re-created (not just wiped), the same way `SidePanel.tsx`'s HotReload handler recreates
- * `SidebarModel.instance.ActiveId` instead of leaving the panel blank until the user
- * switches away and back.
+ * is the opt-out for a panel whose state is cheap to rebuild. This mount/hide policy is
+ * the same one the old SidePanel had — and, on `HotReload`, so is the recovery: the
+ * currently visible panel's component is re-created (not just wiped), the same way
+ * `SidePanel.tsx`'s HotReload handler recreates `SidebarModel.instance.ActiveId` instead
+ * of leaving the panel blank until the user switches away and back.
  */
-export function PanelHost({ visibleId, keepMounted }: Props) {
+export function PanelHost({ visibleId }: Props) {
   const [panels, setPanels] = useState<Record<string, ReactNode>>({});
 
   // HotReload fires from a model event, not a prop change, so the handler below (subscribed
@@ -38,10 +37,9 @@ export function PanelHost({ visibleId, keepMounted }: Props) {
 
   // Direction the newly-visible panel enters from, based on its position in the rail
   // relative to the panel it replaced. `prevVisibleIdRef` starts null so the host's own
-  // first mount (including a peek card's fresh PanelHost instance under its `key`-forced
-  // remount) never plays this — only a docked-card switch between two already-known ids
-  // does. Cleared on `animationend` so a later hidden<->visible toggle with no CSS
-  // transition doesn't replay a stale direction.
+  // first mount never plays this — only a switch between two already-known ids does.
+  // Cleared on `animationend` so a later hidden<->visible toggle with no CSS transition
+  // doesn't replay a stale direction.
   const prevVisibleIdRef = useRef<string | null>(null);
   const [enter, setEnter] = useState<{ id: string; dir: 'down' | 'up' } | null>(null);
   useEffect(() => {
@@ -88,7 +86,7 @@ export function PanelHost({ visibleId, keepMounted }: Props) {
       {Object.entries(panels).map(([id, panel]) => {
         const isActive = id === visibleId;
         const item = SidebarModel.instance.getPanel(id);
-        if (!isActive && (!keepMounted || item?.unmountWhenHidden)) return null;
+        if (!isActive && item?.unmountWhenHidden) return null;
         return (
           <div
             key={id}
