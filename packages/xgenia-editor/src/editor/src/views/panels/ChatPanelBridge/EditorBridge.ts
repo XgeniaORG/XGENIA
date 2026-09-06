@@ -28,6 +28,7 @@ import { UndoActionGroup, UndoQueue } from '@xgenia-models/undo-queue-model';
 import { guid } from '@xgenia-utils/utils';
 import { platform } from '@xgenia/platform';
 import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
+import { ParamAuthors } from '../propertyeditor/inspector/paramAuthors';
 import { supabase } from '../../../supabaseInit';
 import {
     addProjectPalette,
@@ -1628,6 +1629,16 @@ export class EditorBridge {
             // undefined and the caller had no way to detect silent rejections.
             if (typeof node.setParameter !== 'function') return false;
             node.setParameter(name, value, { undo: this.aiUndo(), label: this.aiUndoLabel });
+            // Authorship for the inspector. This is the single door AI parameter
+            // writes come through, which is what makes one record here enough: the
+            // model itself stores only the value, so without this the panel cannot
+            // tell a value the user typed from one the assistant just wrote.
+            //
+            // Keyed on the RESOLVED id, not on `nodeId`: `findNode` also accepts a
+            // label, and the AI addresses nodes by label most of the time. Recording
+            // the caller's string would file the write under "MainRouter" while the
+            // inspector looks it up by uuid, and the glyph would never appear.
+            ParamAuthors.record(node.id, name, 'ai');
             return true;
         });
 

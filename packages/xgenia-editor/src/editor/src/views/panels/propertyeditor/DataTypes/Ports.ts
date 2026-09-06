@@ -4,6 +4,7 @@ import { EventDispatcher } from '../../../../../../shared/utils/EventDispatcher'
 import View from '../../../../../../shared/view';
 import PopupLayer from '../../../popuplayer';
 import { CodeEditorType } from '../CodeEditor';
+import { ParamAuthors } from '../inspector/paramAuthors';
 import { ModelProxy } from '../models/modelProxy';
 import { PagesType } from '../Pages';
 import { getEditType } from '../utils';
@@ -62,13 +63,58 @@ export class Ports extends View {
   _toolsType: TSFixme;
   groups: TSFixme[];
 
+  /**
+   * Headless mode: build the port views but do NOT lay them out into `this.el`.
+   * The React inspector owns the list chrome — groups, collapsing, search, the
+   * Changed filter — and mounts each view's element itself. Everything below the
+   * value cell (the ~30 type views, their popouts, tab groups, parent/child port
+   * nesting) is untouched and still built exactly the same way, which is the point:
+   * re-deriving that registry in React would be a second source of truth for which
+   * editor a port gets.
+   */
+  headless: boolean;
+  /** Structural change — the set of ports or their views differs. Rebuild the list. */
+  onChanged: TSFixme;
+  /**
+   * A parameter VALUE changed. Row metadata (is it still at its default?) is stale,
+   * but the views themselves are fine. Kept separate from `onChanged` so a keystroke
+   * cannot remount the input the user is typing into.
+   */
+  onMetaChanged: TSFixme;
+
   constructor(args) {
     super();
     this.model = args.model;
     this.popout = args.popout;
     this._selectedTabForGroup = {};
+    this.headless = !!args.headless;
+    this.onChanged = args.onChanged;
+    this.onMetaChanged = args.onMetaChanged;
 
     this.bindModel(this.model);
+  }
+
+  /**
+   * Collects the port templates into `this.templates` without rendering anything.
+   * `bindView` removes every `[data-template]` block from the markup as it indexes
+   * it, so the type views can go on calling `parent.cloneTemplate('number')`.
+   */
+  initHeadless() {
+    this._portsHash = undefined;
+    this.el = this.bindView($(PropertyEditorPortsTemplate), this);
+  }
+
+  /**
+   * Repoints this view's jQuery scope at the element React renders the rows into.
+   *
+   * The type views reach back through `this.parent.$(...)` for two things that are
+   * inherently cross-row: closing every OTHER open enum dropdown, and toggling the
+   * bottom spacer that lets a dropdown near the end of the list be scrolled into
+   * view. Left pointing at the detached template root, both selectors would match
+   * nothing — silently, and only for rows the user had to scroll to reach.
+   */
+  bindHostElement(element: HTMLElement) {
+    if (element) this.el = $(element);
   }
   showPopout(popout) {
     if (this.activePopout) {
@@ -108,6 +154,17 @@ export class Ports extends View {
       () => {
         this._portsHash = undefined;
         this.renderGroups();
+      },
+      this
+    );
+
+    // Value-only changes. The legacy list ignored these entirely (each type view
+    // updated its own DOM), but the Changed filter and its counts are derived from
+    // whether a parameter is set, so they have to hear about every write.
+    model.on(
+      ['parametersChanged'],
+      () => {
+        this.onMetaChanged && this.onMetaChanged();
       },
       this
     );
@@ -156,6 +213,12 @@ export class Ports extends View {
       return;
 
     this._portsHash = _portsHash;
+
+    if (this.headless) {
+      // React rebuilds from getViewGroupsFromPorts() and does its own layout.
+      this.onChanged && this.onChanged();
+      return;
+    }
 
     //remember the scrolling so a re-render doesn't reset the scroll position
     let scrollTop = 0;
@@ -210,7 +273,17 @@ export class Ports extends View {
     this.el = this.bindView($(PropertyEditorPortsTemplate), this);
     this.renderGroups();
   }
+  /**
+   * Every write a type view makes goes through here or `setParameter`, which makes
+   * these the two places that can honestly say "a person did this". The AI's writes
+   * are recorded on the other side, where EditorBridge handles `node.setParameter`.
+   */
+  private recordUserWrite(name: string) {
+    const nodeId = this.model && this.model.model && this.model.model.id;
+    if (nodeId) ParamAuthors.record(nodeId, name, 'user');
+  }
   setParameterEx(name, newvalue, oldvalue, skipundo) {
+    this.recordUserWrite(name);
     this.model.setParameter(name, newvalue, {
       undo: !skipundo,
       oldValue: oldvalue,
@@ -218,6 +291,7 @@ export class Ports extends View {
     });
   }
   setParameter(name, newvalue) {
+    this.recordUserWrite(name);
     this.model.setParameter(name, newvalue, { undo: true, label: 'edit parameter' });
   }
   viewClassForPort(p) {
@@ -424,6 +498,13 @@ export class Ports extends View {
 
   getViewGroupsFromPorts() {
     const ports = this._getPorts();
+
+    // Every call replaces `this.views` wholesale. The legacy list leaked the old
+    // ones — only whatever `dispose()` eventually caught was released — and their
+    // EventDispatcher subscriptions stayed live, so a node re-rendered N times had
+    // N sets of handlers reacting to project events. React rebuilds far more often
+    // than the jQuery list did, so release them here.
+    this.views && this.views.forEach((v) => v.dispose && v.dispose());
 
     // Loop over all ports and create views
     this._toolsType = {};
