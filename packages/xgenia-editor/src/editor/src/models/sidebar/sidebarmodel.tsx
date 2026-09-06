@@ -182,8 +182,16 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
     return first ? first.id : 'components';
   }
 
-  /** Read the stored layout. Call once the panels for this project are registered. */
-  public restoreLayout(): void {
+  /**
+   * Read the stored layout. Call once the panels for this project are registered.
+   *
+   * Awaits `EditorSettings.instance.ready` first: under Electron, settings live in a
+   * file and `get()` returns undefined until the async fetch lands (see the comment on
+   * `ready` in utils/editorsettings.ts) — without this, the docked panel and open state
+   * would be silently discarded on every launch, which is the bug this method exists to fix.
+   */
+  public async restoreLayout(): Promise<void> {
+    await EditorSettings.instance.ready;
     const storedDocked = EditorSettings.instance.get(SidebarModel.SETTINGS_DOCKED);
     const storedOpen = EditorSettings.instance.get(SidebarModel.SETTINGS_OPEN);
     const dockedId =
@@ -400,11 +408,17 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
    * @returns
    */
   public switch(id: string): boolean {
-    // Existing callers (⌘F, component.switchTo, onOpen hooks) get the rail's click
-    // semantics: docked → toggle, otherwise → peek.
     if (!this.items.some((x) => x.id === id)) {
       console.error(`Panel not found. (${id})`);
       return false;
+    }
+    // `switch` means "ensure visible", not "toggle": the reducer's `click` case flips
+    // `open` when `id` is already the docked panel, which would close a panel that is
+    // already showing. Callers (⌘F, component.switchTo, onOpen hooks) want "make visible";
+    // only the rail's own click handler wants toggle-to-close, and it calls
+    // `dispatch({ type: 'click' })` directly.
+    if (activePanelId(this.layout) === id && this.layout.open) {
+      return true;
     }
     this.dispatch({ type: 'click', id });
     return true;
