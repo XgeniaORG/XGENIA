@@ -23,26 +23,6 @@
   animation: none;
 }
 
-.Header {
-  flex-shrink: 0;
-  height: 40px;
-  padding: 0 8px 0 14px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border-bottom: 0.5px solid rgba(255, 255, 255, 0.06);
-
-  @media (prefers-reduced-motion: no-preference) {
-    transition: box-shadow 120ms ease, border-color 120ms ease;
-  }
-
-  &.is-chromeless { height: 32px; padding-left: 8px; justify-content: flex-end; }
-  &.is-scrolled { border-bottom-color: rgba(255, 255, 255, 0.12); box-shadow: 0 6px 12px -6px rgba(0, 0, 0, 0.6); z-index: 1; }
-}
-
-.Title { font: 600 12.5px/1 var(--font-family-regular); color: var(--theme-color-fg-highlight); }
-.Grow { flex: 1; }
-
 .Content {
   position: relative;
   flex: 1;

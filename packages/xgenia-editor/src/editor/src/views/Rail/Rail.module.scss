@@ -76,6 +76,19 @@
   }
 }
 
+/* The green + that opens the node picker — restored to the top of the rail, under the
+ * identity chip. Same size as every other rail button; the accent color is what used to
+ * mark it out when it lived in the panel card's header (AddNodeAction.module.scss). */
+.AddNodeButton {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--theme-color-on-primary, #062b1c);
+  background: var(--theme-color-publish);
+
+  &:hover { filter: brightness(1.06); }
+}
+
 /* One accent bar travels between active items. `top: 7px` inside a 28px slot = 14px tall, centred. */
 .Indicator {
   position: absolute;

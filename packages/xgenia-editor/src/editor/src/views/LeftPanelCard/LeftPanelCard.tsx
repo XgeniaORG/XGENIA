@@ -4,10 +4,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useModernModel } from '@xgenia-hooks/useModel';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
-import { IconName } from '@xgenia-core-ui/components/common/Icon';
-import { IconButton, IconButtonVariant } from '@xgenia-core-ui/components/inputs/IconButton';
-import { DialogRenderDirection } from '@xgenia-core-ui/components/layout/BaseDialog';
-import { Tooltip } from '@xgenia-core-ui/components/popups/Tooltip';
 
 import { PanelHost } from './PanelHost';
 import {
@@ -50,16 +46,12 @@ interface CardProps {
   panelId: string;
   /** The card is closed: hidden, but still mounted, so the panels inside keep their state. */
   isHidden: boolean;
-  onClose: () => void;
 }
 
-export function PanelCard({ panelId, isHidden, onClose }: CardProps) {
-  const item = SidebarModel.instance.getPanel(panelId);
+export function PanelCard({ panelId, isHidden }: CardProps) {
   const { width, setWidth, commit, fallback } = usePanelWidth(panelId);
   const [isResizing, setIsResizing] = useState(false);
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [scrolled, setScrolled] = useState(false);
 
   // Live width readout while dragging the edge. `chip` holds the last snapped value shown
   // during (and briefly after) a drag; the fade-out timer lives in a ref — not local to the
@@ -72,21 +64,6 @@ export function PanelCard({ panelId, isHidden, onClose }: CardProps) {
       if (chipTimer.current) clearTimeout(chipTimer.current);
     };
   }, []);
-
-  // Skipped while the card is hidden: a `display: none` subtree has an empty rect, so the
-  // observer would report the sentinel as off screen and leave the scrolled-state shadow
-  // under the header, showing for a frame the next time the card opens.
-  useEffect(() => {
-    if (isHidden) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    const sentinel = document.createElement('div');
-    sentinel.style.cssText = 'position:absolute;top:0;left:0;width:1px;height:1px;pointer-events:none';
-    el.prepend(sentinel);
-    const io = new IntersectionObserver(([e]) => setScrolled(!e.isIntersecting), { root: el });
-    io.observe(sentinel);
-    return () => { io.disconnect(); sentinel.remove(); };
-  }, [isHidden]);
 
   // Listeners live on window (not the handle) so the drag survives the pointer leaving the
   // 8px strip, and live in an effect gated on `isResizing` — not attached imperatively inside
@@ -138,9 +115,6 @@ export function PanelCard({ panelId, isHidden, onClose }: CardProps) {
     e.preventDefault();
   };
 
-  const HeaderAction = item?.headerAction;
-  const chromeless = !!item?.chromeless;
-
   return (
     <div
       className={classNames(css.Card, isResizing && css['is-resizing'])}
@@ -148,15 +122,7 @@ export function PanelCard({ panelId, isHidden, onClose }: CardProps) {
       data-test="left-card"
       data-panel-id={panelId}
     >
-      <div className={classNames(css.Header, chromeless && css['is-chromeless'], scrolled && css['is-scrolled'])}>
-        {!chromeless && <span className={css.Title}>{item?.name}</span>}
-        <span className={css.Grow} />
-        {!chromeless && HeaderAction && <HeaderAction />}
-        <Tooltip content="Close panel" renderDirection={DialogRenderDirection.Below}>
-          <IconButton icon={IconName.Close} variant={IconButtonVariant.Transparent} onClick={onClose} />
-        </Tooltip>
-      </div>
-      <div ref={scrollRef} className={css.Content}>
+      <div className={css.Content}>
         <PanelHost visibleId={isHidden ? null : panelId} />
       </div>
       <div
@@ -208,11 +174,9 @@ export function LeftPanelCard() {
   // toggle this constantly. Passing `null` for the visible id while closed also tells every
   // panel it is off screen, so the expensive ones idle exactly as they do when hidden behind
   // another panel.
-  return (
-    <PanelCard
-      panelId={layout.activeId}
-      isHidden={!layout.open}
-      onClose={() => SidebarModel.instance.dispatch({ type: 'close' })}
-    />
-  );
+  //
+  // Closing is still reachable: ⌘B (toggleCard) and clicking the active panel's own rail
+  // icon (SidebarModel's `click` reducer case). The card itself carries no close button —
+  // see the header removal above.
+  return <PanelCard panelId={layout.activeId} isHidden={!layout.open} />;
 }

@@ -16,10 +16,6 @@ export interface SidebarItem<TProps = Record<string, unknown>> {
   fineType?: string;
   /** An IconName or one of the `Side*` wrappers from views/SidePanel/SidebarIcons. */
   icon?: IconName | React.ElementType;
-  /** Rendered in the panel card's header, right of the title (e.g. Components' Add node). */
-  headerAction?: React.ComponentType;
-  /** The panel draws its own header (an iframe); the card shows close only. */
-  chromeless?: boolean;
   /** Card width before the user drags it. Default 380. */
   defaultWidth?: number;
   order?: number;

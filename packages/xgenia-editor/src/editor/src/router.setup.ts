@@ -8,7 +8,6 @@ import {
   SideComponents, SideSearch, SideVersionControl, SideSettings, SideChatPanel, SideProjectStyles,
   SideNodeReferences, SideFeedback, SideImageEditor, SideMaths, SideAssets, SideAddNode
 } from './views/SidePanel/SidebarIcons';
-import { AddNodeAction } from './views/panels/componentspanel/AddNodeAction';
 
 import { ComponentDiffDocumentProvider } from './views/documents/ComponentDiffDocument';
 import { EditorDocumentProvider } from './views/documents/EditorDocument';
@@ -107,7 +106,6 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     name: 'Components',
     order: 20,
     icon: SideComponents,
-    headerAction: AddNodeAction,
     onOpen: () => {
       if (appRegistry.CurrentDocumentId !== EditorDocumentProvider.ID) {
         appRegistry.openDocument(EditorDocumentProvider.ID);
@@ -154,7 +152,6 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     name: 'Chat',
     order: 10,
     icon: SideChatPanel,
-    chromeless: true,
     defaultWidth: 450,
     isDefaultDocked: true,
     panel: ChatPanel

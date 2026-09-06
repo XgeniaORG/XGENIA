@@ -15,6 +15,7 @@ import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import { ToastLayer } from '../ToastLayer';
 import { importFiles } from '../panels/AssetPanel/assetOps';
 import { SideMore } from '../SidePanel/SidebarIcons';
+import { AddNodeButton } from './AddNodeButton';
 import { IdentityChip } from './IdentityChip';
 import { RailButton, RailButtonProps } from './RailButton';
 import { activePanelId } from './railLayout';
@@ -436,6 +437,7 @@ export function Rail() {
       data-test="rail"
     >
       <IdentityChip />
+      <AddNodeButton showAfterMs={tips.showAfterMs} onTooltipClosed={tips.noteClosed} />
 
       <div className={css.Top}>
         {indicatorY !== null && <span className={css.Indicator} style={{ transform: `translateY(${indicatorY}px)` }} aria-hidden="true" />}
