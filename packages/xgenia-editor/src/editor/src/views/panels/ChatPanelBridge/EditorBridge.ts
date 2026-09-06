@@ -16,7 +16,7 @@
 import ThumbnailCache from '@xgenia-utils/thumbnailcache';
 import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import { isBloatPort, isTooLargeToSerialize, unwrapValueUnit, portUnitInfo } from './serialize-param-guard';
-import { recordAssetProvenance, loadAssetMeta, migrateAssetMeta } from '../AssetPanel/assetMeta';
+import { mergeAssetMeta, loadAssetMeta, migrateAssetMeta, type AssetMetaEntry } from '../AssetPanel/assetMeta';
 import { reconcileGraphAssetRefs } from '../AssetPanel/assetGraphRefs';
 import { AiActivity } from '@xgenia-models/aiactivity';
 import { RailPresence } from '@xgenia-models/railpresence';
@@ -2858,10 +2858,14 @@ export class EditorBridge {
         // Record AI provenance (prompt/model/params) for a saved asset, keyed by its
         // project-relative path ('assets/...'). The AI calls this right after saving a
         // generated image so the asset carries "what the AI did" (shown in the Inspector).
-        h('assetMeta.set', async ([assetPath, entry]: [string, { ai?: any; tags?: string[]; favorite?: boolean }]) => {
-            if (!assetPath || !entry) return false;
+        h('assetMeta.set', async ([assetPath, entry]: [string, Partial<AssetMetaEntry>]) => {
+            if (!assetPath || !entry || typeof entry !== 'object') return false;
             try {
-                if (entry.ai) await recordAssetProvenance(assetPath, entry.ai);
+                // Merge the WHOLE patch. This used to call recordAssetProvenance, which
+                // writes only `entry.ai`: every other field the caller sent — tags, and now
+                // role / version / lineage — was accepted, reported as written, and silently
+                // dropped. Anything the AI needs to persist about an asset goes through here.
+                await mergeAssetMeta(assetPath, entry);
                 EventDispatcher.instance.emit('project-assets-changed', { path: assetPath });
                 return true;
             } catch (e) {
