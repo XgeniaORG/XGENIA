@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import type { Frame, Page } from 'playwright-core';
 import { parseTranscript, readStructuredMessages, resolveReadWindow, normaliseWhitespace, promptSlice, transcriptContainsPrompt, confirmSent, chatNotReadyHint, isChatButtonLabel, ensureChatPanelOpen, resetChatButtonCache, describeUnconfirmedSend, CONFIRM_DEADLINE_MS } from './chat.js';
 import { summariseMessages, type ChatMessage } from './editor-state.js';
@@ -600,5 +601,51 @@ describe('the matcher was never the problem, and stays that way', () => {
     const sent = 'Run verify_logic_correctness on /#__maths__/NeonMaths and paste the findings.';
     const rendered = 'Run verify_logic_correctness on /#maths/NeonMaths and paste the findings.';
     expect(transcriptContainsPrompt(sent, rendered)).toBe(true);
+  });
+});
+
+/**
+ * A PROMPT NAMING A NODE MUST SURVIVE BEING TYPED.
+ *
+ * (2026-09-06) `xgenia_chat_send` used `input.type()`, which delivers a real keydown per
+ * character. The panel's mention autocomplete opens on `@`. Sending
+ *
+ *     "Follow-up on your two edits to @StateCommit's seed condition: ..."
+ *
+ * left this in the input box:
+ *
+ *     "Follow-up on your two edits to @Components/NeonReels"
+ *
+ * — everything after the `@` swallowed into a mention chip, and the Enter that should have sent
+ * the message consumed picking that suggestion instead. Nothing was sent, twice, and the harness
+ * could only report that it was not sure.
+ *
+ * Node names are how XGENIA prompts refer to anything (`@Paytable`, `@GameState`, `@SpinCalc`),
+ * so this is most prompts, not an edge case. The cure is to insert the string as one input event
+ * rather than as keystrokes; verified live, the `@StateCommit` text now reaches the box intact.
+ */
+describe('the send path does not hand the panel a keystroke stream', () => {
+  // Comments stripped: the block explaining WHY typing was wrong necessarily names input.type(),
+  // and a check that matched its own rationale would fail on the fixed code.
+  const src = readFileSync(new URL('./chat.ts', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '');
+  const sendBody = src.slice(src.indexOf('export async function chatSend'));
+
+  it('inserts the text in one event instead of typing it', () => {
+    expect(sendBody).toMatch(/keyboard\.insertText\(text\)/);
+  });
+
+  it('and does not type it character by character', () => {
+    // input.type() is what opened the mention autocomplete on '@'.
+    expect(sendBody).not.toMatch(/input\.type\(/);
+  });
+
+  it('dismisses any suggestion UI before pressing Enter', () => {
+    // Enter with a suggestion open picks the suggestion; it does not send.
+    const esc = sendBody.indexOf("keyboard.press('Escape')");
+    const enter = sendBody.indexOf("keyboard.press('Enter')");
+    expect(esc).toBeGreaterThan(-1);
+    expect(enter).toBeGreaterThan(esc);
   });
 });

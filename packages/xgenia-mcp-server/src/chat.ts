@@ -699,7 +699,21 @@ export async function chatSend(
   const input = frame.locator(SELECTORS.chatInput);
   await input.click();
   await input.fill('');
-  await input.type(text, { delay: 5 });
+
+  // INSERT, DO NOT TYPE.
+  //
+  // (2026-09-06) `input.type()` sends a real keydown per character, and the panel's mention
+  // autocomplete opens on `@`. A prompt naming a node — "@StateCommit's seed condition" — had
+  // everything after the `@` swallowed into a `@Components/NeonReels` mention chip, and the Enter
+  // that should have sent the message was consumed picking that suggestion instead. Nothing was
+  // sent, and the harness could only report that it was not sure. Node names are how XGENIA
+  // prompts refer to anything, so this is most prompts, not an edge case.
+  //
+  // insertText delivers the whole string as one input event, so no per-character keydown reaches
+  // the autocomplete. The Escape afterwards is belt and braces for any suggestion UI that opened
+  // on the insert itself; it is a no-op when nothing is open.
+  await page.keyboard.insertText(text);
+  await page.keyboard.press('Escape');
   await page.keyboard.press('Enter');
 
   const confirmation = await confirmSent(frame, text);
