@@ -54,6 +54,12 @@ export function AssetContextMenu({
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        // Mark the key as handled: this menu isn't focused (a right-click doesn't move
+        // focus into it), so LeftPanelCard's own Escape-goes-home listener — which sits on
+        // the window, after this document-level one in the bubble order — has no reliable
+        // way to tell "the target was inside a menu" from DOM containment alone. Consuming
+        // it here is what stops closing this menu from also collapsing the panel.
+        event.preventDefault();
         onClose();
       }
     };

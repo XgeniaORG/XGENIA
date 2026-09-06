@@ -199,6 +199,19 @@ export function PanelCard({ panelId, isHidden }: CardProps) {
   );
 }
 
+/** True for an editable element (a text field, or anything with contenteditable) and for
+ *  anything inside a menu/popover — a `[data-glass-popover]` (GlassPopover, e.g. the
+ *  project menu) or a `role="menu"`/`role="dialog"`/`role="listbox"` container. Escape
+ *  reaching the card while either is true means some inner control wants the key for
+ *  itself; the card's own go-home behaviour must stay out of the way. */
+function wantsOwnEscape(target: Element | null): boolean {
+  if (!target) return false;
+  const tag = target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if ((target as HTMLElement).isContentEditable) return true;
+  return !!target.closest('[data-glass-popover], [role="menu"], [role="dialog"], [role="listbox"]');
+}
+
 export function LeftPanelCard() {
   const sidebar = useModernModel(SidebarModel.instance, [SidebarModelEvent.layoutChanged]);
   const layout = sidebar.Layout;
@@ -207,18 +220,27 @@ export function LeftPanelCard() {
   // no extra wrapper element is needed around the card itself), and only when the card
   // isn't already showing home — the canvas uses Escape too, and this must not swallow it
   // once there is nowhere further home to go.
+  //
+  // This listens on the window's BUBBLE phase, not the capture phase, and never calls
+  // `stopPropagation`. A capture-phase listener runs before the event even reaches its
+  // target, so calling `stopPropagation` there — as this used to — killed the event before
+  // any input, menu or panel-local Escape handler ever saw it (an in-progress asset rename
+  // would never see its own cancel, and `onBlur={commitRename}` would then commit it
+  // instead). Listening on the bubble phase means every inner handler runs first; this is
+  // the last stop, and only acts when nothing closer to the key wanted it.
   useEffect(() => {
     if (!layout.open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      if (e.defaultPrevented) return;
       const t = e.target as Element | null;
+      if (wantsOwnEscape(t)) return;
       if (!t?.closest('[data-test="left-card"]')) return;
       if (layout.activeId === layout.homeId) return;
-      e.stopPropagation();
       SidebarModel.instance.goHome();
     };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, [layout.open, layout.activeId, layout.homeId]);
 
   // Closing the card hides it; it is never unmounted. PanelHost's whole contract is that
