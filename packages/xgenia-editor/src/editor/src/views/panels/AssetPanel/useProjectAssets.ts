@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { ProjectModel } from '../../../models/projectmodel';
 import { Asset } from './types';
 import { shapeAssetPaths } from './asset-classification';
+import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
 
 /**
  * Loads the assets for the current folder.
@@ -125,8 +126,24 @@ export function useProjectAssets(currentPath: string) {
     loadAssets();
   }, [loadAssets]);
 
-  // NOTE: there is no project file-change event to subscribe to (fileAdded/
-  // fileRemoved/fileRenamed are emitted by nothing), so callers invoke refetch()
-  // directly after any filesystem mutation.
+  // The bridge emits 'project-assets-changed' after every AI-driven write
+  // (fs.writeFile/writeJson/writeFileBinary, assetMeta.set) — see EditorBridge.ts.
+  // Debounced: an AI turn can write many files in a burst, and one refetch per
+  // file would thrash a panel that lists the whole project. Manual refetch()
+  // remains for the panel's own mutations (rename/move/delete from the UI).
+  useEffect(() => {
+    const group = {};
+    let t: ReturnType<typeof setTimeout> | null = null;
+    EventDispatcher.instance.on(
+      'project-assets-changed',
+      () => {
+        if (t) clearTimeout(t);
+        t = setTimeout(() => { t = null; loadAssets(); }, 300);
+      },
+      group
+    );
+    return () => { EventDispatcher.instance.off(group); if (t) clearTimeout(t); };
+  }, [loadAssets]);
+
   return { assets, isLoading, error, refetch: loadAssets };
 }

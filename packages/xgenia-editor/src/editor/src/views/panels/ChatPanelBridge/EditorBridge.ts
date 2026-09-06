@@ -2733,6 +2733,7 @@ export class EditorBridge {
                 fs.mkdirSync(dir, { recursive: true });
             }
             fs.writeFileSync(fullPath, content, encoding || 'utf-8');
+            EventDispatcher.instance.emit('project-assets-changed', { path: filePath });
             return true;
         });
 
@@ -2828,6 +2829,7 @@ export class EditorBridge {
                 fs.mkdirSync(dir, { recursive: true });
             }
             fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+            EventDispatcher.instance.emit('project-assets-changed', { path: filePath });
             return true;
         });
 
@@ -2849,6 +2851,7 @@ export class EditorBridge {
             }
             const buffer = Buffer.from(base64Data, 'base64');
             fs.writeFileSync(filePath, buffer);
+            EventDispatcher.instance.emit('project-assets-changed', { path: filePath });
             return true;
         });
 
@@ -2859,6 +2862,7 @@ export class EditorBridge {
             if (!assetPath || !entry) return false;
             try {
                 if (entry.ai) await recordAssetProvenance(assetPath, entry.ai);
+                EventDispatcher.instance.emit('project-assets-changed', { path: assetPath });
                 return true;
             } catch (e) {
                 console.warn('[EditorBridge] assetMeta.set failed:', e);
