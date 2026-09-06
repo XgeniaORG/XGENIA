@@ -9,6 +9,7 @@ import { IconButton, IconButtonVariant } from '@xgenia-core-ui/components/inputs
 import { DialogRenderDirection } from '@xgenia-core-ui/components/layout/BaseDialog';
 import { Tooltip } from '@xgenia-core-ui/components/popups/Tooltip';
 
+import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import { TopbarPinned } from '../SidePanel/SidebarIcons';
 import { PanelHost } from './PanelHost';
 import {
@@ -162,8 +163,56 @@ export function PanelCard({ panelId, mode, onClose, onPin }: CardProps) {
 export function LeftPanelCard() {
   const sidebar = useModernModel(SidebarModel.instance, [SidebarModelEvent.layoutChanged]);
   const layout = sidebar.Layout;
+  const peekRef = useRef<HTMLDivElement>(null);
+  const [originY, setOriginY] = useState(60);
+
+  useEffect(() => {
+    const group = {};
+    EventDispatcher.instance.on('rail-origin-y', (y: number) => setOriginY(y), group);
+    return () => EventDispatcher.instance.off(group);
+  }, []);
+
+  // Esc and click-away close a peek. The rail is excluded so a second rail click reaches
+  // the reducer (which treats "click the peeked id" as close, and "click another" as switch).
+  useEffect(() => {
+    if (!layout.peekId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.stopPropagation(); SidebarModel.instance.dispatch({ type: 'esc' }); }
+    };
+    const onPointer = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      if (!t) return;
+      if (peekRef.current?.contains(t)) return;
+      if (t.closest('[data-test="rail"]')) return;
+      if (t.closest('[role="dialog"], [data-glass-popover]')) return; // popovers spawned from the peek
+      SidebarModel.instance.dispatch({ type: 'esc' });
+    };
+    window.addEventListener('keydown', onKey, true);
+    document.addEventListener('pointerdown', onPointer, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('pointerdown', onPointer, true);
+    };
+  }, [layout.peekId]);
+
   if (!layout.open) return null;
+
   return (
-    <PanelCard panelId={layout.dockedId} mode="docked" onClose={() => SidebarModel.instance.dispatch({ type: 'close' })} />
+    <>
+      <div className={classNames(css.Docked, layout.peekId && css['is-under'])}>
+        <PanelCard panelId={layout.dockedId} mode="docked" onClose={() => SidebarModel.instance.dispatch({ type: 'close' })} />
+      </div>
+      {layout.peekId && (
+        <div ref={peekRef} className={css.PeekLayer} style={{ ['--origin-y' as any]: `${originY}px` }}>
+          <PanelCard
+            key={layout.peekId}
+            panelId={layout.peekId}
+            mode="peek"
+            onClose={() => SidebarModel.instance.dispatch({ type: 'esc' })}
+            onPin={() => SidebarModel.instance.pin()}
+          />
+        </div>
+      )}
+    </>
   );
 }

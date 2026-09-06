@@ -88,7 +88,7 @@ export function GlassPopover({
       background={DialogBackground.Transparent}
       UNSAFE_className={css.Host}
     >
-      <div ref={panelRef} className={classNames(css.Glass, UNSAFE_className)} style={{ width }}>
+      <div ref={panelRef} className={classNames(css.Glass, UNSAFE_className)} style={{ width }} data-glass-popover="">
         {children}
       </div>
     </BaseDialog>

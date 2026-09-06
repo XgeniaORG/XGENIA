@@ -20,7 +20,7 @@ export interface RailButtonProps {
   tooltipSuffix?: string;
   showAfterMs: number;
   onTooltipClosed?: () => void;
-  onClick: () => void;
+  onClick: (e?: React.MouseEvent<HTMLElement>) => void;
   onPointerDownCapture?: (e: React.PointerEvent<HTMLDivElement>) => void;
   isDropTarget?: boolean;
   isDropDimmed?: boolean;

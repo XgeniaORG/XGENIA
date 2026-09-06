@@ -4,6 +4,7 @@ import { useModernModel } from '@xgenia-hooks/useModel';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
 
+import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import { IdentityChip } from './IdentityChip';
 import { RailButton } from './RailButton';
 import { activePanelId } from './railLayout';
@@ -57,7 +58,10 @@ export function Rail() {
             isDisabled={item.isDisabled}
             showAfterMs={tips.showAfterMs}
             onTooltipClosed={tips.noteClosed}
-            onClick={() => {
+            onClick={(e) => {
+              const r = (e?.currentTarget as HTMLElement | undefined)?.getBoundingClientRect?.();
+              const root = rootRef.current?.getBoundingClientRect();
+              if (r && root) EventDispatcher.instance.emit('rail-origin-y', r.top - root.top + r.height / 2);
               SidebarModel.instance.dispatch({ type: 'click', id: item.id });
               item.onClick?.();
             }}
@@ -77,7 +81,10 @@ export function Rail() {
             isDisabled={item.isDisabled}
             showAfterMs={tips.showAfterMs}
             onTooltipClosed={tips.noteClosed}
-            onClick={() => {
+            onClick={(e) => {
+              const r = (e?.currentTarget as HTMLElement | undefined)?.getBoundingClientRect?.();
+              const root = rootRef.current?.getBoundingClientRect();
+              if (r && root) EventDispatcher.instance.emit('rail-origin-y', r.top - root.top + r.height / 2);
               SidebarModel.instance.dispatch({ type: 'click', id: item.id });
               item.onClick?.();
             }}

@@ -36,6 +36,24 @@ export function PanelHost({ visibleId, keepMounted }: Props) {
     visibleIdRef.current = visibleId;
   }, [visibleId]);
 
+  // Direction the newly-visible panel enters from, based on its position in the rail
+  // relative to the panel it replaced. `prevVisibleIdRef` starts null so the host's own
+  // first mount (including a peek card's fresh PanelHost instance under its `key`-forced
+  // remount) never plays this — only a docked-card switch between two already-known ids
+  // does. Cleared on `animationend` so a later hidden<->visible toggle with no CSS
+  // transition doesn't replay a stale direction.
+  const prevVisibleIdRef = useRef<string | null>(null);
+  const [enter, setEnter] = useState<{ id: string; dir: 'down' | 'up' } | null>(null);
+  useEffect(() => {
+    const prev = prevVisibleIdRef.current;
+    prevVisibleIdRef.current = visibleId;
+    if (!visibleId || !prev || prev === visibleId) return;
+    const order = SidebarModel.instance.getVisibleItems();
+    const prevIndex = order.findIndex((x) => x.id === prev);
+    const nextIndex = order.findIndex((x) => x.id === visibleId);
+    setEnter({ id: visibleId, dir: nextIndex > prevIndex ? 'down' : 'up' });
+  }, [visibleId]);
+
   useEffect(() => {
     if (!visibleId) return;
     setPanels((prev) => {
@@ -72,7 +90,14 @@ export function PanelHost({ visibleId, keepMounted }: Props) {
         const item = SidebarModel.instance.getPanel(id);
         if (!isActive && (!keepMounted || item?.unmountWhenHidden)) return null;
         return (
-          <div key={id} data-panel-id={id} className={css.PanelItem} style={{ display: isActive ? 'block' : 'none' }}>
+          <div
+            key={id}
+            data-panel-id={id}
+            className={css.PanelItem}
+            style={{ display: isActive ? 'block' : 'none' }}
+            data-enter={enter && enter.id === id ? enter.dir : undefined}
+            onAnimationEnd={() => setEnter((cur) => (cur && cur.id === id ? null : cur))}
+          >
             <ErrorBoundary
               showTryAgain
               onTryAgain={() =>
