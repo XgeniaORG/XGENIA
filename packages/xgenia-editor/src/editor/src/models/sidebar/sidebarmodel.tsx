@@ -7,12 +7,21 @@ import { Model } from '@xgenia-utils/model';
 
 import { IconName } from '@xgenia-core-ui/components/common/Icon';
 
+import { activePanelId, reduceRailLayout, RailAction, RailLayout } from '../../views/Rail/railLayout';
+
 export interface SidebarItem<TProps = Record<string, unknown>> {
   id: string;
   name: string;
   description?: string;
   fineType?: string;
-  icon?: IconName;
+  /** An IconName or one of the `Side*` wrappers from views/SidePanel/SidebarIcons. */
+  icon?: IconName | React.ElementType;
+  /** Rendered in the panel card's header, right of the title (e.g. Components' Add node). */
+  headerAction?: React.ComponentType;
+  /** The panel draws its own header (an iframe); the card shows pin/close only. */
+  chromeless?: boolean;
+  /** Card width before the user drags it. Default 380. */
+  defaultWidth?: number;
   order?: number;
 
   /**
@@ -100,7 +109,9 @@ export enum SidebarModelEvent {
   receivedCommand = 'receivedCommand',
   HotReload = 'HotReload',
   /** Occurs when the right-side panel changes (independent of left sidebar). */
-  rightPanelChanged = 'rightPanelChanged'
+  rightPanelChanged = 'rightPanelChanged',
+  /** Occurs when the docked/peek/open layout of the left card changes. */
+  layoutChanged = 'layoutChanged'
 }
 
 export type SidebarModelEventEvents = {
@@ -110,6 +121,7 @@ export type SidebarModelEventEvents = {
   [SidebarModelEvent.receivedCommand]: (panelId: string, command: string, args: unknown[] | any) => void;
   [SidebarModelEvent.HotReload]: () => void;
   [SidebarModelEvent.rightPanelChanged]: (panelId: string | null, component: (() => React.ReactElement) | null) => void;
+  [SidebarModelEvent.layoutChanged]: (layout: RailLayout) => void;
 };
 
 /**
@@ -152,6 +164,106 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
   private rightPanelComponent: (() => React.ReactElement) | null = null;
 
   private groupRef = {};
+
+  private static readonly SETTINGS_DOCKED = 'rail.docked';
+  private static readonly SETTINGS_OPEN = 'rail.open';
+  private static readonly SETTINGS_ORDER = 'rail.order';
+
+  private layout: RailLayout = { dockedId: 'components', peekId: null, open: true };
+
+  public get Layout(): RailLayout {
+    return { ...this.layout };
+  }
+
+  /** Which panel id should be docked when nothing is stored. */
+  private defaultDockedId(): string {
+    if (this.items.some((x) => x.id === 'chat-panel')) return 'chat-panel';
+    const first = this.getVisibleItems()[0];
+    return first ? first.id : 'components';
+  }
+
+  /** Read the stored layout. Call once the panels for this project are registered. */
+  public restoreLayout(): void {
+    const storedDocked = EditorSettings.instance.get(SidebarModel.SETTINGS_DOCKED);
+    const storedOpen = EditorSettings.instance.get(SidebarModel.SETTINGS_OPEN);
+    const dockedId =
+      typeof storedDocked === 'string' && this.items.some((x) => x.id === storedDocked && !x.transient)
+        ? storedDocked
+        : this.defaultDockedId();
+    this.dispatch({ type: 'dock', id: dockedId });
+    if (storedOpen === false) this.dispatch({ type: 'toggle' });
+  }
+
+  public getUserOrder(): string[] {
+    const v = EditorSettings.instance.get(SidebarModel.SETTINGS_ORDER);
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+  }
+
+  public setUserOrder(ids: string[]): void {
+    EditorSettings.instance.set(SidebarModel.SETTINGS_ORDER, ids);
+    this.notifyListeners(SidebarModelEvent.itemsChanged);
+  }
+
+  /** Make sure a panel component exists for `id`; transient panels are recreated. */
+  private ensurePanel(id: string): void {
+    const item = this.items.find((x) => x.id === id);
+    if (!item) throw new Error(`Panel not found. (${id})`);
+    if (item.transient || !this.panels[id]) {
+      this.panels[id] = createPanel(id, {});
+    }
+  }
+
+  public dispatch(action: RailAction): void {
+    const before = this.layout;
+    let next: RailLayout;
+    try {
+      next = reduceRailLayout(before, action);
+      this.ensurePanel(next.dockedId);
+      if (next.peekId) this.ensurePanel(next.peekId);
+    } catch (error) {
+      // A missing panel (user code, hot reload) must not wedge the rail.
+      console.error(error);
+      return;
+    }
+    if (next === before) return;
+
+    const prevActive = activePanelId(before);
+    const nextActive = activePanelId(next);
+    if (prevActive !== nextActive) {
+      const lastActiveTab = this.items.find((x) => x.id === prevActive);
+      lastActiveTab?.onClose?.();
+    }
+
+    this.previousActiveId = this.activeId;
+    this.activeId = nextActive;
+    this.layout = next;
+
+    if (next.dockedId !== before.dockedId) EditorSettings.instance.set(SidebarModel.SETTINGS_DOCKED, next.dockedId);
+    if (next.open !== before.open) EditorSettings.instance.set(SidebarModel.SETTINGS_OPEN, next.open);
+
+    this.notifyListeners(SidebarModelEvent.layoutChanged, this.Layout);
+    if (prevActive !== nextActive) {
+      this.notifyListeners(SidebarModelEvent.activeChanged, this.activeId, this.previousActiveId);
+      const newActiveTab = this.items.find((x) => x.id === nextActive);
+      newActiveTab?.onOpen?.();
+    }
+  }
+
+  public peek(id: string): void {
+    this.dispatch({ type: 'peek', id });
+  }
+
+  public pin(): void {
+    this.dispatch({ type: 'pin' });
+  }
+
+  public closePeek(): void {
+    this.dispatch({ type: 'esc' });
+  }
+
+  public toggleCard(): void {
+    this.dispatch({ type: 'toggle' });
+  }
 
   public get ActiveId(): string {
     return this.activeId;
@@ -217,6 +329,7 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
     this.panels = {};
     this.rightPanelId = null;
     this.rightPanelComponent = null;
+    this.layout = { dockedId: 'components', peekId: null, open: true };
   }
 
   // TODO: Rename to getActive()
@@ -287,50 +400,14 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
    * @returns
    */
   public switch(id: string): boolean {
-    if (this.activeId === id) {
-      return true;
-    }
-
-    // Debug info
-    // let logText = `switch side panel to: '${id}'`;
-    // if (this.activeId) logText += ` (from: ${this.activeId})`;
-    // console.log(this.panels[id]);
-    try {
-      if (this.panels[id]) {
-        const lastActiveTab = this.items.find((x) => x.id === this.activeId);
-        if (lastActiveTab) {
-          lastActiveTab.onClose && lastActiveTab.onClose();
-        }
-
-        this.activeId = id;
-        this.notifyListeners(SidebarModelEvent.activeChanged, this.activeId, this.previousActiveId);
-
-        const newActiveTab = this.items.find((x) => x.id === this.activeId);
-        if (newActiveTab) {
-          newActiveTab.onOpen && newActiveTab.onOpen();
-        }
-
-        return true;
-      }
-
-      // Create the panel
-      this.setActivePanel(id, false, createPanel(id, {}));
-      return true;
-    } catch (error: any) {
-      // This is most likely caused by missing panel or some error creating
-      // the panel. Lets try to select the first visible item, so the user
-      // will have some panel.
-      const visibleItems = this.getVisibleItems().filter((item) => item.panel);
-      if (visibleItems.length > 0 && visibleItems[0].id === id) {
-        this.switch(visibleItems[0].id);
-        return;
-      }
-
-      // In case it fails we still continue since this can be
-      // user created code too.
-      console.error(error);
+    // Existing callers (⌘F, component.switchTo, onOpen hooks) get the rail's click
+    // semantics: docked → toggle, otherwise → peek.
+    if (!this.items.some((x) => x.id === id)) {
+      console.error(`Panel not found. (${id})`);
       return false;
     }
+    this.dispatch({ type: 'click', id });
+    return true;
   }
 
   public switchToNode(nodeModel: NodeGraphNode) {
@@ -380,29 +457,5 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
     this.rightPanelId = null;
     this.rightPanelComponent = null;
     this.notifyListeners(SidebarModelEvent.rightPanelChanged, null, null);
-  }
-
-  private setActivePanel(id: string, force: boolean, component: () => React.ReactElement): void {
-    const lastActiveTab = this.items.find((x) => x.id === this.activeId);
-    if (lastActiveTab) {
-      lastActiveTab.onClose && lastActiveTab.onClose();
-    }
-
-    this.activeId = id;
-
-    if (force || !this.panels[id]) {
-      if (this.panels[id]) {
-        delete this.panels[id];
-      }
-
-      this.panels[id] = component;
-    }
-
-    this.notifyListeners(SidebarModelEvent.activeChanged, this.activeId, this.previousActiveId);
-
-    const newActiveTab = this.items.find((x) => x.id === this.activeId);
-    if (newActiveTab) {
-      newActiveTab.onOpen && newActiveTab.onOpen();
-    }
   }
 }
