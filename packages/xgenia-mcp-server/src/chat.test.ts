@@ -478,3 +478,40 @@ describe('ensureChatPanelOpen', () => {
     expect(second.clicks).toEqual([[10, 609]]);
   });
 });
+
+describe('markdown the panel consumes does not fail a real send', () => {
+  // (2026-09-06) Sending "/#__maths__/NeonMaths" reported the send UNCONFIRMED. The input had
+  // cleared and the message was plainly in the transcript — but the panel renders __maths__ as
+  // BOLD, so the rendered text is "/#maths/NeonMaths" and the underscores being searched for do
+  // not exist anywhere on screen. A real success reported as a possible failure.
+  it('confirms a prompt whose underscores were eaten by bold rendering', () => {
+    const sent = 'Run verify_logic_correctness on /#__maths__/NeonMaths and report the findings.';
+    const rendered = 'Run verify_logic_correctness on /#maths/NeonMaths and report the findings.';
+    expect(transcriptContainsPrompt(rendered, sent)).toBe(true);
+  });
+
+  it('confirms across asterisk emphasis too', () => {
+    expect(transcriptContainsPrompt(
+      'Build a neon slot with staggered stops and paylines evaluated after the reels stop',
+      'Build a **neon** slot with *staggered* stops and paylines evaluated after the reels stop',
+    )).toBe(true);
+  });
+
+  it('confirms across inline code fences', () => {
+    expect(transcriptContainsPrompt(
+      'Set payoutFormula to 2.8 * (2.25 + 0.75 * x) on the Paytable node please',
+      'Set `payoutFormula` to 2.8 * (2.25 + 0.75 * x) on the Paytable node please',
+    )).toBe(true);
+  });
+
+  it('still refuses a prompt that genuinely is not there', () => {
+    expect(transcriptContainsPrompt(
+      'some entirely different conversation about pirates and treasure maps',
+      'Run verify_logic_correctness on /#__maths__/NeonMaths and report the findings.',
+    )).toBe(false);
+  });
+
+  it('still refuses an empty prompt, which has nothing distinctive to find', () => {
+    expect(transcriptContainsPrompt('anything at all', '   ')).toBe(false);
+  });
+});

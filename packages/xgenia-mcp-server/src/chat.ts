@@ -133,6 +133,32 @@ export function normaliseWhitespace(s: string): string {
 }
 
 /**
+ * Strip the markdown punctuation the panel CONSUMES when it renders.
+ *
+ * (2026-09-06) Sending `/#__maths__/NeonMaths` reported the send unconfirmed — the input had
+ * cleared and the message was plainly in the transcript, but `promptFoundInTranscript` was false.
+ * The panel renders `__maths__` as BOLD, so the rendered text reads `/#maths/NeonMaths` and the
+ * underscores the comparison was looking for no longer exist anywhere on screen. The send was
+ * fine; the check was wrong, and it reported a real success as a possible failure.
+ *
+ * So the emphasis characters are removed from BOTH sides before comparing: what was typed and
+ * what was rendered. This costs a little precision — two prompts differing only in emphasis
+ * punctuation now compare equal — which is the right trade for a confirmation whose job is to
+ * avoid claiming a send that did not happen, not to fingerprint the prompt.
+ */
+export function stripMarkdownEmphasis(s: string): string {
+  return s
+    .replace(/[*_]{1,3}/g, '')   // bold / italic / bold-italic, in either character
+    .replace(/`+/g, '')          // inline code and fences
+    .replace(/~~/g, '');         // strikethrough
+}
+
+/** Both normalisations, in the order the comparison uses them. */
+function comparable(s: string): string {
+  return stripMarkdownEmphasis(normaliseWhitespace(s));
+}
+
+/**
  * How much of the sent text must match, whitespace-normalised, in the
  * rendered transcript to count as confirmed. Long enough that a coincidental
  * substring match is unlikely, short enough to survive the panel truncating a
@@ -143,7 +169,7 @@ export const CONFIRM_SLICE_LEN = 60;
 
 /** The leading, whitespace-normalised slice of `text` that `transcriptContainsPrompt` looks for. */
 export function promptSlice(text: string, maxLen: number = CONFIRM_SLICE_LEN): string {
-  return normaliseWhitespace(text).slice(0, maxLen);
+  return comparable(text).slice(0, maxLen);
 }
 
 /**
@@ -160,7 +186,7 @@ export function promptSlice(text: string, maxLen: number = CONFIRM_SLICE_LEN): s
 export function transcriptContainsPrompt(transcriptText: string, sentText: string): boolean {
   const slice = promptSlice(sentText);
   if (!slice) return false;
-  return normaliseWhitespace(transcriptText).includes(slice);
+  return comparable(transcriptText).includes(slice);
 }
 
 export interface SendConfirmation {
