@@ -22,6 +22,7 @@ import type { ProjectItem } from '@xgenia-utils/LocalProjectsModel';
 
 import type { TemplateItem } from '../../utils/forge/template/template';
 import type { LobbyItem } from '../../models/lobby/lobbyGrouping';
+import { templateTagline } from '../../models/lobby/templateTagline';
 import { resolveThumbSrc } from '../../utils/thumbnails/thumbnail-store';
 import { monogramFor, monogramHue } from '../../utils/thumbnails/thumbnail-weak';
 import { Icon } from './LobbyIcons';
@@ -59,22 +60,6 @@ const EXAMPLES = [
   'Wheel of fortune with 12 segments',
   'Keno, 40 numbers, pick 10'
 ];
-
-/**
- * A one-line description of a template.
- *
- * The feed's `desc` is a paragraph written for a marketing card ("Begin your project with a
- * crash game template that offers clear structure and easy customization for efficient
- * development"), which is far too long for a tile. The first clause carries the useful half.
- * A `tagline` field on the feed would be better and is a follow-up; this reads whichever exists.
- */
-function templateTagline(t: TemplateItem): string {
-  const tagline = (t as any).tagline;
-  if (typeof tagline === 'string' && tagline.trim()) return tagline.trim();
-
-  const first = (t.desc || '').split(/[.;]/)[0].trim();
-  return first.length > 52 ? `${first.slice(0, 51).trimEnd()}…` : first;
-}
 
 /** A folder name that will not upset a filesystem, derived from the game's name. */
 function defaultNameFor(description: string): string {

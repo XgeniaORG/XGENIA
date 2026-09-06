@@ -9,11 +9,15 @@
 }
 
 .Section {
-  // Sections below the fold cost nothing to have in the DOM until they are scrolled to. At 319
-  // games this is the difference between a grid that paints and one that stutters.
-  content-visibility: auto;
-  // Without a size hint the scrollbar jumps as sections resolve. Roughly one row of cards.
-  contain-intrinsic-size: auto 320px;
+  // ─── no content-visibility here (2026-09-06) ─────────────────────────────
+  // `content-visibility: auto` with a `contain-intrinsic-size` hint is the obvious way to keep
+  // 319 cards cheap, and it was wrong: the hint is a FLOOR as well as a placeholder, so a
+  // section holding two cards still reserved a full row's height and the grid rendered with a
+  // band of dead space above every header. Measured on the real profile, the grid paints fine
+  // without it — the cards are lazy-loaded images and only the first twelve animate — so the
+  // correct trade here is to drop the optimisation rather than to tune a number that is
+  // guaranteed to be wrong for some section.
+  display: flow-root;
 }
 
 .Header {

@@ -11,8 +11,14 @@
  * reads their names from `.projects-item-label span`. Those are the OLD template's class names,
  * and `xgenia_open_project`, `xgenia_close_project` and the authentication probe in
  * `editor-state.ts` all depend on them. CSS Modules hash their class names at build time, so the
- * two globals below are carried deliberately, as contract, alongside the module classes. Do not
- * remove them without updating that selector file in the same commit.
+ * two globals below are carried deliberately, as contract, alongside the module classes.
+ *
+ * Two rules follow, and breaking either one breaks the harness silently:
+ *   1. Keep `projects-item` on the root and `projects-item-label` on the footer.
+ *   2. The game's NAME is the ONLY `<span>` inside the footer. `project.ts` matches a card by
+ *      `has: locator('.projects-item-label span', { hasText: name })`, so a tagline in a span
+ *      would let one game's description claim another game's card. Everything else in the
+ *      footer is a div.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -245,17 +251,18 @@ export function GameCard({
             <span className={css.Name} data-test="project-card-label" title={item.name}>
               {item.name}
             </span>
-            <span className={css.Tagline}>{item.meta.tagline || 'No description yet'}</span>
+            {/* Not a <span>: see the harness contract in this file's header. */}
+            <div className={css.Tagline}>{item.meta.tagline || 'No description yet'}</div>
           </div>
         )}
 
         <div className={css.Stats}>
-          <span className={css.Age}>{shortAge(item.latestAccessed)}</span>
+          <div className={css.Age}>{shortAge(item.latestAccessed)}</div>
           {!!item.meta.messageCount && (
-            <span className={css.Messages} title={`${item.meta.messageCount} messages`}>
+            <div className={css.Messages} title={`${item.meta.messageCount} messages`}>
               <Icon name="chat" />
               {item.meta.messageCount}
-            </span>
+            </div>
           )}
         </div>
       </div>

@@ -5,6 +5,7 @@ import {
   timeBucketOf,
   matchesQuery,
   looksLikeCreateIntent,
+  rankMatches,
   type LobbyEntry,
   type LobbyItem
 } from '../../src/editor/src/models/lobby/lobbyGrouping';
@@ -123,4 +124,27 @@ test('create intent needs a sentence, not a keystroke', () => {
   assert.ok(!looksLikeCreateIntent('neon miami'));
   assert.ok(looksLikeCreateIntent('a neon miami slot'));
   assert.ok(!looksLikeCreateIntent('   '));
+});
+
+test('search falls back to partial matches rather than claiming there are none', () => {
+  const items = [
+    { ...item('AmazingSlot', 'Amazing slot game about a monopoly style board'), latestAccessed: NOW },
+    { ...item('MaltaSlots', 'Wde are producding slot fgor the UK Market'), latestAccessed: NOW - 1000 },
+    { ...item('Amazing thing.', 'Blackjack table, single deck'), latestAccessed: NOW - 2000 }
+  ];
+
+  // Every term present: only the exact match comes back.
+  assert.deepEqual(rankMatches(items, 'slot game').map((i) => i.name), ['AmazingSlot']);
+
+  // "with" appears in nothing, so an AND would answer "no matches" while two of these clearly
+  // are slot games. The fallback ranks by how many terms hit.
+  assert.deepEqual(rankMatches(items, 'slot game with').map((i) => i.name), ['AmazingSlot', 'MaltaSlots']);
+
+  // A query that matches nothing at all still matches nothing.
+  assert.deepEqual(rankMatches(items, 'zzzz').map((i) => i.name), []);
+});
+
+test('an empty query returns the list unchanged, capped', () => {
+  const items = [item('One'), item('Two'), item('Three')];
+  assert.equal(rankMatches(items, '  ', 2).length, 2);
 });

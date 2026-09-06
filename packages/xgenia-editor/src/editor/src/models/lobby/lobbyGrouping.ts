@@ -205,3 +205,34 @@ export function looksLikeCreateIntent(query: string): boolean {
   const words = query.trim().split(/\s+/).filter(Boolean);
   return words.length >= 3;
 }
+
+/**
+ * Search results, best first.
+ *
+ * `matchesQuery` is an AND: every term has to appear. That is the right rule for a filter and
+ * the wrong one for a search box, because the omnibox doubles as the place you type a sentence.
+ * Typing "slot game with" answered "No game matches" while fifty taglines on the screen behind
+ * it read "Amazing slot game about…" — the query was three words and one of them was "with".
+ *
+ * So: exact matches first, and when there are none, everything that matches at least one term,
+ * ranked by how many it matched and then by recency. A search box should never claim there is
+ * nothing when there is something.
+ */
+export function rankMatches(items: LobbyItem[], query: string, limit = 6): LobbyItem[] {
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return items.slice(0, limit);
+
+  const all = items.filter((i) => matchesQuery(i, query));
+  if (all.length) return all.slice(0, limit);
+
+  const scored = items
+    .map((item) => {
+      const hay = haystack(item);
+      return { item, score: terms.reduce((n, t) => n + (hay.includes(t) ? 1 : 0), 0) };
+    })
+    .filter((s) => s.score > 0);
+
+  scored.sort((a, b) => b.score - a.score || b.item.latestAccessed - a.item.latestAccessed);
+
+  return scored.slice(0, limit).map((s) => s.item);
+}

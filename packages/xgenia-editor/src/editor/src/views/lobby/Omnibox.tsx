@@ -15,7 +15,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ProjectItem } from '@xgenia-utils/LocalProjectsModel';
 
-import { looksLikeCreateIntent, matchesQuery, type LobbyItem } from '../../models/lobby/lobbyGrouping';
+import { looksLikeCreateIntent, rankMatches, type LobbyItem } from '../../models/lobby/lobbyGrouping';
 import { resolveThumbSrc } from '../../utils/thumbnails/thumbnail-store';
 import { timeSince } from '../../utils/utils';
 import { Icon } from './LobbyIcons';
@@ -60,10 +60,9 @@ export function Omnibox({ items, entriesById, onClose, onOpen, onCreate, onOpenF
 
   const terms = useMemo(() => query.trim().toLowerCase().split(/\s+/).filter(Boolean), [query]);
 
-  const results = useMemo(() => {
-    if (!query.trim()) return items.slice(0, MAX_RESULTS);
-    return items.filter((i) => matchesQuery(i, query)).slice(0, MAX_RESULTS);
-  }, [items, query]);
+  // Ranked, not filtered: a query whose every term must match answered "No game matches" for
+  // "slot game with" while fifty taglines on the screen behind it said "Amazing slot game about".
+  const results = useMemo(() => rankMatches(items, query, MAX_RESULTS), [items, query]);
 
   const showCreate = looksLikeCreateIntent(query);
 
