@@ -95,11 +95,24 @@ needs enabling.
   dev or packaged build. Both tools also now guarantee they never throw
   themselves — they always return the result or `{error, tried, hint}`,
   independent of the `guard()` safety net in `index.ts`.
-- Screenshots return a **measured** `scale`. It is neither 1 nor a fixed 2 —
-  live measurements have shown ~1.25, from an Electron zoom factor of 0.8 on a
-  2x-density display — and it moves whenever the user changes zoom. Convert
-  any coordinate you read off the image through the `scale` in that same
-  response before using it.
+- **Screenshots come back padded, and `imageSize` is not the page.** The editor
+  runs at an Electron zoom factor (0.8 in the observed case), which makes
+  `devicePixelRatio` 1.6 while the capture surface is still allocated at the
+  display's backing scale of 2. Playwright divides the whole 3420px surface by
+  1.6 and returns 2138px — of which the page occupies the first 1710, one image
+  pixel per CSS pixel, and the last 20% is blank. Measured across four capture
+  paths, that margin is always `1 - zoomFactor`.
+
+  `scale` used to be `imageSize.width / cssSize.width`, which measured the blank
+  margin and called it zoom: it reported **1.2503 when the true value was 1.0**,
+  so every coordinate a caller converted through it — as this README told them
+  to — landed 25% too far right and down. `scale` is now the ratio the page is
+  actually drawn at, `contentSize` is the part of the buffer the editor occupies
+  (anchored top-left), and a `note` says which case you got. Convert coordinates
+  through `scale`, and treat anything beyond `contentSize` as empty space rather
+  than as editor UI with nothing in it. If the editor is zoomed *in* past what
+  the surface holds, the page is cut off instead of padded — the `note` says so,
+  and the right/bottom of the page is genuinely missing from the image.
 - **`ELECTRON_RUN_AS_NODE` troubleshooting.** If your MCP client runs inside an
   Electron-based IDE (VS Code, Cursor, Antigravity, and similar), its terminal
   environment can export `ELECTRON_RUN_AS_NODE=1` for the IDE's own embedded
