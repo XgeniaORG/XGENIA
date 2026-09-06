@@ -160,6 +160,14 @@
 /* ------------------------------------------------------------------- body */
 
 .Body {
+  /* ScrollArea lays its content out inside a flex container. A block child there
+     shrink-wraps to its intrinsic width — the legacy rows' fixed label column plus
+     their smallest sensible value field, about 300px — no matter how wide the panel
+     is dragged. Fill the row instead: the value fields are `right: 8px` anchored and
+     grow with whatever width they are given. */
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
   padding: 0 0 16px;
 }
 
