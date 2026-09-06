@@ -1,18 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { Frame, Page } from 'playwright-core';
-import {
-  parseTranscript,
-  readStructuredMessages,
-  resolveReadWindow,
-  normaliseWhitespace,
-  promptSlice,
-  transcriptContainsPrompt,
-  confirmSent,
-  chatNotReadyHint,
-  isChatButtonLabel,
-  ensureChatPanelOpen,
-  resetChatButtonCache
-} from './chat.js';
+import { parseTranscript, readStructuredMessages, resolveReadWindow, normaliseWhitespace, promptSlice, transcriptContainsPrompt, confirmSent, chatNotReadyHint, isChatButtonLabel, ensureChatPanelOpen, resetChatButtonCache, describeUnconfirmedSend, CONFIRM_DEADLINE_MS } from './chat.js';
 import { summariseMessages, type ChatMessage } from './editor-state.js';
 
 describe('parseTranscript', () => {
@@ -513,5 +501,61 @@ describe('markdown the panel consumes does not fail a real send', () => {
 
   it('still refuses an empty prompt, which has nothing distinctive to find', () => {
     expect(transcriptContainsPrompt('anything at all', '   ')).toBe(false);
+  });
+});
+
+/**
+ * "MAY NOT HAVE BEEN SENT" IS AN INVITATION TO SEND IT TWICE.
+ *
+ * (2026-09-06) The first chat send after an editor restart came back:
+ *
+ *   error: 'timeout'
+ *   hint:  'Input cleared: true. Prompt text found in transcript: false.
+ *           The prompt may not have been sent.'
+ *
+ * It HAD been sent. The message was in the transcript moments later — the panel was still
+ * finishing its boot and had not painted it inside the 10s wait. The matcher was not at fault
+ * either: replayed against the real strings, including the `/#__maths__/NeonMaths` path whose
+ * underscores the panel renders as markdown emphasis, it matches.
+ *
+ * The damage is in the advice. `inputCleared` is the panel's OWN submit handler emptying the box:
+ * when it is true, the text has gone to a model, and telling the caller it might not have is how
+ * a second turn gets run on the same request — a doubled transcript, doubled cost, and two builds
+ * racing in one project.
+ */
+describe('an unconfirmed send says which of the two things happened', () => {
+  it('input cleared but not yet rendered: SENT, read it, do not resend', () => {
+    const d = describeUnconfirmedSend({ inputCleared: true, promptFoundInTranscript: false });
+    expect(d.code).toBe('render-lag');
+    expect(d.hint).toMatch(/Treat this as SENT/);
+    expect(d.hint).toMatch(/Do NOT\s+send it again/);
+    expect(d.hint).toMatch(/xgenia_chat_read/);
+  });
+
+  it('input still full: never submitted, resending is safe', () => {
+    const d = describeUnconfirmedSend({ inputCleared: false, promptFoundInTranscript: false });
+    expect(d.code).toBe('not-submitted');
+    expect(d.hint).toMatch(/never submitted/);
+    expect(d.hint).toMatch(/resend here is safe|resend is safe|safe/);
+  });
+
+  it('the two never give the same advice', () => {
+    const a = describeUnconfirmedSend({ inputCleared: true, promptFoundInTranscript: false });
+    const b = describeUnconfirmedSend({ inputCleared: false, promptFoundInTranscript: false });
+    expect(a.code).not.toBe(b.code);
+    expect(a.hint).not.toBe(b.hint);
+  });
+
+  it('the wait is long enough for a panel that has just restarted', () => {
+    // 10s was not. The observed failure was a cold panel mid-boot, not a lost message.
+    expect(CONFIRM_DEADLINE_MS).toBeGreaterThanOrEqual(20_000);
+  });
+});
+
+describe('the matcher was never the problem, and stays that way', () => {
+  it('an XGENIA maths path survives the panel rendering its underscores as emphasis', () => {
+    const sent = 'Run verify_logic_correctness on /#__maths__/NeonMaths and paste the findings.';
+    const rendered = 'Run verify_logic_correctness on /#maths/NeonMaths and paste the findings.';
+    expect(transcriptContainsPrompt(sent, rendered)).toBe(true);
   });
 });

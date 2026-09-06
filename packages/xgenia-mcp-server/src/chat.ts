@@ -218,10 +218,55 @@ export interface SendConfirmation {
  * input has already emptied and cannot be the (contenteditable, so
  * text-bearing) source of that match — the transcript body is what's left.
  */
+/**
+ * How long to wait for the panel to both clear the input and render the message.
+ *
+ * (2026-09-06) This was 10s, which is fine for a warm panel and not for a cold one: the first
+ * send after an editor restart timed out while the message was, in fact, already in the
+ * transcript — the panel was still finishing its boot and had not painted it yet.
+ */
+export const CONFIRM_DEADLINE_MS = 25_000;
+
+/**
+ * What an unconfirmed send actually means, and whether resending is safe.
+ *
+ * (2026-09-06) The old failure said "The prompt may not have been sent" for BOTH unconfirmed
+ * shapes, and that is only true for one of them. The chat input is cleared by the panel's own
+ * submit handler, so `inputCleared` is the panel saying it took the text. When it is true and only
+ * the rendered copy is missing, the message is on its way to a model — and telling the caller it
+ * might not have been sent is an invitation to send it a second time, which costs a second turn,
+ * doubles the transcript, and can leave two builds racing each other in the same project.
+ *
+ * So the two are reported as what they are: one is "sent, not yet visible — read, do not resend",
+ * the other is "never submitted — resending is safe".
+ */
+export function describeUnconfirmedSend(c: {
+  inputCleared: boolean;
+  promptFoundInTranscript: boolean;
+}): { code: 'render-lag' | 'not-submitted'; hint: string } {
+  if (c.inputCleared) {
+    return {
+      code: 'render-lag',
+      hint:
+        'The panel cleared the input, which is its own submit handler acknowledging the text, but '
+        + 'the message had not been painted into the transcript before the wait ran out — usually a '
+        + 'panel that is still finishing its boot. Treat this as SENT. Read the transcript with '
+        + 'xgenia_chat_read (or wait with xgenia_chat_wait_idle) before doing anything else. Do NOT '
+        + 'send it again: that would run a second turn on the same request.',
+    };
+  }
+  return {
+    code: 'not-submitted',
+    hint:
+      'The input still holds the text, so the panel never submitted it — the send did not happen. '
+      + 'Check xgenia_probe for the input and send selectors, then send again; a resend here is safe.',
+  };
+}
+
 export async function confirmSent(
   frame: Frame,
   text: string,
-  deadlineMs = 10_000,
+  deadlineMs = CONFIRM_DEADLINE_MS,
   pollMs = 250
 ): Promise<SendConfirmation> {
   const slice = promptSlice(text);
@@ -620,11 +665,15 @@ export async function chatSend(
 
   const confirmation = await confirmSent(frame, text);
   if (!confirmation.confirmed) {
-    return fail(
-      'timeout',
-      `typed ${text.length} chars into ${SELECTORS.chatInput}, waited 10s for confirmation`,
-      `Input cleared: ${confirmation.inputCleared}. Prompt text found in transcript: ${confirmation.promptFoundInTranscript}. The prompt may not have been sent.`
-    );
+    const outcome = describeUnconfirmedSend(confirmation);
+    return {
+      ...fail(
+        outcome.code,
+        `typed ${text.length} chars into ${SELECTORS.chatInput}, waited ${CONFIRM_DEADLINE_MS}ms for confirmation`,
+        outcome.hint
+      ),
+      evidence: confirmation,
+    };
   }
 
   if (!opts.waitIdle) {
