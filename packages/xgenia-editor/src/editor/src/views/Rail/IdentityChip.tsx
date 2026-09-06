@@ -19,15 +19,22 @@ export function IdentityChip() {
   const ref = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
+    // Hold the instance we actually subscribed to. `ProjectModel.instance` is a mutable static
+    // that is set to undefined when the project closes, and React runs this cleanup *after* that
+    // — so reading it again here is either a crash or, if a different project has opened, an
+    // unsubscribe from the wrong model that leaks this listener.
+    const project = ProjectModel.instance;
+    if (!project) return;
+
     const group = {};
     const refresh = () => {
       setImgBroken(false);
       setIdentity(readIdentity());
     };
-    ProjectModel.instance.on('thumbnailChanged', refresh, group);
-    ProjectModel.instance.on('renamed', refresh, group);
+    project.on('thumbnailChanged', refresh, group);
+    project.on('renamed', refresh, group);
     return () => {
-      ProjectModel.instance.off(group);
+      project.off(group);
     };
   }, []);
 

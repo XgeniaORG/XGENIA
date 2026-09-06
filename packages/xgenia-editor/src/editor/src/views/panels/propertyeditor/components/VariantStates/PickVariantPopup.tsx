@@ -20,6 +20,7 @@ type State = {
 export class PickVariantPopup extends React.Component<PickVariantPopupProps, State> {
   model: PickVariantPopupProps['model'];
   newVariantName: string;
+  project: ProjectModel | undefined;
 
   constructor(props: PickVariantPopupProps) {
     super(props);
@@ -33,7 +34,10 @@ export class PickVariantPopup extends React.Component<PickVariantPopupProps, Sta
   }
 
   componentDidMount() {
-    ProjectModel.instance.on(
+    // Kept so the unsubscribe below reaches the model this subscribed to. `ProjectModel.instance`
+    // is undefined once the project closes, and closing unmounts this popup.
+    this.project = ProjectModel.instance;
+    this.project?.on(
       ['variantDeleted', 'variantCreated', 'variantRenamed'],
       () => {
         this.setState({
@@ -45,7 +49,7 @@ export class PickVariantPopup extends React.Component<PickVariantPopupProps, Sta
   }
 
   componentWillUnmount() {
-    ProjectModel.instance.off(this);
+    this.project?.off(this);
   }
 
   onPickVariant(variant) {

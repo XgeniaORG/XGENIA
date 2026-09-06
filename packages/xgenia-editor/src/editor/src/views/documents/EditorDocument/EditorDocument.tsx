@@ -382,7 +382,10 @@ function EditorDocument() {
     );
 
     //refresh viewer when cloud services are changed
-    ProjectModel.instance.on(
+    // Held in a local, not re-read in the cleanup: `ProjectModel.instance` is undefined once the
+    // project closes, and points at a different model once another one opens.
+    const project = ProjectModel.instance;
+    project?.on(
       'cloudServicesChanged',
       () => {
         EventDispatcher.instance.notifyListeners('viewer-refresh');
@@ -502,9 +505,9 @@ function EditorDocument() {
 
     return () => {
       EventDispatcher.instance.off(eventGroup);
-      if (ProjectModel.instance) {
-        ProjectModel.instance.off(ProjectModel);
-      }
+      // `ProjectModel` (the class) was never used as a listener group here, so this used to detach
+      // nothing and leak a 'cloudServicesChanged' listener on every re-run of this effect.
+      project?.off(eventGroup);
     };
   }, [documentLayout, canvasView, previewMode, nodeGraph, onPreviewSizeChanged]);
 
