@@ -5,16 +5,33 @@
   z-index: 10;
   display: flex;
   flex-direction: column;
-  background: var(--card-bg);
-  -webkit-backdrop-filter: var(--card-blur);
-  backdrop-filter: var(--card-blur);
   border-radius: 0 var(--card-radius) var(--card-radius) 0; /* square left corners, rounded right */
   box-shadow: var(--card-shadow);
   overflow: hidden;
   box-sizing: border-box;
 
-  @supports not (backdrop-filter: blur(1px)) {
-    background: var(--theme-color-bg-2);
+  // The glass lives on a pseudo-element, NOT on the card itself. `backdrop-filter` (like
+  // `filter` and `transform`) makes its element the containing block for every
+  // `position: fixed` descendant, and this card hosts panels that lift themselves out to
+  // cover the window that way: the image editor always, the chat when its plugin asks for
+  // fullscreen. With the filter on the card, those "fixed" overlays were positioned from
+  // the card's origin and clipped to its width by the `overflow: hidden` above — the image
+  // editor showed as a 380px strip with the node graph behind it. A pseudo-element is not
+  // an ancestor of the content, so it can carry the blur without capturing anything.
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: var(--card-bg);
+    -webkit-backdrop-filter: var(--card-blur);
+    backdrop-filter: var(--card-blur);
+    pointer-events: none;
+
+    @supports not (backdrop-filter: blur(1px)) {
+      background: var(--theme-color-bg-2);
+    }
   }
 }
 
