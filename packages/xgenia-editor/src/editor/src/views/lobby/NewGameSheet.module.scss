@@ -1,0 +1,440 @@
+// The one sheet that replaced the choice overlay, the templates page, the name popup and the
+// folder step. Two lanes of equal weight: describing a game is not a lesser route than picking
+// a template, and the old flow made it one by hiding it behind a dialog.
+
+.Scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(8, 8, 10, 0.55);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: calc(34px + var(--topbar-height) + 14px) 24px 24px;
+  overflow-y: auto;
+}
+
+.Root {
+  width: 1080px;
+  max-width: 100%;
+  padding: 26px 28px 22px;
+  border-radius: 16px;
+  border: 1px solid var(--glass-pop-border);
+  background: var(--glass-pop-bg);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 40px 90px rgba(0, 0, 0, 0.65);
+  animation: rise 200ms var(--lobby-ease) both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.Top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+
+  h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--theme-color-fg-default);
+  }
+}
+
+.Close {
+  margin-left: auto;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: var(--glass-ctrl-bg);
+  color: var(--theme-color-fg-default-shy);
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--theme-color-publish);
+    outline-offset: 2px;
+  }
+}
+
+.Lanes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+@media (max-width: 900px) {
+  .Lanes {
+    grid-template-columns: 1fr;
+  }
+}
+
+.Lane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--glass-bar-border);
+  background: rgba(255, 255, 255, 0.035);
+  min-height: 0;
+}
+
+.LaneHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--theme-color-fg-default);
+
+  small {
+    font-weight: 400;
+    color: var(--theme-color-fg-muted);
+  }
+}
+
+.Sym {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: rgba(52, 211, 153, 0.14);
+  color: var(--theme-color-publish);
+}
+
+.SymQuiet {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--theme-color-fg-default-shy);
+}
+
+.Tabs {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-bar-border);
+
+  button {
+    height: 20px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 5px;
+    background: none;
+    color: var(--theme-color-fg-default-shy);
+    font: 500 11px inherit;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+}
+
+.TabOn {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--theme-color-fg-default) !important;
+}
+
+// Recessed, like the omnibox field: a hole you type into.
+.Prompt {
+  height: 150px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: rgba(0, 0, 0, 0.32);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
+  color: var(--theme-color-fg-default);
+  font: 400 13px/1.5 inherit;
+  resize: none;
+  outline: none;
+
+  &::placeholder {
+    color: var(--theme-color-fg-muted);
+  }
+
+  &:focus {
+    border-color: rgba(52, 211, 153, 0.5);
+    box-shadow:
+      0 0 0 3px rgba(52, 211, 153, 0.15),
+      inset 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+}
+
+// Dashed rather than filled: these are suggestions to click, not choices already made.
+.Examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  button {
+    height: 24px;
+    padding: 0 10px;
+    border-radius: 12px;
+    border: 1px dashed var(--glass-ctrl-border);
+    background: none;
+    color: var(--theme-color-fg-default-shy);
+    font: 400 11px inherit;
+    cursor: pointer;
+  }
+
+  button:hover {
+    color: var(--theme-color-fg-default);
+    border-color: var(--theme-color-fg-muted);
+  }
+}
+
+.Cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  button {
+    height: 24px;
+    padding: 0 10px;
+    border-radius: 12px;
+    border: 1px solid var(--glass-bar-border);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--theme-color-fg-default-shy);
+    font: 400 11px inherit;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+}
+
+.CatOn {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: var(--glass-ctrl-border) !important;
+  color: var(--theme-color-fg-default) !important;
+}
+
+.Trail {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+@media (max-width: 900px) {
+  .Trail {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.Tile {
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.25);
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  text-align: left;
+  color: var(--theme-color-fg-default);
+
+  &:focus-visible {
+    outline: 2px solid var(--theme-color-publish);
+    outline-offset: 2px;
+  }
+}
+
+.TileOn {
+  box-shadow: var(--lobby-focus-ring);
+}
+
+.TileArt {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  background: #0b0b0d;
+  color: var(--theme-color-fg-muted);
+  overflow: hidden;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+}
+
+.TileBlank {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--theme-color-fg-default-shy);
+}
+
+.TileMono {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.22);
+  background: linear-gradient(
+    135deg,
+    hsl(var(--mono-hue) 30% 18%) 0%,
+    hsl(calc(var(--mono-hue) - 40) 24% 14%) 100%
+  );
+}
+
+.TileName {
+  display: block;
+  padding: 8px 10px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  small {
+    display: block;
+    margin-top: 1px;
+    font-weight: 400;
+    font-size: 10.5px;
+    color: var(--theme-color-fg-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.Note {
+  grid-column: 1 / -1;
+  padding: 12px;
+  font-size: 12px;
+  color: var(--theme-color-fg-default-shy);
+}
+
+.RemixNote {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--theme-color-fg-muted);
+}
+
+.Foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--glass-divider);
+}
+
+.Field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--theme-color-fg-default);
+  font: 400 12px inherit;
+
+  > span {
+    color: var(--theme-color-fg-muted);
+    font-size: 11px;
+    flex: none;
+  }
+
+  input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    background: none;
+    outline: none;
+    color: inherit;
+    font: inherit;
+  }
+
+  &:focus-within,
+  &:focus-visible {
+    outline: none;
+    border-color: rgba(52, 211, 153, 0.5);
+    box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.15);
+  }
+}
+
+.FolderField {
+  flex: 1;
+  min-width: 220px;
+  cursor: pointer;
+  text-align: left;
+
+  em {
+    flex: 1;
+    min-width: 0;
+    font-style: normal;
+    color: var(--theme-color-fg-default-shy);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    // The interesting end of a path is the last segment, so overflow eats the front.
+    direction: rtl;
+  }
+
+  svg {
+    color: var(--theme-color-publish);
+    flex: none;
+  }
+}
+
+.Go {
+  margin-left: auto;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--theme-color-publish);
+  color: #062b1c;
+  font: 600 12px inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .Root {
+    animation: none;
+  }
+}

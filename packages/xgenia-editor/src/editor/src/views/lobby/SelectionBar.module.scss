@@ -1,0 +1,85 @@
+// Floats over the floor. Selecting must not reflow the grid you are selecting from.
+
+.Root {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  z-index: 12;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 6px 0 14px;
+  border-radius: 20px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: var(--glass-pop-bg);
+  -webkit-backdrop-filter: var(--glass-pop-blur);
+  backdrop-filter: var(--glass-pop-blur);
+  box-shadow: var(--glass-pop-shadow);
+  font-size: 12px;
+  color: var(--theme-color-fg-default);
+  white-space: nowrap;
+  animation: rise 180ms var(--lobby-ease) both;
+
+  b {
+    margin-right: 8px;
+    font-weight: 600;
+  }
+
+  button {
+    height: 28px;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 7px;
+    border: 1px solid var(--glass-ctrl-border);
+    background: var(--glass-ctrl-bg);
+    color: var(--theme-color-fg-default-shy);
+    font: 400 12px inherit;
+    cursor: pointer;
+  }
+
+  button:hover {
+    background: var(--glass-ctrl-bg-hover);
+    color: var(--theme-color-fg-default);
+  }
+
+  button:focus-visible {
+    outline: 2px solid var(--theme-color-publish);
+    outline-offset: 1px;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.Note {
+  color: var(--theme-color-fg-muted);
+  margin-right: 4px;
+}
+
+.Danger {
+  color: #fca5a5 !important;
+}
+
+.Close {
+  width: 28px;
+  padding: 0 !important;
+  justify-content: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .Root {
+    animation: none;
+  }
+}

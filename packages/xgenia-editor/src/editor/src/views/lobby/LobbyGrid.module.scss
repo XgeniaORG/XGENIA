@@ -1,0 +1,113 @@
+// The floor. Sections, sticky headers, and the two arrangements a card can take.
+
+.Root,
+.ListRoot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 80px;
+}
+
+.Section {
+  // Sections below the fold cost nothing to have in the DOM until they are scrolled to. At 319
+  // games this is the difference between a grid that paints and one that stutters.
+  content-visibility: auto;
+  // Without a size hint the scrollbar jumps as sections resolve. Roughly one row of cards.
+  contain-intrinsic-size: auto 320px;
+}
+
+.Header {
+  position: sticky;
+  // Under the bar, not under the top of the scroller: the bar is glass and the header has to
+  // stop before it, or the two blurs stack and neither reads.
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  margin-bottom: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--theme-color-fg-default-shy);
+  background: var(--glass-bar-bg);
+  -webkit-backdrop-filter: var(--glass-bar-blur);
+  backdrop-filter: var(--glass-bar-blur);
+  // Bleed to the scroller's edges so the sticky header covers the cards passing under it.
+  margin-left: calc(var(--lobby-pad) * -1);
+  margin-right: calc(var(--lobby-pad) * -1);
+  padding: 0 var(--lobby-pad);
+  border-bottom: 1px solid var(--glass-bar-border);
+}
+
+.PinIcon {
+  display: flex;
+  color: var(--theme-color-attention);
+}
+
+.Count {
+  color: var(--theme-color-fg-muted);
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.Cards {
+  display: grid;
+  // Density is one token. S/M/L move `--lobby-card-min` and the column count follows.
+  grid-template-columns: repeat(auto-fill, minmax(var(--lobby-card-min), 1fr));
+  gap: var(--lobby-gap);
+  margin-bottom: 22px;
+}
+
+.Rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+
+.Empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 300px;
+  text-align: center;
+
+  b {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--theme-color-fg-default);
+  }
+
+  span {
+    font-size: 12px;
+    color: var(--theme-color-fg-default-shy);
+  }
+}
+
+.EmptyAction {
+  margin-top: 8px;
+  height: 30px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--theme-color-publish);
+  color: #062b1c;
+  font: 600 12px inherit;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+
+  &:focus-visible {
+    outline: 2px solid var(--theme-color-publish);
+    outline-offset: 2px;
+  }
+}

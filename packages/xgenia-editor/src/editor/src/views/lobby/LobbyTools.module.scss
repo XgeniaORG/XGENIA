@@ -1,0 +1,132 @@
+// The strip between the hero and the floor. Quiet by design: it is scaffolding around the
+// artwork, so nothing here is filled or coloured unless it is the active choice.
+
+.Root {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 6px;
+  flex-wrap: wrap;
+}
+
+.Jumps {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.Jump {
+  height: 24px;
+  padding: 0 9px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--theme-color-fg-default-shy);
+  font: 400 11.5px inherit;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--theme-color-fg-default);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--theme-color-publish);
+    outline-offset: 1px;
+  }
+
+  svg {
+    color: var(--theme-color-attention);
+  }
+}
+
+// A group with nothing in it stays visible and greyed rather than disappearing: the strip is a
+// legend for the whole list, and a legend that reflows as the day rolls over is not one.
+.JumpEmpty {
+  opacity: 0.4;
+  cursor: default;
+
+  &:hover {
+    background: none;
+    color: var(--theme-color-fg-default-shy);
+  }
+}
+
+.Count {
+  color: var(--theme-color-fg-muted);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.Grow {
+  flex: 1;
+  min-width: 12px;
+}
+
+.Chip {
+  height: 28px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 7px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: var(--glass-ctrl-bg);
+  color: var(--theme-color-fg-default-shy);
+  font: 400 12px inherit;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover {
+    background: var(--glass-ctrl-bg-hover);
+    color: var(--theme-color-fg-default);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--theme-color-publish);
+    outline-offset: 1px;
+  }
+}
+
+// Same segmented-control tokens the editor topbar uses for Edit|Preview, so the two screens'
+// controls are literally the same object.
+.Seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-bar-border);
+
+  button {
+    height: 24px;
+    min-width: 26px;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--glass-seg-fg);
+    font: 500 12px inherit;
+    cursor: pointer;
+  }
+
+  button:focus-visible {
+    outline: 2px solid var(--theme-color-publish);
+    outline-offset: 1px;
+  }
+}
+
+.SegOn {
+  background: var(--glass-seg-bg-active);
+  color: var(--glass-seg-fg-active) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}

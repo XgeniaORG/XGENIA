@@ -1,0 +1,49 @@
+/* Lobby tokens. Pairs with glass.css, which the lobby uses for all of its chrome.
+   Nothing here is a colour the editor does not already have, except the tint — which is
+   written at runtime from the hero's artwork (see models/lobby/lobbyTint.ts) and only ever
+   falls back to the editor's own ambient backdrop. */
+:root {
+  /* Cards. Same three-layer shadow language as the right property panel and the left card,
+     so a lifted card in the lobby reads as the same material as a floating panel in the
+     editor. */
+  --lobby-card-bg: rgba(22, 22, 24, 0.72);
+  --lobby-card-blur: blur(40px) saturate(180%);
+  --lobby-card-radius: 12px;
+  --lobby-card-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.08),
+    0 8px 30px rgba(0, 0, 0, 0.4);
+  --lobby-card-shadow-hover:
+    0 0 0 0.5px rgba(255, 255, 255, 0.14),
+    0 18px 48px rgba(0, 0, 0, 0.55);
+
+  /* The hero carries a heavier shadow than a card: it is the one object on the page that is
+     meant to read as lit from behind. */
+  --lobby-hero-radius: 16px;
+  --lobby-hero-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.1),
+    0 24px 64px rgba(0, 0, 0, 0.55);
+
+  /* Grid. Density S/M/L changes only this one number; the columns follow from it. */
+  --lobby-card-min: 280px;
+  --lobby-gap: 16px;
+  --lobby-pad: 28px;
+
+  /* Focus and selection, in the editor's publish green so a focused card in the lobby and a
+     focused control in the editor are visibly the same state. */
+  --lobby-focus-ring:
+    0 0 0 1.5px var(--theme-color-publish),
+    0 0 0 5px rgba(52, 211, 153, 0.18);
+
+  /* Motion. The lobby is the one screen where motion is part of the product, so its timings
+     are named rather than inlined per component. */
+  --lobby-speed-lift: 180ms;
+  --lobby-speed-fade: 320ms;
+  --lobby-speed-deal: 420ms;
+  --lobby-speed-sheen: 900ms;
+  --lobby-speed-creep: 6s;
+  --lobby-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Sampled from the hero's cover art at runtime. The fallback is the editor's own backdrop,
+     so a profile with no artwork yet looks like the rest of the app rather than like a bug. */
+  --lobby-tint: var(--ambient-backdrop);
+}
