@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "xgenia",
+  "description": "Claude Code plugins for the XGENIA game editor.",
+  "owner": {
+    "name": "XGENIA"
+  },
+  "plugins": [
+    {
+      "name": "xgenia",
+      "description": "Drive the XGENIA editor from Claude Code — the xgenia MCP server plus the skill that explains how to use it.",
+      "source": "./plugins/xgenia",
+      "category": "development"
+    }
+  ]
+}

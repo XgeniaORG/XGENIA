@@ -1,0 +1,9 @@
+{
+  "name": "xgenia",
+  "displayName": "XGENIA",
+  "version": "1.0.0",
+  "description": "Drive the XGENIA editor from Claude Code: launch it, open a project, send prompts to its AI chat panel, watch the conversation, screenshot it, and restart it when it wedges. Installs the xgenia MCP server and the skill that explains how to use it.",
+  "author": {
+    "name": "XGENIA"
+  }
+}
