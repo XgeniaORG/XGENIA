@@ -5,16 +5,21 @@
     "src/assets.d.ts"
   ],
   "files": [
-    "src/editor/src/views/panels/AssetPanel/assetRoles.ts",
-    "src/editor/src/views/panels/AssetPanel/assetVersions.ts",
-    "src/editor/src/views/panels/AssetPanel/assetIndex.ts",
-    "src/editor/src/views/panels/AssetPanel/graphRefs.ts",
-    "src/editor/src/views/panels/AssetPanel/assetMeta.ts",
-    "src/editor/src/views/panels/AssetPanel/useAssetIndex.ts",
-    "src/editor/src/views/panels/AssetPanel/assetFilter.ts",
-    "src/editor/src/views/panels/AssetPanel/assetUrl.ts",
     "src/editor/src/views/panels/AssetPanel/AssetLibrary.tsx",
     "src/editor/src/views/panels/AssetPanel/AssetLibraryInspector.tsx",
-    "src/editor/src/views/panels/AssetPanel/AssetPanel.tsx"
+    "src/editor/src/views/panels/AssetPanel/AssetPanel.tsx",
+    "src/editor/src/views/panels/AssetPanel/asset-classification.ts",
+    "src/editor/src/views/panels/AssetPanel/assetFilter.ts",
+    "src/editor/src/views/panels/AssetPanel/assetGraphRefs.ts",
+    "src/editor/src/views/panels/AssetPanel/assetIndex.ts",
+    "src/editor/src/views/panels/AssetPanel/assetMeta.ts",
+    "src/editor/src/views/panels/AssetPanel/assetOps.ts",
+    "src/editor/src/views/panels/AssetPanel/assetRoles.ts",
+    "src/editor/src/views/panels/AssetPanel/assetUrl.ts",
+    "src/editor/src/views/panels/AssetPanel/assetVersions.ts",
+    "src/editor/src/views/panels/AssetPanel/graphRefs.ts",
+    "src/editor/src/views/panels/AssetPanel/index.ts",
+    "src/editor/src/views/panels/AssetPanel/useAssetIndex.ts",
+    "src/assets.d.ts"
   ]
 }

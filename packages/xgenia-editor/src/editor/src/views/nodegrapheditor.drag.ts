@@ -16,9 +16,22 @@ import PopupLayer from './popuplayer';
 /** When enabled (localStorage 'xgenia.stableAssetIds' === 'true'), dropped assets store a
  *  `uid://<id>` stable reference instead of a raw path, so renames/moves never orphan the
  *  reference. Off by default; the runtime resolves uid:// via the asset manifest. */
+/**
+ * The reference a dropped asset writes into the node graph.
+ *
+ * `uid://<id>` by default: the uid travels with the asset through renames and moves (see
+ * migrateAssetMeta), so a sprite keeps rendering after the file is reorganised, without any
+ * graph rewrite. Opt OUT with `localStorage['xgenia.stableAssetIds'] = 'false'`, which
+ * restores raw paths for a project that must stay readable by an older runtime.
+ *
+ * Falls back to the raw path whenever a uid cannot be had — notably when the metadata store
+ * has not loaded, where getOrAssignUid deliberately returns '' rather than committing
+ * against an empty cache and clobbering the file. A raw path always works; a `uid://` ref to
+ * an id that was never persisted would not.
+ */
 function stableAssetRef(path: string): string {
   try {
-    if ((globalThis as any).localStorage?.getItem('xgenia.stableAssetIds') === 'true') {
+    if ((globalThis as any).localStorage?.getItem('xgenia.stableAssetIds') !== 'false') {
       const uid = getOrAssignUid(path);
       if (uid) return `uid://${uid}`;
     }

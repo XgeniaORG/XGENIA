@@ -291,11 +291,10 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
   // Asset browser (experimental). Hidden by default; enable via
   // Settings → Editor → Experimental panels → "Enable Assets".
   SidebarModel.instance.register({
-    experimental: true,
     id: 'assets',
     name: 'Assets',
     description:
-      'Asset browser (experimental): browse, search, sort and preview project assets. Drag-into-graph, rename and stable asset IDs are still in progress.',
+      "Everything this project has, grouped by what each thing is: key art, backgrounds, sprites, UI, audio. Shows the prompt that made an image, the art it was cut from, its earlier versions and which nodes use it.",
     order: 40,
     icon: SideAssets,
     panel: AssetPanel
