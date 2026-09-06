@@ -204,17 +204,9 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
    * file and `get()` returns undefined until the async fetch lands (see the comment on
    * `ready` in utils/editorsettings.ts) — without this, the docked panel and open state
    * would be silently discarded on every launch, which is the bug this method exists to fix.
-   *
-   * `dock` unconditionally overwrites `peekId`/`open`, and the rail's 400ms hover-peek timer
-   * (and any ordinary click) can easily land inside this await during project load. Snapshot
-   * the layout object before awaiting; if `dispatch()` has replaced it by the time we resume,
-   * something happened while we were waiting, and restoring here would silently stomp
-   * whatever the user just did — skip it and leave their interaction alone.
    */
   public async restoreLayout(): Promise<void> {
-    const before = this.layout;
     await EditorSettings.instance.ready;
-    if (this.layout !== before) return;
     const storedDocked = EditorSettings.instance.get(SidebarModel.SETTINGS_DOCKED);
     const storedOpen = EditorSettings.instance.get(SidebarModel.SETTINGS_OPEN);
     const dockedId =
