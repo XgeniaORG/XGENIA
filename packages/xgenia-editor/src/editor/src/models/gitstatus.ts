@@ -4,6 +4,7 @@
 // counts files reported by `git status`, project.json included, and lives outside React.
 import { Git } from '@xgenia/git';
 import { mergeProject } from '@xgenia-utils/projectmerger';
+import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import { EventDispatcher } from '../../../shared/utils/EventDispatcher';
 
@@ -28,6 +29,17 @@ export const GitStatus = {
       const dir = ProjectModel.instance?._retainedProjectDirectory;
       if (!dir) return set(null);
       try {
+        // `Git.openRepository` does NOT throw for a non-repo directory: `open()` runs
+        // `rev-parse --show-cdup`, treats exit code 128 as success and resolves to null,
+        // so `Git`'s internal baseDir becomes null and every later git-cli call spawns
+        // with cwd: null — which Node resolves to *this process's* cwd, i.e. the
+        // xgenia-editor monorepo in a dev checkout. Without this pre-check the badge would
+        // confidently show the monorepo's uncommitted count on a project that isn't a git
+        // repo at all. Pre-check with the same authority three other call sites already use
+        // (VersionControlPanel.tsx, EditorBridge's git.isAvailable/git.ensureInitialized)
+        // and never construct a Git client when the project isn't a repo.
+        const isGitProject = await LocalProjectsModel.instance.isGitProject(ProjectModel.instance);
+        if (!isGitProject) return set(null);
         const g = new Git(mergeProject);
         await g.openRepository(String(dir));
         const files = await g.status();

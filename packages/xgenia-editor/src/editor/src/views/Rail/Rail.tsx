@@ -14,45 +14,12 @@ import { importFiles } from '../panels/AssetPanel/assetOps';
 import { IdentityChip } from './IdentityChip';
 import { RailButton, RailButtonProps } from './RailButton';
 import { activePanelId } from './railLayout';
+import { badgeFor, tooltipSuffixFor } from './railBadges';
 import { arrangeRail, railCapacity, RAIL_SLOT } from './railOrder';
 import { useTooltipGroup } from './useTooltipGroup';
 import css from './Rail.module.scss';
 
-type RailBadge = { count?: number; unseen?: boolean; ring?: boolean };
 type PresenceState = Record<string, { unseen: number; lastAt: number }>;
-
-// The one RailButton renders the assets/versioncontrol/chat presence signals — the AI
-// touched this panel's domain (Task 13, an amber dot), how many files are uncommitted
-// (Task 14, a live count on Version control) and whether a turn is running (Task 15, a
-// spinning ring on the chat item). Each task's brief independently said "set
-// badge={{...}} on the RailButton call site"; taken literally the third overwrites the
-// first two and every badge but the AI ring goes dark. This is the single composition
-// point instead: every call site below reads badge={badgeFor(item)}, and each family of
-// signal only ever touches its own field.
-function badgeFor(
-  item: { id: string },
-  ctx: { presence: PresenceState; git: { count: number | null }; ai: AiActivitySnapshot }
-): RailBadge {
-  const badge: RailBadge = {};
-  // Version control's badge is a live count, not a "did you miss something" dot — an
-  // unseen dot on top of a count would just be noise, and RailPresence.noteCommand
-  // already refuses to record 'versioncontrol' as a family, so this is never true for it.
-  if ((ctx.presence[item.id]?.unseen ?? 0) > 0) badge.unseen = true;
-  if (item.id === 'versioncontrol') badge.count = ctx.git.count ?? undefined;
-  if (item.id === 'chat-panel') badge.ring = ctx.ai.active;
-  return badge;
-}
-
-/** Static (non-ticking) tooltip suffix for every item except the chat panel, whose
- *  elapsed-time text is handled by ChatRailButton below so a per-second tick never
- *  has to re-render the rest of the rail. */
-function tooltipSuffixFor(item: { id: string }, ctx: { presence: PresenceState; git: { count: number | null } }): string | undefined {
-  if (item.id === 'versioncontrol') {
-    return ctx.git.count ? `· ${ctx.git.count} uncommitted file${ctx.git.count === 1 ? '' : 's'}` : undefined;
-  }
-  const p = ctx.presence[item.id];
-  return p?.unseen ? `· ${p.unseen} new since you looked` : undefined;
-}
 
 /**
  * The chat item's tooltip carries a live "· AI working · 14s" suffix while a turn runs.
@@ -260,14 +227,14 @@ export function Rail() {
             }
           };
           if (item.id === 'chat-panel') {
-            return <ChatRailButton key={item.id} {...common} badge={badgeFor(item, { presence, git, ai })} ai={ai} aiSince={aiSince} />;
+            return <ChatRailButton key={item.id} {...common} badge={badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai })} ai={ai} aiSince={aiSince} />;
           }
           return (
             <RailButton
               key={item.id}
               {...common}
-              badge={badgeFor(item, { presence, git, ai })}
-              tooltipSuffix={tooltipSuffixFor(item, { presence, git })}
+              badge={badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai })}
+              tooltipSuffix={tooltipSuffixFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count })}
             />
           );
         })}
@@ -285,8 +252,8 @@ export function Rail() {
             isDisabled={item.isDisabled}
             showAfterMs={tips.showAfterMs}
             onTooltipClosed={tips.noteClosed}
-            badge={badgeFor(item, { presence, git, ai })}
-            tooltipSuffix={tooltipSuffixFor(item, { presence, git })}
+            badge={badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai })}
+            tooltipSuffix={tooltipSuffixFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count })}
             isDropTarget={dropMode && item.id === 'assets'}
             isDropDimmed={dropMode && item.id !== 'assets'}
             onDrop={item.id === 'assets' ? onDropAssets : undefined}
