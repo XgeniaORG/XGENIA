@@ -52,8 +52,14 @@ export function PanelCard({ panelId, isHidden }: CardProps) {
   const { width, setWidth, commit, fallback } = usePanelWidth(panelId);
   const [isResizing, setIsResizing] = useState(false);
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
+  const pointerIdRef = useRef<number | null>(null);
+  const handleRef = useRef<HTMLDivElement>(null);
+  // The raw (clamped) width while a drag is live — kept in a ref, not just state, so
+  // pointercancel/blur (which carry no usable clientX of their own) can still commit the
+  // last width the user actually saw instead of either freezing or reverting.
+  const liveWidthRef = useRef(width);
 
-  // Live width readout while dragging the edge. `chip` holds the last snapped value shown
+  // Live width readout while dragging the edge. `chip` holds the last live value shown
   // during (and briefly after) a drag; the fade-out timer lives in a ref — not local to the
   // resize effect below — so an unmount mid-drag can still clear it in the dedicated cleanup
   // effect instead of letting a detached setTimeout fire setState on an unmounted component.
@@ -65,42 +71,77 @@ export function PanelCard({ panelId, isHidden }: CardProps) {
     };
   }, []);
 
-  // Listeners live on window (not the handle) so the drag survives the pointer leaving the
-  // 8px strip, and live in an effect gated on `isResizing` — not attached imperatively inside
-  // the mousedown handler — so React's cleanup removes them if the card unmounts mid-drag
-  // instead of leaving them to fire stale closures. Mirrors RightPropertyPanel.tsx's resize
-  // effect.
+  // Pointer events with capture, mirroring the rail's press-and-hold reorder gesture in
+  // Rail.tsx: a plain mousemove/mouseup pair loses the drag the instant a fast movement
+  // crosses the preview `<webview>`, which swallows mouse events wholesale. Capturing the
+  // pointer on the handle keeps every subsequent event routed here regardless of what the
+  // cursor passes over, and the gesture ends cleanly on pointerup, pointercancel or the
+  // window losing focus — none of which the old mouse-based drag handled at all.
   useEffect(() => {
     if (!isResizing) return;
-    const onMove = (ev: MouseEvent) => {
+    const pointerId = pointerIdRef.current;
+    const handle = handleRef.current;
+
+    const onMove = (ev: PointerEvent) => {
+      if (pointerId !== null && ev.pointerId !== pointerId) return;
       const d = drag.current;
       if (!d) return;
       const raw = clampPanelWidth(d.startWidth + (ev.clientX - d.startX));
-      const snapped = snapPanelWidth(raw);
-      setWidth(snapped);
-      setChip(snapped);
+      liveWidthRef.current = raw;
+      setWidth(raw);
+      // The live width, not a snapped one — snapping only happens once, on release (see
+      // endResize below), so the edge tracks the pointer exactly instead of fighting it.
+      setChip(raw);
     };
-    const onUp = (ev: MouseEvent) => {
+
+    const endResize = () => {
       const d = drag.current;
       drag.current = null;
       setIsResizing(false);
-      if (d) commit(snapPanelWidth(clampPanelWidth(d.startWidth + (ev.clientX - d.startX))));
+      if (d) commit(snapPanelWidth(liveWidthRef.current));
       if (chipTimer.current) clearTimeout(chipTimer.current);
       chipTimer.current = setTimeout(() => {
         chipTimer.current = null;
         setChip(null);
       }, 600);
+      if (pointerId !== null && handle?.hasPointerCapture?.(pointerId)) {
+        try { handle.releasePointerCapture(pointerId); } catch { /* already released */ }
+      }
+      pointerIdRef.current = null;
     };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+
+    const onUp = (ev: PointerEvent) => { if (pointerId === null || ev.pointerId === pointerId) endResize(); };
+    const onCancel = (ev: PointerEvent) => { if (pointerId === null || ev.pointerId === pointerId) endResize(); };
+    // `blur` carries no pointerId — the window losing focus mid-drag ends whatever gesture
+    // this effect instance owns regardless of which pointer started it.
+    const onBlur = () => endResize();
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('blur', onBlur);
     return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('blur', onBlur);
     };
   }, [isResizing, commit]);
 
-  const startResize = (e: React.MouseEvent) => {
+  const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
     e.preventDefault();
+    const target = e.currentTarget;
+    try {
+      target.setPointerCapture(e.pointerId);
+    } catch {
+      // Abandon exactly as the rail's reorder gesture does on the same failure: no drag
+      // ever started, so there is nothing to undo, only ownership to release (nothing was
+      // ever captured, so nothing further is needed here).
+      return;
+    }
+    pointerIdRef.current = e.pointerId;
+    liveWidthRef.current = width;
     drag.current = { startX: e.clientX, startWidth: width };
     setIsResizing(true);
   };
@@ -126,6 +167,7 @@ export function PanelCard({ panelId, isHidden }: CardProps) {
         <PanelHost visibleId={isHidden ? null : panelId} />
       </div>
       <div
+        ref={handleRef}
         className={css.ResizeHandle}
         role="separator"
         aria-orientation="vertical"
@@ -134,7 +176,7 @@ export function PanelCard({ panelId, isHidden }: CardProps) {
         aria-valuemin={PANEL_WIDTH_MIN}
         aria-valuemax={PANEL_WIDTH_MAX}
         tabIndex={0}
-        onMouseDown={startResize}
+        onPointerDown={startResize}
         onKeyDown={onHandleKeyDown}
         onDoubleClick={() => commit(fallback)}
         title="Drag to resize — double-click to reset"
