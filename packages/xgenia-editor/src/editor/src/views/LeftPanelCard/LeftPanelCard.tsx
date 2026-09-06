@@ -48,10 +48,12 @@ function usePanelWidth(panelId: string | null) {
 
 interface CardProps {
   panelId: string;
+  /** The card is closed: hidden, but still mounted, so the panels inside keep their state. */
+  isHidden: boolean;
   onClose: () => void;
 }
 
-export function PanelCard({ panelId, onClose }: CardProps) {
+export function PanelCard({ panelId, isHidden, onClose }: CardProps) {
   const item = SidebarModel.instance.getPanel(panelId);
   const { width, setWidth, commit, fallback } = usePanelWidth(panelId);
   const [isResizing, setIsResizing] = useState(false);
@@ -59,7 +61,11 @@ export function PanelCard({ panelId, onClose }: CardProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrolled, setScrolled] = useState(false);
 
+  // Skipped while the card is hidden: a `display: none` subtree has an empty rect, so the
+  // observer would report the sentinel as off screen and leave the scrolled-state shadow
+  // under the header, showing for a frame the next time the card opens.
   useEffect(() => {
+    if (isHidden) return;
     const el = scrollRef.current;
     if (!el) return;
     const sentinel = document.createElement('div');
@@ -68,7 +74,7 @@ export function PanelCard({ panelId, onClose }: CardProps) {
     const io = new IntersectionObserver(([e]) => setScrolled(!e.isIntersecting), { root: el });
     io.observe(sentinel);
     return () => { io.disconnect(); sentinel.remove(); };
-  }, []);
+  }, [isHidden]);
 
   // Listeners live on window (not the handle) so the drag survives the pointer leaving the
   // 8px strip, and live in an effect gated on `isResizing` — not attached imperatively inside
@@ -118,7 +124,7 @@ export function PanelCard({ panelId, onClose }: CardProps) {
   return (
     <div
       className={classNames(css.Card, isResizing && css['is-resizing'])}
-      style={{ width }}
+      style={{ width, display: isHidden ? 'none' : undefined }}
       data-test="left-card"
       data-panel-id={panelId}
     >
@@ -131,7 +137,7 @@ export function PanelCard({ panelId, onClose }: CardProps) {
         </Tooltip>
       </div>
       <div ref={scrollRef} className={css.Content}>
-        <PanelHost visibleId={panelId} />
+        <PanelHost visibleId={isHidden ? null : panelId} />
       </div>
       <div
         className={css.ResizeHandle}
@@ -173,7 +179,19 @@ export function LeftPanelCard() {
     return () => window.removeEventListener('keydown', onKey, true);
   }, [layout.open, layout.activeId, layout.homeId]);
 
-  if (!layout.open) return null;
-
-  return <PanelCard panelId={layout.activeId} onClose={() => SidebarModel.instance.dispatch({ type: 'close' })} />;
+  // Closing the card hides it; it is never unmounted. PanelHost's whole contract is that
+  // opened panels stay mounted so switching back is instant and keeps their state — and the
+  // chat and image editor are remote iframes, so re-mounting them re-boots a whole
+  // application, with its loading screen on show. Returning null here threw that guarantee
+  // away one layer above the code that makes it, and the topbar button and its keybinding
+  // toggle this constantly. Passing `null` for the visible id while closed also tells every
+  // panel it is off screen, so the expensive ones idle exactly as they do when hidden behind
+  // another panel.
+  return (
+    <PanelCard
+      panelId={layout.activeId}
+      isHidden={!layout.open}
+      onClose={() => SidebarModel.instance.dispatch({ type: 'close' })}
+    />
+  );
 }

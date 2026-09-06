@@ -45,7 +45,6 @@ import { ToastLayer } from '../../views/ToastLayer/ToastLayer';
 import { BaseWindow } from '../../views/windows/BaseWindow';
 import { whatsnewRender } from '../../whats-new';
 import { IRouteProps } from '../AppRoute';
-import { useSetupSettings } from './useSetupSettings';
 import { ToolsModel, ToolMetadata, ToolsModelEvent } from '../../models/ToolsModel';
 import { ToolsModalViewer } from '../../views/ToolsModalViewer/ToolsModalViewer';
 import { Keybindings } from '../../constants/Keybindings';
@@ -57,7 +56,13 @@ const ImportPopupTemplate = require('../../templates/importpopup.html');
 
 if (import.meta.webpackHot) {
     import.meta.webpackHot.accept('../../router.setup', () => {
-        const activeId = SidebarModel.instance.getCurrent()?.id;
+        // `reset()` wipes the layout back to its defaults, so the whole thing — active
+        // panel, home panel and open state — is captured first and put back in a single
+        // `restore` dispatch. Re-opening only the active id used to leave `homeId` pointing
+        // at the default panel instead of the chat, so after any hot reload a second rail
+        // click went "home" to the wrong panel. A restore naming a panel this build no
+        // longer registers is refused by dispatch(), which leaves the defaults in place.
+        const layout = SidebarModel.instance.Layout;
 
         SidebarModel.instance.reset();
 
@@ -65,9 +70,7 @@ if (import.meta.webpackHot) {
 
         SidebarModel.instance.notifyListeners(SidebarModelEvent.HotReload);
 
-        if (activeId) {
-            SidebarModel.instance.switch(activeId);
-        }
+        SidebarModel.instance.dispatch({ type: 'restore', ...layout });
     });
 }
 
@@ -136,8 +139,18 @@ export function EditorPage({ route }: EditorPageProps) {
             eventGroup
         );
 
-        void SidebarModel.instance.restoreLayout();
-        setIsLoading(false);
+        // The editor must not paint before the stored layout lands. `restoreLayout` awaits
+        // EditorSettings, which under Electron is a real file read, so releasing the loading
+        // gate first renders the default panel and then swaps it for the stored one — a
+        // visible flash of the wrong panel on every project open. This is also why nothing
+        // else may set the active panel during startup: one authority, one paint.
+        // The editor still opens, on defaults, if the settings read fails — but the failure
+        // is reported rather than swallowed, and the gate is released either way so a bad
+        // read can never strand the editor on the spinner.
+        void SidebarModel.instance
+            .restoreLayout()
+            .catch((err) => console.error('[EditorPage] Failed to restore the panel layout:', err))
+            .finally(() => setIsLoading(false));
         ipcRenderer.send('project-opened', ProjectModel.instance.name);
 
         // Initialize the ToolsModel and listen for tool updates
@@ -306,8 +319,6 @@ export function EditorPage({ route }: EditorPageProps) {
         // For now, just log the change to isCommandPaletteOpen as before.
         console.log('[EditorPage] isCommandPaletteOpen state changed to:', isCommandPaletteOpen);
     }, [isCommandPaletteOpen]);
-
-    useSetupSettings();
 
     useEffect(() => {
         if (!ProjectModel.instance.isLesson()) return;
