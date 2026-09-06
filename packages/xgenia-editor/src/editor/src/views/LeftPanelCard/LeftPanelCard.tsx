@@ -7,9 +7,14 @@ import { SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
 
 import { PanelHost } from './PanelHost';
 import {
-  clampPanelWidth, PANEL_WIDTH_DEFAULT, PANEL_WIDTH_MAX, PANEL_WIDTH_MIN, readPanelWidth, snapPanelWidth, writePanelWidth
+  clampPanelWidth, maxPanelWidth, PANEL_WIDTH_DEFAULT, PANEL_WIDTH_MIN, readPanelWidth, snapPanelWidth, writePanelWidth
 } from './panelWidth';
 import css from './LeftPanelCard.module.scss';
+
+// Matches --rail-width in styles/custom-properties/glass.css. The card's available width
+// is the window minus this strip; panelWidth.ts stays free of any window/DOM read, so the
+// subtraction happens here rather than inside it.
+const RAIL_WIDTH = 48;
 
 function getStorage(): Storage | null {
   try {
@@ -24,20 +29,27 @@ function getStorage(): Storage | null {
 
 const storage = getStorage();
 
-function usePanelWidth(panelId: string | null) {
+/** The real ceiling for this render: nearly the full window, minus the rail and a sliver
+ *  of canvas — see panelWidth.ts's `maxPanelWidth`. Computed fresh (not memoized) so a
+ *  window resize is picked up the next time anything here re-renders. */
+function currentMaxWidth(): number {
+  return maxPanelWidth(typeof window !== 'undefined' ? window.innerWidth - RAIL_WIDTH : undefined);
+}
+
+function usePanelWidth(panelId: string | null, max: number) {
   const item = panelId ? SidebarModel.instance.getPanel(panelId) : null;
   const fallback = item?.defaultWidth ?? PANEL_WIDTH_DEFAULT;
-  const [width, setWidth] = useState(() => (panelId ? readPanelWidth(storage, panelId, fallback) : fallback));
+  const [width, setWidth] = useState(() => (panelId ? readPanelWidth(storage, panelId, fallback, max) : fallback));
   useEffect(() => {
-    if (panelId) setWidth(readPanelWidth(storage, panelId, fallback));
-  }, [panelId, fallback]);
+    if (panelId) setWidth(readPanelWidth(storage, panelId, fallback, max));
+  }, [panelId, fallback, max]);
   const commit = useCallback(
     (w: number) => {
-      const c = clampPanelWidth(w);
+      const c = clampPanelWidth(w, max);
       setWidth(c);
-      if (panelId) writePanelWidth(storage, panelId, c);
+      if (panelId) writePanelWidth(storage, panelId, c, max);
     },
-    [panelId]
+    [panelId, max]
   );
   return { width, setWidth, commit, fallback };
 }
@@ -49,14 +61,15 @@ interface CardProps {
 }
 
 export function PanelCard({ panelId, isHidden }: CardProps) {
-  const { width, setWidth, commit, fallback } = usePanelWidth(panelId);
+  const maxWidth = currentMaxWidth();
+  const { width, setWidth, commit, fallback } = usePanelWidth(panelId, maxWidth);
   const [isResizing, setIsResizing] = useState(false);
-  const drag = useRef<{ startX: number; startWidth: number } | null>(null);
+  const drag = useRef<{ startX: number; startWidth: number; max: number } | null>(null);
   const pointerIdRef = useRef<number | null>(null);
   const handleRef = useRef<HTMLDivElement>(null);
-  // The raw (clamped) width while a drag is live — kept in a ref, not just state, so
-  // pointercancel/blur (which carry no usable clientX of their own) can still commit the
-  // last width the user actually saw instead of either freezing or reverting.
+  // The raw (unsnapped, but clamped) width while a drag is live — kept in a ref, not just
+  // state, so pointercancel/blur (which carry no usable clientX of their own) can still
+  // commit the last width the user actually saw instead of either freezing or reverting.
   const liveWidthRef = useRef(width);
 
   // Live width readout while dragging the edge. `chip` holds the last live value shown
@@ -86,7 +99,7 @@ export function PanelCard({ panelId, isHidden }: CardProps) {
       if (pointerId !== null && ev.pointerId !== pointerId) return;
       const d = drag.current;
       if (!d) return;
-      const raw = clampPanelWidth(d.startWidth + (ev.clientX - d.startX));
+      const raw = clampPanelWidth(d.startWidth + (ev.clientX - d.startX), d.max);
       liveWidthRef.current = raw;
       setWidth(raw);
       // The live width, not a snapped one — snapping only happens once, on release (see
@@ -142,7 +155,7 @@ export function PanelCard({ panelId, isHidden }: CardProps) {
     }
     pointerIdRef.current = e.pointerId;
     liveWidthRef.current = width;
-    drag.current = { startX: e.clientX, startWidth: width };
+    drag.current = { startX: e.clientX, startWidth: width, max: maxWidth };
     setIsResizing(true);
   };
 
@@ -151,7 +164,7 @@ export function PanelCard({ panelId, isHidden }: CardProps) {
     if (e.key === 'ArrowRight') commit(width + step);
     else if (e.key === 'ArrowLeft') commit(width - step);
     else if (e.key === 'Home') commit(PANEL_WIDTH_MIN);
-    else if (e.key === 'End') commit(PANEL_WIDTH_MAX);
+    else if (e.key === 'End') commit(maxWidth);
     else return;
     e.preventDefault();
   };
@@ -174,7 +187,7 @@ export function PanelCard({ panelId, isHidden }: CardProps) {
         aria-label="Resize panel"
         aria-valuenow={width}
         aria-valuemin={PANEL_WIDTH_MIN}
-        aria-valuemax={PANEL_WIDTH_MAX}
+        aria-valuemax={maxWidth}
         tabIndex={0}
         onPointerDown={startResize}
         onKeyDown={onHandleKeyDown}
