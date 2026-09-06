@@ -51,6 +51,10 @@ import PinOffIcon from '@hugeicons/core-free-icons/PinOffIcon';
 import CalculatorIcon from '@hugeicons/core-free-icons/CalculatorIcon';
 // @ts-ignore
 import FolderLibraryIcon from '@hugeicons/core-free-icons/FolderLibraryIcon';
+// @ts-ignore
+import Edit02Icon from '@hugeicons/core-free-icons/Edit02Icon';
+// @ts-ignore
+import FolderOpenIcon from '@hugeicons/core-free-icons/FolderOpenIcon';
 
 interface IconProps {
     size?: number;
@@ -93,3 +97,6 @@ export const TopbarPanelOpen = makeIcon(PanelLeftOpenIcon, 'TopbarPanelOpen');
 export const TopbarPanelClose = makeIcon(PanelLeftCloseIcon, 'TopbarPanelClose');
 export const TopbarPinned = makeIcon(PinIcon, 'TopbarPinned');
 export const TopbarUnpinned = makeIcon(PinOffIcon, 'TopbarUnpinned');
+/** Rail identity chip's project menu. */
+export const SideRenameIcon = makeIcon(Edit02Icon, 'SideRenameIcon');
+export const SideRevealIcon = makeIcon(FolderOpenIcon, 'SideRevealIcon');
