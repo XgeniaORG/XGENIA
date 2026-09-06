@@ -199,9 +199,14 @@ export function LeftPanelCard() {
 
   return (
     <>
-      <div className={classNames(css.Docked, layout.peekId && css['is-under'])}>
-        <PanelCard panelId={layout.dockedId} mode="docked" onClose={() => SidebarModel.instance.dispatch({ type: 'close' })} />
-      </div>
+      {/* Hover-peek dispatches `peek(dockedId)`, so `peekId === dockedId` is a legal state
+          (see Rail.tsx's onRailEnter): the same panel would otherwise be drawn twice, once
+          dimmed underneath its own peek. Skip the docked card entirely in that case. */}
+      {layout.peekId !== layout.dockedId && (
+        <div className={classNames(css.Docked, layout.peekId && css['is-under'])}>
+          <PanelCard panelId={layout.dockedId} mode="docked" onClose={() => SidebarModel.instance.dispatch({ type: 'close' })} />
+        </div>
+      )}
       {layout.peekId && (
         <div ref={peekRef} className={css.PeekLayer} style={{ ['--origin-y' as any]: `${originY}px` }}>
           <PanelCard
