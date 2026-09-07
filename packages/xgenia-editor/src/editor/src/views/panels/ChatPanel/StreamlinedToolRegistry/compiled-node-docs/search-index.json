@@ -19020,8 +19020,8 @@
       "relativePath": "controls/sound.ts",
       "category": "Visual",
       "docs": "https://docsapp.xgenia.com/nodes/utilities/sound",
-      "lineCount": 444,
-      "byteSize": 12440,
+      "lineCount": 460,
+      "byteSize": 13737,
       "inputFormatHints": {
         "play": {
           "displayName": "Play",
