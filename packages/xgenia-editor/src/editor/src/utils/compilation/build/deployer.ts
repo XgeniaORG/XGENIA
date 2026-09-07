@@ -72,9 +72,46 @@ function sanitizeExportJsonForStake(exportJson: any, flatMap?: Record<string, st
     return value;
   };
 
+  /**
+   * The whole per-string rewrite, in one place.
+   *
+   * (2026-09-03) This used to be inlined in the object branch of `visit`, and the array branch
+   * did `node.forEach(visit)` — so an array ELEMENT that was a string reached `visit`, matched
+   * neither `Array.isArray` nor `typeof === 'object'`, and fell out having been left alone.
+   *
+   * Single-valued asset parameters were therefore fine (`Image.src`, `pixi.Sprite.image`,
+   * `Text.fontFamily`) while every array-valued one was silently skipped — most visibly
+   * `ReelController.symbolImages`, which is exactly how a reel ships to Stake with its symbols
+   * still pointing at `symbols/sym1.png` after the files were flattened to the root. Nothing
+   * threw; the deploy just 404'd every symbol.
+   *
+   * Both branches now call this, so a path is rewritten the same way wherever it is stored.
+   */
+  const rewriteString = (val: string): string => {
+    let next = val;
+
+    // Only touch strings that look like "name (1).ext"
+    if (/\s+\(\d+\)\.[^.\s]+$/.test(next)) {
+      next = sanitizeStakeFileName(next);
+    }
+
+    // Rewrite any asset/module references to flattened Stake filenames
+    next = rewriteFlatPath(next);
+
+    return next;
+  };
+
   const visit = (node: any) => {
     if (Array.isArray(node)) {
-      node.forEach(visit);
+      for (let i = 0; i < node.length; i++) {
+        const val = node[i];
+        if (typeof val === 'string') {
+          const next = rewriteString(val);
+          if (next !== val) node[i] = next;
+        } else {
+          visit(val);
+        }
+      }
       return;
     }
     if (node && typeof node === 'object') {
@@ -93,16 +130,7 @@ function sanitizeExportJsonForStake(exportJson: any, flatMap?: Record<string, st
       Object.keys(node).forEach((key) => {
         const val = node[key];
         if (typeof val === 'string') {
-          let next = val;
-
-          // Only touch strings that look like "name (1).ext"
-          if (/\s+\(\d+\)\.[^.\s]+$/.test(next)) {
-            next = sanitizeStakeFileName(next);
-          }
-
-          // Rewrite any asset/module references to flattened Stake filenames
-          next = rewriteFlatPath(next);
-
+          const next = rewriteString(val);
           if (next !== val) node[key] = next;
         } else {
           visit(val);
