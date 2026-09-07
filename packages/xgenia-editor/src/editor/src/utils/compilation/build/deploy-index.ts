@@ -29,10 +29,61 @@ export function getExternalFolderPath() {
  * @param filePath
  * @returns
  */
-export function loadDeployIndex(filePath: string): Promise<DeployIndex> {
+export async function loadDeployIndex(filePath: string): Promise<DeployIndex> {
   const indexPath = filesystem.join(getExternalFolderPath(), filePath);
-  return filesystem.readJson(indexPath);
-  // reject({ result: 'failure', message: 'Error exporting deploy files.' });
+  const index: DeployIndex = await filesystem.readJson(indexPath);
+
+  return withRuntimeChunks(index, filePath);
+}
+
+/**
+ * Add every webpack async chunk the runtime build produced but nobody listed.
+ *
+ * ─── why this is not just a hand-maintained list (2026-09-03) ───────────────
+ * `index.json` is written by hand, and `xgenia.128.js` / `.162` / `.195` / `.323` are in it
+ * because someone hit a bug and added them one at a time. `xgenia.683.js` never got added —
+ * and that chunk is howler, reached through the dynamic `require('howler')` inside use-sound.
+ *
+ * So every deploy, normal and Stake alike, shipped a build whose audio engine 404'd.
+ * `__webpack_require__.e(683)` rejected, use-sound's `.then()` has no `.catch()`, the Howl was
+ * never constructed, and the Sound node's play() became a permanent no-op. Nothing logged a
+ * load failure, because nothing ever got as far as trying to load the file — which is why this
+ * looked like an asset-path problem for so long.
+ *
+ * `splitChunks: false` in webpack.deploy.prod.js does not prevent this: it only disables
+ * AUTOMATIC splitting, while an explicit dynamic import always emits its own chunk. So the set
+ * of chunks is decided by the module graph and changes whenever a dependency does. A list
+ * maintained by hand is guaranteed to fall behind it again.
+ *
+ * Additive by construction: it can only include files the runtime build actually emitted next
+ * to the ones already listed, and an entry already present is left alone.
+ */
+async function withRuntimeChunks(index: DeployIndex, indexFilePath: string): Promise<DeployIndex> {
+  try {
+    const runtimeDir = filesystem.join(
+      getExternalFolderPath(),
+      indexFilePath.replace(/[\\\/][^\\\/]*$/, '')
+    );
+
+    const listed = new Set(index.map((f: any) => String(f.url)));
+    const files = await filesystem.listDirectoryFiles(runtimeDir);
+
+    for (const file of files || []) {
+      // `xgenia.<id>.js` only: the entry bundle is xgenia.deploy.js and is already listed, and
+      // source maps are opt-in per entry rather than shipped for every chunk.
+      if (!/^xgenia\.\d+\.js$/.test(file.name)) continue;
+      if (listed.has(file.name)) continue;
+
+      console.log(`[deploy] Including runtime chunk missing from index.json: ${file.name}`);
+      index.push({ url: file.name } as any);
+      listed.add(file.name);
+    }
+  } catch (e: any) {
+    // A deploy that ships the listed files is still better than no deploy.
+    console.warn('[deploy] Could not scan for runtime chunks:', e?.message || e);
+  }
+
+  return index;
 }
 
 function addSuffix(url: string, suffix: string) {
@@ -56,6 +107,8 @@ type WriteFileToFolderArgs = {
   targetFilename?: string;
   /** Optional mapping for Stake flat deploy to rewrite injected HTML paths. */
   flatAssetMap?: Record<string, string>;
+  /** Stake deploy only: no-op every console method in the exported page. */
+  suppressConsole?: boolean;
 };
 
 async function _writeFileToFolder({
@@ -70,7 +123,8 @@ async function _writeFileToFolder({
   envVariables,
   runtimeType,
   targetFilename,
-  flatAssetMap
+  flatAssetMap,
+  suppressConsole
 }: WriteFileToFolderArgs) {
   const fullPath = filesystem.join(getExternalFolderPath(), runtimeType, url);
 
@@ -101,7 +155,8 @@ async function _writeFileToFolder({
       indexJsPath,
       baseUrl,
       envVariables,
-      flatAssetMap
+      flatAssetMap,
+      suppressConsole
     });
   }
 
@@ -344,7 +399,9 @@ export async function copyDeployFilesToStakeFolder({
         runtimeType,
         envVariables,
         targetFilename: indexHtmlTarget,
-        flatAssetMap
+        flatAssetMap,
+        // Stake embeds the game in their page; it should not write to their console.
+        suppressConsole: true
       });
     }
   }

@@ -146,6 +146,14 @@ window.mcpAPI = {
     };
   }
 };
+
+// Expose Prompt History API
+window.historyAPI = {
+  savePrompt: (data) => ipcRenderer.invoke('history:savePrompt', data),
+  getPromptHistory: () => ipcRenderer.invoke('history:getHistory'),
+  clearPromptHistory: () => ipcRenderer.invoke('history:clearHistory'),
+  deletePrompt: (id) => ipcRenderer.invoke('history:deletePrompt', id),
+};
 // Store pending messages
 const pendingMessages = [];
 
