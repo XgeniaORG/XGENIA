@@ -25,6 +25,7 @@ import { ComponentModel } from '@xgenia-models/componentmodel';
 import { NodeGraphModel, NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 import { NodeLibrary } from '@xgenia-models/nodelibrary';
 import { ProjectModel } from '@xgenia-models/projectmodel';
+import { takePendingSeed } from '../../../models/lobby/lobbySeed';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { UndoActionGroup, UndoQueue } from '@xgenia-models/undo-queue-model';
 import { guid } from '@xgenia-utils/utils';
@@ -673,6 +674,16 @@ export class EditorBridge {
 
         h('project.getId', () => {
             return (ProjectModel.instance as any)?.id || null;
+        });
+
+        // The description typed in the lobby's "Describe it" lane, for the project that was
+        // created from it. PULLED by the panel rather than pushed at it: the panel resets its
+        // state on every project change and the old push-based `initialPrompt` raced that
+        // reset (and was deleted on the panel side). `take` consumes, so a description is sent
+        // exactly once, however many times the panel re-initialises.
+        h('project.takeLobbySeed', () => {
+            const id = (ProjectModel.instance as any)?.id;
+            return (id && takePendingSeed(id)) || null;
         });
 
         // (2026-08-24) The duplicate `project.getDirectory` that used to live here was dead:
