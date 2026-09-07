@@ -33,6 +33,17 @@ export interface HtmlProcessorParameters {
    * Used by Stake deploy which requires all files in the root folder.
    */
   flatAssetMap?: Record<string, string>;
+
+  /**
+   * Replace every console method with a no-op in the exported page.
+   *
+   * Set by the Stake deploy. A game embedded in someone else's site should not be writing to
+   * their console, and the runtime is chatty: node setup warnings, loader progress, plugin
+   * registration, per-frame diagnostics.
+   *
+   * Default: false — every other target keeps its console.
+   */
+  suppressConsole?: boolean;
 }
 
 export class HtmlProcessor {
@@ -41,7 +52,29 @@ export class HtmlProcessor {
   public async process(content: string, parameters: HtmlProcessorParameters): Promise<string> {
     const settings = this.project.getSettings();
 
-    let baseUrl = parameters.baseUrl || settings.baseUrl || '/';
+    /**
+     * ─── the fallback is RELATIVE, not '/' (2026-09-04) ───────────────────────
+     * This fell back to '/', which emits `<script src="/react.production.min.js">` and friends.
+     * Those only resolve when the export is served from a domain ROOT. Measured on a real
+     * folder deploy opened from disk:
+     *
+     *   net::ERR_FILE_NOT_FOUND  C:/react.production.min.js
+     *   net::ERR_FILE_NOT_FOUND  C:/xgenia.deploy.js
+     *   pageerror: XGENIA is not defined      #root rendered 0 chars
+     *
+     * The entire app is dead there, not one node — which is what "it doesn't work for the
+     * other options" looks like from the outside.
+     *
+     * './' resolves against the document wherever it sits: a domain root, a sub-path, or a
+     * double-clicked index.html. deployToFolderStake already forces exactly this for exactly
+     * this reason, so this brings every other target in line instead of leaving one target
+     * that happens to work.
+     *
+     * An explicit `settings.baseUrl` still wins. Set one if you host a ROUTED single-page app
+     * at a domain root and need a deep link like /shop/item/3 to resolve assets from the root:
+     * that is the one layout a relative base cannot serve.
+     */
+    let baseUrl = parameters.baseUrl || settings.baseUrl || './';
 
     // Make sure the baseUrl always ends with a slash
     if (settings.baseUrl && !settings.baseUrl.endsWith('/')) {
@@ -51,11 +84,59 @@ export class HtmlProcessor {
     const title = parameters.title || settings.htmlTitle || 'XGENIA Viewer';
     let headCode = settings.headCode || '';
 
+    // FIRST in <head> (the template puts {{#customHeadCode#}} at line 11, every script tag is
+    // line 57+), so this lands before the runtime, React, and the project's own code — nothing
+    // gets a chance to log before console is replaced.
+    //
+    // Two escape hatches, because a permanently muted console is how a silent failure survives
+    // for months (see the howler-chunk note in deploy-index.ts — a 404 that logged nothing):
+    //   - `?xgeniaDebug` on the URL, or `localStorage.xgeniaDebug = '1'`, skips suppression
+    //     entirely for that page load, so a live Stake deploy stays debuggable without a rebuild.
+    //   - the originals are kept on window.__xgeniaConsole, so a session that already muted can
+    //     restore with `Object.assign(console, window.__xgeniaConsole)`.
+    //
+    // Uncaught exceptions are untouched: this silences console.*, not error reporting.
+    if (parameters.suppressConsole) {
+      headCode =
+        `<script>
+(function () {
+  try {
+    var debugOn = false;
+    try {
+      debugOn =
+        /[?&]xgeniaDebug\\b/.test(window.location.search) ||
+        window.localStorage.getItem('xgeniaDebug') === '1';
+    } catch (e) { /* blocked storage (private mode, third-party embed) just means no debug */ }
+    if (debugOn) return;
+
+    var c = window.console || (window.console = {});
+    var saved = {};
+    var noop = function () {};
+    var methods = [
+      'log', 'debug', 'info', 'warn', 'error', 'trace', 'dir', 'dirxml', 'table',
+      'group', 'groupCollapsed', 'groupEnd', 'time', 'timeEnd', 'timeLog',
+      'count', 'countReset', 'assert', 'profile', 'profileEnd'
+    ];
+    for (var i = 0; i < methods.length; i++) {
+      var m = methods[i];
+      if (typeof c[m] === 'function') saved[m] = c[m].bind(c);
+      c[m] = noop;
+    }
+    window.__xgeniaConsole = saved;
+  } catch (e) { /* a console we cannot touch is not worth failing the page over */ }
+})();
+</script>
+` + headCode;
+    }
+
     if (parameters.headCode) {
       headCode += parameters.headCode;
     }
 
-    if (baseUrl !== '/') {
+    // './' is what the browser already does with a relative URL, so a <base> for it buys
+    // nothing — and this tag carries `target="_blank"`, which would silently make every link
+    // in the exported app open in a new tab.
+    if (baseUrl !== '/' && baseUrl !== './') {
       headCode = `<base href="${baseUrl}" target="_blank" />\n` + headCode;
     }
 
