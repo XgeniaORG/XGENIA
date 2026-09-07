@@ -27,7 +27,9 @@ export interface EntitlementsResponse {
 }
 
 const CACHE_KEY = 'xgenia_plugin_entitlements';
-const CACHE_TTL = 60 * 60 * 1000; // 1 hour
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour — when to re-fetch while online
+/** How long a cached entitlement stays usable while the server is UNREACHABLE. */
+const GRACE_TTL = 72 * 60 * 60 * 1000; // 72 hours
 
 /** URL of the local image editor Vite dev server */
 const LOCAL_IMAGE_EDITOR_URL = 'http://localhost:3002';
@@ -60,13 +62,41 @@ export class PluginLoader {
      *   - Probes localhost:3002. If reachable → loads local image editor (HMR).
      *   - If localhost:3002 is NOT reachable → falls back to Vercel (no blank screen).
      */
+
+    /**
+     * AM I IN DEVELOPMENT? — asked of the BUILD, not of the URL.
+     *
+     * (2026-08-04 pre-release audit) This used to answer yes for `window.location.protocol === 'file:'`
+     * — and main.js loads the renderer from `file://` in EVERY PACKAGED BUILD (`Config.devMode ?
+     * 'http://localhost:8080/…' : 'file:///' + appPath + '/…'`). So every real install was classified
+     * as dev, with three consequences on a machine that has never run this repo:
+     *   • the plugin control-plane was bypassed — `mergeDev` overwrites the server's URLs, so the
+     *     entitlements server can no longer pin a version or roll back a bad deploy for anyone;
+     *   • the "not entitled" upgrade screen could never render, because plugins are injected even
+     *     when the server replies `{plugins: [], tier: 'free'}` — a free user gets the full chat UI;
+     *   • the loader probes localhost:3002 on a stranger's machine and will iframe whatever answers
+     *     into a renderer that holds the privileged bridge.
+     *
+     * The dev signal is the environment the MAIN process sets before Electron starts
+     * (dev-main.js: `process.env.devMode = 'yes'`), which a packaged app never has. The
+     * webpack-dev-server host/port check is kept because that IS genuinely dev; the `file:`
+     * protocol check is gone, because that is genuinely production.
+     */
+    static isDevEnvironment(): boolean {
+        try {
+            const env: any = (typeof process !== 'undefined' && (process as any)?.env) || {};
+            if (env.devMode === 'yes' || env.NODE_ENV === 'development') return true;
+        } catch { /* no process in this context — fall through to the URL check */ }
+        try {
+            if (typeof window === 'undefined') return false;
+            const { hostname, port } = window.location;
+            // webpack-dev-server only. NOT `file:` — that is how a packaged build loads.
+            return (hostname === 'localhost' || hostname === '127.0.0.1') && (port === '8080' || port === '9080');
+        } catch { return false; }
+    }
+
     async getEntitledPlugins(): Promise<EntitlementsResponse> {
-        const isDev = typeof window !== 'undefined' &&
-            (window.location.hostname === 'localhost' ||
-                window.location.hostname === '127.0.0.1' ||
-                window.location.port === '8080' ||
-                window.location.port === '9080' ||
-                window.location.protocol === 'file:');
+        const isDev = PluginLoader.isDevEnvironment();
 
         // In dev mode skip the in-memory cache so we re-probe localhost on
         // every call (the local server may have started since the last check).
@@ -130,20 +160,59 @@ export class PluginLoader {
             }
         }
 
-        // Fall back to localStorage cache
+        // Fall back to the last GOOD answer the server gave us, but only for a
+        // bounded window. This is the offline grace period: a paying user on a
+        // plane, or behind a 5s timeout, keeps working. It is not open-ended.
         const cached = this.loadCache();
-        if (cached) {
-            console.log('[PluginLoader] Using cached entitlements (offline or server error)');
+        if (cached && this.isWithinGrace(cached)) {
+            const ageMin = Math.round((Date.now() - (cached.cachedAt || 0)) / 60000);
+            console.log(`[PluginLoader] Server unreachable — using cached entitlements (${ageMin}m old, grace ${GRACE_TTL / 3600000}h)`);
             if (isDev) this.mergeDev(cached, localImageEditorReachable, localAiChatReachable);
             this.entitlements = cached;
             return cached;
         }
+        if (cached) {
+            console.warn('[PluginLoader] Cached entitlements are past the offline grace period — discarding.');
+        }
 
-        // No entitlements available — use dev defaults
-        console.log('[PluginLoader] No entitlements available, using dev defaults');
-        const devFallback = this.getDevFallback(localImageEditorReachable, localAiChatReachable);
-        this.entitlements = devFallback;
-        return devFallback;
+        // (2026-08-28) FAIL CLOSED.
+        //
+        // This used to return getDevFallback() here — BOTH plugins, tier 'dev' —
+        // for any user whose entitlements fetch threw. A 5s timeout, a DNS blip
+        // or a Supabase outage therefore granted the full paid product to
+        // everyone, silently, in production. There is no path on which "we could
+        // not verify" should mean "yes".
+        //
+        // Dev keeps its fallback, because dev is a claim about THIS BUILD
+        // (see isDevEnvironment) and not something an installed copy can assert.
+        if (isDev) {
+            console.log('[PluginLoader] Dev build, no entitlements — using dev defaults');
+            const devFallback = this.getDevFallback(localImageEditorReachable, localAiChatReachable);
+            this.entitlements = devFallback;
+            return devFallback;
+        }
+
+        console.warn('[PluginLoader] Could not verify entitlements — no plugins loaded.');
+        const denied: EntitlementsResponse = { plugins: [], tier: 'unverified', cachedAt: Date.now() };
+        this.entitlements = denied;
+        this.notifyListeners(denied);
+        return denied;
+    }
+
+    /**
+     * Is a cached entitlement still usable offline?
+     *
+     * Separate from isCacheFresh (1h) on purpose: CACHE_TTL decides when to
+     * bother re-fetching while the server is reachable, GRACE_TTL decides how
+     * long we will trust a stale answer when it is NOT. A cache with no
+     * cachedAt is not trusted at all — that is the shape a hand-written
+     * localStorage entry takes.
+     */
+    private isWithinGrace(cache: EntitlementsResponse): boolean {
+        if (typeof cache.cachedAt !== 'number' || !Number.isFinite(cache.cachedAt)) return false;
+        const age = Date.now() - cache.cachedAt;
+        if (age < 0) return false; // clock moved, or a forged future timestamp
+        return age < GRACE_TTL;
     }
 
     /** Get the URL for a specific plugin by ID */
@@ -162,6 +231,23 @@ export class PluginLoader {
     /** Get the user's subscription tier */
     getTier(): string {
         return this.entitlements?.tier || 'free';
+    }
+
+    /**
+     * The tier we can name RIGHT NOW, without waiting for the network.
+     *
+     * `getTier()` answers 'free' before the first fetch resolves, which is
+     * indistinguishable from a genuine free account — harmless for logging,
+     * wrong for deciding what to paint on a panel's first frame. This returns
+     * null when nothing is known yet, so a caller can tell "not loaded yet"
+     * apart from "not entitled" and show a checking state instead of guessing.
+     *
+     * The localStorage copy may be past its TTL; that is deliberate. It is only
+     * ever used to pick the first frame, and every caller confirms against
+     * `getEntitledPlugins()` immediately after.
+     */
+    getCachedTier(): string | null {
+        return this.entitlements?.tier || this.loadCache()?.tier || null;
     }
 
     /** Listen for entitlement changes */

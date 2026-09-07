@@ -4,7 +4,7 @@ const TaskNode = {
   name: 'hyve.TaskNode',
   displayName: 'Task',
   category: 'Hyve Mind',
-  docs: '',
+  docs: 'https://docsapp.xgenia.com/nodes/hyve-mind/task',
   initialize() {
     this._internal = {
       description: this.inputs.description || '',

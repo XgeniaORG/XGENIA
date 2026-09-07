@@ -13,7 +13,7 @@ import { EventDispatcher } from '../../../../../../shared/utils/EventDispatcher'
 import { ToastLayer } from '../../../ToastLayer/ToastLayer';
 import { useVersionControlContext } from '../context';
 import { CommitChangesDiff } from './CommitChangesDiff';
-import { convertGitRemoteUrlToCommitUrl } from '../github';
+import { getGitHubCommitUrl } from '../github';
 import { platform } from '@xgenia/platform';
 
 export interface HistoryCommitDiffProps {
@@ -77,8 +77,8 @@ export function HistoryCommitDiff({ commit }: HistoryCommitDiffProps) {
             git.Provider === 'github' && {
               label: 'View on GitHub',
               onClick: () => {
-                const commitLink = convertGitRemoteUrlToCommitUrl(git.OriginUrl, commit.sha);
-                platform.openExternal(commitLink);
+                const commitLink = getGitHubCommitUrl(git.OriginUrl, commit.sha);
+                if (commitLink) platform.openExternal(commitLink);
               }
             }
           ]}

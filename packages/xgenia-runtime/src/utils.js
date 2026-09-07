@@ -2,7 +2,22 @@
 function getAbsoluteUrl(_url) {
 
   //convert to string in case the _url is a Cloud File (which is an object with a custom toString())
-  const url = String(_url);
+  let url = String(_url);
+
+  // `uid://<id>` stable references resolve via the asset manifest (uid -> current path)
+  // BEFORE any other logic. This MUST run before the '://' early-return below, since
+  // 'uid://x' contains '://'. Backward compatible: non-uid values are untouched.
+  if (url.indexOf('uid://') === 0) {
+    const id = url.slice(6);
+    const manifest = (typeof XGENIA !== 'undefined' && XGENIA && XGENIA.assetsManifest) || null;
+    const mapped = manifest && manifest[id];
+    if (mapped) {
+      url = String(mapped);
+    } else {
+      // Unknown id / manifest not loaded yet: return the raw ref (visible miss, no mis-resolve).
+      return url;
+    }
+  }
 
   // Only add the base url if this is a local URL (e.g. not a https url or base64 string)
   if (!url || url.includes('://') || url.startsWith('data:')) {

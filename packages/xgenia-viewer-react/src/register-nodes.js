@@ -50,6 +50,7 @@ import InputActionNode from './nodes/std-library/InputAction';
 // Game nodes already imported above
 
 import * as foreachModule from './nodes/std-library/data/foreach.jsx';
+import * as forloopModule from './nodes/std-library/data/forloop.jsx';
 
 export default function registerNodes(xgeniaRuntime) {
   [
@@ -78,6 +79,8 @@ export default function registerNodes(xgeniaRuntime) {
     //require('./nodes/std-library/stringformat'), // moved to runtime
     // Use the imported foreachModule (includes setup function)
     foreachModule,
+    // Repeater Loop - like For Each, but incrementally adds items without rebuilding existing ones
+    forloopModule,
     require('./nodes/std-library/data/foreachactions'),
     require('./nodes/std-library/colorblend'),
     require('./nodes/std-library/animate-to-value'),

@@ -43,6 +43,8 @@
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.49.0",
     "@vitejs/plugin-react": "^4.4.1",
+    "ajv": "^6.12.6",
+    "ajv-keywords": "^3.5.2",
     "assert": "^2.1.0",
     "browserify-zlib": "^0.2.0",
     "buffer": "^6.0.3",
@@ -66,9 +68,7 @@
     "vite": "^6.4.1",
     "webpack": "^5.84.1",
     "webpack-cli": "^5.1.1",
-    "webpack-dev-server": "^4.15.0",
-    "ajv": "^6.12.6",
-    "ajv-keywords": "^3.5.2"
+    "webpack-dev-server": "^4.15.0"
   },
   "engines": {
     "npm": ">=10.0.0",

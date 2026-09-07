@@ -17,6 +17,12 @@ function Node(context, id) {
   this._outputList = [];
   this._isUpdating = false;
   this._inputValuesQueue = {};
+  // Input names in the order their queues became non-empty. `update` drains queues in THIS
+  // order. It used to iterate Object.keys(_inputValuesQueue), whose order is the order each
+  // port was FIRST EVER queued in the node's lifetime (keys are never deleted) — so two
+  // signals arriving in one update were processed by port history, not by arrival.
+  // See test/signal-arrival-order.test.js for the reels that never stopped because of it.
+  this._inputArrivalOrder = [];
   this._afterInputsHaveUpdatedCallbacks = [];
 
   this._internal = {};
@@ -342,22 +348,33 @@ Node.prototype.update = function () {
       //all inputs are now updated, flag as not dirty
       this._dirty = false;
 
-      const inputNames = Object.keys(this._inputValuesQueue);
-
       let hasMoreInputs = true;
 
       while (hasMoreInputs && !this._cyclicLoop) {
         hasMoreInputs = false;
 
+        // Drain one value per pending port, in ARRIVAL order. Take the list, then rebuild it
+        // from whatever is still (or newly) pending, so a port with more values keeps its
+        // place and anything queued by a setter during this pass lands behind it.
+        const inputNames = this._inputArrivalOrder;
+        this._inputArrivalOrder = [];
+        const stillPending = [];
         for (let i = 0; i < inputNames.length; i++) {
           const inputName = inputNames[i];
           const queue = this._inputValuesQueue[inputName];
-          if (queue.length > 0) {
+          if (queue && queue.length > 0) {
             this.setInputValue(inputName, queue.shift());
             if (queue.length > 0) {
-              hasMoreInputs = true;
+              stillPending.push(inputName);
             }
           }
+        }
+        // Ports with values left keep their relative order; ports first queued during this
+        // pass (by a setter or a dependency update) go behind them.
+        const queuedDuringPass = this._inputArrivalOrder.filter((n) => stillPending.indexOf(n) === -1);
+        this._inputArrivalOrder = stillPending.concat(queuedDuringPass);
+        if (this._inputArrivalOrder.length > 0) {
+          hasMoreInputs = true;
         }
 
         const afterInputCallbacks = this._afterInputsHaveUpdatedCallbacks;
@@ -525,6 +542,13 @@ Node.prototype.queueInput = function (inputName, value) {
     }
   }
 
+  // Record arrival the moment a queue goes from empty to non-empty. A port already pending
+  // keeps its place; a port whose queue drained and is queued again goes to the back.
+  // (First-update coalescing above can empty a queue that is still listed, so test the list,
+  // not the length.)
+  if (this._inputArrivalOrder.indexOf(inputName) === -1) {
+    this._inputArrivalOrder.push(inputName);
+  }
   this._inputValuesQueue[inputName].push(value);
   this.flagDirty();
 };

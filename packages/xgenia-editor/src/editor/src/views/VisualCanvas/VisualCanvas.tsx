@@ -11,17 +11,30 @@ import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import { useTrackBounds } from '@xgenia-core-ui/hooks/useTrackBounds';
 
 import { CanvasView } from './CanvasView';
+import { IframeViewer, type PreviewHost } from './IframeViewer';
+import { FrameResizeHandles } from './FrameResizeHandles';
 import css from './VisualCanvas.module.scss';
 
 export interface VisualCanvasProps {
-  onWebView: (webview: Electron.WebviewTag) => void;
+  onWebView: (webview: PreviewHost) => void;
   deviceName?: string;
   zoom: number;
   onReloadWebview?: () => void;
+  /** Device pixels of the current preview viewport; null = "Fit viewport". */
+  viewportWidth: number | null;
+  viewportHeight: number | null;
 }
 
-export function VisualCanvas({ onWebView, deviceName, zoom, onReloadWebview }: VisualCanvasProps) {
-  const webviewRef = useRef<Electron.WebviewTag>(null);
+export function VisualCanvas({
+  onWebView,
+  deviceName,
+  zoom,
+  onReloadWebview,
+  viewportWidth,
+  viewportHeight
+}: VisualCanvasProps) {
+  const webviewRef = useRef<HTMLIFrameElement>(null);
+  const hostRef = useRef<IframeViewer | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const webviewDomReadyRef = useRef<boolean>(false);
   const canvasViewRef = useRef<CanvasView | null>(null);
@@ -94,37 +107,30 @@ export function VisualCanvas({ onWebView, deviceName, zoom, onReloadWebview }: V
 
   useEffect(() => {
     if (webviewRef.current) {
-      const webview = webviewRef.current; // Capture ref in variable
-      onWebView(webview);
-
-      const handleCrash = () => {
-        setCrashed(true);
-      };
+      // The preview is an in-process <iframe> wearing the <webview> API — see IframeViewer.ts
+      // for why: the <webview>'s separate compositor surface is what flashed the window.
+      const host = new IframeViewer(webviewRef.current, preloadPath);
+      hostRef.current = host;
+      onWebView(host);
 
       const handleDomReady = () => {
-        console.log('[VisualCanvas] WebView DOM Ready');
+        console.log('[VisualCanvas] Preview DOM Ready');
         webviewDomReadyRef.current = true;
-        // DevTools opening removed - no longer automatically opens
       };
+      host.addEventListener('dom-ready', handleDomReady);
 
-      webview.addEventListener('crashed', handleCrash);
-      webview.addEventListener('dom-ready', handleDomReady); // Add dom-ready listener
-
-      // Cleanup function
       return () => {
-        // Check if the webview element still exists before removing listeners
-        if (webview) {
-          webview.removeEventListener('crashed', handleCrash);
-          webview.removeEventListener('dom-ready', handleDomReady); // Remove dom-ready listener
-        }
+        host.removeEventListener('dom-ready', handleDomReady);
+        host.dispose();
+        if (hostRef.current === host) hostRef.current = null;
       };
     }
-  }, [preloadKey]); // Re-run when webview is recreated
+  }, [preloadKey]); // Re-run when the frame is recreated
 
   function restart() {
-    if (webviewRef.current) {
+    if (hostRef.current) {
       setCrashed(false);
-      onWebView(webviewRef.current);
+      onWebView(hostRef.current);
     }
   }
 
@@ -183,14 +189,10 @@ export function VisualCanvas({ onWebView, deviceName, zoom, onReloadWebview }: V
   }, [canvasView.current]);
 
   function forcePreviewContent() {
-    if (!webviewRef.current) return;
+    if (!hostRef.current) return;
 
     try {
-      const webview = webviewRef.current;
-
-      // 1. First make sure all security attributes are set
-      webview.setAttribute('disablewebsecurity', 'true');
-      webview.setAttribute('allowpopups', 'true');
+      const webview = hostRef.current;
 
       // 2. Get current route from the canvas
       const port = process.env.XGENIAPORT || 8574;
@@ -214,7 +216,7 @@ export function VisualCanvas({ onWebView, deviceName, zoom, onReloadWebview }: V
     }
   }
 
-  function loadFallbackIframe(webview) {
+  function loadFallbackIframe(webview: PreviewHost) {
     console.log('[VisualCanvas] loadFallbackIframe called - using about:blank to avoid ERR_ABORTED');
 
     // Use about:blank instead of data URI to avoid ERR_ABORTED
@@ -230,6 +232,28 @@ export function VisualCanvas({ onWebView, deviceName, zoom, onReloadWebview }: V
     return () => clearTimeout(timer);
   }, [preloadKey]); // Re-run when webview is recreated
 
+  // The webview's visual box, expressed relative to .WebviewContainer (its positioned
+  // parent). getBoundingClientRect() on a CSS-transformed element returns the VISUAL
+  // box, which is what the handles have to sit on — the container is a centering flex
+  // box that is normally much larger than the frame.
+  const frameRect =
+    webviewBounds && containerBounds && webviewBounds.width > 0
+      ? {
+        left: webviewBounds.left - containerBounds.left,
+        top: webviewBounds.top - containerBounds.top,
+        width: webviewBounds.width,
+        height: webviewBounds.height
+      }
+      : null;
+
+  // The scale that maps pointer pixels onto device pixels. NOT the `zoom` prop:
+  // CanvasView.renderReact() passes `this.zoomFactor` (the user's content zoom, applied
+  // via webview.setZoomFactor, which does not change the element's box), while the
+  // element is transformed by the fitScale that updateViewportSize() writes to
+  // `this.props.zoom` — a value nothing forwards to this component. Measuring the
+  // visual box against the device width gives that fitScale directly.
+  const frameScale = frameRect && viewportWidth > 0 ? frameRect.width / viewportWidth : zoom;
+
   return (
     <div className={css.Background}>
       {showViewportSize && (
@@ -238,23 +262,33 @@ export function VisualCanvas({ onWebView, deviceName, zoom, onReloadWebview }: V
         )}x${Math.floor(webviewBounds.height)}px - ${Math.floor(zoom * 100)}%`}</div>
       )}
       <div className={css.WebviewContainer} style={style} ref={containerRef}>
-        <webview
+        {/* An in-process <iframe>, deliberately NOT a <webview>.
+            A <webview> is a separate renderer whose compositor surface the GPU process
+            stitches into ours every frame; on macOS 26 that stitch occasionally presents
+            the guest alone, unscaled, for a frame — the whole-window flash. Measured on a
+            120fps screen recording, 60s of scripted scrolling each: <webview> 1 flash,
+            the same content as an in-process <iframe> 0. The frame is painted by our own
+            renderer, and IframeViewer gives CanvasView and the AI tools the API the
+            <webview> had, preload included.
+            Security posture is unchanged from the <webview> it replaces — the editor
+            window already runs with webSecurity off and site isolation off, which is
+            also exactly what makes reaching into a cross-origin frame possible. The
+            preview has never had Node access and still does not. */}
+        <iframe
           key={preloadKey} // Force recreation when preload changes
           ref={webviewRef}
           className={css.Webview}
-          style={{ backgroundColor: 'white' }}
-          // Use attributes in a way that satisfies both TypeScript and React 19
-          // @ts-ignore - React 19 requires string "false" but TypeScript expects boolean
-          nodeintegration="false"
-          // @ts-ignore - React 19 requires string "true" but TypeScript expects boolean
-          disablewebsecurity="true"
-          // @ts-ignore - React 19 requires string "true" but TypeScript expects boolean
-          allowpopups="true"
-          // Set contextIsolation=true for security since nodeIntegration is false -- CHANGING TO FALSE
-          webpreferences="contextIsolation=false, webSecurity=false, enableRemoteModule=true"
-          // Preload to inject XgeniaEditorAPI into the preview content
-          preload={preloadPath}
-          suppressHydrationWarning={true}
+          title="Preview"
+          style={{ backgroundColor: 'white', border: 0 }}
+          allow="clipboard-read; clipboard-write; autoplay; fullscreen"
+        />
+
+        <FrameResizeHandles
+          width={viewportWidth}
+          height={viewportHeight}
+          scale={frameScale}
+          deviceName={deviceName}
+          rect={frameRect}
         />
       </div>
 

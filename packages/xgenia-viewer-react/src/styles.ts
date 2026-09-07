@@ -1,6 +1,10 @@
 import FontLoader from './fontloader';
 import type { GraphModel, NodeRegister, TSFixme } from './typings/global';
 
+// Weightless loadGoogleFont fetches only weight 400, so every bold render was
+// faux-bold. Request the full useful range up front.
+const DEFAULT_GOOGLE_FONT_WEIGHTS = '400,500,600,700,800,900';
+
 // Define NodeInstance interface to fix TypeScript errors
 interface NodeInstance {
   _inputs: Record<string, { type: string }>;
@@ -93,7 +97,7 @@ export default class Styles {
           }
         } else if (family && !(FontLoader as any).instance.loadedFontFamilies[family]) {
           // Non-file font that isn't already loaded — try as Google Font
-          (FontLoader as any).instance.loadGoogleFont(family);
+          (FontLoader as any).instance.loadGoogleFont(family, DEFAULT_GOOGLE_FONT_WEIGHTS);
         }
       });
 

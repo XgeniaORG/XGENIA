@@ -40,7 +40,9 @@ export function NodeReferencesPanel() {
     }
 
     if (x.type instanceof BasicNodeType) {
-      if (x.type.displayName.toLowerCase().includes(searchTerm)) return;
+      // Returned `undefined` here, so matching on the node type's display name
+      // always fell through to `return false` and this branch was dead.
+      if (x.type.displayName.toLowerCase().includes(searchTerm)) return true;
     }
 
     return false;

@@ -126,23 +126,18 @@
   }
 }
 
-.loadingContainer {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--theme-spacing-md);
-  height: 200px;
-  text-align: center;
-}
-
-.errorContainer {
+// The states shown INSTEAD of the board: checking the plan, blocked on a free
+// plan, or unable to reach the entitlements server. Fills the panel so none of
+// them read as a half-loaded board.
+.stateContainer {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: var(--theme-spacing-sm);
-  height: 200px;
-  text-align: center;
+  height: 100%;
+  width: 100%;
   padding: var(--theme-spacing-lg);
-} 
+  text-align: center;
+  background-color: var(--theme-color-bg-default);
+}

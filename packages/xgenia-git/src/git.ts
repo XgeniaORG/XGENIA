@@ -174,19 +174,26 @@ export class Git {
   /**
    *
    * @param message
+   * @param options.amend Rewrite the commit at HEAD instead of creating a new one.
+   *                      Amending is allowed without local changes, it can be a
+   *                      message only change.
    * @returns Commit SHA
    */
-  async commit(message: string): Promise<string> {
+  async commit(message: string, options?: { amend?: boolean }): Promise<string> {
+    const amend = options?.amend === true;
+
     // Cannot commit when there are no changes
-    const status = await this.status();
-    if (status.length === 0) throw new Error('Cannot commit without any local changes.');
+    if (!amend) {
+      const status = await this.status();
+      if (status.length === 0) throw new Error('Cannot commit without any local changes.');
+    }
 
     // Stage all changes, and untracked files
     // NOTE: This can be done with the commit command
     await addAll(this.baseDir);
 
     // Commit the changes
-    return await createCommit(this.baseDir, message);
+    return await createCommit(this.baseDir, message, amend);
   }
 
   /**
@@ -922,14 +929,18 @@ export class Git {
 
     const url = remoteUrl?.trim();
 
+    // Keep the cached origin in sync in both paths. Without this, adding the very
+    // first remote left Provider at 'none' until the next fetch, which hid every
+    // provider specific action in the UI (e.g. the GitHub links).
+    this.originUrl = url;
+    this.originProvider = this.getProviderForRemote(url);
+
     //if there's no existing remote, add one called origin
     if (!remoteName) {
       await addRemote(this.repositoryPath, 'origin', url);
       return;
     }
 
-    this.originUrl = url;
-    this.originProvider = this.getProviderForRemote(url);
     await setRemoteURL(this.repositoryPath, remoteName, url);
   }
 

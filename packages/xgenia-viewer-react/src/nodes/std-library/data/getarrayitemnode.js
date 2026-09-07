@@ -221,7 +221,6 @@ const GetArrayItemNode = {
         this.flagOutputDirty('value');
         this.flagOutputDirty('objectId');
         this.flagOutputDirty('keyPath');
-        this.sendSignalOnOutput('Done');
       } catch (error) {
         this._internal.lastError = error.message;
         this._internal.result = null;
@@ -231,6 +230,8 @@ const GetArrayItemNode = {
         this.flagOutputDirty('keyPath');
         this.sendSignalOnOutput('failure');
         console.error('Get Object from Array Node calculation error:', error.message);
+      } finally {
+        this.sendSignalOnOutput('Done');
       }
     }
   }

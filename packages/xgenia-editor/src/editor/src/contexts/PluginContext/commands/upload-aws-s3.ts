@@ -1,4 +1,3 @@
-import { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { filesystem, platform } from '@xgenia/platform';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -186,6 +185,18 @@ async function uploadDirectory(
   },
   progressCallback: (args: { progress: number; total: number }) => void
 ): Promise<void> {
+  // Loaded here rather than imported at the top of the file.
+  //
+  // 2026-08-12 perf audit: `@aws-sdk/client-s3` and the `@smithy`/`@aws-crypto`
+  // packages behind it account for roughly 500 modules of the editor's startup
+  // bundle, and this is the ONLY file in the editor that touches any of them —
+  // for a deploy that most sessions never perform. The renderer already ships
+  // several hundred async chunks, so this costs one `await` on a path that is
+  // already asynchronous and already waiting on a full project build.
+  const { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectCommand } = await import(
+    '@aws-sdk/client-s3'
+  );
+
   // Create S3 client
   const s3Client = new S3Client({
     region: options.region,

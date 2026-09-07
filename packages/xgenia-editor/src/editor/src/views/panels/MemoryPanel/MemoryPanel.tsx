@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ipcRenderer } from 'electron';
 
+import { usePanelActive } from '../useIsActivePanel';
+
 type RendererMemAPI = {
   start: () => void;
   stop: () => void;
@@ -27,13 +29,18 @@ function humanBytes(n?: number) {
 
 export function MemoryPanel() {
   const api = getAPI();
+  const isActive = usePanelActive();
   const [tick, setTick] = useState(0);
   const [running, setRunning] = useState<boolean>(false);
 
+  // Only while the panel is actually on screen. SidePanel keeps every opened
+  // panel mounted, so this used to re-render a hidden memory readout every 1.5
+  // seconds for the rest of the session — a profiler that costs what it measures.
   useEffect(() => {
+    if (!isActive) return;
     const id = setInterval(() => setTick((x) => x + 1), 1500);
     return () => clearInterval(id);
-  }, []);
+  }, [isActive]);
 
   useEffect(() => {
     // probe running by checking the actual profiler state

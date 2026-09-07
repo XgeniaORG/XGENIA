@@ -27,6 +27,22 @@ const hasAgentNodes = hasPrivateDir && fs.existsSync(agentNodesSrcPath);
 
 // Build alias object conditionally
 const alias = {};
+
+// The installed pixi.js build ships an `exports` map that advertises a
+// ./lib/index.mjs target for the "import" condition, but that file doesn't
+// actually exist on disk (only the CJS lib/*.js build is present). Any ESM
+// `import ... from 'pixi.js'` (spine-pixi-v8, pro-nodes pixi components)
+// hits that dangling target and fails to resolve. Alias the bare specifier
+// straight to the real CJS entry to sidestep the broken exports map.
+try {
+  // require.resolve (CJS context) hits the "require" condition, which
+  // correctly points at lib/index.js - unlike the "import" condition's
+  // dangling lib/index.mjs target.
+  alias['pixi.js$'] = require.resolve('pixi.js');
+} catch {
+  // pixi.js not installed - nothing to alias
+}
+
 if (hasProNodes) {
   // Always use src instead of dist to avoid broken import paths
   // The source files have correct relative paths that webpack can resolve
@@ -113,9 +129,13 @@ module.exports = {
         /^\.\.\/\.\.\/nodes\/pixi\/utils\/filterUtils$/,
         path.join(projectRoot, 'private', 'xgenia-pro-nodes', 'src', 'pixi', 'nodes', 'utils', 'filterUtils.js')
       ),
-      // Deduplicate: redirect pro-nodes fontloader to the canonical viewer fontloader
+      // Deduplicate: redirect pro-nodes fontloader to the canonical viewer fontloader.
+      // Matches src/ AND dist/: the alias above prefers src, but hasProNodes is satisfied by
+      // dist/index.js alone, and pro-nodes' own `main` is dist/index.js — so a resolve that
+      // arrives through the package entry rather than the alias must land on the canonical
+      // file too, not on the babel-compiled copy.
       new NormalModuleReplacementPlugin(
-        /xgenia-pro-nodes\/src\/utils\/fontloader(\.js)?$/,
+        /xgenia-pro-nodes[\\/](src|dist)[\\/]utils[\\/]fontloader(\.js)?$/,
         path.join(__dirname, '..', 'src', 'fontloader.js')
       )
     ] : [])

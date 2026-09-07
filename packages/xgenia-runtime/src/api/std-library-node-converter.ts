@@ -507,54 +507,62 @@ const ${functionName} = (inputs: Record<string, any>) => {
   }
 
   /**
-   * Convert Counter node
+   * Convert Counter node.
+   *
+   * The generated function was written against ports the node does not have.
+   * The real node (nodes/std-library/counter.js) takes `increase` / `decrease` /
+   * `reset` signals plus `startValue` and the `limits*` group, and outputs
+   * `currentCount` / `countChanged` — this emitted `increment` / `decrement` /
+   * `setValue` and returned `count` / `changed` / `reachedMax` / `reachedMin`.
+   * Not one name lined up, so a compiled Counter read nothing from its wires and
+   * every downstream read of `currentCount` was undefined. No deployed component
+   * used one (0 of the 128 live on 2026-09-03), which is why it went unnoticed.
+   *
+   * It also declared itself stateful while starting from `startValue` on every
+   * call. It now carries `currentCount` through the `ctx.state.__nodes` channel
+   * (see STATE_CHANNEL_NODE_TYPES in supabase-converter.ts), which makes it the
+   * game-type-agnostic accumulator: a pot, a meter, a streak, a rolling count.
+   *
+   * The compiled script has no signal engine — every node's function runs once
+   * per round — so a signal input is read as "did this fire this round", which
+   * is the same translation the slot converter applies to its `reset` ports.
    */
   private convertCounterNode(node: Node, functionName: string): StdLibraryNodeResult {
     return {
       functionName,
       functionDefinition: `
 const ${functionName} = (inputs: Record<string, any>) => {
-  const { increment, decrement, reset, setValue, startValue } = inputs;
-  
-  // Counter node logic - counting operations
-  let count = startValue || 0;
-  let changed = false;
-  let reachedMax = false;
-  let reachedMin = false;
-  
-  if (increment) {
-    count++;
-    changed = true;
-  }
-  
-  if (decrement) {
-    count--;
-    changed = true;
-  }
-  
+  const { increase, decrease, reset, startValue, limitsEnabled, limitsMin, limitsMax } = inputs;
+
+  const start = Number(startValue) || 0;
+  const min = Number(limitsMin) || 0;
+  const max = Number(limitsMax) || 0;
+  const limited = !!limitsEnabled;
+
+  // Resume where the previous round left off. Absent state (round 1, or a
+  // caller that does not persist state) starts from startValue.
+  const prior = inputs.state && typeof inputs.state === 'object' ? inputs.state : {};
+  let currentCount = typeof prior.currentCount === 'number' ? prior.currentCount : start;
+  let countChanged = false;
+
   if (reset) {
-    count = startValue || 0;
-    changed = true;
+    currentCount = start;
+    countChanged = true;
   }
-  
-  if (setValue !== undefined) {
-    count = setValue;
-    changed = true;
+  if (increase && !(limited && currentCount >= max)) {
+    currentCount++;
+    countChanged = true;
   }
-  
-  // Check limits (assuming max: 1000, min: -1000 for cloud functions)
-  if (count >= 1000) {
-    reachedMax = true;
+  if (decrease && !(limited && currentCount <= min)) {
+    currentCount--;
+    countChanged = true;
   }
-  if (count <= -1000) {
-    reachedMin = true;
-  }
-  
-  return { count, changed, reachedMax, reachedMin };
+
+  return { currentCount, countChanged, updatedState: { currentCount } };
 };`,
-      inputMapping: 'increment, decrement, reset, setValue, startValue',
-      outputMapping: 'count, changed, reachedMax, reachedMin',
-      calculationLogic: 'Counting operations with increment/decrement/reset',
+      inputMapping: 'increase, decrease, reset, startValue, limitsEnabled, limitsMin, limitsMax',
+      outputMapping: 'currentCount, countChanged',
+      calculationLogic: 'Counting operations with increase/decrease/reset, persisted across rounds',
       nodeType: 'Counter',
       isStateful: true
     };
@@ -2256,9 +2264,9 @@ const ${functionName} = (inputs) => {
       },
       Counter: {
         nodeType: 'Counter',
-        inputPorts: ['increment', 'decrement', 'reset', 'setValue', 'startValue'],
-        outputPorts: ['count', 'changed', 'reachedMax', 'reachedMin'],
-        defaultValues: { startValue: 0 },
+        inputPorts: ['increase', 'decrease', 'reset', 'startValue', 'limitsEnabled', 'limitsMin', 'limitsMax'],
+        outputPorts: ['currentCount', 'countChanged'],
+        defaultValues: { startValue: 0, limitsEnabled: false, limitsMin: 0, limitsMax: 0 },
         calculationMethod: 'counting',
         isStateful: true,
         category: 'utility'

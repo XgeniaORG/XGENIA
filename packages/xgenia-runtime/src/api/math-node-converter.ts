@@ -6,6 +6,7 @@
  */
 
 import { Node } from './types';
+import { EVALUATE_FORMULA_JS } from './formula-eval-emit';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -670,45 +671,25 @@ export class MathCalculationGenerator {
   // FORMULA OPERATIONS
   // ============================================================================
 
+  // 2026-07-10 (trace 1783634013326): these two used to emit eval(mathFormula.replace(/x/g, v))
+  // — DOUBLY broken in the RGS: (1) sanitizeForSandbox replaced the eval with 0, so every
+  // formula evaluated to 0 in the uploaded bundle; (2) `const result` was declared INSIDE the
+  // try{} while the wrapper's `return { result }` reads it OUTSIDE → ReferenceError. (The
+  // textual x-substitution also corrupted formulas containing 'x' in names, e.g. exp → e0p.)
+  // Both now delegate to the ONE shared no-eval evaluator (formula-eval-emit, parity-locked).
   private static generateSPFLogic(): string {
     return `
-      try {
-        // Simple formula evaluation (for Edge Functions)
-        const result = eval(mathFormula.replace(/x/g, parameterValue));
-        
-        if (typeof result !== 'number') {
-          throw new Error('Formula must evaluate to a number');
-        }
-        
-        if (!isFinite(result)) {
-          throw new Error('Formula produced non-finite value');
-        }
-      } catch (error: any) {
-        throw new Error('Formula evaluation error: ' + error.message);
-      }`;
+      ${EVALUATE_FORMULA_JS}
+      const result = evaluateFormula(mathFormula, Number(parameterValue));`;
   }
 
   private static generateMFAGLogic(): string {
     return `
-      try {
-        const length = Math.max(1, Math.min(arrayLength, 1000)); // Limit to 1000 items
-        const items = [];
-        
-        for (let i = 0; i < length; i++) {
-          const result = eval(mathFormula.replace(/x/g, i));
-          
-          if (typeof result !== 'number') {
-            throw new Error('Formula must evaluate to a number');
-          }
-          
-          if (!isFinite(result)) {
-            throw new Error('Formula produced non-finite value');
-          }
-          
-          items.push(result);
-        }
-      } catch (error: any) {
-        throw new Error('Formula evaluation error: ' + error.message);
+      ${EVALUATE_FORMULA_JS}
+      const length = Math.max(1, Math.min(Number(arrayLength) || 0, 1000)); // Limit to 1000 items
+      const items = [];
+      for (let i = 0; i < length; i++) {
+        items.push(evaluateFormula(mathFormula, i));
       }`;
   }
 }
@@ -742,8 +723,17 @@ export class MathNodeConverter {
     // Merge default values with node parameters
     const mergedDefaults = { ...config.defaultValues, ...node.parameters };
 
+    // Scalar-arithmetic nodes take plain numbers. The runtime nodes coerce their
+    // inputs via Number() (validateNumberInput), so the generated logic must too —
+    // otherwise a UI text field feeding "5" makes Addition do "5"+"3" = "53".
+    // Array / RNG / formula nodes are excluded (their inputs aren't plain numbers).
+    const numericScalarNodes = new Set<string>([
+      'Addition', 'Subtraction', 'Multiplication', 'Division', 'Modulo',
+      'Min', 'Max', 'Round', 'Floor', 'Ceil', 'Less Than Or Equal', 'Equal'
+    ]);
+
     // Generate input parameter mapping
-    const inputMapping = this.generateInputMapping(config.inputPorts, mergedDefaults);
+    const inputMapping = this.generateInputMapping(config.inputPorts, mergedDefaults, numericScalarNodes.has(nodeType));
 
     // Generate the core calculation logic
     const calculationLogic = MathCalculationGenerator.generateCalculationLogic(nodeType);
@@ -772,12 +762,17 @@ export class MathNodeConverter {
   /**
    * Generate input parameter mapping
    */
-  private generateInputMapping(inputPorts: string[], defaultValues: Record<string, any>): string {
+  private generateInputMapping(
+    inputPorts: string[],
+    defaultValues: Record<string, any>,
+    coerceNumeric = false
+  ): string {
     return inputPorts
       .map((port) => {
         const sanitizedPort = this.sanitizeParameterName(port);
         const defaultValue = this.formatDefaultValue(defaultValues[port]);
-        return `const ${port} = inputs.${sanitizedPort} !== undefined ? inputs.${sanitizedPort} : ${defaultValue};`;
+        const read = coerceNumeric ? `Number(inputs.${sanitizedPort})` : `inputs.${sanitizedPort}`;
+        return `const ${port} = inputs.${sanitizedPort} !== undefined ? ${read} : ${defaultValue};`;
       })
       .join('\n      ');
   }

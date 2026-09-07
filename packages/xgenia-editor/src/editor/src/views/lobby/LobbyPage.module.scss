@@ -1,0 +1,133 @@
+// The page. A bar, a scroller, and a ground that takes its colour from the artwork.
+
+.Root {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--theme-color-bg-1);
+  overflow: hidden;
+}
+
+// The tinted ground, sampled from the hero's cover art at runtime (models/lobby/lobbyTint.ts).
+// Behind everything, non-interactive, and falling back to the editor's own ambient backdrop when
+// there is no artwork to sample.
+.Ground {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: var(--lobby-tint);
+  pointer-events: none;
+  transition: background 600ms ease;
+}
+
+.Scroll {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  // The sticky group headers stop against the bar rather than the top of this box.
+  scroll-padding-top: 34px;
+}
+
+.Content {
+  padding: 22px var(--lobby-pad) 0;
+  display: flex;
+  flex-direction: column;
+}
+
+// The hero folds into a pill in the bar as the page scrolls. Scaling from the top edge rather
+// than animating height keeps this on the compositor.
+.HeroWrap {
+  flex: none;
+  transform-origin: top center;
+  transition:
+    transform 420ms var(--lobby-ease),
+    opacity 300ms ease,
+    margin-bottom 420ms var(--lobby-ease);
+}
+
+.HeroFolded {
+  transform: scaleY(0.82) translateY(-14px);
+  opacity: 0;
+  // Pulled up by its own height so the grid rises to meet the bar instead of leaving a hole.
+  margin-bottom: -248px;
+  pointer-events: none;
+}
+
+// Density is one number. S/M/L retune the minimum card width and the grid's column count
+// follows from `repeat(auto-fill, minmax(...))`.
+.Density_s {
+  --lobby-card-min: 208px;
+  --lobby-gap: 12px;
+}
+
+.Density_m {
+  --lobby-card-min: 280px;
+  --lobby-gap: 16px;
+}
+
+.Density_l {
+  --lobby-card-min: 380px;
+  --lobby-gap: 20px;
+}
+
+.Loading {
+  padding: 60px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--theme-color-fg-default-shy);
+}
+
+// Covers the whole page while a folder is over it: the target is the window, not a strip, so
+// there is nothing to aim at.
+.DropZone {
+  position: absolute;
+  inset: calc(var(--topbar-height) + 12px) 12px 12px;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 24px;
+  text-align: center;
+  border-radius: 16px;
+  border: 1.5px dashed rgba(52, 211, 153, 0.55);
+  background: rgba(52, 211, 153, 0.06);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+
+  b {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--theme-color-fg-default);
+  }
+
+  span {
+    font-size: 12px;
+    color: var(--theme-color-fg-default-shy);
+  }
+}
+
+.DropIcon {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: rgba(52, 211, 153, 0.16);
+  color: var(--theme-color-publish);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .Ground,
+  .HeroWrap {
+    transition: none;
+  }
+}

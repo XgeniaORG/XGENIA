@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { ConsoleColor, attachStdio } from './utils/process';
+import { getPidsOnPort, killPid } from './utils/ports';
 
 // Constants
 // Use realpath to normalize drive/folder casing on Windows to avoid mixed-case module paths in webpack
@@ -39,26 +40,25 @@ let editorProcess: ReturnType<typeof attachStdio> | null = null;
 
 // Port check and kill if needed
 function killPort(port: number) {
-  const { execSync } = require('child_process');
-  try {
-    const result = execSync(`lsof -ti tcp:${port}`);
-    if (result.length > 0) {
-      const pid = result.toString().trim();
-      console.log(`> Port ${port} is in use. Killing process ${pid}...`);
-      execSync(`kill -9 ${pid}`);
-    }
-  } catch (err) {
+  const pids = getPidsOnPort(port);
+  if (pids.length === 0) {
     console.log(`> Port ${port} is free.`);
+    return;
   }
+  console.log(`> Port ${port} is in use. Killing process ${pids.join(', ')}...`);
+  pids.forEach(killPid);
 }
 
 // Cleanup handler
 function cleanUpAndExit(code = 0) {
   console.log('\n> Cleaning up child processes...');
-  if (cloudRuntimeProcess) cloudRuntimeProcess.kill();
-  if (mcpProxyProcess) mcpProxyProcess.kill();
-  if (editorProcess) editorProcess.kill();
-  // if (deepSearchProcess) deepSearchProcess.kill();
+  for (const proc of [cloudRuntimeProcess, mcpProxyProcess, editorProcess]) {
+    if (!proc?.pid) continue;
+    // On Windows proc.kill() only kills the shell, orphaning the actual
+    // server underneath it — kill the whole tree instead.
+    if (process.platform === 'win32') killPid(proc.pid);
+    else proc.kill();
+  }
   process.exit(code);
 }
 

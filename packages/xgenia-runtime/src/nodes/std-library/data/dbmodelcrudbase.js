@@ -10,6 +10,11 @@ function _addBaseInfo(def, opts) {
   Object.assign(def.node, {
     category: 'Data',
     color: 'data',
+    // Every cloud-DB CRUD node built on this base (Create/Update/Delete Record,
+    // Add/Remove Relation) does its work through CloudStore — the backend's
+    // Supabase client — so it is never compiled into a generated backend edge
+    // function and carries no `isMath` deployment toggle. See nodelibraryexport.js.
+    usesBackendServices: true,
     inputs: def.node.inputs || {},
     outputs: def.node.outputs || {},
     methods: def.node.methods || {}

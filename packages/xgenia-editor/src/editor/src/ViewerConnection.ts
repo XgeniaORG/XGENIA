@@ -184,6 +184,10 @@ export class ViewerConnection extends Model {
     } else if (request.cmd === 'runtimeEvalResult' && request.type === 'viewer') {
       // Dispatch the runtime eval result so tools can await it
       EventDispatcher.instance.emit('Viewer.runtimeEvalResult', request);
+    } else if (request.cmd === 'triggerSignalResult' && request.type === 'viewer') {
+      // Same contract as the eval result: the tool that fired the signal waits
+      // for this before it is allowed to say anything happened.
+      EventDispatcher.instance.emit('Viewer.triggerSignalResult', request);
     } else {
       console.log('Unknown request');
       console.log(request);
@@ -313,12 +317,16 @@ export class ViewerConnection extends Model {
    * 🔧 AI Signal Simulation - Trigger a signal on a runtime node
    * Used by simulate_signal tool for runtime testing
    */
-  sendTriggerSignal(nodeId: string, portName: string, data?: any, isInput?: boolean) {
-    console.log('[ViewerConnection] Sending triggerSignal:', { nodeId, portName, data, isInput });
+  sendTriggerSignal(nodeId: string, portName: string, data?: any, isInput?: boolean, id?: string) {
+    console.log('[ViewerConnection] Sending triggerSignal:', { nodeId, portName, data, isInput, id });
     this.send({
       cmd: 'triggerSignal',
-      content: JSON.stringify({ nodeId, portName, data, isInput: !!isInput })
+      id,
+      content: JSON.stringify({ nodeId, portName, data, isInput: !!isInput, id })
     });
+    // Deliberately does NOT say "triggered". All that has happened here is that
+    // a message left the editor; whether any node received it comes back on
+    // `Viewer.triggerSignalResult`.
     console.log('[ViewerConnection] triggerSignal sent');
   }
 

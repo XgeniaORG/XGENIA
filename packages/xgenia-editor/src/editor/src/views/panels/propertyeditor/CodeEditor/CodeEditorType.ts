@@ -15,6 +15,18 @@ import { Property, PropertyProps } from './Property';
 const CodeEditor = require('./CodeEditor').CodeEditor;
 
 /**
+ * Two code values that only differ in layout are the same code. Template
+ * literals carry their own whitespace, so those are compared verbatim — this
+ * mirrors normalizeWhitespace() in the runtime's nodescript.js.
+ */
+function isSameCode(a: unknown, b: unknown): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return a === b;
+  if (a === b) return true;
+  if (a.indexOf('`') !== -1 || b.indexOf('`') !== -1) return false;
+  return a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim();
+}
+
+/**
  * Collect more information for where the error occurred.
  */
 function parseStackTrace(stack: string) {
@@ -229,9 +241,16 @@ export class CodeEditorType extends TypeView {
       let source = _this.model.getValue();
       if (source === '') source = undefined;
 
+      // Storing a value that only differs from the default in layout is what
+      // makes a node carry a copy of its own definition for nothing — and for a
+      // Script property that copy is the whole node source. Same rule the
+      // runtime uses to decide "this is still the built-in implementation"
+      // (packages/xgenia-runtime/src/nodescript.js).
+      const isDefaultValue = source === undefined || isSameCode(source, _this.default);
+
       _this.value = source;
-      _this.parent.setParameter(scope.name, source !== _this.default ? source : undefined);
-      _this.isDefault = source === undefined;
+      _this.parent.setParameter(scope.name, isDefaultValue ? undefined : source);
+      _this.isDefault = isDefaultValue;
     }
 
     const node = this.parent.model.model;

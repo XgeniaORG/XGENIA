@@ -124,82 +124,84 @@ var CopyArrayNode = {
   },
   prototypeExtensions: {
     createCopy: function () {
-      const sourceCollection = this._internal.sourceCollection;
-      if (!sourceCollection) return;
+      try {
+        const sourceCollection = this._internal.sourceCollection;
+        if (!sourceCollection) return;
 
-      // Remove old listener if existing
-      if (this._internal.collection) {
-        this._internal.collection.off('change', this._internal.collectionChangedCallback);
-      }
-
-      // Create a new collection with a new ID
-      const newCollection = Collection.get();
-
-      // Extract items from source collection
-      let sourceItems = [];
-      if (sourceCollection instanceof Collection) {
-        // If source is a Collection, get its items
-        sourceItems = sourceCollection.items || [];
-      } else if (Array.isArray(sourceCollection)) {
-        // If source is an array, use it directly
-        sourceItems = sourceCollection;
-      } else {
-        // If source has items property, use that
-        sourceItems = sourceCollection.items || sourceCollection;
-        // If it's still not an array, wrap it in an array
-        if (!Array.isArray(sourceItems)) {
-          sourceItems = [sourceItems];
+        // Remove old listener if existing
+        if (this._internal.collection) {
+          this._internal.collection.off('change', this._internal.collectionChangedCallback);
         }
-      }
 
-      // Create new models with new IDs for each item
-      const newItems = sourceItems.map((item) => {
-        if (Model.instanceOf(item)) {
-          // If item is a Model, create a new Model with new ID and copy all data
-          const newModel = Model.get(); // Creates a new Model with unique ID
-          // Copy all data from the original model except the id
-          const originalData = item.toJSON();
-          for (const key in originalData) {
-            if (key !== 'id') {
-              // Skip the id as it's already set by Model.get()
-              newModel.set(key, originalData[key]);
-            }
-          }
-          return newModel;
-        } else if (typeof item === 'object' && item !== null) {
-          // If item is a plain object, create a new Model with the data
-          const newModel = Model.get(); // Creates a new Model with unique ID
-          for (const key in item) {
-            if (key !== 'id') {
-              // Skip any existing id property
-              newModel.set(key, item[key]);
-            }
-          }
-          return newModel;
+        // Create a new collection with a new ID
+        const newCollection = Collection.get();
+
+        // Extract items from source collection
+        let sourceItems = [];
+        if (sourceCollection instanceof Collection) {
+          // If source is a Collection, get its items
+          sourceItems = sourceCollection.items || [];
+        } else if (Array.isArray(sourceCollection)) {
+          // If source is an array, use it directly
+          sourceItems = sourceCollection;
         } else {
-          // For primitive values, wrap in a Model
-          const newModel = Model.get();
-          newModel.set('value', item);
-          return newModel;
+          // If source has items property, use that
+          sourceItems = sourceCollection.items || sourceCollection;
+          // If it's still not an array, wrap it in an array
+          if (!Array.isArray(sourceItems)) {
+            sourceItems = [sourceItems];
+          }
         }
-      });
 
-      // Set the new items in the collection
-      newCollection.set(newItems);
+        // Create new models with new IDs for each item
+        const newItems = sourceItems.map((item) => {
+          if (Model.instanceOf(item)) {
+            // If item is a Model, create a new Model with new ID and copy all data
+            const newModel = Model.get(); // Creates a new Model with unique ID
+            // Copy all data from the original model except the id
+            const originalData = item.toJSON();
+            for (const key in originalData) {
+              if (key !== 'id') {
+                // Skip the id as it's already set by Model.get()
+                newModel.set(key, originalData[key]);
+              }
+            }
+            return newModel;
+          } else if (typeof item === 'object' && item !== null) {
+            // If item is a plain object, create a new Model with the data
+            const newModel = Model.get(); // Creates a new Model with unique ID
+            for (const key in item) {
+              if (key !== 'id') {
+                // Skip any existing id property
+                newModel.set(key, item[key]);
+              }
+            }
+            return newModel;
+          } else {
+            // For primitive values, wrap in a Model
+            const newModel = Model.get();
+            newModel.set('value', item);
+            return newModel;
+          }
+        });
 
-      this._internal.collection = newCollection;
+        // Set the new items in the collection
+        newCollection.set(newItems);
 
-      // Add listener for changes to the new collection
-      newCollection.on('change', this._internal.collectionChangedCallback);
+        this._internal.collection = newCollection;
 
-      // Flag outputs as dirty
-      this.flagOutputDirty('id');
-      this.flagOutputDirty('items');
-      this.flagOutputDirty('firstItemId');
-      this.flagOutputDirty('count');
+        // Add listener for changes to the new collection
+        newCollection.on('change', this._internal.collectionChangedCallback);
 
-      // Send copied signal
-      this.sendSignalOnOutput('Done');
+        // Flag outputs as dirty
+        this.flagOutputDirty('id');
+        this.flagOutputDirty('items');
+        this.flagOutputDirty('firstItemId');
+        this.flagOutputDirty('count');
+      } finally {
+        // Send copied signal
+        this.sendSignalOnOutput('Done');
+      }
     },
     _onNodeDeleted: function () {
       Node.prototype._onNodeDeleted.call(this);

@@ -113,37 +113,40 @@ const ImportFromJsonFileNode = {
       displayName: 'Update',
       group: 'Control',
       valueChangedToTrue: function () {
-        const data = this._internal.jsonData;
-        if (data && typeof data === 'object') {
-          if (!Array.isArray(data)) {
-            try {
-              const keys = Object.keys(data);
-              this._internal.jsonKeys = keys;
-              const keysJson = JSON.stringify(keys);
+        try {
+          const data = this._internal.jsonData;
+          if (data && typeof data === 'object') {
+            if (!Array.isArray(data)) {
+              try {
+                const keys = Object.keys(data);
+                this._internal.jsonKeys = keys;
+                const keysJson = JSON.stringify(keys);
+                if (typeof this.setParameter === 'function') {
+                  this.setParameter('jsonKeys', keysJson);
+                } else if (this.model && typeof this.model.setParameter === 'function') {
+                  this.model.setParameter('jsonKeys', keysJson);
+                }
+              } catch (e) {
+                // ignore
+              }
+              this.createOutputsFromJson();
+              this.flagAllJsonOutputsDirty();
+            } else {
+              // For array payloads, clear key-based outputs
+              this._internal.jsonKeys = [];
+              const keysJson = '[]';
               if (typeof this.setParameter === 'function') {
                 this.setParameter('jsonKeys', keysJson);
               } else if (this.model && typeof this.model.setParameter === 'function') {
                 this.model.setParameter('jsonKeys', keysJson);
               }
-            } catch (e) {
-              // ignore
             }
-            this.createOutputsFromJson();
-            this.flagAllJsonOutputsDirty();
-          } else {
-            // For array payloads, clear key-based outputs
-            this._internal.jsonKeys = [];
-            const keysJson = '[]';
-            if (typeof this.setParameter === 'function') {
-              this.setParameter('jsonKeys', keysJson);
-            } else if (this.model && typeof this.model.setParameter === 'function') {
-              this.model.setParameter('jsonKeys', keysJson);
-            }
+            // Always flag the full data output
+            this.flagOutputDirty('data');
           }
-          // Always flag the full data output
-          this.flagOutputDirty('data');
+        } finally {
+          this.sendSignalOnOutput('Done');
         }
-        this.sendSignalOnOutput('Done');
       }
     }
   },

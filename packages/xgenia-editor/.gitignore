@@ -11,10 +11,22 @@ output/
 *.map
 
 # === SVGs ===
+# Blanket-ignored so generated/exported SVGs never land in git. Everything the
+# editor ships as a source asset has to be allow-listed below, or it silently
+# disappears on a fresh clone and renders as a broken image at runtime.
 *.svg
 src/**/*.svg
 # Allow icon asset SVGs
 !src/assets/icons/**/*.svg
+# Allow the rest of the static asset tree (tooltip illustrations, project-view
+# icons, bundled font fallbacks) — all copied verbatim to dist/src/assets.
+!src/assets/*.svg
+!src/assets/**/*.svg
+# Allow the viewer frame's toolbar chrome, served straight from its own folder.
+!src/frames/**/assets/**/*.svg
+# Allow the remaining static files referenced by editor pages.
+!src/editor/placeholder/*.svg
+!src/editor/parse-dashboard-public/**/*.svg
 
 # === Ignore auto-generated bundle files in src
 src/**/*.bundle.js

@@ -7,7 +7,7 @@ var Model = require('@xgenia/runtime/src/model'),
 
 var CollectionNode = {
   name: 'Collection',
-  docs: 'https://docsapp.xgenia.com/nodes/data/array',
+  docs: 'https://docsapp.xgenia.com/nodes/data/array/array-node',
   displayNodeName: 'Array',
   shortDesc: 'A collection of models, mainly used together with a For Each Node.',
   category: 'Data',

@@ -27,12 +27,15 @@ export function registerCommonActionPorts(nodeType) {
       return;
     }
     
-    // Common action ports for controls
+    // Common action ports for controls.
+    // (trace 1784998058885) Only `onClick` is a real control output. onDoubleClick/onMouseDown/
+    // onMouseUp were phantom — the runtime control source (viewer-react controls/utils.ts
+    // addControlEventsAndStates) never emits them as signals (they exist only as DOM handlers driving
+    // pressedState/pointerDown). Registering them here made the editor offer dead, never-firing wires.
+    // The real pointer/focus signals (hoverStart/hoverEnd/pointerDown/pointerUp/onFocus/onBlur) come
+    // from the node definition itself, so they are not re-added here.
     const commonPorts = [
-      { name: 'onClick', type: 'action', displayName: 'Click', group: 'Actions' },
-      { name: 'onDoubleClick', type: 'action', displayName: 'Double Click', group: 'Actions' },
-      { name: 'onMouseDown', type: 'action', displayName: 'Mouse Down', group: 'Actions' },
-      { name: 'onMouseUp', type: 'action', displayName: 'Mouse Up', group: 'Actions' }
+      { name: 'onClick', type: 'action', displayName: 'Click', group: 'Actions' }
     ];
     
     // Add ports if they don't exist already
@@ -74,12 +77,17 @@ export function registerDynamicPorts(node) {
       const type = nodeLibrary.getNodeTypeWithName(node.typename);
       
       if (type) {
-      // Text input specific ports
+      // Text input specific ports.
+      // (trace 1784998058885) The runtime control (viewer-react controls/text-input.ts) emits
+      // `textChanged` (not `onChange`) and exposes the text via `onTextChanged`/`startValue` —
+      // there is NO `onChange` or `value` port. Registering those made the editor offer dead,
+      // never-firing wires. onFocus/onBlur come from the node definition (addControlEventsAndStates)
+      // but re-declaring them here is harmless (the loop below dedupes by name).
       const textInputPorts = [
-        { name: 'onChange', type: 'action', displayName: 'Change', group: 'Actions' },
+        { name: 'textChanged', type: 'action', displayName: 'Text Changed', group: 'Actions' },
+        { name: 'onEnter', type: 'action', displayName: 'Enter', group: 'Actions' },
         { name: 'onFocus', type: 'action', displayName: 'Focus', group: 'Actions' },
-        { name: 'onBlur', type: 'action', displayName: 'Blur', group: 'Actions' },
-        { name: 'value', type: 'string', displayName: 'Value', group: 'Properties' }
+        { name: 'onBlur', type: 'action', displayName: 'Blur', group: 'Actions' }
       ];
       
       textInputPorts.forEach(port => {

@@ -31,6 +31,10 @@ export type GitStatus =
       progress?: number;
       message?: string;
     }
+  /** Both ahead and behind the remote: pull and then push, VS Code's "Sync Changes". */
+  | {
+      kind: 'sync';
+    }
   | {
       kind: 'push-repository';
     }
@@ -68,12 +72,45 @@ export interface IVersionControlContextFetch {
   createStashMessage: () => string;
 }
 
+/**
+ * The git commands the panel can run. Shared by every entry point (status
+ * button, panel action menu, commit button dropdown) so a command behaves the
+ * same no matter where it is triggered from.
+ */
+export interface IVersionControlActions {
+  /** Fetch from the remote and refresh the local state. */
+  refresh: () => Promise<void>;
+  /** Returns false when the pull was canceled or failed. */
+  pull: () => Promise<boolean>;
+  /** Returns false when the push failed. */
+  push: () => Promise<boolean>;
+  /** Pull, then push. */
+  sync: () => Promise<void>;
+  commit: (options?: { amend?: boolean; thenPush?: boolean; thenSync?: boolean }) => Promise<void>;
+  stashChanges: () => Promise<void>;
+  discardAllChanges: () => Promise<void>;
+  /** Apply a stash and remove it from the stash list. */
+  popStash: (stash: Stash) => Promise<void>;
+  dropStash: (stash: Stash) => Promise<void>;
+  /** True while a fetch, pull or push is running. */
+  isBusy: boolean;
+}
+
 export interface IVersionControlContext {
   git: Git;
   repositoryPath: string;
 
   activeTabId: string;
   setActiveTabId: (value: string) => void;
+
+  /**
+   * The commit message. Lives here, not in the changes tab, because the panel
+   * header can commit too (like VS Code's ✓ in the Source Control title bar).
+   */
+  commitMessage: string;
+  setCommitMessage: (value: string) => void;
+
+  actions: IVersionControlActions;
 
   selectedCommit: string;
   setSelectedCommit: (value: string) => void;

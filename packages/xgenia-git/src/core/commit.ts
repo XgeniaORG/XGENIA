@@ -43,15 +43,25 @@ export async function createCommit(
   // Parse the result where we want to get the short SHA
   const shortSha = parseCommitSHA(result);
 
-  // Try to get the long sha
-  // Problem here is that we might get something like "(root-commit)"
-  // in shortSha where we actually expect a short sha.
-  //
-  // This will occur on the first commit in the repository.
+  // 2026-06-09 (user-reported console error): on the FIRST commit in a
+  // repository, `git commit` outputs `[branch (root-commit) <sha>] msg`
+  // and the parseCommitSHA helper returns the literal "(root-commit)"
+  // token instead of the actual SHA. The original code then ran
+  // `git rev-parse (root-commit)` which exits 128 with:
+  //   fatal: ambiguous argument '(root-commit)': unknown revision
+  // The try/catch silently swallowed the rejection but the underlying
+  // git client still logged the unexpected exit code to console, which
+  // is what the user saw. Detect the sentinel and fall back to HEAD —
+  // immediately after the commit, HEAD points at the just-created
+  // commit, so rev-parse HEAD reliably returns the long SHA on any
+  // branch (root commit OR subsequent).
+  const isRootCommitSentinel = !shortSha || shortSha === "(root-commit)";
+  const revToResolve = isRootCommitSentinel ? "HEAD" : shortSha;
+
   try {
     // Retrieve the long sha since it's more reliable.
     const longShaResult = await git(
-      ["rev-parse", shortSha],
+      ["rev-parse", revToResolve],
       repositoryDir,
       "createCommit"
     );
@@ -60,8 +70,7 @@ export async function createCommit(
     return longSha;
   } catch (_e) {}
 
-  // If the previous call failed then we probably don't care about getting the
-  // long sha anyways. To feel better we should probably check this properly and
-  // actually return the correct value always.
+  // If even `rev-parse HEAD` failed (e.g. headless / broken repo state),
+  // give up gracefully and return null. Caller already handles null.
   return null;
 }

@@ -229,25 +229,33 @@
 }
 
 :root {
-  --popup-layer-tooltip-border-color: var(--theme-color-secondary);
-  --popup-layer-tooltip-background-color: var(--theme-color-secondary);
+  /* Tooltips used to be painted in --theme-color-secondary (teal-700, #005769) — a saturated
+     block of colour sitting on top of panels that are otherwise dark glass. Match the rest of
+     the editor's surfaces instead: same dark translucent fill and hairline as the property
+     dropdowns. The arrow reads as part of the surface, so it takes the fill, not the border. */
+  --popup-layer-tooltip-background-color: rgba(24, 24, 26, 0.96);
+  --popup-layer-tooltip-border-color: rgba(24, 24, 26, 0.96);
+  --popup-layer-tooltip-hairline-color: rgba(255, 255, 255, 0.1);
 }
 
 .popup-layer-tooltip {
   box-sizing: border-box;
-  font-weight: bold;
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 1.45;
   background-color: var(--popup-layer-tooltip-background-color);
-  border-radius: 2px;
-  border-color: var(--popup-layer-tooltip-border-color);
-  border-width: 1px;
-  padding: 12px 16px;
-  color: white;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 8px;
+  border: 1px solid var(--popup-layer-tooltip-hairline-color);
+  padding: 10px 12px;
+  color: rgba(255, 255, 255, 0.85);
   position: absolute;
   opacity: 0;
   -webkit-transition: opacity 0.3s;
   pointer-events: none;
   z-index: 2000;
-  box-shadow: -4px 4px 16px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
 .popup-layer-tooltip-content {
@@ -257,14 +265,15 @@
 
 /* These classes are sent in HTML from the viewer */
 .popup-layer-tooltip-content h3 {
-  font-weight: bold;
+  font-weight: 600;
   padding: 0;
   font-size: 12px;
+  color: #fff;
   margin: 0;
 }
 
 .popup-layer-tooltip-content p {
-  opacity: 0.75;
+  opacity: 0.7;
   margin: 4px 0 0 0;
   padding: 0;
   font-weight: normal;

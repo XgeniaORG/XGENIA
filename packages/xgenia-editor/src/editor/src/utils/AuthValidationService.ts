@@ -111,11 +111,14 @@ export class AuthValidationService {
     try {
       console.log('[AuthValidationService] Attempting online validation for user:', user.id);
       
-      // Try to validate user exists in database and is active
-      // If profiles table doesn't exist, we'll fall back to basic session validation
+      // Try to validate user exists in database and is active.
+      // If profiles table doesn't exist, we'll fall back to basic session validation.
+      // 2026-08-19: is_active / subscription_status / last_seen were dropped in the
+      // primora account rebuild (2026-08-04) — selecting them 400s on every launch.
+      // The account flag is `status` now; the tier lives in membership_level/plan.
       const { data: profile, error } = await supabase
         .from('profiles')
-        .select('id, is_active, subscription_status, last_seen')
+        .select('id, status, membership_level, plan')
         .eq('id', user.id)
         .single();
 
@@ -168,8 +171,11 @@ export class AuthValidationService {
         };
       }
 
-      // Check if is_active field exists before using it
-      if (profile.is_active !== undefined && profile.is_active === false) {
+      // Account state lives in `status` ('active' on healthy rows). Only force
+      // reauth on values that explicitly mean the account was shut off — an
+      // unknown or missing value must never log a working user out.
+      const accountStatus = String((profile as any).status ?? '').toLowerCase();
+      if (['inactive', 'suspended', 'disabled', 'deactivated', 'banned'].includes(accountStatus)) {
         console.warn('[AuthValidationService] User account deactivated, forcing reauth');
         await this.recordFailedValidation(validationState);
         return {
@@ -179,17 +185,6 @@ export class AuthValidationService {
           daysUntilExpiry: null,
           message: 'User account has been deactivated'
         };
-      }
-
-      // Update last seen timestamp (only if the field exists)
-      try {
-        await supabase
-          .from('profiles')
-          .update({ last_seen: new Date().toISOString() })
-          .eq('id', user.id);
-      } catch (updateError) {
-        console.warn('[AuthValidationService] Failed to update last_seen:', updateError);
-        // Don't fail validation for this error
       }
 
       await this.recordSuccessfulValidation();

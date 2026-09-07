@@ -1,7 +1,12 @@
 import { getAbsoluteUrl } from '@xgenia/runtime/src/utils';
+import { joinDimensionValue } from './dimension-value';
 
 import FontLoader from './fontloader';
 import { createTooltip } from './tooltips';
+
+// Weightless loadGoogleFont fetches only weight 400, so every bold render was
+// faux-bold. Request the full useful range up front.
+const DEFAULT_GOOGLE_FONT_WEIGHTS = '400,500,600,700,800,900';
 
 function addInputCss(definition, inputs) {
   if (!definition.inputCss) {
@@ -260,7 +265,7 @@ export default {
         },
         set(value) {
           if (!this.transforms) this.transforms = {};
-          this.transforms.x = value.value + value.unit;
+          this.transforms.x = joinDimensionValue(value);
           this.updateTransform();
         }
       },
@@ -277,7 +282,7 @@ export default {
         },
         set(value) {
           if (!this.transforms) this.transforms = {};
-          this.transforms.y = value.value + value.unit;
+          this.transforms.y = joinDimensionValue(value);
           this.updateTransform();
         }
       },
@@ -294,7 +299,7 @@ export default {
         },
         set(value) {
           if (!this.transforms) this.transforms = {};
-          this.transforms.rotation = value.value + value.unit;
+          this.transforms.rotation = joinDimensionValue(value);
           this.updateTransform();
         }
       },
@@ -325,7 +330,7 @@ export default {
         },
         default: '50',
         set(value) {
-          this.transformOriginX = value.value + value.unit;
+          this.transformOriginX = joinDimensionValue(value);
           this.updateTransformOrigin();
         }
       },
@@ -341,7 +346,7 @@ export default {
         },
         default: '50',
         set(value) {
-          this.transformOriginY = value.value + value.unit;
+          this.transformOriginY = joinDimensionValue(value);
           this.updateTransformOrigin();
         }
       }
@@ -708,7 +713,7 @@ export default {
           tab,
           set(value) {
             this._internal.borderRadius[radiusName] =
-              value.value === undefined ? Number(value) + 'px' : value.value + value.unit;
+              joinDimensionValue(value, 'px');
 
             this._updateCornerRadii();
           }
@@ -820,7 +825,7 @@ export default {
           tab,
           set(value) {
             this._internal.borders[widthName] =
-              value.value === undefined ? Number(value) + 'px' : value.value + value.unit;
+              joinDimensionValue(value, 'px');
             this._updateBorders();
           }
         },
@@ -924,7 +929,7 @@ export default {
         },
         allowVisualStates: true,
         set(value) {
-          this._internal.boxShadowOffsetX = value.value + value.unit;
+          this._internal.boxShadowOffsetX = joinDimensionValue(value);
           this._updateBoxShadow();
         }
       },
@@ -940,7 +945,7 @@ export default {
         },
         allowVisualStates: true,
         set(value) {
-          this._internal.boxShadowOffsetY = value.value + value.unit;
+          this._internal.boxShadowOffsetY = joinDimensionValue(value);
           this._updateBoxShadow();
         }
       },
@@ -956,7 +961,7 @@ export default {
         },
         allowVisualStates: true,
         set(value) {
-          this._internal.boxShadowBlurRadius = value.value + value.unit;
+          this._internal.boxShadowBlurRadius = joinDimensionValue(value);
           this._updateBoxShadow();
         }
       },
@@ -972,7 +977,7 @@ export default {
         },
         allowVisualStates: true,
         set(value) {
-          this._internal.boxShadowSpreadRadius = value.value + value.unit;
+          this._internal.boxShadowSpreadRadius = joinDimensionValue(value);
           this._updateBoxShadow();
         }
       },
@@ -1299,7 +1304,7 @@ export default {
               family = family.split('/').pop();
             } else if (!FontLoader.instance.loadedFontFamilies[family]) {
               // Non-file font that isn't already loaded — try as Google Font
-              FontLoader.instance.loadGoogleFont(family);
+              FontLoader.instance.loadGoogleFont(family, DEFAULT_GOOGLE_FONT_WEIGHTS);
             }
             this.setStyle({ fontFamily: family }, styleTag);
           } else {
@@ -1441,7 +1446,7 @@ export default {
             FontLoader.instance.loadFont(fontValue);
           } else if (!FontLoader.instance.loadedFontFamilies[fontValue]) {
             // Non-file, non-system font — load as Google Font
-            FontLoader.instance.loadGoogleFont(fontValue);
+            FontLoader.instance.loadGoogleFont(fontValue, DEFAULT_GOOGLE_FONT_WEIGHTS);
           }
         }
         node.on('parameterUpdated', function (event) {
@@ -1449,7 +1454,7 @@ export default {
             if (event.value.split('.').length > 1) {
               FontLoader.instance.loadFont(event.value);
             } else if (!FontLoader.instance.loadedFontFamilies[event.value]) {
-              FontLoader.instance.loadGoogleFont(event.value);
+              FontLoader.instance.loadGoogleFont(event.value, DEFAULT_GOOGLE_FONT_WEIGHTS);
             }
           }
         });

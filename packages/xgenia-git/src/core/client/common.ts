@@ -55,6 +55,21 @@ export function rejectLog(
     }
   }
 
-  console.error(errorMessage.join('\n'));
-  console.error(`Git returned an unexpected exit code '${exitCode}' which should be handled by the caller.'`);
+  // Callers wrap git() in try/catch and handle most of these (unborn HEAD,
+  // nothing to commit, no upstream...). Unconditional console.error here
+  // meant every HANDLED failure still spammed the console as a scary error
+  // — one such line (the rev-parse '(root-commit)' spam) produced a full
+  // user bug report despite the code working correctly. Keep the full
+  // detail at debug level always; reserve console.error for genuinely
+  // unexpected failures: exit codes >1 with no parsed git error. Exit code
+  // 1 is git's generic "expected" failure (query on unborn HEAD, no match,
+  // diff-with-changes) and parsed DugiteErrors are by definition known
+  // shapes the caller branches on.
+  const isExpectedShape = exitCode === 1 || gitError != null;
+  if (isExpectedShape) {
+    console.debug(errorMessage.join('\n'));
+  } else {
+    console.error(errorMessage.join('\n'));
+    console.error(`Git returned an unexpected exit code '${exitCode}' which should be handled by the caller.'`);
+  }
 }

@@ -123,10 +123,18 @@ EditorConnection.prototype.connect = function (address) {
       console.log('[EditorConnection] Received triggerSignal command:', message);
       content = JSON.parse(message.content);
       console.log('[EditorConnection] Parsed triggerSignal:', content);
+      // `isInput` and `id` have to survive this hop.
+      //
+      // They did not: the editor sent `isInput` correctly and it was dropped
+      // here, so the runtime could only ever fire OUTPUTS — asking a node to
+      // RECEIVE a signal silently asked it to emit one. And with no `id`, the
+      // runtime had nothing to answer to, so no failure could be reported back.
       self.emit('triggerSignal', {
         nodeId: content.nodeId,
         portName: content.portName,
-        data: content.data
+        data: content.data,
+        isInput: !!content.isInput,
+        id: message.id || content.id
       });
       console.log('[EditorConnection] Emitted triggerSignal event');
     } else if (message.cmd === 'runtimeEval') {

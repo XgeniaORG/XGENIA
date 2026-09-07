@@ -1,3 +1,37 @@
+// A DEAD STDOUT/STDERR PIPE MUST NOT KILL THE APP. Must be first — before any
+// require() can warn.
+//
+// (2026-08-02, user report) The editor died with the Electron crash dialog:
+//   Uncaught Exception: Error: write EPIPE
+//     at Writable.write → console.value → console.warn
+//     at IpcMainImpl.listener (src/floating-window.js:371)
+//
+// floating-window is not the bug, it is just the unlucky first writer. When the app is
+// launched from a terminal or npm script and that parent goes away, stdout/stderr become
+// broken pipes. Node reports a failed async write by THROWING on the process unless the
+// stream has an 'error' listener — so from that moment ANY console.warn / console.error
+// anywhere in the main process is a fatal crash. The block below noops log/debug/info and
+// deliberately keeps warn/error, which is exactly the set that can still reach the pipe.
+//
+// It surfaced during an AI-driven preview refresh because that is when the main process
+// warns in bursts, not because refreshing is special.
+//
+// Attaching an 'error' listener makes Node EMIT instead of THROW. Narrow on purpose: a
+// blanket process.on('uncaughtException') would also swallow real crashes and hide the
+// Electron dialog we actually want for those.
+for (const stream of [process.stdout, process.stderr]) {
+  try {
+    stream?.on?.('error', (err) => {
+      // EPIPE = the reader is gone. ERR_STREAM_DESTROYED / EBADF = same story, different
+      // race. Nothing to recover: the output has nowhere to go. Anything else is a real
+      // stream fault and is re-thrown on the next tick so it is not silently buried.
+      const code = err && (err.code || err.errno);
+      if (code === 'EPIPE' || code === 'ERR_STREAM_DESTROYED' || code === 'EBADF') return;
+      setImmediate(() => { throw err; });
+    });
+  } catch { /* a stream with no .on (rare packaging case) simply cannot be guarded */ }
+}
+
 // Disable console.log globally - must be first!
 const DISABLE_CONSOLE_LOGS = true;
 if (DISABLE_CONSOLE_LOGS) {
@@ -13,6 +47,31 @@ const electron = require('electron');
 const { app, dialog } = electron;
 const fs = require('fs');
 const path = require('path');
+
+// Linux: Electron derives the X11 WM_CLASS from app.getName(), and the desktop shell uses
+// WM_CLASS to attribute the window to an installed application — that is what decides
+// whether the dock shows our logo or a generic gear (see src/linux-desktop-entry.js).
+// A dev launch is `electron dev-main.js`, so Electron never reads our package.json and
+// the name stays the default "Electron": the window announced itself as ("electron",
+// "Electron"), matched nothing, and got the gear.
+//
+// Two things have to be pinned BEFORE renaming, because both are derived from the name
+// and both silently change under it:
+//   userData — app.getPath('userData') is <appData>/<name>, so the rename alone would move
+//     dev state from ~/.config/Electron to ~/.config/XGENIA, where a packaged build's own
+//     (much older) settings live.
+//   version — measured on Electron 31: setName() drops app.getVersion() from "31.3.1" to
+//     "0.0", and "0.0" is not semver, so electron-updater THROWS while
+//     src/autoupdater.js is still being required and the editor never boots.
+//
+// 'XGENIA' is package.json `productName`; electron-builder bakes the same string into the
+// .deb's StartupWMClass, so the two must not drift.
+if (process.platform === 'linux' && app.getName() !== 'XGENIA') {
+  app.setPath('userData', app.getPath('userData'));
+  app.setVersion(app.getVersion());
+  app.setName('XGENIA');
+}
+
 const axios = require('axios');
 // Ensure fetch is available in the main process (older Electron/Node may lack global fetch)
 try {
@@ -36,9 +95,15 @@ const DesignToolImportServer = require('./src/design-tool-import-server');
 const jsonstorage = require('../shared/utils/jsonstorage');
 const StorageApi = require('./src/StorageApi');
 const { getOAuthServer } = require('./src/oauth-callback-server');
+const CrashTelemetry = require('./src/crash-telemetry');
+const MemoryTelemetry = require('./src/memory-telemetry');
+const { ensureLinuxDesktopEntry } = require('./src/linux-desktop-entry');
+
+// (debug-export 1783408275898) Local-only minidump collection + crash-log.jsonl.
+// Must start before any window is created so Crashpad covers all renderers.
+CrashTelemetry.start();
 
 const { handleProjectMerge } = require('./src/merge-driver');
-const promptHistoryManager = require('./src/PromptHistoryManager');
 
 //fixes problem with reloading the viewer when it's
 //running in a separate browser window (file:// cross origin warning)
@@ -56,6 +121,47 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 // when resolving npm workspace symlinks/junctions in node_modules
 app.commandLine.appendSwitch('--preserve-symlinks');
 app.commandLine.appendSwitch('--preserve-symlinks-main');
+
+// ─── GPU A/B for the intermittent full-window flash (2026-09-07) ─────────────
+//
+// SYMPTOM: the whole window flashes, showing other panels for a frame, then settles.
+// Reported on hover, on scroll, and while the chat streams — i.e. whenever the page is
+// producing frames — and never while it is idle.
+//
+// WHAT IS ALREADY RULED OUT, by measurement rather than by argument:
+//   - JavaScript. A 5s CPU profile of the idle lobby was 97.6% idle; a 259s profile of the
+//     chat panel mid-stream showed a median frame of 8.5ms (118Hz), p99 25ms, four spikes
+//     over 60ms in four minutes, and 433 mutation records total. Nothing is thrashing.
+//   - Layout and CSS. Disabling the card lift, the glow, the sheen, the image zoom, the
+//     glass and pre-promoting every layer changed nothing; only making every transition
+//     INSTANT helped, and scrolling still flashed afterwards.
+//   - Native `title` tooltips, and webpack's live reload (now off).
+//
+// WHAT IS LEFT: the compositor. This machine is an M5 on macOS 26 running Chromium 126
+// (Electron 31, mid-2024) through ANGLE Metal — a GPU and an OS both newer than the browser
+// drawing on them. This app has already been bitten once at exactly this layer: see the
+// VizDisplayCompositor note above, which produced multicoloured static across the whole app.
+//
+// So: an A/B the user can run in one command, rather than another guess in CSS.
+//   XGENIA_GPU_MODE=raster    CPU rasterisation, GPU compositing. Try this FIRST.
+//   XGENIA_GPU_MODE=angle-gl  OpenGL instead of Metal in ANGLE.
+//   XGENIA_GPU_MODE=software  no GPU compositing at all. Slow, and the strongest signal:
+//                             if it still flashes here, the compositor is NOT the cause.
+// Unset (the default) changes nothing.
+const gpuMode = process.env.XGENIA_GPU_MODE;
+if (gpuMode) {
+  console.log(`[Main Process] XGENIA_GPU_MODE=${gpuMode}`);
+  if (gpuMode === 'raster') {
+    app.commandLine.appendSwitch('disable-gpu-rasterization');
+  } else if (gpuMode === 'angle-gl') {
+    app.commandLine.appendSwitch('use-angle', 'gl');
+  } else if (gpuMode === 'software') {
+    app.commandLine.appendSwitch('disable-gpu-compositing');
+    app.disableHardwareAcceleration();
+  } else {
+    console.warn(`[Main Process] Unknown XGENIA_GPU_MODE "${gpuMode}" — expected raster, angle-gl or software. Ignoring.`);
+  }
+}
 
 // Enable Remote Debugging Protocol (CDP) for Playwright/MCP external agents
 app.commandLine.appendSwitch('remote-debugging-port', '9223');
@@ -190,7 +296,7 @@ function launchApp() {
     if (!gotTheLock) {
       console.log(`
 -------------------------------
-   XGENIA is already running.   
+   XGENIA is already running.
 -------------------------------
 
 `);
@@ -262,7 +368,12 @@ function launchApp() {
     try {
       // Some dependencies of @xgenia/mcp are ESM-only; avoid crashing main by lazily requiring
       // and falling back to renderer-side service when unavailable in main.
-      const mod = require('@xgenia/mcp');
+      // (2026-08-24) __non_webpack_require__: the package ships no dist/, so a static
+      // require() also made every editor build print "Module not found: @xgenia/mcp".
+      // Resolve at RUNTIME via Node's own require — same catch-guarded behavior,
+      // no build-time warning.
+      const _req = typeof __non_webpack_require__ === 'function' ? __non_webpack_require__ : require;
+      const mod = _req('@xgenia/mcp');
       mcpService = mod.sharedMCPService;
       console.log('[Main Process] Using dedicated MCP service in main');
     } catch (e) {
@@ -587,13 +698,6 @@ function launchApp() {
     });
     console.log("[Main Process] IPC handler for 'read-tools-project' registered (placeholder).");
 
-    // Prompt History Handlers
-    ipcMain.handle('history:savePrompt', (event, data) => promptHistoryManager.savePrompt(data));
-    ipcMain.handle('history:getHistory', () => promptHistoryManager.getPromptHistory());
-    ipcMain.handle('history:clearHistory', () => promptHistoryManager.clearPromptHistory());
-    ipcMain.handle('history:deletePrompt', (event, id) => promptHistoryManager.deletePrompt(id));
-    console.log("[Main Process] IPC handlers for Prompt History registered.");
-
     function projectGetSettings(callback) {
       makeEditorAPIRequest('projectGetSettings', undefined, callback);
     }
@@ -803,6 +907,11 @@ function launchApp() {
       win.webContents.on('did-finish-load', () => {
         // No longer clearing cache or reloading to avoid infinite reload loop
         console.log('[Main Process] Page loaded successfully');
+
+        // Chromium drops the zoom factor on every navigation/reload, so the
+        // user's chosen interface zoom has to be re-asserted here or it
+        // silently snaps back to 100% after a reload.
+        applyUiZoom(uiZoomFactor, { persist: false });
       });
 
       win.webContents.on('dom-ready', () => {
@@ -881,20 +990,37 @@ function launchApp() {
         }
       });
 
-      win.webContents.on('render-process-gone', (event, details) => {
-        if (details.reason === 'crashed') {
-          console.log('Editor window process crashed');
-          closeViewer();
+      win.webContents.on('render-process-gone', async (event, details) => {
+        // (debug-export 1783408275898) Persist reason/exitCode BEFORE any
+        // recovery. The 2026-07-07 crash left zero forensics: details was
+        // discarded, console.log is no-op'd in main, and no minidumps
+        // existed — the post-restart debug export had no crash evidence.
+        // Must be awaited: the dialog below is synchronous and blocks this
+        // process's event loop until dismissed, which starves the in-flight
+        // upload's fetch of any chance to complete — the report never made
+        // it out. Bounded to 5s by upload()'s own AbortSignal.timeout, so
+        // this can't hang the crash dialog indefinitely.
+        await CrashTelemetry.record('editor-window', details);
 
-          dialog.showMessageBoxSync({
-            message: 'Oh No! XGENIA has crashed :( Click OK to restart',
-            type: 'error'
-          });
-
-          win.close();
-          win = null;
-          reopenWindow = true;
+        // Recover from EVERY unexpected renderer death, not just the literal
+        // 'crashed' — the old check left the user staring at a dead window
+        // with no dialog and no restart on 'oom', 'abnormal-exit',
+        // 'launch-failed' and 'integrity-failure'.
+        if (!CrashTelemetry.isFatal(details.reason)) {
+          return;
         }
+
+        closeViewer();
+
+        dialog.showMessageBoxSync({
+          message: 'Oh No! XGENIA has crashed :( Click OK to restart',
+          detail: `Renderer process gone (reason: ${details.reason}, exit code: ${details.exitCode}). A record was appended to ${CrashTelemetry.CRASH_LOG_FILENAME} in the app data folder.`,
+          type: 'error'
+        });
+
+        win.close();
+        win = null;
+        reopenWindow = true;
       });
 
       process.env.xgeniaURI && win.webContents.send('open-xgenia-uri', process.env.xgeniaURI);
@@ -999,6 +1125,11 @@ function launchApp() {
 
       floatingWindow.window.webContents.once('did-finish-load', () => {
         floatingWindow.send('floating-window-options', options.id, options.options);
+
+        // Floating windows are editor chrome - keep them on the same zoom.
+        try {
+          floatingWindow.window.webContents.setZoomFactor(uiZoomFactor);
+        } catch { }
       });
 
       floatingWindow.forwardIpcEvents(['editor-api-response']);
@@ -1077,6 +1208,89 @@ function launchApp() {
       }
     });
 
+    /**
+     * Editor UI zoom (View menu).
+     *
+     * Chromium's native zoom on the editor webContents scales the WHOLE editor
+     * chrome - topbar, panels, node graph, the chat iframe - which is what
+     * "the UI is too large" needs. The <webview> that renders the running
+     * project is a separate webContents on a different origin (localhost:8574
+     * vs the editor's file:// or localhost:8080), so it keeps its own zoom; it
+     * is re-asserted from the renderer on every change anyway.
+     *
+     * Chromium resets zoom on navigation, so it is re-applied on every
+     * did-finish-load, and persisted so it survives a restart.
+     */
+    const UI_ZOOM_STEPS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+    const UI_ZOOM_MIN = UI_ZOOM_STEPS[0];
+    const UI_ZOOM_MAX = UI_ZOOM_STEPS[UI_ZOOM_STEPS.length - 1];
+    let uiZoomFactor = 1;
+    let uiMenuInstalled = false;
+
+    function applyUiZoom(factor, options) {
+      const clamped = Math.min(UI_ZOOM_MAX, Math.max(UI_ZOOM_MIN, factor));
+      uiZoomFactor = clamped;
+
+      try {
+        if (win && !win.isDestroyed()) {
+          win.webContents.setZoomFactor(clamped);
+          // The project preview must NOT follow the editor chrome's zoom.
+          win.webContents.send('ui-zoom-changed', clamped);
+        }
+      } catch (e) {
+        console.warn('[Main Process] Failed to apply UI zoom:', e && e.message ? e.message : e);
+      }
+
+      // Floating windows are editor chrome too.
+      try {
+        Object.keys(floatingWindows).forEach((id) => {
+          const fw = floatingWindows[id];
+          const wc = fw && fw.window && !fw.window.isDestroyed() ? fw.window.webContents : null;
+          if (wc) wc.setZoomFactor(clamped);
+        });
+      } catch { }
+
+      if (!options || options.persist !== false) {
+        try {
+          jsonstorage.set('uiZoom', { factor: clamped });
+        } catch (e) {
+          console.warn('[Main Process] Failed to persist UI zoom:', e && e.message ? e.message : e);
+        }
+      }
+
+      // Refresh the "Current: N%" readout in the View menu.
+      if (uiMenuInstalled) {
+        try {
+          setupMenu();
+        } catch { }
+      }
+    }
+
+    function stepUiZoom(direction) {
+      // Snap to the nearest ladder rung, then move one rung from there.
+      let index = 0;
+      let bestDistance = Infinity;
+      for (let i = 0; i < UI_ZOOM_STEPS.length; i++) {
+        const distance = Math.abs(UI_ZOOM_STEPS[i] - uiZoomFactor);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          index = i;
+        }
+      }
+
+      const next = Math.min(UI_ZOOM_STEPS.length - 1, Math.max(0, index + direction));
+      applyUiZoom(UI_ZOOM_STEPS[next]);
+    }
+
+    // Restore the saved zoom. Re-applied again once the window finishes loading,
+    // because this read may resolve before the editor page exists.
+    jsonstorage.get('uiZoom', (data) => {
+      const saved = data && Number(data.factor);
+      if (saved && isFinite(saved)) {
+        applyUiZoom(saved, { persist: false });
+      }
+    });
+
     function setupMenu() {
       var template = [
         {
@@ -1093,6 +1307,41 @@ function launchApp() {
             { label: 'Copy', accelerator: 'CmdOrCtrl+C', selector: 'copy:' },
             { label: 'Paste', accelerator: 'CmdOrCtrl+V', selector: 'paste:' },
             { label: 'Select All', accelerator: 'CmdOrCtrl+A', selector: 'selectAll:' }
+          ]
+        },
+        {
+          label: 'View',
+          submenu: [
+            {
+              label: 'Interface Zoom: ' + Math.round(uiZoomFactor * 100) + '%',
+              enabled: false
+            },
+            { type: 'separator' },
+            {
+              label: 'Zoom In',
+              accelerator: 'CmdOrCtrl+Plus',
+              click: () => stepUiZoom(1)
+            },
+            {
+              // Same command on the unshifted key, which is what people
+              // actually press. Hidden accelerators still fire on macOS
+              // (acceleratorWorksWhenHidden defaults to true).
+              label: 'Zoom In',
+              accelerator: 'CmdOrCtrl+=',
+              visible: false,
+              acceleratorWorksWhenHidden: true,
+              click: () => stepUiZoom(1)
+            },
+            {
+              label: 'Zoom Out',
+              accelerator: 'CmdOrCtrl+-',
+              click: () => stepUiZoom(-1)
+            },
+            {
+              label: 'Actual Size',
+              accelerator: 'CmdOrCtrl+0',
+              click: () => applyUiZoom(1)
+            }
           ]
         }
       ];
@@ -1153,30 +1402,6 @@ function launchApp() {
       });
       // }
 
-      // AI menu
-      template.push({
-        label: 'AI',
-        submenu: [
-          {
-            label: 'AI Settings',
-            accelerator: 'CmdOrCtrl+Shift+,',
-            click: () => {
-              try {
-                win && win.webContents && win.webContents.send('menu:open-ai-settings');
-              } catch { }
-            }
-          },
-          {
-            label: 'New Conversation',
-            accelerator: 'CmdOrCtrl+Shift+N',
-            click: () => {
-              try {
-                win && win.webContents && win.webContents.send('menu:new-conversation');
-              } catch { }
-            }
-          }
-        ]
-      });
 
       // Help menu
       template.push({
@@ -1201,6 +1426,34 @@ function launchApp() {
       });
 
       Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+      uiMenuInstalled = true;
+    }
+
+    /**
+     * editor-api-request/response routing.
+     *
+     * Requests can originate from ANY webContents (editor window, preview
+     * webview, floating window); they are all handled by editorapi.js in the
+     * editor window. The response must return to the webContents that asked —
+     * the old blind forward sent every response to the editor window only, so
+     * a webview could make requests but NEVER see a reply. Fire-and-forget
+     * callers hid this; the viewport gizmo was the first webview caller to
+     * depend on a response.
+     */
+    function setupEditorApiRouting() {
+      const requesters = {}; // token → webContents that sent the request
+      ipcMain.on('editor-api-request', (e, args) => {
+        if (args && args.token) requesters[args.token] = e.sender;
+        if (win && win.webContents && !win.webContents.isDestroyed()) {
+          win.webContents.send('editor-api-request', args);
+        }
+      });
+      ipcMain.on('editor-api-response', (e, args) => {
+        const requester = args && args.token ? requesters[args.token] : null;
+        if (!requester) return; // main's own tokens resolve in their own listener
+        delete requesters[args.token];
+        if (!requester.isDestroyed()) requester.send('editor-api-response', args);
+      });
     }
 
     function forwardIpcEventsToEditorWindow(events) {
@@ -1423,6 +1676,14 @@ function launchApp() {
       // CSP will be handled by meta tag in index.html
       // console.log('[Main Process] onHeadersReceived CSP handler removed.'); // Optional: for logging
 
+      // Before createWindow(): the shell resolves a window's owning app at map time, so
+      // the desktop entry has to already be on disk.
+      ensureLinuxDesktopEntry(path.join(appPath, 'src/assets/images/icon.png'));
+
+      // (crash 2026-08-27, OOM abort) Passive per-process memory curve to
+      // <userData>/memory-log.jsonl — main-process side, survives renderer death.
+      MemoryTelemetry.start();
+
       console.log('[Main Process] About to call createWindow()...');
       createWindow();
       if (process.platform === 'darwin') {
@@ -1434,7 +1695,7 @@ function launchApp() {
 
       setupAskForMediaAccessIpc();
 
-      forwardIpcEventsToEditorWindow(['editor-api-request', 'editor-api-response']);
+      setupEditorApiRouting();
 
       setupFloatingWindowIpc();
 

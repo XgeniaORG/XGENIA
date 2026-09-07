@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 
 import { ProjectLibraryModel } from '@xgenia-models/projectlibrarymodel';
 import { ProjectItem } from '@xgenia-utils/LocalProjectsModel';
+import { resolveThumbSrc } from '@xgenia-utils/thumbnails/thumbnail-store';
 import { timeSince } from '@xgenia-utils/utils';
 
 import { ActivityIndicator } from '@xgenia-core-ui/components/common/ActivityIndicator';
@@ -46,7 +47,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
   return (
     <article className={classNames(css['Root'], css[cardState])}>
       <div className={css['ImageContainer']}>
-        <div className={css['Image']} style={{ backgroundImage: `url(${project.thumbURI})` }} />
+        <div className={css['Image']} style={{ backgroundImage: `url(${resolveThumbSrc(project)})` }} />
       </div>
 
       <div className={css['Content']}>

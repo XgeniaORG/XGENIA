@@ -179,6 +179,17 @@ NodeModel.prototype.setVariant = function(variant) {
 
 NodeModel.createFromExportData = function(nodeData) {
     var node = new NodeModel(nodeData.id, nodeData.type);
+    // THE AUTHORED LABEL MUST SURVIVE THE TRIP. (2026-08-18, traces 1787010262432 /
+    // 1787027583089) The editor exports `label` — the name the author gave the node and the
+    // one every @ref is keyed on — and this function read id/type/parameters/ports/variant
+    // and dropped it. react-component-node then resolved
+    //   xgeniaNode.label || parameters.nodeLabel || parameters.label || xgeniaNode.name
+    // and fell all the way through to `name`, which is the node TYPE. So every element in
+    // the DOM reported data-xgenia-node-label="Group" (or the full
+    // "net.xgenia.controls.button"), the documented selector
+    // [data-xgenia-node-label='MyThing'] matched nothing, ui_layout_map's `root:` scoping
+    // was unusable, and its fixThis named culprits "@Group" — not addressable by anything.
+    if (nodeData.label !== undefined) node.label = nodeData.label;
     nodeData.parameters && node.setParameters(nodeData.parameters);
     nodeData.stateParameters && node.setStateParameters(nodeData.stateParameters);
     nodeData.stateTransitions && node.setStateTransitions(nodeData.stateTransitions);

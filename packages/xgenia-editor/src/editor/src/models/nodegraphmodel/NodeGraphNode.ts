@@ -554,6 +554,10 @@ export class NodeGraphNode extends Model {
       // Start with type ports
       var ports = this.type.ports ? this.type.ports : [];
 
+      // The `isMath` deployment toggle was removed 2026-08-04. Deployment is
+      // decided by LOCATION: a `/#__maths__/` component compiles to the RGS,
+      // everything else stays on the frontend. Nothing is injected here now.
+
       // Add instance ports from type
       // var instanceports = NodeLibrary.instance.getDynamicPortsForNode(this);
       // if(instanceports) ports = ports.concat(instanceports);
@@ -783,7 +787,11 @@ export class NodeGraphNode extends Model {
     if (args && args.undo) {
       const undo = typeof args.undo === 'object' ? args.undo : UndoQueue.instance;
 
-      if (args.oldValue) {
+      // Presence, not truthiness: a caller that hands over the real pre-change
+      // value of 0, '', false or undefined (parameter unset) means it, and the
+      // fallback above now holds the value we just wrote — taking it would make
+      // Undo a no-op.
+      if ('oldValue' in args) {
         oldValue = args.oldValue;
       }
 
@@ -1403,7 +1411,10 @@ function _isSourceCodePort(typename, parameterName) {
 
   language = language.toLowerCase();
 
-  if (language === 'javascript' || language === 'json' || language === 'css') {
+  // 'scss' is the styleCss ports (a CSS declaration list — see CodeEditor/index.ts for
+  // why it is not modelled as 'css'). It is hand-authored source like the rest, so it
+  // gets line-by-line 3-way merge instead of a whole-parameter conflict.
+  if (language === 'javascript' || language === 'json' || language === 'css' || language === 'scss') {
     return true;
   }
 

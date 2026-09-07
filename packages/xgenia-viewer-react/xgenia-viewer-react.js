@@ -1,5 +1,7 @@
-// Disable console.log in production - must be first!
-if (typeof window !== 'undefined' && process.env.NODE_ENV === 'production') {
+// Stand down if console-capture.js is installed — it already silences these on screen
+// while KEEPING them in window.XgeniaRuntimeLogs. Replacing them here would throw the
+// buffer's wrappers away and the recording would stop dead, silently.
+if (typeof window !== 'undefined' && !window.XgeniaLogCaptureInitialized && process.env.NODE_ENV === 'production') {
   console.log = () => {};
   console.debug = () => {};
   console.info = () => {};

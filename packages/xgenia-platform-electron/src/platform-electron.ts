@@ -2,8 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import { app as remoteApp } from '@electron/remote';
 import { app as electronApp, shell, clipboard } from 'electron';
-import { addTrailingSlash, IPlatform, PlatformOS } from '@xgenia/platform';
+import { addTrailingSlash, IPlatform, PlatformOS, SaveFileResult } from '@xgenia/platform';
 import { processPlatformToPlatformOS } from '@xgenia/platform-node/src/helper';
+import { saveDialogFilters } from './save-dialog-filters';
 
 export class PlatformElectron implements IPlatform {
   get name(): string {
@@ -88,42 +89,37 @@ export class PlatformElectron implements IPlatform {
     return Promise.resolve();
   }
 
-  async saveFile(filename: string, data: string, mimeType: string): Promise<void> {
+  /**
+   * (2026-08-29) Two things changed here, both because a Photoshop export "could not be opened":
+   *
+   *   - The dialog's file-type filters now come from `saveDialogFilters`, which always offers
+   *     the file's own extension first. The old MIME-prefix ladder sent `image/vnd.adobe.photoshop`
+   *     to the Images filter, and Windows renames the file to that filter's extension
+   *     (electron/electron#9455) — `art.psd` became `art.psd.png`.
+   *   - It reports what happened. A cancelled panel and a written file both used to resolve to
+   *     `undefined`, so the plugin that asked could only guess — and it guessed "saved".
+   */
+  async saveFile(filename: string, data: string, mimeType: string): Promise<SaveFileResult> {
     const { dialog } = require('@electron/remote');
     const fs = require('fs');
-    const path = require('path');
-
-    const ext = path.extname(filename).replace('.', '').toLowerCase();
-    const filters =
-      mimeType.startsWith('video/') || ['mp4', 'mov', 'webm', 'm4v', 'ogg'].includes(ext)
-        ? [
-            { name: 'Videos', extensions: ['mp4', 'mov', 'webm', 'm4v', 'ogg'] },
-            { name: 'All Files', extensions: ['*'] }
-          ]
-        : mimeType.startsWith('audio/') || ['mp3', 'wav', 'ogg', 'm4a'].includes(ext)
-          ? [
-              { name: 'Audio', extensions: ['mp3', 'wav', 'ogg', 'm4a'] },
-              { name: 'All Files', extensions: ['*'] }
-            ]
-          : [
-              { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'svg'] },
-              { name: 'All Files', extensions: ['*'] }
-            ];
 
     const result = await dialog.showSaveDialog({
       defaultPath: filename,
-      filters
+      filters: saveDialogFilters(filename, mimeType)
     });
 
-    if (!result.canceled && result.filePath) {
-      let buffer: Buffer;
-      if (data.includes(';base64,')) {
-        const base64 = data.split(';base64,').pop()!;
-        buffer = Buffer.from(base64, 'base64');
-      } else {
-        buffer = Buffer.from(data, 'utf-8');
-      }
-      fs.writeFileSync(result.filePath, buffer);
+    if (result.canceled || !result.filePath) {
+      return { saved: false, cancelled: true };
     }
+
+    let buffer: Buffer;
+    if (data.includes(';base64,')) {
+      const base64 = data.split(';base64,').pop()!;
+      buffer = Buffer.from(base64, 'base64');
+    } else {
+      buffer = Buffer.from(data, 'utf-8');
+    }
+    fs.writeFileSync(result.filePath, buffer);
+    return { saved: true, path: result.filePath };
   }
 }

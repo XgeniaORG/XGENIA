@@ -1,41 +1,26 @@
-import React, { useEffect, useState, ReactNode } from 'react';
-import { getRemote, push, pull, GitActionError, GitActionErrorCode } from '@xgenia/git';
-import { merge } from '@xgenia/git/src/core/merge';
-import { Stash } from '@xgenia/git/src/core/models/snapshot';
-import { createStashEntry, popStashEntry, popStashEntryToBranch } from '@xgenia/git/src/core/stash';
-
-import { ProjectModel } from '@xgenia-models/projectmodel';
+import React, { useEffect, useState } from 'react';
 
 import { IconName } from '@xgenia-core-ui/components/common/Icon';
 import { ActionButton, ActionButtonProps, ActionButtonVariant } from '@xgenia-core-ui/components/inputs/ActionButton';
-import { useConfirmationDialog } from '@xgenia-core-ui/components/popups/ConfirmationDialog/ConfirmationDialog.hooks';
 
-import { EventDispatcher } from '../../../../../../shared/utils/EventDispatcher';
-import { ToastLayer } from '../../../ToastLayer/ToastLayer';
 import { useVersionControlContext } from '../context';
 
 export type GitStatusButtonProps = {
   openGitSettingsPopout: () => void;
+  /** Opens the "Publish to GitHub" dialog, the action offered when there is no remote. */
+  openPublishToGitHubDialog: () => void;
 };
 
-export function GitStatusButton({ openGitSettingsPopout }: GitStatusButtonProps) {
-  const { git, repositoryPath, localChangesCount, fetch } = useVersionControlContext();
+/**
+ * The panel's primary git action, mirroring what VS Code puts in its status bar:
+ * "Sync Changes" when the branch has diverged, "Publish Branch" when it has no
+ * upstream yet, "Publish to GitHub" when the repository has no remote at all,
+ * and pull/push/refresh otherwise.
+ */
+export function GitStatusButton({ openGitSettingsPopout, openPublishToGitHubDialog }: GitStatusButtonProps) {
+  const { git, actions, fetch } = useVersionControlContext();
 
-  const [StashBeforePullDialog, showStashBeforePullDialog] = useConfirmationDialog({
-    message: 'You have local changes. Do you want to pull and merge your local changes?',
-    confirmButtonLabel: 'Yes'
-  });
-
-  const {
-    gitStatus,
-    setGitStatus,
-    currentBranch,
-    lastFetchTime,
-    localCommitCount,
-    remoteCommitCount,
-    fetchRemote,
-    fetchLocal
-  } = fetch;
+  const { gitStatus, currentBranch, lastFetchTime, localCommitCount, remoteCommitCount } = fetch;
 
   const [lastUpdate, setLastUpdate] = useState(undefined);
 
@@ -113,12 +98,22 @@ export function GitStatusButton({ openGitSettingsPopout }: GitStatusButtonProps)
         }
       }
 
+      case 'sync': {
+        return {
+          icon: IconName.Refresh,
+          variant: ActionButtonVariant.CallToAction,
+          label: 'Sync Changes',
+          // The counts VS Code shows next to its sync button.
+          affixText: `↓ ${remoteCommitCount}  ↑ ${localCommitCount}`
+        };
+      }
+
       case 'push-repository': {
         return {
-          icon: IconName.Setting,
-          variant: ActionButtonVariant.Background,
-          label: 'No remote set',
-          affixText: 'To push changes set a git remote'
+          icon: IconName.CloudUpload,
+          variant: ActionButtonVariant.CallToAction,
+          label: 'Publish to GitHub',
+          affixText: 'No remote set'
         };
       }
 
@@ -134,20 +129,23 @@ export function GitStatusButton({ openGitSettingsPopout }: GitStatusButtonProps)
         } else {
           // Generic text to fit all edge cases
           let label = 'Push local changes';
+          let icon = IconName.ArrowUp;
 
           if (localCommitCount > 0) {
             // Pluralize the text
             label = localCommitCount === 1 ? `Push 1 local commit` : `Push ${localCommitCount} local commits`;
           } else if (currentBranch?.isLocal) {
-            // There are no local commits and the branch is only local.
-            label = `Push ${currentBranch.nameWithoutRemote} branch`;
+            // There are no local commits and the branch has no upstream yet,
+            // which is what VS Code calls publishing a branch.
+            label = 'Publish Branch';
+            icon = IconName.CloudUpload;
           }
 
           return {
-            icon: IconName.ArrowUp,
+            icon,
             variant: ActionButtonVariant.CallToAction,
             label,
-            affixText: lastUpdateText()
+            affixText: currentBranch?.isLocal && !localCommitCount ? currentBranch.nameWithoutRemote : lastUpdateText()
           };
         }
       }
@@ -176,178 +174,31 @@ export function GitStatusButton({ openGitSettingsPopout }: GitStatusButtonProps)
     switch (gitStatus.kind) {
       case 'default':
       case 'fetch':
+      case 'error':
       case 'error-fetch':
-        return fetchRemote();
+        return actions.refresh();
 
       case 'pull':
-        setGitStatus({
-          kind: 'pull',
-          progress: 0
-        });
+        return actions.pull();
 
-        try {
-          let autoStash: Stash = undefined;
-          const autoStashMessge = 'XGENIA autostash on pull';
-
-          if (localChangesCount === 0) {
-            await git.resetToHead();
-          } else {
-            try {
-              await showStashBeforePullDialog();
-            } catch (_) {
-              //user canceled
-              await fetchLocal();
-              return;
-            }
-
-            ProjectModel.setSaveOnModelChange(false);
-            autoStash = await createStashEntry(repositoryPath, autoStashMessge);
-          }
-
-          const remote = await getRemote(repositoryPath);
-
-          ProjectModel.setSaveOnModelChange(false);
-
-          await pull(repositoryPath, remote, currentBranch, (progress) => {
-            setGitStatus({
-              kind: 'pull',
-              progress: progress.value,
-              message: progress.title || progress.description
-            });
-          });
-
-          if (await git.isRebaseInProgress()) {
-            await git.tryHandleRebaseState();
-            await fetchLocal();
-          }
-
-          if (autoStash) {
-            try {
-              await popStashEntry(repositoryPath, autoStash.name);
-            } catch (err: any) {
-              //
-              // Here be dragons. Thou art forewarned
-              //
-              if (err.toString().includes('could not restore untracked files from stash')) {
-                const stashBranchName = `!!XGENIA-AutoStash-${autoStash.branchName}`;
-
-                // Having some minor changes to project.json
-                await git.resetToHead();
-
-                // Create a new branch from the stash
-                // this will also checkout the branch
-                await popStashEntryToBranch(repositoryPath, autoStash.name, stashBranchName);
-
-                // Merge our working branch into the stash branch
-                await git._merge({
-                  theirsBranchName: currentBranch.name,
-                  oursBranchName: stashBranchName,
-                  isSquash: false,
-                  message: undefined,
-                  allowFastForward: false
-                });
-
-                const changes = await git.status();
-                if (changes.length > 0) {
-                  await git.commit('Merge stash');
-                }
-
-                // TODO: Should we make sure there are no issues?
-
-                // Checkout the working branch
-                await git.checkoutBranch(currentBranch.nameWithoutRemote);
-
-                // Squash merge our stash branch into the working branch without making any commits.
-                await merge(repositoryPath, stashBranchName, {
-                  strategy: 'recursive',
-                  strategyOption: 'theirs',
-                  isSquash: true,
-                  squashNoCommit: true,
-                  message: undefined,
-                  noFastForward: true
-                });
-
-                // Delete the stash branch
-                await git.deleteBranch(stashBranchName);
-
-                // And what should be left on the working branch is our stash, that we love so much!
-              } else {
-                // We failed to pop the stash, this shouldn't happen, but we just log the error and return false.
-                throw err;
-              }
-            }
-          }
-
-          EventDispatcher.instance.notifyListeners('projectChangedOnDisk');
-        } catch (error: any) {
-          if (error instanceof GitActionError) {
-            if (error.code === GitActionErrorCode.AuthorizationFailed) {
-              setGitStatus({
-                kind: 'set-authorization'
-              });
-            } else {
-              ToastLayer.showError(error.message);
-            }
-          } else {
-            console.error(error);
-            ToastLayer.showError('Failed to pull. Error: ' + error);
-          }
-        }
-
-        ProjectModel.setSaveOnModelChange(true);
-
-        await fetchLocal();
-        break;
+      case 'sync':
+        return actions.sync();
 
       case 'push':
-        setGitStatus({
-          kind: 'push',
-          progress: 0
-        });
+        return actions.push();
 
-        try {
-          await push({
-            baseDir: repositoryPath,
-            currentBranch,
-            onProgress: (progress) => {
-              setGitStatus({
-                kind: 'push',
-                message: progress.title,
-                progress: progress.value
-              });
-            }
-          });
-        } catch (error: any) {
-          if (error instanceof GitActionError && error.code === GitActionErrorCode.AuthorizationFailed) {
-            setGitStatus({
-              kind: 'set-authorization'
-            });
-          } else {
-            ToastLayer.showError('Failed to push. ' + error);
-
-            // If the error is a rejected push, we need to fetch again to get the latest state where we can pull and rebase
-            if (error?.toString().includes('rejected')) {
-              await fetchRemote();
-            }
-          }
-
-          return;
-        }
-
-        await fetchRemote();
-
-        break;
       case 'push-repository':
+        return openPublishToGitHubDialog();
+
       case 'set-authorization':
-        openGitSettingsPopout();
-        break;
+        if (git.Provider === 'xgenia') {
+          // The deprecated XGENIA remote can't be authorized anymore, publishing
+          // to GitHub is the way out of it.
+          return openPublishToGitHubDialog();
+        }
+        return openGitSettingsPopout();
     }
   }
 
-  return (
-    <>
-      <StashBeforePullDialog />
-      <ActionButton {...props} onClick={onAction} />
-    </>
-  );
+  return <ActionButton {...props} onClick={onAction} />;
 }

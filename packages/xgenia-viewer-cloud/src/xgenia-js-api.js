@@ -19,7 +19,10 @@ JavascriptNodeParser.createXgeniaAPI = function (modelScope) {
     getProjectSettings: xgeniaRuntime.instance.getProjectSettings.bind(xgeniaRuntime.instance),
     getMetaData: xgeniaRuntime.instance.getMetaData.bind(xgeniaRuntime.instance),
     Object: modelScope || Model,
-    Variables: (modelScope || Model).get('--xgenia--global-variables'),
+    // Must match the store the variable nodes use ('--ndl--global-variables') — the
+    // rebrand renamed only this handle, so JS-function writes to XGENIA.Variables were
+    // invisible to Variable/Set Variable nodes (trace 1784502460845).
+    Variables: (modelScope || Model).get('--ndl--global-variables'),
     Records: require('@xgenia/runtime/src/api/records')(modelScope),
     Users: require('./api/users')(modelScope),
     //   CloudFunctions: require('./api/cloudfunctions'),

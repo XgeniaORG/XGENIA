@@ -594,7 +594,7 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
     // Add specific Content-Security-Policy for React 19
     response.setHeader(
       'Content-Security-Policy',
-      "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src * 'unsafe-inline' ws: wss: data: blob:; style-src * 'unsafe-inline' data: blob:; img-src * 'unsafe-inline' data: blob:; font-src * 'unsafe-inline' data: blob:; object-src * 'unsafe-inline' data: blob:; media-src * 'unsafe-inline' data: blob:; child-src * 'unsafe-inline' data: blob:;"
+      "default-src * 'unsafe-inline' 'unsafe-eval' data: blob: file:; script-src * 'unsafe-inline' 'unsafe-eval' data: blob: file:; connect-src * 'unsafe-inline' ws: wss: data: blob: file:; style-src * 'unsafe-inline' data: blob: file:; img-src * 'unsafe-inline' data: blob: file:; font-src * 'unsafe-inline' data: blob: file:; object-src * 'unsafe-inline' data: blob: file:; media-src * 'unsafe-inline' data: blob: file:; child-src * 'unsafe-inline' data: blob: file:;"
     );
 
     // Explicitly handle the root path first
@@ -902,6 +902,35 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
       return;
     }
 
+    // Serve a live uid→path asset manifest built from the project's .xgenia-assets.json so
+    // the canvas runtime can resolve `uid://<id>` references (mirrors the static manifest
+    // bundled into deployed exports).
+    if (requestPath.endsWith('assets-manifest.json')) {
+      projectGetInfo((info) => {
+        const map = {};
+        try {
+          if (info && info.projectDirectory) {
+            const metaPath = info.projectDirectory + '/.xgenia-assets.json';
+            if (fs.existsSync(metaPath)) {
+              const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+              for (const p in meta) {
+                const uid = meta[p] && meta[p].uid;
+                if (uid) map[uid] = p;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[WebServer] assets-manifest build failed:', e);
+        }
+        response.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        });
+        response.end(JSON.stringify(map));
+      });
+      return;
+    }
+
     //by this point it must be a static file in either the viewer folder or the project
     //check if it's a viewer file
     const viewerFilePath = appPath + '/src/external/viewer/' + requestPath;
@@ -1071,14 +1100,49 @@ function getContentType(request) {
       contentType = 'image/gif';
       break;
     case '.jpg':
-      contentType = 'image/jpg';
+      contentType = 'image/jpeg';
       break;
+    // (2026-08-27, export 1787803023693) THE MISSING CASES WERE SERVING text/html.
+    // A generated reel-dog-win.webm reached the browser with the right bytes (valid EBML
+    // magic, correct length) and content-type text/html — this switch's default — so the
+    // <video> element fired `error` and every transparent-webm win animation "vanished".
+    // Sessions across three days blamed alpha compositing, hide-latches, and the video
+    // model for what was this switch all along; one session started base64-inlining a
+    // 3MB clip into a node parameter to get around it. Sweep, not a one-extension fix:
+    // every asset family the engine actually loads (video, audio for the Sound node,
+    // fonts now that writes fetch them, modern image formats) gets its real type.
+    // The .wav case also fell through into .mp4 (the eslint-disable was masking it),
+    // so wav files were served as video/mp4.
     case '.wav':
       contentType = 'audio/wav';
-    // eslint-disable-next-line no-fallthrough
+      break;
+    case '.mp3':
+      contentType = 'audio/mpeg';
+      break;
+    case '.ogg':
+      contentType = 'audio/ogg';
+      break;
     case '.mp4':
     case '.m4v':
       contentType = 'video/mp4';
+      break;
+    case '.webm':
+      contentType = 'video/webm';
+      break;
+    case '.jpeg':
+      contentType = 'image/jpeg';
+      break;
+    case '.avif':
+      contentType = 'image/avif';
+      break;
+    case '.woff':
+      contentType = 'font/woff';
+      break;
+    case '.woff2':
+      contentType = 'font/woff2';
+      break;
+    case '.otf':
+      contentType = 'font/otf';
       break;
     case '.wasm':
       contentType = 'application/wasm';
@@ -1094,11 +1158,33 @@ function getContentType(request) {
   return contentType;
 }
 
+// A file that exists can still fail to open or read (a directory, EACCES/EPERM,
+// an iCloud-evicted file that can't be materialized, ...). Once headers are out
+// the status can't be changed anymore — calling writeHead again throws
+// ERR_HTTP_HEADERS_SENT, which is an uncaught exception in the main process and
+// takes down the whole app. Send an error status if we still can, otherwise kill
+// the connection so the client sees a failed transfer instead of a truncated one.
+function failResponse(response, err) {
+  if (!response.headersSent) {
+    response.writeHead(404);
+    response.end(err.message);
+  } else {
+    response.destroy();
+  }
+}
+
 function serveFile(filePath, request, response) {
   fs.stat(decodeURI(filePath), (error, stat) => {
     if (error) {
       response.writeHead(404);
       response.end(error.message);
+      return null;
+    }
+
+    // Only regular files can be streamed. Directories pass the stat/existsSync
+    // checks but error the read stream, so reject them here.
+    if (!stat.isFile()) {
+      serve404(response);
       return null;
     }
 
@@ -1112,6 +1198,7 @@ function serveFile(filePath, request, response) {
           'Content-Type': getContentType(request),
           'Content-Range': 'bytes */' + stat.size
         });
+        response.end();
 
         return null;
       }
@@ -1122,38 +1209,57 @@ function serveFile(filePath, request, response) {
       });
 
       fileStream.on('error', function (err) {
-        response.writeHead(404);
-        response.end(err.message);
+        failResponse(response, err);
       });
 
-      const responseHeaders = {
-        'Content-Range': 'bytes ' + start + '-' + end + '/' + stat.size,
-        'Content-Length': start == end ? 0 : end - start + 1,
-        'Content-Type': getContentType(request),
-        'Accept-Ranges': 'bytes',
-        'Cache-Control': 'no-cache',
-        'Last-Modified': stat.mtime.toUTCString(),
-        ETag: '"' + stat.mtimeMs + '-' + stat.size + '"'
-      };
+      // Wait for the file to actually open before sending headers, so open
+      // failures still get a clean error status.
+      fileStream.on('open', function () {
+        // (2026-09-04) The 200 branch below has always sent CORS headers; this
+        // one sent none, so a ranged request was the one shape of asset fetch
+        // that could taint a canvas. The image editor reads pixels back through
+        // a canvas for export, merge and layer flatten, and it streams video by
+        // range — so a video asset worked on screen and then failed on export.
+        // Same headers on both paths, plus Content-Range exposed so a fetch()
+        // caller can read it rather than only a media element.
+        const responseHeaders = {
+          'Content-Range': 'bytes ' + start + '-' + end + '/' + stat.size,
+          'Content-Length': start == end ? 0 : end - start + 1,
+          'Content-Type': getContentType(request),
+          'Accept-Ranges': 'bytes',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET',
+          'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+          'Cache-Control': 'no-cache',
+          'Last-Modified': stat.mtime.toUTCString(),
+          ETag: '"' + stat.mtimeMs + '-' + stat.size + '"'
+        };
 
-      response.writeHead(206, responseHeaders);
-      fileStream.pipe(response);
+        response.writeHead(206, responseHeaders);
+        fileStream.pipe(response);
+      });
     } else {
-      response.writeHead(200, {
-        'Content-Type': getContentType(request),
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET',
-        'Last-Modified': stat.mtime.toUTCString(),
-        ETag: '"' + stat.mtimeMs + '-' + stat.size + '"',
-        'Cache-Control': 'no-cache'
-      });
       const fileStream = fs.createReadStream(decodeURI(filePath));
       fileStream.on('error', function (err) {
-        response.writeHead(404);
-        response.end(err.message);
+        failResponse(response, err);
       });
 
-      fileStream.pipe(response);
+      fileStream.on('open', function () {
+        response.writeHead(200, {
+          'Content-Type': getContentType(request),
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET',
+          // Advertised so a client knows it may range-request this file at all;
+          // without it a media element downloads the whole thing before playing.
+          'Accept-Ranges': 'bytes',
+          'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+          'Last-Modified': stat.mtime.toUTCString(),
+          ETag: '"' + stat.mtimeMs + '-' + stat.size + '"',
+          'Cache-Control': 'no-cache'
+        });
+
+        fileStream.pipe(response);
+      });
     }
   });
 }

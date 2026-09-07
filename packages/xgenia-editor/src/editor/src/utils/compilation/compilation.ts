@@ -32,6 +32,13 @@ export interface IFeedbackProvider {
 
 export type CompilationOptions = {
   cloneProject?: boolean;
+  /**
+   * Skip the built-in cloud-function deploy pass (Supabase/Parse). Set this when
+   * the caller deploys the `/#__cloud__/` logic components elsewhere — e.g. the
+   * XGENIA RGS deploy path sends them to RGS itself, so running this pass would
+   * only raise a spurious "No cloud service to deploy cloud functions to" error.
+   */
+  skipBuiltinCloudFunctionDeploy?: boolean;
 };
 
 /**
@@ -73,7 +80,9 @@ export class Compilation {
     if (!project) throw 'ProjectModel is not defined';
 
     // Add our build scripts
-    this.addBuildScript(deployCloudFunctionBuildScript);
+    if (!options.skipBuiltinCloudFunctionDeploy) {
+      this.addBuildScript(deployCloudFunctionBuildScript);
+    }
     this.addBuildScript(SitemapBuildScript);
   }
 
@@ -82,9 +91,15 @@ export class Compilation {
 
     if (this.options.cloneProject) {
       // Clone the project model so that the build scripts can modify it however they like.
+      // (trace 1785024174577) try/finally is REQUIRED — a throw in fromJSON/toJSON used to leak
+      // `_listenersEnabled = false` for the rest of the session, permanently killing model
+      // listeners (and with them editor→viewer sync). See projectmodel.editor.ts for the twin.
       Model._listenersEnabled = false; // Disable model listeners while loading project, otherwise this will bog down large projects
-      projectClone = ProjectModel.fromJSON(this.project.toJSON());
-      Model._listenersEnabled = true;
+      try {
+        projectClone = ProjectModel.fromJSON(this.project.toJSON());
+      } finally {
+        Model._listenersEnabled = true;
+      }
 
       projectClone.modules = JSON.parse(JSON.stringify(this.project.modules));
       projectClone._retainedProjectDirectory = this.project._retainedProjectDirectory;

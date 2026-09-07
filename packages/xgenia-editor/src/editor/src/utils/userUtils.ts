@@ -24,14 +24,31 @@ export const getCurrentUser = async (): Promise<User | null> => {
  */
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
   try {
+    // maybeSingle, not single (2026-08-29). `.single()` asks PostgREST for
+    // exactly one row via `Accept: application/vnd.pgrst.object+json`, and
+    // PostgREST answers 406 Not Acceptable for any other count — including
+    // zero. Zero is what you get when the access token is rejected, because
+    // RLS then evaluates auth.uid() as null and the row is simply invisible.
+    // A packaged install showed this exactly: `/auth/v1/user` 403, then two
+    // `profiles?select=*` 406s. `.maybeSingle()` returns data:null with no
+    // error for zero rows, so "no profile" stops arriving as a transport
+    // error and a real failure stays visible.
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error('Error getting user profile:', error);
+      return null;
+    }
+
+    if (!data) {
+      // No row, and the query itself succeeded. Either the profile has not
+      // been created yet or RLS is hiding it — both are ordinary, neither is
+      // worth an error-level log.
+      console.debug('[userUtils] No profile row visible for', userId);
       return null;
     }
 
@@ -116,12 +133,25 @@ export const userHasProfile = async (userId: string): Promise<boolean> => {
       .from('profiles')
       .select('id')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
 
-    return !error && !!data;
+    // An existence check must not report "does not exist" when what actually
+    // happened is "could not ask". Those were the same answer here — `.single()`
+    // made a missing row an error, and the error and the missing row both
+    // returned false. That is the shape of a user being silently treated as new:
+    // a rejected token hides the row, this says "no profile", and everything
+    // downstream provisions a free account over a paid one.
+    if (error) throw error;
+
+    return !!data;
   } catch (error: any) {
-    console.error('Error checking user profile:', error);
-    return false;
+    // Deliberately rethrown rather than answered `false`. Returning false here
+    // would mean "this user has no profile", which is a claim this function is
+    // in no position to make when the query failed. Callers must decide what an
+    // unknown means for them; provisioning a fresh free profile off the back of
+    // a network error is how a paid account silently becomes a free one.
+    console.error('Error checking user profile — UNKNOWN, not absent:', error);
+    throw error;
   }
 };
 
@@ -188,8 +218,18 @@ export const deleteUserAccount = async (userId: string): Promise<{ success: bool
 export const getUserDisplayName = (user: User | null, profile?: UserProfile | null): string => {
   if (!user) return 'Guest';
 
-  if (profile?.full_name) {
-    return profile.full_name;
+  // The profiles row carries the name as first_name/last_name (with name/surname
+  // as aliases); full_name is not a column, so resolve from whatever is present.
+  const profileName = [
+    profile?.full_name,
+    [profile?.first_name, profile?.last_name].filter(Boolean).join(' '),
+    [profile?.name, profile?.surname].filter(Boolean).join(' ')
+  ]
+    .map((n) => (typeof n === 'string' ? n.trim() : ''))
+    .find((n) => n.length > 0);
+
+  if (profileName) {
+    return profileName;
   }
 
   if (user.user_metadata?.full_name) {

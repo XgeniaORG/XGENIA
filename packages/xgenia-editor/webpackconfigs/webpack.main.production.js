@@ -7,6 +7,28 @@ const getExternalModules = require('./helpers/get-externals-modules');
 module.exports = merge(shared, {
   mode: 'production',
   target: 'electron-main',
+  module: {
+    rules: [
+      // The main process pulls in shared .ts utilities (e.g. utils/local-resource.ts via
+      // filesystem.js -> projectmerger.js -> merge-driver.js). Only the renderer configs
+      // carried a ts rule, so those imports failed to parse here.
+      {
+        test: /\.ts(x?)$/,
+        exclude: /node_modules/,
+        use: [
+          {
+            loader: 'ts-loader',
+            options: {
+              compilerOptions: {
+                resolveJsonModule: true
+              },
+              transpileOnly: true
+            }
+          }
+        ]
+      }
+    ]
+  },
   optimization: {
     minimize: true,
     minimizer: [

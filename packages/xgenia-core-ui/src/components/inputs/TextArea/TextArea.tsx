@@ -1,5 +1,5 @@
 import classNames from 'classnames';
-import React, { ChangeEventHandler, FocusEventHandler, MouseEventHandler } from 'react';
+import React, { ChangeEventHandler, FocusEventHandler, KeyboardEventHandler, MouseEventHandler } from 'react';
 
 import { InputNotification } from '@xgenia-types/globalInputTypes';
 
@@ -33,6 +33,8 @@ export interface TextAreaProps extends UnsafeStyleProps {
   onBlur?: FocusEventHandler<HTMLTextAreaElement>;
   /** Occurs when Shift+Enter is pressed. */
   onEnter?: () => void;
+  /** Runs for every key, after the Shift+Enter handling above. */
+  onKeyDown?: KeyboardEventHandler<HTMLTextAreaElement>;
 }
 
 export function TextArea({
@@ -56,6 +58,7 @@ export function TextArea({
   onFocus,
   onBlur,
   onEnter,
+  onKeyDown,
 
   UNSAFE_className,
   UNSAFE_style
@@ -96,7 +99,10 @@ export function TextArea({
             if (onEnter && ev.shiftKey && ev.key === 'Enter') {
               onEnter();
               ev.preventDefault();
+              return;
             }
+
+            onKeyDown && onKeyDown(ev);
           }}
           value={value}
           autoFocus={isAutoFocus}

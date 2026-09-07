@@ -123,9 +123,17 @@ function isLikelyUrl(value: unknown): value is string {
  */
 function normalizeUrl(url: string, baseUrl: string): string {
   if (!url) return '';
-  
+
+  // `uid://<id>` stable refs resolve via the asset manifest first.
+  if (url.indexOf('uid://') === 0) {
+    const manifest = ((globalThis as any).XGENIA && (globalThis as any).XGENIA.assetsManifest) || null;
+    const mapped = manifest && manifest[url.slice(6)];
+    if (mapped) url = String(mapped);
+    else return url;
+  }
+
   // Already absolute
-  if (url.startsWith('http://') || url.startsWith('https://') || 
+  if (url.startsWith('http://') || url.startsWith('https://') ||
       url.startsWith('data:') || url.startsWith('blob:')) {
     return url;
   }

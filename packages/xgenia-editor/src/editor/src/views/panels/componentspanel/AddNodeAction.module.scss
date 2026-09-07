@@ -1,0 +1,16 @@
+.Root {
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: 500 11px/1 var(--font-family-regular);
+  color: var(--theme-color-on-primary, #062b1c);
+  background: var(--theme-color-publish);
+  cursor: pointer;
+
+  &:hover { filter: brightness(1.06); }
+  &:focus-visible { outline: 2px solid var(--theme-color-fg-highlight); outline-offset: 1px; }
+}

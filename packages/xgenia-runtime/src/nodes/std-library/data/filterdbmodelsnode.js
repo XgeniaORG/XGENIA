@@ -14,6 +14,9 @@ var FilterDBModelsNode = {
   shortDesc: 'Filter, sort and limit array',
   category: 'Data',
   color: 'data',
+  // Queries the cloud DB through CloudStore (the backend's Supabase client), so it
+  // never routes to a generated backend edge function: no `isMath` toggle.
+  usesBackendServices: true,
   initialize: function () {
     var _this = this;
 

@@ -6,6 +6,7 @@
  */
 
 import { Node } from './types';
+import { EVALUATE_FORMULA_JS } from './formula-eval-emit';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -53,6 +54,7 @@ export class SlotGameNodeRegistry {
         nodeType: 'Check Jackpot',
         inputPorts: ['reels', 'winningSymbol'],
         outputPorts: ['isWin', 'jackpotWinningPositions', 'winningSymbol'],
+        // Editor port default (check-jackpot.js winningSymbol input port): 1.
         defaultValues: { winningSymbol: 1 },
         calculationMethod: 'checkJackpot',
         isStateful: false
@@ -66,7 +68,9 @@ export class SlotGameNodeRegistry {
         outputPorts: ['spinWinnings', 'winningLinesDetails'],
         defaultValues: {
           wildSymbol: 9,
-          betAmount: 250,
+          // 2026-07-03: aligned to the editor node's default (calculate-winnings.js: 100).
+          // 250 here skewed RGS RTP vs the editor preview when betAmount was unwired.
+          betAmount: 100,
           winningLines: [],
           paylines: [],
           paytable: {}
@@ -151,7 +155,8 @@ export class SlotGameNodeRegistry {
           'totalBets',
           'totalFreeSpinsWon',
           'blockedReels',
-          'freeSpinsSymbol'
+          'freeSpinsSymbol',
+          'freeSpinsRewardFormula'
         ],
         outputPorts: [
           'capital',
@@ -170,7 +175,8 @@ export class SlotGameNodeRegistry {
           totalBets: 0,
           totalFreeSpinsWon: 0,
           blockedReels: '0,4',
-          freeSpinsSymbol: 10
+          freeSpinsSymbol: 10,
+          freeSpinsRewardFormula: 'x <= 1 ? 0 : (x * (x + 1)) / 2'
         },
         calculationMethod: 'calculateFreeSpinsStates',
         isStateful: false
@@ -284,11 +290,14 @@ export class SlotGameNodeRegistry {
           'spinCount',
           'hits',
           'jackpotWinnings',
-          'winningJackpot'
+          'winningJackpot',
+          'cascadingReelsEnabled'
         ],
         outputPorts: ['capital', 'totalBets', 'totalWinnings', 'totalWinningsFromFreeSpins', 'spinCount', 'hits'],
         defaultValues: {
-          betAmount: 0,
+          // 2026-07-03: aligned to the editor node's default (spin-calculate.js: 100).
+          // 0 here made totalBets 0 for unwired games → RGS RTP guard returned 0 forever.
+          betAmount: 100,
           capital: 0,
           totalBets: 0,
           spinWinnings: 0,
@@ -298,7 +307,8 @@ export class SlotGameNodeRegistry {
           spinCount: 0,
           hits: 0,
           jackpotWinnings: 0,
-          winningJackpot: false
+          winningJackpot: false,
+          cascadingReelsEnabled: false
         },
         calculationMethod: 'spinCalculate',
         isStateful: false
@@ -525,13 +535,8 @@ export class SlotGameCalculationGenerator {
         throw new Error('Winning lines must be an array');
       }
 
-      const _betAmount = Number(betAmount) || 0;
-      if (_betAmount < 0.01) {
-        throw new Error('Bet amount cannot be less than 0.01');
-      }
-      if (_betAmount > 1000000) {
-        throw new Error('Bet amount cannot exceed 1000000');
-      }
+      // Match editor node (calculate-winnings.js betAmount setter): clamp to [1, 1000000], default 100, never throw
+      const _betAmount = Math.min(Math.max(Number(betAmount) || 100, 1), 1000000);
 
       if (!paytable || typeof paytable !== 'object') {
         throw new Error('Paytable must be a valid object');
@@ -609,13 +614,33 @@ export class SlotGameCalculationGenerator {
       const numRows = reels[0].length;
       const numCols = reels.length;
 
-      // Default paylines if none provided
+      // Default paylines if none provided.
+      // 2026-07-03 (editor↔RGS divergence, user-approved alignment): the editor's
+      // Check Wins node defaults to TWENTY paylines (check-wins.js); this compiled
+      // default stopped at the first 5, so any payline slot with no customPaylines
+      // measured a materially LOWER RTP on the RGS than in the editor preview.
+      // This is the editor's exact 20-line list, verbatim.
       let paylines = customPaylines || [
         [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]],
         [[0, 1], [1, 1], [2, 1], [3, 1], [4, 1]],
         [[0, 2], [1, 2], [2, 2], [3, 2], [4, 2]],
         [[0, 0], [1, 1], [2, 2], [3, 1], [4, 0]],
-        [[0, 2], [1, 1], [2, 0], [3, 1], [4, 2]]
+        [[0, 2], [1, 1], [2, 0], [3, 1], [4, 2]],
+        [[0, 0], [1, 0], [2, 1], [3, 2], [4, 2]],
+        [[0, 2], [1, 2], [2, 1], [3, 0], [4, 0]],
+        [[0, 0], [1, 1], [2, 0], [3, 1], [4, 0]],
+        [[0, 2], [1, 1], [2, 2], [3, 1], [4, 2]],
+        [[0, 1], [1, 0], [2, 0], [3, 0], [4, 1]],
+        [[0, 1], [1, 2], [2, 2], [3, 2], [4, 1]],
+        [[0, 1], [1, 0], [2, 1], [3, 2], [4, 1]],
+        [[0, 1], [1, 2], [2, 1], [3, 0], [4, 1]],
+        [[0, 0], [1, 1], [2, 1], [3, 1], [4, 0]],
+        [[0, 2], [1, 1], [2, 1], [3, 1], [4, 2]],
+        [[0, 0], [1, 0], [2, 2], [3, 2], [4, 0]],
+        [[0, 2], [1, 2], [2, 0], [3, 0], [4, 2]],
+        [[0, 0], [1, 2], [2, 0], [3, 2], [4, 0]],
+        [[0, 2], [1, 0], [2, 2], [3, 0], [4, 2]],
+        [[0, 1], [1, 2], [2, 0], [3, 2], [4, 1]]
       ];
 
       for (const [lineIndex, lineValue] of paylines.entries()) {
@@ -627,6 +652,19 @@ export class SlotGameCalculationGenerator {
             if (row >= numRows || col >= numCols) continue;
             const symbol = reels[col][row];
             line.push(symbol);
+          }
+        }
+
+        // Skip lines where a free spins symbol interferes before a valid run can form
+        // (matches editor Check Wins node check-wins.js). console.info dropped to avoid
+        // nested template-literal escaping; logging does not affect RTP.
+        if (line.includes(wildSymbol) && line.includes(freeSpinsSymbol)) {
+          const freeSpinsIndex = line.indexOf(freeSpinsSymbol);
+          const winPossible = line
+            .slice(0, Math.min(freeSpinsIndex, minConsecutiveSymbols))
+            .some((sym, i) => sym === wildSymbol || (sym === line[0] && line[0] !== freeSpinsSymbol));
+          if (!winPossible) {
+            continue;
           }
         }
 
@@ -749,7 +787,7 @@ export class SlotGameCalculationGenerator {
       if (!Array.isArray(winningLines)) {
         throw new Error('Winning lines must be an array');
       }
-      const _bet = Number(betAmount) || 0;
+      const _bet = Number(betAmount) || 100;
       if (_bet <= 0) {
         throw new Error('Bet amount must be a positive number');
       }
@@ -781,49 +819,7 @@ export class SlotGameCalculationGenerator {
   private static generateGetPaytableLogic(): string {
     return `
       // Math formula evaluation function (replaces mathjs)
-      function evaluateFormula(formula, x) {
-        try {
-          // Create a scope with the variable x and common constants
-          const scope = {
-            x: x,
-            pi: Math.PI,
-            e: Math.E
-          };
-
-          // Simple formula evaluation (basic math operations)
-          // Replace common math functions with JavaScript equivalents
-          let processedFormula = formula
-            .replace(/\\bsin\\b/g, 'Math.sin')
-            .replace(/\\bcos\\b/g, 'Math.cos')
-            .replace(/\\btan\\b/g, 'Math.tan')
-            .replace(/\\blog\\b/g, 'Math.log')
-            .replace(/\\bexp\\b/g, 'Math.exp')
-            .replace(/\\bsqrt\\b/g, 'Math.sqrt')
-            .replace(/\\bpow\\b/g, 'Math.pow')
-            .replace(/\\babs\\b/g, 'Math.abs')
-            .replace(/\\bfloor\\b/g, 'Math.floor')
-            .replace(/\\bceil\\b/g, 'Math.ceil')
-            .replace(/\\bround\\b/g, 'Math.round');
-
-          // Replace variables with their values
-          Object.keys(scope).forEach(key => {
-            const regex = new RegExp('\\\\b' + key + '\\\\b', 'g');
-            processedFormula = processedFormula.replace(regex, scope[key]);
-          });
-
-          // Evaluate the formula
-          const result = eval(processedFormula);
-
-          // Ensure we get a number result
-          if (typeof result !== 'number' || isNaN(result)) {
-            throw new Error('Formula must evaluate to a number, got ' + typeof result + ': ' + result);
-          }
-
-          return result;
-        } catch (error: any) {
-          throw new Error('Formula evaluation error: ' + error.message);
-        }
-      }
+      ${EVALUATE_FORMULA_JS}
 
       // Validate inputs
       if (numberOfSymbols <= 0) {
@@ -874,37 +870,7 @@ export class SlotGameCalculationGenerator {
   private static generateSymbolWeightsLogic(): string {
     return `
       // Math formula evaluation function compatible with Deno (no external libs)
-      function evaluateFormula(formula, x) {
-        try {
-          const scope = { x: x, pi: Math.PI, e: Math.E };
-
-          let processedFormula = String(formula)
-            .replace(/\\bsin\\b/g, 'Math.sin')
-            .replace(/\\bcos\\b/g, 'Math.cos')
-            .replace(/\\btan\\b/g, 'Math.tan')
-            .replace(/\\blog\\b/g, 'Math.log')
-            .replace(/\\bexp\\b/g, 'Math.exp')
-            .replace(/\\bsqrt\\b/g, 'Math.sqrt')
-            .replace(/\\bpow\\b/g, 'Math.pow')
-            .replace(/\\babs\\b/g, 'Math.abs')
-            .replace(/\\bfloor\\b/g, 'Math.floor')
-            .replace(/\\bceil\\b/g, 'Math.ceil')
-            .replace(/\\bround\\b/g, 'Math.round');
-
-          Object.keys(scope).forEach((key) => {
-            const regex = new RegExp('\\\\b' + key + '\\\\b', 'g');
-            processedFormula = processedFormula.replace(regex, String(scope[key]));
-          });
-
-          const result = eval(processedFormula);
-          if (typeof result !== 'number' || isNaN(result)) {
-            throw new Error('Formula must evaluate to a number, got ' + typeof result + ': ' + result);
-          }
-          return result;
-        } catch (error: any) {
-          throw new Error('Formula evaluation error: ' + error.message);
-        }
-      }
+      ${EVALUATE_FORMULA_JS}
 
       // Validate inputs
       const N = Number(numberOfSymbols);
@@ -932,7 +898,7 @@ export class SlotGameCalculationGenerator {
 
       const totalWeight = finalWeights.reduce((a, b) => a + b, 0);
       if (!Number.isFinite(totalWeight) || totalWeight === 0) {
-        throw new Error('Total weight is zero. Check your formula or custom weights.');
+        throw new Error('Generate Symbol Weights: total weight is zero — every symbol would have 0 probability, so no reels/wins can be produced. Cause: weightFormula "' + formula + '" evaluates to 0 for all ' + N + ' symbols, OR all symbolWeight1..' + N + ' overrides are 0. Set a non-degenerate formula (e.g. "exp(-x / 15)") or non-zero custom weights.');
       }
 
       const normalizedBaseWeights = finalWeights.map((weight) => (weight / totalWeight) * 100);
@@ -994,32 +960,7 @@ export class SlotGameCalculationGenerator {
   private static generateReelStripsFromSeedLogic(): string {
     return `
       // Evaluate formula helper
-      function evaluateFormula(formula, x) {
-        try {
-          const scope = { x: x, pi: Math.PI, e: Math.E };
-          let processed = String(formula)
-            .replace(/\\bsin\\b/g, 'Math.sin')
-            .replace(/\\bcos\\b/g, 'Math.cos')
-            .replace(/\\btan\\b/g, 'Math.tan')
-            .replace(/\\blog\\b/g, 'Math.log')
-            .replace(/\\bexp\\b/g, 'Math.exp')
-            .replace(/\\bsqrt\\b/g, 'Math.sqrt')
-            .replace(/\\bpow\\b/g, 'Math.pow')
-            .replace(/\\babs\\b/g, 'Math.abs')
-            .replace(/\\bfloor\\b/g, 'Math.floor')
-            .replace(/\\bceil\\b/g, 'Math.ceil')
-            .replace(/\\bround\\b/g, 'Math.round');
-          Object.keys(scope).forEach((k) => {
-            const rx = new RegExp('\\\\b' + k + '\\\\b', 'g');
-            processed = processed.replace(rx, String(scope[k]));
-          });
-          const result = eval(processed);
-          if (typeof result !== 'number' || !Number.isFinite(result)) throw new Error('Bad formula result');
-          return result;
-        } catch (err: any) {
-          throw new Error('Formula evaluation error: ' + err.message);
-        }
-      }
+      ${EVALUATE_FORMULA_JS}
 
       // Seeded RNG (LCG)
       function SeededRandom(seed) {
@@ -1087,16 +1028,52 @@ export class SlotGameCalculationGenerator {
         cumulativeValues = [];
       }
       
-      // Extract values from spinResults
+      // Extract values from spinResults (match editor node priority order)
       let newValues = [];
-      if (spinResults && typeof spinResults.totalPayout === 'number') {
-        newValues = [spinResults.totalPayout];
-      } else if (Array.isArray(spinResults.values)) {
-        newValues = spinResults.values.filter(v => typeof v === 'number');
+      const _spin = spinResults || {};
+      if (Array.isArray(_spin)) {
+        const _sumFromArray = (arr) => {
+          let sum = 0;
+          for (let i = 0; i < arr.length; i++) {
+            const entry = arr[i];
+            if (typeof entry === 'number' && Number.isFinite(entry)) sum += entry;
+            else if (Array.isArray(entry)) sum += _sumFromArray(entry);
+            else if (entry && typeof entry === 'object' && typeof entry.totalPayout === 'number' && Number.isFinite(entry.totalPayout)) sum += entry.totalPayout;
+          }
+          return sum;
+        };
+        const _total = _sumFromArray(_spin);
+        if (Number.isFinite(_total)) newValues = [_total];
+      } else if (Array.isArray(_spin.values)) {
+        newValues = _spin.values.filter(v => typeof v === 'number');
+      } else if (Array.isArray(_spin.RTPDataSeries)) {
+        newValues = _spin.RTPDataSeries.filter(v => typeof v === 'number');
+      } else if (Array.isArray(_spin.payoutSeries)) {
+        newValues = _spin.payoutSeries.filter(v => typeof v === 'number');
+      } else if (Array.isArray(_spin.totalPayouts)) {
+        newValues = _spin.totalPayouts.filter(v => typeof v === 'number');
+      } else if (Array.isArray(_spin.cascades)) {
+        let _total = 0;
+        const _cascades = _spin.cascades || [];
+        for (let i = 0; i < _cascades.length; i++) {
+          const c = _cascades[i];
+          if (typeof c === 'number' && Number.isFinite(c)) _total += c;
+          else if (c && typeof c === 'object' && typeof c.totalPayout === 'number' && Number.isFinite(c.totalPayout)) _total += c.totalPayout;
+          else if (Array.isArray(c)) {
+            for (let j = 0; j < c.length; j++) {
+              const e = c[j];
+              if (typeof e === 'number' && Number.isFinite(e)) _total += e;
+              else if (e && typeof e === 'object' && typeof e.totalPayout === 'number' && Number.isFinite(e.totalPayout)) _total += e.totalPayout;
+            }
+          }
+        }
+        newValues = Number.isFinite(_total) ? [_total] : [];
+      } else if (typeof _spin.totalPayout === 'number') {
+        newValues = [_spin.totalPayout];
       }
       
       // Add new values
-      cumulativeValues = [...cumulativeValues, ...newValues];
+      cumulativeValues = [...cumulativeValues, ...newValues.filter(v => typeof v === 'number' && Number.isFinite(v))];
       
       // Calculate volatility
       const n = cumulativeValues.length;
@@ -1111,7 +1088,7 @@ export class SlotGameCalculationGenerator {
         standardDeviation = Math.sqrt(variance);
       }
       
-      const volatilityResult = mean > 0 ? (standardDeviation / mean) * 100 : 0;
+      const volatilityResult = mean > 0 ? (standardDeviation / mean) * 100 : (standardDeviation > 0 ? 100 : 0);
       const amplitude = n > 0 ? (Math.max(...cumulativeValues) - Math.min(...cumulativeValues)) / Math.abs(mean || 1) : 0;
       
       // Return updated state
@@ -1269,13 +1246,21 @@ export class SlotGameCalculationGenerator {
       const _jackpotWinnings = Number(jackpotWinnings) || 0;
       const _winningJackpot = Boolean(winningJackpot);
 
-      // Apply bet cost and update totals
-      _capital -= _betAmount;
-      _totalBets += _betAmount;
+      // Determine if cascading is in progress (mirrors editor spin-calculate.js)
+      const _cascadingReelsEnabled = Boolean(cascadingReelsEnabled);
+      const _isCascadingInProgress = _cascadingReelsEnabled && _spinWinnings > 0;
+
+      // Apply bet cost and update totals only when not cascading and not a free spin
+      if (!_isCascadingInProgress && _currentFreeSpins === 0) {
+        _capital -= _betAmount;
+        _totalBets += _betAmount;
+      }
 
       if (_spinWinnings > 0) {
         _capital += _spinWinnings;
-        _hits += 1;
+        if (!_isCascadingInProgress) {
+          _hits += 1;
+        }
         _totalWinnings += _spinWinnings;
         if (_currentFreeSpins > 0) {
           _totalWinningsFromFreeSpins += _spinWinnings;
@@ -1288,7 +1273,9 @@ export class SlotGameCalculationGenerator {
         _totalWinnings += _jackpotWinnings;
       }
 
-      _spinCount += 1;
+      if (!_isCascadingInProgress) {
+        _spinCount += 1;
+      }
 
       // Map results to outputs (using different variable names to avoid conflicts)
       const resultCapital = _capital;
@@ -1341,10 +1328,20 @@ export class SlotGameCalculationGenerator {
         for (let i = 1; i <= symbolWeights.length; i++) {
           baseReel.push(...Array(symbolWeightsRelativeToMin[i - 1]).fill(i));
         }
+        // PROVABLY FAIR (2026-07-03, mirrors the editor's 2026-06-23 fix in
+        // weighted-reels.js): seed each column's RNG from the server-provided seeds
+        // so dynamic-mode outcomes are reproducible/auditable from the seed. The
+        // unseeded Math.random() here made server outcomes non-reproducible — a
+        // provably-fair violation the editor side had already fixed. Falls back to
+        // Math.random() only when seeds aren't provided (one per column).
+        const _dynSeeds = Array.isArray(seeds) ? seeds : [];
+        const _haveDynSeeds = _dynSeeds.length >= columnSize;
         for (let col = 0; col < columnSize; col++) {
           const reel = [];
+          const colRng = _haveDynSeeds ? new SeededRandom(_dynSeeds[col]) : null;
           for (let row = 0; row < rowSize; row++) {
-            const idx = Math.floor(Math.random() * baseReel.length);
+            const rand = colRng ? colRng.nextFloat() : Math.random();
+            const idx = Math.floor(rand * baseReel.length);
             reel.push(baseReel[idx]);
           }
           reels.push(reel);
@@ -1481,9 +1478,23 @@ export class SlotGameCalculationGenerator {
         }
       }
 
+      // Free spins reward: per-count override wins, else evaluate the configurable
+      // freeSpinsRewardFormula via the ONE shared no-eval evaluator (formula-eval-emit).
+      // 2026-07-10 (trace 1783634013326): this was the FOURTH drifting copy, and it used
+      // eval() — which sanitizeForSandbox replaced with 0 in the uploaded bundle, so free
+      // spins rewards were silently zeroed in the certified RGS. The shared evaluator
+      // supports the ternary/comparisons this formula needs and emits no eval.
+      const _rewardFormula = String(freeSpinsRewardFormula || 'x <= 1 ? 0 : (x * (x + 1)) / 2');
+      ${EVALUATE_FORMULA_JS}
+      const _evaluateRewardFormula = (formula, x) => evaluateFormula(formula, x);
+
       let won = 0;
-      if (freeSpinsSymbolCount >= 2) {
-        won = (freeSpinsSymbolCount * (freeSpinsSymbolCount + 1)) / 2;
+      const _rewardOverride = inputs['freeSpinsRewardCount' + freeSpinsSymbolCount];
+      const _rewardOverrideNum = Number(_rewardOverride);
+      if (_rewardOverride !== undefined && _rewardOverride !== null && _rewardOverride !== '' && Number.isFinite(_rewardOverrideNum)) {
+        won = _rewardOverrideNum;
+      } else {
+        won = _evaluateRewardFormula(_rewardFormula, freeSpinsSymbolCount);
       }
 
       const currentFreeSpinsWon = won;

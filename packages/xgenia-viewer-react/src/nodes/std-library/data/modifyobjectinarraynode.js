@@ -260,7 +260,6 @@ const ModifyObjectInArrayNode = {
         this.flagOutputDirty('originalValue');
         this.flagOutputDirty('newValue');
         this.flagOutputDirty('modifiedObject');
-        this.sendSignalOnOutput('Done');
 
         console.log(`Successfully modified object ${this._internal.objectId}`);
       } catch (error) {
@@ -270,6 +269,8 @@ const ModifyObjectInArrayNode = {
         this.flagOutputDirty('modifiedObject');
         this.sendSignalOnOutput('failure');
         console.error('Modify Object in Array Node modification error:', error.message);
+      } finally {
+        this.sendSignalOnOutput('Done');
       }
     }
   }

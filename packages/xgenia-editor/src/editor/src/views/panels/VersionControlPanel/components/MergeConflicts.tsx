@@ -32,7 +32,9 @@ export function MergeConflicts() {
           isGrowing
           size={PrimaryButtonSize.Small}
           onClick={() => {
-            document.getElementById('editortopbar-warning-button').click();
+            // The top bar only renders the warnings badge when there ARE warnings, so
+            // this lookup can legitimately miss. It used to throw.
+            document.getElementById('editortopbar-warning-button')?.click();
           }}
         />
       </Section>

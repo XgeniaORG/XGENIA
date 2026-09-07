@@ -6,6 +6,7 @@ import { ArrayDiff } from '@xgenia-utils/projectmerger.diff';
 
 import { Slot } from '@xgenia-core-ui/types/global';
 
+import { useVersionControlActions } from './actions.context';
 import { doLocalDiff, ProjectLocalDiff } from './DiffUtils';
 import { useVersionControlFetch } from './fetch.context';
 import { BranchStatus, IVersionControlContext } from './types';
@@ -15,6 +16,9 @@ const VersionControlContext = createContext<IVersionControlContext>({
   repositoryPath: null,
   activeTabId: null,
   setActiveTabId: null,
+  commitMessage: null,
+  setCommitMessage: null,
+  actions: null,
   selectedCommit: null,
   setSelectedCommit: null,
   isPerformingAction: null,
@@ -37,6 +41,7 @@ export function VersionControlProvider({ git, children }: { git: Git; children: 
   // UI
   const [branchStatus, setBranchStatus] = useState<BranchStatus>(null);
   const [activeTabId, setActiveTabId] = useState('changes');
+  const [commitMessage, setCommitMessage] = useState('');
   const [selectedCommit, setSelectedCommit] = useState<string>(undefined);
   const [isPerformingAction, setIsPerformingAction] = useState(false);
   const [localDiff, setLocalDiff] = useState<ProjectLocalDiff>(null);
@@ -52,6 +57,18 @@ export function VersionControlProvider({ git, children }: { git: Git; children: 
     getNumChanges(localDiff?.styles.colors) +
     getNumChanges(localDiff?.styles.text) +
     getNumChanges(localDiff?.cloudservices);
+
+  const { actions, actionDialogs } = useVersionControlActions({
+    git,
+    repositoryPath: git.repositoryPath,
+    fetch,
+    localChangesCount,
+    commitMessage,
+    setCommitMessage,
+    setActiveTabId,
+    setSelectedCommit,
+    setIsPerformingAction
+  });
 
   const updateLocalDiff = useCallback(() => {
     setLocalDiff(null); //reset old diff to show loaders again
@@ -78,7 +95,12 @@ export function VersionControlProvider({ git, children }: { git: Git; children: 
       return;
     }
 
-    if (fetch.remoteCommitCount > 0) {
+    if (fetch.remoteCommitCount > 0 && fetch.localCommitCount > 0) {
+      // Diverged from the remote: pull before push, in one action.
+      fetch.setGitStatus({
+        kind: 'sync'
+      });
+    } else if (fetch.remoteCommitCount > 0) {
       fetch.setGitStatus({
         kind: 'pull'
       });
@@ -110,6 +132,11 @@ export function VersionControlProvider({ git, children }: { git: Git; children: 
         activeTabId,
         setActiveTabId,
 
+        commitMessage,
+        setCommitMessage,
+
+        actions,
+
         selectedCommit,
         setSelectedCommit,
 
@@ -127,6 +154,7 @@ export function VersionControlProvider({ git, children }: { git: Git; children: 
         fetch
       }}
     >
+      {actionDialogs}
       {children}
     </VersionControlContext.Provider>
   );

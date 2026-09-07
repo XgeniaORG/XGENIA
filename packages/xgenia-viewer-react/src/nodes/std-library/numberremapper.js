@@ -22,7 +22,10 @@ const NumberRemapperNode = {
       group: 'Value to Remap',
       type: {
         name: 'number',
-        allowConnectionOnly: true
+        // 2026-08-18: was `allowConnectionOnly` (singular). Nothing reads that key —
+        // propertyeditor/DataTypes/Ports.ts checks `type.allowConnectionsOnly` — so this port
+        // has been editable in the panel since it was written, against the author's intent.
+        allowConnectionsOnly: true
       },
       default: 0,
       displayName: 'Input Value',

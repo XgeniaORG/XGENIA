@@ -42,7 +42,7 @@ const LoaderNode = {
   name: 'xgenia.Loader',
   displayNodeName: 'App Loader',
   displayName: 'App Loader',
-  docs: 'https://docs.xgenia.com/nodes/utilities/loader',
+  docs: 'https://docsapp.xgenia.com/nodes/utilities/loader',
   category: 'Utilities',
   color: 'visual',
 

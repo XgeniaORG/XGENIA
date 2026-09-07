@@ -242,6 +242,21 @@ export default class Viewer extends React.Component {
 
     this.state.waitingForExport = !this.runningDeployed;
 
+    // Load the uid→path asset manifest (if present) so `uid://<id>` refs resolve. Async,
+    // but fetched at startup — long before any user interaction. The editor serves it live
+    // from .xgenia-assets.json; deployed exports bundle it as a static file.
+    try {
+      const _base = (typeof XGENIA !== 'undefined' && XGENIA && XGENIA.Env && XGENIA.Env['BaseUrl']) || '';
+      fetch(_base + 'assets-manifest.json')
+        .then((r) => (r && r.ok ? r.json() : null))
+        .then((m) => {
+          if (m && typeof m === 'object') XGENIA.assetsManifest = m;
+        })
+        .catch(() => {});
+    } catch (e) {
+      /* ignore — uid:// refs simply won't resolve without a manifest */
+    }
+
     if (this.runningDeployed) {
       this.props.xgeniaRuntime.setData(this.props.projectData);
 

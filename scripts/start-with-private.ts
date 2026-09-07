@@ -9,6 +9,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn, execSync, ChildProcess } from 'child_process';
+import { getPidsOnPort, killPid } from './utils/ports';
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const PRIVATE_DIR = path.join(ROOT_DIR, 'private');
@@ -22,18 +23,10 @@ const backgroundProcesses: ChildProcess[] = [];
  * Kill process on a specific port
  */
 function killPort(port: number) {
-    try {
-        const result = execSync(`lsof -ti tcp:${port}`);
-        if (result.length > 0) {
-            const pids = result.toString().trim().split('\n');
-            logWarning(`Port ${port} is in use. Killing processes: ${pids.join(', ')}...`);
-            for (const pid of pids) {
-                try { execSync(`kill -9 ${pid}`); } catch { }
-            }
-        }
-    } catch (err) {
-        // Port is free or lsof failed
-    }
+    const pids = getPidsOnPort(port);
+    if (pids.length === 0) return;
+    logWarning(`Port ${port} is in use. Killing processes: ${pids.join(', ')}...`);
+    pids.forEach(killPid);
 }
 
 /**
@@ -46,8 +39,14 @@ function cleanup() {
     for (const proc of backgroundProcesses) {
         if (proc.pid) {
             try {
-                // Kill the entire process group
-                process.kill(-proc.pid, 'SIGTERM');
+                if (process.platform === 'win32') {
+                    // Negative-PID group kill is unsupported on Windows;
+                    // taskkill /T takes down the shell > npm > node tree.
+                    killPid(proc.pid);
+                } else {
+                    // Kill the entire process group
+                    process.kill(-proc.pid, 'SIGTERM');
+                }
             } catch (e) {
                 // Process might already be dead
             }
@@ -86,6 +85,56 @@ function dirExists(dir: string): boolean {
     try {
         return fs.existsSync(dir) && fs.statSync(dir).isDirectory();
     } catch {
+        return false;
+    }
+}
+
+/**
+ * Do this workspace app's dependencies actually RESOLVE?
+ *
+ * The old check was `node_modules is missing or empty`, which is wrong in an npm
+ * WORKSPACE: a root `npm install` hoists everything to the repo root and legitimately
+ * leaves each child's node_modules empty. That heuristic therefore fired on a perfectly
+ * healthy tree, and the "fix" it triggered — `npm install` with cwd inside the workspace
+ * member — makes npm re-resolve from the root and PRUNE the packages the other workspaces
+ * need. Result was a loop: root install → child dirs empty → launcher "repairs" → root
+ * pruned to 271 packages → next launch dies on webpack-merge / express / babel.
+ *
+ * Resolution is the honest question. If require.resolve finds the app's own dependency
+ * from the app's directory, the app can run, wherever the package physically lives.
+ */
+function depsResolveFrom(appDir: string): boolean {
+    try {
+        const pkgPath = path.join(appDir, 'package.json');
+        if (!fs.existsSync(pkgPath)) return true; // nothing declared — nothing to check
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        const names = Object.keys({ ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) })
+            // workspace siblings resolve differently (symlinks/build output) — skip them
+            .filter((n) => !n.startsWith('@xgenia/'));
+        if (names.length === 0) return true;
+        // Probe a handful rather than the whole list: enough to catch a wiped tree,
+        // cheap enough to run on every launch.
+        for (const name of names.slice(0, 8)) {
+            require.resolve(name, { paths: [appDir] });
+        }
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Install workspace dependencies from the REPO ROOT, never from inside a member.
+ * `npm install` with cwd inside a workspace prunes its siblings (see depsResolveFrom).
+ */
+function installWorkspaceDeps(label: string): boolean {
+    log(`Installing ${label} dependencies (from repo root — installing per-app prunes sibling workspaces)...`);
+    try {
+        execSync('npm install', { cwd: ROOT_DIR, stdio: 'inherit' });
+        logSuccess(`${label} dependencies installed`);
+        return true;
+    } catch (e) {
+        logWarning(`npm install failed for ${label}: ` + (e as Error).message);
         return false;
     }
 }
@@ -222,18 +271,9 @@ function startImageEditorApp(): void {
         return;
     }
 
-    // Ensure local node_modules are installed so Vite resolves packages from
-    // the app-local ESM builds (not the monorepo root CJS builds).
-    const nmDir = path.join(IMAGE_EDITOR_APP_DIR, 'node_modules');
-    const needsInstall = !dirExists(nmDir) || fs.readdirSync(nmDir).length === 0;
-    if (needsInstall) {
-        log('Installing Image Editor App dependencies...');
-        try {
-            execSync('npm install', { cwd: IMAGE_EDITOR_APP_DIR, stdio: 'inherit' });
-            logSuccess('Image Editor App dependencies installed');
-        } catch (e) {
-            logWarning('npm install failed in xgenia-image-editor-app: ' + (e as Error).message);
-        }
+    // Same as the AI app: resolution is the question, and installs run from the root.
+    if (!depsResolveFrom(IMAGE_EDITOR_APP_DIR)) {
+        installWorkspaceDeps('Image Editor App');
     }
 
     log('Starting Image Editor App on http://localhost:3002 ...');
@@ -259,18 +299,10 @@ function startAiApp(): void {
         return;
     }
 
-    // Ensure local node_modules are installed so Vite resolves packages from
-    // the app-local ESM builds (not the monorepo root CJS builds).
-    const nmDir = path.join(AI_APP_DIR, 'node_modules');
-    const needsInstall = !dirExists(nmDir) || fs.readdirSync(nmDir).length === 0;
-    if (needsInstall) {
-        log('Installing AI App dependencies...');
-        try {
-            execSync('npm install', { cwd: AI_APP_DIR, stdio: 'inherit' });
-            logSuccess('AI App dependencies installed');
-        } catch (e) {
-            logWarning('npm install failed in xgenia-ai-app: ' + (e as Error).message);
-        }
+    // Install only when the app's dependencies genuinely do not RESOLVE. An empty
+    // node_modules here is normal — npm workspaces hoist to the repo root.
+    if (!depsResolveFrom(AI_APP_DIR)) {
+        installWorkspaceDeps('AI App');
     }
 
     log('Starting AI App on http://localhost:3010 ...');

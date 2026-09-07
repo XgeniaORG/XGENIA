@@ -46,7 +46,7 @@ export function DefaultApp({ title = 'XGENIA Storybook', panel, document }: Defa
         position: 'relative'
       }}
     >
-      <TitleBar title={title} version="2.7.0" isWindows />
+      <TitleBar title={title} version="2.7.0" hasWindowControls />
       <div className={classNames([css['Main']])}>
         <FrameDivider
           size={frameSize}

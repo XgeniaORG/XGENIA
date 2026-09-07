@@ -6,6 +6,7 @@ import { Text, TextType } from '@xgenia-core-ui/components/typography/Text';
 import { Title, TitleSize } from '@xgenia-core-ui/components/typography/Title';
 import { Icon, IconName, IconSize } from '@xgenia-core-ui/components/common/Icon';
 import { PrimaryButton, PrimaryButtonSize, PrimaryButtonVariant } from '@xgenia-core-ui/components/inputs/PrimaryButton';
+import { usePanelActive } from '../useIsActivePanel';
 
 // Import both module CSS files
 import panelCss from './AIPanel.module.scss';
@@ -15,21 +16,28 @@ import styles from './ComingSoonPanel.module.scss';
 export const AIPanel_ID = 'ai-panel';
 
 export function ComingSoonPanel() {
+  const isPanelActive = usePanelActive();
   // Animation values for elements fading in
   const [isVisible, setIsVisible] = useState(false);
   const [dotsCount, setDotsCount] = useState(0);
 
   // Trigger entrance animation on component mount
   useEffect(() => {
-    setTimeout(() => setIsVisible(true), 100);
-    
-    // Animate the dots
+    const entrance = setTimeout(() => setIsVisible(true), 100);
+    return () => clearTimeout(entrance);
+  }, []);
+
+  // Animate the dots — only while the panel is on screen. This panel stays
+  // mounted behind whatever the user switches to, and a "..." animation nobody
+  // can see was re-rendering it twice a second for the rest of the session.
+  useEffect(() => {
+    if (!isPanelActive) return;
     const interval = setInterval(() => {
       setDotsCount((prev) => (prev + 1) % 4);
     }, 500);
-    
+
     return () => clearInterval(interval);
-  }, []);
+  }, [isPanelActive]);
 
   const dots = '.'.repeat(dotsCount);
   

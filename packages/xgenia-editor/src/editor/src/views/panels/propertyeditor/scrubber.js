@@ -19,6 +19,12 @@ const DRAG_THRESHOLD = 3; // px before we commit to a drag
  * @param {HTMLElement}  labelEl   The <label> element (drag handle)
  * @param {HTMLElement}  inputEl   The <input> element (value target)
  * @param {object}       callbacks
+ * @param {function():void} [callbacks.onStart]
+ *        Called once on mouse-down, BEFORE the first onChange. This is the only
+ *        moment the pre-drag value is still readable from the model: every
+ *        intermediate onChange writes the model, so by mouse-up the model no
+ *        longer knows where the drag started. Snapshot it here and hand it back
+ *        as the undo `oldValue` on the final commit.
  * @param {function(number, boolean):void} callbacks.onChange
  *        Called with (newValue, isFinal).
  *        isFinal=false during drag (skip undo), isFinal=true on mouse-up (commit undo).
@@ -65,6 +71,9 @@ export function attachScrubber(labelEl, inputEl, callbacks, options = {}) {
         startX = e.clientX;
         startValue = parseValue();
         accumulatedDelta = 0;
+
+        // Let the owner snapshot the pre-drag value while the model still holds it.
+        callbacks.onStart && callbacks.onStart();
 
         document.addEventListener('mousemove', onMouseMove, true);
         document.addEventListener('mouseup', onMouseUp, true);

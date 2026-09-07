@@ -5,7 +5,27 @@ import { createRoot, Root } from 'react-dom/client';
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import View from '../../../../shared/view';
 import { InlineElementChat } from './InlineElementChat';
+import type { PreviewHost } from './IframeViewer';
 import { VisualCanvas } from './VisualCanvas';
+
+/**
+ * Chatter from the running preview, off by default.
+ *
+ * 2026-08-12 perf audit: every `console-message` the preview emitted and every
+ * `ipc-message` it sent was logged here unconditionally, the IPC one twice and
+ * the second time as a whole object literal. A preview that logs per frame — a
+ * spinning slot, say — therefore paid a console write per frame IN THE EDITOR's
+ * renderer, and objects logged to a console are retained rather than collected
+ * while DevTools is attached. Set `localStorage.xgeniaDebugWebview = '1'` and
+ * reload to get it back.
+ */
+const DEBUG_WEBVIEW = (() => {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem('xgeniaDebugWebview') === '1';
+  } catch {
+    return false;
+  }
+})();
 
 // Interface for the thumbnail capture result
 interface ThumbnailResult {
@@ -19,7 +39,7 @@ export class CanvasView extends View {
   private _reactRoot: Root | null = null;
   private _lastCaptureTime: number = 0;
 
-  webview: Electron.WebviewTag | null = null;
+  webview: PreviewHost | null = null;
   webviewDomReady: boolean = false;
 
   zoomFactor: number;
@@ -41,11 +61,11 @@ export class CanvasView extends View {
   props: {
     deviceName?: string;
     zoom: number;
-    onWebView: (webview: Electron.WebviewTag) => void;
+    onWebView: (webview: PreviewHost) => void;
     onReloadWebview?: () => void;
   } = {
       zoom: 1,
-      onWebView: (webview: Electron.WebviewTag) => {
+      onWebView: (webview: PreviewHost) => {
         console.log('[CanvasView] onWebView callback called with webview:', !!webview);
         if (webview && !this.webview && !this.webviewSetupComplete) {
           this._setupWebview(webview);
@@ -81,7 +101,7 @@ export class CanvasView extends View {
     this.viewportHeight = null;
 
     // Bind the onWebView callback to this instance
-    this.props.onWebView = (webview: Electron.WebviewTag) => {
+    this.props.onWebView = (webview: PreviewHost) => {
       console.log('[CanvasView] onWebView callback called with webview:', !!webview);
       if (webview && !this.webview && !this.webviewSetupComplete) {
         this._setupWebview(webview);
@@ -149,7 +169,7 @@ export class CanvasView extends View {
   private htmlRequestHandler: (e: any) => void;
 
   // Method to setup the webview
-  _setupWebview(webview: Electron.WebviewTag): void {
+  _setupWebview(webview: PreviewHost): void {
     if (this.webviewSetupComplete) {
       console.log('[CanvasView] Webview already set up, skipping');
       return;
@@ -234,15 +254,19 @@ export class CanvasView extends View {
       }
     });
 
-    webview.addEventListener('console-message', (e) => {
-      console.log('[Webview Console]', e.message);
-    });
+    if (DEBUG_WEBVIEW) {
+      webview.addEventListener('console-message', (e) => {
+        console.log('[Webview Console]', e.message);
+      });
+    }
 
     // Listen for inspector messages from the webview
     webview.addEventListener('ipc-message', (event: any) => {
       const message = event.args && event.args[0];
-      console.log('[CanvasView] 📨 IPC message received - Channel:', event.channel, 'Message:', message);
-      console.log('[CanvasView] 📨 Full event:', { channel: event.channel, args: event.args, type: typeof event });
+      if (DEBUG_WEBVIEW) {
+        console.log('[CanvasView] 📨 IPC message received - Channel:', event.channel, 'Message:', message);
+        console.log('[CanvasView] 📨 Full event:', { channel: event.channel, args: event.args, type: typeof event });
+      }
 
       if (event.channel === 'inspector-node-found') {
         console.log('[CanvasView] Inspector found node:', message);
@@ -258,124 +282,17 @@ export class CanvasView extends View {
 
         // CRITICAL: Emit inspectNodes event to trigger node selection in editor
         // This is what EditorDocument listens for to select nodes
-        console.log('[CanvasView] 📡 Emitting inspectNodes event with nodeIds:', [message.nodeId]);
         EventDispatcher.instance.emit('inspectNodes', { nodeIds: [message.nodeId] });
-        console.log('[CanvasView] ✅ Emitted inspectNodes event for node selection');
 
-        // Show inline chat for the selected element
-        // Use element bounding rect if available, otherwise use click coordinates
-        const webviewRect = this.webview?.getBoundingClientRect();
-        console.log('[CanvasView] 📐 Webview rect:', webviewRect);
-        console.log('[CanvasView] 📐 Message data:', {
-          elementRect: message.elementRect,
-          clickX: message.clickX,
-          clickY: message.clickY
-        });
-
-        let chatX: number;
-        let chatY: number;
-        const chatWidth = 280; // Match the chat width
-        const chatHeight = 50; // Match the chat height
-
-        if (message.elementRect && webviewRect) {
-          // Use element's bounding rect for accurate positioning
-          // elementRect from getBoundingClientRect() is relative to webview's viewport
-          // Convert to main window coordinates by adding webview's position
-          const elementCenterX = message.elementRect.left + (message.elementRect.width / 2);
-          const elementTopY = message.elementRect.top;
-
-          chatX = webviewRect.left + elementCenterX - (chatWidth / 2); // Center chat on element
-          chatY = webviewRect.top + elementTopY - chatHeight - 10; // Position above element with spacing
-
-          console.log('[CanvasView] 📐 Calculated from elementRect:', {
-            elementCenterX,
-            elementTopY,
-            chatX,
-            chatY,
-            webviewLeft: webviewRect.left,
-            webviewTop: webviewRect.top
-          });
-
-          // Ensure chat doesn't go off-screen
-          const viewportWidth = window.innerWidth;
-          const viewportHeight = window.innerHeight;
-
-          if (chatX + chatWidth > viewportWidth - 20) {
-            chatX = viewportWidth - chatWidth - 20;
-          }
-          if (chatX < 20) {
-            chatX = 20;
-          }
-
-          // If element is near top, position below instead
-          if (chatY < 20) {
-            chatY = webviewRect.top + message.elementRect.top + message.elementRect.height + 10;
-            console.log('[CanvasView] 📐 Repositioned below element:', chatY);
-          }
-          if (chatY + chatHeight > viewportHeight - 20) {
-            chatY = viewportHeight - chatHeight - 20;
-          }
-        } else if (message.clickX !== undefined && message.clickY !== undefined && webviewRect) {
-          // Fallback to click coordinates
-          chatX = webviewRect.left + message.clickX - (chatWidth / 2); // Center chat on click
-          chatY = webviewRect.top + message.clickY - 60; // Position above click
-
-          console.log('[CanvasView] 📐 Calculated from click:', {
-            clickX: message.clickX,
-            clickY: message.clickY,
-            chatX,
-            chatY
-          });
-
-          // Ensure chat doesn't go off-screen
-          const viewportWidth = window.innerWidth;
-          if (chatX + chatWidth > viewportWidth - 20) {
-            chatX = viewportWidth - chatWidth - 20;
-          }
-          if (chatX < 20) {
-            chatX = 20;
-          }
-        } else {
-          // Last resort: use default position
-          chatX = webviewRect ? webviewRect.left + 100 : 100;
-          chatY = webviewRect ? webviewRect.top + 100 : 100;
-          console.log('[CanvasView] ⚠️ Using default position:', { chatX, chatY });
-        }
-
-        console.log('[CanvasView] 🎯 SHOWING INLINE CHAT:', {
-          nodeId: message.nodeId,
-          nodeLabel: message.nodeLabel,
-          finalPosition: { x: chatX, y: chatY },
-          elementRect: message.elementRect,
-          clickX: message.clickX,
-          clickY: message.clickY,
-          webviewRect: webviewRect
-        });
-
-        this.showInlineChatForNode(message.nodeId, message.nodeLabel || 'Selected Element', {
-          x: chatX,
-          y: chatY
-        });
-      } else if (event.channel === 'editor-move-element') {
-        // Interactive editing: element was dragged to a new position
-        console.log('[CanvasView] 📐 Element moved:', message);
+        // Single click selects ONLY. The inline chat popup used to open here
+        // on every click; a node now reaches the chat via double-click, as a
+        // reference (see inspector-node-dblclick below).
+      } else if (event.channel === 'inspector-node-dblclick') {
+        // Double-click: hand the node to the chat panel as a reference.
         if (message && message.nodeId) {
-          EventDispatcher.instance.emit('viewport-move-element', {
+          EventDispatcher.instance.emit('chat-add-node-reference', {
             nodeId: message.nodeId,
-            deltaX: message.deltaX || 0,
-            deltaY: message.deltaY || 0
-          });
-        }
-      } else if (event.channel === 'editor-resize-element') {
-        // Interactive editing: element was resized
-        console.log('[CanvasView] 📐 Element resized:', message);
-        if (message && message.nodeId) {
-          EventDispatcher.instance.emit('viewport-resize-element', {
-            nodeId: message.nodeId,
-            width: message.width,
-            height: message.height,
-            deltaWidth: message.deltaWidth || 0,
-            deltaHeight: message.deltaHeight || 0
+            nodeLabel: message.nodeLabel || 'Element'
           });
         }
       } else if (event.channel === 'editor-zoom-viewport') {
@@ -457,6 +374,14 @@ export class CanvasView extends View {
     element.appendChild(reactContainer);
 
     this.el = $(element);
+
+    // The View menu zooms the editor chrome (Chromium native zoom on the
+    // editor webContents). The <webview> showing the running project is a
+    // separate webContents and must keep the canvas zoom the user set in the
+    // topbar, so re-assert it whenever the interface zoom changes.
+    ipcRenderer.on('ui-zoom-changed', () => {
+      this.tryWebviewCall(() => (this.webview as any).setZoomFactor(this.zoomFactor || 1));
+    });
 
     // HTML capture listener
     ipcRenderer.on('embedded-viewer-get-full-html-request', async (...args) => {
@@ -862,7 +787,10 @@ export class CanvasView extends View {
       React.createElement(VisualCanvas, {
         zoom: this.zoomFactor,
         onWebView: this.props.onWebView,
-        deviceName: this.props.deviceName
+        deviceName: this.props.deviceName,
+        // setViewportSize() calls renderReact(), so these stay current with the frame.
+        viewportWidth: this.viewportWidth ?? null,
+        viewportHeight: this.viewportHeight ?? null
       })
     );
   }
@@ -1023,8 +951,17 @@ export class CanvasView extends View {
     this.webviewSetupComplete = false;
 
     if (this._reactRoot) {
-      this._reactRoot.unmount();
+      // Defer the unmount by a microtask: dispose() is called from editor code that can itself be
+      // running inside a React render (a component switch triggered from a rendering component),
+      // and React 18 warns "Attempted to synchronously unmount a root while React was already
+      // rendering" — with a real race behind the warning, since the root cannot finish unmounting
+      // until that render completes. Detaching the reference first makes the deferred call safe
+      // even if dispose() runs twice.
+      const root = this._reactRoot;
       this._reactRoot = null;
+      queueMicrotask(() => {
+        try { root.unmount(); } catch (err) { console.warn('[CanvasView] Deferred unmount failed:', err); }
+      });
     }
 
     if (this.webview) {
@@ -1238,7 +1175,7 @@ export class CanvasView extends View {
             } else {
               console.warn('[CanvasView] XgeniaEditorInspectorAPI not available');
             }
-          } catch (e: any) {
+          } catch (e) {
             console.warn('[CanvasView] Error calling XgeniaEditorInspectorAPI.setEnabled:', e.message);
           }
         })();
@@ -1251,7 +1188,7 @@ export class CanvasView extends View {
             } else {
               console.warn('[CanvasView] XgeniaEditorHighlightAPI not available');
             }
-          } catch (e: any) {
+          } catch (e) {
             console.warn('[CanvasView] Error calling XgeniaEditorHighlightAPI.selectNode:', e.message);
           }
         })();
@@ -1270,7 +1207,7 @@ export class CanvasView extends View {
             } else {
               console.warn('[CanvasView] XgeniaEditorHighlightAPI not available');
             }
-          } catch (e: any) {
+          } catch (e) {
             console.warn('[CanvasView] Error calling XgeniaEditorHighlightAPI.selectNode:', e.message);
           }
         })();
@@ -1317,12 +1254,14 @@ export class CanvasView extends View {
 
       let thumbHeight, thumbWidth;
 
+      // 1024px short side — 400px thumbs were too small for the AI vision
+      // analysis to read UI detail (text, spacing, chrome).
       if (canvasWidth > canvasHeight) {
-        thumbWidth = Math.round(400 * (canvasWidth / canvasHeight));
-        thumbHeight = 400;
+        thumbWidth = Math.round(1024 * (canvasWidth / canvasHeight));
+        thumbHeight = 1024;
       } else {
-        thumbWidth = 400;
-        thumbHeight = Math.round(400 * (canvasHeight / canvasWidth));
+        thumbWidth = 1024;
+        thumbHeight = Math.round(1024 * (canvasHeight / canvasWidth));
       }
 
       const resizedImage = nativeImage.resize({

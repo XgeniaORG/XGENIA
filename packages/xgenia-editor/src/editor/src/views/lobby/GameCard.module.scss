@@ -1,0 +1,509 @@
+// One cabinet. Every colour and timing resolves to a token from lobby.css or glass.css.
+//
+// The motion here is the design, not decoration, so it is worth naming what each move is for:
+// the lift says "this is pickable", the sheen says "the pointer arrived", the creep says "this
+// is a screen, and screens move", and the glow says "this game has its own light". Every one of
+// them is transform or opacity, so none of them lays out.
+
+.Root {
+  position: relative;
+  border-radius: var(--lobby-card-radius);
+  background: var(--lobby-card-bg);
+  -webkit-backdrop-filter: var(--lobby-card-blur);
+  backdrop-filter: var(--lobby-card-blur);
+  box-shadow: var(--lobby-card-shadow);
+  // Not `hidden`: the hover strip, the card menu and the glow all live outside the box.
+  overflow: visible;
+  cursor: pointer;
+  outline: none;
+  transition:
+    transform var(--lobby-speed-lift) var(--lobby-ease),
+    box-shadow var(--lobby-speed-lift) var(--lobby-ease);
+}
+
+.Root:hover,
+.Root:focus-visible {
+  transform: translateY(-3px);
+  box-shadow: var(--lobby-card-shadow-hover);
+  // Above its neighbours so the lifted card's shadow is not clipped by the next one along.
+  z-index: 2;
+}
+
+.Focused,
+.Root:focus-visible {
+  box-shadow: var(--lobby-focus-ring), var(--lobby-card-shadow-hover);
+}
+
+.Selected {
+  box-shadow: var(--lobby-focus-ring), var(--lobby-card-shadow);
+}
+
+// A blurred copy of the artwork, behind the card. Fades in on hover so the game appears to light
+// the floor around it. The hero does the same thing permanently.
+.Glow {
+  position: absolute;
+  inset: 8px -6px -10px -6px;
+  z-index: -1;
+  border-radius: 16px;
+  background-size: cover;
+  background-position: center;
+  filter: blur(26px) saturate(160%);
+  opacity: 0;
+  transition: opacity var(--lobby-speed-fade) ease;
+  pointer-events: none;
+}
+
+.Root:hover .Glow {
+  opacity: 0.6;
+}
+
+.Art {
+  position: relative;
+  // The title cards these projects generate are 16:9. The old tile cropped them to 4:3 and cut
+  // the artwork's own titling off, which is most of why the grid was hard to read.
+  aspect-ratio: 16 / 9;
+  border-radius: var(--lobby-card-radius) var(--lobby-card-radius) 0 0;
+  overflow: hidden;
+  background: #0b0b0d;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transform: scale(1);
+    transition: transform 600ms var(--lobby-ease);
+  }
+
+  // The sheen. One diagonal highlight crossing the art when the pointer arrives — the light
+  // moving over a chip. It runs once and does not loop; an idle grid is completely still.
+  &::after {
+    content: '';
+    position: absolute;
+    top: -40%;
+    bottom: -40%;
+    left: -60%;
+    width: 40%;
+    background: linear-gradient(105deg, transparent 0%, rgba(255, 255, 255, 0.16) 50%, transparent 100%);
+    transform: skewX(-18deg);
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+.Root:hover .Art img {
+  // Attract mode: the art creeps while the pointer rests on it, then settles back over 600ms
+  // when it leaves (the shorter transition above wins on exit).
+  transform: scale(1.05);
+  transition: transform var(--lobby-speed-creep) linear;
+}
+
+.Root:hover .Art::after {
+  animation: sheen var(--lobby-speed-sheen) var(--lobby-ease) 1 forwards;
+}
+
+@keyframes sheen {
+  0% {
+    left: -60%;
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    left: 130%;
+    opacity: 0;
+  }
+}
+
+// Shown instead of the art when the capture is a blank canvas or a near-white form. Honest about
+// being empty, which a white rectangle is not. See utils/thumbnails/thumbnail-weak.ts.
+.Monogram {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: rgba(255, 255, 255, 0.24);
+  background: linear-gradient(
+    135deg,
+    hsl(var(--mono-hue) 30% 18%) 0%,
+    hsl(calc(var(--mono-hue) - 40) 24% 14%) 100%
+  );
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(60% 60% at 30% 20%, rgba(255, 255, 255, 0.08), transparent 70%);
+  }
+}
+
+.Pin,
+.Check {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.Pin {
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: var(--theme-color-attention);
+  animation: glint 520ms var(--lobby-ease) 1;
+}
+
+@keyframes glint {
+  0% {
+    transform: scale(0.6) rotate(-20deg);
+  }
+  60% {
+    transform: scale(1.18) rotate(6deg);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+.Check {
+  background: var(--theme-color-publish);
+  color: #062b1c;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+// The hover strip. Destructive actions are not in it: remove lives behind the ⋯ menu and then
+// behind a confirm, because the old screen put a trash can one click from the pointer.
+.Actions {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transform: translateY(-3px);
+  transition:
+    opacity 160ms ease,
+    transform 160ms var(--lobby-ease);
+
+  button {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.5);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    color: rgba(255, 255, 255, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  }
+
+  button:hover {
+    color: #fff;
+    background: rgba(0, 0, 0, 0.68);
+  }
+
+  button:focus-visible {
+    outline: 2px solid var(--theme-color-publish);
+    outline-offset: 1px;
+  }
+}
+
+.Root:hover .Actions,
+.Root:focus-within .Actions {
+  opacity: 1;
+  transform: none;
+}
+
+.Footer {
+  height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px 0 14px;
+}
+
+.Text {
+  min-width: 0;
+  flex: 1;
+}
+
+.Name {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--theme-color-fg-default);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// The line that makes a list of "Amazing", "AmazingSlot" and "amazingSlot." navigable. Read from
+// the project's own chat history — see models/lobby/lobbyMeta.ts.
+.Tagline {
+  display: block;
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--theme-color-fg-default-shy);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.Stats {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 11px;
+  // Ages and counts sit in a column down the grid; without this they jitter as digits change.
+  font-variant-numeric: tabular-nums;
+}
+
+.Age {
+  color: var(--theme-color-fg-default-shy);
+  white-space: nowrap;
+}
+
+.Messages {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--theme-color-fg-muted);
+  white-space: nowrap;
+}
+
+.RenameInput {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--theme-color-publish);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--theme-color-fg-default);
+  font: 600 13px var(--font-family-regular, inherit);
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18);
+  outline: none;
+}
+
+// A transparent full-window layer so the next click anywhere closes the menu, without a
+// document-level listener that would have to be added and removed by hand.
+.MenuScrim {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+}
+
+.Menu {
+  position: absolute;
+  right: 8px;
+  top: 36px;
+  z-index: 9;
+  width: 210px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-pop-border);
+  background: var(--glass-pop-bg);
+  -webkit-backdrop-filter: var(--glass-pop-blur);
+  backdrop-filter: var(--glass-pop-blur);
+  box-shadow: var(--glass-pop-shadow);
+  font-size: 12px;
+
+  button {
+    width: 100%;
+    height: 28px;
+    padding: 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--theme-color-fg-default);
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+  }
+
+  button:hover,
+  button:focus-visible {
+    background: rgba(255, 255, 255, 0.07);
+    outline: none;
+  }
+
+  kbd {
+    margin-left: auto;
+    padding: 2px 4px;
+    border: 1px solid var(--glass-ctrl-border);
+    border-radius: 3px;
+    font: 10px/1 inherit;
+    color: var(--theme-color-fg-default-shy);
+  }
+}
+
+.MenuSep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--glass-divider);
+}
+
+.Danger {
+  color: var(--theme-color-danger) !important;
+}
+
+// Confirm on the card rather than in a modal: the question is about this one game, and the
+// answer is on the object being talked about.
+.Confirm {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 7;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: var(--glass-pop-bg);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+  font-size: 11.5px;
+
+  button {
+    height: 24px;
+    padding: 0 10px;
+    border-radius: 6px;
+    border: 1px solid var(--glass-ctrl-border);
+    background: var(--glass-ctrl-bg);
+    color: var(--theme-color-fg-default);
+    font: 500 11px inherit;
+    cursor: pointer;
+  }
+
+  button:first-of-type {
+    margin-left: auto;
+  }
+}
+
+.ConfirmText {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--theme-color-fg-default);
+
+  svg {
+    color: var(--theme-color-danger);
+    flex: none;
+  }
+
+  b {
+    color: var(--theme-color-danger);
+    font-weight: 600;
+  }
+}
+
+.ConfirmRemove {
+  background: rgba(248, 113, 113, 0.18) !important;
+  border-color: rgba(248, 113, 113, 0.4) !important;
+  color: #fca5a5 !important;
+}
+
+// Cards arrive like a dealt hand. Capped at the first twelve by the component, so a 319-project
+// profile does not animate three hundred elements it will never show.
+.Deal {
+  animation: deal var(--lobby-speed-deal) var(--lobby-ease) both;
+  animation-delay: var(--deal-delay, 0ms);
+}
+
+@keyframes deal {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+// ─── list view ───────────────────────────────────────────────────────────────
+// Same card, laid on its side. Art shrinks to a strip; the tagline gets the room it wanted.
+.List {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-right: 14px;
+
+  .Art {
+    width: 112px;
+    flex: none;
+    border-radius: var(--lobby-card-radius) 0 0 var(--lobby-card-radius);
+  }
+
+  .Footer {
+    flex: 1;
+    height: 63px;
+    padding-left: 0;
+  }
+
+  .Stats {
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .Actions {
+    position: static;
+    opacity: 0;
+    transform: none;
+  }
+}
+
+.List:hover .Actions {
+  opacity: 1;
+}
+
+// Motion is a nicety; legibility is not. Everything above is decoration on a page that reads
+// identically without it.
+@media (prefers-reduced-motion: reduce) {
+  .Root,
+  .Glow,
+  .Actions,
+  .Art img {
+    transition: none !important;
+  }
+
+  .Deal,
+  .Pin {
+    animation: none !important;
+  }
+
+  .Root:hover .Art img {
+    transform: none;
+  }
+
+  .Root:hover .Art::after {
+    animation: none;
+  }
+}

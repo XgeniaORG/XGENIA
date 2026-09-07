@@ -45,8 +45,11 @@ export function Icon(props: IconProps) {
   let className = 'ndl-visual-icon';
   if (props.className) className = className + ' ' + props.className;
 
+  // (2026-08-02) Forward `attrs` like Group/Text/Button do — that is the channel the node
+  // layer routes data-xgenia-node-id / -label through. Without it an Icon is anonymous in
+  // the DOM and cannot be located from the graph.
   return (
-    <div className={className} style={style}>
+    <div {...(props as any).attrs} className={className} style={style}>
       {_renderIcon()}
     </div>
   );

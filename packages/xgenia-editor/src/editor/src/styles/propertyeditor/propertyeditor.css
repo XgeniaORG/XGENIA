@@ -44,6 +44,11 @@
   white-space: nowrap;
   width: 120px;
   position: absolute;
+  /* The label column is 120px. A displayName longer than that used to spill left, straight
+     across the reset dot and the neighbouring row (see 'Column Padding (gap between reels)').
+     Clip it here and let view.js hand the full text to the tooltip on hover. */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Scrubber: drag-to-adjust cursor on numeric property labels */

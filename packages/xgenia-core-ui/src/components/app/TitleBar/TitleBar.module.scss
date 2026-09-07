@@ -15,8 +15,8 @@
   user-select: none;
   position: relative;
 
-  // Logo positioning (Windows only – rendered conditionally via isWindows)
-  &.is-windows > div:first-child {
+  // Logo positioning (only drawn when we render our own window controls)
+  &.has-window-controls > div:first-child {
     -webkit-app-region: no-drag;
     position: absolute !important;
     left: 8px !important;
@@ -101,6 +101,37 @@
   height: 11px;
   border: 1px solid var(--theme-color-fg-highlight);
   box-sizing: border-box;
+}
+
+// Shown while the window IS maximized, so the button reads as "restore": the front
+// window with a second one behind its top-right corner.
+//
+// Only the two edges the front window cannot cover are drawn. The alternative — a full
+// second square masked by an opaque fill on the front one — would have to hardcode the
+// titlebar background and would then show as a dark patch against the hover highlight.
+.OSWindowsIcon__Restore {
+
+  &:before,
+  &:after {
+    position: absolute;
+    content: '';
+    width: 8px;
+    height: 8px;
+    box-sizing: border-box;
+  }
+
+  // The front window.
+  &:before {
+    border: 1px solid var(--theme-color-fg-highlight);
+    transform: translate(-2px, 2px);
+  }
+
+  // The one behind it.
+  &:after {
+    border-top: 1px solid var(--theme-color-fg-highlight);
+    border-right: 1px solid var(--theme-color-fg-highlight);
+    transform: translate(2px, -2px);
+  }
 }
 
 .OSWindowsIcon__Close {

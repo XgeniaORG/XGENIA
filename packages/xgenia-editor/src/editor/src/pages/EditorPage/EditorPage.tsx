@@ -5,7 +5,7 @@ import { ProjectDesignTokenContextProvider } from '@xgenia-contexts/ProjectDesig
 import { useKeyboardCommands } from '@xgenia-hooks/useKeyboardCommands';
 import { useModel } from '@xgenia-hooks/useModel';
 import { ipcRenderer } from 'electron';
-import React, { useEffect, useState, Fragment, useMemo } from 'react'; // Import Fragment
+import React, { useEffect, useState, Fragment } from 'react'; // Import Fragment
 import { platform } from '@xgenia/platform';
 import { App } from '@xgenia-models/app';
 import { AppRegistry } from '@xgenia-models/app_registry';
@@ -15,6 +15,8 @@ import { ProjectModel } from '@xgenia-models/projectmodel';
 import { projectFromDirectory, unzipIntoDirectory } from '@xgenia-models/projectmodel.editor';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
+import { GitStatus } from '@xgenia-models/gitstatus';
+import { RailPresence } from '@xgenia-models/railpresence';
 import { UndoQueue } from '@xgenia-models/undo-queue-model';
 import { exportProjectComponents } from '@xgenia-utils/exportProjectComponets';
 import FileSystem from '@xgenia-utils/filesystem';
@@ -28,7 +30,6 @@ import { guid } from '@xgenia-utils/utils';
 
 import { ActivityIndicator } from '@xgenia-core-ui/components/common/ActivityIndicator';
 import { ErrorBoundary } from '@xgenia-core-ui/components/common/ErrorBoundary';
-import { FrameDivider } from '@xgenia-core-ui/components/layout/FrameDivider';
 import { CommandPalette } from '../../views/CommandPalette/CommandPalette';
 
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
@@ -39,16 +40,16 @@ import ImportPopup from '../../views/importpopup';
 import { LessonLayer } from '../../views/lessonlayer2';
 import { NodePickerClearNews } from '../../views/NodePicker/NodePicker.hooks';
 import PopupLayer from '../../views/popuplayer';
-import { SidePanel } from '../../views/SidePanel';
+import { Rail } from '../../views/Rail';
+import { LeftPanelCard } from '../../views/LeftPanelCard';
 import { RightPropertyPanel } from '../../views/RightPropertyPanel';
 import { ToastLayer } from '../../views/ToastLayer/ToastLayer';
 import { BaseWindow } from '../../views/windows/BaseWindow';
 import { whatsnewRender } from '../../whats-new';
 import { IRouteProps } from '../AppRoute';
-import { useSetupSettings } from './useSetupSettings';
 import { ToolsModel, ToolMetadata, ToolsModelEvent } from '../../models/ToolsModel';
 import { ToolsModalViewer } from '../../views/ToolsModalViewer/ToolsModalViewer';
-import { SidebarWidthContext } from '../../contexts/SidebarWidthContext';
+import { Keybindings } from '../../constants/Keybindings';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const ImportOverwritePopupTemplate = require('../../templates/importoverwritepopup.html');
@@ -57,7 +58,13 @@ const ImportPopupTemplate = require('../../templates/importpopup.html');
 
 if (import.meta.webpackHot) {
     import.meta.webpackHot.accept('../../router.setup', () => {
-        const activeId = SidebarModel.instance.getCurrent()?.id;
+        // `reset()` wipes the layout back to its defaults, so the whole thing — active
+        // panel, home panel and open state — is captured first and put back in a single
+        // `restore` dispatch. Re-opening only the active id used to leave `homeId` pointing
+        // at the default panel instead of the chat, so after any hot reload a second rail
+        // click went "home" to the wrong panel. A restore naming a panel this build no
+        // longer registers is refused by dispatch(), which leaves the defaults in place.
+        const layout = SidebarModel.instance.Layout;
 
         SidebarModel.instance.reset();
 
@@ -65,9 +72,7 @@ if (import.meta.webpackHot) {
 
         SidebarModel.instance.notifyListeners(SidebarModelEvent.HotReload);
 
-        if (activeId) {
-            SidebarModel.instance.switch(activeId);
-        }
+        SidebarModel.instance.dispatch({ type: 'restore', ...layout });
     });
 }
 
@@ -101,40 +106,7 @@ export function EditorPage({ route }: EditorPageProps) {
     const Document = appRegistry.getActiveDocument();
 
     const [lesson, setLesson] = useState(null);
-    const defaultLeftSidebarWidth = 450;
-    const [frameDividerSize, setFrameDividerSize] = useState<number | undefined>(defaultLeftSidebarWidth);
-    const lastPanelWidth = React.useRef<number>(defaultLeftSidebarWidth);
     const [isRightPanelActive, setIsRightPanelActive] = useState(false);
-    const sidebarWidthContextValue = useMemo(
-        () => ({ width: frameDividerSize, setWidth: setFrameDividerSize }),
-        [frameDividerSize]
-    );
-
-    // Listen for left panel toggle from the topbar button
-    const frameDividerSizeRef = React.useRef<number>(defaultLeftSidebarWidth);
-    useEffect(() => {
-        frameDividerSizeRef.current = frameDividerSize ?? defaultLeftSidebarWidth;
-    }, [frameDividerSize]);
-
-    useEffect(() => {
-        const eventGroup = {};
-        EventDispatcher.instance.on(
-            'toggle-left-panel',
-            (visible: boolean) => {
-                if (visible) {
-                    setFrameDividerSize(lastPanelWidth.current || defaultLeftSidebarWidth);
-                } else {
-                    const currentSize = frameDividerSizeRef.current;
-                    if (currentSize > 0) {
-                        lastPanelWidth.current = currentSize;
-                    }
-                    setFrameDividerSize(0);
-                }
-            },
-            eventGroup
-        );
-        return () => { EventDispatcher.instance.off(eventGroup); };
-    }, []);
 
     useEffect(() => {
         whatsnewRender();
@@ -169,7 +141,16 @@ export function EditorPage({ route }: EditorPageProps) {
             eventGroup
         );
 
+        // `restoreLayout` applies the stored layout synchronously before it awaits anything,
+        // so the model is already correct here and the editor's first frame paints the right
+        // panel. Do NOT await it before releasing the loading gate: settings live in a file
+        // under Electron, so awaiting holds the ENTIRE editor on the spinner behind a disk
+        // read, which trades a panel that flashes for a whole window that does.
+        void SidebarModel.instance
+            .restoreLayout()
+            .catch((err) => console.error('[EditorPage] Failed to restore the panel layout:', err));
         setIsLoading(false);
+        void GitStatus.refresh();
         ipcRenderer.send('project-opened', ProjectModel.instance.name);
 
         // Initialize the ToolsModel and listen for tool updates
@@ -226,8 +207,20 @@ export function EditorPage({ route }: EditorPageProps) {
             CloudService.instance.reset();
             SidebarModel.instance.reset();
             UndoQueue.instance.clear();
+            GitStatus.reset();
+            RailPresence.reset();
         };
     }, []); // Empty dependency array: runs once on mount
+
+    // Version control badge: recheck on an undo-history change (debounced) and whenever the
+    // window regains focus (a commit or push made outside the editor, e.g. from a terminal).
+    useEffect(() => {
+        const group = {};
+        EventDispatcher.instance.on('Model.undoHistoryChanged', () => GitStatus.scheduleRefresh(5000), group);
+        const onFocus = () => void GitStatus.refresh();
+        window.addEventListener('focus', onFocus);
+        return () => { EventDispatcher.instance.off(group); window.removeEventListener('focus', onFocus); };
+    }, []);
 
     // Track when right-side panel changes (independent of left sidebar)
     useEffect(() => {
@@ -319,7 +312,15 @@ export function EditorPage({ route }: EditorPageProps) {
                 }, 0);
             },
             keybinding: KeyMod.CtrlCmd | KeyCode.KEY_K,
-        }
+        },
+        {
+            handler: () => SidebarModel.instance.toggleCard(),
+            keybinding: Keybindings.TOGGLE_LEFT_PANEL.hash
+        },
+        ...Keybindings.RAIL_ITEMS.map((kb, i) => ({
+            handler: () => EventDispatcher.instance.emit('rail-shortcut', i),
+            keybinding: kb.hash
+        })),
     ], [xgeniaToolsList]); // Keep dependency to ensure handler has access to latest xgeniaToolsList if needed for other logic (though we fetch directly now)
 
     // Effect to open the command palette *after* xgeniaToolsList might have been updated by CMD+K handler
@@ -330,8 +331,6 @@ export function EditorPage({ route }: EditorPageProps) {
         // For now, just log the change to isCommandPaletteOpen as before.
         console.log('[EditorPage] isCommandPaletteOpen state changed to:', isCommandPaletteOpen);
     }, [isCommandPaletteOpen]);
-
-    useSetupSettings();
 
     useEffect(() => {
         if (!ProjectModel.instance.isLesson()) return;
@@ -376,28 +375,22 @@ export function EditorPage({ route }: EditorPageProps) {
                                     <ActivityIndicator />
                                 ) : (
                                     <>
-                                        <SidebarWidthContext.Provider value={sidebarWidthContextValue}>
-                                            <FrameDivider
-                                                first={frameDividerSize > 0 ? <SidePanel /> : null}
-                                                second={
-                                                    <div style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden' }}>
-                                                        <div style={{ flex: 1, position: 'relative', minWidth: 0, height: '100%' }}>
-                                                            <ErrorBoundary>{Boolean(Document) && <Document />}</ErrorBoundary>
-                                                        </div>
-                                                        {isRightPanelActive && (
-                                                            <RightPropertyPanel />
-                                                        )}
-                                                    </div>
-                                                }
-                                                sizeMin={0}
-                                                size={frameDividerSize ?? defaultLeftSidebarWidth}
-                                                horizontal
-                                                onSizeChanged={(size) => {
-                                                    if (size > 0) lastPanelWidth.current = size;
-                                                    setFrameDividerSize(size);
-                                                }}
-                                            />
-                                        </SidebarWidthContext.Provider>
+                                        <div style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden' }}>
+                                            <Rail />
+                                            {/*
+                                              `position: relative` here is what the editor top bar anchors to. The bar is
+                                              absolutely positioned inside EditorDocument; its nearest positioned ancestor
+                                              is this row, so it spans the left card + document + inspector and never moves
+                                              when either card opens or closes. Both cards clear it with a 46px top margin.
+                                            */}
+                                            <div style={{ display: 'flex', flex: 1, minWidth: 0, height: '100%', overflow: 'hidden', position: 'relative' }}>
+                                                <LeftPanelCard />
+                                                <div style={{ flex: 1, minWidth: 0, height: '100%' }}>
+                                                    <ErrorBoundary>{Boolean(Document) && <Document />}</ErrorBoundary>
+                                                </div>
+                                                {isRightPanelActive && <RightPropertyPanel />}
+                                            </div>
+                                        </div>
 
                                         {Boolean(lesson) && <Frame instance={lesson} isContentSize isFitWidth />}
 

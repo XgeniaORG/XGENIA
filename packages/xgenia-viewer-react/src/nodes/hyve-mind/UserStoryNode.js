@@ -4,7 +4,7 @@ const UserStoryNode = {
   name: 'hyve.UserStoryNode',
   displayName: 'User Story',
   category: 'Hyve Mind',
-  docs: '',
+  docs: 'https://docsapp.xgenia.com/nodes/hyve-mind/user-story',
   initialize() {
     this._internal = {
       role: this.inputs.role || '',
