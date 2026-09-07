@@ -74,21 +74,37 @@ function resolveAssetUrl(_url: string): string {
     return url;
   }
 
-  // Prefer BaseUrl from exported environment, then fallback to runtime baseUrl or '/'
   // @ts-expect-error Global XGENIA provided at runtime
   const envBaseUrl = typeof XGENIA !== 'undefined' && XGENIA && XGENIA.Env && XGENIA.Env['BaseUrl'];
   // @ts-expect-error Global XGENIA provided at runtime
   const runtimeBaseUrl = typeof XGENIA !== 'undefined' && XGENIA && XGENIA.baseUrl;
-  const base = (envBaseUrl || runtimeBaseUrl || '/') as string;
+  const base = (envBaseUrl || runtimeBaseUrl || '') as string;
 
-  // If URL starts with '/', join with base (strip leading slash from url)
+  // A root-absolute path is the only kind that needs rebasing: '/x.mp3' means the domain root,
+  // which is wrong under a sub-path. Rebase it when we know the base, otherwise leave it.
   if (url.startsWith('/')) {
     if (base && base !== '/') return base + url.substring(1);
     return url;
   }
 
-  // Relative path – prefix with base
-  return base + url;
+  // ─── a relative path is left relative (2026-09-03) ────────────────────────
+  // This used to `return base + url` with `base` defaulting to '/', so a stored
+  // 'music.mp3' — which is the shape the project graph actually holds, see any project.json —
+  // came out as '/music.mp3'. Root-hosted previews hid it, because there '/music.mp3' and
+  // 'music.mp3' are the same file. A deploy under a sub-path is where it breaks: Stake serves
+  // games from a nested route, so '/music.mp3' asked the domain root and 404'd, Howler never
+  // loaded, and play() was a no-op reporting
+  // "[Sound] play() ignored — audio is not loaded: /sigmamusicart-...mp3".
+  //
+  // Two reasons not to prefix with `base` here either. A relative href already resolves against
+  // the document, which is correct for every hosting layout we ship to; and this runs from the
+  // `soundUrl` SETTER during graph init, which can be before the inline
+  // `XGENIA.Env['BaseUrl'] = ...` script has run — so `base` is not reliably known at this
+  // point, and baking in a guess is what produced the bad URL.
+  //
+  // Image and Video have always behaved this way (rewrite only when the path starts with '/',
+  // and only when BaseUrl exists); this brings Sound in line with them.
+  return url;
 }
 
 const SoundNodeDefinition: NodeDefinition = {
