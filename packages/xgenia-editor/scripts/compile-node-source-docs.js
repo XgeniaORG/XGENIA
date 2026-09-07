@@ -555,10 +555,44 @@ export { searchIndex };
     console.log(`   Generated ${loaderFile}`);
 }
 
+// ---------------------------------------------------------------------------------------------
+// OUTPUT_DIR is not this script's to write.
+//
+// The AI panel's generator (private/xgenia-ai/scripts/generate-node-docs.js) owns
+// compiled-node-docs. It writes the panel's copy and MIRRORS search-index.json into OUTPUT_DIR,
+// and the panel's test suite holds the two copies to be identical ("the copy that must not
+// drift"). This script emits a different schema (a 4-key wrapper, relative paths from the
+// package rather than the monorepo) and, in a checkout without private/, a partial node set.
+// Every `npm run build` ran it and overwrote the mirror; 2b3fc69 (2026-09-07) restored the
+// mirror by hand after one such run, and the same clobber blocked a panel ship the same day.
+//
+// Nothing in the editor imports the loader, node files or metadata this script generates
+// (grep for compiled-node-docs under src/: only bundles of the PANEL's files). So: when the
+// owning generator is available with its full sources, delegate to it — `npm run build` still
+// gets fresh docs; when it is not, the tracked mirror is the deliverable and is left alone.
+// ---------------------------------------------------------------------------------------------
+const PANEL_GENERATOR = path.join(__dirname, '../../../private/xgenia-ai/scripts/generate-node-docs.js');
+
+function runBuild() {
+    if (fs.existsSync(PANEL_GENERATOR) && fs.existsSync(PRIVATE_PRO_NODES_DIR)) {
+        console.log('📋 compiled-node-docs are owned by the AI panel generator — delegating:');
+        console.log(`   node ${path.relative(process.cwd(), PANEL_GENERATOR)}`);
+        require('child_process').execFileSync(process.execPath, [PANEL_GENERATOR], {
+            stdio: 'inherit',
+            cwd: path.dirname(PANEL_GENERATOR),
+        });
+        return;
+    }
+    console.log('📋 compiled-node-docs: panel generator or pro-nodes sources not present in this checkout;');
+    console.log(`   leaving the tracked ${path.relative(process.cwd(), path.join(OUTPUT_DIR, 'search-index.json'))} as is.`);
+    console.log('   (Set XGENIA_FORCE_LEGACY_NODE_DOCS=1 to run the legacy in-package compiler anyway.)');
+    if (process.env.XGENIA_FORCE_LEGACY_NODE_DOCS === '1') build();
+}
+
 // Run build
 if (require.main === module) {
     try {
-        build();
+        runBuild();
     } catch (error) {
         console.error('❌ Build failed:', error);
         process.exit(1);
