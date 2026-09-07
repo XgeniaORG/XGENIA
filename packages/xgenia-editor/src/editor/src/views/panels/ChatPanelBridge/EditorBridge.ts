@@ -16,7 +16,7 @@
 import ThumbnailCache from '@xgenia-utils/thumbnailcache';
 import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import { isBloatPort, isTooLargeToSerialize, unwrapValueUnit, portUnitInfo } from './serialize-param-guard';
-import { mergeAssetMeta, loadAssetMeta, migrateAssetMeta, type AssetMetaEntry } from '../AssetPanel/assetMeta';
+import { mergeAssetMeta, loadAssetMeta, migrateAssetMeta, flushAssetMeta, type AssetMetaEntry } from '../AssetPanel/assetMeta';
 import { reconcileGraphAssetRefs } from '../AssetPanel/assetGraphRefs';
 import { AiActivity } from '@xgenia-models/aiactivity';
 import { RailPresence } from '@xgenia-models/railpresence';
@@ -2892,6 +2892,8 @@ export class EditorBridge {
             try {
                 await loadAssetMeta();
                 migrateAssetMeta(oldPath, newPath);
+                // `true` must mean "on disk": migrateAssetMeta persists without awaiting.
+                await flushAssetMeta();
                 try {
                     reconcileGraphAssetRefs(oldPath, newPath);
                 } catch {
