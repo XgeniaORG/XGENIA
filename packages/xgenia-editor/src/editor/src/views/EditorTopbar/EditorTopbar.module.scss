@@ -1,207 +1,57 @@
+// The glass bar itself, and the three clusters it lays out. Nothing else: every control
+// in the bar (pill, frame chip, Edit|Preview, Publish) styles itself from its own module,
+// so parallel work on those never collides in this file.
+//
+// The bar is absolutely positioned and floats OVER the view area — the host gives the
+// view `padding-top: var(--topbar-height)` — so the blur has live content behind it.
 .Root {
-  container-name: editortopbar;
-  height: 36px;
-  background-color: var(--theme-color-bg-2);
-  border-bottom: 2px solid var(--theme-color-bg-1);
-  display: flex;
-  align-items: stretch;
-  justify-content: space-between;
-}
-
-.LeftSide,
-.RightSide {
-  display: flex;
-  align-items: stretch;
-
-  // please use these general selectors with great caution
-  >div {
-    display: flex;
-    align-items: center;
-  }
-}
-
-.LeftSide {
-  flex-grow: 1;
-}
-
-.is-padded-s {
-  padding: 0 4px;
-}
-
-.is-padded {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 2;
+  height: var(--topbar-height);
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  column-gap: 8px;
+  align-items: center;
   padding: 0 8px;
+  background: var(--glass-bar-bg);
+  -webkit-backdrop-filter: var(--glass-bar-blur);
+  backdrop-filter: var(--glass-bar-blur);
+  border-bottom: 1px solid var(--glass-bar-border);
+  box-shadow: var(--glass-bar-highlight);
+  font-family: var(--font-family-regular);
 }
 
-.is-padded-l {
-  padding: 0 16px;
+.Left {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
 }
 
-// Removed dividers between sections
-
-// Removed dividers between sections
-
-.UrlBarWrapper {
-  flex-grow: 1;
-  min-width: 200px;
-  max-width: 600px;
-  margin-right: -1px;
-}
-
-.UrlBarTextInput {
-  width: 100%;
-
-  svg {
-    cursor: pointer;
-
-    &:hover {
-      path {
-        fill: var(--theme-color-fg-highlight);
-      }
-    }
-  }
-}
-
-// Custom styles for the routes dropdown to handle long URLs better
-:global(.MenuDialog) {
-  .Root.is-width-large {
-    width: 500px;
-    max-width: 80vw;
-  }
-
-  .Item .Label {
-    word-break: break-all;
-    white-space: normal;
-    line-height: 1.4;
-  }
-}
-
-.TooltipPositioner {
-  height: 32px;
-  padding-bottom: 1px;
-  display: flex !important;
-  flex-direction: column;
+// Centred on the BAR, not between its neighbours: columns 1 and 3 are both `1fr`, so
+// the middle track sits on the bar's centre line and does not shift when the left or
+// right cluster changes width (a nav button disabling, Publish becoming the live chip).
+//
+// A real grid track rather than an absolutely-positioned element. Out of flow with no
+// width bound, a long pill body ("Browsing some-very-long-host.example.com", a publish
+// step label) painted straight over the frame chip and the Edit|Preview segment and
+// swallowed their clicks. In the grid it shrinks and the pill truncates instead.
+.Center {
+  grid-column: 2;
+  display: flex;
   justify-content: center;
+  min-width: 0;
 }
 
-.TopbarSelect {
+.Right {
+  grid-column: 3;
+  justify-self: end;
+  
   display: flex;
   align-items: center;
-  cursor: pointer;
-
-  * {
-    color: var(--theme-color-fg-default);
-    fill: var(--theme-color-fg-default);
-  }
-
-  &:hover * {
-    color: var(--theme-color-fg-highlight);
-    fill: var(--theme-color-fg-highlight);
-  }
-}
-
-.ZoomSelect {
+  gap: 6px;
   padding-right: 4px;
-  padding-left: 8px;
-}
-
-.DesignPreviewModeButton {
-  cursor: pointer;
-  pointer-events: all;
-}
-
-.ModeToggleIcon {
-  display: flex;
-  align-items: center;
-
-  :global(button) {
-    path {
-      transition: fill var(--speed-turbo) var(--easing-base);
-    }
-  }
-
-  &.isDesignMode {
-    :global(button) {
-      path {
-        fill: #34D399 !important;
-      }
-
-      &:hover {
-        path {
-          fill: #34D399 !important;
-        }
-      }
-    }
-  }
-
-  &.isPreviewMode {
-    :global(button) {
-      path {
-        fill: #67DE92 !important;
-      }
-
-      &:hover {
-        path {
-          fill: #67DE92 !important;
-        }
-      }
-    }
-  }
-}
-
-.DeployButton {
-  .Root.is-small & {
-    padding: 0 4px 0 8px;
-    min-width: 0;
-  }
-}
-
-/* Segmented toggle for right panel tabs (AI Chat / Properties) */
-.PanelSegmented {
-  display: flex;
-  align-items: center;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 6px;
-  padding: 2px;
-  gap: 1px;
-  margin: 0 6px;
-}
-
-.PanelSegmentedBtn {
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.45);
-  cursor: pointer;
-  transition: all 0.15s ease;
-  border: none;
-  background: transparent;
-  white-space: nowrap;
-  line-height: 18px;
-
-  &:hover {
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  &.isActive {
-    background: rgba(255, 255, 255, 0.12);
-    color: rgba(255, 255, 255, 0.9);
-  }
-}
-
-.CustomSizeInput {
-  input {
-    background: rgba(255, 255, 255, 0.05) !important;
-    border-radius: 4px !important;
-    padding: 4px 6px !important;
-    font-size: 11px !important;
-    height: 24px !important;
-    text-align: center;
-    
-    &::-webkit-inner-spin-button,
-    &::-webkit-outer-spin-button {
-      -webkit-appearance: none;
-      margin: 0;
-    }
-  }
+  min-width: 0;
 }

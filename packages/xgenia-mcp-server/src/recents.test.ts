@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { readRecents, findRecent, addRecentEntry, type RecentEntry } from './recents.js';
+import { readRecents, findRecent, addRecentEntry, recentsFilePath, type RecentEntry } from './recents.js';
 
 let tmp: string;
 let file: string;
@@ -155,5 +155,54 @@ describe('addRecentEntry', () => {
     // When re-adding EXISTING dir, its id does not change
     const existingAgain = addRecentEntry(file, '/Users/x/Downloads/Amazing thing. ', 'Amazing thing. ');
     expect(existingAgain.id).toBe(EXISTING.id);
+  });
+});
+
+// This is the direct test of the critical bug: with BOTH the installed-app
+// (XGENIA) and dev-build (Electron) recents files present on disk — the
+// real, observed shape on the live machine — a known target must resolve to
+// its OWN profile's file, never silently fall through to the other one.
+describe('recentsFilePath', () => {
+  let home: string;
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'home-'));
+  });
+  afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
+
+  function writeProfileFile(profile: 'XGENIA' | 'Electron', h: string): string {
+    const dir = path.join(h, 'Library', 'Application Support', profile);
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'recently_opened_project.json');
+    fs.writeFileSync(file, JSON.stringify({ recentProjects: [] }));
+    return file;
+  }
+
+  it('resolves "app" to the XGENIA file and "dev" to the Electron file when both exist', () => {
+    const appFile = writeProfileFile('XGENIA', home);
+    const devFile = writeProfileFile('Electron', home);
+
+    expect(recentsFilePath('app', 'darwin', home)).toBe(appFile);
+    expect(recentsFilePath('dev', 'darwin', home)).toBe(devFile);
+    // Never the other profile's file, even though it exists too.
+    expect(recentsFilePath('app', 'darwin', home)).not.toBe(devFile);
+    expect(recentsFilePath('dev', 'darwin', home)).not.toBe(appFile);
+  });
+
+  it('returns null for a known target whose own file is missing, never falling back to the other profile', () => {
+    // Only the dev (Electron) profile exists.
+    writeProfileFile('Electron', home);
+    expect(recentsFilePath('app', 'darwin', home)).toBeNull();
+  });
+
+  it('falls back to the first existing profile when no target is known', () => {
+    const appFile = writeProfileFile('XGENIA', home);
+    writeProfileFile('Electron', home);
+    expect(recentsFilePath(undefined, 'darwin', home)).toBe(appFile);
+    expect(recentsFilePath(null, 'darwin', home)).toBe(appFile);
+  });
+
+  it('returns null when no target is known and neither profile has a file', () => {
+    expect(recentsFilePath(undefined, 'darwin', home)).toBeNull();
   });
 });

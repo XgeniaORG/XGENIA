@@ -27,6 +27,7 @@ export class VariantsEditor extends React.Component<VariantsEditorProps, State> 
   model: VariantsEditorProps['model'];
   popout: any;
   popupAnchor: HTMLDivElement;
+  project: ProjectModel | undefined;
 
   constructor(props: VariantsEditorProps) {
     super(props);
@@ -56,7 +57,10 @@ export class VariantsEditor extends React.Component<VariantsEditorProps, State> 
       this
     );
 
-    ProjectModel.instance.on(
+    // Kept so the unsubscribe below reaches the model this subscribed to. `ProjectModel.instance`
+    // is undefined once the project closes, and closing unmounts this editor.
+    this.project = ProjectModel.instance;
+    this.project?.on(
       ['variantRenamed'],
       (args) => {
         if (args.variant === this.model.variant)
@@ -70,7 +74,7 @@ export class VariantsEditor extends React.Component<VariantsEditorProps, State> 
 
   componentWillUnmount() {
     this.model.off(this);
-    ProjectModel.instance.off(this);
+    this.project?.off(this);
 
     if (this.popout) {
       PopupLayer.instance.hidePopout(this.popout);

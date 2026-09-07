@@ -1,0 +1,329 @@
+// The lobby bar. Deliberately the same material, height and three-cluster grid as
+// views/EditorTopbar/EditorTopbar.module.scss — the two bars should read as one component
+// wearing different contents.
+
+.Root {
+  position: relative;
+  z-index: 5;
+  flex: none;
+  height: var(--topbar-height);
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  column-gap: 8px;
+  align-items: center;
+  padding: 0 14px;
+  background: var(--glass-bar-bg);
+  -webkit-backdrop-filter: var(--glass-bar-blur);
+  backdrop-filter: var(--glass-bar-blur);
+  border-bottom: 1px solid var(--glass-bar-border);
+  box-shadow: var(--glass-bar-highlight);
+}
+
+.Cluster {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.Right {
+  justify-content: flex-end;
+}
+
+.Brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-right: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--theme-color-fg-default);
+  white-space: nowrap;
+}
+
+.Mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  // The one gradient on the screen that is not sampled from artwork: the product's own mark.
+  background: linear-gradient(135deg, #3b2f6e, #1d3a33);
+  color: rgba(255, 255, 255, 0.9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.Tab {
+  height: 28px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--theme-color-fg-default-shy);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.TabOn {
+  background: var(--glass-ctrl-bg);
+  border: 1px solid var(--glass-ctrl-border);
+  color: var(--theme-color-fg-default);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.TabCount {
+  color: var(--theme-color-fg-muted);
+  font-size: 11px;
+}
+
+// Recessed rather than raised: this is a hole you type into, not a button you press. Everything
+// else in the bar is a raised control, so the inset shadow is what makes it read as an input.
+.Search {
+  width: 420px;
+  max-width: 44vw;
+  height: 30px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: rgba(0, 0, 0, 0.28);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  color: var(--theme-color-fg-muted);
+  font: 400 12px inherit;
+  cursor: text;
+  text-align: left;
+
+  &:hover {
+    color: var(--theme-color-fg-default-shy);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: rgba(52, 211, 153, 0.5);
+    box-shadow:
+      0 0 0 3px rgba(52, 211, 153, 0.15),
+      inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  }
+
+  kbd {
+    margin-left: auto;
+    padding: 2px 4px;
+    border: 1px solid var(--glass-ctrl-border);
+    border-radius: 3px;
+    font: 10px/1 inherit;
+    color: var(--theme-color-fg-default-shy);
+  }
+}
+
+.SearchLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.Continue {
+  height: 28px;
+  padding: 0 10px 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 14px;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--theme-color-fg-default);
+  font: 400 12px inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 220px;
+
+  img {
+    width: 36px;
+    height: 20px;
+    border-radius: 10px;
+    object-fit: cover;
+    flex: none;
+  }
+
+  b {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.Chip {
+  height: 28px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 7px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: var(--glass-ctrl-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: var(--theme-color-fg-default-shy);
+  font: 400 12px inherit;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover {
+    background: var(--glass-ctrl-bg-hover);
+    color: var(--theme-color-fg-default);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--theme-color-publish);
+    outline-offset: 1px;
+  }
+}
+
+.IconOnly {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+
+// The one saturated control on the page. Everything else defers to the artwork.
+.Go {
+  height: 28px;
+  padding: 0 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--theme-color-publish);
+  color: #062b1c;
+  font: 600 12px inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+
+  &:hover {
+    filter: brightness(1.06);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--theme-color-publish);
+    outline-offset: 2px;
+  }
+}
+
+.Avatar {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #34d399, #1e7a55);
+  color: #062b1c;
+  font: 700 11px inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+
+  &:focus-visible {
+    outline: 2px solid var(--theme-color-publish);
+    outline-offset: 2px;
+  }
+}
+
+.Scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+}
+
+.Menu {
+  position: absolute;
+  top: calc(var(--topbar-height) - 4px);
+  z-index: 9;
+  width: 232px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-pop-border);
+  background: var(--glass-pop-bg);
+  -webkit-backdrop-filter: var(--glass-pop-blur);
+  backdrop-filter: var(--glass-pop-blur);
+  box-shadow: var(--glass-pop-shadow);
+  font-size: 12px;
+
+  button {
+    width: 100%;
+    height: 28px;
+    padding: 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--theme-color-fg-default);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  button:hover,
+  button:focus-visible {
+    background: rgba(255, 255, 255, 0.07);
+    outline: none;
+  }
+}
+
+.HelpMenu {
+  right: 46px;
+}
+
+.AccountMenu {
+  right: 14px;
+}
+
+.MenuHead {
+  padding: 8px 10px 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--glass-divider);
+
+  b {
+    display: block;
+    font-size: 13px;
+    color: var(--theme-color-fg-default);
+  }
+
+  span {
+    display: block;
+    font-size: 11px;
+    color: var(--theme-color-fg-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.Plan {
+  margin-top: 2px;
+  color: var(--theme-color-publish) !important;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.MenuSep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--glass-divider);
+}
+
+.Ext {
+  margin-left: auto;
+  display: flex;
+  color: var(--theme-color-fg-muted);
+}

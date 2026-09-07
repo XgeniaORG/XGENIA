@@ -47,7 +47,10 @@ export class NodeGraphContextTmp {
     public static nodeGraph: NodeGraphControlContext['nodeGraph'];
     public static switchToComponent: NodeGraphControlContext['switchToComponent'];
     // Webview is set by CanvasView._setupWebview() for AI tools like get_rendered_output
-    public static webview: Electron.WebviewTag | null = null;
+    // The live preview host. Since 2026-09-07 this is an in-process <iframe> adapter, not a
+    // <webview> — see views/VisualCanvas/IframeViewer.ts. It keeps the API the AI tools call
+    // (executeJavaScript, capturePage, src, isConnected).
+    public static webview: import('../../views/VisualCanvas/IframeViewer').PreviewHost | null = null;
 }
 
 // Publish the class as a global. Bridge-style consumers that cannot import editor

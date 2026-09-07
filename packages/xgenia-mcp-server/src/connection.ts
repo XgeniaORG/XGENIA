@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium, type Browser, type Page, type Frame } from 'playwright-core';
-import { userDataDirs } from './platform.js';
+import { userDataDirs, portOwner } from './platform.js';
 import { SELECTORS } from './selectors.js';
 
 export type Target = 'app' | 'dev';
@@ -63,12 +63,62 @@ export function isCacheHit(cached: Connection | null, port: number): boolean {
 }
 
 /**
+ * How long `connectOverCDP` may take before this gives up, rather than the
+ * library's own default of 30 seconds.
+ *
+ * That default is what let a wedged editor take a full 30s to report
+ * anything at all — reproduced live: `xgenia_health` failed only after
+ * `TimeoutError: browserType.connectOverCDP: Timeout 30000ms exceeded`, even
+ * though the websocket itself connected immediately (`<ws connected>` in the
+ * debug log) — `connectOverCDP` was still waiting for every page target to
+ * finish initialising, and a wedged renderer's page never does. 10s is short
+ * enough to detect that quickly instead of eating half a minute on every
+ * call, while remaining generous next to the in-page read bounds elsewhere
+ * in this package (`PRE_KILL_READ_TIMEOUT_MS` 5s, `SAVE_READ_TIMEOUT_MS` 7s
+ * in lifecycle.ts): unlike those, this also covers opening a fresh CDP
+ * websocket session and enumerating browser contexts/targets from scratch,
+ * which a busy-but-healthy machine can genuinely make slower than an
+ * in-page evaluate on an already-open page.
+ */
+export const CONNECT_TIMEOUT_MS = 10_000;
+
+/**
+ * Which error code a failed `connectOverCDP` attempt should report.
+ *
+ * Pure decision, stub-testable independent of a real port lookup: whether
+ * anything is listening on the port is what distinguishes a genuinely
+ * not-running editor from one that is up (something is bound to the port)
+ * but never became usable within the connect timeout — e.g. a renderer
+ * whose main thread is wedged. A caller told `not-running` when the editor
+ * is actually just unresponsive would reasonably conclude there is nothing
+ * to kill and nothing to wait for, which is exactly backwards.
+ */
+export function connectFailureCode(listening: boolean): 'not-running' | 'editor-unresponsive' {
+  return listening ? 'editor-unresponsive' : 'not-running';
+}
+
+function connectError(port: number, cause: unknown): Error & { code: string } {
+  const listening = portOwner(port) !== null;
+  const code = connectFailureCode(listening);
+  const message =
+    code === 'editor-unresponsive'
+      ? `XGENIA on 127.0.0.1:${port} is running but not responding (${String(cause)}). The renderer may be wedged.`
+      : `Could not reach XGENIA on 127.0.0.1:${port}. Is it running? (${String(cause)})`;
+  const err = new Error(message) as Error & { code: string };
+  err.code = code;
+  return err;
+}
+
+/**
  * Attach to the editor window.
  *
  * The page is selected by URL, never by position: a running editor also exposes
  * a viewer webview and a cloud-runtime page, and their order is not a contract.
  */
-export async function connect(port = discoverPort()): Promise<Connection> {
+export async function connect(
+  port = discoverPort(),
+  opts: { timeoutMs?: number } = {}
+): Promise<Connection> {
   if (isCacheHit(cached, port)) return cached!;
 
   // If there's a cached connection to a different port, dispose of it
@@ -79,13 +129,11 @@ export async function connect(port = discoverPort()): Promise<Connection> {
 
   let browser: Browser;
   try {
-    browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+    browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, {
+      timeout: opts.timeoutMs ?? CONNECT_TIMEOUT_MS
+    });
   } catch (e) {
-    const err = new Error(
-      `Could not reach XGENIA on 127.0.0.1:${port}. Is it running? (${String(e)})`
-    );
-    (err as Error & { code?: string }).code = 'not-running';
-    throw err;
+    throw connectError(port, e);
   }
 
   const pages = browser.contexts().flatMap((c) => c.pages());

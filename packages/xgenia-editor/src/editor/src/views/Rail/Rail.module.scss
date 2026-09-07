@@ -1,0 +1,290 @@
+.Root {
+  position: relative;
+  flex: 0 0 var(--rail-width);
+  width: var(--rail-width);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--glass-bar-bg);
+  -webkit-backdrop-filter: var(--glass-bar-blur);
+  backdrop-filter: var(--glass-bar-blur);
+  border-right: 1px solid var(--glass-bar-border);
+  box-sizing: border-box;
+  user-select: none;
+  /* The minimum breathing room between the chip, the +, the panel cluster and the
+   * bottom cluster. It is a floor, not the spacing: .Top and .Bottom both take an auto
+   * top margin, so whatever height is left over after the four blocks is split evenly
+   * between them and the panel icons sit in the middle of the rail rather than stacked
+   * under the chip. On a short window the autos collapse to nothing and this is all
+   * that is left. */
+  gap: 12px;
+
+  @supports not (backdrop-filter: blur(1px)) {
+    background: var(--theme-color-bg-2);
+  }
+}
+
+.Top {
+  position: relative;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.Bottom {
+  margin-top: auto;
+  margin-bottom: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--glass-bar-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.Item {
+  position: relative;
+  width: 28px;
+  height: 28px;
+}
+
+/* Wraps each top-cluster RailButton so a press-and-hold reorder (Task 18) can transform the
+ * slot itself — RailButton's own `.Item` box stays untouched — while every other slot
+ * slides out of the way with the same eased transition. */
+.DragSlot {
+  position: relative;
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition: transform var(--speed-move) var(--easing-base);
+  }
+}
+
+.is-lifting {
+  transition: none !important;
+}
+.is-lifting .Button {
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6);
+  background: var(--glass-ctrl-bg);
+}
+
+.Button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--theme-color-fg-default-shy, var(--theme-color-fg-default));
+
+  /* The rail's icons are Nucleo glass (views/SidePanel/GlassIcons.tsx): little lit
+   * objects rather than strokes, so `color` no longer reaches them. They read their
+   * five colours from these tokens instead, which is why one copy of the artwork
+   * covers every state. Only the body gradient and the face's opacity move — the
+   * translucent face over a darker body is what keeps the inner detail (the grid's
+   * squares, the chart's bars) legible at this size, and flattening it is what makes
+   * a glass icon turn into a blob. */
+  --gi-body-1: #8E8E9A;
+  --gi-body-2: #5C5C66;
+  --gi-face-alpha: 0.5;
+
+  /* 16px is what IconSize.Small hands a Hugeicon. These are drawn on a 24px grid with
+   * real interior detail, and need the extra two pixels the 28px button can spare. */
+  svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  &:not(:disabled):hover {
+    --gi-body-1: #B6B6C2;
+    --gi-body-2: #7A7A86;
+    --gi-face-alpha: 0.54;
+  }
+
+  &:disabled {
+    --gi-body-1: #5A5A62;
+    --gi-body-2: #3E3E46;
+    --gi-face-alpha: 0.3;
+  }
+
+  .is-active & {
+    background: var(--glass-ctrl-bg);
+    box-shadow: var(--glass-ctrl-shadow);
+    color: var(--theme-color-fg-highlight);
+
+    --gi-body-1: #D2D2DE;
+    --gi-body-2: #92929E;
+    --gi-face-alpha: 0.58;
+  }
+}
+
+/* The green + that opens the node picker — restored to the top of the rail, under the
+ * identity chip. Same size as every other rail button; the accent color is what used to
+ * mark it out when it lived in the panel card's header (AddNodeAction.module.scss). */
+.AddNodeButton {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--theme-color-on-primary, #062b1c);
+  background: var(--theme-color-publish);
+
+  &:hover { filter: brightness(1.06); }
+}
+
+/* One accent bar travels between active items. `top: 7px` inside a 28px slot = 14px tall, centred. */
+.Indicator {
+  position: absolute;
+  left: calc((var(--rail-width) - 28px) / -2);
+  top: 0;
+  width: 2px;
+  height: 14px;
+  border-radius: 0 1px 1px 0;
+  background: var(--theme-color-presence);
+  pointer-events: none;
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition: transform var(--speed-move) var(--easing-base);
+  }
+}
+
+.Count {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 7px;
+  box-sizing: border-box;
+  font: 600 9px/14px var(--font-family-regular);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--rail-badge-fg);
+  background: var(--theme-color-attention);
+  pointer-events: none;
+}
+
+.Unseen {
+  position: absolute;
+  right: -1px;
+  top: -1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--theme-color-attention);
+  box-shadow: 0 0 0 2px var(--theme-color-bg-1);
+  pointer-events: none;
+}
+
+/*
+ * `@property --rail-ring-angle` (an animated custom property driving `conic-gradient(from
+ * var(--rail-ring-angle), ...)`) is untried in this webpack + sass + css-loader pipeline and
+ * sits inside a `.module.scss` where css-loader also processes at-rules. If it silently
+ * failed to register, the custom property could never be animated and the ring would sit
+ * still with no error. Instead the gradient is static (starts at the default 0deg) and the
+ * `.Ring` element itself is rotated with `transform` — the mask composites two
+ * linear-gradients with `xor` into an annulus, which is rotationally symmetric, so rotating
+ * the element rotates only the visible sweep. Visually identical, no untried at-rule.
+ */
+.Ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 11px;
+  padding: 2px;
+  background: conic-gradient(var(--theme-color-presence) 0 25%, transparent 25% 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+
+  @media (prefers-reduced-motion: no-preference) {
+    animation: rail-ring-spin 1.4s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    inset: auto -2px -2px auto;
+    width: 8px;
+    height: 8px;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--theme-color-presence);
+    -webkit-mask: none;
+    mask: none;
+  }
+}
+
+@keyframes rail-ring-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.Digit {
+  position: absolute;
+  right: -5px;
+  top: -5px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 2px;
+  border-radius: 4px;
+  box-sizing: border-box;
+  font: 600 9px/13px var(--font-family-regular);
+  text-align: center;
+  color: var(--theme-color-bg-1);
+  background: var(--theme-color-fg-highlight);
+  pointer-events: none;
+}
+
+.is-drop-dimmed { opacity: 0.35; }
+.is-drop-target .Button {
+  transform: scale(1.12);
+  box-shadow: 0 0 0 2px var(--theme-color-presence);
+}
+
+.is-ping .Button { animation: rail-ping 600ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes rail-ping {
+  0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55); }
+  100% { box-shadow: 0 0 0 9px rgba(52, 211, 153, 0); }
+}
+@media (prefers-reduced-motion: reduce) { .is-ping .Button { animation: none; box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.55); } }
+
+.is-recount .Count { animation: rail-recount 200ms ease; }
+@keyframes rail-recount { 50% { transform: scale(1.15); } }
+
+.Identity {
+  width: 28px;
+  height: 28px;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--rail-identity-from), var(--rail-identity-to));
+  color: var(--theme-color-fg-highlight);
+  font: 600 12px/1 var(--font-family-regular);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 1px 2px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+
+  img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  &[aria-expanded='true'] { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 0 0 2px color-mix(in srgb, var(--theme-color-presence) 50%, transparent); }
+  &:focus-visible { outline: 2px solid var(--theme-color-fg-highlight); outline-offset: 1px; }
+}
+
+.Menu { padding: 6px; font-size: 12px; }
+.MenuHead {
+  padding: 8px 10px 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--glass-bar-border);
+  display: flex; flex-direction: column; gap: 2px;
+  b { font-size: 13px; color: var(--theme-color-fg-highlight); }
+  span { font-size: 11px; color: var(--theme-color-fg-default-shy, var(--theme-color-fg-default)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+.MenuItem {
+  width: 100%; height: 28px; padding: 0 8px; border: 0; border-radius: 6px;
+  display: flex; align-items: center; gap: 10px;
+  background: transparent; color: var(--theme-color-fg-highlight);
+  font: 12px/1 var(--font-family-regular); text-align: left; cursor: pointer;
+  &:hover { background: var(--glass-ctrl-bg); }
+  &.is-danger { color: var(--theme-color-danger, #f87171); }
+}
+.MenuRule { height: 1px; margin: 4px 0; background: var(--glass-bar-border); }

@@ -14,16 +14,13 @@
     flex-direction: column;
 
     /* Play-style material glass */
-    background: rgba(22, 22, 24, 0.62);
-    backdrop-filter: blur(40px) saturate(180%);
-    -webkit-backdrop-filter: blur(40px) saturate(180%);
-    border-radius: 12px;
+    background: var(--card-bg);
+    backdrop-filter: var(--card-blur);
+    -webkit-backdrop-filter: var(--card-blur);
+    border-radius: var(--card-radius);
 
     border: none;
-    box-shadow:
-        0 0 0 0.5px rgba(255, 255, 255, 0.08),
-        0 8px 40px rgba(0, 0, 0, 0.45),
-        0 2px 12px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--card-shadow);
 
     animation: slideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     overflow: hidden;

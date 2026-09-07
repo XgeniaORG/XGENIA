@@ -16,8 +16,11 @@
 import ThumbnailCache from '@xgenia-utils/thumbnailcache';
 import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import { isBloatPort, isTooLargeToSerialize, unwrapValueUnit, portUnitInfo } from './serialize-param-guard';
-import { recordAssetProvenance, loadAssetMeta, migrateAssetMeta } from '../AssetPanel/assetMeta';
+import { mergeAssetMeta, loadAssetMeta, migrateAssetMeta, type AssetMetaEntry } from '../AssetPanel/assetMeta';
 import { reconcileGraphAssetRefs } from '../AssetPanel/assetGraphRefs';
+import { AiActivity } from '@xgenia-models/aiactivity';
+import { RailPresence } from '@xgenia-models/railpresence';
+import { GitStatus } from '@xgenia-models/gitstatus';
 import { ComponentModel } from '@xgenia-models/componentmodel';
 import { NodeGraphModel, NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 import { NodeLibrary } from '@xgenia-models/nodelibrary';
@@ -27,6 +30,7 @@ import { UndoActionGroup, UndoQueue } from '@xgenia-models/undo-queue-model';
 import { guid } from '@xgenia-utils/utils';
 import { platform } from '@xgenia/platform';
 import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
+import { ParamAuthors } from '../propertyeditor/inspector/paramAuthors';
 import { supabase } from '../../../supabaseInit';
 import {
     addProjectPalette,
@@ -97,6 +101,11 @@ export class EditorBridge {
      */
     private aiUndo(label?: string): UndoActionGroup {
         if (label) this.aiUndoLabel = label;
+        // The only signal the editor gets that the AI is mid-edit: the chat panel
+        // iframe posts nothing but 'command' and 'handshake', so the undo burst IS
+        // the activity. Re-arming on every call keeps the topbar pill alive for the
+        // whole burst; flushAiUndo() below ends it.
+        AiActivity.begin(this.aiUndoLabel);
         if (!this.aiUndoGroup) this.aiUndoGroup = new UndoActionGroup({ label: this.aiUndoLabel });
         if (this.aiUndoTimer) clearTimeout(this.aiUndoTimer);
         this.aiUndoTimer = setTimeout(() => this.flushAiUndo(), EditorBridge.AI_UNDO_IDLE_MS);
@@ -108,8 +117,18 @@ export class EditorBridge {
      *
      * An empty group is DROPPED, never pushed — an entry that undoes nothing is
      * exactly the dead history slot this whole mechanism replaces.
+     *
+     * `endActivity` also clears the top bar's "AI working" indicator. It defaults to
+     * true because every MUTATING path that flushes really is the end of a burst — but
+     * `undo.getLocation` is a READ, and the panel issues it right after every tool
+     * batch. Ending activity there blanked the indicator for the whole model
+     * round-trip that followed, so it flickered off mid-turn on every multi-batch task.
      */
-    private flushAiUndo(label?: string) {
+    private flushAiUndo(label?: string, endActivity = true) {
+        // Refresh the label on a real flush, but do NOT end the turn here: `undo.push`
+        // arrives after every tool batch, and the panel keeps working afterwards.
+        // AiActivity's own idle window decides when the turn is over.
+        if (endActivity && label) AiActivity.begin(label);
         if (this.aiUndoTimer) {
             clearTimeout(this.aiUndoTimer);
             this.aiUndoTimer = null;
@@ -500,6 +519,12 @@ export class EditorBridge {
 
         // Command from plugin
         if (msg.type === 'command' && msg.id && msg.command) {
+            // Every command is a sign the AI is working, read-only ones included. Tying
+            // this to undo bursts alone meant a turn made entirely of inspection tools
+            // never lit the top bar at all. AiActivity ends itself on an idle window,
+            // so there is no matching end() to place here.
+            AiActivity.begin();
+            RailPresence.noteCommand(msg.command);
             this.executeCommand(msg as PluginCommand, event);
             return;
         }
@@ -1607,6 +1632,16 @@ export class EditorBridge {
             // undefined and the caller had no way to detect silent rejections.
             if (typeof node.setParameter !== 'function') return false;
             node.setParameter(name, value, { undo: this.aiUndo(), label: this.aiUndoLabel });
+            // Authorship for the inspector. This is the single door AI parameter
+            // writes come through, which is what makes one record here enough: the
+            // model itself stores only the value, so without this the panel cannot
+            // tell a value the user typed from one the assistant just wrote.
+            //
+            // Keyed on the RESOLVED id, not on `nodeId`: `findNode` also accepts a
+            // label, and the AI addresses nodes by label most of the time. Recording
+            // the caller's string would file the write under "MainRouter" while the
+            // inspector looks it up by uuid, and the glyph would never appear.
+            ParamAuthors.record(node.id, name, 'ai');
             return true;
         });
 
@@ -1842,7 +1877,9 @@ export class EditorBridge {
         });
 
         h('undo.getLocation', () => {
-            this.flushAiUndo();
+            // Read-only, and issued after every tool batch: flush the group so the
+            // location is accurate, but do NOT declare the AI finished.
+            this.flushAiUndo(undefined, false);
             return UndoQueue.instance?.getHistoryLocation?.() || 0;
         });
 
@@ -1976,6 +2013,7 @@ export class EditorBridge {
                 const g = new Git(mergeProject);
                 await g.openRepository(pm._retainedProjectDirectory);
                 const sha = await g.commit(message);
+                void GitStatus.refresh();
                 return { success: true, sha, message };
             } catch (e: any) {
                 return { success: false, error: e?.message || String(e) };
@@ -2092,6 +2130,7 @@ export class EditorBridge {
                     };
                 }
                 const ok = await g.push();
+                if (ok) void GitStatus.refresh();
                 return { success: !!ok };
             } catch (e: any) {
                 return { success: false, error: e?.message || String(e) };
@@ -2558,22 +2597,23 @@ export class EditorBridge {
         h('auth.refreshJwt', async () => {
             const g: any = window as any;
             if (g.__xgeniaAuthRefreshInFlight) {
-                try { return await g.__xgeniaAuthRefreshInFlight; } catch { return null; }
+                // Share the outcome — including the thrown reason — with the in-flight caller.
+                return await g.__xgeniaAuthRefreshInFlight;
             }
             const run = (async () => {
-                try {
-                    const { data, error } = await supabase.auth.refreshSession();
-                    if (error) {
-                        // "Already Used" means the family is revoked server-side — no client-side
-                        // retry can recover it, and adding one would only spend more tokens.
-                        console.warn('[EditorBridge] auth.refreshJwt failed:', error.message);
-                        return null;
-                    }
-                    return data?.session?.access_token || null;
-                } catch (e: any) {
-                    console.warn('[EditorBridge] auth.refreshJwt threw:', e?.message || e);
-                    return null;
+                const { data, error } = await supabase.auth.refreshSession();
+                if (error) {
+                    // "Already Used" means the family is revoked server-side — no client-side
+                    // retry can recover it, and adding one would only spend more tokens.
+                    // (2026-09-05) THROW the message instead of returning null: the bridge turns
+                    // a throw into `{ error }`, and the panel puts that text on its
+                    // "Session Expired" card. A null only ever said "the editor couldn't".
+                    console.warn('[EditorBridge] auth.refreshJwt failed:', error.message);
+                    throw new Error(error.message);
                 }
+                const token = data?.session?.access_token;
+                if (!token) throw new Error('refreshSession returned no session');
+                return token;
             })();
             g.__xgeniaAuthRefreshInFlight = run;
             try { return await run; } finally { g.__xgeniaAuthRefreshInFlight = null; }
@@ -2693,6 +2733,7 @@ export class EditorBridge {
                 fs.mkdirSync(dir, { recursive: true });
             }
             fs.writeFileSync(fullPath, content, encoding || 'utf-8');
+            EventDispatcher.instance.emit('project-assets-changed', { path: filePath });
             return true;
         });
 
@@ -2788,6 +2829,7 @@ export class EditorBridge {
                 fs.mkdirSync(dir, { recursive: true });
             }
             fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+            EventDispatcher.instance.emit('project-assets-changed', { path: filePath });
             return true;
         });
 
@@ -2809,16 +2851,22 @@ export class EditorBridge {
             }
             const buffer = Buffer.from(base64Data, 'base64');
             fs.writeFileSync(filePath, buffer);
+            EventDispatcher.instance.emit('project-assets-changed', { path: filePath });
             return true;
         });
 
         // Record AI provenance (prompt/model/params) for a saved asset, keyed by its
         // project-relative path ('assets/...'). The AI calls this right after saving a
         // generated image so the asset carries "what the AI did" (shown in the Inspector).
-        h('assetMeta.set', async ([assetPath, entry]: [string, { ai?: any; tags?: string[]; favorite?: boolean }]) => {
-            if (!assetPath || !entry) return false;
+        h('assetMeta.set', async ([assetPath, entry]: [string, Partial<AssetMetaEntry>]) => {
+            if (!assetPath || !entry || typeof entry !== 'object') return false;
             try {
-                if (entry.ai) await recordAssetProvenance(assetPath, entry.ai);
+                // Merge the WHOLE patch. This used to call recordAssetProvenance, which
+                // writes only `entry.ai`: every other field the caller sent — tags, and now
+                // role / version / lineage — was accepted, reported as written, and silently
+                // dropped. Anything the AI needs to persist about an asset goes through here.
+                await mergeAssetMeta(assetPath, entry);
+                EventDispatcher.instance.emit('project-assets-changed', { path: assetPath });
                 return true;
             } catch (e) {
                 console.warn('[EditorBridge] assetMeta.set failed:', e);

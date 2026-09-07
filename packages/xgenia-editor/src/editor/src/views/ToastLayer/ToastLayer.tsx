@@ -1,6 +1,7 @@
 import React from 'react';
 import toast from 'react-hot-toast';
 
+import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import { ToastCard, ToastType } from './components/ToastCard';
 
 export const ToastLayer = {
@@ -9,6 +10,10 @@ export const ToastLayer = {
   },
 
   showActivity(message: string, toastId = 'no-id') {
+    // The deploy pipeline already narrates every step through this toast, so mirroring
+    // it onto the event bus gives the publish store its step labels without a second
+    // source of truth for the wording. Listeners filter by toastId.
+    EventDispatcher.instance.emit('toast-activity', { message, toastId });
     toast.promise(
       new Promise(() => {
         // noop
@@ -23,6 +28,7 @@ export const ToastLayer = {
   },
 
   hideActivity(toastId = 'no-id') {
+    EventDispatcher.instance.emit('toast-activity', { message: null, toastId });
     toast.dismiss(toastId);
   },
 

@@ -5,7 +5,6 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { EventDispatcher } from '../../shared/utils/EventDispatcher';
-import LessonTemplatesModel from './models/lessontemplatesmodel';
 import PopupLayer from './views/popuplayer';
 import '@xgenia-utils/keyboardhandler';
 import './utils/editorapi';
@@ -97,7 +96,6 @@ export default class Router
     `);
 
     // Initialise models
-    LessonTemplatesModel.instance.fetch();
     
     // CRITICAL FIX: Ensure ProjectModel class is available on window from start
     // This fixes chat history persistence issues after React 19 upgrade

@@ -2,7 +2,15 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { readDevToolsActivePort, discoverPort, classifyTarget, isCacheHit } from './connection.js';
+import {
+  readDevToolsActivePort,
+  discoverPort,
+  classifyTarget,
+  isCacheHit,
+  connectFailureCode,
+  connect,
+  resetConnection
+} from './connection.js';
 
 let tmp: string;
 
@@ -98,5 +106,45 @@ describe('isCacheHit', () => {
       port: 9223,
     };
     expect(isCacheHit(mockConnection, 9223)).toBe(true);
+  });
+});
+
+// Defect 3: `connect()` used to report `not-running` whenever `connectOverCDP`
+// failed for any reason, even when the editor was genuinely up but wedged
+// (its main thread never finishing the page-target handshake `connectOverCDP`
+// waits for). A caller told "not running" when the editor is actually
+// unresponsive would reasonably try to launch a second instance rather than
+// kill and restart the stuck one -- exactly backwards. connectFailureCode is
+// the pure decision `connect()`'s catch block makes from a single fact --
+// whether anything is listening on the port at all -- pinned here
+// independent of any real port lookup or CDP handshake.
+describe('connectFailureCode', () => {
+  it('reports not-running when nothing is listening on the port', () => {
+    expect(connectFailureCode(false)).toBe('not-running');
+  });
+
+  it('reports editor-unresponsive when something is listening but the connect still failed', () => {
+    expect(connectFailureCode(true)).toBe('editor-unresponsive');
+  });
+});
+
+describe('connect against a definitely-empty port', () => {
+  // A high, unlikely-to-collide port distinct from the ones other test files
+  // use for recovery-file tests, so a parallel test run cannot cross wires.
+  const port = 65533;
+
+  afterEach(() => resetConnection());
+
+  // Real, light I/O (an actual TCP connect attempt that gets refused
+  // immediately) rather than a mock -- matches this suite's existing
+  // preference for real filesystem/process calls over a mocking framework.
+  // Nothing is listening on `port`, so this exercises the exact `not-running`
+  // path `connect()`'s catch block takes in production, not just the pure
+  // decision above, and must resolve near-instantly (ECONNREFUSED), never
+  // waiting out the full CONNECT_TIMEOUT_MS bound.
+  it('throws a not-running error quickly instead of waiting out the connect timeout', async () => {
+    const start = Date.now();
+    await expect(connect(port)).rejects.toMatchObject({ code: 'not-running' });
+    expect(Date.now() - start).toBeLessThan(5000);
   });
 });

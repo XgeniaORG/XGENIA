@@ -4,7 +4,10 @@ import { Keybindings } from '@xgenia-constants/Keybindings';
 import { AppRegistry } from '@xgenia-models/app_registry';
 import { SidebarModel } from '@xgenia-models/sidebar';
 
-import { IconName } from '@xgenia-core-ui/components/common/Icon';
+import {
+  SideComponents, SideSearch, SideVersionControl, SideSettings, SideChatPanel, SideProjectStyles,
+  SideNodeReferences, SideImageEditor, SideMaths, SideAssets, SideAddNode
+} from './views/SidePanel/SidebarIcons';
 
 import { ComponentDiffDocumentProvider } from './views/documents/ComponentDiffDocument';
 import { EditorDocumentProvider } from './views/documents/EditorDocument';
@@ -45,7 +48,6 @@ if (AI_LOAD_STRATEGY === 'iframe') {
 // import { CloudServicePanel } from './views/panels/CloudServicePanel/CloudServicePanel';
 import { ComponentPortsComponent } from './views/panels/componentports';
 import { ComponentsPanel } from './views/panels/componentspanel';
-import { FeedbackPanel, FeedbackPanel_ID } from './views/panels/FeedbackPanel';
 import MemoryPanel from './views/panels/MemoryPanel/MemoryPanel';
 import { NodeReferencesPanel_ID } from './views/panels/NodeReferencesPanel';
 import { NodeReferencesPanel } from './views/panels/NodeReferencesPanel/NodeReferencesPanel';
@@ -93,16 +95,16 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     transient: true,
     id: 'node-picker',
     name: 'Add node',
-    order: 0.5,
-    icon: IconName.Plus,
+    order: 5,
+    icon: SideAddNode,
     panel: NodePickerPanel
   });
 
   SidebarModel.instance.register({
     id: 'components',
     name: 'Components',
-    order: 1,
-    icon: IconName.Components,
+    order: 20,
+    icon: SideComponents,
     onOpen: () => {
       if (appRegistry.CurrentDocumentId !== EditorDocumentProvider.ID) {
         appRegistry.openDocument(EditorDocumentProvider.ID);
@@ -122,54 +124,49 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     id: 'search',
     name: 'Search',
     fineType: Keybindings.SEARCH.label,
-    order: 2,
-    icon: IconName.Search,
+    order: 30,
+    icon: SideSearch,
     panel: SearchPanel
-  });
-
-  SidebarModel.instance.register({
-    id: FeedbackPanel_ID,
-    name: 'Feedback',
-    order: 5.7,
-    icon: IconName.Bug, // Using Bug icon since it's perfect for feedback/bug reports
-    panel: FeedbackPanel
   });
 
   SidebarModel.instance.register({
     id: VersionControlPanel_ID,
     name: 'Version control',
-    order: 5,
+    order: 10,
     placement: 'bottom',
-    icon: IconName.StructureCircle,
+    icon: SideVersionControl,
     panel: VersionControlPanel
   });
   SidebarModel.instance.register({
     id: ChatPanel_ID,
     name: 'Chat',
-    order: 5.6,
-    icon: IconName.Chat,
+    order: 10,
+    icon: SideChatPanel,
+    defaultWidth: 450,
+    isDefaultDocked: true,
+    showsAiActivity: true,
     panel: ChatPanel
   });
   SidebarModel.instance.register({
     id: MathsPanel_ID,
     name: 'Maths RGS',
-    order: 5.3,
-    icon: IconName.Code,
+    order: 60,
+    icon: SideMaths,
     panel: MathsPanel
   });
   SidebarModel.instance.register({
     id: 'image-editor',
     name: 'AI Image Editor',
-    order: 5.4,
-    icon: IconName.Image,
+    order: 70,
+    icon: SideImageEditor,
     panel: ImageEditorPanel
   });
 
   SidebarModel.instance.register({
     id: 'project-styles',
     name: 'Project Styles',
-    order: 5.45,
-    icon: IconName.Palette,
+    order: 50,
+    icon: SideProjectStyles,
     panel: ProjectStylesPanel
   });
 
@@ -253,12 +250,16 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
   // "Project settings" and "Editor settings" were merged into one entry
   // (2026-08-12). The two scopes live on as the panel's Project/Editor tabs —
   // see SettingsPanel for why they are tabs and not one flat section list.
+  // Not rendered as a rail button — reachable only from the identity chip's project menu
+  // (ProjectMenu.tsx). Still fully registered and dispatchable: `railHidden` only affects
+  // the rail's own rendering (see Rail.tsx), not `SidebarModel.switch`/`dispatch`.
   SidebarModel.instance.register({
     id: SettingsPanel_ID,
     name: 'Settings',
-    order: 8,
+    order: 30,
     placement: 'bottom',
-    icon: IconName.Setting,
+    icon: SideSettings,
+    railHidden: true,
     panel: SettingsPanel
   });
 
@@ -282,21 +283,20 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     id: NodeReferencesPanel_ID,
     name: 'Node References',
     description: 'Node References Panel is showing how many times each core node and component is used.',
-    order: 23,
-    icon: IconName.Component,
+    order: 80,
+    icon: SideNodeReferences,
     panel: NodeReferencesPanel
   });
 
   // Asset browser (experimental). Hidden by default; enable via
   // Settings → Editor → Experimental panels → "Enable Assets".
   SidebarModel.instance.register({
-    experimental: true,
     id: 'assets',
     name: 'Assets',
     description:
-      'Asset browser (experimental): browse, search, sort and preview project assets. Drag-into-graph, rename and stable asset IDs are still in progress.',
-    order: 22,
-    icon: IconName.FolderClosed,
+      "Everything this project has, grouped by what each thing is: key art, backgrounds, sprites, UI, audio. Shows the prompt that made an image, the art it was cut from, its earlier versions and which nodes use it.",
+    order: 40,
+    icon: SideAssets,
     panel: AssetPanel
   });
 

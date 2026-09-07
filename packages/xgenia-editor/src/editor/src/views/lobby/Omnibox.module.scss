@@ -1,0 +1,201 @@
+// ⌘K. A popover in the same glass as every other menu in the editor, positioned under the bar
+// so it reads as coming out of the search field rather than as a separate window.
+
+.Scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(8, 8, 10, 0.4);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: center;
+  // Below the title bar and the lobby bar, so the field it replaces stays in view.
+  padding-top: calc(34px + var(--topbar-height) + 4px);
+}
+
+.Root {
+  width: 560px;
+  max-width: calc(100vw - 48px);
+  height: fit-content;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--glass-pop-border);
+  background: var(--glass-pop-bg);
+  -webkit-backdrop-filter: var(--glass-pop-blur);
+  backdrop-filter: var(--glass-pop-blur);
+  box-shadow: var(--glass-pop-shadow);
+  animation: rise 180ms var(--lobby-ease) both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.Field {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 38px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(52, 211, 153, 0.5);
+  background: rgba(0, 0, 0, 0.32);
+  box-shadow:
+    0 0 0 3px rgba(52, 211, 153, 0.15),
+    inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  color: var(--theme-color-fg-default-shy);
+
+  input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    background: none;
+    outline: none;
+    color: var(--theme-color-fg-default);
+    font: 400 13px inherit;
+  }
+
+  input::placeholder {
+    color: var(--theme-color-fg-muted);
+  }
+
+  kbd {
+    padding: 2px 4px;
+    border: 1px solid var(--glass-ctrl-border);
+    border-radius: 3px;
+    font: 10px/1 inherit;
+    color: var(--theme-color-fg-default-shy);
+  }
+}
+
+.Results {
+  margin-top: 4px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.Group {
+  padding: 10px 12px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--theme-color-fg-muted);
+}
+
+.Row {
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--theme-color-fg-default);
+  font: 400 12.5px inherit;
+  text-align: left;
+  cursor: pointer;
+
+  img {
+    width: 46px;
+    height: 26px;
+    border-radius: 4px;
+    object-fit: cover;
+    flex: none;
+  }
+
+  kbd {
+    margin-left: auto;
+    padding: 2px 4px;
+    border: 1px solid var(--glass-ctrl-border);
+    border-radius: 3px;
+    font: 10px/1 inherit;
+    color: var(--theme-color-fg-default-shy);
+    flex: none;
+  }
+
+  &:focus-visible {
+    outline: none;
+  }
+}
+
+// The cursor follows both the keyboard and the pointer, so there is only ever one highlighted
+// row and Enter always acts on the one you are looking at.
+.RowOn {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.Sym {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--theme-color-fg-default-shy);
+}
+
+.Create .Sym {
+  background: rgba(52, 211, 153, 0.16);
+  color: var(--theme-color-publish);
+}
+
+.Text {
+  min-width: 0;
+  flex: 1;
+
+  b {
+    display: block;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  small {
+    display: block;
+    font-size: 11px;
+    color: var(--theme-color-fg-default-shy);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  mark {
+    background: rgba(52, 211, 153, 0.2);
+    color: inherit;
+    border-radius: 2px;
+    padding: 0 1px;
+  }
+}
+
+.Hint {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  color: var(--theme-color-fg-muted);
+}
+
+.None {
+  padding: 10px 12px 14px;
+  font-size: 12px;
+  color: var(--theme-color-fg-default-shy);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .Root {
+    animation: none;
+  }
+}

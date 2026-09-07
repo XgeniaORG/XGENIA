@@ -1,0 +1,284 @@
+// PublishButton.module.scss
+//
+// Every colour here resolves to a custom property from glass.css or colors.css.
+// The translucent tints are derived with color-mix() from the SAME token rather than
+// being re-typed as rgba() literals, so changing --theme-color-publish moves the chip,
+// its border, its hover state and its glow together. Chromium 126 (Electron 31.3.1)
+// supports color-mix(in srgb, ...) natively; no fallback is needed.
+//
+// Radii stay in px, matching GlassPopover.module.scss and the rest of the editor —
+// the codebase has no radius tokens to reference.
+
+.Wrap {
+  position: relative;
+  display: flex;
+  flex: none;
+  margin: 0 4px 0 0;
+}
+
+// ---------------------------------------------------------------- Publish button
+
+.Button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: none;
+  cursor: pointer;
+  background: var(--theme-color-publish);
+  color: var(--theme-color-on-primary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  line-height: 1;
+  font-family: var(--font-family-bold);
+  white-space: nowrap;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--theme-color-fg-highlight) 35%, transparent),
+    0 1px 2px color-mix(in srgb, var(--theme-color-bg-1) 45%, transparent);
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition: filter var(--motion-pill), opacity var(--motion-pill);
+  }
+
+  &:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: wait;
+  }
+}
+
+// Unpublished changes, or a publish that failed. Sits over the button's top-right
+// corner; the border punches it out of whatever the bar paints behind it.
+.Dot {
+  position: absolute;
+  top: -3px;
+  right: 1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--theme-color-attention);
+  border: 2px solid var(--theme-color-bg-2);
+  pointer-events: none;
+}
+
+.Spinner {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  // The ring rides on the green button, so it is drawn in the button's own ink colour.
+  border: 2px solid color-mix(in srgb, var(--theme-color-on-primary) 25%, transparent);
+  border-top-color: var(--theme-color-on-primary);
+
+  @media (prefers-reduced-motion: no-preference) {
+    animation: publish-spin 0.9s linear infinite;
+  }
+}
+
+@keyframes publish-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+// ---------------------------------------------------------------- Live chip
+
+.Live {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--theme-color-publish) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--theme-color-publish) 30%, transparent);
+  color: var(--theme-color-publish);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-family-regular);
+  line-height: 1;
+  white-space: nowrap;
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition: background var(--motion-pill), border-color var(--motion-pill);
+  }
+
+  &:hover,
+  &:focus-visible {
+    background: color-mix(in srgb, var(--theme-color-publish) 18%, transparent);
+    border-color: color-mix(in srgb, var(--theme-color-publish) 45%, transparent);
+  }
+}
+
+.LiveDot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--theme-color-publish);
+  box-shadow: 0 0 6px var(--theme-color-publish);
+}
+
+.Age {
+  color: var(--theme-color-fg-default-shy);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+// ---------------------------------------------------------------- Popover
+
+.UrlRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: var(--glass-ctrl-bg);
+  font-size: 12px;
+  color: var(--theme-color-fg-highlight);
+  overflow: hidden;
+}
+
+// The host text, not `span:first-of-type` — the first span in the row is .LiveDot,
+// so a positional selector would stretch the dot and leave the URL unclipped.
+.Url {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.IconBtn {
+  display: flex;
+  flex: none;
+  cursor: pointer;
+  color: var(--theme-color-fg-default-shy);
+
+  &:hover,
+  &:focus-visible {
+    color: var(--theme-color-fg-highlight);
+  }
+}
+
+.QrRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 2px 4px;
+}
+
+.Qr {
+  flex: none;
+  width: 96px;
+  height: 96px;
+  border-radius: 4px;
+  // Only visible while the code is being generated, or if generation failed — the
+  // PNG carries its own white quiet zone across the whole frame once it loads.
+  background: var(--glass-ctrl-bg);
+  border: 1px solid var(--glass-ctrl-border);
+  // The code is rendered at 192px and shown at 96, so on a 2x display this is an
+  // exact 1:1 mapping and every module stays a crisp square.
+  image-rendering: pixelated;
+}
+
+.QrText {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--theme-color-fg-default-shy);
+  line-height: 1.4;
+}
+
+.QrTitle {
+  font-size: 12px;
+  color: var(--theme-color-fg-highlight);
+  font-weight: 500;
+}
+
+.Actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.Primary {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  background: var(--theme-color-publish);
+  color: var(--theme-color-on-primary);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition: filter var(--motion-pill);
+  }
+
+  &:hover {
+    filter: brightness(1.08);
+  }
+}
+
+.Ghost {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--glass-ctrl-border);
+  background: transparent;
+  color: var(--theme-color-fg-default);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition: background var(--motion-pill);
+  }
+
+  &:hover {
+    background: var(--glass-ctrl-bg-hover);
+  }
+}
+
+.Meta {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--theme-color-fg-default-shy);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* A generation failure must LOOK like one. At --glass-ctrl-bg alone the box is 7%
+   white on dark glass, i.e. invisible, so a failed code read as a blank gap beside
+   copy that still promised something to scan. */
+.QrPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+  border-color: var(--theme-color-fg-default-shy);
+  color: var(--theme-color-fg-default-shy);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1;
+}

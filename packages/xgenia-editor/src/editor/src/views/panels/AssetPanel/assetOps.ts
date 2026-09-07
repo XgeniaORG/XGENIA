@@ -189,6 +189,42 @@ export async function duplicate(relPath: string, isFolder: boolean): Promise<str
   return candidate;
 }
 
+/**
+ * Copy OS files into the project's assets folder. `destRel` is project-relative and must
+ * be `assets` or below. Electron 31 exposes `File.path` for dropped files; a File without
+ * one (pasted, synthesized) is read and written instead. Name collisions get ` 2`, ` 3`, …
+ * rather than silently overwriting an existing asset. Returns the project-relative paths
+ * written, in the same order as `files`.
+ */
+export async function importFiles(files: FileList | File[], destRel: string = 'assets'): Promise<string[]> {
+  if (!filesystem) throw new Error('Filesystem unavailable');
+  const root = projectRoot();
+  const destAbs = filesystem.join(root, destRel);
+  assertUnderAssets(root, destAbs);
+  if (!filesystem.exists(destAbs)) await filesystem.makeDirectory(destAbs);
+
+  const written: string[] = [];
+  for (const file of Array.from(files as ArrayLike<File>)) {
+    const [base, ext] = splitExt(file.name);
+    let candidate = file.name;
+    let n = 2;
+    while (filesystem.exists(filesystem.join(destAbs, candidate))) {
+      candidate = `${base} ${n}${ext}`;
+      n += 1;
+    }
+    const target = filesystem.join(destAbs, candidate);
+    assertUnderAssets(root, target);
+    const srcPath = (file as any).path as string | undefined;
+    if (srcPath) {
+      await filesystem.copyFile(srcPath, target);
+    } else {
+      await filesystem.writeFile(target, Buffer.from(await file.arrayBuffer()));
+    }
+    written.push(`${destRel}/${candidate}`.replace(/\\/g, '/'));
+  }
+  return written;
+}
+
 /** Reveal a file/folder in the OS file manager. Electron-only (caller must gate). */
 export function revealInOS(relPath: string): void {
   if (!filesystem) throw new Error('Filesystem unavailable');

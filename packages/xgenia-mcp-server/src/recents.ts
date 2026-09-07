@@ -1,7 +1,8 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { userDataDirs } from './platform.js';
+import { userDataDirs, userDataDirForTarget } from './platform.js';
 
 export interface RecentEntry {
   id: string;
@@ -16,9 +17,29 @@ export interface RecentEntry {
 
 const FILE_NAME = 'recently_opened_project.json';
 
-/** The first userData directory that actually holds a recents file. */
-export function recentsFilePath(dirs: string[] = userDataDirs()): string | null {
-  for (const dir of dirs) {
+/**
+ * The recents file for a connected target — or, when the target is genuinely
+ * unknown, the first userData directory that actually holds one.
+ *
+ * The "unknown target" branch exists only for callers with no connection yet
+ * (there is none today, but it is a safe, honest fallback rather than an
+ * error). It must never be reached when a target IS known: an installed
+ * XGENIA and a dev checkout keep entirely separate recents files, and both
+ * commonly exist on the same machine, so guessing between them there would
+ * silently read the wrong profile's projects — exactly the bug this
+ * function exists to close off. Every caller that has connected to an editor
+ * has a target and must pass it.
+ */
+export function recentsFilePath(
+  target?: 'app' | 'dev' | null,
+  platform: NodeJS.Platform = process.platform,
+  home: string = os.homedir()
+): string | null {
+  if (target) {
+    const file = path.join(userDataDirForTarget(target, platform, home), FILE_NAME);
+    return fs.existsSync(file) ? file : null;
+  }
+  for (const dir of userDataDirs(platform, home)) {
     const file = path.join(dir, FILE_NAME);
     if (fs.existsSync(file)) return file;
   }
