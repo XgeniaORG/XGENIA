@@ -8034,8 +8034,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelColumn.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-column",
-      "lineCount": 1753,
-      "byteSize": 77150,
+      "lineCount": 2159,
+      "byteSize": 100680,
       "inputFormatHints": {
         "visibleRows": {
           "displayName": "Visible Rows",
@@ -8178,9 +8178,54 @@
           "group": "Effects"
         },
         "anticipationEffect": {
-          "displayName": "Anticipation Effect",
+          "displayName": "Animation",
           "type": "enum",
-          "group": "Effects"
+          "group": "Anticipation"
+        },
+        "anticipationSpeedFactor": {
+          "displayName": "Reel Speed",
+          "type": "number",
+          "group": "Anticipation"
+        },
+        "anticipationIntensity": {
+          "displayName": "Animation Strength",
+          "type": "number",
+          "group": "Anticipation"
+        },
+        "anticipationHighlight": {
+          "displayName": "Reel Highlight",
+          "type": "enum",
+          "group": "Anticipation"
+        },
+        "anticipationHighlightColour": {
+          "displayName": "Highlight Colour",
+          "type": "color",
+          "group": "Anticipation"
+        },
+        "anticipationHighlightSize": {
+          "displayName": "Highlight Size",
+          "type": "number",
+          "group": "Anticipation"
+        },
+        "anticipationHighlightPulse": {
+          "displayName": "Highlight Pulse",
+          "type": "number",
+          "group": "Anticipation"
+        },
+        "anticipationRampMs": {
+          "displayName": "Slow-Down Time (ms)",
+          "type": "number",
+          "group": "Anticipation"
+        },
+        "startAnticipation": {
+          "displayName": "Start Anticipation",
+          "type": "signal",
+          "group": "Anticipation"
+        },
+        "stopAnticipation": {
+          "displayName": "Stop Anticipation",
+          "type": "signal",
+          "group": "Anticipation"
         },
         "cascade": {
           "displayName": "Cascade",
@@ -10729,8 +10774,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 2323,
-      "byteSize": 120771,
+      "lineCount": 2990,
+      "byteSize": 161696,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
@@ -10848,24 +10893,144 @@
           "group": "Timing"
         },
         "anticipation": {
-          "displayName": "Anticipation",
+          "displayName": "Enable Anticipation",
           "type": "boolean",
           "group": "Anticipation"
         },
-        "anticipationDelay": {
-          "displayName": "Anticipation Delay",
-          "type": "number",
+        "anticipationMode": {
+          "displayName": "When To Anticipate",
+          "type": "enum",
+          "enums": [
+            "progressive",
+            "all-remaining",
+            "last-reel"
+          ],
           "group": "Anticipation"
         },
         "scatterSymbol": {
-          "displayName": "Scatter Symbol",
+          "displayName": "Scatter Symbol ID",
           "type": "number",
           "group": "Anticipation"
         },
         "scatterThreshold": {
-          "displayName": "Scatter Threshold",
+          "displayName": "Scatters Before Anticipation",
           "type": "number",
           "group": "Anticipation"
+        },
+        "anticipationTargetCount": {
+          "displayName": "Scatters Needed To Win",
+          "type": "number",
+          "group": "Anticipation"
+        },
+        "anticipationRequirePossibleWin": {
+          "displayName": "Stop If Impossible",
+          "type": "boolean",
+          "group": "Anticipation"
+        },
+        "anticipationScattersPerReel": {
+          "displayName": "Scatters Per Reel",
+          "type": "number",
+          "group": "Anticipation"
+        },
+        "anticipationReels": {
+          "displayName": "Anticipation Reels",
+          "type": "string",
+          "group": "Anticipation"
+        },
+        "anticipationMaxReels": {
+          "displayName": "Max Anticipating Reels",
+          "type": "number",
+          "group": "Anticipation"
+        },
+        "anticipationPreview": {
+          "displayName": "Preview Mode",
+          "type": "boolean",
+          "group": "Anticipation"
+        },
+        "anticipationDelay": {
+          "displayName": "Level 1 · Hold (ms)",
+          "type": "number",
+          "group": "Anticipation: Levels"
+        },
+        "anticipationEffectL1": {
+          "displayName": "Level 1 · Animation",
+          "type": "enum",
+          "group": "Anticipation: Levels"
+        },
+        "anticipationSpeedL1": {
+          "displayName": "Level 1 · Reel Speed",
+          "type": "number",
+          "group": "Anticipation: Levels"
+        },
+        "anticipationDelayL2": {
+          "displayName": "Level 2 · Hold (ms)",
+          "type": "number",
+          "group": "Anticipation: Levels"
+        },
+        "anticipationEffectL2": {
+          "displayName": "Level 2 · Animation",
+          "type": "enum",
+          "group": "Anticipation: Levels"
+        },
+        "anticipationSpeedL2": {
+          "displayName": "Level 2 · Reel Speed",
+          "type": "number",
+          "group": "Anticipation: Levels"
+        },
+        "anticipationDelayL3": {
+          "displayName": "Level 3 · Hold (ms)",
+          "type": "number",
+          "group": "Anticipation: Levels"
+        },
+        "anticipationEffectL3": {
+          "displayName": "Level 3 · Animation",
+          "type": "enum",
+          "group": "Anticipation: Levels"
+        },
+        "anticipationSpeedL3": {
+          "displayName": "Level 3 · Reel Speed",
+          "type": "number",
+          "group": "Anticipation: Levels"
+        },
+        "anticipationIntensity": {
+          "displayName": "Animation Strength",
+          "type": "number",
+          "group": "Anticipation: Look"
+        },
+        "anticipationHighlight": {
+          "displayName": "Reel Highlight",
+          "type": "enum",
+          "group": "Anticipation: Look"
+        },
+        "anticipationHighlightColour": {
+          "displayName": "Highlight Colour",
+          "type": "color",
+          "group": "Anticipation: Look"
+        },
+        "anticipationHighlightSize": {
+          "displayName": "Highlight Size",
+          "type": "number",
+          "group": "Anticipation: Look"
+        },
+        "anticipationHighlightPulse": {
+          "displayName": "Highlight Pulse",
+          "type": "number",
+          "group": "Anticipation: Look"
+        },
+        "anticipationRampMs": {
+          "displayName": "Slow-Down Time (ms)",
+          "type": "number",
+          "group": "Anticipation: Look"
+        },
+        "anticipationDimOthers": {
+          "displayName": "Dim Other Reels",
+          "type": "boolean",
+          "group": "Anticipation: Look"
+        },
+        "anticipationDimAlpha": {
+          "displayName": "Dim Amount",
+          "type": "number",
+          "group": "Anticipation: Look"
         },
         "spin": {
           "displayName": "Spin",
@@ -11136,6 +11301,11 @@
           "type": "signal",
           "group": "Events"
         },
+        "onAnticipationEnd": {
+          "displayName": "On Anticipation End",
+          "type": "signal",
+          "group": "Events"
+        },
         "onCascadeComplete": {
           "displayName": "On Cascade Complete",
           "type": "signal",
@@ -11160,6 +11330,26 @@
           "displayName": "Is Spinning",
           "type": "boolean",
           "group": "State"
+        },
+        "isAnticipating": {
+          "displayName": "Is Anticipating",
+          "type": "boolean",
+          "group": "Anticipation"
+        },
+        "anticipationLevel": {
+          "displayName": "Anticipation Level",
+          "type": "number",
+          "group": "Anticipation"
+        },
+        "anticipationColumnIndex": {
+          "displayName": "Anticipating Reel",
+          "type": "number",
+          "group": "Anticipation"
+        },
+        "anticipationScatterCount": {
+          "displayName": "Scatters On Screen",
+          "type": "number",
+          "group": "Anticipation"
         },
         "gridWidth": {
           "displayName": "Grid Width",
@@ -19020,8 +19210,8 @@
       "relativePath": "controls/sound.ts",
       "category": "Visual",
       "docs": "https://docsapp.xgenia.com/nodes/utilities/sound",
-      "lineCount": 444,
-      "byteSize": 12440,
+      "lineCount": 460,
+      "byteSize": 13737,
       "inputFormatHints": {
         "play": {
           "displayName": "Play",
@@ -48918,6 +49108,216 @@
       {
         "node": "xgenia.cloud.aggregate",
         "direction": "input"
+      }
+    ],
+    "anticipationSpeedFactor": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      }
+    ],
+    "anticipationIntensity": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationHighlight": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationHighlightColour": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationHighlightSize": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationHighlightPulse": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationRampMs": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "startAnticipation": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      }
+    ],
+    "stopAnticipation": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      }
+    ],
+    "anticipationMode": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationTargetCount": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationRequirePossibleWin": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationScattersPerReel": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationReels": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationMaxReels": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationPreview": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationEffectL1": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationSpeedL1": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationDelayL2": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationEffectL2": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationSpeedL2": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationDelayL3": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationEffectL3": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationSpeedL3": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationDimOthers": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationDimAlpha": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "onAnticipationEnd": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "isAnticipating": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "anticipationLevel": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "anticipationColumnIndex": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "anticipationScatterCount": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
       }
     ]
   }
