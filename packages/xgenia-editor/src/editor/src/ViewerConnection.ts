@@ -1,4 +1,5 @@
 import { NodeGraphNode } from '@xgenia-models/nodegraphmodel';
+import { RuntimeType } from '@xgenia-models/nodelibrary/NodeLibraryData';
 import { NodeLibraryImporter } from '@xgenia-models/nodelibrary/NodeLibraryImporter';
 
 import Model from '../../shared/model';
@@ -11,6 +12,24 @@ import DebugInspector from './utils/debuginspector';
 import * as Exporter from './utils/exporter';
 
 const port = process.env.XGENIAPORT || 8574;
+
+// PURE-SELECTORS:START
+// Free of imports and of module state so the invariant test at
+// private/xgenia-ai-app/tests/invariants/viewer-reply-addressing.test.ts can lift
+// this block out of the file and exercise it.
+
+/**
+ * Which client id a runtime command should be addressed to.
+ *
+ * Exactly one candidate is the only safe case: with none we do not know where
+ * the game is, and with several we would have to guess. Both of those return
+ * undefined, which the relay reads as "broadcast" — i.e. exactly today's
+ * behaviour — so this can only ever narrow delivery, never misdirect it.
+ */
+export function soleTargetOrBroadcast(clientIds: string[]): string | undefined {
+  return clientIds.length === 1 ? clientIds[0] : undefined;
+}
+// PURE-SELECTORS:END
 
 export class ViewerConnection extends Model {
   modelChangesListenerGroup: unknown;
@@ -194,12 +213,48 @@ export class ViewerConnection extends Model {
     }
   }
 
+  /**
+   * The one real browser viewer, when there is exactly one.
+   *
+   * `runtimeEval` and `triggerSignal` used to carry no `target`, so the relay
+   * broadcast them to EVERY viewer socket (main/src/web-server.js:1051-1058 —
+   * targeted delivery when `target` is set, broadcast otherwise). Opening a
+   * project always brings up a second viewer: the cloud-runtime sandbox
+   * (main/src/cloud-function-server.js, wired unconditionally to
+   * 'project-opened'), whose page is an empty shell. It answers "no such node"
+   * in microseconds, so its refusal raced ahead of the real game's success.
+   * That is how simulate_signal reported NOT_MOUNTED six times against a
+   * visibly running slot in export 1788849216474.
+   *
+   * NodeLibraryImporter is the EXISTING authority on which client is which —
+   * the cloud sandbox registers as RuntimeType.Cloud (CloudRunner passes
+   * `type: 'cloud'`), the game viewer as RuntimeType.Browser — so this reads
+   * that rather than keeping a second registry that would drift from it. The
+   * client ids are the same ones `_exportToClient` already addresses.
+   *
+   * Returns undefined when zero or several real browser clients are known, and
+   * the caller then broadcasts exactly as before: the failure mode of this
+   * change is "no better than today", never "sent nowhere".
+   */
+  private getGameViewerClientId(): string | undefined {
+    try {
+      return soleTargetOrBroadcast(NodeLibraryImporter.instance.realClientsWithRuntime(RuntimeType.Browser));
+    } catch (e: any) {
+      // Addressing is an optimisation over broadcast — never let it break the send.
+      console.warn('[ViewerConnection] Could not resolve the game viewer client:', e?.message || e);
+      return undefined;
+    }
+  }
+
   sendRuntimeEval(codeToExecute: string, id: string) {
     this.send({
       cmd: 'runtimeEval',
       type: 'editor',
       id: id,
-      content: codeToExecute
+      content: codeToExecute,
+      // Undefined means broadcast, which is what the relay already does for a
+      // message with no target.
+      target: this.getGameViewerClientId()
     });
   }
 
@@ -318,10 +373,15 @@ export class ViewerConnection extends Model {
    * Used by simulate_signal tool for runtime testing
    */
   sendTriggerSignal(nodeId: string, portName: string, data?: any, isInput?: boolean, id?: string) {
-    console.log('[ViewerConnection] Sending triggerSignal:', { nodeId, portName, data, isInput, id });
+    const target = this.getGameViewerClientId();
+    console.log('[ViewerConnection] Sending triggerSignal:', { nodeId, portName, data, isInput, id, target });
     this.send({
       cmd: 'triggerSignal',
       id,
+      // Addressed to the one real browser viewer when it is known. Broadcasting
+      // this let the empty cloud-runtime shell answer for the game — see
+      // getGameViewerClientId. Undefined falls back to the old broadcast.
+      target,
       content: JSON.stringify({ nodeId, portName, data, isInput: !!isInput, id })
     });
     // Deliberately does NOT say "triggered". All that has happened here is that

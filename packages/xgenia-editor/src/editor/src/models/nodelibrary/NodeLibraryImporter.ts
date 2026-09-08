@@ -16,6 +16,45 @@ declare global {
   }
 }
 
+// PURE-SELECTORS:START
+// Free of imports and of module state so the invariant test at
+// private/xgenia-ai-app/tests/invariants/viewer-reply-addressing.test.ts can lift
+// this block out of the file and exercise it. `RuntimeType` appears in type
+// position only, which erases at compile time.
+
+/**
+ * The placeholder browser client this importer seeds itself with so the node
+ * index has a browser bucket before any viewer has connected.
+ *
+ * It is NOT a socket: nothing can be sent to it. Named so that callers which
+ * address a real viewer (ViewerConnection.getGameViewerClientId) can never
+ * mistake it for one — the relay drops a targeted message whose id matches no
+ * socket (main/src/web-server.js:1051-1055), which is worse than the broadcast
+ * it replaced.
+ */
+export const SYNTHETIC_BROWSER_CLIENT_ID = 'default-browser';
+
+/**
+ * The client ids of `runtimeType` that a TARGETED websocket message may be
+ * addressed to — i.e. every client except the placeholder above.
+ *
+ * The id is excluded as well as the flag: a record created before the flag
+ * existed carries no `isSynthetic`, and the point of this function is that it
+ * can never hand back something with no socket behind it.
+ */
+export function realClientIdsWithRuntime(
+  clients: { [clientId: string]: { runtimeTypes: Set<RuntimeType>; isSynthetic?: boolean } },
+  runtimeType: RuntimeType
+): string[] {
+  return Object.keys(clients).filter(
+    (id) =>
+      clients[id].runtimeTypes.has(runtimeType) &&
+      clients[id].isSynthetic !== true &&
+      id !== SYNTHETIC_BROWSER_CLIENT_ID
+  );
+}
+// PURE-SELECTORS:END
+
 /**
  * Keep track of all the clients and their nodes.
  *
@@ -31,6 +70,8 @@ class ClientCollection {
     [clientId: string]: {
       runtimeTypes: Set<RuntimeType>;
       nodes: Set<string>;
+      /** True only for the seeded placeholder above — no socket behind it. */
+      isSynthetic?: boolean;
     };
   } = {};
 
@@ -80,6 +121,10 @@ class ClientCollection {
       };
     }
 
+    // An import is a client SPEAKING over the socket, which is the strongest
+    // available proof it is real. Clearing the flag here means the placeholder
+    // can only ever be promoted, never demoted.
+    this._clients[clientId].isSynthetic = false;
     this._clients[clientId].runtimeTypes.add(runtimeType);
 
     // Update the node set
@@ -126,11 +171,12 @@ export class NodeLibraryImporter {
   }
 
   private initializeDefaultRuntime() {
-    const defaultClientId = 'default-browser';
+    const defaultClientId = SYNTHETIC_BROWSER_CLIENT_ID;
     if (!this.clients._clients[defaultClientId]) {
       this.clients._clients[defaultClientId] = {
         runtimeTypes: new Set([RuntimeType.Browser]),
-        nodes: new Set()
+        nodes: new Set(),
+        isSynthetic: true
       };
       this._cache[RuntimeType.Browser] = new Set();
     }
@@ -139,6 +185,19 @@ export class NodeLibraryImporter {
   // NOTE: Made for labbing with ConnectionInspector
   public clientsWithRuntime(runtimeType: RuntimeType): string[] {
     return Object.keys(this.clients._clients).filter((key) => this.clients._clients[key].runtimeTypes.has(runtimeType));
+  }
+
+  /**
+   * Same as clientsWithRuntime, minus the seeded placeholder.
+   *
+   * Callers that only want to READ what nodes exist should keep using
+   * clientsWithRuntime. Callers that want to ADDRESS a client — send it a
+   * targeted websocket message — must use this one: the relay drops a targeted
+   * message whose id matches no socket (main/src/web-server.js:1051-1055), so
+   * addressing the placeholder would silently send into the void.
+   */
+  public realClientsWithRuntime(runtimeType: RuntimeType): string[] {
+    return realClientIdsWithRuntime(this.clients._clients, runtimeType);
   }
 
   public clear() {

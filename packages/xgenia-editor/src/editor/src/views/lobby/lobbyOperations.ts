@@ -24,6 +24,9 @@ import type { TemplateItem } from '../../utils/forge/template/template';
 import { tracker } from '../../utils/tracker';
 import { ToastLayer } from '../ToastLayer/ToastLayer';
 import { setPendingSeed } from '../../models/lobby/lobbySeed';
+import { SidebarModel } from '@xgenia-models/sidebar';
+import { ChatPanelIframe_ID } from '../panels/ChatPanelBridge/ChatPanelIframe';
+import { ChatPanel_ID as ChatPanelShell_ID } from '../panels/ChatPanelShell';
 
 /** Where a new game came from. Only ever used for analytics and for the button's own label. */
 export type CreateOrigin = 'blank' | 'template' | 'remix' | 'ai';
@@ -218,6 +221,22 @@ export function removeGames(ids: string[]): void {
 export function revealGame(entry: ProjectItem): void {
   if (!entry?.retainedProjectDirectory) return;
   void platform.openExternal(`file://${entry.retainedProjectDirectory}`);
+}
+
+/**
+ * Bring the AI chat into view. Used right after a game is created from a description: the
+ * description is about to arrive there as the first message (see models/lobby/lobbySeed.ts),
+ * and a message sent into a closed panel is a message nobody sees.
+ */
+export function openChatPanel(): void {
+  try {
+    // Whichever chat this build registered: the iframe plugin, or the legacy in-tree shell.
+    const items = SidebarModel.instance.getItems();
+    const id = [ChatPanelIframe_ID, ChatPanelShell_ID].find((candidate) => items.some((i) => i.id === candidate));
+    if (id) SidebarModel.instance.switch(id);
+  } catch (e: any) {
+    console.warn('[lobby] Could not open the chat panel:', e?.message || e);
+  }
 }
 
 /** Open a URL in the user's browser. Every "↗" item in the help and account menus lands here. */

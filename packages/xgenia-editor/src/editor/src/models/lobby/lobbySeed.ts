@@ -10,10 +10,11 @@
  * the bridge is a `command` message. So the description is *stored* against the new project's id
  * and the panel picks it up when it handshakes.
  *
- * Until the panel side ships, this is inert: the seed sits in settings, nothing reads it, and the
- * chat opens empty exactly as it does today. That is deliberate — a stored intent that nobody
- * consumes yet is harmless, whereas a half-wired postMessage that the panel silently drops looks
- * like it works and does not.
+ * The panel pulls it with the `project.takeLobbySeed` bridge command once it has initialised for
+ * the new project, and sends it as the first message. Pull, not push: the panel wipes its state on
+ * every project change, and a description pushed during that wipe was lost — which is how the old
+ * `initialPrompt` path died. `take` consumes, so however many times the panel re-initialises the
+ * description is sent once.
  */
 
 import { EditorSettings } from '@xgenia-utils/editorsettings';
