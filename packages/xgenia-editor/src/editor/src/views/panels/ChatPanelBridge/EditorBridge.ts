@@ -54,6 +54,122 @@ interface PluginCommand {
 
 type CommandExecutor = (args: any[]) => any;
 
+// PURE-SELECTORS:START
+// ═══ MULTI-CLIENT REPLY SELECTION ═══════════════════════════════════════════
+// Everything between the PURE-SELECTORS markers must stay free of imports and
+// of any reference to editor state: the invariant test at
+// private/xgenia-ai-app/tests/invariants/viewer-reply-selection.test.ts lifts
+// this block out of the file and runs it, so the selection rules are exercised
+// as behaviour rather than asserted as text.
+//
+// WHY IT EXISTS. `runtimeEval` and `triggerSignal` are BROADCAST by the relay
+// (main/src/web-server.js:1051-1058 — a message with no `target` goes to every
+// viewer socket), so one request produces one reply PER CONNECTED CLIENT. A
+// project open always brings up a second viewer, the cloud-runtime sandbox
+// (main/src/cloud-function-server.js, wired unconditionally to 'project-opened'),
+// whose document is an empty shell. It has nothing to search, so it refuses in
+// microseconds while the real game is still working. First-reply-wins therefore
+// hands the AI the empty shell's answer. In export 1788849216474 that made
+// simulate_signal report NOT_MOUNTED six times against a slot that was visibly
+// running, and the AI spent 25 minutes unable to reproduce a bug it was staring at.
+//
+// ViewerConnection now addresses these two commands at the source when it can
+// (see getGameViewerClientId), which removes the race entirely. Broadcast is
+// therefore the DEGRADED path — zero or several real browser clients known —
+// and this scoring is the second line of defence for exactly those cases: two
+// browser viewers open, or a client whose node library has not landed yet.
+
+/**
+ * Score a `runtimeEval` reply. Higher wins; a score >= 0 is decisive and may be
+ * accepted immediately.
+ *
+ * (trace 1785088922912) The discriminator is whether the replying client's
+ * document actually has content: the real viewer reports body children, the
+ * cloud shell reports zero.
+ */
+export function scoreEvalReply(m: any): number {
+    if (!m || !m.success) return -10;
+    const raw = m.result;
+    const doc = raw && typeof raw === 'object' ? (raw as any).__doc : null;
+    if (!doc) return 0; // unknown shape — neutral, never worse than a known-empty
+    const kids = typeof doc.kids === 'number' ? doc.kids : -1;
+    if (kids > 0) return 1000 + (typeof doc.els === 'number' ? doc.els : 0);
+    return -1; // answered from an empty shell
+}
+
+/**
+ * Score a `triggerSignal` reply.
+ *
+ * There is no document to measure here — the runtime answers success/failure —
+ * so the rule is that a client which ACTUALLY delivered the signal beats one
+ * that refused. A refusal is still kept and still reported when it is the only
+ * answer; it just never wins a race against a success.
+ */
+export function scoreTriggerSignalReply(m: any): number {
+    if (!m) return -10;
+    if (m.success === true) return 1000;
+    // Among refusals, one that says the NODE is absent ranks below one that found the
+    // node and refused the PORT. (2026-09-08 review) Every refusal scored -1 and the keep
+    // rule is strict `>`, so with two real viewers open the first refusal won — the
+    // shell's "Node … doesn't exist" beat the real game's accurate "doesn't have an output
+    // named Spin", and the AI was told to remount a node that only had the wrong port.
+    // A client that could look the port up had the node; its answer is the informative one.
+    return isNodeNotFoundRefusal(m) ? -2 : -1;
+}
+
+/** The runtime's "no such node" family — the reply an empty shell gives for anything. */
+export function isNodeNotFoundRefusal(m: any): boolean {
+    const text = String((m && m.error) || '');
+    return /doesn't exist|does not exist|no node with id|not mounted|not running|no such node/i.test(text);
+}
+
+/**
+ * Every reply that was NOT chosen, in the shape the AI gets to read. Carried on the
+ * result as `otherReplies` so that "two clients answered" is a visible fact, not a
+ * silent tie-break; empty when only one client replied.
+ */
+export function otherViewerReplies(all: any[], chosen: any): any[] {
+    return (all || [])
+        .filter((r) => r !== chosen && r)
+        .map((r) => ({ success: !!r.success, error: r.error, detail: r.detail }));
+}
+
+/**
+ * Fold one broadcast reply into the running best.
+ *
+ * `accept` means the reply is decisive and the caller may resolve on it now.
+ * Otherwise keep waiting (see graceWindowMs) and settle for `best` if nothing
+ * better arrives. The threshold is >= 0 rather than > 0 so that an unscoreable
+ * reply does not pay the grace penalty on every healthy call.
+ */
+export function selectViewerReply(
+    best: any,
+    incoming: any,
+    scoreOf: (m: any) => number
+): { best: any; accept: boolean } {
+    const score = scoreOf(incoming);
+    const keep = best === null || best === undefined || score > scoreOf(best) ? incoming : best;
+    return { best: keep, accept: score >= 0 };
+}
+
+/**
+ * How long we may wait for a better reply, given the caller's own budget.
+ *
+ * MUST be bounded by what is LEFT of the budget, not by the whole budget. The
+ * grace timer is armed at the moment a bad reply arrives, so `min(budget, cap)`
+ * let a refusal at 50ms into an 800ms budget arm a window expiring at 850ms —
+ * after the outer timeout had already fired and rejected. The honest refusal
+ * held in `best` was thrown away and the caller was told the preview had timed
+ * out instead. The 50ms of slack keeps the two timers off the same tick.
+ *
+ * Returns 0 when there is no real time left, which the callers read as
+ * "answer now with what we have".
+ */
+export function graceWindowMs(budgetMs: number, elapsedMs: number, capMs: number): number {
+    return Math.max(0, Math.min(budgetMs - elapsedMs - 50, capMs));
+}
+// PURE-SELECTORS:END
+
 export class EditorBridge {
     private iframes = new Map<string, HTMLIFrameElement>(); // pluginId -> iframe
     private iframe: HTMLIFrameElement | null = null; // Legacy: primary (AI chat) iframe
@@ -3179,15 +3295,41 @@ export class EditorBridge {
             }
 
             const sigId = `sig_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            const SIGNAL_BUDGET_MS = 5000;
+            // A refusal carries no information, so waiting a moment for a better
+            // answer costs nothing but latency — and only when no better client
+            // exists. Kept well inside SIGNAL_BUDGET_MS so a genuinely dead
+            // preview still fails promptly.
+            const SIGNAL_GRACE_CAP_MS = 1500;
             return new Promise<any>((resolve) => {
                 let settled = false;
+                let graceTimer: any = null;
+                let best: any = null;
+                // Every reply for this sigId, in arrival order — a broadcast (the degraded
+                // path, see the PURE-SELECTORS note) gets one per connected client.
+                const replies: any[] = [];
+                const t0 = Date.now();
+
                 const finish = (result: any) => {
                     if (settled) return;
                     settled = true;
                     clearTimeout(timer);
+                    if (graceTimer) clearTimeout(graceTimer);
                     EventDispatcher.instance.off(sigId);
                     resolve(result);
                 };
+
+                const asResult = (msg: any) => ({
+                    success: !!(msg && msg.success),
+                    nodeId,
+                    portName,
+                    isInput: !!isInput,
+                    detail: msg && msg.detail,
+                    error: msg && msg.error,
+                    // The replies that lost the selection, so the AI can see that more than
+                    // one viewer client answered (two real viewers, or the cloud shell).
+                    ...(replies.length > 1 ? { otherReplies: otherViewerReplies(replies, msg) } : {})
+                });
 
                 // An older viewer does not know how to answer. Resolving as
                 // "unconfirmed" rather than as success keeps the honest shape:
@@ -3202,23 +3344,40 @@ export class EditorBridge {
                         isInput: !!isInput,
                         error: 'The running preview did not acknowledge the signal within 5s. It may be an older viewer build, or nothing is running. Treat this as UNVERIFIED, not as a successful trigger.'
                     });
-                }, 5000);
+                }, SIGNAL_BUDGET_MS);
 
                 // Group-keyed on this request's id, the same way the eval path
                 // does it, so two signals in flight cannot resolve each other
                 // and `off(sigId)` detaches only this one.
+                //
+                // BEST-WINS, not first-wins (export 1788849216474). When this has
+                // to be broadcast — zero or several real browser clients known, see
+                // ViewerConnection.getGameViewerClientId — the empty cloud-runtime
+                // shell answers "no such node" long before the real game answers at
+                // all. Taking the first reply reported NOT_MOUNTED on a running slot
+                // six times in that one turn. The addressed send is the normal path
+                // now; this is what makes the broadcast path honest. See
+                // scoreTriggerSignalReply above.
                 EventDispatcher.instance.on(
                     'Viewer.triggerSignalResult',
                     (msg: any) => {
-                        if (!msg || msg.id !== sigId) return;
-                        finish({
-                            success: !!msg.success,
-                            nodeId,
-                            portName,
-                            isInput: !!isInput,
-                            detail: msg.detail,
-                            error: msg.error
-                        });
+                        if (!msg || msg.id !== sigId || settled) return;
+                        replies.push(msg);
+
+                        const picked = selectViewerReply(best, msg, scoreTriggerSignalReply);
+                        best = picked.best;
+                        if (picked.accept) {
+                            finish(asResult(msg));
+                            return;
+                        }
+
+                        if (graceTimer) return;
+                        const grace = graceWindowMs(SIGNAL_BUDGET_MS, Date.now() - t0, SIGNAL_GRACE_CAP_MS);
+                        if (grace <= 0) {
+                            finish(asResult(best));
+                            return;
+                        }
+                        graceTimer = setTimeout(() => finish(asResult(best)), grace);
                     },
                     sigId
                 );
@@ -3240,15 +3399,22 @@ export class EditorBridge {
             const evalId = `eval_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
             return new Promise<any>((resolve, reject) => {
+                // Armed at the same instant as the outer timer so the grace window
+                // below can be measured against what is LEFT of the budget.
+                const t0 = Date.now();
                 const timer = setTimeout(() => {
                     EventDispatcher.instance.off(evalId);
                     reject(new Error(`Code execution timed out after ${cappedTimeout}ms`));
                 }, cappedTimeout);
 
                 // ═══ MULTI-CLIENT EVAL SELECTION (trace 1785088922912) ═══
-                // sendRuntimeEval BROADCASTS — it carries no client id, so every connected
-                // client runs it and every one replies with the same evalId. The old handler
-                // took the FIRST reply and unsubscribed, discarding the rest. When both the
+                // sendRuntimeEval used to BROADCAST unconditionally — no client id, so every
+                // connected client ran it and every one replied with the same evalId. Since
+                // 2026-09-08 (export 1788849216474) ViewerConnection.sendRuntimeEval ADDRESSES
+                // the eval to the sole real browser client when it knows exactly one
+                // (getGameViewerClientId); broadcast is the DEGRADED path, taken only when it
+                // knows zero or several. What follows is what keeps that path honest.
+                // The old handler took the FIRST reply and unsubscribed, discarding the rest. When both the
                 // real viewer (localhost:8574, "XGENIA Viewer", 10 body children) and the
                 // cloud-runtime shell (cloudruntime/index.html, 0 body children, 6 elements)
                 // are connected, the EMPTY one wins the race for DOM-heavy code because it has
@@ -3264,16 +3430,6 @@ export class EditorBridge {
                 let settled = false;
                 let graceTimer: any = null;
                 let best: any = null;
-
-                const scoreOf = (m: any): number => {
-                    if (!m?.success) return -10;
-                    const raw = m.result;
-                    const doc = raw && typeof raw === 'object' ? (raw as any).__doc : null;
-                    if (!doc) return 0; // unknown shape — neutral, never worse than a known-empty
-                    const kids = typeof doc.kids === 'number' ? doc.kids : -1;
-                    if (kids > 0) return 1000 + (typeof doc.els === 'number' ? doc.els : 0);
-                    return -1; // answered from an empty shell
-                };
 
                 const emit = (message: any) => {
                     if (message.success) {
@@ -3315,13 +3471,13 @@ export class EditorBridge {
                     if (message.id !== evalId) return;
                     if (settled) return;
 
-                    if (best === null || scoreOf(message) > scoreOf(best)) best = message;
-
                     // Take it now unless we KNOW it is bad: a real document (>0) is
                     // authoritative, and an unscoreable reply (0 — no __doc, e.g. a
                     // non-object result) must not pay the grace penalty on every call.
                     // Only a known-empty shell (-1) or a failure (-10) waits.
-                    if (scoreOf(message) >= 0) { finishWith(message); return; }
+                    const picked = selectViewerReply(best, message, scoreEvalReply);
+                    best = picked.best;
+                    if (picked.accept) { finishWith(message); return; }
 
                     // Empty-shell or error reply: wait for a better answer before accepting it.
                     //
@@ -3332,10 +3488,18 @@ export class EditorBridge {
                     // So the good answer landed ~2s after the window had already closed, and the
                     // shell's useless reply won anyway. A known-bad reply carries NO information,
                     // so waiting for a better one costs nothing but latency, and only in the case
-                    // where no better client exists. Bound it by the caller's own timeout — they
-                    // already agreed to wait that long — capped so a genuinely dead preview still
-                    // fails promptly rather than hanging for the full 15s+.
-                    if (!graceTimer) graceTimer = setTimeout(() => finishWith(best), Math.min(cappedTimeout, 5000));
+                    // where no better client exists.
+                    //
+                    // The window is what is LEFT of the caller's budget, not the whole budget
+                    // (export 1788849216474): `Math.min(cappedTimeout, 5000)` armed at 50ms into
+                    // an 800ms call expired at 850ms — after the outer timer had already
+                    // rejected — so the refusal we were holding in `best` was discarded and the
+                    // caller got a bogus "timed out" instead of the runtime's real answer.
+                    if (!graceTimer) {
+                        const grace = graceWindowMs(cappedTimeout, Date.now() - t0, 5000);
+                        if (grace <= 0) { finishWith(best); return; }
+                        graceTimer = setTimeout(() => finishWith(best), grace);
+                    }
                 };
 
                 EventDispatcher.instance.on('Viewer.runtimeEvalResult', resultHandler, evalId);
@@ -3401,8 +3565,9 @@ ${autoReturnCode}
   }
 })().then(function(r) {
   // __doc lets the editor tell WHICH connected client answered (see MULTI-CLIENT EVAL
-  // SELECTION above). runtimeEval is broadcast, so the empty cloud-runtime shell replies
-  // too — and fastest. Consumers ignore __doc; only reply-scoring reads it.
+  // SELECTION above). When the eval had to be broadcast — the degraded path, zero or
+  // several real browser clients known — the empty cloud-runtime shell replies too, and
+  // fastest. Consumers ignore __doc; only reply-scoring reads it.
   var __d = null;
   try {
     __d = {
