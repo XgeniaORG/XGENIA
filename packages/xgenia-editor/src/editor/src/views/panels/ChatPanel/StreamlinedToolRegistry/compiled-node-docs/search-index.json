@@ -53669,6 +53669,216 @@
         "node": "xgenia.cloud.aggregate",
         "direction": "input"
       }
+    ],
+    "anticipationSpeedFactor": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      }
+    ],
+    "anticipationIntensity": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationHighlight": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationHighlightColour": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationHighlightSize": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationHighlightPulse": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationRampMs": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "startAnticipation": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      }
+    ],
+    "stopAnticipation": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      }
+    ],
+    "anticipationMode": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationTargetCount": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationRequirePossibleWin": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationScattersPerReel": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationReels": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationMaxReels": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationPreview": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationEffectL1": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationSpeedL1": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationDelayL2": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationEffectL2": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationSpeedL2": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationDelayL3": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationEffectL3": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationSpeedL3": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationDimOthers": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "anticipationDimAlpha": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "onAnticipationEnd": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "isAnticipating": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "anticipationLevel": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "anticipationColumnIndex": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "anticipationScatterCount": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
     ]
   }
 }
