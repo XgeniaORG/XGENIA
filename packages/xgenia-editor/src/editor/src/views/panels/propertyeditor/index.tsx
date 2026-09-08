@@ -1,130 +1,56 @@
-import React, { useEffect, useState, ReactNode } from 'react';
+import React, { useEffect } from 'react';
 
 import { NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
-import { UndoActionGroup, UndoQueue } from '@xgenia-models/undo-queue-model';
 
-import { ScrollArea } from '@xgenia-core-ui/components/layout/ScrollArea';
-
-import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
-
-import { Frame } from '../../common/Frame';
-import { ToastLayer } from '../../ToastLayer/ToastLayer';
-
-import { NodeLabel } from './components/NodeLabel';
+import { performNodeDoubleClick } from './doubleClickAction';
+import { Inspector } from './inspector/Inspector';
 import { MCPPropertyPanel } from './MCPPropertyPanel';
-import { PropertyEditor as PropertyEditorView } from './propertyeditor';
 
-export function NodeGraphNodeRename(model: NodeGraphNode, newname: string) {
-  model.setLabel(newname, { undo: true, label: 'change label' });
-}
+// The legacy port templates still render every value editor, so their stylesheets
+// still apply. The inspector's own module reaches into these class names to restyle
+// them; loading them here keeps that override order intact.
+require('../../../styles/propertyeditor/propertyeditor.css');
+require('../../../styles/propertyeditor/futuristic-propertyeditor.css');
 
-export function NodeGraphNodeDelete(model: NodeGraphNode) {
-  if (!model.canBeDeleted()) {
-    ToastLayer.showError('This node cannot be deleted');
-    return;
-  }
-
-  const graph = model.owner;
-  const undo = new UndoActionGroup({ label: 'delete node' });
-  graph.removeNode(model, { undo: undo });
-  UndoQueue.instance.push(undo);
-}
+export { NodeGraphNodeDelete, NodeGraphNodeRename } from './nodeActions';
 
 export interface PropertyEditorProps {
   model: NodeGraphNode;
 }
 
 export function PropertyEditor(props: PropertyEditorProps) {
-  const [group] = useState({});
-  const [instance, setInstance] = useState<PropertyEditorView>(null);
-
   useEffect(() => {
-    if (!props.model) {
-      console.warn('PropertyEditor: No model provided');
-      return;
-    }
-    let instance: PropertyEditorView;
-    try {
-      instance = new PropertyEditorView(props);
-      instance.render();
-    } catch (error: any) {
-      // The legacy view renders arbitrary per-node-type port views. Identify the node
-      // that failed, otherwise the ErrorBoundary above only reports <PropertyEditor>.
-      console.error(
-        '[PropertyEditor] Failed to render legacy view for node' +
-          ' id=' + props.model?.id +
-          ' typename=' + props.model?.typename +
-          ' type=' + props.model?.type?.name +
-          '\n' + (error?.stack || error?.message || String(error))
-      );
-      throw error;
-    }
-    setInstance(instance);
+    const group = {};
 
     SidebarModel.instance.on(
       SidebarModelEvent.receivedCommand,
-      (panelId, command, args) => {
+      (panelId: string, command: string, args: TSFixme) => {
         if (panelId !== 'PropertyEditor') return;
-
-
-
-        switch (command) {
-          case 'doubleClick': {
-            instance.doubleClick(args.model);
-            break;
-          }
-        }
+        if (command === 'doubleClick') performNodeDoubleClick(args.model);
       },
       group
     );
 
-    return function () {
+    return () => {
       SidebarModel.instance.off(group);
     };
   }, []);
 
-
-  const isMCPNode = props.model?.typename === 'MCP Tool' || props.model?.parameters?.serverName;
-
-
-
-  if (isMCPNode) {
-    return <MCPPropertyPanel model={props.model} onUpdated={() => instance?.render()} />;
+  if (!props.model) {
+    console.warn('PropertyEditor: No model provided');
+    return null;
   }
 
-  return (
-    <div
-      style={{
-        position: 'relative',
-        height: '100%',
-        width: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        background: 'transparent'
-      }}
-    >
-      {Boolean(props.model) && <NodeLabel {...props} />}
+  const isMCPNode = props.model.typename === 'MCP Tool' || Boolean(props.model.parameters?.serverName);
+  if (isMCPNode) {
+    // No `onUpdated`: it used to re-render the legacy jQuery panel, which was never
+    // mounted for an MCP node in the first place.
+    return <MCPPropertyPanel model={props.model} />;
+  }
 
-      <ScrollArea
-        UNSAFE_style={{
-          flex: 1,
-          borderRadius: '4px',
-          margin: '0 6px 6px 6px'
-        }}
-      >
-        <Frame
-          instance={instance}
-          isContentSize
-          UNSAFE_style={{
-            flex: 1,
-            padding: '4px',
-            borderRadius: '4px'
-          }}
-        />
-      </ScrollArea>
-    </div>
-  );
+  // Keyed on the node so switching selection gives a clean inspector rather than one
+  // that has to unpick the previous node's ports, proxy and collapse state.
+  return <Inspector key={props.model.id} node={props.model} />;
 }
-

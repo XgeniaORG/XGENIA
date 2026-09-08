@@ -1,0 +1,108 @@
+.Card {
+  position: relative;
+  flex-shrink: 0;
+  margin: 46px 0 8px 0; /* flush left against the rail */
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0 var(--card-radius) var(--card-radius) 0; /* square left corners, rounded right */
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+  box-sizing: border-box;
+
+  // The glass lives on a pseudo-element, NOT on the card itself. `backdrop-filter` (like
+  // `filter` and `transform`) makes its element the containing block for every
+  // `position: fixed` descendant, and this card hosts panels that lift themselves out to
+  // cover the window that way: the image editor always, the chat when its plugin asks for
+  // fullscreen. With the filter on the card, those "fixed" overlays were positioned from
+  // the card's origin and clipped to its width by the `overflow: hidden` above — the image
+  // editor showed as a 380px strip with the node graph behind it. A pseudo-element is not
+  // an ancestor of the content, so it can carry the blur without capturing anything.
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: var(--card-bg);
+    -webkit-backdrop-filter: var(--card-blur);
+    backdrop-filter: var(--card-blur);
+    pointer-events: none;
+
+    @supports not (backdrop-filter: blur(1px)) {
+      background: var(--theme-color-bg-2);
+    }
+  }
+}
+
+.is-resizing {
+  user-select: none;
+  animation: none;
+}
+
+.Content {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.Host { position: relative; width: 100%; height: 100%; }
+.PanelItem { position: relative; width: 100%; height: 100%; }
+
+/* Right edge: 8px hit area, hairline appears on hover/drag. Mirrors RightPropertyPanel. */
+.ResizeHandle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 3;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 8px;
+    bottom: 8px;
+    right: 3px;
+    width: 2px;
+    border-radius: 1px;
+    background: transparent;
+
+    @media (prefers-reduced-motion: no-preference) {
+      transition: background 120ms ease;
+    }
+  }
+  &:hover::after,
+  &:focus-visible::after,
+  .is-resizing &::after { background: rgba(255, 255, 255, 0.28); }
+}
+
+/* Live width readout while dragging the resize handle. Sits above the handle (z-index 4)
+   and never intercepts the pointer, so it can float over the edge without stealing the drag. */
+.WidthChip {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--glass-pop-bg);
+  border: 1px solid var(--glass-ctrl-border);
+  font: 500 11px/22px var(--font-family-regular);
+  font-variant-numeric: tabular-nums;
+  color: var(--theme-color-fg-highlight);
+  pointer-events: none;
+  z-index: 4;
+  @media (prefers-reduced-motion: no-preference) { transition: opacity 120ms ease; }
+}
+
+/* Panel switch: incoming panel cross-fades in. No slide, no scale — the card is chrome,
+   not a window. */
+.PanelItem[data-enter] { animation: panel-fade 120ms ease; }
+@keyframes panel-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .PanelItem[data-enter] { animation: none; }
+}

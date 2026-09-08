@@ -5,6 +5,7 @@ import { createRoot, Root } from 'react-dom/client';
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import View from '../../../../shared/view';
 import { InlineElementChat } from './InlineElementChat';
+import type { PreviewHost } from './IframeViewer';
 import { VisualCanvas } from './VisualCanvas';
 
 /**
@@ -38,7 +39,7 @@ export class CanvasView extends View {
   private _reactRoot: Root | null = null;
   private _lastCaptureTime: number = 0;
 
-  webview: Electron.WebviewTag | null = null;
+  webview: PreviewHost | null = null;
   webviewDomReady: boolean = false;
 
   zoomFactor: number;
@@ -60,11 +61,11 @@ export class CanvasView extends View {
   props: {
     deviceName?: string;
     zoom: number;
-    onWebView: (webview: Electron.WebviewTag) => void;
+    onWebView: (webview: PreviewHost) => void;
     onReloadWebview?: () => void;
   } = {
       zoom: 1,
-      onWebView: (webview: Electron.WebviewTag) => {
+      onWebView: (webview: PreviewHost) => {
         console.log('[CanvasView] onWebView callback called with webview:', !!webview);
         if (webview && !this.webview && !this.webviewSetupComplete) {
           this._setupWebview(webview);
@@ -100,7 +101,7 @@ export class CanvasView extends View {
     this.viewportHeight = null;
 
     // Bind the onWebView callback to this instance
-    this.props.onWebView = (webview: Electron.WebviewTag) => {
+    this.props.onWebView = (webview: PreviewHost) => {
       console.log('[CanvasView] onWebView callback called with webview:', !!webview);
       if (webview && !this.webview && !this.webviewSetupComplete) {
         this._setupWebview(webview);
@@ -168,7 +169,7 @@ export class CanvasView extends View {
   private htmlRequestHandler: (e: any) => void;
 
   // Method to setup the webview
-  _setupWebview(webview: Electron.WebviewTag): void {
+  _setupWebview(webview: PreviewHost): void {
     if (this.webviewSetupComplete) {
       console.log('[CanvasView] Webview already set up, skipping');
       return;
@@ -786,7 +787,10 @@ export class CanvasView extends View {
       React.createElement(VisualCanvas, {
         zoom: this.zoomFactor,
         onWebView: this.props.onWebView,
-        deviceName: this.props.deviceName
+        deviceName: this.props.deviceName,
+        // setViewportSize() calls renderReact(), so these stay current with the frame.
+        viewportWidth: this.viewportWidth ?? null,
+        viewportHeight: this.viewportHeight ?? null
       })
     );
   }

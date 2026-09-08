@@ -1,0 +1,214 @@
+// The marquee. One game, full-bleed, glass over it.
+
+.Root {
+  position: relative;
+  flex: none;
+  height: 248px;
+  border-radius: var(--lobby-hero-radius);
+  overflow: hidden;
+  box-shadow: var(--lobby-hero-shadow);
+}
+
+// The artwork again, blurred and bled past the frame, sitting behind the hero. Permanently on:
+// this is the one object on the page that is meant to look lit from behind.
+.Bleed {
+  position: absolute;
+  inset: -80px;
+  z-index: -1;
+  background-size: cover;
+  background-position: center;
+  filter: blur(48px) saturate(140%);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.Art {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  // A slow, barely-perceptible drift. The reference is an idle cabinet on a floor: enough
+  // movement to catch the eye, not enough to read as an animation.
+  transform: scale(1.02);
+  animation: drift 24s ease-in-out infinite alternate;
+}
+
+@keyframes drift {
+  from {
+    transform: scale(1.02) translate(0, 0);
+  }
+  to {
+    transform: scale(1.06) translate(-1.2%, -1%);
+  }
+}
+
+.Monogram {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 96px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  color: rgba(255, 255, 255, 0.18);
+  background: linear-gradient(
+    135deg,
+    hsl(var(--mono-hue) 30% 18%) 0%,
+    hsl(calc(var(--mono-hue) - 40) 24% 12%) 100%
+  );
+}
+
+// Two gradients, not a plate: horizontal for the text column, vertical to seat the whole thing.
+// A solid panel over the artwork would defeat the point of showing it at this size.
+.Shade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(10, 9, 12, 0.78) 0%, rgba(10, 9, 12, 0.45) 38%, rgba(10, 9, 12, 0) 68%),
+    linear-gradient(0deg, rgba(10, 9, 12, 0.55) 0%, rgba(10, 9, 12, 0) 40%);
+  pointer-events: none;
+}
+
+.Plaque {
+  position: absolute;
+  left: 26px;
+  bottom: 22px;
+  width: min(540px, 60%);
+}
+
+.Eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--theme-color-publish);
+
+  i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--theme-color-publish);
+    box-shadow: 0 0 10px var(--theme-color-publish);
+  }
+}
+
+.Title {
+  margin: 0 0 4px;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+  color: #fff;
+  // The artwork behind this is arbitrary, so the text carries its own contrast rather than
+  // trusting the gradient alone.
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  text-wrap: balance;
+}
+
+.Tagline {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+}
+
+.Meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.66);
+  font-variant-numeric: tabular-nums;
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+}
+
+.Actions {
+  display: flex;
+  gap: 8px;
+}
+
+.Go {
+  height: 28px;
+  padding: 0 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--theme-color-publish);
+  color: #062b1c;
+  font: 600 12px inherit;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+
+  &:hover {
+    filter: brightness(1.06);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+  }
+}
+
+.Chip,
+.CornerChip {
+  height: 28px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 7px;
+  border: 1px solid var(--glass-ctrl-border);
+  color: rgba(255, 255, 255, 0.9);
+  font: 400 12px inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+
+  &:hover {
+    color: #fff;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+  }
+}
+
+.Chip {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.Corner {
+  position: absolute;
+  right: 18px;
+  top: 16px;
+  display: flex;
+  gap: 6px;
+}
+
+.CornerChip {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .Art {
+    animation: none;
+    transform: scale(1.02);
+  }
+}

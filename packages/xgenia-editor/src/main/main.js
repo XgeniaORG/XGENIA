@@ -122,6 +122,47 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('--preserve-symlinks');
 app.commandLine.appendSwitch('--preserve-symlinks-main');
 
+// ─── GPU A/B for the intermittent full-window flash (2026-09-07) ─────────────
+//
+// SYMPTOM: the whole window flashes, showing other panels for a frame, then settles.
+// Reported on hover, on scroll, and while the chat streams — i.e. whenever the page is
+// producing frames — and never while it is idle.
+//
+// WHAT IS ALREADY RULED OUT, by measurement rather than by argument:
+//   - JavaScript. A 5s CPU profile of the idle lobby was 97.6% idle; a 259s profile of the
+//     chat panel mid-stream showed a median frame of 8.5ms (118Hz), p99 25ms, four spikes
+//     over 60ms in four minutes, and 433 mutation records total. Nothing is thrashing.
+//   - Layout and CSS. Disabling the card lift, the glow, the sheen, the image zoom, the
+//     glass and pre-promoting every layer changed nothing; only making every transition
+//     INSTANT helped, and scrolling still flashed afterwards.
+//   - Native `title` tooltips, and webpack's live reload (now off).
+//
+// WHAT IS LEFT: the compositor. This machine is an M5 on macOS 26 running Chromium 126
+// (Electron 31, mid-2024) through ANGLE Metal — a GPU and an OS both newer than the browser
+// drawing on them. This app has already been bitten once at exactly this layer: see the
+// VizDisplayCompositor note above, which produced multicoloured static across the whole app.
+//
+// So: an A/B the user can run in one command, rather than another guess in CSS.
+//   XGENIA_GPU_MODE=raster    CPU rasterisation, GPU compositing. Try this FIRST.
+//   XGENIA_GPU_MODE=angle-gl  OpenGL instead of Metal in ANGLE.
+//   XGENIA_GPU_MODE=software  no GPU compositing at all. Slow, and the strongest signal:
+//                             if it still flashes here, the compositor is NOT the cause.
+// Unset (the default) changes nothing.
+const gpuMode = process.env.XGENIA_GPU_MODE;
+if (gpuMode) {
+  console.log(`[Main Process] XGENIA_GPU_MODE=${gpuMode}`);
+  if (gpuMode === 'raster') {
+    app.commandLine.appendSwitch('disable-gpu-rasterization');
+  } else if (gpuMode === 'angle-gl') {
+    app.commandLine.appendSwitch('use-angle', 'gl');
+  } else if (gpuMode === 'software') {
+    app.commandLine.appendSwitch('disable-gpu-compositing');
+    app.disableHardwareAcceleration();
+  } else {
+    console.warn(`[Main Process] Unknown XGENIA_GPU_MODE "${gpuMode}" — expected raster, angle-gl or software. Ignoring.`);
+  }
+}
+
 // Enable Remote Debugging Protocol (CDP) for Playwright/MCP external agents
 app.commandLine.appendSwitch('remote-debugging-port', '9223');
 

@@ -19,7 +19,7 @@ import { MenuDialogWidth } from '@xgenia-core-ui/components/popups/MenuDialog';
 
 import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
 import { Frame } from '../../common/Frame';
-import { CanvasWithBrowserTabs } from '../../VisualCanvas/CanvasWithBrowserTabs';
+import { PreviewSurface } from '../../VisualCanvas/PreviewSurface';
 import { EditorTopbar } from '../../EditorTopbar';
 import { HelpCenter } from '../../HelpCenter';
 import { NodeGraphEditor } from '../../nodegrapheditor';
@@ -28,7 +28,7 @@ import { showContextMenuInPopup } from '../../ShowContextMenuInPopup';
 import { useCanvasView } from './hooks/UseCanvasView';
 import { useCaptureThumbnails } from './hooks/UseCaptureThumbnails';
 import { useImportNodeset } from './hooks/UseImportNodeset';
-import { useRoutes } from './hooks/UseRoutes';
+import { useRouteInfos } from './hooks/UseRoutes';
 import { useSetupNodeGraph } from './hooks/UseSetupNodeGraph';
 import { TitleBar } from './titlebar';
 
@@ -114,8 +114,7 @@ function EditorDocument() {
   }, []);
 
   useKeyboardCommands(() => createKeyboardCommands(nodeGraph), [nodeGraph]);
-
-  const routes = ['/'].concat(useRoutes(ProjectModel.instance, EventDispatcher.instance));
+  const routeInfos = useRouteInfos(ProjectModel.instance, EventDispatcher.instance);
 
   const [documentLayout, setDocumentLayout] = useState<DocumentLayout>(isLesson ? 'vertical' : 'horizontal');
   const previousDocumentLayout = usePrevious(documentLayout);
@@ -373,8 +372,20 @@ function EditorDocument() {
 
     EventDispatcher.instance.on('viewer-refresh', () => canvasView?.refresh(), eventGroup);
 
+    //drag handles on the preview frame ask for a new viewport size
+    EventDispatcher.instance.on(
+      'preview-size-request',
+      ({ width, height, deviceName }: { width: number; height: number; deviceName: string | null }) => {
+        onPreviewSizeChanged(width, height, deviceName);
+      },
+      eventGroup
+    );
+
     //refresh viewer when cloud services are changed
-    ProjectModel.instance.on(
+    // Held in a local, not re-read in the cleanup: `ProjectModel.instance` is undefined once the
+    // project closes, and points at a different model once another one opens.
+    const project = ProjectModel.instance;
+    project?.on(
       'cloudServicesChanged',
       () => {
         EventDispatcher.instance.notifyListeners('viewer-refresh');
@@ -494,11 +505,11 @@ function EditorDocument() {
 
     return () => {
       EventDispatcher.instance.off(eventGroup);
-      if (ProjectModel.instance) {
-        ProjectModel.instance.off(ProjectModel);
-      }
+      // `ProjectModel` (the class) was never used as a listener group here, so this used to detach
+      // nothing and leak a 'cloudServicesChanged' listener on every re-run of this effect.
+      project?.off(eventGroup);
     };
-  }, [documentLayout, canvasView, previewMode, nodeGraph]);
+  }, [documentLayout, canvasView, previewMode, nodeGraph, onPreviewSizeChanged]);
 
   useEffect(() => {
     const onViewerNavigationState = (event, state) => {
@@ -593,10 +604,14 @@ function EditorDocument() {
   useCaptureThumbnails(canvasView, viewerDetached);
 
   return (
+    // Deliberately NOT position: relative. The top bar is absolutely positioned and must
+    // resolve against EditorPage's document+inspector row, so that opening the right
+    // inspector does not narrow the bar and shift its contents. Positioning this element
+    // would capture the bar back into the document column and reintroduce that jump.
     <Container direction={ContainerDirection.Vertical} isFill>
       <EditorTopbar
         instance={titlebarViewInstance}
-        routes={routes}
+        routeInfos={routeInfos}
         onRouteChanged={onRouteChanged}
         setDocumentLayout={setDocumentLayout}
         documentLayout={documentLayout}
@@ -615,17 +630,28 @@ function EditorDocument() {
         nodeGraph={nodeGraph}
         deployIsDisabled={ProjectModel.instance.isLesson()}
       />
-      {hasLoadedEditorSettings && (
-        <ViewComponent
-          documentLayout={documentLayout}
-          canvasViewInstance={canvasView}
-          nodeGraphEditorInstance={nodeGraph}
-          frameDividerSize={frameDividerSize}
-          onSizeUpdated={(size) => {
-            setFrameDividerSize(size);
-          }}
-        />
-      )}
+      {/* the topbar is position:absolute over this container, so the view area clears it with padding */}
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          paddingTop: 'var(--topbar-height)'
+        }}
+      >
+        {hasLoadedEditorSettings && (
+          <ViewComponent
+            documentLayout={documentLayout}
+            canvasViewInstance={canvasView}
+            nodeGraphEditorInstance={nodeGraph}
+            frameDividerSize={frameDividerSize}
+            onSizeUpdated={(size) => {
+              setFrameDividerSize(size);
+            }}
+          />
+        )}
+      </div>
 
       <HelpCenter />
 
@@ -645,12 +671,9 @@ function ViewComponent({
   const horizontal = documentLayout === 'horizontal';
   const totalSize = frameBounds ? (horizontal ? frameBounds.height : frameBounds.width) : undefined;
 
-  // Canvas pane: wrapped with Game / Browser tabs
+  // Canvas pane: viewport preview or the AI browser, switched from the status pill
   const canvasPane = (
-    <CanvasWithBrowserTabs
-      canvasViewInstance={canvasViewInstance}
-      onResize={(bounds) => canvasViewInstance.resize(bounds)}
-    />
+    <PreviewSurface canvasViewInstance={canvasViewInstance} onResize={(bounds) => canvasViewInstance.resize(bounds)} />
   );
 
   // Node graph pane: plain Frame

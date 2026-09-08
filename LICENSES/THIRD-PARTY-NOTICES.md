@@ -142,6 +142,19 @@ See https://hugeicons.com/license for full terms.
 
 ---
 
+## Nucleo Glass Icons
+
+The ten icons in the editor's left rail are from Nucleo's free, open-source
+**SVG Glass Icons** set (https://nucleoapp.com/svg-glass-icons), Copyright (c)
+Nucleo. They are redrawn as React components in
+`packages/xgenia-editor/src/editor/src/views/SidePanel/GlassIcons.tsx`, with the
+set's five fill colours replaced by CSS custom properties so the rail can light
+them per state; the artwork itself is unmodified.
+
+See https://nucleoapp.com/license for full terms.
+
+---
+
 ## Note on Transitive Dependencies
 
 This file lists the direct, significant dependencies of the XGENIA project.

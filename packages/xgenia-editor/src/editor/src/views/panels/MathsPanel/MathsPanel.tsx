@@ -1443,7 +1443,12 @@ export function MathsPanel() {
 
     const dispatchCommand = useCallback((command: string) => {
         const { SidebarModel } = require('@xgenia-models/sidebar');
-        SidebarModel.instance.switch('chat-panel');
+        // 'chat-panel' is only the open-source shell's id — the shipping (iframe) build
+        // registers the chat as 'ChatPanel', so this used to be a silent no-op there
+        // (SidebarModel.switch logs "Panel not found" and returns). Resolve the real id
+        // via the declarative `showsAiActivity` flag instead of guessing a literal.
+        const chatId = SidebarModel.instance.getAiActivityPanelId();
+        if (chatId) SidebarModel.instance.switch(chatId);
         window.dispatchEvent(new CustomEvent('xgenia-maths-command', {
             detail: { command, game_id: selectedGame }
         }));

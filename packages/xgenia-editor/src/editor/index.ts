@@ -64,6 +64,8 @@ AiProviderKeyVault.start();
 // CSS imports
 import '../editor/src/styles/custom-properties/animations.css';
 import '../editor/src/styles/custom-properties/colors.css';
+import '../editor/src/styles/custom-properties/glass.css';
+import '../editor/src/styles/custom-properties/lobby.css';
 import '../editor/src/styles/custom-properties/fonts.css';
 
 import { App } from './app';

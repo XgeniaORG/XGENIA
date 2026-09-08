@@ -1,9 +1,17 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { Page } from 'playwright-core';
 import { connect } from './connection.js';
 import { SELECTORS } from './selectors.js';
-import { readProject } from './editor-state.js';
+import { ensureChatPanelOpen, type ChatPanelOpenResult } from './chat.js';
+import {
+  readProject,
+  describePageState,
+  describePageStateText,
+  waitForChatReady,
+  type ChatReadiness
+} from './editor-state.js';
 import { recentsFilePath, readRecents, addRecentEntry, type RecentEntry } from './recents.js';
 
 export function projectNameFromDir(dir: string): string | null {
@@ -30,6 +38,107 @@ export function validateProjectDir(
 
 function fail(code: string, tried: string, hint: string) {
   return { error: code, tried, hint };
+}
+
+/**
+ * How long `openProject` waits for the projects screen to render ANY tile
+ * at all, before even looking for the specific one requested.
+ *
+ * The old single 20s wait on just the target tile was observed to fail
+ * against a real machine that renders 317 recents entries while a freshly
+ * launched dev build is still settling — indistinguishable, under that one
+ * wait, from the login screen never having rendered the screen at all (see
+ * NOT_TILE_TIMEOUT_MS below and describePageState). This ceiling is
+ * deliberately far more patient than that.
+ */
+const PROJECTS_LIST_TIMEOUT_MS = 90_000;
+/**
+ * How long `openProject` waits for the SPECIFIC named tile once the screen
+ * has already proven it can render at least one tile. Shorter than
+ * PROJECTS_LIST_TIMEOUT_MS because by this point the list is already
+ * rendering — the remaining risk is that this particular entry (just added
+ * to recents) needs one more render pass, not that the screen itself is
+ * still booting.
+ */
+const PROJECT_TILE_TIMEOUT_MS = 30_000;
+
+/**
+ * How long `openProject` waits, after confirming the right project is open,
+ * for the AI chat panel to finish mounting before reporting the project
+ * ready to a caller.
+ *
+ * Measured live: right after `waitForRetainedDirectory` confirmed the
+ * correct project was open, the chat iframe's `.rich-chat-input` was NOT yet
+ * present — a caller driving "open a project, then use the chat", the
+ * harness's primary workflow, got `chat-frame-missing` on the very first
+ * attempt even though the panel was never actually missing, only still
+ * mounting. Sampling the same editor every 10s afterward showed it mounted
+ * at every sample from t+10s on, so it settles within a few seconds. This
+ * ceiling is deliberately about double that observed worst case, and
+ * `waitForChatReady` returns the moment it's actually ready rather than
+ * always waiting the full window.
+ */
+const CHAT_READY_TIMEOUT_MS = 20_000;
+
+/**
+ * Attach chat-readiness fields to an `openProject`/`newProject` success
+ * result: whether the AI chat panel finished mounting, and — when it did
+ * not — the reason straight from `readChatState` (no-frame /
+ * evaluate-failed / neither, meaning the panel is genuinely closed or
+ * entitlement-gated). A project can legitimately be open with the AI panel
+ * closed, so this is never a hard failure — it lets a caller tell "ready to
+ * chat" apart from "project open, chat unavailable" without guessing.
+ *
+ * A panel that is not present after the initial wait is no longer the end
+ * of the story: every newly created project (and plenty of existing ones)
+ * opens with this panel hidden, which used to leave `chatReady: false` with
+ * nothing any caller could do about it short of a human clicking the
+ * sidebar by hand — making "create a project, then build it via chat", the
+ * harness's primary workflow, impossible on a fresh project. Unless
+ * `attemptOpen` is false, a panel that is not ready after the initial wait
+ * gets one attempt via `ensureChatPanelOpen` before this gives up; a caller
+ * who deliberately wants the panel left alone (e.g. probing state without
+ * side effects) can pass `attemptOpen: false` to skip that.
+ */
+export async function withChatReadiness<T extends Record<string, unknown>>(
+  page: Page,
+  result: T,
+  opts: { timeoutMs?: number; pollMs?: number; attemptOpen?: boolean; hoverDelayMs?: number } = {}
+): Promise<
+  T & {
+    chatReady: boolean;
+    chatUnavailable?: 'no-frame' | 'evaluate-failed';
+    chatError?: string;
+    /** Present only when the initial wait failed and an open attempt was actually made — success or failure, so a caller can see exactly what the attempt found. */
+    chatOpenAttempt?: ChatPanelOpenResult;
+  }
+> {
+  const timeoutMs = opts.timeoutMs ?? CHAT_READY_TIMEOUT_MS;
+  const pollMs = opts.pollMs ?? 250;
+  const attemptOpen = opts.attemptOpen ?? true;
+
+  const initial: ChatReadiness = await waitForChatReady(page, timeoutMs, pollMs);
+  if (initial.ready || !attemptOpen) {
+    return {
+      ...result,
+      chatReady: initial.ready,
+      chatUnavailable: initial.state.unavailable,
+      chatError: initial.state.error
+    };
+  }
+
+  const chatOpenAttempt = await ensureChatPanelOpen(page, { timeoutMs, pollMs, hoverDelayMs: opts.hoverDelayMs });
+  if (chatOpenAttempt.opened) {
+    return { ...result, chatReady: true, chatUnavailable: undefined, chatError: undefined };
+  }
+
+  return {
+    ...result,
+    chatReady: false,
+    chatUnavailable: initial.state.unavailable,
+    chatError: initial.state.error,
+    chatOpenAttempt
+  };
 }
 
 /**
@@ -82,17 +191,29 @@ export function resolveByName(entries: RecentEntry[], name: string): NameResolut
   return { ok: true, dir: canonicalDir(matches[0].retainedProjectDirectory) };
 }
 
+export type SaveOutcome =
+  | { confirmed: true; reason: 'saved' }
+  | { confirmed: false; reason: 'no-project' | 'timeout' }
+  | { confirmed: false; reason: 'evaluate-threw'; error: string };
+
 /**
- * Write the open project to disk using the editor's own save call.
+ * Write the open project to disk using the editor's own save call, and report
+ * what actually happened instead of always resolving as if it succeeded.
  *
- * Resolves either way: a save that never calls back must not strand the caller,
- * and the 5s ceiling is far longer than a real save of a loaded project.
+ * The previous version returned `Promise<void>` unconditionally: the in-page
+ * promise resolved the same way whether `pm.toDirectory`'s own callback fired
+ * (a real save) or the 5s ceiling fired first (a save that never confirmed),
+ * and the whole `evaluate` was wrapped in a blanket `.catch(() => undefined)`.
+ * A caller could not distinguish "saved", "gave up waiting", "the read itself
+ * threw", and "there was nothing to save" — a read-only project.json, a save
+ * slower than 5s, or a thrown evaluate all looked identical to success right
+ * before a kill or reload that would discard unsaved work.
  */
-export async function saveOpenProject(page: Page): Promise<void> {
-  await page
-    .evaluate(
+export async function saveOpenProject(page: Page): Promise<SaveOutcome> {
+  try {
+    const result = await page.evaluate(
       () =>
-        new Promise<void>((resolve) => {
+        new Promise<{ reason: 'saved' | 'no-project' | 'timeout' }>((resolve) => {
           const pm = (
             window as unknown as {
               ProjectModel?: {
@@ -103,19 +224,31 @@ export async function saveOpenProject(page: Page): Promise<void> {
               };
             }
           ).ProjectModel?.instance;
-          if (!pm?.toDirectory || !pm._retainedProjectDirectory) return resolve();
+          if (!pm?.toDirectory || !pm._retainedProjectDirectory) {
+            resolve({ reason: 'no-project' });
+            return;
+          }
           let done = false;
-          const finish = () => {
+          const finish = (reason: 'saved' | 'timeout') => {
             if (!done) {
               done = true;
-              resolve();
+              resolve({ reason });
             }
           };
-          setTimeout(finish, 5000);
-          pm.toDirectory(pm._retainedProjectDirectory, finish);
+          setTimeout(() => finish('timeout'), 5000);
+          pm.toDirectory(pm._retainedProjectDirectory, () => finish('saved'));
         })
-    )
-    .catch(() => undefined);
+    );
+    return result.reason === 'saved'
+      ? { confirmed: true, reason: 'saved' }
+      : { confirmed: false, reason: result.reason };
+  } catch (e) {
+    return {
+      confirmed: false,
+      reason: 'evaluate-threw',
+      error: e instanceof Error ? e.message : String(e)
+    };
+  }
 }
 
 /**
@@ -157,6 +290,58 @@ async function waitForRetainedDirectory(
 }
 
 /**
+ * Close the current project and return to the projects screen.
+ *
+ * There is no clickable exit control to target: `SidePanel` passes a `header`
+ * prop, so `SideNavigation`'s `onExitClick` logo never renders, and the other
+ * exit is an unlabelled IconButton inside a Tooltip. `App.instance` is not on
+ * `window` either. What IS guaranteed is that the router boots to the
+ * projects screen, so a reload gets there with nothing more than waiting for
+ * a project tile. Save first, because a reload discards anything autosave
+ * has not flushed — exactly like a kill does.
+ *
+ * `openProject` used to inline this exact sequence for leaving whatever
+ * project was open before switching to another one; it now calls this
+ * instead, so there is one implementation of "how to leave a project",
+ * not two.
+ */
+export async function closeProject(opts: { force?: boolean } = {}) {
+  const { page } = await connect();
+  const current = await readProject(page);
+  if (!current) {
+    return { closed: false as const, reason: 'no-project' as const };
+  }
+
+  // A reload discards anything unsaved exactly like a kill does, so the save
+  // must actually be confirmed before proceeding — see saveOpenProject's doc
+  // comment for why the previous unconditional call could not tell a real
+  // save from a save that silently failed to confirm.
+  const saveOutcome = await saveOpenProject(page);
+  if (!saveOutcome.confirmed && !opts.force) {
+    return fail(
+      'save-unconfirmed',
+      `save '${current.name}' before closing it`,
+      `The editor's save could not be confirmed (${saveOutcome.reason}${
+        'error' in saveOutcome ? `: ${saveOutcome.error}` : ''
+      }) before reloading to close the project. Reloading now would risk unsaved work, so the close was refused. Retry, or pass force to close anyway.`
+    );
+  }
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  try {
+    await page.waitForSelector(SELECTORS.projectItem, { timeout: 60_000 });
+  } catch {
+    return fail(
+      'selector-missing',
+      `${SELECTORS.projectItem} after reload`,
+      'The projects screen did not appear after reloading the editor.'
+    );
+  }
+
+  return { closed: true as const, project: current, save: saveOutcome };
+}
+
+/**
  * Open a project by directory or by name.
  *
  * The editor's own `openProjectFromFolder` is unreachable — the router exposes
@@ -164,19 +349,34 @@ async function waitForRetainedDirectory(
  * this drives the projects screen the way a person would. The recents file is
  * the seam: the projects screen re-reads it from disk on render and on mouse
  * movement, so a directory the harness appends there becomes clickable.
+ *
+ * `openChatIfClosed` (default true) controls what `withChatReadiness` does
+ * when the AI chat panel is not showing once the project is confirmed open:
+ * by default it attempts to open the panel from the sidebar before giving
+ * up (see `ensureChatPanelOpen` in chat.ts) so a fresh project — which
+ * always opens with the panel hidden — is still immediately usable for a
+ * "create a project, then build it via chat" workflow. Pass `false` to
+ * leave a closed panel alone.
  */
-export async function openProject(q: { dir?: string; name?: string }) {
+export async function openProject(q: { dir?: string; name?: string; openChatIfClosed?: boolean }) {
   if (!q.dir && !q.name) {
     return fail('project-dir-missing', 'no argument', 'Pass either dir or name.');
   }
+  const attemptOpen = q.openChatIfClosed ?? true;
 
-  const { page } = await connect();
-  const file = recentsFilePath();
+  const { page, target } = await connect();
+  // CRITICAL: read from the recents file for the target we are actually
+  // connected to, never from whichever profile's file happens to exist. An
+  // installed XGENIA and a dev checkout keep entirely separate recents
+  // files, and both commonly exist on the same machine, so guessing here
+  // used to open the wrong profile's projects — see recentsFilePath's doc
+  // comment.
+  const file = recentsFilePath(target);
   if (!file) {
     return fail(
       'project-dir-missing',
       'recently_opened_project.json',
-      'No recents file found in any Electron userData directory.'
+      `No recents file found in the ${target} userData directory.`
     );
   }
 
@@ -206,28 +406,17 @@ export async function openProject(q: { dir?: string; name?: string }) {
   // Already there? Nothing to do.
   const current = await readProject(page);
   if (current?.dir && canonicalDir(current.dir) === dir) {
-    return { opened: true, alreadyOpen: true, project: current };
+    return withChatReadiness(page, { opened: true, alreadyOpen: true, project: current }, { attemptOpen });
   }
 
-  // Leave the current project first, so no in-project write races our append.
-  //
-  // There is no clickable exit control to target. SidePanel passes a `header`
-  // prop, so SideNavigation's `onExitClick` logo never renders, and the other
-  // exit is an unlabelled IconButton inside a Tooltip. `App.instance` is not on
-  // window either. What IS guaranteed is that the router boots to the projects
-  // screen, so a reload gets there with no selector at all. Save first, because
-  // a reload discards anything autosave has not flushed.
+  // Leave the current project first, so no in-project write races our
+  // append. `closeProject` never overrides an unconfirmed save with `force`
+  // here, matching this function's previous behaviour of refusing outright
+  // rather than risking unsaved work.
   if (current) {
-    await saveOpenProject(page);
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    try {
-      await page.waitForSelector(SELECTORS.projectItem, { timeout: 60_000 });
-    } catch {
-      return fail(
-        'selector-missing',
-        `${SELECTORS.projectItem} after reload`,
-        'The projects screen did not appear after reloading the editor.'
-      );
+    const closeResult = await closeProject({ force: false });
+    if ('error' in closeResult) {
+      return closeResult;
     }
   }
 
@@ -263,13 +452,51 @@ export async function openProject(q: { dir?: string; name?: string }) {
     })
     .first();
 
+  // Phase 1: wait for the projects screen to have rendered ANY tile at all
+  // — not the specific one yet — before concluding anything about the
+  // specific tile's absence. A generic "the selector did not appear" here
+  // used to send the caller hunting for a renamed selector when the real
+  // cause could be the login gate (Defect 1) or simply a slow-to-settle
+  // screen (Defect 3), so a timeout at this phase is diagnosed against the
+  // page's actual state instead of guessed at.
   try {
-    await tile.waitFor({ state: 'visible', timeout: 20_000 });
+    await page.locator(SELECTORS.projectItem).first().waitFor({
+      state: 'visible',
+      timeout: PROJECTS_LIST_TIMEOUT_MS
+    });
   } catch {
+    const state = await describePageState(page);
+    if (state.kind === 'login-screen') {
+      return fail(
+        'not-authenticated',
+        `${SELECTORS.projectItem} (any) within ${PROJECTS_LIST_TIMEOUT_MS}ms`,
+        'The projects screen never appeared because nobody is signed in. A human must sign in once — this harness cannot and must not handle credentials.'
+      );
+    }
     return fail(
       'selector-missing',
-      `${SELECTORS.projectItem} containing '${valid.name}'`,
-      'The project tile did not appear on the projects screen. Run xgenia_probe.'
+      `${SELECTORS.projectItem} (any) within ${PROJECTS_LIST_TIMEOUT_MS}ms`,
+      `The projects screen never rendered any tiles. Actual state: ${describePageStateText(state)}. Run xgenia_probe.`
+    );
+  }
+
+  // Phase 2: the screen can render, so now wait specifically for the tile
+  // just added to recents.
+  try {
+    await tile.waitFor({ state: 'visible', timeout: PROJECT_TILE_TIMEOUT_MS });
+  } catch {
+    const state = await describePageState(page);
+    if (state.kind === 'login-screen') {
+      return fail(
+        'not-authenticated',
+        `${SELECTORS.projectItem} containing '${valid.name}' within ${PROJECT_TILE_TIMEOUT_MS}ms`,
+        'The projects screen was replaced by the login screen mid-wait — nobody is signed in. A human must sign in once — this harness cannot and must not handle credentials.'
+      );
+    }
+    return fail(
+      'selector-missing',
+      `${SELECTORS.projectItem} containing '${valid.name}' within ${PROJECT_TILE_TIMEOUT_MS}ms`,
+      `The projects screen rendered tiles, but not one named '${valid.name}'. Actual state: ${describePageStateText(state)}. Run xgenia_probe.`
     );
   }
 
@@ -286,5 +513,111 @@ export async function openProject(q: { dir?: string; name?: string }) {
     );
   }
 
-  return { opened: true, alreadyOpen: false, project: await readProject(page) };
+  return withChatReadiness(
+    page,
+    { opened: true, alreadyOpen: false, project: await readProject(page) },
+    { attemptOpen }
+  );
+}
+
+/**
+ * The exact `project.json` shape the editor's own no-template branch writes.
+ * Reproduced verbatim (down to key order and the literal `'root-node'` id)
+ * so the editor loads a harness-created project without complaint.
+ */
+export function defaultProjectJson(name: string): Record<string, unknown> {
+  return {
+    name,
+    version: '4',
+    settings: {},
+    components: [
+      {
+        name: '/App',
+        graph: {
+          roots: [
+            { id: 'root-node', type: 'Group', x: 0, y: 0, parameters: {}, ports: [], children: [] }
+          ],
+          connections: []
+        }
+      }
+    ],
+    rootNodeId: 'root-node'
+  };
+}
+
+/**
+ * Where to put a new project when the caller doesn't supply a directory: a
+ * sibling of whatever project was opened most recently in the given recents
+ * file, falling back to `home` when there is no recents file for this
+ * target, or it holds no entries.
+ *
+ * Takes the recents file path rather than resolving it itself so this stays
+ * a pure function of its inputs — the target-to-file resolution (and the
+ * critical "never guess between profiles" rule it enforces) lives in
+ * `recentsFilePath` alone.
+ */
+export function defaultProjectsParentDir(
+  recentsFile: string | null,
+  home: string = os.homedir()
+): string {
+  if (recentsFile) {
+    const entries = readRecents(recentsFile);
+    if (entries.length > 0) {
+      const mostRecent = entries.reduce((a, b) => (b.latestAccessed > a.latestAccessed ? b : a));
+      return path.dirname(mostRecent.retainedProjectDirectory);
+    }
+  }
+  return home;
+}
+
+/**
+ * Refuse to let `newProject` clobber existing work: a path that exists and
+ * is non-empty (including one that exists but isn't even a directory) fails
+ * closed rather than being written into.
+ */
+export function checkProjectDirClobber(dir: string): { ok: true } | { ok: false; reason: string } {
+  if (!fs.existsSync(dir)) return { ok: true };
+  if (!fs.statSync(dir).isDirectory()) {
+    return { ok: false, reason: `${dir} exists and is not a directory.` };
+  }
+  if (fs.readdirSync(dir).length > 0) {
+    return {
+      ok: false,
+      reason: `${dir} already exists and is not empty. Pass a different dir, or remove it first.`
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Create a new project directory with a fresh `project.json`, then open it.
+ *
+ * The editor's own `LocalProjectsModel.newProject` is module-scoped and
+ * unreachable from `window`, exactly like `openProjectFromFolder` was, so
+ * this writes the same no-template `project.json` shape the editor itself
+ * would and then reuses `openProject` — inheriting its recents handling, its
+ * tile click, and its verify-by-value check — rather than duplicating any of
+ * that.
+ */
+export async function newProject(q: { name: string; dir?: string; openChatIfClosed?: boolean }) {
+  if (!q.name) {
+    return fail('project-dir-missing', 'no name', 'Pass a name for the new project.');
+  }
+
+  const { target } = await connect();
+
+  const dir = q.dir
+    ? canonicalDir(q.dir)
+    : canonicalDir(path.join(defaultProjectsParentDir(recentsFilePath(target)), q.name));
+
+  const clobberCheck = checkProjectDirClobber(dir);
+  if (!clobberCheck.ok) {
+    return fail('project-dir-missing', dir, clobberCheck.reason);
+  }
+
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'project.json'), JSON.stringify(defaultProjectJson(q.name), null, 2));
+
+  const opened = await openProject({ dir, openChatIfClosed: q.openChatIfClosed });
+  return { ...opened, createdDir: dir };
 }

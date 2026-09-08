@@ -72,3 +72,36 @@ describe('projects screen selectors', () => {
     expect(label?.textContent).toBe('Amazing Game ');
   });
 });
+
+describe('login screen selectors', () => {
+  // Captured live (scripts/capture-fixtures.mjs --login) from the real
+  // unauthenticated login screen: Task 15's Defect 1 fixture. The login
+  // screen is inline-styled React with no class names or ids, which is
+  // exactly why isLoginScreen (editor-state.ts) matches on the structural
+  // presence of both inputs rather than one CSS class or the literal
+  // "Login with XGENIA" copy.
+  const doc = load('login-screen.html');
+
+  it('finds the login email input', () => {
+    expect(doc.querySelector(SELECTORS.loginEmailInput)).not.toBeNull();
+  });
+
+  it('finds the login password input', () => {
+    expect(doc.querySelector(SELECTORS.loginPasswordInput)).not.toBeNull();
+  });
+});
+
+describe('login-screen false positives', () => {
+  // The other three real captured screens must never look like the login
+  // screen -- if either did, an authenticated editor or an open project
+  // would misreport as not-authenticated.
+  it.each([
+    ['editor-page.html'],
+    ['projects-screen.html'],
+    ['chat-frame.html']
+  ])('%s has neither a login email nor a login password input', (fixture) => {
+    const fixtureDoc = load(fixture);
+    expect(fixtureDoc.querySelector(SELECTORS.loginEmailInput)).toBeNull();
+    expect(fixtureDoc.querySelector(SELECTORS.loginPasswordInput)).toBeNull();
+  });
+});

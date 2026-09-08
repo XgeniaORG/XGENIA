@@ -3,6 +3,8 @@ import { useState, useEffect } from 'react';
 import { filesystem } from '@xgenia/platform';
 
 import { ProjectModel } from '../../../models/projectmodel';
+import { atomicWriteText, createSerializedWriter, salvageJsonObject, type SalvageResult } from './assetMetaStore';
+import type { AssetRole } from './assetRoles';
 
 // Per-asset tags & favorites, stored in ONE project file (<project>/.xgenia-assets.json),
 // keyed by the project-relative asset path ('assets/...'). The file lives OUTSIDE the
@@ -21,6 +23,26 @@ export interface AIProvenance {
   cost?: number;
 }
 
+/** Where a cut-out piece sits in the art it came from. Mirrors AssetLayoutProvenance in
+ *  private/xgenia-ai/.../utils/art-layout.ts; lifted to the top level so a hand-made asset
+ *  can carry lineage too, not only one the splitter produced. */
+export interface AssetLineage {
+  sourcePath: string;
+  rootPath: string;
+  box: { x: number; y: number; width: number; height: number };
+  boxInRoot: { x: number; y: number; width: number; height: number };
+  canvasInRoot: { x: number; y: number; width: number; height: number };
+  depth: number;
+  layerName?: string | null;
+  zIndex?: number | null;
+}
+
+/** This asset is a previous version of `of`. `n` is 1-based, oldest first. */
+export interface AssetVersionRef {
+  of: string;
+  n: number;
+}
+
 export interface AssetMetaEntry {
   tags?: string[];
   favorite?: boolean;
@@ -29,6 +51,17 @@ export interface AssetMetaEntry {
   uid?: string;
   /** Set when the asset was created by the AI (recorded at save time). */
   ai?: AIProvenance;
+  /** What this asset IS in the game. See assetRoles.ts for the vocabulary. */
+  role?: AssetRole;
+  /** True when `role` was guessed by the scanner rather than authored. An authored role
+   *  clears this, and the scanner must never overwrite a role without it. */
+  roleInferred?: boolean;
+  /** Present on a non-live historic file. Absent on the live asset. */
+  version?: AssetVersionRef;
+  /** Explicitly false marks a superseded file. Absent means live. */
+  live?: boolean;
+  /** Where this piece was cut from, when it was. */
+  lineage?: AssetLineage;
 }
 
 type MetaMap = Record<string, AssetMetaEntry>;
@@ -67,7 +100,49 @@ export function subscribeAssetMeta(cb: () => void): () => void {
   };
 }
 
-/** Load (once per project). Re-loads if the open project changed. */
+/** One writer for the whole module: bursts coalesce, writes never overlap, each write is
+ *  tmp + rename. The path travels with the snapshot so a project switch mid-burst can never
+ *  write project B's cache into project A's file. (2026-09-07, export 1788803211511: the
+ *  scanner's per-asset commits issued 17 overlapping writeFile calls and tore the file;
+ *  see assetMetaStore.ts.) */
+const writer = createSerializedWriter<{ path: string; text: string }>(
+  ({ path, text }) => atomicWriteText(filesystem, path, text),
+  (e) => console.warn('[assetMeta] save failed', e)
+);
+
+/** Resolves when every scheduled write has landed. */
+export function flushAssetMeta(): Promise<void> {
+  return writer.idle();
+}
+
+/** Keep the bytes of a file we could not fully parse next to it, and say so loudly. */
+async function quarantineCorruptMeta(p: string, raw: string, s: SalvageResult): Promise<string | null> {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backup = `${p}.corrupt-${stamp}`;
+  try {
+    await filesystem.writeFile(backup, raw);
+  } catch (e) {
+    console.error('[assetMeta] could not back up the corrupt metadata file', e);
+    return null;
+  }
+  const count = Object.keys(s.value).length;
+  const recovered =
+    s.status === 'salvaged'
+      ? `Recovered ${count} entr${count === 1 ? 'y' : 'ies'} from its valid prefix (${s.validPrefixChars} chars); anything written after that is lost.`
+      : 'Nothing could be recovered from it.';
+  console.error(
+    `[assetMeta] ${META_FILENAME} is not valid JSON (${s.error}). ${recovered} The original bytes are kept at ${backup}.`
+  );
+  return backup;
+}
+
+/** Load (once per project). Re-loads if the open project changed.
+ *
+ *  A file that does not parse is NOT an empty project. This used to `JSON.parse` and fall
+ *  through to `{}` on failure, and the next commit then rewrote the whole file from that
+ *  empty cache — every AI record, split rectangle, authored role and uid gone. Now the
+ *  longest valid prefix is adopted (a torn file's prefix is a complete earlier snapshot),
+ *  the raw bytes are kept beside the file, and the salvaged snapshot is written back. */
 export async function loadAssetMeta(): Promise<void> {
   const root = projectRoot();
   if (loadedRoot === root && !loadingPromise) return;
@@ -75,12 +150,17 @@ export async function loadAssetMeta(): Promise<void> {
 
   loadingPromise = (async () => {
     let next: MetaMap = {};
+    let rewrite = false;
     try {
       const p = metaPath();
       if (p && filesystem.exists(p)) {
         const raw = await filesystem.readFile(p);
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object') next = parsed;
+        const s = salvageJsonObject(raw);
+        next = s.value as MetaMap;
+        if (s.status === 'salvaged' || s.status === 'unrecoverable') {
+          await quarantineCorruptMeta(p, raw, s);
+          rewrite = s.status === 'salvaged';
+        }
       }
     } catch (e) {
       console.warn('[assetMeta] load failed', e);
@@ -90,6 +170,9 @@ export async function loadAssetMeta(): Promise<void> {
       loadingPromise = null;
       notify();
     }
+    // Put the salvaged snapshot back on disk as valid JSON so the salvage is not repeated on
+    // every open. After `finally`, so a write failure cannot leave loadingPromise stuck.
+    if (rewrite) await persist();
   })();
   return loadingPromise;
 }
@@ -97,11 +180,7 @@ export async function loadAssetMeta(): Promise<void> {
 async function persist(): Promise<void> {
   const p = metaPath();
   if (!p) return;
-  try {
-    await filesystem.writeFile(p, JSON.stringify(cache, null, 2));
-  } catch (e) {
-    console.warn('[assetMeta] save failed', e);
-  }
+  return writer.schedule({ path: p, text: JSON.stringify(cache, null, 2) });
 }
 
 export function getAssetMeta(path: string): AssetMetaEntry {
@@ -114,13 +193,25 @@ export function getAllTags(): string[] {
   return Array.from(s).sort((a, b) => a.localeCompare(b));
 }
 
-/** Keep the file tidy: an entry with no tags and no favorite is removed entirely. */
-function commit(path: string, entry: AssetMetaEntry): void {
+/** Keep the file tidy: an entry carrying no information at all is removed entirely.
+ *  Every field that can stand alone MUST be listed here — an omission silently deletes
+ *  user or AI data on the next unrelated write to the same asset. Guarded by
+ *  tests/assets/assetMetaKeepRule.test.ts. */
+function commit(path: string, entry: AssetMetaEntry): Promise<void> {
   const hasTags = !!(entry.tags && entry.tags.length > 0);
-  if (!hasTags && !entry.favorite && !entry.ai && !entry.uid) delete cache[path];
+  const isEmpty =
+    !hasTags &&
+    !entry.favorite &&
+    !entry.ai &&
+    !entry.uid &&
+    !entry.role &&
+    !entry.version &&
+    !entry.lineage &&
+    entry.live === undefined;
+  if (isEmpty) delete cache[path];
   else cache[path] = entry;
   notify();
-  persist();
+  return persist();
 }
 
 function genUid(): string {
@@ -189,7 +280,26 @@ export function toggleAssetFavorite(path: string): void {
  */
 export async function recordAssetProvenance(path: string, ai: AIProvenance): Promise<void> {
   await loadAssetMeta();
-  commit(path, { ...getAssetMeta(path), ai });
+  await commit(path, { ...getAssetMeta(path), ai });
+}
+
+/**
+ * Merge an arbitrary patch into an asset's entry (called by the editor bridge when the AI
+ * saves an asset). Loads from disk first so existing tags/favorites survive, then merges,
+ * persists and notifies.
+ *
+ * WHY THIS EXISTS: the bridge previously called recordAssetProvenance, which writes ONLY
+ * `ai`. Every other field the caller sent — tags, and now role, version and lineage — was
+ * accepted by the handler, reported as written, and silently dropped.
+ *
+ * A `role` arriving from a caller is AUTHORED, so it clears `roleInferred`: the scanner
+ * must not later overwrite a role the AI or the user deliberately chose.
+ */
+export async function mergeAssetMeta(path: string, patch: Partial<AssetMetaEntry>): Promise<void> {
+  await loadAssetMeta();
+  const next: AssetMetaEntry = { ...getAssetMeta(path), ...patch };
+  if (patch.role !== undefined && patch.roleInferred === undefined) next.roleInferred = false;
+  await commit(path, next);
 }
 
 /**

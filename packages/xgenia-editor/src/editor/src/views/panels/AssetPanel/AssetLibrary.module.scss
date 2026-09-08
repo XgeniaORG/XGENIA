@@ -1,0 +1,359 @@
+// The asset library. Every colour resolves to a token from glass.css / colors.css so this
+// surface matches the rail, the topbar and the panel card it lives in.
+
+.Root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 8px;
+  padding: 10px 10px 0;
+  box-sizing: border-box;
+}
+
+.Search {
+  flex: none;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: var(--glass-ctrl-bg);
+  color: var(--theme-color-fg-default);
+  font: 400 12.5px/1 var(--font-family-regular, inherit);
+  outline: none;
+  box-sizing: border-box;
+
+  &::placeholder { color: var(--theme-color-fg-default-shy); }
+  &:focus { border-color: rgba(255, 255, 255, 0.24); }
+}
+
+.Roles {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.Chip {
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 11px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: var(--glass-ctrl-bg);
+  color: var(--theme-color-fg-default-shy);
+  font: 500 11px/1 var(--font-family-regular, inherit);
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover { background: var(--glass-ctrl-bg-hover); color: var(--theme-color-fg-default); }
+}
+
+.ChipActive {
+  background: var(--glass-seg-bg-active);
+  color: var(--theme-color-fg-highlight);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.Count {
+  margin-left: 5px;
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+}
+
+.Grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+  align-content: start;
+  padding-bottom: 10px;
+}
+
+.Card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  // A grid item's default min-width is auto, which lets content push the column wider than
+  // the track. Without this the ellipsis above never engages.
+  min-width: 0;
+  gap: 5px;
+  padding: 5px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+
+  &:hover { background: rgba(255, 255, 255, 0.07); }
+  &:focus-visible { outline: none; border-color: var(--theme-color-publish); }
+}
+
+.CardSelected {
+  border-color: var(--theme-color-publish);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+// An unused asset is dimmed rather than hidden: it is information, not an error.
+.CardUnused { opacity: 0.45; }
+
+.Thumb {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: 5px;
+  overflow: hidden;
+  background: #0b0b0d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  img { width: 100%; height: 100%; object-fit: contain; display: block; }
+}
+
+.ThumbGlyph {
+  font: 600 10px/1 var(--font-family-regular, inherit);
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.3);
+  text-transform: uppercase;
+}
+
+.Badges {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  display: flex;
+  gap: 3px;
+}
+
+.Badge {
+  height: 15px;
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.66);
+  color: rgba(255, 255, 255, 0.85);
+  font: 600 9px/15px var(--font-family-regular, inherit);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.BadgeLineage { color: var(--theme-color-attention); }
+.BadgeFavorite { color: var(--theme-color-attention); }
+
+.Name {
+  // `display: block` and `min-width: 0` are load-bearing: the card is a flex column and
+  // this is a <span>, so as an inline box `overflow: hidden` clips nothing, every long
+  // filename set its own width, and the grid grew a horizontal scrollbar with names
+  // overlapping their neighbours.
+  display: block;
+  width: 100%;
+  min-width: 0;
+  font: 500 11px/1.3 var(--font-family-regular, inherit);
+  color: var(--theme-color-fg-default);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.Empty,
+.Error,
+.Loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  font: 400 12px/1.5 var(--font-family-regular, inherit);
+  color: var(--theme-color-fg-default-shy);
+}
+
+.Error { color: var(--theme-color-danger); }
+
+.Retry {
+  height: 24px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: var(--glass-ctrl-bg);
+  color: var(--theme-color-fg-default);
+  font: 500 11px/1 var(--font-family-regular, inherit);
+  cursor: pointer;
+}
+
+.Footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font: 400 10.5px/1 var(--font-family-regular, inherit);
+  color: var(--theme-color-fg-default-shy);
+}
+
+.FooterGrow { flex: 1; }
+
+// ─── inspector ───────────────────────────────────────────────────────────────
+
+.Inspector {
+  flex: none;
+  max-height: 46%;
+  overflow-y: auto;
+  padding: 10px 0 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.Preview {
+  width: 100%;
+  max-height: 150px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: #0b0b0d;
+}
+
+.InspectorTitle {
+  font: 600 12.5px/1.3 var(--font-family-regular, inherit);
+  color: var(--theme-color-fg-highlight);
+  word-break: break-word;
+}
+
+.Section {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.SectionLabel {
+  font: 600 9.5px/1 var(--font-family-regular, inherit);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--theme-color-fg-default-shy);
+}
+
+.Row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.Select {
+  height: 24px;
+  flex: 1;
+  min-width: 0;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: var(--glass-ctrl-bg);
+  color: var(--theme-color-fg-default);
+  font: 400 11.5px/1 var(--font-family-regular, inherit);
+}
+
+.Guessed {
+  flex: none;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(251, 191, 36, 0.16);
+  color: var(--theme-color-attention);
+  font: 600 9.5px/1.4 var(--font-family-regular, inherit);
+}
+
+.Prompt {
+  font: 400 11.5px/1.5 var(--font-family-regular, inherit);
+  color: var(--theme-color-fg-default);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.Meta {
+  font: 400 10.5px/1.5 var(--font-family-regular, inherit);
+  color: var(--theme-color-fg-default-shy);
+  font-variant-numeric: tabular-nums;
+}
+
+.Versions {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  padding-bottom: 3px;
+}
+
+.Version {
+  flex: none;
+  width: 54px;
+  padding: 3px;
+  border-radius: 5px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: var(--glass-ctrl-bg);
+  color: var(--theme-color-fg-default-shy);
+  font: 500 9.5px/1.3 var(--font-family-regular, inherit);
+  cursor: pointer;
+  text-align: center;
+
+  &:hover { color: var(--theme-color-fg-default); background: var(--glass-ctrl-bg-hover); }
+
+  img { width: 100%; height: 36px; object-fit: cover; border-radius: 3px; display: block; margin-bottom: 2px; }
+}
+
+.LineageFigure {
+  position: relative;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #0b0b0d;
+
+  img { width: 100%; display: block; opacity: 0.5; }
+}
+
+// The cut this piece came from, drawn over its parent art.
+.LineageBox {
+  position: absolute;
+  border: 1.5px solid var(--theme-color-publish);
+  border-radius: 2px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.42);
+  pointer-events: none;
+}
+
+.UsedBy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.UsedByRow {
+  display: flex;
+  gap: 6px;
+  font: 400 11px/1.4 var(--font-family-regular, inherit);
+  color: var(--theme-color-fg-default-shy);
+}
+
+.UsedByNode { color: var(--theme-color-fg-default); }
+
+.Actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.Action {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: var(--glass-ctrl-bg);
+  color: var(--theme-color-fg-default);
+  font: 500 11px/1 var(--font-family-regular, inherit);
+  cursor: pointer;
+
+  &:hover { background: var(--glass-ctrl-bg-hover); }
+}
+
+.ActionDanger { color: var(--theme-color-danger); }

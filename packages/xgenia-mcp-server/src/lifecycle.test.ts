@@ -1,5 +1,30 @@
-import { describe, it, expect } from 'vitest';
-import { isDevLauncher, pickKillRoot, descendantsOf, killTree } from './lifecycle.js';
+import { describe, it, expect, afterEach } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import type { ChatState, ProjectInfo } from './editor-state.js';
+import { resetConnection } from './connection.js';
+import {
+  isDevLauncher,
+  pickKillRoot,
+  descendantsOf,
+  killTree,
+  stillAlive,
+  busyRefusal,
+  inFlightTurnLostValue,
+  recoveryFilePath,
+  readRecovery,
+  spawnChildWithErrorCapture,
+  classifyEditorReadiness,
+  withReadTimeout,
+  TIMED_OUT,
+  combinePreKillReads,
+  unresponsiveRefusal,
+  shouldEscalateToSigkill,
+  determineTarget,
+  nothingOpenOrUnresponsive,
+  restart,
+  quit
+} from './lifecycle.js';
 
 // Captured from a live `npm run dev`, leaf first.
 const CHAIN = [
@@ -116,5 +141,406 @@ describe('killTree guard', () => {
     expect(killTree(1, true)).toBe(false);
     expect(killTree(-5, true)).toBe(false);
     expect(killTree(1.5, false)).toBe(false);
+  });
+});
+
+describe('stillAlive', () => {
+  // R2 IMPORTANT 1: the force-kill escalation must signal survivors directly
+  // rather than re-deriving descendants of a root that, by the time the force
+  // kill runs, is typically already dead. This is the filtering that makes
+  // that possible: which of the pids captured before the kill are still
+  // present in a fresh snapshot.
+  it('keeps only the pids present in the fresh snapshot', () => {
+    const freshSnapshot = [
+      { pid: 200, ppid: 100 },
+      { pid: 300, ppid: 200 }
+    ];
+    expect(stillAlive([100, 200, 300, 400], freshSnapshot).sort()).toEqual([200, 300]);
+  });
+
+  it('returns empty when none of the set survived', () => {
+    expect(stillAlive([100, 200], [{ pid: 999, ppid: 1 }])).toEqual([]);
+  });
+
+  it('reproduces the dead-root case: root itself absent from the fresh snapshot is correctly dropped', () => {
+    // This is the exact shape that made the pre-fix escalation a no-op: root
+    // (100) was SIGTERMed ~5s earlier and is gone from the fresh snapshot,
+    // but a child (400, the Electron process stand-in) survived.
+    const freshSnapshot = [{ pid: 400, ppid: 300 }];
+    expect(stillAlive([100, 200, 300, 400], freshSnapshot)).toEqual([400]);
+  });
+});
+
+describe('busyRefusal', () => {
+  it('does not refuse when idle and readable', () => {
+    expect(busyRefusal({ busy: false }, false)).toEqual({ refuse: false });
+  });
+
+  it('refuses when busy and not forced', () => {
+    expect(busyRefusal({ busy: true }, false)).toEqual({ refuse: true, unavailable: false });
+  });
+
+  it('does not refuse when busy but forced', () => {
+    expect(busyRefusal({ busy: true }, true)).toEqual({ refuse: false });
+  });
+
+  // R2 IMPORTANT 2: readChatState reports busy:false alongside `unavailable`
+  // when it could not determine the real state at all (no chat iframe found,
+  // or the in-frame evaluate threw) — that must refuse exactly like a
+  // confirmed-busy read does, not be treated as "confirmed idle".
+  it('refuses when the chat state is unavailable, even though busy reads false', () => {
+    expect(busyRefusal({ busy: false, unavailable: 'no-frame' }, false)).toEqual({
+      refuse: true,
+      unavailable: true
+    });
+    expect(busyRefusal({ busy: false, unavailable: 'evaluate-failed' }, false)).toEqual({
+      refuse: true,
+      unavailable: true
+    });
+  });
+
+  it('does not refuse when unavailable but forced', () => {
+    expect(busyRefusal({ busy: false, unavailable: 'no-frame' }, true)).toEqual({ refuse: false });
+  });
+});
+
+describe('inFlightTurnLostValue', () => {
+  it('reports the real busy value when the chat state was readable', () => {
+    expect(inFlightTurnLostValue({ busy: true })).toBe(true);
+    expect(inFlightTurnLostValue({ busy: false })).toBe(false);
+  });
+
+  // R2 IMPORTANT 2: a restart report must not claim inFlightTurnLost: false
+  // with false confidence when the read that would tell us was unreliable.
+  it('reports "unknown" rather than a confident false when the chat state could not be read', () => {
+    expect(inFlightTurnLostValue({ busy: false, unavailable: 'no-frame' })).toBe('unknown');
+    expect(inFlightTurnLostValue({ busy: false, unavailable: 'evaluate-failed' })).toBe('unknown');
+  });
+});
+
+describe('recoveryFilePath', () => {
+  // R2 IMPORTANT 5: two harness instances driving two different editors (two
+  // different CDP ports) must not collide on the same recovery file.
+  it('qualifies the path by CDP port so different instances cannot collide', () => {
+    const a = recoveryFilePath(9223);
+    const b = recoveryFilePath(9333);
+    expect(a).not.toBe(b);
+    expect(a).toContain('9223');
+    expect(b).toContain('9333');
+  });
+
+  it('defaults to DEFAULT_PORT when no port is given', () => {
+    expect(recoveryFilePath()).toContain('9223');
+  });
+});
+
+describe('readRecovery', () => {
+  // A port unlikely to collide with a real CDP port or another test run.
+  const port = 65535;
+  const file = recoveryFilePath(port);
+
+  afterEach(() => {
+    try {
+      fs.unlinkSync(file);
+    } catch {
+      // Not there; fine.
+    }
+  });
+
+  it('reports ok:false reason "missing" when the file does not exist', () => {
+    expect(readRecovery(port)).toEqual({ ok: false, reason: 'missing' });
+  });
+
+  it('reports ok:false reason "parse-error" when the file is corrupt', () => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{not valid json');
+    expect(readRecovery(port)).toEqual({ ok: false, reason: 'parse-error' });
+  });
+
+  it('reports ok:true with the recorded dir when the file is valid', () => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ dir: '/tmp/some-project', target: 'dev' }));
+    expect(readRecovery(port)).toEqual({ ok: true, dir: '/tmp/some-project', target: 'dev' });
+  });
+
+  // R2 IMPORTANT 5: "nothing was open before the restart" (dir: null) must be
+  // distinguishable from "the read itself failed" (ok: false) — both must not
+  // collapse to the same downstream behaviour.
+  it('reports ok:true with dir:null when nothing was open, distinct from a failed read', () => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ dir: null, target: 'dev' }));
+    const result = readRecovery(port);
+    expect(result).toEqual({ ok: true, dir: null, target: 'dev' });
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe('spawnChildWithErrorCapture', () => {
+  // R2 IMPORTANT 3: spawn's ENOENT for a nonexistent executable is delivered
+  // asynchronously via the child's 'error' event. With no listener attached,
+  // that used to crash the whole harness process well after the caller had
+  // already moved on. This must be captured and returned as a normal result
+  // instead of throwing.
+  it('captures a spawn failure (nonexistent executable) instead of throwing', async () => {
+    const result = await spawnChildWithErrorCapture(
+      '/definitely/does/not/exist/xgenia-test-binary-xyz',
+      [],
+      { stdio: 'ignore' },
+      50
+    );
+    expect(result.child).toBeNull();
+    expect(result.error).toBeTruthy();
+  });
+
+  it('resolves with a live child and no error for a real, valid spawn', async () => {
+    const result = await spawnChildWithErrorCapture(process.execPath, ['-e', 'process.exit(0)'], {
+      stdio: 'ignore'
+    });
+    expect(result.error).toBeNull();
+    expect(result.child).not.toBeNull();
+  });
+});
+
+// Defect 1: `window.ProjectModel` being defined is necessary but not
+// sufficient for "the editor is usable" -- the router defines it on the
+// login screen too. classifyEditorReadiness is the pure decision waitForEditor
+// polls on; this pins that decision independent of a real page/CDP connection.
+describe('classifyEditorReadiness', () => {
+  it('keeps polling (returns null) while ProjectModel is not yet defined', () => {
+    expect(classifyEditorReadiness(false, false)).toBeNull();
+    // Even a stray login-screen read must not matter before ProjectModel exists.
+    expect(classifyEditorReadiness(false, true)).toBeNull();
+  });
+
+  it('reports ready once ProjectModel is defined and it is not the login screen', () => {
+    expect(classifyEditorReadiness(true, false)).toBe('ready');
+  });
+
+  it('reports login-screen once ProjectModel is defined but the login form is present', () => {
+    expect(classifyEditorReadiness(true, true)).toBe('login-screen');
+  });
+});
+
+// Defect 2: restart()/quit() used to run three UNBOUNDED page.evaluate calls
+// before ever consulting `force`, so a truly wedged renderer (whose promise
+// never settles, not even eventually) hung both calls forever -- including
+// the force:true escape hatch. withReadTimeout is the fix's core primitive.
+describe('withReadTimeout', () => {
+  it('resolves with the real value when the promise settles before the timeout', async () => {
+    const result = await withReadTimeout(Promise.resolve('real value'), 200);
+    expect(result).toBe('real value');
+  });
+
+  it('resolves to TIMED_OUT when the promise never settles within the bound', async () => {
+    const neverSettles = new Promise(() => {});
+    const result = await withReadTimeout(neverSettles, 20);
+    expect(result).toBe(TIMED_OUT);
+  });
+
+  it('propagates a genuine rejection rather than swallowing it as a timeout', async () => {
+    await expect(withReadTimeout(Promise.reject(new Error('boom')), 200)).rejects.toThrow('boom');
+  });
+});
+
+describe('combinePreKillReads', () => {
+  const project: ProjectInfo = { name: 'Amazing thing', id: 'p1', dir: '/tmp/x', componentCount: 3 };
+  const chat: ChatState = { mounted: true, busy: false, messageCount: 2 };
+
+  it('reports pageUnresponsive:false and passes through real reads unchanged', () => {
+    expect(combinePreKillReads(project, chat)).toEqual({
+      pageUnresponsive: false,
+      project,
+      chat
+    });
+  });
+
+  it('degrades the whole bundle to the honest unknown shape when the project read timed out', () => {
+    const result = combinePreKillReads(TIMED_OUT, chat);
+    expect(result.pageUnresponsive).toBe(true);
+    expect(result.project).toBeNull();
+    expect(result.chat.unavailable).toBe('evaluate-failed');
+  });
+
+  it('degrades the whole bundle even when only the chat read timed out (project read had already succeeded)', () => {
+    // Per the spec: once ANY pre-kill read times out, the bundle reports
+    // project: null rather than the partial project data that happened to
+    // arrive before the wedge showed up -- a caller cannot trust a project
+    // read from a page that turned out unresponsive moments later.
+    const result = combinePreKillReads(project, TIMED_OUT);
+    expect(result.pageUnresponsive).toBe(true);
+    expect(result.project).toBeNull();
+    expect(result.chat.unavailable).toBe('evaluate-failed');
+  });
+
+  it('reports nothing open (project: null) as pageUnresponsive:false, not unresponsive', () => {
+    // A real "no project open" read must not be confused with "could not
+    // determine whether a project was open".
+    expect(combinePreKillReads(null, chat)).toEqual({
+      pageUnresponsive: false,
+      project: null,
+      chat
+    });
+  });
+
+  // Defect 3: `saveKillVerify` now calls `combinePreKillReads(TIMED_OUT,
+  // TIMED_OUT)` verbatim whenever the pre-kill `connect()` itself fails and
+  // `force` is set -- no page was ever reached, so neither read is even
+  // attempted, rather than retried against a page that doesn't exist. This
+  // is the exact call production code makes for that case; pinned here so
+  // the "force skips every page read on a failed connect" behaviour is
+  // covered independent of a real Playwright connection.
+  it('degrades fully when both reads are given as already-timed-out (the failed-connect case)', () => {
+    expect(combinePreKillReads(TIMED_OUT, TIMED_OUT)).toEqual({
+      pageUnresponsive: true,
+      project: null,
+      chat: { mounted: false, busy: false, messageCount: 0, unavailable: 'evaluate-failed' }
+    });
+  });
+});
+
+// Defect 3: `restart()`/`quit()` used to be able to throw instead of
+// returning {error, tried, hint} -- reproduced live as
+// `restart({force:true})` throwing from `connect()` inside `saveKillVerify`,
+// crashing the calling process, because the pre-kill connect was an
+// unguarded precondition rather than a best-effort read. These exercise the
+// REAL exported functions (no mocking, matching this suite's existing
+// preference for light real I/O) against a port nothing is listening on --
+// picked via XGENIA_CDP_PORT so this can never reach a real running editor
+// on the machine running the tests -- and confirm both the with- and
+// without-force paths return the documented failure shape, never throw, and
+// never hang out the old 30s (or even the new 10s) connect timeout, since a
+// refused TCP connect fails near-instantly.
+describe('restart / quit never throw when nothing is listening on the port', () => {
+  const port = 65532;
+  const file = recoveryFilePath(port);
+  let originalPort: string | undefined;
+
+  const withTestPort = () => {
+    originalPort = process.env.XGENIA_CDP_PORT;
+    process.env.XGENIA_CDP_PORT = String(port);
+    resetConnection();
+  };
+
+  afterEach(() => {
+    if (originalPort === undefined) delete process.env.XGENIA_CDP_PORT;
+    else process.env.XGENIA_CDP_PORT = originalPort;
+    resetConnection();
+    try {
+      fs.unlinkSync(file);
+    } catch {
+      // restart({force:true}) writes a recovery snapshot before discovering
+      // there's nothing to kill; not every test in this block reaches that
+      // point, so the file may not exist. Either way, don't leak it.
+    }
+  });
+
+  it('restart() without force returns {error: "not-running"} instead of throwing', async () => {
+    withTestPort();
+    const start = Date.now();
+    const result = await restart({});
+    expect(result).toMatchObject({ error: 'not-running' });
+    expect(Date.now() - start).toBeLessThan(5000);
+  });
+
+  it('restart({force:true}) also returns a failure shape instead of throwing or hanging, with nothing to kill', async () => {
+    withTestPort();
+    const start = Date.now();
+    const result = await restart({ force: true });
+    // Force reaches the port-owner/kill sequence (bypassing the connect and
+    // pre-kill-read refusals entirely), but there is genuinely nothing
+    // listening on this port, so the kill path's own owner check is what
+    // ultimately fails it -- still `not-running`, still a clean {error}, not
+    // a throw.
+    expect(result).toMatchObject({ error: 'not-running' });
+    expect(Date.now() - start).toBeLessThan(5000);
+  });
+
+  it('quit() without force returns {error: "not-running"} instead of throwing', async () => {
+    withTestPort();
+    const result = await quit({});
+    expect(result).toMatchObject({ error: 'not-running' });
+  });
+
+  it('quit({force:true}) also returns a failure shape instead of throwing or hanging', async () => {
+    withTestPort();
+    const result = await quit({ force: true });
+    expect(result).toMatchObject({ error: 'not-running' });
+  });
+});
+
+describe('unresponsiveRefusal', () => {
+  it('does not refuse when the page is responsive', () => {
+    expect(unresponsiveRefusal(false, false)).toBe(false);
+    expect(unresponsiveRefusal(false, true)).toBe(false);
+  });
+
+  it('refuses when unresponsive and not forced', () => {
+    expect(unresponsiveRefusal(true, false)).toBe(true);
+  });
+
+  it('does not refuse when unresponsive but forced -- force is the documented escape hatch', () => {
+    expect(unresponsiveRefusal(true, true)).toBe(false);
+  });
+});
+
+// Defect 2: a forced quit was observed to come back to a login screen with
+// NO auth token in localStorage at all -- plausibly because the prior 5s
+// SIGTERM grace period was too short for an Electron renderer to finish
+// flushing localStorage/IndexedDB before being SIGKILLed. shouldEscalateToSigkill
+// is the pure decision saveKillVerify now makes only after the extended
+// SIGTERM_GRACE_MS grace period (see lifecycle.ts), not before it -- pinned
+// here independent of the real process polling around it.
+// Defect 1: on a wedged editor, connect() (page-URL classification) fails,
+// so the pre-kill target must come from one of two page-free sources
+// instead of being reported null (which used to make restart() fall back to
+// a best-effort 'auto' relaunch -- silently switching a dev user's build to
+// the installed app on exactly the restart meant to restore their
+// environment). determineTarget is the pure preference-order decision
+// saveKillVerify now makes from already-looked-up candidates; pinned here
+// independent of any real process table, CDP connection, or filesystem.
+describe('determineTarget', () => {
+  it('prefers the live connect classification when available, even if the others disagree', () => {
+    expect(determineTarget('dev', 'app', 'app')).toEqual({ target: 'dev', source: 'connect' });
+  });
+
+  it('falls back to the process command-line classification when connect is unavailable', () => {
+    expect(determineTarget(null, 'dev', 'app')).toEqual({ target: 'dev', source: 'process' });
+  });
+
+  it('falls back to the recovery snapshot only once the process lookup also comes up empty', () => {
+    expect(determineTarget(null, null, 'app')).toEqual({ target: 'app', source: 'recovery' });
+  });
+
+  it('reports unknown, never a guess, when none of the three sources could tell', () => {
+    expect(determineTarget(null, null, null)).toEqual({ target: null, source: 'unknown' });
+  });
+});
+
+// Defect 2: `saveKillVerify` used to report `{confirmed: true, reason:
+// 'nothing-open'}` whenever no real save was attempted, whether or not the
+// pre-kill reads that would justify "nothing was open" ever actually ran --
+// reproduced live as `restart({force:true})` on a genuinely unreadable page
+// reporting a confident "nothing was open" it had no way to know.
+// nothingOpenOrUnresponsive is the pure decision that replaces that
+// unconditional fallback; reason: 'unresponsive' reuses the exact vocabulary
+// saveOpenProject's own timeout path already reports, rather than inventing
+// a parallel one.
+describe('nothingOpenOrUnresponsive', () => {
+  it('reports a confirmed nothing-open only when the page was actually read', () => {
+    expect(nothingOpenOrUnresponsive(false)).toEqual({ confirmed: true, reason: 'nothing-open' });
+  });
+
+  it('reports unconfirmed/unresponsive -- never a confident nothing-open -- when the reads were skipped or timed out', () => {
+    expect(nothingOpenOrUnresponsive(true)).toEqual({ confirmed: false, reason: 'unresponsive' });
+  });
+});
+
+describe('shouldEscalateToSigkill', () => {
+  it('does not escalate when the process exited on its own within the grace period (port free, pollPortFree returned null)', () => {
+    expect(shouldEscalateToSigkill(null)).toBe(false);
+  });
+
+  it('escalates when the process is still alive once the grace period expires (pollPortFree returned the surviving pid)', () => {
+    expect(shouldEscalateToSigkill(12345)).toBe(true);
   });
 });
