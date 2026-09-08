@@ -145,6 +145,7 @@ app.commandLine.appendSwitch('--preserve-symlinks-main');
 // So: an A/B the user can run in one command, rather than another guess in CSS.
 //   XGENIA_GPU_MODE=raster    CPU rasterisation, GPU compositing. Try this FIRST.
 //   XGENIA_GPU_MODE=angle-gl  OpenGL instead of Metal in ANGLE.
+//   XGENIA_GPU_MODE=mac-safe  no CALayer reuse, no delegated compositing (2026-09-08, see below).
 //   XGENIA_GPU_MODE=software  no GPU compositing at all. Slow, and the strongest signal:
 //                             if it still flashes here, the compositor is NOT the cause.
 // Unset (the default) changes nothing.
@@ -155,6 +156,19 @@ if (gpuMode) {
     app.commandLine.appendSwitch('disable-gpu-rasterization');
   } else if (gpuMode === 'angle-gl') {
     app.commandLine.appendSwitch('use-angle', 'gl');
+  } else if (gpuMode === 'mac-safe') {
+    // (2026-09-08) The flash, finally filmed with aligned frames: the ENTIRE window content
+    // presents BLACK for 1-2 frames — not the page background, empty — while the rail, which
+    // is its own composited layer, stays drawn. On macOS Chromium hands each composited layer
+    // to CoreAnimation as its own CALayer/IOSurface and reuses them across frames
+    // (CALayerTreeOptimization) and, in this version, delegates compositing of those layers
+    // to the system (DelegatedCompositing). An empty surface presented for the big content
+    // layer is exactly what those two paths can produce and what Windows, which has neither,
+    // never shows. This turns both off so the GPU process composites the window itself.
+    app.commandLine.appendSwitch(
+      'disable-features',
+      'CALayerTreeOptimization,DelegatedCompositing,RasterDelegatedCompositing'
+    );
   } else if (gpuMode === 'software') {
     app.commandLine.appendSwitch('disable-gpu-compositing');
     app.disableHardwareAcceleration();
