@@ -224,9 +224,10 @@ export function revealGame(entry: ProjectItem): void {
 }
 
 /**
- * Bring the AI chat into view. Used right after a game is created from a description: the
- * description is about to arrive there as the first message (see models/lobby/lobbySeed.ts),
- * and a message sent into a closed panel is a message nobody sees.
+ * Bring the AI chat into view. Called by EditorPage on mount when the project it is opening
+ * has a lobby description waiting (see models/lobby/lobbySeed.ts): the description is about
+ * to arrive in the chat as the first message, and a message sent into a closed panel is a
+ * message nobody sees. Must run after installSidePanel() — before it there is no chat item.
  */
 export function openChatPanel(): void {
   try {
