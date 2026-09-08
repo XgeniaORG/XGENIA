@@ -17,6 +17,7 @@ jobs:
 
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         arch: [arm64, x64]
 
@@ -44,19 +45,43 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Import Code-Signing Certificate
+        env:
+          CSC_CONTENT: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+
+          echo "$CSC_CONTENT" | base64 --decode > "$CERT_PATH"
+
+          # Fresh keychain, no auto-lock, so codesign/notarytool never hit a
+          # relocked keychain mid-build (the cause of the SecKeychainUnlock error).
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Put the new keychain ahead of the existing search list rather than
+          # replacing it, so electron-builder's CSC_IDENTITY_AUTO_DISCOVERY can
+          # still find the identity.
+          EXISTING_KEYCHAINS=$(security list-keychains -d user | sed 's/[",]//g')
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $EXISTING_KEYCHAINS
+
+          rm -f "$CERT_PATH"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
       - name: Build macOS ${{ matrix.arch }}
         env:
           TARGET_PLATFORM: 'darwin-${{ matrix.arch }}'
           DISABLE_SIGNING: false
-          CSC_CONTENT: ${{ secrets.MACOS_CERTIFICATE_P12 }}
-          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-        run: |
-          echo "$CSC_CONTENT" | base64 --decode > packages/xgenia-editor/certificate.p12
-          export CSC_LINK="./certificate.p12"
-          npm run build:editor -- --skip-git
+        run: npm run build:editor -- --skip-git
 
       - name: Packing DMG file
         run: npm run build:editor:pack
@@ -67,6 +92,10 @@ jobs:
           name: XGENIA-macOS-${{ matrix.arch }}
           path: publish
           retention-days: 7
+
+      - name: Remove code-signing keychain
+        if: always()
+        run: security delete-keychain "$KEYCHAIN_PATH" || true
 
   build-linux:
     name: Build Linux (x64)

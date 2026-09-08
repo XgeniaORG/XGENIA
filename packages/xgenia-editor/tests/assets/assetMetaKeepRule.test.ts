@@ -31,3 +31,26 @@ test('mergeAssetMeta loads from disk before it writes', () => {
     'must load first or it clobbers the file against an empty cache'
   );
 });
+
+// (2026-09-07, export 1788803211511) persist() used to be a bare fire-and-forget
+// filesystem.writeFile; 17 overlapping writes tore the file, and loadAssetMeta() then
+// adopted `{}` over the torn file so the next write wiped every record. Both are locked
+// at the source level for the same reason as the keep-rule above.
+test('persist() goes through the serialized atomic writer, never a bare writeFile', () => {
+  const body = src.slice(src.indexOf('function persist('), src.indexOf('export function getAssetMeta('));
+  assert.ok(body.includes('writer.schedule('), 'persist() must schedule on the serialized writer');
+  assert.ok(!body.includes('filesystem.writeFile('), 'persist() must not call filesystem.writeFile directly');
+  assert.ok(src.includes('atomicWriteText(filesystem'), 'the writer must write atomically (tmp + rename)');
+});
+
+test('loadAssetMeta() salvages a corrupt file and quarantines the original instead of adopting {}', () => {
+  const start = src.indexOf('export async function loadAssetMeta');
+  const body = src.slice(start, src.indexOf('\nasync function persist', start));
+  assert.ok(body.includes('salvageJsonObject('), 'loadAssetMeta must salvage the longest valid prefix');
+  assert.ok(body.includes('quarantineCorruptMeta('), 'loadAssetMeta must keep the corrupt bytes on disk');
+  assert.ok(!body.includes('JSON.parse('), 'loadAssetMeta must not parse-or-empty');
+});
+
+test('flushAssetMeta is exported so the bridge can wait for a write to land', () => {
+  assert.ok(src.includes('export function flushAssetMeta('));
+});

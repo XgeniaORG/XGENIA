@@ -17,7 +17,7 @@
 }
 
 .Root {
-  width: 1080px;
+  width: 1240px;
   max-width: 100%;
   padding: 26px 28px 22px;
   border-radius: 16px;
@@ -159,7 +159,7 @@
 
 // Recessed, like the omnibox field: a hole you type into.
 .Prompt {
-  height: 150px;
+  height: 200px;
   padding: 12px 14px;
   border-radius: 10px;
   border: 1px solid var(--glass-ctrl-border);
@@ -233,9 +233,13 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
-  max-height: 300px;
+  max-height: 400px;
   overflow-y: auto;
-  padding-right: 2px;
+  /* The selection ring is a 5px box-shadow, and this grid scrolls, so it clips whatever
+     pokes past its box. Padding makes room for the ring; the matching negative margin keeps
+     the tiles on the lane's own grid, so the gutter is invisible until a ring needs it. */
+  padding: 6px;
+  margin: -6px;
 }
 
 @media (max-width: 900px) {

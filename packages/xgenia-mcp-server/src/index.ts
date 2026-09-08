@@ -7,6 +7,7 @@ import { chatSend, chatRead, chatWaitIdle, openChatPanel } from './chat.js';
 import { screenshot } from './screenshot.js';
 import { openProject, newProject, closeProject } from './project.js';
 import { launch, restart, quit } from './lifecycle.js';
+import { debugExport, debugQuery, runtimeLogs } from './debug-export.js';
 
 const server = new McpServer({ name: 'xgenia-mcp', version: '1.0.0' });
 
@@ -256,3 +257,78 @@ main().catch((e) => {
   console.error('xgenia-mcp failed to start:', e);
   process.exit(1);
 });
+
+server.registerTool(
+  'xgenia_debug_export',
+  {
+    title: 'Pull the AI panel debug export',
+    description:
+      "Click the chat panel's Debug Export and return the FILE PATH plus a census of what the AI actually did. " +
+      'The bundle is the only record of the panel AI\'s own run: every tool call with its arguments and result, the thinking log, the raw API history, both consoles, and the token spend. One slot build produced 7.2MB and 640 tool calls, so this never returns the bundle itself — it returns `file` for you to read or query, plus which tools failed with which codes, the top editor errors and the cost. ' +
+      'Use xgenia_debug_query to search inside it without moving it through context. ' +
+      'A result is only counted as a failure when its envelope says ok:false or result.success:false; prose and condenser-pruned results are reported separately as unparsedResults/prunedByCondenser, because counting those as failures inflated one real census from 77 to 382. ' +
+      'Pass reuseExisting to summarise the newest export already on disk instead of producing a fresh one, and copyTo to keep a copy somewhere a Downloads clear-out will not reach.',
+    inputSchema: {
+      reuseExisting: z.boolean().optional(),
+      timeoutMs: z.number().optional(),
+      copyTo: z.string().optional()
+    }
+  },
+  (args) => guard('click Debug Export and read the downloaded bundle', () => debugExport(args))
+);
+
+server.registerTool(
+  'xgenia_debug_query',
+  {
+    title: 'Search the AI panel debug export',
+    description:
+      'Grep one section of a debug export and return only the matching entries, each clipped. ' +
+      'Sections: toolCallSummary (default; each entry {tool, input, result}), thinkingLog, visibleChat, rawApiHistory, errors, errorsBeforeSession, consoleLogs.viewer, consoleLogs.editor, subAgents, taskTracking. ' +
+      'Combine `tool` and `failuresOnly` to answer "which calls to X failed and why" without reading the file, or `grep` (a JS regular expression, case-insensitive by default) to search the serialised entry. ' +
+      'Reads the newest export on disk unless you pass `file`. Returns `matched` alongside `returned` so a truncated answer is visible rather than silent.',
+    inputSchema: {
+      section: z
+        .enum([
+          'toolCallSummary',
+          'thinkingLog',
+          'visibleChat',
+          'rawApiHistory',
+          'errors',
+          'errorsBeforeSession',
+          'consoleLogs.viewer',
+          'consoleLogs.editor',
+          'subAgents',
+          'taskTracking'
+        ])
+        .optional(),
+      grep: z.string().optional(),
+      ignoreCase: z.boolean().optional(),
+      tool: z.string().optional(),
+      failuresOnly: z.boolean().optional(),
+      limit: z.number().optional(),
+      offset: z.number().optional(),
+      clip: z.number().optional(),
+      file: z.string().optional()
+    }
+  },
+  (args) => guard('grep the debug export', () => debugQuery(args))
+);
+
+server.registerTool(
+  'xgenia_runtime_logs',
+  {
+    title: 'Grep the live engine log buffer',
+    description:
+      "Read the running preview's own log buffer (window.XgeniaRuntimeLogs) with NO export step. " +
+      'This is what the game actually did, live: which JavaScript function nodes ran and with what body, reel-controller latches such as "stop signal arrived before spin", and every runtimeEval request the panel sent. It answers questions about the CURRENT state rather than about whenever someone last clicked export. ' +
+      'It addresses the preview iframe directly by URL, so it cannot be answered by the empty external/cloudruntime page that also exists in the process — the surface that makes the panel\'s own runtime tools report a mounted game as not_mounted. ' +
+      'The buffer resets when the preview reloads.',
+    inputSchema: {
+      grep: z.string().optional(),
+      ignoreCase: z.boolean().optional(),
+      tail: z.number().optional(),
+      clip: z.number().optional()
+    }
+  },
+  (args) => guard('read window.XgeniaRuntimeLogs in the preview frame', () => runtimeLogs(args))
+);

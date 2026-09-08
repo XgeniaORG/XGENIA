@@ -44,19 +44,59 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      # The signing keychain is built here rather than by electron-builder.
+      # Its own path (app-builder-lib/out/codeSign/macCodeSign.js) creates the
+      # temp keychain with a random password and then calls
+      # `security set-key-partition-list -k <certificate password>` on it, so
+      # the unlock is guaranteed to fail; the arm64 runner images turn that into
+      # a hard error instead of a warning. Setting CSC_LINK is what selects that
+      # path, so it must stay unset — with only CSC_KEYCHAIN set,
+      # electron-builder signs with the keychain it is handed.
+      - name: Import Apple signing certificate
+        env:
+          CSC_CONTENT: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -eu
+          KEYCHAIN="$RUNNER_TEMP/xgenia-signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
+          CERT="$RUNNER_TEMP/certificate.p12"
+
+          printf '%s' "$CSC_CONTENT" | base64 --decode > "$CERT"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$CERT" -k "$KEYCHAIN" -P "$CSC_KEY_PASSWORD" -f pkcs12 \
+            -T /usr/bin/codesign -T /usr/bin/productbuild
+          # Same password as create-keychain, which is the whole point.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          # Keep the login keychain searchable so the Apple intermediate certs resolve.
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm -f "$CERT"
+
+          echo "--- codesigning identities in the signing keychain"
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" |
+            sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)
+          if [ -z "$IDENTITY" ]; then
+            echo "No 'Developer ID Application' identity in MACOS_CERTIFICATE_P12" >&2
+            exit 1
+          fi
+          echo "Signing as: $IDENTITY"
+          echo "CSC_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          echo "CSC_NAME=$IDENTITY" >> "$GITHUB_ENV"
+
       - name: Build macOS ${{ matrix.arch }}
         env:
           TARGET_PLATFORM: 'darwin-${{ matrix.arch }}'
           DISABLE_SIGNING: false
-          CSC_CONTENT: ${{ secrets.MACOS_CERTIFICATE_P12 }}
-          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-        run: |
-          echo "$CSC_CONTENT" | base64 --decode > packages/xgenia-editor/certificate.p12
-          export CSC_LINK="./certificate.p12"
-          npm run build:editor -- --skip-git
+        run: npm run build:editor -- --skip-git
 
       - name: Packing DMG file
         run: npm run build:editor:pack

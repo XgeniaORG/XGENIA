@@ -64,7 +64,9 @@ export class AlignToolsType extends TypeView {
   }
   dispose() {
     TypeView.prototype.dispose.call(this);
-    this.alignToolsView.dispose();
+    // Only set by render(). Under the React inspector a view can be built and
+    // disposed without ever rendering (collapsed group, rebuild before mount).
+    this.alignToolsView && this.alignToolsView.dispose();
   }
   addComponentPort(p) {
     const comp = p.type.alignComp;
