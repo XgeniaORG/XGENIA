@@ -1636,6 +1636,22 @@ function launchApp() {
         }
       });
 
+      // Specific handler for 'viewer-capture-design' — the preview resized to its declared design
+      // canvas (e.g. 1920x1080), not whatever size the pane happens to be. Embedded preview only:
+      // a floating viewer window has its own size the user chose, and resizing it to a design box
+      // would move their window out from under them for no reason they asked for.
+      ipcMain.on('viewer-capture-design', (e, ...args) => {
+        if (win && win.webContents && !win.webContents.isDestroyed()) {
+          win.webContents.send('embedded-viewer-capture-design-request', ...args);
+        }
+      });
+
+      ipcMain.on('viewer-capture-design-reply', (e, payload) => {
+        if (win && win.webContents && !win.webContents.isDestroyed()) {
+          win.webContents.send('viewer-capture-design-reply', payload);
+        }
+      });
+
       // Specific handler for 'viewer-get-full-html'
       ipcMain.on('viewer-get-full-html', (e, ...args) => {
         console.log('[Main Process] 📄 Received viewer-get-full-html on ipcMain from renderer');

@@ -3186,6 +3186,33 @@ export class EditorBridge {
             });
         });
 
+        // The screen at its AUTHORED size (e.g. 1920x1080), not the preview pane's current size.
+        // (2026-09-08, export 1788857897227) See CanvasView.ts's
+        // 'embedded-viewer-capture-design-request' handler for why a plain off-screen resize
+        // (the old <webview> trick) does not work now that the preview is an in-process <iframe>,
+        // and why the reply's width/height are the MEASURED captured pixels, not an echo of what
+        // was asked for.
+        h('viewer.captureDesign', ([width, height]: [number, number]) => {
+            return new Promise((resolve) => {
+                try {
+                    const { ipcRenderer } = require('electron');
+                    ipcRenderer.send('viewer-capture-design', { width, height });
+                    const timeout = setTimeout(() => {
+                        ipcRenderer.removeListener('viewer-capture-design-reply', handler);
+                        resolve(JSON.stringify({ success: false, message: 'Design-size screenshot timed out after 20s' }));
+                    }, 20000);
+                    const handler = (_event: any, payload: any) => {
+                        clearTimeout(timeout);
+                        ipcRenderer.removeListener('viewer-capture-design-reply', handler);
+                        resolve(JSON.stringify(payload || { success: false, message: 'Design capture returned no data' }));
+                    };
+                    ipcRenderer.on('viewer-capture-design-reply', handler);
+                } catch (e: any) {
+                    resolve(JSON.stringify({ success: false, message: `Design capture error: ${e.message}` }));
+                }
+            });
+        });
+
         h('viewer.getFullHtml', () => {
             return new Promise((resolve) => {
                 try {
