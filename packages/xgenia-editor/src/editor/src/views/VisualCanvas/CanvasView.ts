@@ -42,6 +42,21 @@ export class CanvasView extends View {
   webview: PreviewHost | null = null;
   webviewDomReady: boolean = false;
 
+  /**
+   * Which capture currently owns the preview surface: 'thumb' | 'fullpage' | 'design' | null.
+   *
+   * (2026-09-08, task 9 review) IframeViewer.capturePage() reads OUR OWN window clipped to the
+   * host element's CURRENT on-screen box — it has no idea which logical request is "using" the
+   * surface. Two captures overlapping is therefore not just wasted work: a thumbnail request
+   * that lands while a design capture has the host resized to full-screen gets back the design
+   * frame, stamped with the thumbnail's own ordinary success reply. That is indistinguishable
+   * from a correct thumbnail on the wire. All three capture listeners below take this lock before
+   * touching `this.webview` and release it in every exit path (including retries — see the
+   * thumbnail listener, whose retry-via-setTimeout releases only on a terminal reply, not when a
+   * retry is merely scheduled).
+   */
+  private _activeCapture: 'thumb' | 'fullpage' | 'design' | null = null;
+
   zoomFactor: number;
 
   viewportWidth: number;
@@ -422,6 +437,16 @@ export class CanvasView extends View {
     ipcRenderer.on('embedded-viewer-capture-request', async (...args) => {
       console.log('[CanvasView] 📸 Received embedded-viewer-capture-request from main process, args:', args);
 
+      if (this._activeCapture) {
+        console.warn(`[CanvasView] Thumbnail capture refused: a '${this._activeCapture}' capture is already using the preview surface`);
+        ipcRenderer.send('viewer-capture-thumb-reply', null);
+        return;
+      }
+      // Held across every retry below, released only on a TERMINAL reply — a retry scheduled via
+      // setTimeout is not a completed capture, and releasing early would let a design/fullpage
+      // capture resize the surface out from under a retry that is still going to run.
+      this._activeCapture = 'thumb';
+
       const attemptCapture = async (attemptNumber = 1, maxAttempts = 3) => {
         try {
           console.log(`[CanvasView] Screenshot attempt ${attemptNumber}/${maxAttempts}`);
@@ -432,6 +457,7 @@ export class CanvasView extends View {
           if (result && result.toDataURL) {
             const dataURL = result.toDataURL();
             console.log('[CanvasView] Successfully captured thumbnail, sending reply');
+            this._activeCapture = null; // terminal: success
             ipcRenderer.send('viewer-capture-thumb-reply', dataURL);
             return true;
           } else {
@@ -441,9 +467,10 @@ export class CanvasView extends View {
             if (attemptNumber < maxAttempts && (!this.webviewDomReady || !this.webview?.isConnected)) {
               console.log(`[CanvasView] Webview not ready, retrying in 2 seconds...`);
               setTimeout(() => attemptCapture(attemptNumber + 1, maxAttempts), 2000);
-              return false;
+              return false; // not terminal — the lock stays held for the pending retry
             } else {
               console.error(`[CanvasView] All ${maxAttempts} screenshot attempts failed`);
+              this._activeCapture = null; // terminal: retries exhausted
               ipcRenderer.send('viewer-capture-thumb-reply', null);
               return false;
             }
@@ -458,9 +485,10 @@ export class CanvasView extends View {
           ) {
             console.log(`[CanvasView] Retrying screenshot due to error, attempt ${attemptNumber + 1}/${maxAttempts}`);
             setTimeout(() => attemptCapture(attemptNumber + 1, maxAttempts), 2000);
-            return false;
+            return false; // not terminal — the lock stays held for the pending retry
           } else {
             console.error(`[CanvasView] Final screenshot attempt failed:`, error);
+            this._activeCapture = null; // terminal: no more retries
             ipcRenderer.send('viewer-capture-thumb-reply', null);
             return false;
           }
@@ -480,6 +508,13 @@ export class CanvasView extends View {
         ipcRenderer.send('viewer-capture-fullpage-reply', null);
         return;
       }
+
+      if (this._activeCapture) {
+        console.warn(`[CanvasView] Full-page capture refused: a '${this._activeCapture}' capture is already using the preview surface`);
+        ipcRenderer.send('viewer-capture-fullpage-reply', null);
+        return;
+      }
+      this._activeCapture = 'fullpage';
 
       try {
         // 1. Get full page dimensions and current scroll position via JS in the webview
@@ -601,6 +636,8 @@ export class CanvasView extends View {
       } catch (error: any) {
         console.error('[CanvasView] Full-page capture failed:', error);
         ipcRenderer.send('viewer-capture-fullpage-reply', null);
+      } finally {
+        this._activeCapture = null;
       }
     });
 
@@ -635,6 +672,12 @@ export class CanvasView extends View {
         reply({ success: false, message: 'design capture: webview not ready' });
         return;
       }
+
+      if (this._activeCapture) {
+        reply({ success: false, message: `design capture: refused — a '${this._activeCapture}' capture is already using the preview surface; try again shortly` });
+        return;
+      }
+      this._activeCapture = 'design';
 
       // The real DOM node, not the PreviewHost wrapper — PreviewHost.element is part of the
       // interface precisely for low-level sizing work like this.
@@ -732,6 +775,7 @@ export class CanvasView extends View {
         reply({ success: false, message: `design capture failed: ${e?.message || e}` });
       } finally {
         if (saved === null) el.removeAttribute('style'); else el.setAttribute('style', saved);
+        this._activeCapture = null;
       }
     });
 
