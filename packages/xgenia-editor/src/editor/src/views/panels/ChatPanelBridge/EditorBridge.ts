@@ -1118,6 +1118,53 @@ export class EditorBridge {
                 console.log('[EditorBridge] Creating node from JSON:', nodeJSON);
                 const node = NodeGraphNode.fromJSON(nodeJSON);
 
+                // ── PORTS THE CALLER ASKED FOR ARE NOT OPTIONAL ──────────────────────────────
+                // (2026-09-09, export 1788945061662) `ports` above is hardcoded `[]` and
+                // `data.ports` was never read, so every port a caller sent was DISCARDED at this
+                // line. `create_component_instance` is built on sending them: it walks the target
+                // component's Component Inputs/Outputs, turns them into the instance's own ports,
+                // sets `nodeJSON.ports`, and then REPORTS THOSE PORTS AS THE INSTANCE'S. The
+                // instance arrived with none.
+                //
+                // What that cost, in one run: the tool answered "Component instance created
+                // successfully" listing inputs ["BetAmount","Spin",…] while its own auto-wire in
+                // the SAME reply failed all four with «Target port 'Spin' does not exist» — the
+                // result contradicting itself. The model read that correctly ("the instance lost
+                // its custom ports; creation saw them, they're gone now"), deleted the instance and
+                // built it again, which failed identically because the cause was here.
+                //
+                // Added through `addPort` rather than by trusting the JSON, matching the R37 block
+                // below: that is the path the node types actually honour. Duplicates are skipped
+                // so this can never fight the static-port initialisation that follows.
+                try {
+                    const requested = Array.isArray((data as any).ports) ? (data as any).ports : [];
+                    const requestedDynamic = Array.isArray((data as any).dynamicports) ? (data as any).dynamicports : [];
+                    const wanted = [...requested, ...requestedDynamic].filter((p: any) => p && p.name);
+                    if (wanted.length > 0 && typeof (node as any).addPort === 'function') {
+                        const present = new Set(
+                            ((typeof node.getPorts === 'function' ? node.getPorts() : (node as any).ports) || [])
+                                .map((p: any) => `${p.plug}:${p.name}`)
+                        );
+                        let added = 0;
+                        for (const p of wanted) {
+                            const key = `${p.plug}:${p.name}`;
+                            if (present.has(key)) continue;
+                            try {
+                                (node as any).addPort({ name: p.name, plug: p.plug, type: p.type });
+                                present.add(key);
+                                added++;
+                            } catch (e: any) {
+                                console.warn(`[EditorBridge] graph.createNode: port "${p.name}" was refused by ${nodeType}:`, e?.message || e);
+                            }
+                        }
+                        if (added !== wanted.length) {
+                            console.warn(`[EditorBridge] graph.createNode: ${added} of ${wanted.length} requested port(s) were added to ${nodeType} — the caller's report of this node's ports will be wrong unless it reads them back.`);
+                        }
+                    }
+                } catch (e: any) {
+                    console.warn('[EditorBridge] graph.createNode: requested-port application failed:', e?.message || e);
+                }
+
                 // FIX (2026-04-21 R37): Force-initialize static ports from the type definition.
                 // For certain node types (notably the Logic family: And, Or, Not, Xor) the ports
                 // exposed by `node.getPorts()` / `node.ports` come back empty immediately after
