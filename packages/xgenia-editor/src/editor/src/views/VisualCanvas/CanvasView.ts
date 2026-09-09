@@ -42,6 +42,21 @@ export class CanvasView extends View {
   webview: PreviewHost | null = null;
   webviewDomReady: boolean = false;
 
+  /**
+   * Which capture currently owns the preview surface: 'thumb' | 'fullpage' | 'design' | null.
+   *
+   * (2026-09-08, task 9 review) IframeViewer.capturePage() reads OUR OWN window clipped to the
+   * host element's CURRENT on-screen box — it has no idea which logical request is "using" the
+   * surface. Two captures overlapping is therefore not just wasted work: a thumbnail request
+   * that lands while a design capture has the host resized to full-screen gets back the design
+   * frame, stamped with the thumbnail's own ordinary success reply. That is indistinguishable
+   * from a correct thumbnail on the wire. All three capture listeners below take this lock before
+   * touching `this.webview` and release it in every exit path (including retries — see the
+   * thumbnail listener, whose retry-via-setTimeout releases only on a terminal reply, not when a
+   * retry is merely scheduled).
+   */
+  private _activeCapture: 'thumb' | 'fullpage' | 'design' | null = null;
+
   zoomFactor: number;
 
   viewportWidth: number;
@@ -422,6 +437,16 @@ export class CanvasView extends View {
     ipcRenderer.on('embedded-viewer-capture-request', async (...args) => {
       console.log('[CanvasView] 📸 Received embedded-viewer-capture-request from main process, args:', args);
 
+      if (this._activeCapture) {
+        console.warn(`[CanvasView] Thumbnail capture refused: a '${this._activeCapture}' capture is already using the preview surface`);
+        ipcRenderer.send('viewer-capture-thumb-reply', null);
+        return;
+      }
+      // Held across every retry below, released only on a TERMINAL reply — a retry scheduled via
+      // setTimeout is not a completed capture, and releasing early would let a design/fullpage
+      // capture resize the surface out from under a retry that is still going to run.
+      this._activeCapture = 'thumb';
+
       const attemptCapture = async (attemptNumber = 1, maxAttempts = 3) => {
         try {
           console.log(`[CanvasView] Screenshot attempt ${attemptNumber}/${maxAttempts}`);
@@ -432,6 +457,7 @@ export class CanvasView extends View {
           if (result && result.toDataURL) {
             const dataURL = result.toDataURL();
             console.log('[CanvasView] Successfully captured thumbnail, sending reply');
+            this._activeCapture = null; // terminal: success
             ipcRenderer.send('viewer-capture-thumb-reply', dataURL);
             return true;
           } else {
@@ -441,9 +467,10 @@ export class CanvasView extends View {
             if (attemptNumber < maxAttempts && (!this.webviewDomReady || !this.webview?.isConnected)) {
               console.log(`[CanvasView] Webview not ready, retrying in 2 seconds...`);
               setTimeout(() => attemptCapture(attemptNumber + 1, maxAttempts), 2000);
-              return false;
+              return false; // not terminal — the lock stays held for the pending retry
             } else {
               console.error(`[CanvasView] All ${maxAttempts} screenshot attempts failed`);
+              this._activeCapture = null; // terminal: retries exhausted
               ipcRenderer.send('viewer-capture-thumb-reply', null);
               return false;
             }
@@ -458,9 +485,10 @@ export class CanvasView extends View {
           ) {
             console.log(`[CanvasView] Retrying screenshot due to error, attempt ${attemptNumber + 1}/${maxAttempts}`);
             setTimeout(() => attemptCapture(attemptNumber + 1, maxAttempts), 2000);
-            return false;
+            return false; // not terminal — the lock stays held for the pending retry
           } else {
             console.error(`[CanvasView] Final screenshot attempt failed:`, error);
+            this._activeCapture = null; // terminal: no more retries
             ipcRenderer.send('viewer-capture-thumb-reply', null);
             return false;
           }
@@ -480,6 +508,13 @@ export class CanvasView extends View {
         ipcRenderer.send('viewer-capture-fullpage-reply', null);
         return;
       }
+
+      if (this._activeCapture) {
+        console.warn(`[CanvasView] Full-page capture refused: a '${this._activeCapture}' capture is already using the preview surface`);
+        ipcRenderer.send('viewer-capture-fullpage-reply', null);
+        return;
+      }
+      this._activeCapture = 'fullpage';
 
       try {
         // 1. Get full page dimensions and current scroll position via JS in the webview
@@ -601,6 +636,180 @@ export class CanvasView extends View {
       } catch (error: any) {
         console.error('[CanvasView] Full-page capture failed:', error);
         ipcRenderer.send('viewer-capture-fullpage-reply', null);
+      } finally {
+        this._activeCapture = null;
+      }
+    });
+
+    // A design-size capture: the screen as it was AUTHORED, not as the preview pane happens to be
+    // sized. (2026-09-08, export 1788857897227) Every visual judgement in that build was made on a
+    // 732x323 pane against a 1920x1080 design, and two thirds of the findings were then waived as
+    // crop artefacts — some correctly, some not, and nobody could tell which.
+    //
+    // IMPORTANT DEVIATION from a raw <webview>: since 2026-09-07 (IframeViewer.ts) the preview is
+    // an in-process <iframe>, and PreviewHost.capturePage() captures OUR OWN window's compositor
+    // buffer clipped to the host element's getBoundingClientRect() — not an independent guest
+    // surface. Moving the host off-screen (the historical trick for a real out-of-process
+    // <webview>) would therefore clip to x=0 and capture whatever real editor UI sits at the
+    // origin, not the resized preview — a capture that LOOKS like a correct 1920x1080 design
+    // shot but is actually a screenshot of the wrong surface. So this listener keeps the host
+    // ON-SCREEN (position:fixed, top/left 0, top z-index) instead of shoving it into negative
+    // coordinates, and additionally verifies the CAPTURED pixel size against the requested size
+    // before calling it a success — see the comment above the size check below.
+    ipcRenderer.on('embedded-viewer-capture-design-request', async (_e: any, size: any) => {
+      const reply = (payload: any) => ipcRenderer.send('viewer-capture-design-reply', payload);
+      const width = Math.round(Number(size?.width));
+      const height = Math.round(Number(size?.height));
+      // No default size here. The caller knows which surface this project targets (desktop, a
+      // phone, a portrait cabinet); this listener does not, and a capture at a size nobody asked
+      // for looks exactly like a correct one.
+      if (!(width > 0) || !(height > 0)) {
+        reply({ success: false, message: 'design capture: no size was given, and there is no default — pass the declared screen size' });
+        return;
+      }
+
+      if (!this.webview || !this.webviewDomReady || !this.webview.isConnected) {
+        reply({ success: false, message: 'design capture: webview not ready' });
+        return;
+      }
+
+      if (this._activeCapture) {
+        reply({ success: false, message: `design capture: refused — a '${this._activeCapture}' capture is already using the preview surface; try again shortly` });
+        return;
+      }
+      this._activeCapture = 'design';
+
+      // The real DOM node, not the PreviewHost wrapper — PreviewHost.element is part of the
+      // interface precisely for low-level sizing work like this.
+      const el = this.webview.element;
+      // Restore EXACTLY what was there, including "no inline value at all" — writing '' back over
+      // a style the stylesheet owns would silently resize the user's preview.
+      const saved = el.getAttribute('style');
+      const applySize = () => {
+        el.style.position = 'fixed';
+        el.style.top = '0px';
+        el.style.left = '0px';
+        el.style.width = `${width}px`;
+        el.style.height = `${height}px`;
+        el.style.maxWidth = 'none';
+        el.style.maxHeight = 'none';
+        el.style.margin = '0px';
+        // Above every other panel: capturePage() below reads OUR window's own compositor
+        // output clipped to this element's box, so anything else painted over that box would
+        // leak into the "design" screenshot.
+        el.style.zIndex = '2147483647';
+      };
+
+      try {
+        applySize();
+
+        // Wait for the guest to actually report the new viewport before capturing, or the image is
+        // the OLD size scaled — which looks like a correct capture and is not.
+        const deadline = Date.now() + 3000;
+        let seen = { w: 0, h: 0 };
+        while (Date.now() < deadline) {
+          await new Promise((r) => requestAnimationFrame(() => r(null)));
+          // Defensive re-assert: VisualCanvas re-renders with a literal `style={{...}}` on this
+          // same iframe (see VisualCanvas.tsx), so an unrelated React re-render during this wait
+          // can silently overwrite the size/position we just set. Re-apply every tick rather than
+          // trust a single assignment to survive the whole wait.
+          if (el.style.width !== `${width}px` || el.style.position !== 'fixed') applySize();
+          try {
+            seen = await this.webview.executeJavaScript('({ w: window.innerWidth, h: window.innerHeight })');
+          } catch { /* the guest may be mid-navigation; keep waiting until the deadline */ }
+          if (Math.abs(seen.w - width) <= 2 && Math.abs(seen.h - height) <= 2) break;
+        }
+        if (Math.abs(seen.w - width) > 2 || Math.abs(seen.h - height) > 2) {
+          reply({ success: false, message: `design capture: the preview did not reach ${width}x${height} (it reports ${seen.w}x${seen.h}) — the image would be the wrong surface, so none was taken` });
+          return;
+        }
+        // Re-assert once more immediately before the capture: the wait loop's own awaits are a
+        // window a re-render could land in between the last size check and capturePage().
+        applySize();
+
+        const nativeImage = await this.webview.capturePage();
+        if (!nativeImage || nativeImage.isEmpty()) {
+          reply({ success: false, message: 'design capture: the captured image was empty' });
+          return;
+        }
+
+        // MEASURE what actually came back rather than trusting the request. capturePage() clips
+        // to this element's on-screen box; if the real editor window is smaller than the
+        // requested design size, or a display's scale factor inflates the buffer, the pixels we
+        // got differ from what was asked for and that difference must reach the caller, not be
+        // silently absorbed into a "success" that quietly reports the requested numbers back.
+        const actual = nativeImage.getSize();
+        if (!actual || !(actual.width > 0) || !(actual.height > 0)) {
+          reply({ success: false, message: 'design capture: the captured image reported no size' });
+          return;
+        }
+
+        const scaleX = actual.width / width;
+        const scaleY = actual.height / height;
+        // A clean, roughly-equal integer (or half-integer) scale on both axes is a device pixel
+        // ratio, not a clipped/wrong capture — e.g. 3840x2160 for a requested 1920x1080 on a 2x
+        // display. Report the true pixel size in that case, not a silent lie back to 1920x1080.
+        const looksLikeUniformScale =
+          scaleX > 0.98 && scaleY > 0.98 &&
+          Math.abs(scaleX - scaleY) < 0.05 &&
+          Math.abs(scaleX - Math.round(scaleX * 2) / 2) < 0.05;
+
+        // A SCALE CAN BE LESS THAN ONE (2026-09-09, found on the live Olympus5x3 run).
+        // `looksLikeUniformScale` only ever anticipated scale-UP: it demands `scaleX > 0.98`,
+        // because the case in mind was a 2x display inflating the buffer. But this editor runs at
+        // an Electron ZOOM FACTOR, and at zoom 0.754 every capture comes back at 0.754x — a
+        // 1920x1080 request measured 1448x814, and a 384x216 request that fits the window several
+        // times over measured 290x162. THE SAME FACTOR AT BOTH SIZES, which is the signature of a
+        // resample and the one thing a clip cannot fake. Both were refused as "likely a crop", so
+        // on this machine no design capture could EVER succeed, at any size — and the panel's own
+        // two-size cross-check, which exists precisely to tell a uniform scale from a clip, never
+        // received a single pixel to judge.
+        //
+        // What makes accepting this safe is the check ~30 lines above: it has already confirmed the
+        // GUEST reports `window.innerWidth/innerHeight` equal to the requested size (±2), so the
+        // guest really did lay the screen out at the full design size. `webview.capturePage()`
+        // captures that guest's own contents, so what comes back is the whole composition
+        // resampled, not a corner of it. A capture that IS the wrong surface fails the guest-
+        // viewport check first, which is where that concern belongs.
+        //
+        // The axes must still agree: a genuine clip skews one axis against the other. An
+        // aspect-matched clip would survive this, and refusing it is not this listener's job —
+        // that is exactly what the caller's reference capture at a second size settles.
+        const axesAgree = Math.abs(scaleX - scaleY) < 0.02;
+        const looksLikeUniformDownScale = scaleX > 0.2 && scaleY > 0.2 && scaleX < 1 && axesAgree;
+
+        if (!looksLikeUniformScale && !looksLikeUniformDownScale
+            && (actual.width < width - 2 || actual.height < height - 2)) {
+          // Smaller than requested and not an even scale-up: the capture was clipped — almost
+          // certainly the real editor window is not big enough to show the full design size on
+          // screen. Returning this image would look like a correct 1920x1080 (etc.) capture while
+          // actually being a crop; fail instead.
+          reply({
+            success: false,
+            message: `design capture: asked for ${width}x${height} but only captured ${actual.width}x${actual.height} — the editor window is likely smaller than the requested design size, so the image would be a crop, not the full design; no image was returned`
+          });
+          return;
+        }
+
+        const payload: any = { success: true, image: nativeImage.toDataURL(), width: actual.width, height: actual.height };
+        if (actual.width !== width || actual.height !== height) {
+          // Name the direction. "a display scale factor" was written for the 2x case and reads as
+          // nonsense on a capture that came back SMALLER, where the cause is this window's zoom
+          // factor — and the caller decides what to do with the image partly on this sentence.
+          const factor = ((scaleX + scaleY) / 2).toFixed(3);
+          payload.message = scaleX < 1
+            ? `captured at ${actual.width}x${actual.height} (requested ${width}x${height}) — the guest reached the `
+              + `full ${width}x${height} viewport and the image is that whole surface resampled by x${factor}, this `
+              + `window's zoom factor, not a crop; width/height above are the true pixel dimensions of the image`
+            : `captured at ${actual.width}x${actual.height} (requested ${width}x${height}) — likely a display scale `
+              + `factor (x${factor}); width/height above are the true pixel dimensions of the image`;
+        }
+        reply(payload);
+      } catch (e: any) {
+        reply({ success: false, message: `design capture failed: ${e?.message || e}` });
+      } finally {
+        if (saved === null) el.removeAttribute('style'); else el.setAttribute('style', saved);
+        this._activeCapture = null;
       }
     });
 
