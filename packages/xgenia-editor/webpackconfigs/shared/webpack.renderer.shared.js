@@ -87,7 +87,16 @@ module.exports = merge(
         template: path.resolve(editorPath, 'src/editor/index.html'),
         filename: 'src/editor/index.html',
         chunks: ['./src/editor/index'],
-        inject: process.env.NODE_ENV === 'development',
+        // NEVER inject. index.html loads the bundle itself, at the bottom of its
+        // inline setup script (`document.write` of a <script defer src=...>), because
+        // the URL differs between dev (http://localhost:8080/src/editor) and a packaged
+        // build (relative). Injecting here as well put TWO <script> tags for
+        // index.bundle.js on the dev page, so the bundle ran twice: two webpack module
+        // registries, two of every "singleton", and two createRoot() calls on #root —
+        // the entire editor mounted twice, one full UI stacked on the other. On macOS
+        // each tree is its own set of CALayers, which is what made panels flash.
+        // (2026-09-08) Dev now matches production, which always had inject: false.
+        inject: false,
         templateParameters: {
           devMode: process.env.devMode === 'yes' || process.env.NODE_ENV === 'development'
         }

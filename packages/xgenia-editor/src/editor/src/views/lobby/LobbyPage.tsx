@@ -232,11 +232,9 @@ export function LobbyPage({ onProjectLoaded }: LobbyPageProps) {
         description: choice.description
       });
 
-      if (!project) return;
-      onProjectLoaded(project);
-      // The editor route mounts on the next tick; the sidebar model is global, so the switch
-      // takes effect as soon as the rail renders.
-      if (choice.description?.trim()) ops.openChatPanel();
+      // The chat is opened by EditorPage once it has registered the sidebar items — there is
+      // no chat item to switch to from here.
+      if (project) onProjectLoaded(project);
     },
     [onProjectLoaded]
   );
