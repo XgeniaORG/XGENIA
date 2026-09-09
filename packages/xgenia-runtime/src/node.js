@@ -240,9 +240,37 @@ Node.prototype.connectInput = function (inputName, sourceNode, sourcePortName) {
   try {
     sourcePort = sourceNode.getOutput(sourcePortName);
   } catch (e) {
-    // Source node may not have the output registered yet (e.g. fallback nodes)
-    console.warn('[Node.connectInput] Source node "' + sourceNode.name + '" has no output "' + sourcePortName + '": ' + e.message);
-    return;
+    // (2026-09-09) Mirror the case-insensitive fallback the INPUT side has had since
+    // 2026-03-10. A wire saved as `done` against an output really named `Done` used to
+    // die here as a console.warn and a silently dropped connection — the graph looked
+    // correct and nothing ever fired ("wired but nothing happens"). Resolve by
+    // first-character case, then a whole-name case-insensitive match; an exact match
+    // above always wins, so a node that really has both `Do` and `do` is untouched.
+    var resolvedOutput = null;
+    if (sourceNode._outputs && typeof sourcePortName === 'string' && sourcePortName.length > 0) {
+      var lowerFirst = sourcePortName.charAt(0).toLowerCase() + sourcePortName.slice(1);
+      var upperFirst = sourcePortName.charAt(0).toUpperCase() + sourcePortName.slice(1);
+      if (lowerFirst !== sourcePortName && sourceNode.hasOutput(lowerFirst)) resolvedOutput = lowerFirst;
+      else if (upperFirst !== sourcePortName && sourceNode.hasOutput(upperFirst)) resolvedOutput = upperFirst;
+      else {
+        var lowerOutput = sourcePortName.toLowerCase();
+        for (var outKey in sourceNode._outputs) {
+          if (outKey.toLowerCase() === lowerOutput) {
+            resolvedOutput = outKey;
+            break;
+          }
+        }
+      }
+    }
+    if (resolvedOutput !== null) {
+      console.debug('[Node.connectInput] Resolved output "' + sourcePortName + '" → "' + resolvedOutput + '" on ' + sourceNode.name);
+      sourcePortName = resolvedOutput;
+      sourcePort = sourceNode.getOutput(sourcePortName);
+    } else {
+      // Source node may not have the output registered yet (e.g. fallback nodes)
+      console.warn('[Node.connectInput] Source node "' + sourceNode.name + '" has no output "' + sourcePortName + '": ' + e.message);
+      return;
+    }
   }
   if (!sourcePort || typeof sourcePort.registerConnection !== 'function') {
     // Fallback nodes may return null or a plain value instead of an OutputProperty
