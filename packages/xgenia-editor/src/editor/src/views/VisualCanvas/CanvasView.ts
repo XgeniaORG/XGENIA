@@ -754,7 +754,32 @@ export class CanvasView extends View {
           Math.abs(scaleX - scaleY) < 0.05 &&
           Math.abs(scaleX - Math.round(scaleX * 2) / 2) < 0.05;
 
-        if (!looksLikeUniformScale && (actual.width < width - 2 || actual.height < height - 2)) {
+        // A SCALE CAN BE LESS THAN ONE (2026-09-09, found on the live Olympus5x3 run).
+        // `looksLikeUniformScale` only ever anticipated scale-UP: it demands `scaleX > 0.98`,
+        // because the case in mind was a 2x display inflating the buffer. But this editor runs at
+        // an Electron ZOOM FACTOR, and at zoom 0.754 every capture comes back at 0.754x — a
+        // 1920x1080 request measured 1448x814, and a 384x216 request that fits the window several
+        // times over measured 290x162. THE SAME FACTOR AT BOTH SIZES, which is the signature of a
+        // resample and the one thing a clip cannot fake. Both were refused as "likely a crop", so
+        // on this machine no design capture could EVER succeed, at any size — and the panel's own
+        // two-size cross-check, which exists precisely to tell a uniform scale from a clip, never
+        // received a single pixel to judge.
+        //
+        // What makes accepting this safe is the check ~30 lines above: it has already confirmed the
+        // GUEST reports `window.innerWidth/innerHeight` equal to the requested size (±2), so the
+        // guest really did lay the screen out at the full design size. `webview.capturePage()`
+        // captures that guest's own contents, so what comes back is the whole composition
+        // resampled, not a corner of it. A capture that IS the wrong surface fails the guest-
+        // viewport check first, which is where that concern belongs.
+        //
+        // The axes must still agree: a genuine clip skews one axis against the other. An
+        // aspect-matched clip would survive this, and refusing it is not this listener's job —
+        // that is exactly what the caller's reference capture at a second size settles.
+        const axesAgree = Math.abs(scaleX - scaleY) < 0.02;
+        const looksLikeUniformDownScale = scaleX > 0.2 && scaleY > 0.2 && scaleX < 1 && axesAgree;
+
+        if (!looksLikeUniformScale && !looksLikeUniformDownScale
+            && (actual.width < width - 2 || actual.height < height - 2)) {
           // Smaller than requested and not an even scale-up: the capture was clipped — almost
           // certainly the real editor window is not big enough to show the full design size on
           // screen. Returning this image would look like a correct 1920x1080 (etc.) capture while
@@ -768,7 +793,16 @@ export class CanvasView extends View {
 
         const payload: any = { success: true, image: nativeImage.toDataURL(), width: actual.width, height: actual.height };
         if (actual.width !== width || actual.height !== height) {
-          payload.message = `captured at ${actual.width}x${actual.height} (requested ${width}x${height}) — likely a display scale factor; width/height above are the true pixel dimensions of the image`;
+          // Name the direction. "a display scale factor" was written for the 2x case and reads as
+          // nonsense on a capture that came back SMALLER, where the cause is this window's zoom
+          // factor — and the caller decides what to do with the image partly on this sentence.
+          const factor = ((scaleX + scaleY) / 2).toFixed(3);
+          payload.message = scaleX < 1
+            ? `captured at ${actual.width}x${actual.height} (requested ${width}x${height}) — the guest reached the `
+              + `full ${width}x${height} viewport and the image is that whole surface resampled by x${factor}, this `
+              + `window's zoom factor, not a crop; width/height above are the true pixel dimensions of the image`
+            : `captured at ${actual.width}x${actual.height} (requested ${width}x${height}) — likely a display scale `
+              + `factor (x${factor}); width/height above are the true pixel dimensions of the image`;
         }
         reply(payload);
       } catch (e: any) {
