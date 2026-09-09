@@ -557,6 +557,8 @@ function generateNodeLibrary(nodeRegister) {
             'pixi.Spine',
             'pixi.ReelCell',
             'pixi.ReelColumn',
+            'pixi.CellOverlay',
+            'pixi.Wheel',
             // 'pixi.MatterPhysics'
           ]
         },
@@ -584,6 +586,31 @@ function generateNodeLibrary(nodeRegister) {
       description: 'Logic, events, string manipulation',
       type: 'logic',
       subCategories: [
+        {
+          // Slot Player UX (2026-09-09): client-side slot nodes (autoplay, audio mixing,
+          // rollups, responsible-gaming timers, jurisdiction rules, accessibility, telemetry,
+          // manual reel driving). Browser-only; not compiled to the RGS.
+          name: 'Slot Player UX',
+          items: [
+            'Autoplay',
+            'Win Rollup',
+            'Reel Stop Watcher',
+            'Column Spin Router',
+            'Wide Grid Bridge',
+            'Audio Mixer',
+            'Volume Ramp',
+            'Reality Check',
+            'Session Limits',
+            'Jurisdiction Rules',
+            'Accessibility Settings',
+            'Screen Reader Announce',
+            'Player Progress',
+            'RGS Leaderboard',
+            'Telemetry Event',
+            'Performance Budget',
+            'RGS Translations'
+          ]
+        },
         {
           name: 'General Utils',
           items: [
@@ -691,6 +718,34 @@ function generateNodeLibrary(nodeRegister) {
             'Weighted Reels',
             'SlotMainEngine',
             'PixiReelController'
+          ]
+        },
+        {
+          // Slot Features (2026-09-09): shared-core maths nodes that compile to the RGS
+          // through slot-feature-node-converter.ts. See slot-feature-cores.js.
+          name: 'Slot Features',
+          items: [
+            'Cluster Pays',
+            'Progressive Meter',
+            'Multiplier Ladder',
+            'Symbol Value Grid',
+            'Coin Collector',
+            'Jackpot Tiers',
+            'RGS Jackpot Pools',
+            'Bet Mode',
+            'Variant Selector',
+            'Sticky Symbols',
+            'Expand Symbols',
+            'Locked Reels',
+            'Hold And Win Grid',
+            'Symbol Upgrade',
+            'Feature Trigger',
+            'Directional Cascade',
+            'Wheel Spin',
+            'Pick Bonus',
+            'Paytable Modifier',
+            'Chapter Branch',
+            'Paytable Rows'
           ]
         },
         {

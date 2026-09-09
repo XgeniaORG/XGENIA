@@ -18,6 +18,7 @@ import { CollectionNodeConverter } from './collection-node-converter';
 import { MathNodeConverter } from './math-node-converter';
 // Import RGS extra (provably-fair / data / I-O) node converter
 import { RgsExtraNodeConverter } from './rgs-extra-node-converter';
+import { SlotFeatureNodeConverter, SlotFeatureNodeRegistry } from './slot-feature-node-converter';
 // Import signal passthrough node converter
 import { SignalPassthroughNodeConverter } from './signal-passthrough-node-converter';
 // Import slot game node converter
@@ -90,6 +91,11 @@ const STATE_CHANNEL_NODE_TYPES: ReadonlySet<string> = new Set([
   // Standard library — the game-type-agnostic accumulator. Its state is one
   // number.
   'Counter',
+  // Slot Features nodes whose cores declare bounded state (Progressive Meter,
+  // Multiplier Ladder, Sticky Symbols, Locked Reels, Hold And Win Grid, Symbol
+  // Upgrade, Pick Bonus, Chapter Branch). Each keeps at most a grid's worth of
+  // values; see slot-feature-cores.js.
+  ...SlotFeatureNodeRegistry.getStatefulTypes(),
 ]);
 
 /**
@@ -669,6 +675,9 @@ export class CloudFunctionConverter {
   private readonly collectionNodeConverter: CollectionNodeConverter;
   // Add RGS extra node converter (provably-fair / data / I-O nodes)
   private readonly rgsExtraNodeConverter: RgsExtraNodeConverter;
+  // Slot Features converter: nodes compiled by calling the shared cores of
+  // slot-feature-cores.js (embedded once per script; see corePrelude()).
+  private readonly slotFeatureNodeConverter: SlotFeatureNodeConverter;
   // Stage-2 persistence: stateful variables (Variable2 + Set Variable writers)
   // resolved once per generateRgsScript run; null on the cloud-function path.
   private _statefulVars: Map<string, { initial: unknown; writers: Node[] }> | null = null;
@@ -697,6 +706,7 @@ export class CloudFunctionConverter {
     this.signalPassthroughNodeConverter = new SignalPassthroughNodeConverter();
     this.collectionNodeConverter = new CollectionNodeConverter();
     this.rgsExtraNodeConverter = new RgsExtraNodeConverter();
+    this.slotFeatureNodeConverter = new SlotFeatureNodeConverter();
 
     // Then assign function names (which depends on converters)
     this.nodeFunctionNames = this.assignUniqueFunctionNames();
@@ -1022,6 +1032,7 @@ ${functionSignature}
     const signalPassthroughNodes = this.findAllSignalPassthroughNodes();
     const collectionNodes = this.findAllCollectionNodes();
     const extraNodes = this.findAllExtraNodes();
+    const slotFeatureNodes = this.findAllSlotFeatureNodes();
     const cloudLogicNodes = this.component.graph.roots.filter((node) => node.typename.startsWith('/#__cloud__/'));
     const mathsLogicNodes = this.component.graph.roots.filter((node) => node.typename.startsWith('/#__maths__/'));
     const allFunctionNodes = [
@@ -1032,6 +1043,7 @@ ${functionSignature}
       ...signalPassthroughNodes,
       ...collectionNodes,
       ...extraNodes,
+      ...slotFeatureNodes,
       ...cloudLogicNodes,
       ...mathsLogicNodes
     ];
@@ -1060,6 +1072,8 @@ ${functionSignature}
         baseName = `signal_${node.typename.toLowerCase().replace(/\s+/g, '_')}`;
       } else if (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename)) {
         baseName = `collection_${node.typename.toLowerCase().replace(/\s+/g, '_')}`;
+      } else if (this.slotFeatureNodeConverter && this.slotFeatureNodeConverter.isSlotFeatureNode(node.typename)) {
+        baseName = `feature_${node.typename.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
       } else if (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(node.typename)) {
         baseName = `extra_${node.typename.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
       } else if (node.typename.startsWith('/#__cloud__/')) {
@@ -1105,6 +1119,7 @@ ${functionSignature}
       ...stdLibraryNodes,
       ...signalPassthroughNodes,
       ...collectionNodes,
+      ...this.findAllSlotFeatureNodes(),
       ...cloudLogicNodes,
       ...mathsLogicNodes,
       ...this.findAllNodesByType('Javascript2'),
@@ -1113,7 +1128,10 @@ ${functionSignature}
     const sortedFunctionNodes = this.sortNodesByExecutionOrder(allFunctionNodes);
 
     const inputParams = this.getRequestInputParams(requestNode);
-    const functionDefinitions = this.generateFunctionDefinitions(sortedFunctionNodes);
+    const cloudFeaturePrelude = this.slotFeatureNodeConverter.hasAnySlotFeatureNode(allFunctionNodes.map((n) => n.typename))
+      ? SlotFeatureNodeConverter.corePrelude()
+      : '';
+    const functionDefinitions = cloudFeaturePrelude + this.generateFunctionDefinitions(sortedFunctionNodes);
     const functionInvocations = this.generateFunctionInvocations(sortedFunctionNodes, requestNode);
     const { responseStatement, statusCodeLogic } = this.getFinalResponseStatementWithStatus();
 
@@ -1254,6 +1272,7 @@ ${originalComponentStructure}
     const signalPassthroughNodes = this.findAllSignalPassthroughNodes();
     const collectionNodes = this.findAllCollectionNodes();
     const extraNodes = this.findAllExtraNodes();
+    const slotFeatureNodes = this.findAllSlotFeatureNodes();
     const mathsLogicNodes = this.component.graph.roots.filter((n) => n.typename.startsWith('/#__maths__/'));
 
     const allFunctionNodes = [
@@ -1264,6 +1283,7 @@ ${originalComponentStructure}
       ...signalPassthroughNodes,
       ...collectionNodes,
       ...extraNodes,
+      ...slotFeatureNodes,
       ...mathsLogicNodes,
       ...this.findAllNodesByType('Javascript2'),
       ...this.findAllNodesByType('stateManager'),
@@ -1289,9 +1309,14 @@ ${originalComponentStructure}
     const extraPrelude = this.rgsExtraNodeConverter.hasAnyExtraNode(allFunctionNodes.map((n) => n.typename))
       ? RgsExtraNodeConverter.helperPrelude()
       : '';
+    // Slot Features cores (slot-feature-cores.js) — embedded ONCE, only when a
+    // Slot Features node is present, so every other script stays byte-identical.
+    const featurePrelude = this.slotFeatureNodeConverter.hasAnySlotFeatureNode(allFunctionNodes.map((n) => n.typename))
+      ? SlotFeatureNodeConverter.corePrelude()
+      : '';
 
     // Generate function definitions (same code generators as cloud)
-    const functionDefinitions = extraPrelude + this.generateFunctionDefinitions(sortedFunctionNodes);
+    const functionDefinitions = extraPrelude + featurePrelude + this.generateFunctionDefinitions(sortedFunctionNodes);
 
     // Generate invocations with RGS-specific wiring
     const functionInvocations = this.generateRgsFunctionInvocations(sortedFunctionNodes);
@@ -1687,11 +1712,23 @@ ${originalComponentStructure}
         }
       });
 
-      // Inject RGS RNG for slot game nodes
-      if (this.slotGameNodeConverter && this.slotGameNodeConverter.isSlotGameNode(node.typename)) {
+      // Inject RGS RNG for slot game nodes (and the Slot Features nodes, whose
+      // betAmount is likewise the round's stake).
+      if (
+        (this.slotGameNodeConverter && this.slotGameNodeConverter.isSlotGameNode(node.typename)) ||
+        (this.slotFeatureNodeConverter && this.slotFeatureNodeConverter.isSlotFeatureNode(node.typename))
+      ) {
         inputMappings.set('_rgsRandom', 'rgsRandom');
         inputMappings.set('_rgsRandomInt', 'rgsRandomInt');
         inputMappings.set('betAmount', 'bet');
+      }
+
+      // The live jackpot pools for the one node that reads them (RGS Jackpot
+      // Pools). ctx.jackpots carries display fields only — see XRGS
+      // _shared/script-sandbox.ts JackpotView — and is absent on Simulate, in
+      // which case the node sees no pools rather than a client-supplied list.
+      if (this.slotFeatureNodeConverter && this.slotFeatureNodeConverter.needsJackpots(node.typename)) {
+        inputMappings.set('_jackpots', '((typeof ctx !== "undefined" && ctx && Array.isArray(ctx.jackpots)) ? ctx.jackpots : [])');
       }
 
       // Hand a state-carrying node whatever it returned last round. The `state`
@@ -2020,6 +2057,9 @@ ${originalComponentStructure}
         } else if (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename)) {
           const functionName = this.getFunctionName(node);
           return this.collectionNodeConverter.convertCollectionNode(node, functionName);
+        } else if (this.slotFeatureNodeConverter && this.slotFeatureNodeConverter.isSlotFeatureNode(node.typename)) {
+          const functionName = this.getFunctionName(node);
+          return this.slotFeatureNodeConverter.generateNodeFunctionDefinition(node, functionName);
         } else if (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(node.typename)) {
           const functionName = this.getFunctionName(node);
           return this.rgsExtraNodeConverter.generateNodeFunctionDefinition(node, functionName);
@@ -2297,6 +2337,16 @@ ${originalComponentStructure}
   // Non-visual nodes not handled by any other converter (provably-fair / data /
   // I-O). These are extracted to the backend by Compile, so the RGS script must
   // generate functions for them — otherwise their outputs are dropped.
+  /**
+   * Find all Slot Features nodes (shared-core nodes) in the component
+   */
+  private findAllSlotFeatureNodes(): Node[] {
+    if (!this.slotFeatureNodeConverter) {
+      return [];
+    }
+    return this.component.graph.roots.filter((node) => this.slotFeatureNodeConverter.isSlotFeatureNode(node.typename));
+  }
+
   private findAllExtraNodes(): Node[] {
     if (!this.rgsExtraNodeConverter) {
       return [];
@@ -2326,7 +2376,8 @@ ${originalComponentStructure}
       (this.stdLibraryNodeConverter && this.stdLibraryNodeConverter.isStdLibraryNode(t)) ||
       (this.signalPassthroughNodeConverter && this.signalPassthroughNodeConverter.isSignalPassthroughNode(t)) ||
       (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(t)) ||
-      (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(t))
+      (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(t)) ||
+      (this.slotFeatureNodeConverter && this.slotFeatureNodeConverter.isSlotFeatureNode(t))
     ) {
       return true;
     }
@@ -2477,7 +2528,8 @@ ${originalComponentStructure}
         (this.signalPassthroughNodeConverter &&
           this.signalPassthroughNodeConverter.isSignalPassthroughNode(node.typename)) ||
         (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename)) ||
-        (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(node.typename))
+        (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(node.typename)) ||
+        (this.slotFeatureNodeConverter && this.slotFeatureNodeConverter.isSlotFeatureNode(node.typename))
       ) {
         // For these nodes, look for connections to this node regardless of port prefix.
         // RGS-extra nodes (e.g. Convert Inputs into Record) name their dynamic value
@@ -2506,7 +2558,8 @@ ${originalComponentStructure}
         (this.signalPassthroughNodeConverter &&
           this.signalPassthroughNodeConverter.isSignalPassthroughNode(node.typename)) ||
         (this.collectionNodeConverter && this.collectionNodeConverter.isCollectionNode(node.typename)) ||
-        (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(node.typename))
+        (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(node.typename)) ||
+        (this.slotFeatureNodeConverter && this.slotFeatureNodeConverter.isSlotFeatureNode(node.typename))
       ) {
         // For math and slot game nodes, we need to include ALL required parameters
         // Some may come from connections, others from node parameters (sidepanel)
@@ -2577,7 +2630,8 @@ ${originalComponentStructure}
                 (this.mathNodeConverter && this.mathNodeConverter.isMathNode(sourceNodeType)) ||
                 (this.slotGameNodeConverter && this.slotGameNodeConverter.isSlotGameNode(sourceNodeType)) ||
                 (this.stdLibraryNodeConverter && this.stdLibraryNodeConverter.isStdLibraryNode(sourceNodeType)) ||
-                (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(sourceNodeType))
+                (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(sourceNodeType)) ||
+                (this.slotFeatureNodeConverter && this.slotFeatureNodeConverter.isSlotFeatureNode(sourceNodeType))
               ) {
                 // For REST nodes, use bracket notation and strip 'out-' prefix from fromProperty
                 // because REST node outputs are stored without the 'out-' prefix
@@ -2761,7 +2815,8 @@ ${originalComponentStructure}
                   (this.mathNodeConverter && this.mathNodeConverter.isMathNode(sourceNode.typename)) ||
                   (this.slotGameNodeConverter && this.slotGameNodeConverter.isSlotGameNode(sourceNode.typename)) ||
                   (this.stdLibraryNodeConverter && this.stdLibraryNodeConverter.isStdLibraryNode(sourceNode.typename)) ||
-                  (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(sourceNode.typename))
+                  (this.rgsExtraNodeConverter && this.rgsExtraNodeConverter.isExtraNode(sourceNode.typename)) ||
+                  (this.slotFeatureNodeConverter && this.slotFeatureNodeConverter.isSlotFeatureNode(sourceNode.typename))
                 ) {
                   // For REST nodes, use bracket notation and strip 'out-' prefix from fromProperty
                   // because REST node outputs are stored without the 'out-' prefix
