@@ -38,26 +38,40 @@ function downloadDirs(): string[] {
   return dirs;
 }
 
-/** Project directories from the editor's recents, newest first. Best-effort. */
+/**
+ * Project directories from the editor's recents, newest first. Best-effort.
+ *
+ * BOTH PROFILES, ALWAYS. (2026-09-11) This read only `Application Support/XGENIA` — the
+ * PACKAGED app's profile. The dev build stores its recents under `.../Electron`, so on a dev
+ * session this returned nothing, the project-local export directory was never searched, and
+ * two exports that had saved perfectly were reported as "export-not-written". The same
+ * wrong-profile mistake the editorSettings model lookup has to make twice a day; there is no
+ * cost to reading both, and guessing which build is running is how the capability silently
+ * disappears on whichever one you guessed wrong.
+ */
 function recentProjectDirs(): string[] {
-  try {
-    const file = path.join(
-      os.homedir(),
-      'Library',
-      'Application Support',
-      'XGENIA',
-      'recently_opened_project.json'
-    );
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-    const items: any[] = Array.isArray(raw) ? raw : Object.values(raw)[0] as any[];
-    if (!Array.isArray(items)) return [];
-    return items
-      .map((it) => it && it.retainedProjectDirectory)
-      .filter((d): d is string => typeof d === 'string' && d.length > 0)
-      .slice(0, 10);
-  } catch {
-    return [];
+  const dirs: string[] = [];
+  for (const profile of ['Electron', 'XGENIA']) {
+    try {
+      const file = path.join(
+        os.homedir(),
+        'Library',
+        'Application Support',
+        profile,
+        'recently_opened_project.json'
+      );
+      const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const items: any[] = Array.isArray(raw) ? raw : Object.values(raw)[0] as any[];
+      if (!Array.isArray(items)) continue;
+      for (const it of items) {
+        const d = it && it.retainedProjectDirectory;
+        if (typeof d === 'string' && d.length > 0 && !dirs.includes(d)) dirs.push(d);
+      }
+    } catch {
+      /* profile absent — the other one may still answer */
+    }
   }
+  return dirs.slice(0, 20);
 }
 
 /** Newest export file across the candidate directories, or null. */
