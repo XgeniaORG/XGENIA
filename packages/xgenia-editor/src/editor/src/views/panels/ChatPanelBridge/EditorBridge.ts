@@ -32,7 +32,7 @@ import { guid } from '@xgenia-utils/utils';
 import { platform } from '@xgenia/platform';
 import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
 import { ParamAuthors } from '../propertyeditor/inspector/paramAuthors';
-import { supabase } from '../../../supabaseInit';
+import { supabase, refreshSessionShared } from '../../../supabaseInit';
 import {
     addProjectPalette,
     clearProjectBaseStyle,
@@ -2769,13 +2769,22 @@ export class EditorBridge {
          * same single-flight discipline the panel uses — two concurrent 401s must not double-spend.
          */
         h('auth.refreshJwt', async () => {
-            const g: any = window as any;
-            if (g.__xgeniaAuthRefreshInFlight) {
-                // Share the outcome — including the thrown reason — with the in-flight caller.
-                return await g.__xgeniaAuthRefreshInFlight;
-            }
+            // Single-flighting lives in `refreshSessionShared` now (supabaseInit.ts), because the
+            // bridge was never the only refresher: AuthContext and AuthValidationService call it
+            // too, and the client's own autoRefresh tick makes a fourth. A latch local to this
+            // handler could not see any of them — two concurrent 401s must not double-spend, and
+            // neither must a 401 racing the editor's own background refresh.
+            //
+            // WHY THIS IS BOUNDED (2026-09-10). refreshSession() waits on the auth lock, and
+            // supabase-js keeps retrying a failing refresh inside that lock for up to 30s
+            // (AUTO_REFRESH_TICK_DURATION). The panel gave up at 15s and rendered "Session
+            // Expired — Please Log In Again" for a session that was mid-refresh and fine. The
+            // owner must answer before the consumer's patience runs out, and it must say WHICH
+            // it was: busy, or actually dead. Silence cannot distinguish those; a message can.
+            const REFRESH_BOUND_MS = 12_000;
+
             const run = (async () => {
-                const { data, error } = await supabase.auth.refreshSession();
+                const { data, error } = await refreshSessionShared();
                 if (error) {
                     // "Already Used" means the family is revoked server-side — no client-side
                     // retry can recover it, and adding one would only spend more tokens.
@@ -2789,8 +2798,23 @@ export class EditorBridge {
                 if (!token) throw new Error('refreshSession returned no session');
                 return token;
             })();
-            g.__xgeniaAuthRefreshInFlight = run;
-            try { return await run; } finally { g.__xgeniaAuthRefreshInFlight = null; }
+
+            // Whoever else is waiting on the shared refresh still gets its result; this bound
+            // only limits how long the PANEL is made to wait for an answer.
+            const timeout = new Promise<'__timeout'>((resolve) => setTimeout(() => resolve('__timeout'), REFRESH_BOUND_MS));
+            const result = await Promise.race([run, timeout]);
+
+            if (result === '__timeout') {
+                // Don't let an abandoned rejection surface as an unhandled promise.
+                run.catch(() => { /* reported to whoever is still awaiting it */ });
+                console.warn(`[EditorBridge] auth.refreshJwt: still refreshing after ${REFRESH_BOUND_MS / 1000}s — answering BUSY so the panel retries instead of declaring the session dead`);
+                throw new Error(
+                    `AUTH_REFRESH_BUSY: the editor is still refreshing the session after ${REFRESH_BOUND_MS / 1000}s `
+                    + `(the auth lock is held by an in-progress refresh). The session is not necessarily expired.`,
+                );
+            }
+
+            return result;
         });
 
         // --- XRGS (maths/RGS) bridge ---

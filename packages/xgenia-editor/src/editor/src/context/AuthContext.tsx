@@ -5,7 +5,7 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import Intercom, { update as intercomUpdate, shutdown as intercomShutdown } from '@intercom/messenger-js-sdk';
 
 import { useIsOnline } from '../hooks/useIsOnline';
-import { supabase, signInWithEmail, signOut as supabaseSignOut } from '../supabaseInit';
+import { supabase, signInWithEmail, signOut as supabaseSignOut, refreshSessionShared } from '../supabaseInit';
 import type { AuthContextType, AuthState } from '../types/auth';
 import { AuthValidationService, ValidationResult } from '../utils/AuthValidationService';
 import { debugSessionState, testSessionStorage, cleanupLegacyStorage } from '../utils/userUtils';
@@ -334,7 +334,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       console.log('[AuthContext] Attempting to refresh session...');
       setAuthState((prev) => ({ ...prev, loading: true, error: null }));
 
-      const { data, error } = await supabase.auth.refreshSession();
+      // Shared single-flight — see refreshSessionShared. A manual refresh here used to race
+      // the AI panel's bridge refresh and the background validation sweep for the same
+      // single-use refresh token.
+      const { data, error } = await refreshSessionShared();
 
       if (error) {
         console.error('[AuthContext] Session refresh failed:', error);
