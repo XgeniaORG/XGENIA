@@ -1,4 +1,4 @@
-import { supabase } from '../supabaseInit';
+import { supabase, refreshSessionShared } from '../supabaseInit';
 import type { User, Session } from '@supabase/supabase-js';
 
 interface AuthValidationState {
@@ -57,7 +57,9 @@ export class AuthValidationService {
         // Try to refresh the session
         try {
           console.log('[AuthValidationService] Session expired, attempting refresh...');
-          const { data, error } = await supabase.auth.refreshSession();
+          // Shared single-flight: this fires on launch and can collide with the AI panel's
+          // 401 recovery. Two refreshes spend the token twice and revoke the family.
+          const { data, error } = await refreshSessionShared();
           if (!error && data.session) {
             console.log('[AuthValidationService] Session refreshed successfully');
             await this.recordSuccessfulValidation();
