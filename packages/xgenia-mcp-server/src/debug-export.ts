@@ -27,7 +27,37 @@ const EXPORT_GLOB = /^xgenia-debug-export-(\d+)\.json$/;
 
 function downloadDirs(): string[] {
   const home = os.homedir();
-  return [path.join(home, 'Downloads'), home, os.tmpdir()];
+  const dirs = [path.join(home, 'Downloads'), home, os.tmpdir()];
+  // The panel now also writes every export into the open project at
+  // .xgenia/debug-exports/ (ChatPanel.tsx strategy 0), because a browser download can
+  // silently produce no file at all — which is how a click could report success with
+  // nothing on disk. That copy is the deterministic one, so look there too.
+  for (const dir of recentProjectDirs()) {
+    dirs.push(path.join(dir, '.xgenia', 'debug-exports'));
+  }
+  return dirs;
+}
+
+/** Project directories from the editor's recents, newest first. Best-effort. */
+function recentProjectDirs(): string[] {
+  try {
+    const file = path.join(
+      os.homedir(),
+      'Library',
+      'Application Support',
+      'XGENIA',
+      'recently_opened_project.json'
+    );
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const items: any[] = Array.isArray(raw) ? raw : Object.values(raw)[0] as any[];
+    if (!Array.isArray(items)) return [];
+    return items
+      .map((it) => it && it.retainedProjectDirectory)
+      .filter((d): d is string => typeof d === 'string' && d.length > 0)
+      .slice(0, 10);
+  } catch {
+    return [];
+  }
 }
 
 /** Newest export file across the candidate directories, or null. */
@@ -112,7 +142,22 @@ export async function debugExport(options: DebugExportOptions = {}) {
         hint: 'The panel deploys independently of the editor, so its header controls move. Run xgenia_probe, then read ChatPanel.tsx for the current button.'
       };
     }
-    await button.click({ timeout: 10_000 });
+    // The panel's header icons are hover-revealed:
+    //   .header-controls { opacity: 0; pointer-events: none; }
+    //   .chat-panel-root:hover .header-controls { pointer-events: auto; }
+    // Playwright's click hit-tests the topmost element at the point, which without a
+    // hover is the header row, not the button — the click was reported as intercepted
+    // by "<div class=\"flex items-center gap-3\"> intercepts pointer events" and timed
+    // out. Hover the panel root first so the controls become clickable; fall back to a
+    // forced click if the hover itself is not enough.
+    try {
+      await frame.locator('.chat-panel-root').first().hover({ timeout: 5_000 });
+    } catch { /* the panel may not use that class any more — the click below still tries */ }
+    try {
+      await button.click({ timeout: 10_000 });
+    } catch {
+      await button.click({ timeout: 10_000, force: true });
+    }
     clicked = true;
 
     const deadline = Date.now() + timeoutMs;
