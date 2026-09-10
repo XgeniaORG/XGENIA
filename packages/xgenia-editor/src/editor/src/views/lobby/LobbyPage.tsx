@@ -50,12 +50,6 @@ const SETTINGS = {
 /** How many folders one "Reveal" may open. Beyond this it is a window-spawning accident. */
 const REVEAL_LIMIT = 5;
 
-/**
- * Layout height (px) folding the hero reclaims — must match `.HeroFolded`'s `margin-bottom` in
- * LobbyPage.module.scss. See the fold guard in the scroll effect below.
- */
-const HERO_FOLD_COLLAPSE = 248;
-
 export function LobbyPage({ onProjectLoaded }: LobbyPageProps) {
   const { entries, entriesById, metaById, loading, requestMeta } = useLobbyProjects();
 
@@ -190,26 +184,12 @@ export function LobbyPage({ onProjectLoaded }: LobbyPageProps) {
     // timeline cannot drive an element in a different subtree. Passive, and it only ever flips
     // one boolean, so it never lays out on the scroll thread.
     //
-    // Two thresholds, not one: folding animates `margin-bottom: -248px` on `.HeroWrap` (see
-    // LobbyPage.module.scss), which reflows the grid beneath it over 420ms. A single threshold at
-    // the top of a long list means ordinary scroll jitter around that pixel — trackpad momentum,
-    // a wheel tick that overshoots — flips `heroFolded` back and forth, re-triggering that reflow
-    // mid-scroll and yanking the grid the user is trying to read. The gap between fold-at-150 and
-    // unfold-at-80 is dead zone the scroll position has to cross twice before it flips again.
-    const onScroll = () => {
-      setHeroFolded((was) => {
-        if (was) return el.scrollTop > 80;
-        if (el.scrollTop <= 150) return false;
-
-        // Folding reclaims HERO_FOLD_COLLAPSE px of height from inside the scroll container. If
-        // less than that remains unscrolled below the current position, reclaiming it drops
-        // `scrollHeight` under `scrollTop + clientHeight` and the browser clamps `scrollTop`
-        // straight back down — the "snaps to top right as the hero collapses" glitch. Only fold
-        // once there is enough content below to absorb the collapse without a forced clamp.
-        const remaining = el.scrollHeight - el.clientHeight - el.scrollTop;
-        return remaining >= HERO_FOLD_COLLAPSE;
-      });
-    };
+    // Two thresholds, not one: a single threshold at the top of a long list means ordinary scroll
+    // jitter around that pixel — trackpad momentum, a wheel tick that overshoots — flips
+    // `heroFolded` back and forth, restarting the fold's transform/opacity transition mid-scroll.
+    // The gap between fold-at-150 and unfold-at-80 is dead zone the scroll position has to cross
+    // twice before it flips again.
+    const onScroll = () => setHeroFolded((was) => (was ? el.scrollTop > 80 : el.scrollTop > 150));
 
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
