@@ -3065,6 +3065,37 @@ export class EditorBridge {
                 }));
         });
 
+        // --- The preview device the USER pinned in the topbar ---
+        //
+        // (2026-09-10.) The `screen` tool had three sources — the bible's declared target,
+        // a measurement of the live preview, and the last authored surface — and none of
+        // them was the device chip in the top bar. Its own docs tell it to distrust the
+        // measurement ("a docked panel and a phone preset measure alike"), so the one
+        // signal carrying the user's choice was both invisible and untrusted, and a build
+        // silently defaulted to desktop 1920x1080.
+        //
+        // Note the null case is REAL and must stay distinguishable: the chip's
+        // unconstrained option stores {null,null,null} and renders as the word "Desktop",
+        // which is the absence of a choice rather than a 1920x1080 target.
+        h('project.getPinnedViewport', () => {
+            try {
+                const { EditorSettings } = require('../../../utils/editorsettings');
+                const id = (ProjectModel.instance as any)?.id;
+                if (!id) return null;
+                const vs = EditorSettings?.instance?.get(id)?.viewportSize;
+                if (!vs) return null;
+                const width = typeof vs.width === 'number' ? vs.width : null;
+                const height = typeof vs.height === 'number' ? vs.height : null;
+                const deviceName = typeof vs.deviceName === 'string' ? vs.deviceName : null;
+                if (width === null && height === null && deviceName === null) {
+                    return { pinned: false, width: null, height: null, deviceName: null };
+                }
+                return { pinned: true, width, height, deviceName };
+            } catch {
+                return null;
+            }
+        });
+
         // --- Project directory ---
         h('project.getDirectory', () => {
             try {
