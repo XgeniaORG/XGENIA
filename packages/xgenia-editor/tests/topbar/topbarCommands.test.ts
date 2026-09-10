@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseTopbarInput, suggestCommands } from '../../src/editor/src/views/EditorTopbar/topbar/topbarCommands';
+import { screenSizes } from '../../src/editor/src/views/EditorTopbar/ScreenSizes';
 
 const routes = [
   { path: '/#/', title: 'Lobby' },
@@ -124,4 +125,50 @@ test('non-path gibberish still matches nothing', () => {
 
 test('a known route still wins over the free-text fallback', () => {
   assert.equal((parseTopbarInput('/#/game', { routes }) as any).title, 'Base game');
+});
+
+// Machine targets. The industry words are deliberately absent from the preset LABELS,
+// which makes the parser the only way anyone types them — so it is the parser that has
+// to know them.
+test('industry jargon resolves to a machine family', () => {
+  const group = (t: string) => (parseTopbarInput(t, { routes }) as any).group;
+  assert.equal(group('slot'), 'Slot');
+  assert.equal(group('egm'), 'Slot');
+  assert.equal(group('etg'), 'Table');
+  assert.equal(group('roulette'), 'Table');
+  assert.equal(group('ssbt'), 'Betting');
+  assert.equal(group('sportsbook'), 'Betting');
+  assert.equal(group('vlt'), 'Bingo');
+  assert.equal(group('arcade'), 'Arcade');
+});
+
+test('a preset match is labelled in plain words, never in jargon', () => {
+  const label = (t: string) => (parseTopbarInput(t, { routes }) as any).label;
+  assert.equal(label('etg'), 'Roulette terminal preview');
+  assert.equal(label('egm'), 'Slot cabinet preview');
+  assert.equal(label('ssbt'), 'Betting terminal preview');
+});
+
+test('every group the parser can name has at least one preset to land on', () => {
+  // A word pointing at a group with no presets is a dead command: EditorTopbar resolves
+  // a preset match by finding the first entry of that group and silently does nothing.
+  const groups = new Set(
+    screenSizes.filter((s) => s.width).map((s) => s.group)
+  );
+  for (const word of ['slot', 'etg', 'ssbt', 'bingo', 'arcade', 'phone', 'tablet', 'desktop']) {
+    const match = parseTopbarInput(word, { routes }) as any;
+    assert.equal(match.id, 'preset', `${word} did not parse as a preset`);
+    assert.ok(groups.has(match.group), `${word} points at ${match.group}, which has no presets`);
+  }
+});
+
+test('a portrait 4K cabinet size is accepted as a typed custom size', () => {
+  // The height cap was 2160 — landscape-shaped — until cabinets arrived.
+  assert.deepEqual(parseTopbarInput('2160x3840', { routes }), {
+    kind: 'command',
+    id: 'size',
+    width: 2160,
+    height: 3840,
+    label: '2160 × 3840'
+  });
 });

@@ -40,6 +40,9 @@ export function GlassPopover({
   // Read the latest onClose from the listeners without re-registering them.
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  // The blur handler below resolves a tick late; by then the popover may already be gone.
+  const isVisibleRef = useRef(isVisible);
+  isVisibleRef.current = isVisible;
 
   useEffect(() => {
     if (!isVisible) return;
@@ -64,11 +67,34 @@ export function GlassPopover({
       }
     };
 
+    // The click that most needs to dismiss a top bar popover is a click on the PREVIEW,
+    // and the preview is an <iframe> (IframeViewer). A pointer event inside a child
+    // document never reaches this one, so the listener above cannot see it: before this,
+    // a popover opened over the canvas could only be closed by clicking editor chrome.
+    // Focus does cross the boundary — clicking into a frame blurs this window and leaves
+    // document.activeElement pointing at the frame element — so that is what we watch.
+    // Deferred a tick because activeElement is not guaranteed to be updated yet when
+    // blur fires, and checked for an actual frame so that switching to another app
+    // (window blurs, activeElement unchanged) leaves the popover open.
+    const onWindowBlur = () => {
+      setTimeout(() => {
+        if (!isVisibleRef.current) return;
+        const active = document.activeElement;
+        if (!active) return;
+        const tag = active.tagName;
+        if (tag !== 'IFRAME' && tag !== 'WEBVIEW') return;
+        if (isInside(active)) return;
+        onCloseRef.current();
+      }, 0);
+    };
+
     document.addEventListener('pointerdown', onPointerDown, true);
     window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('blur', onWindowBlur);
     return () => {
       document.removeEventListener('pointerdown', onPointerDown, true);
       window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('blur', onWindowBlur);
     };
   }, [isVisible, triggerRef]);
 
