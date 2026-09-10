@@ -112,6 +112,17 @@
 .ChildContainer {
   position: relative;
   z-index: 1;
+
+  // Only the copy the user sees. The measuring copy inside .MeasuringContainer must stay
+  // uncapped, or capping it would feed a shrunken height back into the placement that
+  // asked for the cap.
+  //
+  // --maxHeight is 'none' whenever the dialog's natural height already fits, so a dialog
+  // that fits is untouched — no cap, no scroll container, no rounding-error scrollbar.
+  &.is-scrollable {
+    max-height: var(--maxHeight, none);
+    overflow-y: auto;
+  }
 }
 
 @keyframes enter {
