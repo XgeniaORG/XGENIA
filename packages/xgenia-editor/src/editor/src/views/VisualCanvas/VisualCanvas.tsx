@@ -13,6 +13,7 @@ import { useTrackBounds } from '@xgenia-core-ui/hooks/useTrackBounds';
 import { CanvasView } from './CanvasView';
 import { IframeViewer, type PreviewHost } from './IframeViewer';
 import { FrameResizeHandles } from './FrameResizeHandles';
+import { useFrameRect } from './useFrameRect';
 import css from './VisualCanvas.module.scss';
 
 export interface VisualCanvasProps {
@@ -232,19 +233,14 @@ export function VisualCanvas({
     return () => clearTimeout(timer);
   }, [preloadKey]); // Re-run when webview is recreated
 
-  // The webview's visual box, expressed relative to .WebviewContainer (its positioned
-  // parent). getBoundingClientRect() on a CSS-transformed element returns the VISUAL
-  // box, which is what the handles have to sit on — the container is a centering flex
-  // box that is normally much larger than the frame.
-  const frameRect =
-    webviewBounds && containerBounds && webviewBounds.width > 0
-      ? {
-        left: webviewBounds.left - containerBounds.left,
-        top: webviewBounds.top - containerBounds.top,
-        width: webviewBounds.width,
-        height: webviewBounds.height
-      }
-      : null;
+  // The frame's visual box, in the coordinate space the handles are positioned in.
+  //
+  // Measured by useFrameRect rather than differenced from the two tracked bounds above:
+  // those are throttled, they are blind to a fit-scale change (a transform fires no
+  // ResizeObserver), and differencing two viewport rects inside an `overflow: auto`
+  // container counts the scroll offset twice. All three left the handles sitting away
+  // from the frame instead of on its edge. See useFrameRect.ts.
+  const frameRect = useFrameRect(webviewRef, containerRef);
 
   // The scale that maps pointer pixels onto device pixels. NOT the `zoom` prop:
   // CanvasView.renderReact() passes `this.zoomFactor` (the user's content zoom, applied

@@ -15,27 +15,18 @@ export interface FrameResizeHandlesProps {
   scale: number;
   deviceName?: string | null;
   /**
-   * The webview's visual box, in pixels relative to the positioned parent
-   * (.WebviewContainer). Handles are placed from this, because the container is a
-   * centering flex box that is normally much larger than the frame itself.
+   * The webview's visual box, in the coordinate space these handles are positioned in:
+   * offsets from the padding edge of the positioned parent (.WebviewContainer), before
+   * its scroll offset is applied. Handles are placed from this rather than from CSS
+   * offsets because the container is a centering flex box that is normally much larger
+   * than the frame itself. Produced by useFrameRect, which explains the two ways this
+   * measurement goes wrong if taken naively.
    */
   rect: { left: number; top: number; width: number; height: number } | null;
 }
 
 type Axis = 'x' | 'y' | 'xy';
 
-/**
- * Minimum gap between size requests while dragging.
- *
- * EditorDocument throttles viewer IPC at 100ms per event name AND counts every
- * throttled call as "blocked"; 100 blocked events PERMANENTLY disable all viewer IPC
- * for the session (EditorDocument.tsx:46-65). A 60fps drag emitting per pointermove
- * burns that budget in under two seconds and takes route navigation, zoom, inspect
- * mode and detach down with it. Stay just above the throttle window so a drag never
- * contributes a single blocked event. The size chip still updates every frame — it is
- * local state and costs nothing.
- */
-const EMIT_INTERVAL_MS = 120;
 const PRESETS = screenSizesWithDividers.filter((s) => typeof s !== 'string') as {
   name: string;
   width: number | null;
@@ -68,10 +59,6 @@ export function FrameResizeHandles({ width, height, scale, deviceName, rect }: F
     scale: number;
     pointerId: number;
     last: { w: number; h: number; name: string | null };
-    /** Timestamp of the last emitted size request, for the cadence above. */
-    lastEmit: number;
-    /** True when `last` has not been emitted yet, so release can flush it. */
-    pending: boolean;
   } | null>(null);
 
   const showChip = useCallback((w: number, h: number, name: string | null, sticky: boolean) => {
@@ -105,9 +92,6 @@ export function FrameResizeHandles({ width, height, scale, deviceName, rect }: F
       const g = gesture.current;
       gesture.current = null;
       setDragAxis(null);
-      // Always land on the size the user released at, even if the last move fell
-      // inside the cadence window and was coalesced away.
-      if (g && g.pending) emitSize(g.last);
       // Read the final size from the gesture, not from `chip`: pointermove is a
       // continuous event that React 18 commits at normal priority, while pointerup is
       // discrete and flushes synchronously, so the last move's state may not have
@@ -132,15 +116,12 @@ export function FrameResizeHandles({ width, height, scale, deviceName, rect }: F
       const changed = r.width !== g.last.w || r.height !== g.last.h;
       g.last = { w: r.width, h: r.height, name: r.deviceName };
       showChip(r.width, r.height, r.deviceName, true);
-      if (changed) {
-        g.pending = true;
-        const now = performance.now();
-        if (now - g.lastEmit >= EMIT_INTERVAL_MS) {
-          g.lastEmit = now;
-          emitSize(g.last);
-          g.pending = false;
-        }
-      }
+      // Emit every distinct size. pointermove is already coalesced to one event per
+      // frame, and EditorDocument now resizes the frame locally on each one while
+      // debouncing the viewer IPC to the size the drag settles on — so this costs a
+      // re-fit, not an IPC event, and the frame stays under the cursor instead of
+      // catching up in visible steps.
+      if (changed) emitSize(g.last);
     };
 
     const onUp = (e: PointerEvent) => {
@@ -179,9 +160,7 @@ export function FrameResizeHandles({ width, height, scale, deviceName, rect }: F
       // the delta that was already accumulated.
       scale: Math.max(scale, 0.05),
       pointerId: e.pointerId,
-      last: { w: width, h: height, name: deviceName ?? null },
-      lastEmit: 0,
-      pending: false
+      last: { w: width, h: height, name: deviceName ?? null }
     };
     setDragAxis(axis);
     showChip(width, height, deviceName ?? null, true);
