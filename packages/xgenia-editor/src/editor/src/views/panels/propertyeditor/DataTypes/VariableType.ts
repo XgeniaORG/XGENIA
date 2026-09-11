@@ -114,10 +114,9 @@ export class VariableType extends TypeView {
       this.$('.property-input-dropdown').show();
     }
 
-    // Hide show the padding so drop downs can be scrolled to if at the bottom of the prop editor
-    this.parent.$('.property-drop-down-padding').hide();
-    showShould && this.parent.$('.property-drop-down-padding').show();
-    this.parent.notifyListeners('panelResized');
+    // Scroll room for a dropdown opening on a row near the bottom of the panel,
+    // sized to the list that actually opened.
+    this.toggleDropDownPadding(showShould, this.$('.property-input-dropdown'));
   }
   onTypeChanged(scope, el) {
     const type = el.attr('data-value');

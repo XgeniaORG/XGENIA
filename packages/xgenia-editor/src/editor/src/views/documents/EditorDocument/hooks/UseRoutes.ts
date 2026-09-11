@@ -49,12 +49,21 @@ export function useRouteInfos(projectModel: ProjectModel, eventDispatcher: Event
       const { navigationPathType } = projectModel.getSettings();
       const prefix = navigationPathType === undefined || navigationPathType === 'hash' ? '/#' : '';
 
-      const list: RouteInfo[] = pages.map((p) => ({
-        path: prefix + p.path,
-        title: p.title || p.path,
-        componentName: p.componentName,
-        nodeCount: countNodes(projectModel, p.componentName)
-      }));
+      // ═══ NEVER CONCATENATE AN ABSENT PATH (2026-09-10) ═══
+      // `prefix + p.path` stringifies undefined. With navigationPathType set to anything
+      // but 'hash' the prefix is '', so a page with no path produced the ROUTE "undefined"
+      // — a truthy string that sailed past every `if (route)` guard between here and the
+      // preview and mounted it at http://localhost:8574/undefined. Every relative asset
+      // then 404'd and the reels fell back to placeholder textures, while the editor
+      // reported nothing wrong. A page without a path has no route; skip it.
+      const list: RouteInfo[] = pages
+        .filter((p) => typeof p.path === 'string' && p.path.length > 0)
+        .map((p) => ({
+          path: prefix + p.path,
+          title: p.title || p.path,
+          componentName: p.componentName,
+          nodeCount: countNodes(projectModel, p.componentName)
+        }));
 
       // Page Stack Proxy Path routes. `useRoutes` has always included these
       // (pageRoutes.concat(getComponentStackComponents())) and the old route dropdown

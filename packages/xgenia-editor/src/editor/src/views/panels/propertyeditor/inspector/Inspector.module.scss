@@ -418,7 +418,19 @@
 
 .GroupBody {
   min-height: 0;
-  overflow: hidden;
+
+  /* An expanded group at rest must NOT clip. The legacy port editors (enum, dimension,
+     number-with-units, variable) open their list as an absolutely-positioned child of
+     the row and rely on overflowing the rows around it, exactly as they did in the old
+     panel. Clipping here left a long dropdown showing two options, or none at all when
+     its row sat near the bottom of the panel. */
+  overflow: visible;
+
+  /* Clipped only while the 0fr↔1fr row is actually moving, which is the one moment the
+     animation needs it. PortGroup adds this for the duration of the transition. */
+  &.is-animating {
+    overflow: hidden;
+  }
 }
 
 .Group[data-collapsed] {

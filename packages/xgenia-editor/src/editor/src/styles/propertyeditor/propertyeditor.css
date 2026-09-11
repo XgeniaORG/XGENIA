@@ -70,7 +70,14 @@
 .property-input-dropdown {
   position: absolute;
   z-index: 100;
-  overflow: scroll;
+
+  /* Without a cap this grows to fit every option — the Blend Mode list measured 501px in
+     the running editor, taller than the room under its row, so the tail was unreachable.
+     Capped, a long list scrolls itself; `auto` rather than `scroll` so short lists do not
+     carry a dead scrollbar. */
+  max-height: 320px;
+  overflow-x: hidden;
+  overflow-y: auto;
   background-color: rgba(22, 22, 22, 0.9);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);

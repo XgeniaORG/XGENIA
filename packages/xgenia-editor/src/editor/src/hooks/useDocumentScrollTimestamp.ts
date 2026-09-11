@@ -1,12 +1,28 @@
-import { useEffect, useState } from 'react';
+import { RefObject, useEffect, useState } from 'react';
 
-export default function useDocumentScrollTimestamp(isEnabled = true, debounceMs = 0) {
+/**
+ * Timestamp of the last scroll anywhere in the document, for things that must re-measure
+ * when the page moves under them.
+ *
+ * `ignoreWithin` exists because the listener is on the document in CAPTURE, so it also
+ * fires for scrolling INSIDE the element that is watching — a dialog that scrolls its own
+ * content would otherwise re-run its placement maths on every wheel tick, for itself and
+ * for every other dialog mounted at the time.
+ */
+export default function useDocumentScrollTimestamp(
+  isEnabled = true,
+  debounceMs = 0,
+  ignoreWithin?: RefObject<HTMLElement>
+) {
   const [timestamp, setTimestamp] = useState(Date.now());
 
   useEffect(() => {
     let debounceTimeoutId: ReturnType<typeof setTimeout>;
 
-    function onResize() {
+    function onResize(event: Event) {
+      const target = event.target as Node | null;
+      if (ignoreWithin?.current && target && ignoreWithin.current.contains(target)) return;
+
       clearTimeout(debounceTimeoutId);
       debounceTimeoutId = setTimeout(() => setTimestamp(Date.now()), debounceMs);
     }
@@ -25,7 +41,7 @@ export default function useDocumentScrollTimestamp(isEnabled = true, debounceMs 
     return () => {
       cleanup();
     };
-  }, [isEnabled, debounceMs]);
+  }, [isEnabled, debounceMs, ignoreWithin]);
 
   return timestamp;
 }
