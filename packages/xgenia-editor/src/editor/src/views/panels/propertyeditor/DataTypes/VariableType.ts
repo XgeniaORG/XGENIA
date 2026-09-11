@@ -1,4 +1,5 @@
 import { TypeView } from '../TypeView';
+import { closeDropdown, isDropdownOpen, toggleDropdown } from '../dropdownLayer';
 import { getEditType } from '../utils';
 import { BasicType } from './BasicType';
 import { BooleanType } from './BooleanType';
@@ -22,6 +23,11 @@ export class VariableType extends TypeView {
   el: TSFixme;
   propertyType: string;
   typeView: TSFixme;
+  /**
+   * Held from render: while the list is open it lives in the body-level layer, so
+   * `this.$('.property-input-dropdown')` no longer finds it.
+   */
+  dropdownEl: TSFixme;
 
   static fromPort(args) {
     const view = new VariableType();
@@ -66,12 +72,14 @@ export class VariableType extends TypeView {
       );
     }
 
+    this.dropdownEl = this.$('.property-input-dropdown')[0];
+
     this.$('.property-input-dropdown').on('mousedown', function (event) {
       event.preventDefault(); // make sure drop down doesn't blur input until after "onPropertyChanged" has been triggered
     });
 
     this.$('.property-number-units').on('blur', function () {
-      _this.$('.property-input-dropdown').hide();
+      closeDropdown(_this.dropdownEl);
     });
 
     this.renderTypeView();
@@ -107,19 +115,15 @@ export class VariableType extends TypeView {
     this.$('.property-view').html(this.typeView.render());
   }
   onTypeDropDownClicked(scope, el) {
-    const showShould = !this.$('.property-input-dropdown').is(':visible');
-    this.parent.$('.property-input-dropdown').hide();
-    if (showShould) {
-      this.$('.property-number-units')[0].focus();
-      this.$('.property-input-dropdown').show();
-    }
-
-    // Hide show the padding so drop downs can be scrolled to if at the bottom of the prop editor
-    this.parent.$('.property-drop-down-padding').hide();
-    showShould && this.parent.$('.property-drop-down-padding').show();
-    this.parent.notifyListeners('panelResized');
+    // The layer keeps one dropdown open at a time, so this also closes any other.
+    if (!isDropdownOpen(this.dropdownEl)) this.$('.property-number-units')[0].focus();
+    toggleDropdown(this.dropdownEl);
   }
   onTypeChanged(scope, el) {
+    // The option's mousedown is preventDefaulted to keep the click alive, so the
+    // field never blurs on its own -- the list has to be closed from here.
+    closeDropdown(this.dropdownEl);
+
     const type = el.attr('data-value');
     this.$('[data-text=propertyType]').text(type);
 

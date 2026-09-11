@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 
+import { closeDropdownIfInside } from '../dropdownLayer';
 import { attachNumberBehaviour } from './attachNumberBehaviour';
 
 import css from './Inspector.module.scss';
@@ -64,6 +65,10 @@ export function LegacyPortHost({ view }: LegacyPortHostProps) {
 
     return () => {
       detachNumberBehaviour && detachNumberBehaviour();
+      // A dropdown open on this row is parked in the body-level layer, outside the
+      // nodes below. Without this it would survive the row and float over whatever
+      // the inspector rebuilds in its place.
+      closeDropdownIfInside(host);
       // Detach without destroying: `Ports` still holds the view and disposes it when
       // it rebuilds or when the panel closes.
       nodes.forEach((node) => {

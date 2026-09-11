@@ -1,4 +1,5 @@
 import { TypeView } from '../TypeView';
+import { closeDropdown, isDropdownOpen, toggleDropdown } from '../dropdownLayer';
 import { attachScrubber } from '../scrubber';
 import { getEditType } from '../utils';
 
@@ -31,6 +32,11 @@ export class Dimension extends TypeView {
   isPercent: boolean;
   el: TSFixme;
   _disposeScrubber: TSFixme;
+  /**
+   * Held from render: while the list is open it lives in the body-level layer, so
+   * `this.$('.property-input-dropdown')` no longer finds it.
+   */
+  dropdownEl: TSFixme;
 
   static fromPort(args) {
     const view = new Dimension();
@@ -97,12 +103,14 @@ export class Dimension extends TypeView {
       );
     }
 
+    this.dropdownEl = this.$('.property-input-dropdown')[0];
+
     this.$('.property-input-dropdown').on('mousedown', function (event) {
       event.preventDefault();
     });
 
     this.$('.property-number-units').on('blur', function () {
-      _this.$('.property-input-dropdown').hide();
+      closeDropdown(_this.dropdownEl);
     });
 
     // Attach scrubber to label
@@ -135,17 +143,9 @@ export class Dimension extends TypeView {
     return this.el;
   }
   onDropDownClicked(scope, el) {
-    const showShould = !this.$('.property-input-dropdown').is(':visible');
-    this.parent.$('.property-input-dropdown').hide();
-    if (showShould) {
-      this.$('.property-number-units')[0].focus();
-      this.$('.property-input-dropdown').show();
-    }
-
-    // Hide show the padding so drop downs can be scrolled to if at the bottom of the prop editor
-    this.parent.$('.property-drop-down-padding').hide();
-    showShould && this.parent.$('.property-drop-down-padding').show();
-    this.parent.notifyListeners('panelResized');
+    // The layer keeps one dropdown open at a time, so this also closes any other.
+    if (!isDropdownOpen(this.dropdownEl)) this.$('.property-number-units')[0].focus();
+    toggleDropdown(this.dropdownEl);
   }
   updateValue() {
     const v = parseNumberWithUnit(this.$('input').val(), this.type.units);
@@ -175,6 +175,10 @@ export class Dimension extends TypeView {
     this.$('[data-text=unit]').text(this.type.defaultUnit);
   }
   onUnitChanged(scope, el) {
+    // The option's mousedown is preventDefaulted to keep the click alive, so the
+    // field never blurs on its own -- the list has to be closed from here.
+    closeDropdown(this.dropdownEl);
+
     const unit = el.attr('data-value');
     this.$('[data-text=unit]').text(unit);
 
