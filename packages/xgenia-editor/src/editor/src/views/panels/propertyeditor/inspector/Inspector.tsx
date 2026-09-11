@@ -229,16 +229,6 @@ export function Inspector({ node }: InspectorProps) {
           ))}
 
           {!isSearching && !isFiltering && <SignalsSection model={model} node={node} />}
-
-          {/*
-            Kept, with its original global class name, because the enum editor toggles
-            it by selector when a dropdown opens: it is what lets a dropdown on the
-            last row be scrolled to instead of being clipped by the scroll container.
-          */}
-          <div
-            className="property-drop-down-padding"
-            style={{ position: 'relative', height: '200px', visibility: 'hidden', width: '100%', display: 'none' }}
-          />
         </div>
       </ScrollArea>
     </div>

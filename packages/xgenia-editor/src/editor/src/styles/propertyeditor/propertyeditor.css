@@ -70,13 +70,38 @@
 .property-input-dropdown {
   position: absolute;
   z-index: 100;
-  overflow: scroll;
+  overflow: hidden auto;
   background-color: rgba(22, 22, 22, 0.9);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: none;
   border-radius: 8px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+}
+
+/*
+   While a dropdown is open it is moved into this layer (see dropdownLayer.ts) and
+   positioned against its field, because every group body clips (`overflow: hidden`,
+   which the collapse animation needs) and the panel scrolls.
+
+   The z-index has to clear the property panel itself, which is `z-index: 10` with a
+   backdrop-filter on it (RightPropertyPanel.module.scss) -- anything lower and the
+   list opens BEHIND the panel it belongs to and simply cannot be seen. 30 clears that
+   and the lobby's 20/21, and still sits under the dialog (666), command palette (1000)
+   and toast (9999) layers. dropdownLayer.ts sets the same values inline, so the layer
+   does not depend on this rule having been bundled.
+ */
+.property-dropdown-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.property-dropdown-layer > .property-input-dropdown {
+  position: fixed;
+  pointer-events: auto;
+  overscroll-behavior: contain;
 }
 
 .property-input-dropdown-arrow {

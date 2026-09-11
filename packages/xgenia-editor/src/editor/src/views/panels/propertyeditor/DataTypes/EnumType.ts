@@ -1,10 +1,16 @@
 import { find } from 'underscore';
 
 import { TypeView } from '../TypeView';
+import { closeDropdown, toggleDropdown } from '../dropdownLayer';
 import { getEditType } from '../utils';
 
 export class EnumType extends TypeView {
   el: TSFixme;
+  /**
+   * Held from render: while the list is open it lives in the body-level layer, so
+   * `this.$('.property-input-dropdown')` no longer finds it.
+   */
+  dropdownEl: TSFixme;
 
   static fromPort(args) {
     const view = new EnumType();
@@ -55,28 +61,27 @@ export class EnumType extends TypeView {
       );
     }
 
+    this.dropdownEl = this.$('.property-input-dropdown')[0];
+
     this.$('.property-input-dropdown').on('mousedown', function (event) {
       event.preventDefault(); // make sure drop down doesn't blur input until after "onPropertyChanged" has been triggered
     });
 
     this.$('input').on('blur', function () {
-      _this.$('.property-input-dropdown').hide();
+      closeDropdown(_this.dropdownEl);
     });
 
     return this.el;
   }
   onDropDownClicked(scope, el) {
-    // Close other dropdowns
-    const showShould = !this.$('.property-input-dropdown').is(':visible');
-    this.parent.$('.property-input-dropdown').hide();
-    showShould && this.$('.property-input-dropdown').show();
-
-    // Hide show the padding so drop downs can be scrolled to if at the bottom of the prop editor
-    this.parent.$('.property-drop-down-padding').hide();
-    showShould && this.parent.$('.property-drop-down-padding').show();
-    this.parent.notifyListeners('panelResized');
+    // The layer keeps one dropdown open at a time, so this also closes any other.
+    toggleDropdown(this.dropdownEl);
   }
   onPropertyChanged(scope, el) {
+    // Picking an option closes the list. The option's mousedown is preventDefaulted
+    // to keep the click alive, which also means the input never blurs on its own.
+    closeDropdown(this.dropdownEl);
+
     this.parent.setParameter(this.name, el.attr('data-value'));
 
     // Update current value

@@ -1,5 +1,6 @@
 import View from '../../../../../shared/view';
 import ResizingViewTemplate from '../../../templates/propertyeditor/resizingview.html';
+import { closeDropdown, isDropdownOpen, toggleDropdown } from './dropdownLayer';
 
 const keys = ['pinLeft', 'pinRight', 'pinTop', 'pinBottom', 'pinHCenter', 'pinVCenter', 'sizeWidth', 'sizeHeight'];
 
@@ -182,6 +183,10 @@ ResizingView.DimInput.prototype.render = function () {
     );
   }
 
+  // Held from render: while the list is open it lives in the body-level layer, so
+  // this.$('.property-input-dropdown') no longer finds it.
+  this.dropdownEl = this.$('.property-input-dropdown')[0];
+
   this.$('input')
     .on('focus', function () {
       $(this).addClass('property-input-focused');
@@ -199,11 +204,9 @@ ResizingView.DimInput.prototype.setVisible = function (visible) {
 };
 
 ResizingView.DimInput.prototype.onDropDownClicked = function (scope, el, evt) {
-  var showShould = !this.$('.property-input-dropdown').is(':visible');
-  if (showShould) {
-    this.$('.property-number-units')[0].focus();
-    this.$('.property-input-dropdown').show();
-  }
+  // The layer keeps one dropdown open at a time, so this also closes any other.
+  if (!isDropdownOpen(this.dropdownEl)) this.$('.property-number-units')[0].focus();
+  toggleDropdown(this.dropdownEl);
 
   evt.stopPropagation();
 };
@@ -231,7 +234,7 @@ ResizingView.DimInput.prototype.onUnitChanged = function (scope, el, evt) {
   var unit = el.attr('data-value');
   this.$('[data-text=unit]').text(unit);
 
-  this.$('.property-input-dropdown').hide();
+  closeDropdown(this.dropdownEl);
 
   this.updateValue();
 

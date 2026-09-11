@@ -1,6 +1,7 @@
 import View from '../../../../../shared/view';
 import MarginPaddingViewTemplate from '../../../templates/propertyeditor/marginpaddingview.html';
 import PopupLayer from '../../popuplayer';
+import { closeDropdown, isDropdownOpen, toggleDropdown } from './dropdownLayer';
 
 var MarginPaddingView = function (args) {
   View.call(this);
@@ -53,12 +54,16 @@ MarginPaddingView.prototype.render = function () {
     );
   }
 
+  // Held from render: while the list is open it lives in the body-level layer, so
+  // this.$('.property-input-dropdown') no longer finds it.
+  this.dropdownEl = this.$('.property-input-dropdown')[0];
+
   this.$('.property-input-dropdown').on('mousedown', function (event) {
     event.preventDefault(); // make sure drop down doesn't blur input until after "onPropertyChanged" has been triggered
   });
 
   this.$('.property-number-units').on('blur', function () {
-    _this.$('.property-input-dropdown').hide();
+    closeDropdown(_this.dropdownEl);
   });
 
   this.$('input')
@@ -155,6 +160,9 @@ MarginPaddingView.prototype.render = function () {
 };
 
 MarginPaddingView.prototype.dispose = function () {
+  // Guarded: disposed before render, dropdownEl is undefined, and closeDropdown()
+  // with nothing to match on closes whatever else happens to be open.
+  if (this.dropdownEl) closeDropdown(this.dropdownEl);
   document.removeEventListener('mousemove', this._onMouseMove);
   document.removeEventListener('mouseup', this._onMouseUp);
 };
@@ -165,11 +173,9 @@ MarginPaddingView.prototype.onDropDownClicked = function (scope, el, evt) {
     return;
   }
   
-  var showShould = !this.$('.property-input-dropdown').is(':visible');
-  if (showShould) {
-    this.$('.property-number-units')[0].focus();
-    this.$('.property-input-dropdown').show();
-  }
+  // The layer keeps one dropdown open at a time, so this also closes any other.
+  if (!isDropdownOpen(this.dropdownEl)) this.$('.property-number-units')[0].focus();
+  toggleDropdown(this.dropdownEl);
 
   evt.stopPropagation();
 };
@@ -178,7 +184,7 @@ MarginPaddingView.prototype.onUnitChanged = function (scope, el, evt) {
   var unit = el.attr('data-value');
   this.$('[data-text=unit]').text(unit);
 
-  this.$('.property-input-dropdown').hide();
+  closeDropdown(this.dropdownEl);
 
   // Only update if we have valid defaults
   if (this.defaults && Object.keys(this.defaults).length > 0) {
