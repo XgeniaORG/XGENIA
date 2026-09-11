@@ -193,6 +193,44 @@ function SoundEngine({
     onDurationChange(duration ?? null);
   }, [duration, onDurationChange]);
 
+  /**
+   * Stop and destroy the Howl when this engine goes away.
+   *
+   * ─── why this is needed at all (2026-09-10) ───────────────────────────────
+   * use-sound 5.0.0 disposes of NOTHING. Its only cleanup is `isMounted.current = false` (the
+   * `useOnMount` return in dist/use-sound.esm.js) — no `stop()`, no `unload()`. So a Howl
+   * outlives the component that made it and keeps playing, while `apiRef` has already been
+   * handed over to whatever mounted next. The audio is then unreachable: no `stop()` anywhere
+   * in this file can address it, because nothing holds a reference to it any more.
+   *
+   * That orphan is the "Stop does not stop the audio" bug. Toggling Show Controls used to
+   * remount this component (see the render note at the bottom of Sound), so the sound playing
+   * at that moment was cut loose mid-playback. Pressing Play then built a SECOND Howl, and
+   * Stop — which can only reach the live one — silenced that one while the orphan played on
+   * for the rest of the session, unstoppable, one more copy added per toggle.
+   *
+   * The same leak fires on a URL change (`key={url}` remounts us) and when the node itself is
+   * removed from the page, where a game's music used to survive navigating away from it.
+   */
+  const soundRef = useRef<any>(null);
+  soundRef.current = sound;
+  useEffect(() => {
+    return () => {
+      const instance = soundRef.current;
+      soundRef.current = null;
+      if (!instance) return;
+      try {
+        // `stop()` first so Howler emits 'stop' and the node's isPlaying/Stopped outputs settle
+        // honestly; `unload()` alone skips the event for an already-paused sound. `unload()`
+        // then releases the HTML5 audio element back to Howler's pool.
+        instance.stop();
+        instance.unload();
+      } catch (error) {
+        console.error('[Sound] Failed to dispose of the audio instance:', error);
+      }
+    };
+  }, []);
+
   // Howler applies `loop` at construction, and use-sound only forwards volume and rate on
   // change, so loop has to be pushed by hand.
   useEffect(() => {
@@ -428,9 +466,23 @@ export function Sound(props: SoundProps) {
     />
   ) : null;
 
-  // No UI requested: the audio still has to mount, it just renders nothing visible.
+  /**
+   * No UI requested: the audio still has to mount, it just renders nothing visible.
+   *
+   * ─── why this is no longer `if (!showControls) return engine` (2026-09-10) ─
+   * That early return made the ROOT element flip type — `SoundEngine` with the controls off,
+   * `div` with them on. React reconciles by position and type, so flipping the root threw the
+   * whole subtree away and mounted a brand-new `SoundEngine`. Toggling Show Controls therefore
+   * destroyed the engine that was mid-playback, and use-sound leaks a discarded Howl (see the
+   * disposal note in SoundEngine), so the audio kept playing with nothing able to reach it.
+   *
+   * `engine` now sits at a FIXED position — first child of a Fragment, controls-on or
+   * controls-off — so toggling the checkbox only adds or removes the sibling bar and playback
+   * is untouched. Rendering nothing here rather than an empty wrapper is deliberate: a Sound
+   * node with its controls hidden must not put a div into the author's layout.
+   */
   if (!showControls) {
-    return engine;
+    return <>{engine}</>;
   }
 
   const style: React.CSSProperties = { ...props.style };
@@ -486,77 +538,83 @@ export function Sound(props: SoundProps) {
           ? `${Math.round(duration / 1000)}s`
           : 'Ready';
 
+  // `engine` stays the Fragment's first child, exactly as in the controls-off branch above, and
+  // its `key={url}` anchors it there — so React matches it across the toggle and only the
+  // sibling wrapper is added or removed. The visible DOM is unchanged: the engine renders null,
+  // so this is still the same single styled div with the control bar inside it.
   return (
-    <div className={props.className} style={style}>
+    <>
       {engine}
-      <div style={barStyle}>
-        <button
-          type="button"
-          style={buttonStyle(!hasUrl)}
-          // NOT disabled on "audio context not ready" any more. The context is resumed inside
-          // this handler, which is the user gesture that permits it — and a disabled button
-          // emits no click, so the old gate could never be satisfied by pressing Play. The
-          // button sat disabled behind "Click anywhere to enable audio" until the user happened
-          // to click something else first.
-          disabled={!hasUrl}
-          onClick={() => controlsRef.current?.play()}
-          title={hasUrl ? 'Play' : 'Set a sound URL first'}
-        >
-          Play
-        </button>
+      <div className={props.className} style={style}>
+        <div style={barStyle}>
+          <button
+            type="button"
+            style={buttonStyle(!hasUrl)}
+            // NOT disabled on "audio context not ready" any more. The context is resumed inside
+            // this handler, which is the user gesture that permits it — and a disabled button
+            // emits no click, so the old gate could never be satisfied by pressing Play. The
+            // button sat disabled behind "Click anywhere to enable audio" until the user happened
+            // to click something else first.
+            disabled={!hasUrl}
+            onClick={() => controlsRef.current?.play()}
+            title={hasUrl ? 'Play' : 'Set a sound URL first'}
+          >
+            Play
+          </button>
 
-        <button
-          type="button"
-          style={buttonStyle(!isPlaying)}
-          disabled={!isPlaying}
-          onClick={() => controlsRef.current?.pause()}
-          title="Pause"
-        >
-          Pause
-        </button>
+          <button
+            type="button"
+            style={buttonStyle(!isPlaying)}
+            disabled={!isPlaying}
+            onClick={() => controlsRef.current?.pause()}
+            title="Pause"
+          >
+            Pause
+          </button>
 
-        <button
-          type="button"
-          style={buttonStyle(!isPlaying)}
-          disabled={!isPlaying}
-          onClick={() => controlsRef.current?.stop()}
-          title="Stop"
-        >
-          Stop
-        </button>
+          <button
+            type="button"
+            style={buttonStyle(!isPlaying)}
+            disabled={!isPlaying}
+            onClick={() => controlsRef.current?.stop()}
+            title="Stop"
+          >
+            Stop
+          </button>
 
-        {showVolumeSlider && (
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ color: '#525252' }}>{Math.round(uiVolume * 100)}%</span>
-            <input
-              className={sliderClass}
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              value={uiVolume}
-              style={{
-                width: '80px',
-                height: '4px',
-                borderRadius: '2px',
-                background: '#d4d4d4',
-                outline: 'none',
-                WebkitAppearance: 'none',
-                appearance: 'none'
-              }}
-              onChange={(e) => {
-                const next = parseFloat(e.target.value);
-                setUiVolume(next);
-                engineRef.current?.getSound()?.volume(next);
-              }}
-              title={`Volume: ${Math.round(uiVolume * 100)}%`}
-            />
-          </label>
-        )}
+          {showVolumeSlider && (
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ color: '#525252' }}>{Math.round(uiVolume * 100)}%</span>
+              <input
+                className={sliderClass}
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={uiVolume}
+                style={{
+                  width: '80px',
+                  height: '4px',
+                  borderRadius: '2px',
+                  background: '#d4d4d4',
+                  outline: 'none',
+                  WebkitAppearance: 'none',
+                  appearance: 'none'
+                }}
+                onChange={(e) => {
+                  const next = parseFloat(e.target.value);
+                  setUiVolume(next);
+                  engineRef.current?.getSound()?.volume(next);
+                }}
+                title={`Volume: ${Math.round(uiVolume * 100)}%`}
+              />
+            </label>
+          )}
 
-        {spriteId && <span style={{ color: '#525252' }}>{spriteId}</span>}
-        <span style={{ color: '#525252' }}>{statusText}</span>
+          {spriteId && <span style={{ color: '#525252' }}>{spriteId}</span>}
+          <span style={{ color: '#525252' }}>{statusText}</span>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
