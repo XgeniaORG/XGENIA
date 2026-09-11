@@ -3196,6 +3196,10 @@
           "setup": [
             "updatePorts"
           ]
+        },
+        "literals": {
+          "MAX_AUTO_PORTS": "50",
+          "MAX_NESTING": "8"
         }
       }
     },
@@ -4123,6 +4127,9 @@
             "fs",
             "canWriteFiles"
           ]
+        },
+        "literals": {
+          "canWriteFiles": "false"
         }
       }
     },
@@ -4443,6 +4450,10 @@
             "MAX_VALUE",
             "MIN_VALUE"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "-1000000000000"
         }
       }
     },
@@ -4556,6 +4567,10 @@
             "MAX_VALUE",
             "MIN_VALUE"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "-1000000000000"
         }
       }
     },
@@ -4622,6 +4637,10 @@
             "MAX_VALUE",
             "MIN_VALUE"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "-1000000000000"
         }
       }
     },
@@ -4685,6 +4704,10 @@
           ],
           "getter": [],
           "calculate": []
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "-1000000000000"
         }
       }
     },
@@ -4737,6 +4760,10 @@
             "MAX_VALUE",
             "MIN_VALUE"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "-1000000000000"
         }
       }
     },
@@ -4864,6 +4891,11 @@
             "MAX_VALUE",
             "IsaacRNG"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "0",
+          "MAX_SIZE": "10000"
         }
       }
     },
@@ -4931,6 +4963,10 @@
             "MAX_VALUE",
             "IsaacRNG"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "0"
         }
       }
     },
@@ -4994,6 +5030,10 @@
           ],
           "getter": [],
           "calculate": []
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "-1000000000000"
         }
       }
     },
@@ -5057,6 +5097,10 @@
           ],
           "getter": [],
           "calculate": []
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "-1000000000000"
         }
       }
     },
@@ -5115,6 +5159,10 @@
             "MAX_VALUE",
             "MIN_VALUE"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "-1000000000000"
         }
       }
     },
@@ -5173,6 +5221,9 @@
           "calculate": [
             "calculateMax"
           ]
+        },
+        "literals": {
+          "MAX_ARRAY_LENGTH": "1000000"
         }
       }
     },
@@ -5249,6 +5300,11 @@
             "MIN_VALUE",
             "evaluateFormula"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "-1000000000000",
+          "MAX_ARRAY_LENGTH": "10000"
         }
       }
     },
@@ -5307,6 +5363,10 @@
             "MAX_VALUE",
             "MIN_VALUE"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "-1000000000000"
         }
       }
     },
@@ -5365,6 +5425,9 @@
           "calculate": [
             "calculateMin"
           ]
+        },
+        "literals": {
+          "MAX_ARRAY_LENGTH": "1000000"
         }
       }
     },
@@ -5422,6 +5485,10 @@
             "MAX_VALUE",
             "MIN_VALUE"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "-1000000000000"
         }
       }
     },
@@ -5488,6 +5555,10 @@
             "MAX_VALUE",
             "MIN_VALUE"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "-1000000000000"
         }
       }
     },
@@ -5583,6 +5654,10 @@
             "MAX_VALUE",
             "MIN_VALUE"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "-1000000000000"
         }
       }
     },
@@ -5755,6 +5830,10 @@
             "MIN_VALUE",
             "evaluateFormula"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "-1000000000000"
         }
       }
     },
@@ -5821,6 +5900,10 @@
             "MAX_VALUE",
             "MIN_VALUE"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "-1000000000000"
         }
       }
     },
@@ -5879,6 +5962,9 @@
           "calculate": [
             "calculateSum"
           ]
+        },
+        "literals": {
+          "MAX_ARRAY_LENGTH": "1000000"
         }
       }
     },
@@ -5932,6 +6018,11 @@
             "crypto",
             "MAX_VALUE"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "0",
+          "MAX_SIZE": "10000"
         }
       }
     },
@@ -5977,6 +6068,10 @@
             "crypto",
             "MAX_VALUE"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "0"
         }
       }
     },
@@ -6729,7 +6824,10 @@
       },
       "outputFormatHints": {},
       "closureRisk": {
-        "byFunction": {}
+        "byFunction": {},
+        "literals": {
+          "assetParsersRegistered": "false"
+        }
       }
     },
     "pixi.AnimatedSprite": {
@@ -7330,6 +7428,9 @@
           "_clearTickerRetry": [],
           "_requestRender": [],
           "_onNodeDeleted": []
+        },
+        "literals": {
+          "TICKER_RETRY_DELAY": "150"
         }
       }
     },
@@ -7518,6 +7619,10 @@
           "_startTicker": [],
           "_stopTicker": [],
           "_onTick": []
+        },
+        "literals": {
+          "GLOW_BANDS": "6",
+          "GLOW_BAND_ALPHA": "0.12"
         }
       }
     },
@@ -7624,6 +7729,9 @@
           "_circleIntersect": [],
           "_checkCollision": [],
           "_onNodeDeleted": []
+        },
+        "literals": {
+          "TICKER_RETRY_DELAY": "150"
         }
       }
     },
@@ -10497,6 +10605,9 @@
           "setVideoReplaceImage": [],
           "setVideoSpeed": [],
           "setPlayVideoOnWin": []
+        },
+        "literals": {
+          "ANTICIPATION_HIGHLIGHT_RADIUS": "10"
         }
       }
     },
@@ -13271,8 +13382,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 3024,
-      "byteSize": 164664,
+      "lineCount": 3053,
+      "byteSize": 166934,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
@@ -13823,6 +13934,11 @@
           "type": "number",
           "group": "State"
         },
+        "stopWasForced": {
+          "displayName": "Stop Was Forced",
+          "type": "boolean",
+          "group": "State"
+        },
         "currentSymbols": {
           "displayName": "Current Symbols",
           "type": "array",
@@ -13970,6 +14086,13 @@
           "_preloadTextures": [],
           "_getAllCurrentSymbols": [],
           "_onNodeDeleted": []
+        },
+        "literals": {
+          "MAX_COLUMNS": "12",
+          "STOP_ARM_TIMEOUT_MS": "250",
+          "CELEBRATION_ARM_TIMEOUT_MS": "2000",
+          "STOP_LATCH_MAX_MS": "1000",
+          "DEFAULT_MAX_ANTICIPATING_REELS": "3"
         }
       }
     },
@@ -14238,6 +14361,9 @@
           "setup": [
             "updatePorts"
           ]
+        },
+        "literals": {
+          "DEFAULT_FREE_SPINS_REWARD_FORMULA": "'x <= 1 ? 0 : (x * (x + 1)) / 2'"
         }
       }
     },
@@ -14636,6 +14762,9 @@
             "DATA_OUTPUTS",
             "paletteFor"
           ]
+        },
+        "literals": {
+          "REDUCED_MOTION_QUERY": "'(prefers-reduced-motion: reduce)'"
         }
       }
     },
@@ -14762,6 +14891,9 @@
           ],
           "_emitChanged": [],
           "_dispose": []
+        },
+        "literals": {
+          "FRAME_MS": "16"
         }
       }
     },
@@ -15036,6 +15168,9 @@
           "_publish": [
             "OUTPUT_NAMES"
           ]
+        },
+        "literals": {
+          "NODE": "'Bet Mode'"
         }
       }
     },
@@ -15140,6 +15275,9 @@
             "OUTPUTS",
             "emptyOutputs"
           ]
+        },
+        "literals": {
+          "NODE": "'Chapter Branch'"
         }
       }
     },
@@ -15264,6 +15402,9 @@
           "_publish": [
             "OUTPUT_NAMES"
           ]
+        },
+        "literals": {
+          "NODE": "'Cluster Pays'"
         }
       }
     },
@@ -15384,6 +15525,9 @@
           "_publish": [
             "OUTPUT_NAMES"
           ]
+        },
+        "literals": {
+          "NODE": "'Coin Collector'"
         }
       }
     },
@@ -15460,6 +15604,9 @@
           "_stop": [
             "toNumber"
           ]
+        },
+        "literals": {
+          "MAX_COLUMNS": "12"
         }
       }
     },
@@ -15563,6 +15710,9 @@
             "OUTPUTS",
             "emptyOutputs"
           ]
+        },
+        "literals": {
+          "NODE": "'Directional Cascade'"
         }
       }
     },
@@ -15671,6 +15821,9 @@
             "MODES",
             "emptyOutputs"
           ]
+        },
+        "literals": {
+          "NODE": "'Expand Symbols'"
         }
       }
     },
@@ -15745,6 +15898,9 @@
             "OUTPUTS",
             "emptyOutputs"
           ]
+        },
+        "literals": {
+          "NODE": "'Feature Trigger'"
         }
       }
     },
@@ -15920,6 +16076,9 @@
             "OUTPUTS",
             "emptyOutputs"
           ]
+        },
+        "literals": {
+          "NODE": "'Hold And Win Grid'"
         }
       }
     },
@@ -16030,6 +16189,9 @@
           "_publish": [
             "OUTPUT_NAMES"
           ]
+        },
+        "literals": {
+          "NODE": "'Jackpot Tiers'"
         }
       }
     },
@@ -16308,6 +16470,9 @@
             "OUTPUTS",
             "emptyOutputs"
           ]
+        },
+        "literals": {
+          "NODE": "'Locked Reels'"
         }
       }
     },
@@ -16418,6 +16583,9 @@
           "_publish": [
             "OUTPUT_NAMES"
           ]
+        },
+        "literals": {
+          "NODE": "'Multiplier Ladder'"
         }
       }
     },
@@ -16512,6 +16680,9 @@
             "OUTPUTS",
             "emptyOutputs"
           ]
+        },
+        "literals": {
+          "NODE": "'Paytable Modifier'"
         }
       }
     },
@@ -16602,6 +16773,9 @@
             "OUTPUTS",
             "emptyOutputs"
           ]
+        },
+        "literals": {
+          "NODE": "'Paytable Rows'"
         }
       }
     },
@@ -16722,6 +16896,10 @@
           ],
           "_stop": [],
           "_dispose": []
+        },
+        "literals": {
+          "FRAME_MS": "16",
+          "MIN_SAMPLE_MS": "100"
         }
       }
     },
@@ -16871,6 +17049,9 @@
             "OUTPUTS",
             "emptyOutputs"
           ]
+        },
+        "literals": {
+          "NODE": "'Pick Bonus'"
         }
       }
     },
@@ -17131,6 +17312,9 @@
           "_publish": [
             "OUTPUT_NAMES"
           ]
+        },
+        "literals": {
+          "NODE": "'Progressive Meter'"
         }
       }
     },
@@ -17328,6 +17512,9 @@
           "_flagState": [],
           "_clearTimer": [],
           "_dispose": []
+        },
+        "literals": {
+          "MAX_COLUMNS": "12"
         }
       }
     },
@@ -17472,6 +17659,9 @@
           "_publish": [
             "OUTPUT_NAMES"
           ]
+        },
+        "literals": {
+          "NODE": "'RGS Jackpot Pools'"
         }
       }
     },
@@ -17776,6 +17966,9 @@
             "RETRIGGER_MS"
           ],
           "_dispose": []
+        },
+        "literals": {
+          "RETRIGGER_MS": "50"
         }
       }
     },
@@ -18009,6 +18202,9 @@
           "_publish": [
             "OUTPUT_NAMES"
           ]
+        },
+        "literals": {
+          "NODE": "'Sticky Symbols'"
         }
       }
     },
@@ -18119,6 +18315,9 @@
             "OUTPUTS",
             "emptyOutputs"
           ]
+        },
+        "literals": {
+          "NODE": "'Symbol Upgrade'"
         }
       }
     },
@@ -18229,6 +18428,9 @@
           "_publish": [
             "OUTPUT_NAMES"
           ]
+        },
+        "literals": {
+          "NODE": "'Symbol Value Grid'"
         }
       }
     },
@@ -18369,6 +18571,11 @@
             "hasWindowEvents",
             "postJson"
           ]
+        },
+        "literals": {
+          "DEFAULT_FLUSH_MS": "2000",
+          "DEFAULT_MAX_BATCH": "20",
+          "SESSION_ID_BYTES": "16"
         }
       }
     },
@@ -18484,6 +18691,9 @@
           "_publish": [
             "OUTPUT_NAMES"
           ]
+        },
+        "literals": {
+          "NODE": "'Variant Selector'"
         }
       }
     },
@@ -18594,6 +18804,9 @@
             "cancelFrame"
           ],
           "_dispose": []
+        },
+        "literals": {
+          "FRAME_MS": "16"
         }
       }
     },
@@ -18701,6 +18914,9 @@
             "OUTPUTS",
             "emptyOutputs"
           ]
+        },
+        "literals": {
+          "NODE": "'Wheel Spin'"
         }
       }
     },
@@ -18812,6 +19028,9 @@
           "_spin": [],
           "_halfStopped": [],
           "_flagCurrent": []
+        },
+        "literals": {
+          "DEFAULT_SPLIT_AT": "12"
         }
       }
     },
@@ -18930,6 +19149,9 @@
             "cancelFrame"
           ],
           "_dispose": []
+        },
+        "literals": {
+          "FRAME_MS": "16"
         }
       }
     },
@@ -19091,6 +19313,10 @@
           "setup": [
             "updatePorts"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "-1000000000000"
         }
       }
     },
@@ -19164,6 +19390,10 @@
           "setup": [
             "updatePorts"
           ]
+        },
+        "literals": {
+          "MAX_VALUE": "1000000000000",
+          "MIN_VALUE": "-1000000000000"
         }
       }
     },
@@ -19945,6 +20175,16 @@
             "RNG_MODULUS"
           ],
           "integer": []
+        },
+        "literals": {
+          "RNG_MULTIPLIER": "16807",
+          "RNG_MODULUS": "2147483647",
+          "MAX_SYMBOLS": "50",
+          "MAX_COLUMNS": "12",
+          "MAX_ROWS": "10",
+          "MAX_SIMULATION_ROUNDS": "10000",
+          "VOLATILITY_HISTORY_LIMIT": "1000",
+          "SERIES_HISTORY_LIMIT": "400"
         }
       }
     },
@@ -21709,6 +21949,9 @@
             "addInputCss",
             "addInputs"
           ]
+        },
+        "literals": {
+          "DEFAULT_GOOGLE_FONT_WEIGHTS": "'400,500,600,700,800,900'"
         }
       }
     },
@@ -29926,6 +30169,9 @@
             "EaseCurves"
           ],
           "getter": []
+        },
+        "literals": {
+          "defaultDuration": "300"
         }
       }
     },
@@ -32055,6 +32301,9 @@
           "calculate": [
             "extractValues"
           ]
+        },
+        "literals": {
+          "MAX_ARRAY_LENGTH": "1000000"
         }
       }
     },
@@ -32112,6 +32361,9 @@
             "Collection",
             "createFilledArray"
           ]
+        },
+        "literals": {
+          "MAX_ARRAY_SIZE": "1000000"
         }
       }
     },
@@ -33067,6 +33319,9 @@
             "Collection",
             "calculateSort"
           ]
+        },
+        "literals": {
+          "MAX_ARRAY_LENGTH": "1000000"
         }
       }
     },
@@ -33509,6 +33764,13 @@
           "_killAll": [
             "MAX_TARGETS"
           ]
+        },
+        "literals": {
+          "gsap": "null",
+          "MotionPathPlugin": "null",
+          "CustomEase": "null",
+          "BezierEasing": "null",
+          "MAX_TARGETS": "6"
         }
       }
     },
@@ -33660,6 +33922,9 @@
           "setup": [
             "_parseAndSourceJavascript"
           ]
+        },
+        "literals": {
+          "defaultCode": "''"
         }
       }
     },
@@ -33917,6 +34182,9 @@
           "setup": [
             "updatePorts"
           ]
+        },
+        "literals": {
+          "defaultDuration": "300"
         }
       }
     },
@@ -54359,6 +54627,12 @@
       }
     ],
     "stoppedColumnIndex": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "stopWasForced": [
       {
         "node": "PixiReelController",
         "direction": "output"
