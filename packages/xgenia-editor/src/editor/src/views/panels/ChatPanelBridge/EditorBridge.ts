@@ -258,18 +258,30 @@ export class EditorBridge {
         UndoQueue.instance?.push?.(group);
     }
 
-    /** Command ids already dispatched, shared across every instance in this document. */
-    private static _handledCommandIds = new Set<string>();
+    /**
+     * Command ids already dispatched, per source window, shared across every instance in this
+     * document. A WeakMap so a closed/reloaded plugin iframe's entry is collected with it.
+     */
+    private static _handledIdsBySource = new WeakMap<Window, Set<string>>();
     /** The instance currently holding the window `message` listener. */
     private static _active: EditorBridge | null = null;
+    /** How many bridges this document has constructed — >1 is the bug. */
+    private static _instancesConstructed = 0;
+    private readonly _instanceId: number;
 
     constructor() {
         // ONE BRIDGE OWNS THE LISTENER. A previous instance (module re-evaluation, HMR, a
         // second import) keeps its listener forever because nothing calls destroy() — and two
         // listeners mean every AI command executes twice. See the duplicate-id guard in
         // handleMessage for what that cost.
+        this._instanceId = ++EditorBridge._instancesConstructed;
         if (EditorBridge._active) {
-            console.warn('[EditorBridge] A bridge instance already owns the message listener — detaching the old one.');
+            console.warn(
+                `[EditorBridge] SECOND BRIDGE CONSTRUCTED (instance #${this._instanceId}). Instance `
+                + `#${EditorBridge._active._instanceId} still owns the message listener — detaching it. `
+                + `Every AI command would otherwise execute once per live listener. Construction stack:\n`
+                + (new Error().stack || '(no stack)'),
+            );
             try { EditorBridge._active.destroy(); } catch (e) { console.warn('[EditorBridge] Detaching the previous bridge failed:', e); }
         }
         EditorBridge._active = this;
@@ -673,18 +685,33 @@ export class EditorBridge {
             //
             // Guarding here rather than only at construction means this holds however a second
             // listener arrives (HMR, a second window, a second bundle copy).
-            if (EditorBridge._handledCommandIds.has(msg.id)) {
-                console.warn(`[EditorBridge] Ignoring duplicate dispatch of command id ${msg.id} (${msg.command}) — another listener already ran it.`);
-                return;
-            }
-            EditorBridge._handledCommandIds.add(msg.id);
-            if (EditorBridge._handledCommandIds.size > 2000) {
-                // Bounded: ids are monotonic per panel session, so the oldest are safe to drop.
-                const it = EditorBridge._handledCommandIds.values();
-                for (let i = 0; i < 500; i++) {
-                    const v = it.next();
-                    if (v.done) break;
-                    EditorBridge._handledCommandIds.delete(v.value);
+            // Keyed PER SOURCE WINDOW, not by id alone. Two plugin iframes (the AI chat panel and
+            // the image editor) each run their own PluginBridge whose counter starts at 1, so both
+            // can mint "cmd_1_<same ms>". A global id set would drop the second plugin's genuine
+            // command and leave it hanging until its 30s timeout.
+            const src = event.source as Window | null;
+            if (src) {
+                let seen = EditorBridge._handledIdsBySource.get(src);
+                if (!seen) { seen = new Set<string>(); EditorBridge._handledIdsBySource.set(src, seen); }
+                if (seen.has(msg.id)) {
+                    console.warn(
+                        `[EditorBridge] DUPLICATE DISPATCH BLOCKED — command id ${msg.id} (${msg.command}) `
+                        + `was already executed for this source window. This bridge is instance `
+                        + `#${this._instanceId}; ${EditorBridge._instancesConstructed} bridge(s) have been `
+                        + `constructed in this document. If that count is >1, a second EditorBridge was `
+                        + `created and its listener is still attached — capture this log, it names the cause.`,
+                    );
+                    return;
+                }
+                seen.add(msg.id);
+                if (seen.size > 2000) {
+                    // Bounded: ids are monotonic within one panel session, so the oldest are safe to drop.
+                    const it = seen.values();
+                    for (let i = 0; i < 500; i++) {
+                        const v = it.next();
+                        if (v.done) break;
+                        seen.delete(v.value);
+                    }
                 }
             }
             // Every command is a sign the AI is working, read-only ones included. Tying
