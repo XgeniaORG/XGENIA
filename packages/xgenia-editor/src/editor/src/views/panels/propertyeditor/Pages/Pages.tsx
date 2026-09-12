@@ -1,6 +1,6 @@
 import { NodeGraphContextTmp } from '@xgenia-contexts/NodeGraphContext/NodeGraphContext';
 import React, { useState, useRef } from 'react';
-import ReactDOM from 'react-dom';
+import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 
 import { IconName, IconSize } from '@xgenia-core-ui/components/common/Icon';
@@ -81,13 +81,26 @@ function AddNewPagePopup(props) {
       <div style={{ overflow: 'hidden auto', flexGrow: 1 }}>
         <CreateNewPage onCreateNewPage={props.onCreateNewPage} />
 
-        {props.pages.map((p) => (
-          <PageItem
-            name={p.title || p.component}
-            key={p.title || p.component}
-            onSelectClicked={() => props.onPageSelected(p)}
-          ></PageItem>
-        ))}
+        {/*
+          Labelled, and with an explicit empty state: the pages already attached to this
+          router are filtered out of this list, so "nothing here" is a normal outcome and
+          has to be distinguishable from the list having failed to build.
+        */}
+        <div className="variants-header">
+          <span>Add an existing page</span>
+        </div>
+
+        {props.pages.length === 0 ? (
+          <div className="router-pages-label">Every page in this project is already in this router.</div>
+        ) : (
+          props.pages.map((p) => (
+            <PageItem
+              name={p.title || p.component}
+              key={p.title || p.component}
+              onSelectClicked={() => props.onPageSelected(p)}
+            ></PageItem>
+          ))
+        )}
       </div>
     </div>
   );
@@ -99,12 +112,13 @@ function BigPageItem(props) {
   const p = props.page;
 
   return (
-    <div style={{ display: 'flex' }}>
+    <div style={{ display: 'flex', width: '100%' }}>
       <div className="router-pages-page" onClick={props.onPageClicked}>
         <div style={{ display: 'flex' }}>
           <div className={'router-pages-icon' + (props.isStartPage ? ' start-page' : '')}></div>
         </div>
-        <div style={{ flexGrow: 1 }}>
+        {/* minWidth: 0 lets the long page paths ellipsize instead of forcing the row wider */}
+        <div style={{ flexGrow: 1, minWidth: 0 }}>
           <div className="router-pages-component">{p.title || p.component}</div>
           <div className="router-pages-path">{p.path}</div>
         </div>
@@ -128,11 +142,11 @@ export class Pages extends React.Component {
 
     // @ts-expect-error
     this.value = this.props.value || {};
-    // @ts-expect-error
-    const pages = RouterAdapter.getPageInfoForComponents(this.value.routes || []);
 
     this.state = {
-      pages: pages
+      // @ts-expect-error
+      pages: RouterAdapter.getPageInfoForComponents(this.value.routes || []),
+      orphanPages: RouterAdapter.getPageInfoForComponents(RouterAdapter.getPagesNotInAnyRouter())
     };
   }
 
@@ -140,38 +154,57 @@ export class Pages extends React.Component {
 
   componentWillUnmount() {}
 
+  /**
+   * Every edit goes through here, and every edit REPLACES the value instead of editing it.
+   *
+   * `this.value` is the very object stored on the node — `getParameter('pages')` hands back
+   * the live reference. Mutating it and passing that same reference to `setParameter()`
+   * leaves the model unable to see that anything changed, and leaves the undo entry holding
+   * an "old value" that has already been modified. Deep copy, mutate the copy, hand that
+   * over.
+   */
+  commit(mutate: (pages: TSFixme) => void) {
+    // @ts-expect-error
+    const next = JSON.parse(JSON.stringify(this.value || {}));
+    if (next.routes === undefined) next.routes = [];
+
+    mutate(next);
+
+    // @ts-expect-error
+    this.value = next;
+    // @ts-expect-error
+    this.props.onChange && this.props.onChange(next);
+
+    this.setState({
+      pages: RouterAdapter.getPageInfoForComponents(next.routes),
+      orphanPages: RouterAdapter.getPageInfoForComponents(RouterAdapter.getPagesNotInAnyRouter())
+    });
+  }
+
+  addPage(component: string) {
+    this.commit((pages) => {
+      if (pages.routes.indexOf(component) === -1) pages.routes.push(component);
+      if (pages.startPage === undefined) pages.startPage = pages.routes[0];
+    });
+  }
+
   onPageClicked(p) {
     // @ts-expect-error
     this.props.onPageClicked && this.props.onPageClicked(p);
   }
 
   removePage(p) {
-    // @ts-expect-error
-    if (this.value === undefined || this.value.routes === undefined) return;
-
-    // @ts-expect-error
-    const idx = this.value.routes.indexOf(p.component);
-    if (idx !== -1) {
-      // @ts-expect-error
-      this.value.routes.splice(idx, 1);
-      // @ts-expect-error
-      if (this.value.startPage === p.component) this.value.startPage = undefined;
-
-      this.setState({
-        // @ts-expect-error
-        pages: RouterAdapter.getPageInfoForComponents(this.value.routes)
-      });
-      // @ts-expect-error
-      this.props.onChange && this.props.onChange(this.value);
-    }
+    this.commit((pages) => {
+      const idx = pages.routes.indexOf(p.component);
+      if (idx !== -1) pages.routes.splice(idx, 1);
+      if (pages.startPage === p.component) pages.startPage = pages.routes[0];
+    });
   }
 
   setAsStartPage(p) {
-    // @ts-expect-error
-    this.value.startPage = p.component;
-    this.setState({});
-    // @ts-expect-error
-    this.props.onChange && this.props.onChange(this.value);
+    this.commit((pages) => {
+      pages.startPage = p.component;
+    });
   }
 
   onAddNewPageClicked() {
@@ -206,43 +239,39 @@ export class Pages extends React.Component {
 
         ProjectModel.instance.addComponent(pageComponent, { undo: true, label: 'page created' });
 
-        // @ts-expect-error
-        if (this.value.routes === undefined) this.value.routes = [];
-        // @ts-expect-error
-        this.value.routes.push(fullName);
-        this.setState({
-          // @ts-expect-error
-          pages: RouterAdapter.getPageInfoForComponents(this.value.routes)
-        });
-        // @ts-expect-error
-        this.props.onChange && this.props.onChange(this.value);
+        this.addPage(fullName);
 
         PopupLayer.instance.hidePopup();
       },
       onPageSelected: (page) => {
-        // @ts-expect-error
-        if (this.value.routes === undefined) this.value.routes = [];
-        // @ts-expect-error
-        this.value.routes.push(page.component);
-        this.setState({
-          // @ts-expect-error
-          pages: RouterAdapter.getPageInfoForComponents(this.value.routes)
-        });
-        // @ts-expect-error
-        this.props.onChange && this.props.onChange(this.value);
+        this.addPage(page.component);
 
         PopupLayer.instance.hidePopup();
       }
     };
     const div = document.createElement('div');
-      const root = createRoot(div);
+    const root = createRoot(div);
+
+    // PopupLayer.showPopup() measures the content with outerWidth/outerHeight the moment
+    // it is handed over, and positions (and clamps to the window) from that measurement.
+    // createRoot().render() is asynchronous, so without flushSync the div is still empty
+    // when it gets measured: the popup ends up sized 0x0 and anchored past the right edge
+    // of the window. That is why "Add new page" looked like it did nothing and the
+    // existing pages could never be picked. showPopout() does not have this problem — it
+    // re-measures through a ResizeObserver — but showPopup() only measures once.
+    flushSync(() => {
       root.render(React.createElement(AddNewPagePopup, props));
+    });
+
     PopupLayer.instance.showPopup({
       content: { el: $(div) },
       // @ts-expect-error
       attachTo: $(this.popupAnchor),
       position: 'right',
-      onClose: function () {}
+      // Deferred: onClose fires from inside this root's own event handlers
+      // (onPageSelected/onCreateNewPage call hidePopup), and React refuses to unmount a
+      // root while it is rendering.
+      onClose: () => setTimeout(() => root.unmount(), 0)
     });
   }
 
@@ -284,7 +313,11 @@ export class Pages extends React.Component {
 
   render() {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      // alignItems must stretch: the page rows size themselves with
+      // `width: min(640px, calc(100% - 32px))`, and that 100% only resolves against a
+      // full-width parent. Centering here made every row shrink-to-fit instead, which is
+      // what turned the list into a column of narrow cards.
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
         {
           // @ts-expect-error
           this.state.pages !== undefined
@@ -301,15 +334,61 @@ export class Pages extends React.Component {
               ))
             : null
         }
+        {/*
+          Pages in the project that no router references, listed right here rather than
+          only inside the "Add new page" popup.
+
+          A page in no router is unreachable — it does not route, it is not in the top
+          bar's page list, nothing renders it — and that is the normal outcome of deleting
+          the router that owned it, since a Router carries its whole route list with it.
+          Leaving the only way to re-attach such a page behind a popup made an orphaned
+          page look like the editor had simply stopped seeing it.
+        */}
+        {
+          // @ts-expect-error
+          this.state.orphanPages.length > 0 && (
+            <>
+              <div className="router-pages-orphan-header">Not in any router</div>
+              {
+                // @ts-expect-error
+                this.state.orphanPages.map((p) => (
+                  <div style={{ display: 'flex', width: '100%' }} key={p.component}>
+                    <div
+                      className="router-pages-page router-pages-page-orphan"
+                      onClick={() => this.addPage(p.component)}
+                      title={'Add ' + (p.title || p.component) + ' to this router'}
+                    >
+                      <div style={{ display: 'flex' }}>
+                        <div className="router-pages-icon"></div>
+                      </div>
+                      <div style={{ flexGrow: 1, minWidth: 0 }}>
+                        <div className="router-pages-component">{p.title || p.component}</div>
+                        <div className="router-pages-path">{p.path}</div>
+                      </div>
+                      <div className="router-pages-orphan-add">
+                        <i className="fa fa-plus"></i>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              }
+            </>
+          )
+        }
+
         <div
           className="sidebar-fullwidth-button"
           onClick={(e) => {
             e.stopPropagation();
             this.onAddNewPageClicked();
           }}
-          // @ts-expect-error
-          ref={(el) => (this.popupAnchor = el)}
-          style={{ width: 'min(640px, 100%)' }}
+          ref={(el) => {
+            // Block body on purpose: React 19 reads a value returned from a callback ref
+            // as a cleanup function.
+            // @ts-expect-error
+            this.popupAnchor = el;
+          }}
+          style={{ width: 'min(640px, calc(100% - 32px))', alignSelf: 'center' }}
         >
           <i className="fa fa-plus" style={{ marginRight: '5px' }}></i>Add new page
         </div>

@@ -29648,7 +29648,7 @@
         },
         "pages": {
           "displayName": "Pages",
-          "type": "themped overpages",
+          "type": "pages",
           "notConnectable": true,
           "group": "Pages"
         },

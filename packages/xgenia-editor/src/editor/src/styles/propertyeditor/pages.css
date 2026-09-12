@@ -55,3 +55,42 @@
 .router-pages-actions-icon:hover {
     color: #fff;
 }
+/* Pages that belong to no router. Shown in the Pages editor so an unreachable page is
+   visible where the router's own pages are, rather than only inside the add popup. Dashed
+   and dimmer than a real route: these are not in this router yet, clicking one adds it. */
+.router-pages-orphan-header {
+    width: min(640px, calc(100% - 32px));
+    margin: 12px auto 2px;
+    color: #888;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.router-pages-page.router-pages-page-orphan {
+    background-color: transparent;
+    border: 0.5px dashed rgba(255, 255, 255, 0.18);
+    box-shadow: none;
+}
+
+.router-pages-page.router-pages-page-orphan .router-pages-component,
+.router-pages-page.router-pages-page-orphan .router-pages-path {
+    opacity: 0.75;
+}
+
+.router-pages-page.router-pages-page-orphan:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.28);
+}
+
+.router-pages-page.router-pages-page-orphan:hover .router-pages-component,
+.router-pages-page.router-pages-page-orphan:hover .router-pages-path {
+    opacity: 1;
+}
+
+.router-pages-orphan-add {
+    display: flex;
+    align-items: center;
+    color: #bbb;
+    padding: 6px 8px;
+}
