@@ -2,16 +2,21 @@
 
 Installs two things together:
 
-- the **`xgenia` MCP server** — 14 tools that drive the XGENIA desktop app over the Chrome
-  DevTools Protocol (launch, open a project, send chat prompts, read the transcript,
-  screenshot, restart)
+- the **`xgenia` MCP server** — 17 tools that drive the XGENIA desktop app over the Chrome
+  DevTools Protocol (launch, open or create a project, send chat prompts, read the transcript,
+  screenshot, pull and query the debug export, read the live runtime log, restart)
 - the **`xgenia-mcp` skill** — how to actually use them: the call sequence, the model-cost
   rule, how to verify a panel change reached the running editor, and the traps that make a
   working call look like it failed
 
 ## Install
 
-From a checkout of this repo:
+```
+/plugin marketplace add XgeniaORG/XGENIA
+/plugin install xgenia@xgenia
+```
+
+Or, from a checkout of this repo:
 
 ```
 /plugin marketplace add /path/to/XGENIAOpen2
@@ -53,4 +58,6 @@ If the server is ever published to npm, `.mcp.json` can become:
 | `XGENIA_REPO_DIR` | Path to a checkout, for `target: "dev"` |
 
 Full tool reference, error codes and troubleshooting live in
-[`packages/xgenia-mcp-server/README.md`](../../packages/xgenia-mcp-server/README.md).
+[`packages/xgenia-mcp-server/README.md`](../../packages/xgenia-mcp-server/README.md), and the
+user-facing version at
+[docsapp.xgenia.com](https://docsapp.xgenia.com/nodes/ai-agents/claude-code).

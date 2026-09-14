@@ -6,12 +6,27 @@ it with recovery.
 
 ## Install
 
+This package is **not published to npm yet**, so `npx -y xgenia-mcp` does not
+work. Install the Claude Code plugin, which ships this server together with the
+`xgenia-mcp` skill:
+
 ```
-claude mcp add xgenia -- npx -y xgenia-mcp
+/plugin marketplace add XgeniaORG/XGENIA
+/plugin install xgenia@xgenia
+```
+
+Or add it by hand from a checkout — `dist/` is gitignored, so build it once:
+
+```
+cd packages/xgenia-mcp-server && npm install && npm run build
+claude mcp add xgenia -- node "$PWD/dist/index.js"
 ```
 
 XGENIA opens a Chrome DevTools Protocol port on 9223 in every build, so nothing
 needs enabling.
+
+User-facing documentation for all of this lives at
+[docsapp.xgenia.com](https://docsapp.xgenia.com/nodes/ai-agents/claude-code).
 
 ## Tools
 
@@ -24,10 +39,16 @@ needs enabling.
 | `xgenia_quit` | Save, then kill XGENIA — `xgenia_restart`'s safety sequence without the relaunch. Same fail-closed connect/unresponsive-editor handling as `xgenia_restart`. |
 | `xgenia_project_status` | Which project is open, if any; when none is, also returns the 25 most recent projects. |
 | `xgenia_open_project` | Open a project by absolute directory or by name. Verifies the editor actually landed on it. Waits patiently for the projects screen to render tiles, and reports which state the page was actually in (login screen, empty projects screen, or a different project open) on timeout. |
+| `xgenia_new_project` | Create a project directory with a fresh, empty `project.json` and open it. Refuses — rather than overwriting — when the resolved directory exists and is non-empty. Returns everything `xgenia_open_project` does plus `createdDir`. |
+| `xgenia_close_project` | Save the open project and return to the projects screen. There is no exit control to click, so it saves, reloads and waits for a tile — which discards any unsaved work the save did not capture. Refuses on an unconfirmed save unless `force`. |
+| `xgenia_open_chat_panel` | Click the sidebar's "Chat" button. Normally unnecessary — `xgenia_open_project`/`xgenia_new_project` already do this. The button carries only a tooltip, so failures report `labelsSeen`. |
 | `xgenia_chat_send` | Type a prompt into the AI chat panel and send it. Returns only after confirming the input cleared and the transcript advanced. |
 | `xgenia_chat_read` | Read the AI chat transcript, paged from an index. |
 | `xgenia_chat_wait_idle` | Block until the AI chat panel stops generating; returns `timedOut` instead of throwing. |
 | `xgenia_screenshot` | Capture the editor window, the chat panel, or the canvas. |
+| `xgenia_debug_export` | Click the chat panel's Debug Export and return the **file path** plus a census of what the panel AI did — tool calls with arguments and results, thinking log, both consoles, token spend. One slot build produced 7.2MB and 640 tool calls, so the bundle itself is never returned. |
+| `xgenia_debug_query` | Grep one section of a debug export and return only the matching entries, clipped. Combine `tool` and `failuresOnly` to answer "which calls to X failed and why" without reading the file. Returns `matched` alongside `returned`, so a truncated answer is visible. |
+| `xgenia_runtime_logs` | Read the running preview's own log buffer (`window.XgeniaRuntimeLogs`) with no export step — which function nodes ran and with what body, reel-controller latches, every `runtimeEval` the panel sent. Addresses the preview iframe by URL, so the empty `cloudruntime` page cannot answer it. Resets on preview reload. |
 
 ## Environment
 
