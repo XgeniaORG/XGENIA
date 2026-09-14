@@ -1254,12 +1254,26 @@ export class CanvasView extends View {
     if (width !== null && height !== null) {
       // Device viewport mode — set webview to ACTUAL device dimensions
       // then use CSS transform to scale it to fit within the container
-      const containerRect = this.webview.parentElement.getBoundingClientRect();
+      const container = this.webview.parentElement as HTMLElement;
 
-      // Calculate scale to fit the device viewport within the container
-      // Leave some padding (20px) for visual clarity
-      const availableWidth = containerRect.width - 20;
-      const availableHeight = containerRect.height - 20;
+      // Fit against the CLIENT box minus the container's own padding, not the border box.
+      // getBoundingClientRect() includes the scrollbar gutter; clientWidth/clientHeight do
+      // not. Measuring the room against the border box overstates it by the width of a
+      // scrollbar, so a frame that should have fitted exactly is laid out a few pixels too
+      // wide, the scrollbar it needed to produce stays, and the overflow never settles —
+      // the preview keeps a scrollbar it does not need and the frame can be scrolled off
+      // its own panel. Reading the padding instead of subtracting a hard-coded 20 keeps
+      // this honest if the stylesheet's padding ever changes.
+      const style = getComputedStyle(container);
+      const padX = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+      const padY = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+      const availableWidth = container.clientWidth - padX;
+      const availableHeight = container.clientHeight - padY;
+
+      // A hidden or not-yet-laid-out container measures 0, which would make both ratios
+      // negative and hand `scale()` a negative factor — the frame flips and the handles
+      // anchor to a mirrored box. Keep the last good fit until there is real room.
+      if (availableWidth <= 0 || availableHeight <= 0) return;
 
       const scaleX = availableWidth / width;
       const scaleY = availableHeight / height;

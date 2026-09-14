@@ -4,7 +4,10 @@ export interface SnapResult { width: number; height: number; deviceName: string 
 
 export const FRAME_MIN = 320;
 export const FRAME_MAX_W = 3840;
-export const FRAME_MAX_H = 2160;
+// 3840 to match the tallest preset: a slot cabinet is a 4K panel stood on its end, and a
+// clamp at 2160 would snap a portrait-4K frame back to landscape height the moment it was
+// dragged.
+export const FRAME_MAX_H = 3840;
 
 // Math.min/Math.max propagate NaN, so a non-finite input would escape the clamp and
 // return NaN for a value typed `number`. Fail to the low bound instead.

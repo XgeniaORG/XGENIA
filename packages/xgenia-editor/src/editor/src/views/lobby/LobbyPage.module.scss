@@ -39,22 +39,20 @@
   flex-direction: column;
 }
 
-// The hero folds into a pill in the bar as the page scrolls. Scaling from the top edge rather
-// than animating height keeps this on the compositor.
+// The hero folds into a pill in the bar as the page scrolls. Scaling from the top edge and never
+// reclaiming its own layout space (no negative margin) keeps this on the compositor and keeps the
+// scroll container's height — and so its scroll position — untouched by the fold.
 .HeroWrap {
   flex: none;
   transform-origin: top center;
   transition:
     transform 420ms var(--lobby-ease),
-    opacity 300ms ease,
-    margin-bottom 420ms var(--lobby-ease);
+    opacity 300ms ease;
 }
 
 .HeroFolded {
   transform: scaleY(0.82) translateY(-14px);
   opacity: 0;
-  // Pulled up by its own height so the grid rises to meet the bar instead of leaving a hole.
-  margin-bottom: -248px;
   pointer-events: none;
 }
 

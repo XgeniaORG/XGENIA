@@ -802,7 +802,55 @@ NodeScope.prototype.createNode = async function (name, id, extraProps) {
         componentModel = null;
       }
       
+      // ═══ SELF-CONTAINMENT GUARD (project "A nice game", 2026-09-10) ═══
+      // A component may not contain itself, directly or through a chain. Expanding such a
+      // node expands it again, forever: the renderer's main thread blocked for 47 seconds
+      // while native memory climbed past 3.7GB (the JS heap stayed flat at 347MB), then
+      // Chromium aborted the process. It reproduced on every OPEN of the project, before
+      // any game ran, and nothing here noticed — the recursion simply ran until death.
+      //
+      // The offending node was a Component Instance of /#__maths__/SweetSwirlMaths sitting
+      // INSIDE /#__maths__/SweetSwirlMaths. Refuse to expand it and stand a fallback node
+      // in its place, so the project still LOADS and the bad node is visible and deletable
+      // instead of taking the app down with it.
+      let _selfContained = false;
       if (componentModel) {
+        const _ancestry = [];
+        let _scope = this;
+        let _hops = 0;
+        while (_scope && _hops++ < 512) {
+          const _cn = _scope.componentModel && _scope.componentModel.name;
+          if (_cn) _ancestry.push(_cn);
+          _scope = _scope.componentOwner && _scope.componentOwner.parentNodeScope;
+        }
+        if (_ancestry.indexOf(name) !== -1) {
+          _selfContained = true;
+          const _chain = _ancestry.slice(0, _ancestry.indexOf(name) + 1).reverse().concat([name]).join(' > ');
+          console.error(
+            "[xgenia] REFUSING to expand component '" + name + "' inside itself — containment loop: " + _chain + ". " +
+            "A component that contains itself has no finite expansion; expanding it would allocate until the renderer aborts. " +
+            "Delete the '" + name + "' instance (node " + id + ") from inside '" + name + "' to fix this permanently."
+          );
+          try {
+            if (this.context.editorConnection && typeof this.context.editorConnection.sendWarning === 'function') {
+              this.context.editorConnection.sendWarning(name, id, 'component-self-containment', {
+                message: "This is an instance of '" + name + "' placed inside '" + name + "' itself. It cannot be expanded — delete it.",
+                showGlobally: true
+              });
+            }
+          } catch (warnErr) {
+            // Never let the reporting path be the thing that breaks the load.
+          }
+          node = this.createFallbackNode(id, name, {
+            _originalType: name,
+            _fallbackReason: 'component-self-containment',
+            _containmentChain: _chain
+          });
+          this.componentInstanceChildren[id] = node;
+        }
+      }
+
+      if (componentModel && !_selfContained) {
         try {
           // Make a safe copy of extraProps to avoid circular references if it contains context/nodeRegister
           const safeExtraProps = {};
@@ -912,7 +960,7 @@ NodeScope.prototype.createNode = async function (name, id, extraProps) {
           node = this.createFallbackNode(id, name, fallbackProps);
           this.componentInstanceChildren[id] = node; 
         }
-      } else {
+      } else if (!_selfContained) {
         console.warn("Cannot create node of type '" + name + "': Component model not found. Creating fallback node.");
         // Create a fallback node
         try {

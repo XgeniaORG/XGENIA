@@ -1090,8 +1090,17 @@ function launchApp() {
           viewerWindow.send('viewer-set-zoom-factor', eventArgs.zoomFactor);
         }
 
-        if (eventArgs.route) {
+        // `if (route)` is not enough: the string "undefined" is truthy, and forwarding
+        // it mounted the preview at /undefined. (2026-09-10)
+        if (
+          eventArgs.route &&
+          eventArgs.route !== 'undefined' &&
+          eventArgs.route !== 'null' &&
+          eventArgs.route !== '/undefined'
+        ) {
           viewerWindow.send('viewer-set-route', eventArgs.route);
+        } else if (eventArgs.route) {
+          console.warn('[main] refusing to forward a stringified-empty route:', eventArgs.route);
         }
 
         if (eventArgs.viewportSize) {

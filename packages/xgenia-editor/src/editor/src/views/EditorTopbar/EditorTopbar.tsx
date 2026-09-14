@@ -57,7 +57,7 @@ export interface EditorTopbarProps {
   onUrlNavigateForward: () => void;
   navigationState: { canGoBack: boolean; canGoForward: boolean; route: string };
   onPreviewSizeChanged: (width: number | null, height: number | null, deviceName: string | null) => void;
-  previewSize: { width: number | null; height: number | null };
+  previewSize: { width: number | null; height: number | null; deviceName?: string | null };
   previewMode: boolean;
   onPreviewModeChanged: (previewMode: boolean) => void;
   nodeGraph: NodeGraphEditor;

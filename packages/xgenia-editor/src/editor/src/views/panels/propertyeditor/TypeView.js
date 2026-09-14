@@ -80,6 +80,31 @@ export class TypeView extends View {
       });
   }
 
+  /**
+   * Shows or hides the scroll-room spacer at the foot of the property list.
+   *
+   * A dropdown opens as an absolutely-positioned child of its own row, so a row near the
+   * bottom of the panel has nowhere to put it: the spacer adds scrollable room below the
+   * last row so it can be scrolled into view. It is sized to the dropdown that actually
+   * opened — it used to be a flat 200px, which was not enough for the longer lists and
+   * left their last options unreachable however far you scrolled.
+   *
+   * All four editors with a dropdown (enum, dimension, number-with-units, variable) share
+   * this, so the room is always the room the open list needs.
+   */
+  toggleDropDownPadding(shouldShow, $dropdown) {
+    const $padding = this.parent.$('.property-drop-down-padding');
+    $padding.hide();
+
+    if (shouldShow) {
+      const height = $dropdown && $dropdown.length ? $dropdown.outerHeight() : 0;
+      // A floor keeps the old behaviour for a dropdown whose height cannot be read yet.
+      $padding.css('height', Math.max(200, Math.ceil(height) + 20) + 'px');
+      $padding.show();
+    }
+
+    this.parent.notifyListeners('panelResized');
+  }
   getCurrentValue(name) {
     var _name = name === undefined ? this.name : name;
 

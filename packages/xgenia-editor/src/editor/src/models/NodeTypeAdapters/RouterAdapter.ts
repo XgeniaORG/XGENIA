@@ -161,13 +161,27 @@ export class RouterAdapter extends NodeTypeAdapter {
     this.evaluateRoutersHelath();
   }
 
+  /** Nodes of `typename` in `component`, matching either spelling of the type. See getPageComponents(). */
+  static findNodesOfType(component, typename: string) {
+    const nodes = [];
+    if (!component || !component.graph) return nodes;
+
+    component.graph.forEachNode((node) => {
+      if (node.typename === typename || (node.type && node.type.name === typename)) {
+        nodes.push(node);
+      }
+    });
+
+    return nodes;
+  }
+
   static getPageInfoForComponents(components) {
     const pageInfo = [];
     components.forEach((c) => {
       const _c = ProjectModel.instance.getComponentWithName(c);
       if (_c === undefined) return;
 
-      const pages = _c.getNodesWithType('Page');
+      const pages = RouterAdapter.findNodesOfType(_c, 'Page');
       if (pages === undefined || pages.length === 0) return;
 
       const page = pages[0];
@@ -178,7 +192,7 @@ export class RouterAdapter extends NodeTypeAdapter {
       }
       let urlPath = page.parameters['urlPath'] || title.replace(/\s+/g, '-').toLowerCase();
 
-      const pageInputs = _c.getNodesWithType('PageInputs');
+      const pageInputs = RouterAdapter.findNodesOfType(_c, 'PageInputs');
       const pathParams = [];
       pageInputs.forEach((pi) => {
         if (pi.parameters['pathParams'])
@@ -213,6 +227,28 @@ export class RouterAdapter extends NodeTypeAdapter {
     });
   }
 
+  /**
+   * Page components that no router in the project references.
+   *
+   * A page in no router cannot be reached at all — it does not route, it does not show up
+   * in the top bar's page list, and nothing renders it. This is the normal state after the
+   * router that owned a page is deleted (deleting a Router takes its whole route list with
+   * it) or after a page component is created outside the "new page" flow, and it used to be
+   * invisible: the only place that listed these pages was a popup behind "Add new page".
+   */
+  static getPagesNotInAnyRouter(): string[] {
+    const claimed = new Set<string>();
+
+    ProjectModel.instance.getNodesWithType('Router').forEach((r) => {
+      const pages = r.parameters['pages'];
+      if (pages && Array.isArray(pages.routes)) {
+        pages.routes.forEach((c: string) => claimed.add(c));
+      }
+    });
+
+    return RouterAdapter.getPageComponents().filter((c) => !claimed.has(c));
+  }
+
   static getRouterNames() {
     const routers = ProjectModel.instance.getNodesWithType('Router');
 
@@ -225,9 +261,31 @@ export class RouterAdapter extends NodeTypeAdapter {
   }
 
   static getPageComponents() {
-    const pages = ProjectModel.instance.getNodesWithType('Page');
+    // Walk the components rather than mapping Page nodes back up through graph -> owner.
+    //
+    // The two "find nodes of this type" helpers in the codebase do not agree:
+    // ProjectModel.getNodesWithType() matches on `node.typename` (the raw string off the
+    // project file) while ComponentModel.getNodesWithType() matches on `node.type.name`
+    // (the type resolved against the node library). A component that has not been opened
+    // this session can answer one and not the other, and this list is the only way an
+    // existing page can be attached to a router — if it comes back short, that page is
+    // simply unreachable from the Pages editor. Accept either spelling.
+    const componentNames: string[] = [];
 
-    return pages.map((p) => p.owner.owner.name);
+    ProjectModel.instance.forEachComponent((c) => {
+      if (!c || !c.graph) return;
+
+      let hasPage = false;
+      c.graph.forEachNode((node) => {
+        if (node.typename === 'Page' || (node.type && node.type.name === 'Page')) {
+          hasPage = true;
+        }
+      });
+
+      if (hasPage) componentNames.push(c.name);
+    });
+
+    return componentNames;
   }
 
   static createPageComponent(componentName) {
