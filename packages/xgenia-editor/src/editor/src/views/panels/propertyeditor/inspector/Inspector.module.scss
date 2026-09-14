@@ -186,7 +186,8 @@
   align-items: center;
   gap: 6px;
   padding: 8px;
-  background: var(--card-bg, rgba(22, 22, 24, 0.62));
+  /* Opaque: rows scroll underneath this bar, and a translucent one lets them read through. */
+  background: var(--card-bg-solid, #1c1c1e);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
@@ -340,7 +341,8 @@
   /* Sits directly under the filter bar, which is 42px tall including its border. */
   top: 42px;
   z-index: 2;
-  background: var(--card-bg, rgba(22, 22, 24, 0.62));
+  /* Opaque: rows scroll underneath this bar, and a translucent one lets them read through. */
+  background: var(--card-bg-solid, #1c1c1e);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
