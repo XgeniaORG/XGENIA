@@ -258,7 +258,33 @@ export class EditorBridge {
         UndoQueue.instance?.push?.(group);
     }
 
+    /**
+     * Command ids already dispatched, per source window, shared across every instance in this
+     * document. A WeakMap so a closed/reloaded plugin iframe's entry is collected with it.
+     */
+    private static _handledIdsBySource = new WeakMap<Window, Set<string>>();
+    /** The instance currently holding the window `message` listener. */
+    private static _active: EditorBridge | null = null;
+    /** How many bridges this document has constructed — >1 is the bug. */
+    private static _instancesConstructed = 0;
+    private readonly _instanceId: number;
+
     constructor() {
+        // ONE BRIDGE OWNS THE LISTENER. A previous instance (module re-evaluation, HMR, a
+        // second import) keeps its listener forever because nothing calls destroy() — and two
+        // listeners mean every AI command executes twice. See the duplicate-id guard in
+        // handleMessage for what that cost.
+        this._instanceId = ++EditorBridge._instancesConstructed;
+        if (EditorBridge._active) {
+            console.warn(
+                `[EditorBridge] SECOND BRIDGE CONSTRUCTED (instance #${this._instanceId}). Instance `
+                + `#${EditorBridge._active._instanceId} still owns the message listener — detaching it. `
+                + `Every AI command would otherwise execute once per live listener. Construction stack:\n`
+                + (new Error().stack || '(no stack)'),
+            );
+            try { EditorBridge._active.destroy(); } catch (e) { console.warn('[EditorBridge] Detaching the previous bridge failed:', e); }
+        }
+        EditorBridge._active = this;
         this.registerCommands();
         // NOT `.bind(this)`. `handleMessage` is already an arrow property, so it
         // is bound; wrapping it in `bind` produced a fresh function here and
@@ -545,6 +571,7 @@ export class EditorBridge {
         // with the bridge, and an unpushed group is an unundoable edit.
         this.flushAiUndo();
         window.removeEventListener('message', this.handleMessage);
+        if (EditorBridge._active === this) EditorBridge._active = null;
         this.iframe = null;
         this.connected = false;
     }
@@ -636,6 +663,57 @@ export class EditorBridge {
 
         // Command from plugin
         if (msg.type === 'command' && msg.id && msg.command) {
+            // EXACTLY-ONCE. A command id must never execute twice.
+            //
+            // (2026-09-12, export 1789204750104) Every node the AI created that session was
+            // created TWICE — 20 UI nodes became 40, one create_logic_node produced two Routers,
+            // a 20-node maths batch became 40. The panel sent each command ONCE (its own logs
+            // show one line per call) and each duplicate carried a DIFFERENT guid, so the only
+            // explanation is this handler running twice per message: more than one live
+            // `message` listener on the window, each executing the full dispatch below.
+            //
+            // That is possible because `destroy()` — the only thing that removes the listener —
+            // has no callers anywhere in the repo, while `editorBridge` is a module-scope
+            // singleton; any second evaluation of this module leaves the previous listener
+            // attached. The comment above the addEventListener call already describes this exact
+            // failure from a previous incident.
+            //
+            // The duplicate was invisible: PluginBridge deletes its pending entry on the FIRST
+            // response and silently drops the second, so the tool honestly reported 20 while 40
+            // existed. The session then burned six calls hand-deleting its own duplicates, and
+            // every shared label came back as an AMBIGUOUS REF refusal.
+            //
+            // Guarding here rather than only at construction means this holds however a second
+            // listener arrives (HMR, a second window, a second bundle copy).
+            // Keyed PER SOURCE WINDOW, not by id alone. Two plugin iframes (the AI chat panel and
+            // the image editor) each run their own PluginBridge whose counter starts at 1, so both
+            // can mint "cmd_1_<same ms>". A global id set would drop the second plugin's genuine
+            // command and leave it hanging until its 30s timeout.
+            const src = event.source as Window | null;
+            if (src) {
+                let seen = EditorBridge._handledIdsBySource.get(src);
+                if (!seen) { seen = new Set<string>(); EditorBridge._handledIdsBySource.set(src, seen); }
+                if (seen.has(msg.id)) {
+                    console.warn(
+                        `[EditorBridge] DUPLICATE DISPATCH BLOCKED — command id ${msg.id} (${msg.command}) `
+                        + `was already executed for this source window. This bridge is instance `
+                        + `#${this._instanceId}; ${EditorBridge._instancesConstructed} bridge(s) have been `
+                        + `constructed in this document. If that count is >1, a second EditorBridge was `
+                        + `created and its listener is still attached — capture this log, it names the cause.`,
+                    );
+                    return;
+                }
+                seen.add(msg.id);
+                if (seen.size > 2000) {
+                    // Bounded: ids are monotonic within one panel session, so the oldest are safe to drop.
+                    const it = seen.values();
+                    for (let i = 0; i < 500; i++) {
+                        const v = it.next();
+                        if (v.done) break;
+                        seen.delete(v.value);
+                    }
+                }
+            }
             // Every command is a sign the AI is working, read-only ones included. Tying
             // this to undo bursts alone meant a turn made entirely of inspection tools
             // never lit the top bar at all. AiActivity ends itself on an idle window,
@@ -2458,6 +2536,34 @@ export class EditorBridge {
         h('component.createWithTemplate', ([name, templateJSON, switchTo]: [string, any, boolean?]) => {
             const pm = ProjectModel.instance as any;
             if (!pm) throw new Error('ProjectModel not available');
+
+            // NAME UNIQUENESS IS THE WRITER'S JOB.
+            //
+            // (2026-09-12, export 1789204750104) ProjectModel.addComponent has no name check, and
+            // this was the only creation path in the editor without one — the Components panel,
+            // duplicate, the Router page editor, the project importer and the Supabase importer
+            // all guard. The AI's create_component does check, but it reads getComponents() and
+            // then writes over a bridge round-trip, so nothing holds between the read and the
+            // write. That project ended with TWO "/Pages/SpaceGorilla" and TWO
+            // "/#__maths__/SpaceGorillaMaths" — in each pair one real component and one empty
+            // template twin — from a single create call each.
+            //
+            // The twins are not merely untidy. The runtime keys components by NAME
+            // (graphmodel.addComponent), so one silently shadows the other; toJSON sorts by name,
+            // so which one wins can flip between saves; and the AI's index merges them, turning
+            // every label they share into an ambiguity refusal.
+            const existingSameName = (pm.getComponents?.() || []).filter(
+                (c: any) => c && (c.name === name || c.fullName === name),
+            );
+            if (existingSameName.length > 0) {
+                const e = existingSameName[0];
+                throw new Error(
+                    `A component named "${name}" already exists (id ${e.id}). Refusing to create a `
+                    + `second one: the runtime keys components by name, so the two would shadow each `
+                    + `other unpredictably. Switch to it (component.switchTo), delete it first, or `
+                    + `choose a different name.`,
+                );
+            }
 
             // Create component from template JSON (same as tool-side ComponentModel creation)
             const Utils = (window as any).Utils || { guid: () => crypto.randomUUID() };
