@@ -7,20 +7,20 @@ it with recovery.
 ## Install
 
 This package is **not published to npm yet**, so `npx -y xgenia-mcp` does not
-work. Install the Claude Code plugin, which ships this server together with the
-`xgenia-mcp` skill:
-
-```
-/plugin marketplace add XgeniaORG/XGENIA
-/plugin install xgenia@xgenia
-```
-
-Or add it by hand from a checkout — `dist/` is gitignored, so build it once:
+work. Add it by hand from a checkout — `dist/` is gitignored, so build it once:
 
 ```
 cd packages/xgenia-mcp-server && npm install && npm run build
 claude mcp add xgenia -- node "$PWD/dist/index.js"
 ```
+
+The `xgenia` Claude Code plugin is **not a working install path yet**: a
+marketplace install copies only `plugins/xgenia/` — `.claude-plugin`,
+`.mcp.json`, `bin`, `skills`, `README.md` — so `bin/xgenia-mcp.mjs` resolves
+`../../../packages/xgenia-mcp-server` outside the cache and exits before
+starting the server. Reproduced 2026-09-14: the plugin installs, the skill
+loads, and no tools appear. Publishing this package and changing the plugin's
+`.mcp.json` to `npx -y xgenia-mcp` is the fix.
 
 XGENIA opens a Chrome DevTools Protocol port on 9223 in every build, so nothing
 needs enabling.

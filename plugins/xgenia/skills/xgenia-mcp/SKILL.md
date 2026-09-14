@@ -16,9 +16,9 @@ description: |
 The `xgenia` MCP server drives the **installed XGENIA desktop app** through the Chrome
 DevTools Protocol on port 9223, which every build opens. No repo checkout is needed.
 
-Installed by the `xgenia` Claude Code plugin (`/plugin marketplace add XgeniaORG/XGENIA`, then
-`/plugin install xgenia@xgenia`). The package is **not on npm** — `npx -y xgenia-mcp` fails. To
-add it by hand, build `packages/xgenia-mcp-server` once and point at `dist/index.js`.
+Added by hand, not by the plugin: the package is **not on npm** (`npx -y xgenia-mcp` fails), and
+a marketplace install of the `xgenia` plugin ships this skill without the server, so no tools
+appear. Build `packages/xgenia-mcp-server` once and point `claude mcp add` at `dist/index.js`.
 
 All 17 tools return `{ error, tried, hint }` on failure rather than throwing. `hint` says
 what to do next — read it before deciding anything.

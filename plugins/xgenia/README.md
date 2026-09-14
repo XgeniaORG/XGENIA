@@ -11,15 +11,29 @@ Installs two things together:
 
 ## Install
 
+> [!WARNING]
+> **Installing this plugin does not currently give you the MCP tools.** A
+> marketplace install copies only this directory, so `bin/xgenia-mcp.mjs`
+> resolves `../../../packages/xgenia-mcp-server` outside the plugin cache and
+> exits before the server starts. You get the skill and no tools. Reproduced
+> 2026-09-14 with `/plugin marketplace add XgeniaORG/XGENIA`. See
+> [How the server is started](#how-the-server-is-started).
+
+Until that is fixed, install the two halves separately:
+
+```
+# tools
+cd packages/xgenia-mcp-server && npm install && npm run build
+claude mcp add xgenia -- node "$PWD/dist/index.js"
+
+# skill
+cp -r plugins/xgenia/skills/xgenia-mcp ~/.claude/skills/
+```
+
+The plugin form, once the server is on npm:
+
 ```
 /plugin marketplace add XgeniaORG/XGENIA
-/plugin install xgenia@xgenia
-```
-
-Or, from a checkout of this repo:
-
-```
-/plugin marketplace add /path/to/XGENIAOpen2
 /plugin install xgenia@xgenia
 ```
 
