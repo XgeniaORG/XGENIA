@@ -28,6 +28,7 @@
   "build": {
     "appId": "com.xgenia.nb",
     "afterSign": "./build/macos-notarize.js",
+    "afterAllArtifactBuild": "./build/macos-notarize-dmg.js",
     "publish": {
       "provider": "github",
       "owner": "XgeniaORG",
