@@ -7,6 +7,7 @@ import View from '../../../../shared/view';
 import { InlineElementChat } from './InlineElementChat';
 import type { PreviewHost } from './IframeViewer';
 import { VisualCanvas } from './VisualCanvas';
+import { measureSurfaceProof, browserSurfaceProofEnv } from './surfaceProof';
 
 /**
  * Chatter from the running preview, off by default.
@@ -709,57 +710,19 @@ export class CanvasView extends View {
       };
 
       // Proof, not assumption: capturePage() (IframeViewer.ts) clips OUR OWN window to
-      // `el.getBoundingClientRect()` taken at capture time — so "the image is the design
-      // surface" is true if and only if that rect IS the element's box at the window
-      // origin. Measure it instead of trusting applySize() to have worked; a leftover
-      // transform, a containing-block hijack from an ancestor's backdrop-filter/contain,
-      // or a stacking context that confines the z-index all show up here as a mismatch.
+      // `el.getBoundingClientRect()` taken at capture time, so "the image is the design surface"
+      // needs three things measured, not assumed from applySize() having run — no transform, the
+      // box at the window origin and inside the window, and NOTHING PAINTED OVER IT. The last one
+      // is a hit test, not a rect comparison: a stacking context that confines this element's
+      // z-index (the chat panel's .Card is z-index:10) leaves the rect exactly right while another
+      // element paints over it, so a rect match alone cannot see it. surfaceProof.ts has the full
+      // reasoning, including what the hit test cannot see.
       //
-      // UNITS: getBoundingClientRect() and el.style.{top,left,width,height} above are both
-      // CSS/DIP pixels of THIS renderer's own document — the same space applySize() writes
-      // into — so this comparison never crosses the Electron zoom-factor boundary (that
-      // factor only scales the NativeImage's physical-pixel buffer size returned by
-      // capturePage(), checked separately below via scaleX/scaleY). Comparing r.width/
-      // r.height against the *captured image's* pixel dimensions instead would silently
-      // mix those two units and could pass a mismatched surface at a non-1.0 zoom factor;
-      // this deliberately never does that, and reports a measurement failure rather than a
-      // false pass if it cannot establish that.
-      const measureSurfaceProof = (): {
-        ok: boolean;
-        reason?: 'transform_present' | 'rect_mismatch' | 'not_measured';
-        elementRect?: { x: number; y: number; w: number; h: number };
-        capturedRect?: { x: number; y: number; w: number; h: number };
-      } => {
-        try {
-          const cs = getComputedStyle(el);
-          if (cs.transform && cs.transform !== 'none') {
-            return { ok: false, reason: 'transform_present' };
-          }
-          const r = el.getBoundingClientRect();
-          const elementRect = { x: r.left, y: r.top, w: r.width, h: r.height };
-          const capturedRect = { x: 0, y: 0, w: width, h: height };
-          const near = (a: number, b: number) => Math.abs(a - b) <= 2;
-          // The element's OWN box must be positioned/sized exactly as applySize() intended...
-          const boxOk = near(r.left, 0) && near(r.top, 0) && near(r.width, width) && near(r.height, height);
-          // ...AND it must actually FIT this window's own on-screen viewport. getBoundingClientRect()
-          // alone cannot rule out the OTHER known failure mode (design-capture.ts's header, and the
-          // whole-branch review this task followed): a genuinely too-small editor window. A
-          // `position:fixed` box does not get clipped down to the viewport by CSS — it just
-          // overflows — so a 1920x1080 box would still measure 1920x1080 here even inside a
-          // 1512x900 window; only comparing against the window's OWN size catches that.
-          // capturePage() (IframeViewer.ts) clips to THIS window's own compositor output, so a box
-          // bigger than window.innerWidth/innerHeight cannot be captured whole no matter how
-          // correctly it is positioned.
-          const fitsWindow = r.width <= window.innerWidth + 2 && r.height <= window.innerHeight + 2;
-          const ok = boxOk && fitsWindow;
-          return ok ? { ok: true, elementRect, capturedRect } : { ok: false, reason: 'rect_mismatch', elementRect, capturedRect };
-        } catch (e: any) {
-          // A measurement that threw proved nothing — fail closed rather than omit the
-          // field (an omitted field also fails closed downstream, at design-capture.ts,
-          // but naming the reason here is more honest than going silent).
-          return { ok: false, reason: 'not_measured' };
-        }
-      };
+      // UNITS: getBoundingClientRect(), window.innerWidth/innerHeight and elementFromPoint() are all
+      // CSS px of THIS renderer's document — the space applySize() writes into — so none of these
+      // comparisons crosses the Electron zoom-factor boundary. That factor only scales the
+      // NativeImage buffer, checked separately below via scaleX/scaleY.
+      const measureProof = () => measureSurfaceProof(el, width, height, browserSurfaceProofEnv());
 
       try {
         applySize();
@@ -791,7 +754,7 @@ export class CanvasView extends View {
         // Measure the surface AFTER the last applySize() and BEFORE capturePage(), so this is
         // the same box (modulo the JS-turn gap between here and IframeViewer's own
         // getBoundingClientRect() call inside capturePage()) that ends up in the image.
-        const surfaceProof = measureSurfaceProof();
+        const surfaceProof = measureProof();
 
         const nativeImage = await this.webview.capturePage();
         if (!nativeImage || nativeImage.isEmpty()) {
