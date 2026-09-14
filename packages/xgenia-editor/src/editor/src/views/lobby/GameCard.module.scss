@@ -38,6 +38,13 @@
   box-shadow: var(--lobby-focus-ring), var(--lobby-card-shadow);
 }
 
+// `.Root` is a stacking context of its own (backdrop-filter), so the menu's own z-index only
+// orders it within this card. While a menu is up the card has to outrank its neighbours, or the
+// popup disappears behind the next card along as soon as the pointer leaves and :hover drops.
+.MenuOpen {
+  z-index: 3;
+}
+
 // A blurred copy of the artwork, behind the card. Fades in on hover so the game appears to light
 // the floor around it. The hero does the same thing permanently.
 .Glow {
@@ -305,12 +312,6 @@
 
 // A transparent full-window layer so the next click anywhere closes the menu, without a
 // document-level listener that would have to be added and removed by hand.
-.MenuScrim {
-  position: fixed;
-  inset: 0;
-  z-index: 8;
-}
-
 .Menu {
   position: absolute;
   right: 8px;

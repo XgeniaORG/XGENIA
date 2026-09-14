@@ -30,6 +30,7 @@ import { monogramFor, monogramHue } from '../../utils/thumbnails/thumbnail-weak'
 import type { LobbyItem } from '../../models/lobby/lobbyGrouping';
 import { timeSince } from '../../utils/utils';
 import { Icon } from './LobbyIcons';
+import { useMenuLayer } from './useMenuLayer';
 import css from './GameCard.module.scss';
 
 export interface GameCardProps {
@@ -94,6 +95,10 @@ export function GameCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+  // Holds the layer while open: closes any other card's menu, and closes this one on the next
+  // click, right-click, Escape or scroll anywhere on the page. See useMenuLayer.ts.
+  const menuRef = useMenuLayer<HTMLDivElement>(menuOpen, closeMenu);
 
   const thumb = resolveThumbSrc(entry);
   // `weakThumb` is only ever true after a measurement; an unmeasured card shows its art. See
@@ -124,7 +129,9 @@ export function GameCard({
   };
 
   const handleClick = (e: React.MouseEvent) => {
-    if (renaming || confirming) return;
+    // menuOpen is a belt to useMenuLayer's braces: it swallows the dismissing click before
+    // React sees it, so this only matters if that listener ever loses the race.
+    if (renaming || confirming || menuOpen) return;
 
     // Modifier clicks build a selection instead of opening. Without this, the only way to act on
     // more than one game is to repeat every action once per card, which at 319 games is why the
@@ -140,7 +147,7 @@ export function GameCard({
 
   const action = (fn: () => void) => (e: React.MouseEvent) => {
     stop(e);
-    setMenuOpen(false);
+    closeMenu();
     fn();
   };
 
@@ -151,6 +158,9 @@ export function GameCard({
     list ? css.List : '',
     selected ? css.Selected : '',
     focused ? css.Focused : '',
+    // The card stacks over its neighbours while hovered; an open menu needs that to hold once
+    // the pointer has moved off, or the popup is painted under the next card along.
+    menuOpen ? css.MenuOpen : '',
     dealIndex < 12 ? css.Deal : ''
   ]
     .filter(Boolean)
@@ -220,7 +230,16 @@ export function GameCard({
           <button type="button" title="Rename" aria-label="Rename" onClick={action(() => setRenaming(true))}>
             <Icon name="pen" />
           </button>
-          <button type="button" title="More" aria-label="More" onClick={action(() => setMenuOpen(true))}>
+          <button
+            type="button"
+            title="More"
+            aria-label="More"
+            aria-expanded={menuOpen}
+            onClick={(e) => {
+              stop(e);
+              setMenuOpen(true);
+            }}
+          >
             <Icon name="more" />
           </button>
         </div>
@@ -268,49 +287,46 @@ export function GameCard({
       </div>
 
       {menuOpen && (
-        <>
-          <div className={css.MenuScrim} onClick={action(() => undefined)} />
-          <div className={css.Menu} role="menu">
-            <button type="button" role="menuitem" onClick={action(onOpen)}>
-              <Icon name="play" />
-              Open
-              <kbd>↵</kbd>
-            </button>
-            <button type="button" role="menuitem" onClick={action(onTogglePin)}>
-              <Icon name="star" filled={item.pinned} />
-              {item.pinned ? 'Unpin' : 'Pin'}
-              <kbd>Space</kbd>
-            </button>
-            <button type="button" role="menuitem" onClick={action(() => setRenaming(true))}>
-              <Icon name="pen" />
-              Rename
-              <kbd>F2</kbd>
-            </button>
-            <button type="button" role="menuitem" onClick={action(onDuplicate)}>
-              <Icon name="copy" />
-              Duplicate
-            </button>
-            <button type="button" role="menuitem" onClick={action(onRemix)}>
-              <Icon name="spark" />
-              Remix with AI…
-            </button>
-            <button type="button" role="menuitem" onClick={action(onReveal)}>
-              <Icon name="folder" />
-              Reveal in Finder
-            </button>
-            <div className={css.MenuSep} />
-            <button
-              type="button"
-              role="menuitem"
-              className={css.Danger}
-              onClick={action(() => setConfirming(true))}
-            >
-              <Icon name="trash" />
-              Remove from list
-              <kbd>⌫</kbd>
-            </button>
-          </div>
-        </>
+        <div className={css.Menu} role="menu" ref={menuRef}>
+          <button type="button" role="menuitem" onClick={action(onOpen)}>
+            <Icon name="play" />
+            Open
+            <kbd>↵</kbd>
+          </button>
+          <button type="button" role="menuitem" onClick={action(onTogglePin)}>
+            <Icon name="star" filled={item.pinned} />
+            {item.pinned ? 'Unpin' : 'Pin'}
+            <kbd>Space</kbd>
+          </button>
+          <button type="button" role="menuitem" onClick={action(() => setRenaming(true))}>
+            <Icon name="pen" />
+            Rename
+            <kbd>F2</kbd>
+          </button>
+          <button type="button" role="menuitem" onClick={action(onDuplicate)}>
+            <Icon name="copy" />
+            Duplicate
+          </button>
+          <button type="button" role="menuitem" onClick={action(onRemix)}>
+            <Icon name="spark" />
+            Remix with AI…
+          </button>
+          <button type="button" role="menuitem" onClick={action(onReveal)}>
+            <Icon name="folder" />
+            Reveal in Finder
+          </button>
+          <div className={css.MenuSep} />
+          <button
+            type="button"
+            role="menuitem"
+            className={css.Danger}
+            onClick={action(() => setConfirming(true))}
+          >
+            <Icon name="trash" />
+            Remove from list
+            <kbd>⌫</kbd>
+          </button>
+        </div>
       )}
 
       {confirming && (
