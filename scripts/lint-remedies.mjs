@@ -35,6 +35,27 @@
  * design doc assigns to §5.2/§5.3, not this gate. See task-2-report.md for which of the
  * design doc's ten example rows this script can and cannot see, and why.
  *
+ * IDENTITY (fixed 2026-09-14, see lint-identity-fix-report.md): a violation's identity is
+ * `file + kind + tool + param(if any) + normalisedCall + occurrence-index`, NEVER `line`.
+ * `normalisedCall` is the matched call expression itself (`tool({...})`, or the bare "pass X"
+ * / "retry with X" text for a self-referential mention) with runs of whitespace collapsed —
+ * NOT the padded context window kept in `snippet` for humans. An unrelated edit earlier in a
+ * file shifts every later violation's line number by the same delta; keying identity on line
+ * made the WHOLE FILE'S worth of baselined violations look "fixed" and "new" at once on that
+ * edit (verified: a single -1 net line change in verify-logic-correctness.ts flipped 17
+ * baselined violations to `new` while `currentCount == baselineCount`). Two of those 17 also
+ * proved line position is not just noisy but actively MISLEADING: two DIFFERENT calls
+ * (`width: "800px"` and `width: "100%"`, at different source lines) coincidentally landed on
+ * the same line number as two OTHER, unrelated baseline entries after the shift, so the old
+ * `file:line:tool:param` key called them "unchanged" purely by line-number coincidence, and
+ * the two truly-shifted "800px" calls (identical call text, different neighbouring prose —
+ * one preceded by "...as an explicit CSS string:", the other by "...are the same token:")
+ * showed up as spuriously "new" instead. `occurrence-index` (assigned in source order among
+ * violations sharing the same file/kind/tool/param/normalisedCall) exists because one file can
+ * legitimately contain the identical call text more than once, as this exact bug proved.
+ * `line` and `snippet` stay on each violation record for a human to read, but take no part in
+ * the key.
+ *
  * Usage:
  *   node scripts/lint-remedies.mjs                 human-readable table; exits 1 if any
  *                                                   NEW violation (not in the baseline) exists
@@ -43,6 +64,11 @@
  *                                                   new violations exist)
  *   node scripts/lint-remedies.mjs --write-baseline  overwrite scripts/remedy-baseline.json
  *                                                     with today's violations; exits 0
+ *
+ * Env overrides (seam for tests — e.g. proving identity survives a line shift against an
+ * isolated fixture tree without touching the real registry or the real baseline):
+ *   LINT_REMEDIES_REGISTRY_DIR   scan this directory instead of the real StreamlinedToolRegistry
+ *   LINT_REMEDIES_BASELINE_FILE  read/write this baseline file instead of the real one
  */
 
 import fs from 'fs';
@@ -51,9 +77,13 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const REGISTRY_DIR = path.join(ROOT, 'private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry');
+const REGISTRY_DIR = process.env.LINT_REMEDIES_REGISTRY_DIR
+  ? path.resolve(process.env.LINT_REMEDIES_REGISTRY_DIR)
+  : path.join(ROOT, 'private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry');
 const INDEX_FILE = path.join(REGISTRY_DIR, 'index.ts');
-const BASELINE_FILE = path.join(ROOT, 'scripts/remedy-baseline.json');
+const BASELINE_FILE = process.env.LINT_REMEDIES_BASELINE_FILE
+  ? path.resolve(process.env.LINT_REMEDIES_BASELINE_FILE)
+  : path.join(ROOT, 'scripts/remedy-baseline.json');
 
 // Bare identifiers that can precede `({` and are not tool calls.
 const CALL_ALLOWLIST = new Set([
@@ -454,10 +484,38 @@ function mapSegmentOffset(chunks, idx) {
   return last.start + last.text.length - 1;
 }
 
-/** A snippet safe to print / put in the baseline (single line, capped). */
+/** A snippet safe to print / put in the baseline (single line, capped). Context window for
+ * HUMANS only — deliberately never used for identity (see IDENTITY note at the top of this
+ * file): two unrelated calls with identical text but different neighbouring prose produce
+ * different snippets, which would make textually-identical violations look different. */
 function snippetOf(text, idx, len) {
   const s = text.slice(Math.max(0, idx - 10), idx + len + 40).replace(/\s+/g, ' ').trim();
   return s.length > 120 ? s.slice(0, 117) + '...' : s;
+}
+
+/** The exact matched text (a call expression, or a bare "pass X" mention) with whitespace
+ * collapsed — NOT padded with any surrounding context. This, not `snippet`, is what identity
+ * is keyed on. */
+function normaliseCallText(s) {
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Assign each violation an occurrence index, scoped to file+kind+tool+param+normalisedCall,
+ * counted in the order violations are appended (which follows source order — see
+ * scanFileForViolations/extractLiterals). One file can legitimately contain the identical
+ * call text more than once (proven by the "800px" / "100%" dimension examples in
+ * verify-logic-correctness.ts, each written twice as a paired before/after example) — without
+ * this index those two occurrences would collide on one identity.
+ */
+function makeOccurrenceCounter() {
+  const counts = new Map();
+  return (v) => {
+    const groupKey = [v.file, v.kind, v.tool, v.param || '', v.call].join('‖');
+    const next = (counts.get(groupKey) || 0) + 1;
+    counts.set(groupKey, next);
+    return next;
+  };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -763,7 +821,7 @@ function rel(p) {
 // 2. Scan for advice: explicit calls, and self-referential bare param mentions.
 // ---------------------------------------------------------------------------------------
 
-function scanFileForViolations(file, source, lineFinder, inventoryNames, inventoryBlocks, blockRangesForFile, violations, unparsed) {
+function scanFileForViolations(file, source, lineFinder, inventoryNames, inventoryBlocks, blockRangesForFile, violations, unparsed, nextOccurrence) {
   const literals = extractLiterals(source);
 
   const callRe = /\b([a-z][a-z0-9_]{3,})\(\{/g;
@@ -797,10 +855,22 @@ function scanFileForViolations(file, source, lineFinder, inventoryNames, invento
         if (parsed.key) keys.push(parsed.key);
       }
 
-      const snippet = snippetOf(text, m.index, closeBraceInText - m.index + 1);
+      // `closeBraceInText` is the `}` closing the argument OBJECT, not the `)` closing the
+      // CALL — `name({...}` is not a complete expression. Extend to the call's own closing
+      // paren (skipping any whitespace in between, e.g. `name({ ... } )`) so `call` is the
+      // full, syntactically complete `name({...})` text used for identity.
+      let callEnd = closeBraceInText + 1;
+      while (callEnd < text.length && /\s/.test(text[callEnd])) callEnd++;
+      if (text[callEnd] === ')') callEnd++;
+      else callEnd = closeBraceInText + 1; // no closing paren found in the literal; don't guess
+
+      const snippet = snippetOf(text, m.index, callEnd - m.index);
+      const call = normaliseCallText(text.slice(m.index, callEnd));
 
       if (!inventoryNames.has(name)) {
-        violations.push({ file: rel(file), line, tool: name, kind: 'phantom_tool', snippet });
+        const v = { file: rel(file), line, tool: name, kind: 'phantom_tool', call, snippet };
+        v.occurrence = nextOccurrence(v);
+        violations.push(v);
         continue;
       }
 
@@ -816,7 +886,9 @@ function scanFileForViolations(file, source, lineFinder, inventoryNames, invento
       }
       for (const key of keys) {
         if (!block.schemaKeys.has(key)) {
-          violations.push({ file: rel(file), line, tool: name, param: key, kind: 'phantom_param', snippet });
+          const v = { file: rel(file), line, tool: name, param: key, kind: 'phantom_param', call, snippet };
+          v.occurrence = nextOccurrence(v);
+          violations.push(v);
         }
       }
       if (sawUnparsedSegment) {
@@ -840,7 +912,10 @@ function scanFileForViolations(file, source, lineFinder, inventoryNames, invento
       if (!block.schemaKeys.has(ident)) {
         const line = lineFinder(absOffset);
         const snippet = snippetOf(text, m.index, m[0].length);
-        violations.push({ file: rel(file), line, tool: block.declaredName, param: ident, kind: 'phantom_self_param', snippet });
+        const call = normaliseCallText(m[0]);
+        const v = { file: rel(file), line, tool: block.declaredName, param: ident, kind: 'phantom_self_param', call, snippet };
+        v.occurrence = nextOccurrence(v);
+        violations.push(v);
       }
     }
   }
@@ -900,6 +975,7 @@ function run() {
     blockRangesForFile.get(abs).push(block);
   }
 
+  const nextOccurrence = makeOccurrenceCounter();
   for (const file of files) {
     let source;
     try {
@@ -909,14 +985,26 @@ function run() {
       continue;
     }
     const lineFinder = makeLineFinder(source);
-    scanFileForViolations(file, source, lineFinder, inventoryNames, inventoryBlocks, blockRangesForFile, violations, unparsed);
+    scanFileForViolations(file, source, lineFinder, inventoryNames, inventoryBlocks, blockRangesForFile, violations, unparsed, nextOccurrence);
   }
 
   return { violations, unparsed };
 }
 
+/**
+ * IDENTITY, not line position: file + kind + tool + param(if any) + the normalised call text
+ * + an occurrence index disambiguating repeats of that same tuple within one file. `line` is
+ * deliberately excluded — see the IDENTITY note at the top of this file for why keying on it
+ * both false-"new"s a merely-shifted violation and, worse, can false-MATCH two genuinely
+ * different violations that happen to land on the same line number after a shift.
+ */
 function violationKey(v) {
-  return `${v.file}:${v.line}:${v.tool}${v.param ? ':' + v.param : ''}`;
+  // "‖" (U+2016, double vertical line) as the field separator: printable, never appears in a
+  // tool/param identifier or in normalised call text, and — unlike a NUL byte — survives
+  // JSON.stringify and any future grep over the baseline file untouched (see
+  // reference_raw_nul_makes_grep_blind: a literal 0x00 makes grep report a whole file as
+  // binary and skip it silently).
+  return [v.file, v.kind, v.tool, v.param || '', v.call, v.occurrence].join('‖');
 }
 
 function loadBaseline() {
