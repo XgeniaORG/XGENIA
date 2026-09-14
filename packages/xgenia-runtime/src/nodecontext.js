@@ -523,7 +523,7 @@ NodeContext.prototype._formatTimelineValue = function (value) {
 // captures every fire regardless of whether a debug connection is live. Cheap
 // (a few reads + one push) and fully wrapped: a failure here must never disturb
 // the running graph.
-NodeContext.prototype._recordTimelineEvent = function (output, kind, value) {
+NodeContext.prototype._recordTimelineEvent = function (output, kind, value, via) {
   if (this._eventTimelineEnabled === false) return;
   try {
     const owner = output && output.owner;
@@ -547,6 +547,9 @@ NodeContext.prototype._recordTimelineEvent = function (output, kind, value) {
     };
     if (kind !== 'signal') {
       evt.value = this._formatTimelineValue(value);
+    }
+    if (via) {
+      evt.via = via;
     }
     this._eventTimeline.push(evt);
 
@@ -601,12 +604,56 @@ NodeContext.prototype.getEventTimeline = function (opts) {
   };
 };
 
+// Component Inputs, Component Outputs and component instances forward a
+// signal across a component boundary as TWO plain boolean writes (true, then
+// false) via Node.prototype.sendValue — see componentinstance.js
+// registerComponentInputPort/setOutputFromComponentOutput and
+// componentinputs.js registerOutputIfNeeded. Without this, connectionSentValue
+// (below) records both edges as 'value' events and the signal disappears from
+// every kind:'signal' timeline read. The declared port type (assigned in the
+// editor when the boundary port was created) survives export onto the node
+// model as NodeModel.outputPorts[name].type — see models/nodemodel.js
+// addOutputPort/createFromExportData — so it is reachable from output.owner
+// even though the dynamically-registered Node-level output/input never carries
+// a type of its own.
+var BOUNDARY_SIGNAL_OWNER_TYPES = new Set(['Component Inputs', 'Component Outputs']);
+
+NodeContext.prototype._isBoundarySignalPort = function (output) {
+  try {
+    const owner = output && output.owner;
+    if (!owner) return false;
+    const model = owner.model;
+    const ownerType = (model && model.type) || owner.type;
+    if (typeof ownerType !== 'string' || ownerType.length === 0) return false;
+    // A component instance's model.type is the component's path, e.g.
+    // '/Components/GremlinGold/Logic' — that's how setOutputFromComponentOutput's
+    // flagOutputDirty call (on the instance itself) is told apart from an
+    // ordinary node type name.
+    const isComponentInstance = ownerType.charAt(0) === '/';
+    if (!BOUNDARY_SIGNAL_OWNER_TYPES.has(ownerType) && !isComponentInstance) return false;
+
+    const portDef = model && model.outputPorts && model.outputPorts[output.name];
+    if (!portDef) return false;
+    const portType = typeof portDef.type === 'object' && portDef.type ? portDef.type.name : portDef.type;
+    return portType === 'signal';
+  } catch (e) {
+    return false;
+  }
+};
+
 NodeContext.prototype.connectionSentValue = function (output, value) {
   // Ordered ground-truth record (Path B). Skip the synthetic '[Signal] …' value
   // that connectionSentSignal routes through here — that fire is already recorded
   // as a 'signal' event, so recording it again as a 'value' would double-count.
   if (!(typeof value === 'string' && value.indexOf('[Signal]') === 0)) {
-    this._recordTimelineEvent(output, 'value', value);
+    if (typeof value === 'boolean' && this._isBoundarySignalPort(output)) {
+      if (value === true) {
+        this._recordTimelineEvent(output, 'signal', undefined, 'component-boundary');
+      }
+      // the falling edge of a boundary-forwarded pulse is not a separate event
+    } else {
+      this._recordTimelineEvent(output, 'value', value);
+    }
   }
 
   if (!this.editorConnection || !this.editorConnection.isConnected() || !this.debugInspectorsEnabled) {
