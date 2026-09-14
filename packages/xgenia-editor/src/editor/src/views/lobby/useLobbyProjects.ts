@@ -43,7 +43,25 @@ export function useLobbyProjects(): UseLobbyProjects {
       group
     );
 
-    LobbyMetaModel.instance.on('lobby-meta-changed', () => setMetaById(LobbyMetaModel.instance.all()), group);
+    // Reads land one project at a time — up to 8 in flight, immediately refilled — so a library
+    // of hundreds of games fires just as many individual 'lobby-meta-changed' events in a burst.
+    // Each one used to call `setMetaById` on its own, and `.all()` allocates a brand new object
+    // every time, so every event forced a full grid rebuild: hundreds of re-renders landing right
+    // when the user is scrolling, which is what was glitching the scroll position. Coalescing to
+    // one flush per frame keeps the same eventual state with a couple of orders of magnitude
+    // fewer rebuilds.
+    let flushHandle = 0;
+    LobbyMetaModel.instance.on(
+      'lobby-meta-changed',
+      () => {
+        if (flushHandle) return;
+        flushHandle = requestAnimationFrame(() => {
+          flushHandle = 0;
+          setMetaById(LobbyMetaModel.instance.all());
+        });
+      },
+      group
+    );
 
     void LocalProjectsModel.instance.fetch().finally(() => {
       setEntries([...(LocalProjectsModel.instance.getProjects() || [])]);
@@ -53,6 +71,7 @@ export function useLobbyProjects(): UseLobbyProjects {
     return () => {
       LocalProjectsModel.instance.off(group);
       LobbyMetaModel.instance.off(group);
+      if (flushHandle) cancelAnimationFrame(flushHandle);
     };
   }, []);
 
