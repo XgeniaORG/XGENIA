@@ -79,6 +79,10 @@ export interface ComplianceAiStatus {
   provider: string;
   /** How the model is chosen: the strongest the credential can afford, free last. */
   policy?: 'best-affordable';
+  /** What "strongest" is measured by: the Artificial Analysis indices, read live. */
+  ranking?: 'artificial-analysis-index';
+  /** Whether a screening is one call or two (analyse, then draft from that analysis). */
+  screening?: 'two-pass';
   /** The last-resort model — what a credential with no spending room gets. */
   floor_model?: string;
   /** COMPLIANCE_AI_MODEL, when the platform pinned the analysis model. */
@@ -156,14 +160,22 @@ export interface ComplianceAiRun {
   key_source?: 'caller' | 'platform' | 'none';
   model?: string;
   requested_model?: string;
-  /** How the model came to be the model: scout, spending room, every candidate and its fate. */
+  /** How the model came to be the model: the index, the spending room, every candidate and its fate. */
   selection?: {
-    method: 'web-scouted' | 'catalogue-ranked' | 'operator-pinned' | 'router-fallback';
+    method: 'index-ranked' | 'operator-pinned' | 'router-fallback';
     model: string;
-    scout?: { model: string; query: string; recommended: string[]; validated: string[] };
+    /**
+     * The measurement that ordered the candidates: an Artificial Analysis index
+     * (artificialanalysis.ai), republished per model in OpenRouter's live
+     * catalogue and read at generation time. Which one depends on the document
+     * — coding where the analysis reads deployed source, intelligence where it
+     * reads records and figures — and `reason` is the platform's own words for
+     * why, which the generated document prints.
+     */
+    index?: { name: 'intelligence' | 'coding'; label: string; scored: number; reason: string };
     reason?: string;
     budget?: { usd: number | null; note: string };
-    candidates?: { model: string; free: boolean; estimatedCostUsd: number | null; outcome: string; detail?: string }[];
+    candidates?: { model: string; free: boolean; estimatedCostUsd: number | null; outcome: string; detail?: string; indexScore?: number }[];
   };
   /** The worst-case estimate the model was admitted on; null when it was unlisted. */
   estimated_cost_usd?: number | null;
@@ -171,6 +183,14 @@ export interface ComplianceAiRun {
   duration_ms?: number;
   prompt_tokens?: number | null;
   completion_tokens?: number | null;
+  /**
+   * The two calls one screening is made of: the chosen model analyses the
+   * material, then drafts the document's screening from that analysis alone.
+   * Absent from a platform deployed before the split.
+   */
+  phases?: { phase: string; model: string; duration_ms: number; prompt_tokens: number | null; completion_tokens: number | null }[];
+  /** What the analysis pass found for the drafting pass to work from. */
+  dossier?: { observations: number; gaps: number; open_questions: number };
 }
 
 export interface ComplianceGenerateResult {

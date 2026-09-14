@@ -395,6 +395,9 @@ function MathsComplianceDocument({
             const screening = ai?.performed
                 ? ` AI screening included (${ai.model}${ai.tier ? `, ${ai.tier} model` : ''}` +
                   `${ai.selection?.method ? `, ${ai.selection.method}` : ''}` +
+                  // Two calls, not one. The document says so; the notice should
+                  // not be the place that quietly drops it.
+                  `${(ai.phases?.length ?? 0) > 1 ? ', analysed then drafted' : ''}` +
                   `${ai.key_source === 'caller' ? ', your API key' : ''}).`
                 : ai?.requested && ai?.reason
                   ? ` Generated without AI screening: ${ai.reason}`
@@ -569,11 +572,14 @@ function MathsComplianceDocument({
                         {/* ─── AI screening: the policy, and the key that pays ───
                             The model is not a choice here. The platform picks the
                             strongest OpenRouter model the credential can afford —
-                            web-scouted per document type, costed against the live
+                            ranked per document type by the Artificial Analysis index
+                            OpenRouter republishes per model, costed against the live
                             catalogue and the key's remaining spend, tried
                             strongest-first — and falls back to a free model only
-                            when nothing paid is affordable. The document names the
-                            model that answered and tables every candidate considered.
+                            when nothing paid is affordable. The model that wins runs
+                            twice: analyse, then draft from that analysis. The
+                            document names the index, the model that answered and
+                            every candidate's score.
 
                             The key column is shown whenever the endpoint says it reads
                             the field: a credential typed into a box that quietly
@@ -583,7 +589,7 @@ function MathsComplianceDocument({
                                 <div style={{ flex: 1, minWidth: '280px', maxWidth: '460px' }}>
                                     <label style={FIELD_LABEL_STYLE}>AI screening on generation</label>
                                     <div style={HINT_STYLE}>
-                                        Picks the strongest OpenRouter model the credential can afford — web-scouted for this
+                                        Picks the strongest OpenRouter model the credential can afford — ranked for this
                                         document type and costed against the key&#39;s remaining spend — and falls back to a
                                         free model only when nothing paid is affordable
                                         {ai.pinned_model ? (
@@ -596,6 +602,25 @@ function MathsComplianceDocument({
                                         ) : null}
                                         . Last resort: <code style={TYPE_CHIP_STYLE}>{ai.floor_model ?? ai.model}</code>.
                                     </div>
+                                    {/* Conditional on the endpoint saying so: a
+                                        backend deployed before either of these
+                                        existed reports neither, and promising
+                                        behaviour the platform does not have is
+                                        the one thing this view must never do. */}
+                                    {ai.ranking === 'artificial-analysis-index' && (
+                                        <div style={{ ...HINT_STYLE, marginTop: '4px' }}>
+                                            &quot;Strongest&quot; is the Artificial Analysis index OpenRouter republishes per
+                                            model, read live at generation time — the Coding Index for documents whose analysis
+                                            reads the deployed source, the Intelligence Index for those that read records and
+                                            figures.
+                                        </div>
+                                    )}
+                                    {ai.screening === 'two-pass' && (
+                                        <div style={{ ...HINT_STYLE, marginTop: '4px' }}>
+                                            The chosen model then runs twice: once to analyse the material, once to draft the
+                                            screening from that analysis alone.
+                                        </div>
+                                    )}
                                 </div>
 
                                 {ai.caller_key_supported && (
