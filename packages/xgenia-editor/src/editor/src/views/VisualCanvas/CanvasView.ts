@@ -300,15 +300,15 @@ export class CanvasView extends View {
         // This is what EditorDocument listens for to select nodes
         EventDispatcher.instance.emit('inspectNodes', { nodeIds: [message.nodeId] });
 
-        // Single click selects ONLY. The inline chat popup used to open here
-        // on every click; a node now reaches the chat via double-click, as a
-        // reference (see inspector-node-dblclick below).
-      } else if (event.channel === 'inspector-node-dblclick') {
-        // Double-click: hand the node to the chat panel as a reference.
+        // Single click selects ONLY. A node reaches the chat as a reference via
+        // right-click > Add to chat, or double-click (inspector-node-reference).
+      } else if (event.channel === 'inspector-node-reference') {
         if (message && message.nodeId) {
           EventDispatcher.instance.emit('chat-add-node-reference', {
             nodeId: message.nodeId,
-            nodeLabel: message.nodeLabel || 'Element'
+            nodeLabel: message.nodeLabel || 'Element',
+            nodeType: message.nodeType,
+            component: message.component
           });
         }
       } else if (event.channel === 'editor-zoom-viewport') {

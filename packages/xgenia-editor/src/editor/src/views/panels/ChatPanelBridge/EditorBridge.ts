@@ -345,7 +345,9 @@ export class EditorBridge {
                 if (!data || !data.nodeId) return;
                 this.pushEvent('nodeReferenced', {
                     nodeId: data.nodeId,
-                    nodeLabel: data.nodeLabel || 'Element'
+                    nodeLabel: data.nodeLabel || 'Element',
+                    nodeType: data.nodeType,
+                    component: data.component
                 });
             },
             this
