@@ -33,6 +33,7 @@ import { platform } from '@xgenia/platform';
 import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
 import { ParamAuthors } from '../propertyeditor/inspector/paramAuthors';
 import { supabase, refreshSessionShared } from '../../../supabaseInit';
+import { pickPersistedAccessToken } from './persisted-session-token';
 import {
     addProjectPalette,
     clearProjectBaseStyle,
@@ -2824,9 +2825,16 @@ export class EditorBridge {
                         if (!key || !/^sb-.*-auth-token$/.test(key)) continue;
                         const raw = localStorage.getItem(key);
                         if (!raw) continue;
-                        const parsed = JSON.parse(raw);
-                        const token = parsed?.access_token || parsed?.currentSession?.access_token;
-                        if (token) return token;
+                        // (2026-09-16) Only a token that is still valid is worth handing out. An
+                        // expired one used to be caught by the gateway with a coded 401 the panel
+                        // recognised; with the gateway check off it reached check-entitlement and
+                        // came back as a plain 401 the panel painted as a paywall. See
+                        // persisted-session-token.ts.
+                        const pick = pickPersistedAccessToken(raw);
+                        if (pick.token) return pick.token;
+                        if (pick.reason === 'expired') {
+                            console.warn('[EditorBridge] auth.getJwt: the persisted session token has expired — answering null rather than a token the server will refuse.');
+                        }
                     }
                 } catch { /* storage unreadable — fall through to null */ }
                 return null;
