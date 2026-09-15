@@ -55,12 +55,18 @@ PR as above.
 `XgeniaORG/XFORGE_Private`. Nothing above applies to commits made *inside*
 that working tree:
 
-- It has no `develop` branch. Its default branch is `main`, and work lands
-  there. Trying to apply the rules above verbatim — branch off `develop`,
-  PR into `develop` — will just fail, because that branch does not exist.
-- Its branch protection, review requirements and merge style are that repo's
-  business, not this document's. Follow whatever convention it uses, and ask
-  the user rather than assuming if you're unsure.
+- Its default and working branch is `main`, and changes are normally
+  committed **directly to `main`**. A `develop` branch does exist there, but
+  it sees little use and should not be treated as the integration branch the
+  way XGENIA's is — don't assume it is up to date, and don't route work
+  through it out of habit carried over from this repo.
+- No feature branch, PR, reviewer assignment or approval is required for a
+  change inside `private/`. That is a deliberate difference, not an
+  oversight, and you should not "helpfully" route a submodule change through
+  a PR that nobody there is expecting.
+- Because nothing gates a commit in that repo, confirm with the user before
+  every commit and push inside `private/`. The absence of review makes that
+  confirmation the only checkpoint there is.
 
 Two boundaries are easy to get wrong, so state them plainly:
 

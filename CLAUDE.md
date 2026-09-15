@@ -40,10 +40,15 @@ commit, push, or merge — ask first, then follow the branch rules above.
 ## The `private/` submodule
 
 `private/` is a separate repository (`XgeniaORG/XFORGE_Private`) with its own
-conventions: it has no `develop` branch, and work lands on `main`. The rules
-above do not apply inside it — don't branch off a `develop` that doesn't
-exist there, and don't open PRs against `develop` there. Follow that repo's
-own workflow, and ask the user what it is if you're unsure.
+conventions: `main` is the working branch and changes are normally committed
+straight to it. A `develop` branch exists there but is not part of the usual
+flow, so don't assume it's current or route work through it by habit. The
+rules above do not apply inside it — no feature branch, no PR, no approval
+gate is required.
+
+Because there is no review gate in that repo, the "ask first" rule carries
+more weight there, not less: confirm with the user before every commit and
+push inside `private/`.
 
 Two things still hold when you touch the submodule:
 
