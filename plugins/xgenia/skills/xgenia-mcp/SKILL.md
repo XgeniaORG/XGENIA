@@ -16,11 +16,11 @@ description: |
 The `xgenia` MCP server drives the **installed XGENIA desktop app** through the Chrome
 DevTools Protocol on port 9223, which every build opens. No repo checkout is needed.
 
-```
-claude mcp add xgenia -- npx -y xgenia-mcp
-```
+Added by hand, not by the plugin: the package is **not on npm** (`npx -y xgenia-mcp` fails), and
+a marketplace install of the `xgenia` plugin ships this skill without the server, so no tools
+appear. Build `packages/xgenia-mcp-server` once and point `claude mcp add` at `dist/index.js`.
 
-All 14 tools return `{ error, tried, hint }` on failure rather than throwing. `hint` says
+All 17 tools return `{ error, tried, hint }` on failure rather than throwing. `hint` says
 what to do next — read it before deciding anything.
 
 ---
@@ -76,6 +76,9 @@ Two rules when reading that file:
 | `xgenia_chat_wait_idle` | Block until generation stops. Returns `timedOut`, never throws. |
 | `xgenia_screenshot` | Capture `full`, `chat`, or `canvas`. |
 | `xgenia_probe` | Which DOM selectors still resolve. Run this on any `selector-missing`. |
+| `xgenia_debug_export` | Click Debug Export and return the **file path** plus a census of what the panel AI did — every tool call with its arguments and result, the thinking log, both consoles, the cost. Never returns the bundle (7.2MB / 640 calls in one build). |
+| `xgenia_debug_query` | Grep one section of that export. `tool` + `failuresOnly` answers "which calls to X failed and why" without reading the file. |
+| `xgenia_runtime_logs` | The live preview's own log buffer — what the game is doing **now**, no export step. Resets on preview reload. |
 | `xgenia_restart` | Save, kill, relaunch, reopen the project. |
 | `xgenia_quit` | Save and kill, no relaunch. |
 
