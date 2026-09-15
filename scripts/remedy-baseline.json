@@ -64,7 +64,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/app-state/get-node-details.ts‖phantom_self_param‖get_node_details‖componentPath‖Pass componentPath‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/app-state/get-node-details.ts",
-    "line": 2121,
+    "line": 2163,
     "tool": "get_node_details",
     "param": "componentPath",
     "kind": "phantom_self_param",
@@ -151,17 +151,6 @@
     "kind": "phantom_param",
     "call": "image({create})",
     "snippet": "e calling image({create}) for a path already in this list.",
-    "occurrence": 1
-  },
-  {
-    "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/code-execution/run-editor-script.ts‖phantom_param‖set_node_parameters‖nodeLabel‖set_node_parameters({ nodeLabel: \"NewName\" })‖1",
-    "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/code-execution/run-editor-script.ts",
-    "line": 621,
-    "tool": "set_node_parameters",
-    "param": "nodeLabel",
-    "kind": "phantom_param",
-    "call": "set_node_parameters({ nodeLabel: \"NewName\" })",
-    "snippet": "a node → set_node_parameters({ nodeLabel: \"NewName\" }); REORDER a child among siblings → chang",
     "occurrence": 1
   },
   {
@@ -1087,17 +1076,6 @@
     "call": "image({create})",
     "snippet": "NOT call image({create}) for another asset, do NOT inspect_node,",
     "occurrence": 2
-  },
-  {
-    "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-lint.ts‖phantom_param‖set_node_parameters‖nodeLabel‖set_node_parameters({ nodeLabel: \"UniqueName\" })‖1",
-    "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-lint.ts",
-    "line": 162,
-    "tool": "set_node_parameters",
-    "param": "nodeLabel",
-    "kind": "phantom_param",
-    "call": "set_node_parameters({ nodeLabel: \"UniqueName\" })",
-    "snippet": "cates via set_node_parameters({ nodeLabel: \"UniqueName\" }) so @refs are unambiguous.",
-    "occurrence": 1
   },
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-scaffold.ts‖phantom_param‖assets‖list‖assets({list})‖1",
