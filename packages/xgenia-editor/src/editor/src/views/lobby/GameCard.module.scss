@@ -12,7 +12,8 @@
   -webkit-backdrop-filter: var(--lobby-card-blur);
   backdrop-filter: var(--lobby-card-blur);
   box-shadow: var(--lobby-card-shadow);
-  // Not `hidden`: the hover strip, the card menu and the glow all live outside the box.
+  // Not `hidden`: the hover strip and the glow both live outside the box. The ⋯ menu used to as
+  // well, until it moved out to <body> — see `.Menu` below.
   overflow: visible;
   cursor: pointer;
   outline: none;
@@ -36,13 +37,6 @@
 
 .Selected {
   box-shadow: var(--lobby-focus-ring), var(--lobby-card-shadow);
-}
-
-// `.Root` is a stacking context of its own (backdrop-filter), so the menu's own z-index only
-// orders it within this card. While a menu is up the card has to outrank its neighbours, or the
-// popup disappears behind the next card along as soon as the pointer leaves and :hover drops.
-.MenuOpen {
-  z-index: 3;
 }
 
 // A blurred copy of the artwork, behind the card. Fades in on hover so the game appears to light
@@ -310,13 +304,15 @@
   outline: none;
 }
 
-// A transparent full-window layer so the next click anywhere closes the menu, without a
-// document-level listener that would have to be added and removed by hand.
+// The menu is rendered into <body>, not into the card — see the placement effect in GameCard.tsx
+// for why. `left` and `top` arrive from there as inline styles; everything the card used to give
+// it by inheritance (the type, above all) has to be stated here instead.
 .Menu {
-  position: absolute;
-  right: 8px;
-  top: 36px;
-  z-index: 9;
+  position: fixed;
+  left: 0;
+  top: 0;
+  // Over the lobby's own layers, which stop at the Omnibox and the new-game sheet at 20.
+  z-index: 100;
   width: 210px;
   padding: 6px;
   border-radius: 10px;
@@ -326,6 +322,7 @@
   backdrop-filter: var(--glass-pop-blur);
   box-shadow: var(--glass-pop-shadow);
   font-size: 12px;
+  font-family: var(--font-family-regular, inherit);
 
   button {
     width: 100%;
