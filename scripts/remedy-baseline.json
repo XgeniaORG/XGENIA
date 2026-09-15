@@ -64,7 +64,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/app-state/get-node-details.ts‖phantom_self_param‖get_node_details‖componentPath‖Pass componentPath‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/app-state/get-node-details.ts",
-    "line": 1942,
+    "line": 2121,
     "tool": "get_node_details",
     "param": "componentPath",
     "kind": "phantom_self_param",
@@ -189,7 +189,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-connection.ts‖phantom_param‖create_component‖name‖create_component({ name: \"MyFeature\" })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-connection.ts",
-    "line": 528,
+    "line": 529,
     "tool": "create_component",
     "param": "name",
     "kind": "phantom_param",
@@ -200,7 +200,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-connection.ts‖phantom_param‖create_nodes_batch‖node_type‖create_nodes_batch({ node_type: \"Variable2\", ... })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-connection.ts",
-    "line": 6163,
+    "line": 6167,
     "tool": "create_nodes_batch",
     "param": "node_type",
     "kind": "phantom_param",
@@ -211,7 +211,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-connection.ts‖phantom_param‖simulate_signal‖signal‖simulate_signal({ signal: \"${signalPort}\" })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-connection.ts",
-    "line": 6985,
+    "line": 6989,
     "tool": "simulate_signal",
     "param": "signal",
     "kind": "phantom_param",
@@ -222,7 +222,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-connection.ts‖phantom_param‖switch_component_safely‖target‖switch_component_safely({ target: \"/Components/MyFeature\" })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-connection.ts",
-    "line": 529,
+    "line": 530,
     "tool": "switch_component_safely",
     "param": "target",
     "kind": "phantom_param",
@@ -233,7 +233,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-connection.ts‖phantom_tool‖clean_duplicate_connections‖‖clean_duplicate_connections({ fromId: \"sourceNodeId\", fromProperty: \"onClick\", toId: \"targetNodeId\", toProperty: \"run\" })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-connection.ts",
-    "line": 3781,
+    "line": 3782,
     "tool": "clean_duplicate_connections",
     "kind": "phantom_tool",
     "call": "clean_duplicate_connections({ fromId: \"sourceNodeId\", fromProperty: \"onClick\", toId: \"targetNodeId\", toProperty: \"run\" })",
@@ -243,7 +243,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-connection.ts‖phantom_tool‖clean_duplicate_connections‖‖clean_duplicate_connections({ nodeId: \"displayNodeId\" })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-connection.ts",
-    "line": 3769,
+    "line": 3770,
     "tool": "clean_duplicate_connections",
     "kind": "phantom_tool",
     "call": "clean_duplicate_connections({ nodeId: \"displayNodeId\" })",
@@ -253,7 +253,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-connection.ts‖phantom_tool‖clean_duplicate_connections‖‖clean_duplicate_connections({})‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-connection.ts",
-    "line": 3776,
+    "line": 3777,
     "tool": "clean_duplicate_connections",
     "kind": "phantom_tool",
     "call": "clean_duplicate_connections({})",
@@ -274,7 +274,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-nodes-batch.ts‖phantom_self_param‖create_nodes_batch‖styleCss‖Pass styleCss‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-nodes-batch.ts",
-    "line": 641,
+    "line": 699,
     "tool": "create_nodes_batch",
     "param": "styleCss",
     "kind": "phantom_self_param",
@@ -329,7 +329,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/edit-js-function-node.ts‖phantom_self_param‖edit_js_function_node‖replaceAll‖pass replaceAll‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/edit-js-function-node.ts",
-    "line": 1285,
+    "line": 1304,
     "tool": "edit_js_function_node",
     "param": "replaceAll",
     "kind": "phantom_self_param",
@@ -689,17 +689,6 @@
     "occurrence": 1
   },
   {
-    "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/node-info/get-node-script.ts‖phantom_self_param‖get_node_script‖componentPath‖pass componentPath‖1",
-    "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/node-info/get-node-script.ts",
-    "line": 449,
-    "tool": "get_node_script",
-    "param": "componentPath",
-    "kind": "phantom_self_param",
-    "call": "pass componentPath",
-    "snippet": "ue }), or pass componentPath if it lives elsewhere.",
-    "occurrence": 1
-  },
-  {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/node-info/get-reference-patterns.ts‖phantom_param‖switch_component_safely‖targetComponent‖switch_component_safely({ targetComponent: \"/Components/MyFeature\" })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/node-info/get-reference-patterns.ts",
     "line": 245,
@@ -713,7 +702,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/refactoring/extract-to-component.ts‖phantom_param‖delete_node‖confirmed‖delete_node({ node_id, confirmed: true })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/refactoring/extract-to-component.ts",
-    "line": 1050,
+    "line": 1078,
     "tool": "delete_node",
     "param": "confirmed",
     "kind": "phantom_param",
@@ -724,7 +713,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/refactoring/extract-to-component.ts‖phantom_param‖delete_node‖confirmed‖delete_node({ node_id: \"${created.instanceRef}\", confirmed: true })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/refactoring/extract-to-component.ts",
-    "line": 761,
+    "line": 773,
     "tool": "delete_node",
     "param": "confirmed",
     "kind": "phantom_param",
@@ -735,7 +724,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/refactoring/extract-to-component.ts‖phantom_param‖delete_node‖node_id‖delete_node({ node_id, confirmed: true })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/refactoring/extract-to-component.ts",
-    "line": 1050,
+    "line": 1078,
     "tool": "delete_node",
     "param": "node_id",
     "kind": "phantom_param",
@@ -746,7 +735,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/refactoring/extract-to-component.ts‖phantom_param‖delete_node‖node_id‖delete_node({ node_id: \"${created.instanceRef}\", confirmed: true })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/refactoring/extract-to-component.ts",
-    "line": 761,
+    "line": 773,
     "tool": "delete_node",
     "param": "node_id",
     "kind": "phantom_param",
@@ -970,7 +959,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/set-router-config.ts‖phantom_param‖create_logic_node‖componentPath‖create_logic_node({ componentName: \"Router\", name: \"MainRouter\", componentPath: \"/App\"${parentLabel ? `, parent: \"@${parentLabel}\"` : ''} })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/set-router-config.ts",
-    "line": 121,
+    "line": 123,
     "tool": "create_logic_node",
     "param": "componentPath",
     "kind": "phantom_param",
@@ -981,7 +970,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/set-router-config.ts‖phantom_param‖set_node_parameters‖pages‖set_node_parameters({pages: ...})‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/set-router-config.ts",
-    "line": 289,
+    "line": 291,
     "tool": "set_node_parameters",
     "param": "pages",
     "kind": "phantom_param",
@@ -992,7 +981,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/set-router-config.ts‖phantom_param‖set_node_parameters‖pages‖set_node_parameters({pages: 'Start Page'})‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/set-router-config.ts",
-    "line": 277,
+    "line": 279,
     "tool": "set_node_parameters",
     "param": "pages",
     "kind": "phantom_param",
@@ -1003,7 +992,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/smart-set-node-parameters.ts‖phantom_param‖image‖save‖image({save})‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/smart-set-node-parameters.ts",
-    "line": 537,
+    "line": 541,
     "tool": "image",
     "param": "save",
     "kind": "phantom_param",
@@ -1014,7 +1003,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/smart-set-node-parameters.ts‖phantom_param‖image‖save‖image({save})‖2",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/smart-set-node-parameters.ts",
-    "line": 538,
+    "line": 542,
     "tool": "image",
     "param": "save",
     "kind": "phantom_param",
@@ -1025,7 +1014,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/smart-set-node-parameters.ts‖phantom_param‖query_production_knowledge‖query‖query_production_knowledge({ query: 'grid expansion protocol' })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/smart-set-node-parameters.ts",
-    "line": 2731,
+    "line": 2737,
     "tool": "query_production_knowledge",
     "param": "query",
     "kind": "phantom_param",
@@ -1036,7 +1025,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/smart-set-node-parameters.ts‖phantom_param‖set_node_parameters‖pages‖set_node_parameters({pages:...})‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/smart-set-node-parameters.ts",
-    "line": 612,
+    "line": 616,
     "tool": "set_node_parameters",
     "param": "pages",
     "kind": "phantom_param",
@@ -1047,7 +1036,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/smart-set-node-parameters.ts‖phantom_self_param‖set_node_parameters‖rowGap‖pass rowGap‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/smart-set-node-parameters.ts",
-    "line": 240,
+    "line": 244,
     "tool": "set_node_parameters",
     "param": "rowGap",
     "kind": "phantom_self_param",
@@ -1058,7 +1047,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/smart-set-node-parameters.ts‖phantom_self_param‖set_node_parameters‖styleCss‖Pass styleCss‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/smart-set-node-parameters.ts",
-    "line": 1057,
+    "line": 1059,
     "tool": "set_node_parameters",
     "param": "styleCss",
     "kind": "phantom_self_param",
@@ -1069,7 +1058,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/smart-set-node-parameters.ts‖phantom_self_param‖set_node_parameters‖textAlign‖Pass textAlign‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/smart-set-node-parameters.ts",
-    "line": 229,
+    "line": 233,
     "tool": "set_node_parameters",
     "param": "textAlign",
     "kind": "phantom_self_param",
@@ -1113,7 +1102,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-scaffold.ts‖phantom_param‖assets‖list‖assets({list})‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-scaffold.ts",
-    "line": 1924,
+    "line": 1927,
     "tool": "assets",
     "param": "list",
     "kind": "phantom_param",
@@ -1124,7 +1113,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-scaffold.ts‖phantom_param‖create_component_instance‖parentNodeId‖create_component_instance({ componentName: \"/Components/${name}/Logic\", parentNodeId: \"@Page\" })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-scaffold.ts",
-    "line": 1951,
+    "line": 1954,
     "tool": "create_component_instance",
     "param": "parentNodeId",
     "kind": "phantom_param",
@@ -1135,7 +1124,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-scaffold.ts‖phantom_param‖create_component_instance‖parentNodeId‖create_component_instance({ componentName: \"/Components/${name}/Logic\", parentNodeId: \"@Page\" })‖2",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-scaffold.ts",
-    "line": 2724,
+    "line": 2740,
     "tool": "create_component_instance",
     "param": "parentNodeId",
     "kind": "phantom_param",
@@ -1146,7 +1135,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-scaffold.ts‖phantom_param‖simulate_signal‖port‖simulate_signal({ nodeId: \"@SpinButton\", port: \"onClick\" })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-scaffold.ts",
-    "line": 1975,
+    "line": 1978,
     "tool": "simulate_signal",
     "param": "port",
     "kind": "phantom_param",
@@ -1157,7 +1146,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-scaffold.ts‖phantom_param‖simulate_signal‖port‖simulate_signal({ nodeId: \"@SpinButton\", port: \"onClick\", expect: { nodeId: \"@ReelController\", port: \"isSpinning\", notEmpty: true, waitMs: 300 } })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-scaffold.ts",
-    "line": 3903,
+    "line": 3920,
     "tool": "simulate_signal",
     "param": "port",
     "kind": "phantom_param",
@@ -1168,7 +1157,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-scaffold.ts‖phantom_self_param‖scaffold‖parentNode‖pass parentNode‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-scaffold.ts",
-    "line": 4084,
+    "line": 4101,
     "tool": "scaffold",
     "param": "parentNode",
     "kind": "phantom_self_param",
@@ -1296,17 +1285,6 @@
     "kind": "phantom_tool",
     "call": "wire_button_to_variable({ buttonId: \"start-btn-id\", variableId: \"game-active-id\", valueToSet: true, functionName: \"SetGameActive\" })",
     "snippet": "Example: wire_button_to_variable({ buttonId: \"start-btn-id\", variableId: \"game-active-id\", valueToSet: true, function...",
-    "occurrence": 1
-  },
-  {
-    "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/utils/dead-tool-advice.ts‖phantom_param‖switch_component_safely‖componentPath‖switch_component_safely({componentPath:\"...\"})‖1",
-    "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/utils/dead-tool-advice.ts",
-    "line": 53,
-    "tool": "switch_component_safely",
-    "param": "componentPath",
-    "kind": "phantom_param",
-    "call": "switch_component_safely({componentPath:\"...\"})",
-    "snippet": "switch_component_safely({componentPath:\"...\"})",
     "occurrence": 1
   },
   {
