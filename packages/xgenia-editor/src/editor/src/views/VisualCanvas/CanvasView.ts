@@ -7,6 +7,7 @@ import View from '../../../../shared/view';
 import { InlineElementChat } from './InlineElementChat';
 import type { PreviewHost } from './IframeViewer';
 import { VisualCanvas } from './VisualCanvas';
+import { measureSurfaceProof, browserSurfaceProofEnv } from './surfaceProof';
 
 /**
  * Chatter from the running preview, off by default.
@@ -299,15 +300,15 @@ export class CanvasView extends View {
         // This is what EditorDocument listens for to select nodes
         EventDispatcher.instance.emit('inspectNodes', { nodeIds: [message.nodeId] });
 
-        // Single click selects ONLY. The inline chat popup used to open here
-        // on every click; a node now reaches the chat via double-click, as a
-        // reference (see inspector-node-dblclick below).
-      } else if (event.channel === 'inspector-node-dblclick') {
-        // Double-click: hand the node to the chat panel as a reference.
+        // Single click selects ONLY. A node reaches the chat as a reference via
+        // right-click > Add to chat, or double-click (inspector-node-reference).
+      } else if (event.channel === 'inspector-node-reference') {
         if (message && message.nodeId) {
           EventDispatcher.instance.emit('chat-add-node-reference', {
             nodeId: message.nodeId,
-            nodeLabel: message.nodeLabel || 'Element'
+            nodeLabel: message.nodeLabel || 'Element',
+            nodeType: message.nodeType,
+            component: message.component
           });
         }
       } else if (event.channel === 'editor-zoom-viewport') {
@@ -698,7 +699,30 @@ export class CanvasView extends View {
         // output clipped to this element's box, so anything else painted over that box would
         // leak into the "design" screenshot.
         el.style.zIndex = '2147483647';
+        // Device-viewport mode (see setDeviceMode below, ~:1289) leaves `transform:
+        // scale(fitScale)` on this SAME element (this.webview.style is this.element.style).
+        // A transformed element's getBoundingClientRect() reports its VISUAL box, not the
+        // box position:fixed/width/height above just set — so the rect handed to
+        // capturePage() would not be the element's real box, and this was never cleared
+        // here before. Clear it unconditionally; a fresh call restores it via
+        // setDeviceMode() on the next real resize.
+        el.style.transform = 'none';
       };
+
+      // Proof, not assumption: capturePage() (IframeViewer.ts) clips OUR OWN window to
+      // `el.getBoundingClientRect()` taken at capture time, so "the image is the design surface"
+      // needs three things measured, not assumed from applySize() having run — no transform, the
+      // box at the window origin and inside the window, and NOTHING PAINTED OVER IT. The last one
+      // is a hit test, not a rect comparison: a stacking context that confines this element's
+      // z-index (the chat panel's .Card is z-index:10) leaves the rect exactly right while another
+      // element paints over it, so a rect match alone cannot see it. surfaceProof.ts has the full
+      // reasoning, including what the hit test cannot see.
+      //
+      // UNITS: getBoundingClientRect(), window.innerWidth/innerHeight and elementFromPoint() are all
+      // CSS px of THIS renderer's document — the space applySize() writes into — so none of these
+      // comparisons crosses the Electron zoom-factor boundary. That factor only scales the
+      // NativeImage buffer, checked separately below via scaleX/scaleY.
+      const measureProof = () => measureSurfaceProof(el, width, height, browserSurfaceProofEnv());
 
       try {
         applySize();
@@ -726,6 +750,11 @@ export class CanvasView extends View {
         // Re-assert once more immediately before the capture: the wait loop's own awaits are a
         // window a re-render could land in between the last size check and capturePage().
         applySize();
+
+        // Measure the surface AFTER the last applySize() and BEFORE capturePage(), so this is
+        // the same box (modulo the JS-turn gap between here and IframeViewer's own
+        // getBoundingClientRect() call inside capturePage()) that ends up in the image.
+        const surfaceProof = measureProof();
 
         const nativeImage = await this.webview.capturePage();
         if (!nativeImage || nativeImage.isEmpty()) {
@@ -791,7 +820,7 @@ export class CanvasView extends View {
           return;
         }
 
-        const payload: any = { success: true, image: nativeImage.toDataURL(), width: actual.width, height: actual.height };
+        const payload: any = { success: true, image: nativeImage.toDataURL(), width: actual.width, height: actual.height, surfaceProof };
         if (actual.width !== width || actual.height !== height) {
           // Name the direction. "a display scale factor" was written for the 2x case and reads as
           // nonsense on a capture that came back SMALLER, where the cause is this window's zoom

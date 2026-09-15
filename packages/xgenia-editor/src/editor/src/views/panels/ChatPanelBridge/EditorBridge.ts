@@ -345,7 +345,9 @@ export class EditorBridge {
                 if (!data || !data.nodeId) return;
                 this.pushEvent('nodeReferenced', {
                     nodeId: data.nodeId,
-                    nodeLabel: data.nodeLabel || 'Element'
+                    nodeLabel: data.nodeLabel || 'Element',
+                    nodeType: data.nodeType,
+                    component: data.component
                 });
             },
             this
@@ -3460,11 +3462,27 @@ export class EditorBridge {
         //
         // Returns PLAIN OBJECTS — the previous shape was un-serialisable across postMessage, so
         // even a correct lookup would have arrived empty.
+        //
+        // (F2, verdict-string consumer audit 2026-09-15) AND IT MARKS ITS REPLY.
+        //
+        // This handler used to answer a bare array, and `[]` meant three different things: no
+        // warnings, `WarningsModel.instance` was null, or the lookup threw. The panel's reader
+        // (private/xgenia-ai/.../utils/editor-warnings.ts) therefore could not tell "asked, nothing
+        // to report" from "never read the model", and get_editor_warnings printed 🟢 HEALTHY plus
+        // "No issues found! Your graph looks good." over a warnings model it had never read — the
+        // same silent-empty that hid the polyPoints error above, one layer up.
+        //
+        //   { ok: true,  warnings: […] }                     a real read (possibly genuinely empty)
+        //   { ok: false, unavailable: true, reason: "…" }    it could not read the model
+        //
+        // The panel still accepts a bare array from an editor built before this marker, but treats
+        // an EMPTY one as unverified rather than clean — so this change needs an EDITOR REBUILD to
+        // take effect, and until then get_editor_warnings says so out loud instead of going green.
         h('warnings.get', ([componentName]: [string?] = [] as any) => {
             try {
                 const { WarningsModel } = require('@xgenia-models/warningsmodel');
                 const model = WarningsModel.instance;
-                if (!model) return [];
+                if (!model) return { ok: false, unavailable: true, reason: 'the editor has no WarningsModel instance in this session, so no node badge could be read.' };
 
                 // getAllWarningsForComponent only ever reads `.name`, so a bare {name} is a valid ref.
                 const namesToRead: string[] = [];
@@ -3504,10 +3522,10 @@ export class EditorBridge {
                         });
                     }
                 }
-                return out;
+                return { ok: true, warnings: out };
             } catch (e: any) {
                 console.warn('[EditorBridge] warnings.get failed:', e?.message || e);
-                return [];
+                return { ok: false, unavailable: true, reason: `reading the editor's WarningsModel threw: ${e?.message || e}` };
             }
         });
 

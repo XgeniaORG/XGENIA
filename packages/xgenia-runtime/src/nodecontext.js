@@ -523,7 +523,7 @@ NodeContext.prototype._formatTimelineValue = function (value) {
 // captures every fire regardless of whether a debug connection is live. Cheap
 // (a few reads + one push) and fully wrapped: a failure here must never disturb
 // the running graph.
-NodeContext.prototype._recordTimelineEvent = function (output, kind, value) {
+NodeContext.prototype._recordTimelineEvent = function (output, kind, value, via) {
   if (this._eventTimelineEnabled === false) return;
   try {
     const owner = output && output.owner;
@@ -547,6 +547,9 @@ NodeContext.prototype._recordTimelineEvent = function (output, kind, value) {
     };
     if (kind !== 'signal') {
       evt.value = this._formatTimelineValue(value);
+    }
+    if (via) {
+      evt.via = via;
     }
     this._eventTimeline.push(evt);
 
@@ -601,12 +604,83 @@ NodeContext.prototype.getEventTimeline = function (opts) {
   };
 };
 
+// Component Inputs and component instances forward a signal across a
+// component boundary as TWO plain boolean writes (true, then false) via
+// Node.prototype.sendValue — see componentinstance.js
+// registerComponentInputPort/setOutputFromComponentOutput and
+// componentinputs.js registerOutputIfNeeded. Without this, connectionSentValue
+// (below) records both edges as 'value' events and the signal disappears from
+// every kind:'signal' timeline read.
+//
+// ('Component Outputs' never reaches here as an owner at all: componentoutputs.js
+// registers only an INPUT (registerInputIfNeeded), never an output, so this
+// function and connectionSentValue are never called with that node as
+// output.owner — there is deliberately no case for it below.)
+//
+// The declared port type does NOT reliably live on the Component-Inputs
+// node's own model: the editor's exporter only emits node-level `ports` for
+// types with exportDynamicPorts (packages/xgenia-editor/src/editor/src/utils/
+// exporter/util.ts:16-35 exportPorts; Component Inputs/Outputs are not among
+// them), so on real preview data output.owner.model.outputPorts is `{}` and
+// the old `owner.model.outputPorts[name]` lookup always missed. The type
+// instead has to come from the OWNING component instance's own NodeModel —
+// GraphModel._addComponentPorts (models/graphmodel.js:295-311) copies the
+// ComponentModel's declared inputPorts/outputPorts onto that instance's
+// model — reached the exact way componentinputs.js's own
+// registerOutputIfNeeded getter reaches the instance: via
+// `owner.nodeScope.componentOwner` (componentinputs.js:31-40, using
+// `this.nodeScope.componentOwner._internal.inputValues[name]`; every Node's
+// `.nodeScope` is the scope it was created in — nodedefinition.js:415 —
+// whose `.componentOwner` is the owning ComponentInstanceNode, nodescope.js:8).
+//
+// For a component INSTANCE's own output (setOutputFromComponentOutput's
+// flagOutputDirty call on the instance itself), `output.owner.model` already
+// IS that same populated instance model, so the direct
+// `model.outputPorts[name]` lookup is correct and unchanged.
+NodeContext.prototype._isBoundarySignalPort = function (output) {
+  try {
+    const owner = output && output.owner;
+    if (!owner) return false;
+    const model = owner.model;
+    const ownerType = (model && model.type) || owner.type;
+    if (typeof ownerType !== 'string' || ownerType.length === 0) return false;
+    // A component instance's model.type is the component's path, e.g.
+    // '/Components/GremlinGold/Logic' — that's how setOutputFromComponentOutput's
+    // flagOutputDirty call (on the instance itself) is told apart from an
+    // ordinary node type name.
+    const isComponentInstance = ownerType.charAt(0) === '/';
+    const isComponentInputs = ownerType === 'Component Inputs';
+    if (!isComponentInputs && !isComponentInstance) return false;
+
+    let portDef;
+    if (isComponentInputs) {
+      const componentOwner = owner.nodeScope && owner.nodeScope.componentOwner;
+      const instanceModel = componentOwner && componentOwner.model;
+      portDef = instanceModel && instanceModel.inputPorts && instanceModel.inputPorts[output.name];
+    } else {
+      portDef = model && model.outputPorts && model.outputPorts[output.name];
+    }
+    if (!portDef) return false;
+    const portType = typeof portDef.type === 'object' && portDef.type ? portDef.type.name : portDef.type;
+    return portType === 'signal';
+  } catch (e) {
+    return false;
+  }
+};
+
 NodeContext.prototype.connectionSentValue = function (output, value) {
   // Ordered ground-truth record (Path B). Skip the synthetic '[Signal] …' value
   // that connectionSentSignal routes through here — that fire is already recorded
   // as a 'signal' event, so recording it again as a 'value' would double-count.
   if (!(typeof value === 'string' && value.indexOf('[Signal]') === 0)) {
-    this._recordTimelineEvent(output, 'value', value);
+    if (typeof value === 'boolean' && this._isBoundarySignalPort(output)) {
+      if (value === true) {
+        this._recordTimelineEvent(output, 'signal', undefined, 'component-boundary');
+      }
+      // the falling edge of a boundary-forwarded pulse is not a separate event
+    } else {
+      this._recordTimelineEvent(output, 'value', value);
+    }
   }
 
   if (!this.editorConnection || !this.editorConnection.isConnected() || !this.debugInspectorsEnabled) {

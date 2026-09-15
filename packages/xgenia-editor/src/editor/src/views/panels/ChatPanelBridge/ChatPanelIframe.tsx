@@ -222,7 +222,7 @@ export function ChatPanelIframe() {
                                 width: '100%', height: '100%',
                                 border: 'none', background: '#1a1a1a',
                             }}
-                            allow="clipboard-read; clipboard-write"
+                            allow="clipboard-read; clipboard-write; microphone"
                             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-storage-access-by-user-activation allow-downloads"
                         />
                     );
