@@ -1,5 +1,10 @@
 # Git Workflow
 
+**Scope: the `XgeniaORG/XGENIA` repository only.** This document describes how
+changes land in *this* repo. It does not govern the `private/` submodule,
+which is a separate repository with a different branching model — see
+[The `private/` submodule](#the-private-submodule) at the end.
+
 `develop` and `main` are protected branches. This rule applies to every agent
 working in this repo — no exceptions, including for changes that look trivial
 (version bumps, submodule/subproject pointer updates, config tweaks). Those
@@ -44,9 +49,32 @@ If you are about to run `git commit` while `HEAD` is `develop` or `main`, or
 wrong here. Create a feature branch instead, or route the change through a
 PR as above.
 
+## The `private/` submodule
+
+`private/` is a git submodule pointing at a different repository,
+`XgeniaORG/XFORGE_Private`. Nothing above applies to commits made *inside*
+that working tree:
+
+- It has no `develop` branch. Its default branch is `main`, and work lands
+  there. Trying to apply the rules above verbatim — branch off `develop`,
+  PR into `develop` — will just fail, because that branch does not exist.
+- Its branch protection, review requirements and merge style are that repo's
+  business, not this document's. Follow whatever convention it uses, and ask
+  the user rather than assuming if you're unsure.
+
+Two boundaries are easy to get wrong, so state them plainly:
+
+1. **Updating the submodule pointer is a change in *this* repo.** The commit
+   that moves `private` to a new SHA is an XGENIA commit, and it is fully
+   covered by the rules above: feature branch, PR against `develop`,
+   approval, squash-merge. "It's only a pointer bump" is not an exemption —
+   it is precisely the case this document exists for.
+2. **The "ask before touching production" rule is not repo-scoped.** Confirm
+   with the user before any commit, push, or merge, in either repository.
+
 ## Relationship to "ask before touching production"
 
-This document governs *which branches* a change is allowed to land on. It
-does not loosen any standing instruction to confirm with the user before
-actually running a commit, push, or merge — confirm first, then follow the
-branch rules above.
+This document governs *which branches* a change is allowed to land on in the
+XGENIA repo. It does not loosen any standing instruction to confirm with the
+user before actually running a commit, push, or merge — confirm first, then
+follow the branch rules above.

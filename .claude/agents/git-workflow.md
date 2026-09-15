@@ -6,6 +6,11 @@ Claude Code every session) and documented in full at
 `docs/agents/git-workflow.md`. This copy exists so it's visible directly in
 `.claude/agents/`.
 
+## Scope
+
+This policy covers the `XgeniaORG/XGENIA` repository only. It does **not**
+cover the `private/` submodule — see the last section.
+
 ## The rule — no exceptions, ever
 
 `develop` and `main` are protected. This applies even to changes that look
@@ -38,3 +43,14 @@ main` — stop. Branch first.
 This governs which branches a change may land on. It does not override the
 standing instruction to confirm with the user before actually running a
 commit, push, or merge.
+
+## The `private/` submodule
+
+`private/` is a separate repo (`XgeniaORG/XFORGE_Private`) with no `develop`
+branch — work lands on `main` there. The rule above does not apply to commits
+made inside it; follow that repo's own conventions, and ask the user if
+you're unsure. Still true either way:
+
+- The commit that moves the `private` pointer belongs to **this** repo and
+  goes through a feature branch and a PR against `develop`.
+- Confirm with the user before any commit, push, or merge in either repo.
