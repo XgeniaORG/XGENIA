@@ -1,5 +1,10 @@
 # Git Workflow
 
+**Scope: the `XgeniaORG/XGENIA` repository only.** This document describes how
+changes land in *this* repo. It does not govern the `private/` submodule,
+which is a separate repository with a different branching model — see
+[The `private/` submodule](#the-private-submodule) at the end.
+
 `develop` and `main` are protected branches. This rule applies to every agent
 working in this repo — no exceptions, including for changes that look trivial
 (version bumps, submodule/subproject pointer updates, config tweaks). Those
@@ -44,9 +49,38 @@ If you are about to run `git commit` while `HEAD` is `develop` or `main`, or
 wrong here. Create a feature branch instead, or route the change through a
 PR as above.
 
+## The `private/` submodule
+
+`private/` is a git submodule pointing at a different repository,
+`XgeniaORG/XFORGE_Private`. Nothing above applies to commits made *inside*
+that working tree:
+
+- Its default and working branch is `main`, and changes are normally
+  committed **directly to `main`**. A `develop` branch does exist there, but
+  it sees little use and should not be treated as the integration branch the
+  way XGENIA's is — don't assume it is up to date, and don't route work
+  through it out of habit carried over from this repo.
+- No feature branch, PR, reviewer assignment or approval is required for a
+  change inside `private/`. That is a deliberate difference, not an
+  oversight, and you should not "helpfully" route a submodule change through
+  a PR that nobody there is expecting.
+- Because nothing gates a commit in that repo, confirm with the user before
+  every commit and push inside `private/`. The absence of review makes that
+  confirmation the only checkpoint there is.
+
+Two boundaries are easy to get wrong, so state them plainly:
+
+1. **Updating the submodule pointer is a change in *this* repo.** The commit
+   that moves `private` to a new SHA is an XGENIA commit, and it is fully
+   covered by the rules above: feature branch, PR against `develop`,
+   approval, squash-merge. "It's only a pointer bump" is not an exemption —
+   it is precisely the case this document exists for.
+2. **The "ask before touching production" rule is not repo-scoped.** Confirm
+   with the user before any commit, push, or merge, in either repository.
+
 ## Relationship to "ask before touching production"
 
-This document governs *which branches* a change is allowed to land on. It
-does not loosen any standing instruction to confirm with the user before
-actually running a commit, push, or merge — confirm first, then follow the
-branch rules above.
+This document governs *which branches* a change is allowed to land on in the
+XGENIA repo. It does not loosen any standing instruction to confirm with the
+user before actually running a commit, push, or merge — confirm first, then
+follow the branch rules above.
