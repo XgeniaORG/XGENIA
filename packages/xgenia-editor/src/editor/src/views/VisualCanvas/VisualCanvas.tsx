@@ -10,6 +10,7 @@ import { useTrackBounds } from '@xgenia-core-ui/hooks/useTrackBounds';
 
 import { CanvasView } from './CanvasView';
 import { IframeViewer, type PreviewHost } from './IframeViewer';
+import { clearActivePreviewHost, setActivePreviewHost } from '../../utils/previewHostRegistry';
 import { FrameResizeHandles } from './FrameResizeHandles';
 import { useFrameRect } from './useFrameRect';
 import css from './VisualCanvas.module.scss';
@@ -110,6 +111,8 @@ export function VisualCanvas({
       // for why: the <webview>'s separate compositor surface is what flashed the window.
       const host = new IframeViewer(webviewRef.current, preloadPath);
       hostRef.current = host;
+      // Let the Publish popup's telemetry form reach the frame (see previewHostRegistry).
+      setActivePreviewHost(host);
       onWebView(host);
 
       const handleDomReady = () => {
@@ -121,6 +124,7 @@ export function VisualCanvas({
       return () => {
         host.removeEventListener('dom-ready', handleDomReady);
         host.dispose();
+        clearActivePreviewHost(host);
         if (hostRef.current === host) hostRef.current = null;
       };
     }

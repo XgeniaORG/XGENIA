@@ -1392,6 +1392,10 @@ document.addEventListener('keydown', (e) => {
 
 // Expose Inspector API
 window.XgeniaEditorInspectorAPI = {
+  // Whether the inspector is currently on. Read by the editor before it switches
+  // the inspector on for a one-off pick (Publish → telemetry form → "Select from
+  // UI"), so it can put it back the way it found it afterwards.
+  isEnabled: () => _inspectorEnabled,
   setEnabled: (enabled) => {
     console.log('[Inspector] setEnabled called:', enabled);
     _inspectorEnabled = enabled; // Gate zoom handlers to edit mode only

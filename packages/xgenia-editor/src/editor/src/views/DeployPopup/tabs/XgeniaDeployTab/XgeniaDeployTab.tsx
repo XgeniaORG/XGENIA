@@ -1,6 +1,6 @@
 import { useModernModel } from '@xgenia-hooks/useModel';
 import React, { useState, useEffect } from 'react';
-import { filesystem } from '@xgenia/platform';
+import { filesystem, platform } from '@xgenia/platform';
 import * as os from 'os';
 
 import { CloudService } from '@xgenia-models/CloudServices';
@@ -28,6 +28,18 @@ import {
 } from '@xgenia-utils/rgs/deployMathsComponents';
 import { getRgsSettings, getActiveGame, isRgsConnected } from '@xgenia-utils/rgs/rgsClient';
 import { loadSharedDeployTokens } from '@xgenia-utils/rgs/deployTokens';
+import { registerDeployedGame } from '@xgenia-utils/rgs/deployedGames';
+import { isPreviewPickerAvailable, pickUiElementFromPreview } from '@xgenia-utils/rgs/pickUiElement';
+import {
+  CompleteTelemetryMapping,
+  DeployTelemetryMapping,
+  TELEMETRY_METADATA_KEY,
+  UiNodeCandidate,
+  emptyMapping,
+  normalizeStoredMapping,
+  toServerTelemetry
+} from '@xgenia-utils/rgs/telemetryMapping';
+import { collectUiNodeCandidates, refForNodeId } from '@xgenia-utils/rgs/uiNodeCandidates';
 
 import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
 import { Select } from '@xgenia-core-ui/components/inputs/Select';
@@ -45,6 +57,7 @@ import {
   ComponentSetupChoice,
   ComponentSetupItem
 } from '../../ComponentSetupDialog';
+import { DeployTelemetryDialog } from '../../DeployTelemetryDialog';
 import { NO_ENVIRONMENT_VALUE, RGS_ENVIRONMENT_VALUE } from '../../DeployPopup.constants';
 import { useEnvironmentsAsOptions } from '../../DeployPopup.hooks';
 import { useAuth } from '../../../../context/AuthContext';
@@ -509,6 +522,30 @@ function leafComponentName(componentName: string | undefined | null): string {
   return segments.length ? segments[segments.length - 1] : '';
 }
 
+/**
+ * The project.json of what was deployed, as sent to XGENIA RGS → Deployed Games.
+ *
+ * Taken from the published COPY rather than the open project, because the copy
+ * is what actually went live: it carries the Aggregator swaps, the `rgsgame`
+ * stamp and the telemetry mapping. Its `name` is the copy's "__<name>__"
+ * scratch name, which is an artefact of publishing and not what anyone should
+ * see on the platform, so the source project's name is written back over it.
+ */
+function deployedProjectJson(copy: any, name: string): Record<string, unknown> {
+  const json = copy.toJSON();
+  return { ...json, name };
+}
+
+/** The editor's version string, or undefined where the platform layer can't say. */
+function editorVersion(): string | undefined {
+  try {
+    const version = platform.getVersion();
+    return version ? String(version) : undefined;
+  } catch (e) {
+    return undefined;
+  }
+}
+
 export function XgeniaDeployTab() {
   const cloudService = useModernModel(CloudService.instance);
   // Always offer "XGENIA RGS" here so the user can pick it and get a clear
@@ -625,6 +662,51 @@ export function XgeniaDeployTab() {
       console.warn('[Deploy] Could not reveal source component:', e);
       return false;
     }
+  }
+
+  // ── Pre-deploy telemetry form ─────────────────────────────────────────
+  // Holds the pending "which UI element is the bet / the win / the bet button"
+  // prompt. onDeployToVercelClicked parks on the promise stored here until the
+  // user presses OK (a mapping) or Cancel (null), and nothing is built before
+  // that.
+  const [telemetryRequest, setTelemetryRequest] = useState<{
+    initial: DeployTelemetryMapping | null;
+    candidates: UiNodeCandidate[];
+    resolve: (mapping: CompleteTelemetryMapping | null) => void;
+  } | null>(null);
+
+  /**
+   * Last publish's mapping, re-resolved against the open project: labels and
+   * component names are re-read from the nodes (they may have been renamed), and
+   * a reference whose node no longer exists is dropped so the form asks again
+   * rather than offering a dead answer.
+   */
+  function storedTelemetryMapping(project: any): DeployTelemetryMapping | null {
+    let stored: DeployTelemetryMapping | null = null;
+    try {
+      stored = normalizeStoredMapping(project?.getMetaData?.(TELEMETRY_METADATA_KEY));
+    } catch (e) {
+      return null;
+    }
+    if (!stored) return null;
+    const mapping = emptyMapping();
+    for (const key of ['betInput', 'winOutput', 'betButton'] as const) {
+      const ref = stored[key];
+      mapping[key] = ref ? refForNodeId(ref.nodeId, ref.pickedFrom, project) : null;
+    }
+    return mapping;
+  }
+
+  /** Show the telemetry form and resolve with the mapping, or null if cancelled. */
+  function requestTelemetryMapping(): Promise<CompleteTelemetryMapping | null> {
+    const project: any = ProjectModel.instance;
+    return new Promise<CompleteTelemetryMapping | null>((resolve) => {
+      setTelemetryRequest({
+        initial: storedTelemetryMapping(project),
+        candidates: collectUiNodeCandidates(project),
+        resolve
+      });
+    });
   }
 
   // Service connection tokens (loaded from ConnectionStore)
@@ -1628,7 +1710,7 @@ export function XgeniaDeployTab() {
    * that came back. The card's render and its helpers below are still here (the
    * render commented out); only this routine changed.
    */
-  async function deployToRgsAndVercel(activityId: string) {
+  async function deployToRgsAndVercel(activityId: string, telemetry: CompleteTelemetryMapping) {
     const rgs = getRgsSettings();
     // Which RGS game this frontend belongs to. NOT picked here any more: the Math
     // Components it calls were deployed into one specific game from the Maths RGS
@@ -1654,6 +1736,7 @@ export function XgeniaDeployTab() {
     // 1. Copy the project on disk. Publishing rewrites node graphs below, and
     //    that must never touch the project the user has open.
     ToastLayer.showActivity('Preparing project...', activityId);
+    const sourceName = String(ProjectModel.instance?.name || domainName.trim());
     const { copy, destDir: publishDir } = await duplicateCurrentProject(ProjectModel.instance);
 
     try {
@@ -1713,6 +1796,11 @@ export function XgeniaDeployTab() {
       //    rgs-config.js. Stamped on the COPY, so the user's own project is left
       //    untouched and switching games never leaves a stale id behind.
       copy.setMetaData('rgsgame', { id: game.id, name: game.name, slug: game.slug });
+      // The bet / win / bet-button mapping chosen in the pre-deploy form. On the
+      // copy for the same reason as `rgsgame`: the deployed build should carry
+      // its own answer, and the user's project gets it separately (see
+      // onDeployToVercelClicked) so the next publish is pre-filled.
+      copy.setMetaData(TELEMETRY_METADATA_KEY, telemetry);
 
       await saveProject(copy, publishDir);
 
@@ -1763,6 +1851,35 @@ export function XgeniaDeployTab() {
         saveDeployedDomain(domainName.trim(), deploymentId, aliasUrl);
         if (showDeployedDomains) await fetchDeployedDomains();
 
+        // 5. List it on XGENIA RGS → Deployed Games: the whole project.json that
+        //    went live, the telemetry mapping, and where it is reachable. Vercel
+        //    is serving the site by now, so this records something that exists;
+        //    a failure here is reported and is never a failed publish.
+        ToastLayer.showActivity('Listing the game on XGENIA RGS...', activityId);
+        const registered = await registerDeployedGame(rgs.apiKey, {
+          name: sourceName,
+          slug: domainName.trim(),
+          domain: getFullDomain(domainName.trim()),
+          liveUrl: aliasUrl,
+          vercelDeploymentId: deploymentId,
+          githubRepo: `${repoOwner}/${actualRepoName}`,
+          game: { id: game.id, slug: game.slug, name: game.name },
+          telemetry: toServerTelemetry(telemetry),
+          projectJson: deployedProjectJson(copy, sourceName),
+          editorVersion: editorVersion()
+        });
+        ToastLayer.hideActivity(activityId);
+        if (registered.ok) {
+          ToastLayer.showSuccess(
+            `Listed on XGENIA RGS → Deployed Games as "${sourceName}" (publish #${registered.publishNumber ?? 1}).`
+          );
+        } else {
+          console.warn('[Deploy] Deployed Games registration failed:', registered.message);
+          ToastLayer.showError(
+            `The game is live, but XGENIA RGS could not list it under Deployed Games: ${registered.message}`
+          );
+        }
+
         try { filesystem.removeDirRecursive(tempDir); } catch (e) { /* ignore */ }
       } catch (err) {
         try { filesystem.removeDirRecursive(tempDir); } catch (e) { /* ignore */ }
@@ -1795,6 +1912,20 @@ export function XgeniaDeployTab() {
       return;
     }
 
+    // Before the workflow starts: which UI element is the bet input, which shows
+    // the win, which button places the bet. XGENIA RGS needs this to follow the
+    // rounds of the deployed game, and the person who built the UI is the one
+    // who knows. Cancel here costs nothing — no compile, no repo, no publish
+    // state has been opened yet.
+    const telemetry = await requestTelemetryMapping();
+    if (!telemetry) return;
+    // Remember the answer on the project, so the next publish opens pre-filled.
+    try {
+      (ProjectModel.instance as any)?.setMetaData?.(TELEMETRY_METADATA_KEY, telemetry);
+    } catch (e) {
+      console.warn('[Deploy] Could not store the telemetry mapping on the project:', e);
+    }
+
     const activityId = 'deploying-to-vercel';
     PublishState.begin();
     setIsDeploying(true);
@@ -1825,7 +1956,7 @@ export function XgeniaDeployTab() {
       // UI (visual components + Aggregators). Logic and UI become decoupled,
       // talking over HTTPS REST.
       if (environmentId === RGS_ENVIRONMENT_VALUE) {
-        await deployToRgsAndVercel(activityId);
+        await deployToRgsAndVercel(activityId, telemetry);
         return;
       }
 
@@ -2230,6 +2361,29 @@ export function XgeniaDeployTab() {
           </div>
         )}
       </PopupSection>
+
+      {/* Pre-deploy telemetry form — see requestTelemetryMapping. Portalled to
+          document.body by the dialog itself, so it is centred over the editor
+          rather than squeezed into this 400px popup. */}
+      {telemetryRequest && (
+        <DeployTelemetryDialog
+          initial={telemetryRequest.initial}
+          candidates={telemetryRequest.candidates}
+          canPickFromPreview={isPreviewPickerAvailable()}
+          pickFromPreview={pickUiElementFromPreview}
+          resolveNodeId={(nodeId, pickedFrom) => refForNodeId(nodeId, pickedFrom)}
+          onConfirm={(mapping) => {
+            const { resolve } = telemetryRequest;
+            setTelemetryRequest(null);
+            resolve(mapping);
+          }}
+          onCancel={() => {
+            const { resolve } = telemetryRequest;
+            setTelemetryRequest(null);
+            resolve(null);
+          }}
+        />
+      )}
 
       {/* Post-compile setup card — REPLACED.
           Belonged to the compile-and-deploy publish flow: it asked the user to name
