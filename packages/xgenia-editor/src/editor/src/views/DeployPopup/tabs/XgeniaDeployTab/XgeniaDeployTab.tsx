@@ -52,6 +52,11 @@ import { NodeGraphContextTmp } from '@xgenia-contexts/NodeGraphContext/NodeGraph
 import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
 
 import { ToastLayer } from '../../../ToastLayer/ToastLayer';
+import { AppRegistry } from '@xgenia-models/app_registry';
+import { IconName, IconSize } from '@xgenia-core-ui/components/common/Icon';
+import { ContextMenu } from '@xgenia-core-ui/components/popups/ContextMenu';
+import { MathsComplianceDocumentProvider } from '../../../documents/MathsComplianceDocument';
+import { useDeployContext } from '../../DeployPopup.context';
 import {
   ComponentSetupDialog,
   ComponentSetupChoice,
@@ -547,6 +552,7 @@ function editorVersion(): string | undefined {
 }
 
 export function XgeniaDeployTab() {
+  const { closePopup } = useDeployContext();
   const cloudService = useModernModel(CloudService.instance);
   // Always offer "XGENIA RGS" here so the user can pick it and get a clear
   // "connect first" error when no operator key is set (see rgsError below).
@@ -1506,6 +1512,32 @@ export function XgeniaDeployTab() {
   }
 
   // Start rename process
+  /**
+   * Open the Compliance view on this deployed game, in the editor's main area.
+   *
+   * The subject is the GAME as published under this domain: the whole uploaded
+   * source XGENIA RGS holds for it (registered at publish time — see
+   * registerDeployedGame) and every maths component that source calls. Only the
+   * domain's name travels — it is the slug the game was listed under — and the
+   * platform builds everything else from the source it holds. The popup closes
+   * because the document opens behind it.
+   */
+  function openCompliance(domain: DeployedDomain) {
+    const apiKey = getRgsSettings()?.apiKey;
+    if (!apiKey) {
+      ToastLayer.showError(
+        'Connect to XGENIA RGS in the Maths RGS panel first — compliance documents are generated and stored there.'
+      );
+      return;
+    }
+    const host = (domain.url || getFullDomain(domain.name)).replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    AppRegistry.instance.openDocument(MathsComplianceDocumentProvider.ID, {
+      apiKey,
+      deployedGame: { slug: domain.name, name: domain.name, domain: host, url: domain.url }
+    });
+    closePopup?.();
+  }
+
   function startRenameDomain(domain: DeployedDomain) {
     setRenamingDomain(domain.id);
     setNewDomainName(domain.name);
@@ -2298,38 +2330,41 @@ export function XgeniaDeployTab() {
                             </div>
                           </div>
 
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <button
-                              onClick={() => startRenameDomain(domain)}
-                              style={{
-                                padding: '4px 8px',
-                                fontSize: '12px',
-                                backgroundColor: '#007bff',
-                                color: '#fff',
-                                border: 'none',
-                                borderRadius: '3px',
-                                cursor: 'pointer'
-                              }}
-                              title="Rename domain"
-                            >
-                              Rename
-                            </button>
-                            <button
-                              onClick={() => deleteDomain(domain)}
-                              disabled={deletingDomains.has(domain.id)}
-                              style={{
-                                padding: '4px 8px',
-                                fontSize: '12px',
-                                backgroundColor: deletingDomains.has(domain.id) ? '#555' : '#dc3545',
-                                color: '#fff',
-                                border: 'none',
-                                borderRadius: '3px',
-                                cursor: deletingDomains.has(domain.id) ? 'not-allowed' : 'pointer',
-                                opacity: deletingDomains.has(domain.id) ? 0.6 : 1
-                              }}
-                            >
-                              {deletingDomains.has(domain.id) ? 'Deleting...' : 'Delete'}
-                            </button>
+                          {/* Rename / Compliance / Delete sit in a three-dot menu:
+                              three labelled buttons beside the URL and its
+                              timestamps do not fit a 400px popup. */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                            {deletingDomains.has(domain.id) && (
+                              <span style={{ fontSize: '11px', color: '#888' }}>Deleting...</span>
+                            )}
+                            <ContextMenu
+                              size={IconSize.Tiny}
+                              menuItems={[
+                                {
+                                  label: 'Rename',
+                                  icon: IconName.Pencil,
+                                  isDisabled: deletingDomains.has(domain.id),
+                                  onClick: () => startRenameDomain(domain)
+                                },
+                                {
+                                  label: 'Compliance',
+                                  icon: IconName.File,
+                                  tooltip: isRgsConnected()
+                                    ? 'Compliance documents for this deployed game — generated on XGENIA RGS from its whole uploaded source'
+                                    : 'Connect to XGENIA RGS in the Maths RGS panel first',
+                                  isDisabled: !isRgsConnected() || deletingDomains.has(domain.id),
+                                  onClick: () => openCompliance(domain)
+                                },
+                                'divider',
+                                {
+                                  label: 'Delete',
+                                  icon: IconName.Trash,
+                                  isDangerous: true,
+                                  isDisabled: deletingDomains.has(domain.id),
+                                  onClick: () => deleteDomain(domain)
+                                }
+                              ]}
+                            />
                           </div>
                         </>
                       )}
