@@ -844,8 +844,13 @@ export class CanvasView extends View {
         // that is exactly what the caller's reference capture at a second size settles.
         const axesAgree = Math.abs(scaleX - scaleY) < 0.02;
         const looksLikeUniformDownScale = scaleX > 0.2 && scaleY > 0.2 && scaleX < 1 && axesAgree;
+        // (2026-09-16) IframeViewer.capturePage() now hands capturePage() a DIP rect (CSS x zoom),
+        // so a correct capture measures CSS x zoom x display scale = window.devicePixelRatio on
+        // each axis (1.6 at zoom 0.8 on a 2x display) — neither a half-integer nor sub-1.
+        const dpr = typeof window !== 'undefined' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+        const matchesDevicePixels = Math.abs(scaleX - dpr) < 0.05 && Math.abs(scaleY - dpr) < 0.05;
 
-        if (!looksLikeUniformScale && !looksLikeUniformDownScale
+        if (!looksLikeUniformScale && !looksLikeUniformDownScale && !matchesDevicePixels
             && (actual.width < width - 2 || actual.height < height - 2)) {
           // Smaller than requested and not an even scale-up: the capture was clipped — almost
           // certainly the real editor window is not big enough to show the full design size on

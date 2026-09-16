@@ -1152,10 +1152,36 @@ export class EditorBridge {
                     throw new Error('No active graph');
                 }
 
-                const nodeType = data.type || data.typename;
+                let nodeType = data.type || data.typename;
                 if (!nodeType) {
                     console.error('[EditorBridge] graph.createNode: No type provided!', data);
                     throw new Error('Node type is required');
+                }
+                // (2026-09-16, run 9) `graph.createNode("router")` from run_editor_script made a node of
+                // type "router": no ports, not a Router to set_router_config, and it took the model
+                // four more calls to notice. A type that is not registered is refused here; a
+                // case-only mismatch is corrected and said so.
+                if (typeof nodeType === 'string' && !nodeType.startsWith('/')) {
+                    const lib: any = NodeLibrary.instance;
+                    const exact = lib?.getNodeTypeWithName?.(nodeType);
+                    if (!exact) {
+                        const all: any[] = Array.isArray(lib?.types) ? lib.types : [];
+                        const ci = all.find((t) => String(t?.name || '').toLowerCase() === String(nodeType).toLowerCase());
+                        if (ci) {
+                            console.warn(`[EditorBridge] graph.createNode: type "${nodeType}" corrected to registered "${ci.name}"`);
+                            nodeType = ci.name;
+                        } else {
+                            throw new Error(`Unknown node type "${nodeType}" — no registered node type has that name. Node NOT created. Use the exact registered name (e.g. "Router", "Variable2", "JavaScriptFunction").`);
+                        }
+                    }
+                }
+                // `parent` is what callers keep sending; `parentId` is what this handler read. A parent
+                // that is named but cannot be found used to fall back to a ROOT node silently — the
+                // detached-node class of bug — so it is an error now.
+                const parentRef = data.parentId || data.parent || data.parent_id;
+                const parentNode = parentRef ? this.findNode(parentRef) : null;
+                if (parentRef && !(parentNode && typeof parentNode.addChild === 'function')) {
+                    throw new Error(`Parent "${parentRef}" was not found in the active component's graph (or cannot take children). Node NOT created — pass the parent's id or @label from this component, or omit it to create a root node.`);
                 }
 
                 // 2026-05-23 (BUG 76 fix, bridge half): refuse to create a
@@ -1315,15 +1341,9 @@ export class EditorBridge {
                 // (removeNode) takes the node back out of the graph, which is the
                 // whole of "undo the node the AI just created".
                 const undoArgs = { undo: this.aiUndo(), label: this.aiUndoLabel };
-                if (data.parentId) {
-                    const parent = this.findNode(data.parentId);
-                    if (parent && typeof parent.addChild === 'function') {
-                        parent.addChild(node, undoArgs);
-                        console.log(`[EditorBridge] Added node ${nodeId} as child of ${data.parentId}`);
-                    } else {
-                        graph.addRoot(node, undoArgs);
-                        console.log(`[EditorBridge] Parent ${data.parentId} not found, added as root`);
-                    }
+                if (parentNode) {
+                    parentNode.addChild(node, undoArgs);
+                    console.log(`[EditorBridge] Added node ${nodeId} as child of ${parentRef}`);
                 } else {
                     graph.addRoot(node, undoArgs);
                     console.log(`[EditorBridge] Added node ${nodeId} as root`);
