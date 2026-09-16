@@ -121,9 +121,15 @@ export class PluginLoader {
         // drifts. A dev build only — isDevEnvironment() is false in every packaged install.
         let localAiChatOptIn = false;
         try {
-            const env: any = (typeof process !== 'undefined' && (process as any)?.env) || {};
-            localAiChatOptIn = env.XGENIA_LOCAL_AI_CHAT === '1';
-        } catch { /* no process in this context — stay on Vercel */ }
+            // NOT the lexical `process`: inside this webpack bundle that is the browser polyfill,
+            // whose env holds only DefinePlugin keys. The renderer runs with nodeIntegration, so the
+            // real Node process — with the environment the dev editor was started in — is on window.
+            const w: any = globalThis as any;
+            const nodeEnv: any = (w.process && w.process.env)
+                || (typeof w.require === 'function' ? w.require('process').env : null)
+                || {};
+            localAiChatOptIn = nodeEnv.XGENIA_LOCAL_AI_CHAT === '1';
+        } catch { /* no Node process in this context — stay on Vercel */ }
         // The dev launcher starts the panel's Vite server in parallel with the editor, so on a cold
         // start the first probe can land before :3010 is listening. An explicit opt-in means "use the
         // local panel", so wait for it (bounded) rather than silently falling back to Vercel.
@@ -139,6 +145,11 @@ export class PluginLoader {
                 console.warn('[PluginLoader] XGENIA_LOCAL_AI_CHAT=1 but localhost:3010 never answered in 90s — falling back to Vercel');
             }
         }
+        // console.log is silenced in the editor renderer, so the dev decision is also left where a
+        // CDP session or DevTools can read it.
+        try {
+            (globalThis as any).__xgeniaPluginLoaderDecision = { isDev, localAiChatOptIn, localAiChatReachable, localImageEditorReachable, at: new Date().toISOString() };
+        } catch { /* diagnostics only */ }
 
         if (isDev) {
             console.log(
