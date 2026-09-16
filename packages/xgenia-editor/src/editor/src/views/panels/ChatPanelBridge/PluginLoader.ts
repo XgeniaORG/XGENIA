@@ -4,10 +4,49 @@
  * Flow:
  * 1. Editor authenticates → gets Supabase session
  * 2. PluginLoader calls the plugin-entitlements edge function
- * 3. Server checks subscription_status → returns plugin URLs
+ * 3. Server checks the account's tier → returns plugin URLs
  * 4. Editor loads each plugin into its iframe from the server-provided URL
  *
- * Caches results in localStorage for offline grace period.
+ * Caches the server's VERDICT in localStorage for an offline grace period.
+ *
+ * ─── a verdict is not the same thing as "we could not check" (2026-09-15) ──────
+ * Paying users on the nightly builds saw "AI Chat requires a Pro subscription" on
+ * their first visit to the panel after an update, and a restart made it go away.
+ * Nothing had changed on their account — every plugin-entitlements call that day
+ * returned 200 with the right tier. The loader itself manufactured the paywall,
+ * on two paths:
+ *
+ *   • The server call raced a hard 5 s timer. The function runs near the caller
+ *     but makes its reads against a database in eu-central-1, so from Indonesia
+ *     it measured 1.9–5.8 s server-side (median 3.0 s) — and the same 5 s also
+ *     had to cover a boot-time token refresh. When the timer won, the reply that
+ *     landed a moment later was discarded, and with no stored verdict to fall
+ *     back on the loader answered `unverified`, which the panel painted as the
+ *     paywall.
+ *   • `getSession()` answered null (a signed-in user whose expiring token failed
+ *     to refresh over a flaky connection), and that was returned as
+ *     `{plugins: [], tier: 'free'}` — a guess dressed as a verdict — then
+ *     PERSISTED, so it also poisoned the 72 h fallback.
+ *
+ * Either answer was then held in memory for an hour, every panel read the same
+ * object, and nothing re-asked when the session appeared. Hence: restart.
+ *
+ * The rules now:
+ *   1. Only VERDICTS (an HTTP 200 from the server, or a stored one) are kept in
+ *      memory or on disk. `unverified` is returned to the caller and forgotten,
+ *      so the very next call asks again.
+ *   2. A missing session is a failed check, not a free account.
+ *   3. The deadline depends on what there is to show: 20 s when nothing is
+ *      stored (a spinner beats a paywall that is a guess), 5 s when a stored
+ *      verdict can be shown meanwhile. In both cases THE LATE ANSWER IS ADOPTED
+ *      when it lands — persisted and pushed to every listener — so a slow
+ *      network costs a delay, never a restart.
+ *   4. One server fetch at a time; concurrent callers (chat, image editor,
+ *      feedback) share it.
+ *   5. Auth changes are watched: signing in, a token refresh or a switched
+ *      account re-checks; signing out clears everything.
+ *   6. Cache entries written by earlier builds carry no `source` and may hold
+ *      the persisted no-session guess. They are discarded, never served.
  */
 
 import { supabase } from '../../../supabaseInit';
@@ -20,16 +59,62 @@ export interface PluginEntitlement {
     version: string;
 }
 
+/** Where an answer came from. Absent on cache entries written before 2026-09-15. */
+export type EntitlementsSource = 'server' | 'cache' | 'dev' | 'unverified';
+
 export interface EntitlementsResponse {
     plugins: PluginEntitlement[];
     tier: string;
     cachedAt?: number;
+    source?: EntitlementsSource;
+    /** The Supabase user the answer was computed for. */
+    userId?: string;
+}
+
+/**
+ * The tier that means "we do not know". It is not a plan: it is what the loader
+ * returns when the server could not be reached in time (or there was no session
+ * to ask with) and nothing stored can stand in. Consumers must treat it as
+ * "still checking", never as "free" — see `isVerdict`.
+ */
+export const UNVERIFIED_TIER = 'unverified';
+
+/** Did the server (or a stored copy of its answer) actually rule on this account? */
+export function isVerdict(e: EntitlementsResponse | null | undefined): e is EntitlementsResponse {
+    return !!e && e.tier !== UNVERIFIED_TIER;
+}
+
+/**
+ * The slice of the Supabase client this loader uses. Declared so a test can hand
+ * in a fake; the real client satisfies it structurally.
+ */
+export interface EntitlementsBackend {
+    auth: {
+        getSession(): Promise<{ data: { session: { access_token: string; user?: { id: string } } | null } }>;
+        onAuthStateChange(callback: (event: string, session: { user?: { id: string } } | null) => void): unknown;
+    };
+    functions: {
+        invoke(name: string, options: { headers: Record<string, string> }): Promise<{ data: any; error: { message: string } | null }>;
+    };
+}
+
+export interface PluginLoaderOptions {
+    backend?: EntitlementsBackend;
+    storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null;
+    isOnline?: () => boolean;
+    now?: () => number;
+    /** How long a caller waits for the server. Overridable so tests need not wait 20 s. */
+    deadlines?: { noCacheMs: number; withCacheMs: number };
 }
 
 const CACHE_KEY = 'xgenia_plugin_entitlements';
-const CACHE_TTL = 60 * 60 * 1000; // 1 hour — when to re-fetch while online
-/** How long a cached entitlement stays usable while the server is UNREACHABLE. */
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour — how long a verdict is reused before re-asking while online
+/** How long a stored verdict stays usable while the server is UNREACHABLE. */
 const GRACE_TTL = 72 * 60 * 60 * 1000; // 72 hours
+/** Nothing stored to show: wait this long for the server before saying "could not check". */
+const FETCH_DEADLINE_NO_CACHE_MS = 20_000;
+/** A stored verdict exists: show it after this long; the real answer replaces it when it lands. */
+const FETCH_DEADLINE_WITH_CACHE_MS = 5_000;
 
 /** URL of the local image editor Vite dev server */
 const LOCAL_IMAGE_EDITOR_URL = 'http://localhost:3002';
@@ -41,11 +126,73 @@ const LOCAL_AI_CHAT_URL = 'http://localhost:3010';
 /** Fallback Vercel deployment */
 const VERCEL_AI_CHAT_URL = 'https://xgenia-ai-app-xgenia.vercel.app';
 
+/** The server did not answer inside the caller's deadline. The fetch itself is still running. */
+class DeadlineError extends Error {
+    constructor(readonly ms: number) {
+        super(`Entitlements fetch: no answer after ${ms} ms`);
+        this.name = 'DeadlineError';
+    }
+}
+
+/** There was no Supabase session to ask with. A failed check — not a verdict, and never "free". */
+export class NoSessionError extends Error {
+    constructor() {
+        super('No Supabase session at the moment of the entitlements check');
+        this.name = 'NoSessionError';
+    }
+}
+
+function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new DeadlineError(ms)), ms);
+        work.then(
+            (value) => { clearTimeout(timer); resolve(value); },
+            (err) => { clearTimeout(timer); reject(err); }
+        );
+    });
+}
+
+function defaultStorage(): PluginLoaderOptions['storage'] {
+    try {
+        return typeof localStorage !== 'undefined' ? localStorage : null;
+    } catch {
+        return null;
+    }
+}
+
+function defaultIsOnline(): boolean {
+    try {
+        return typeof navigator === 'undefined' || navigator.onLine !== false;
+    } catch {
+        return true;
+    }
+}
+
 export class PluginLoader {
     private static instance_: PluginLoader;
+
+    /** The current VERDICT (or the dev fallback). Never an `unverified` answer. */
     private entitlements: EntitlementsResponse | null = null;
-    private loading = false;
+    /** The one server fetch in flight, shared by every caller that arrives while it runs. */
+    private inflight: Promise<EntitlementsResponse> | null = null;
+    /** Fetches that already have a late-answer handler attached, so a shared fetch adopts once. */
+    private lateAdopters = new WeakSet<Promise<EntitlementsResponse>>();
     private listeners: Array<(e: EntitlementsResponse | null) => void> = [];
+    private watchingAuth = false;
+
+    private readonly backend: EntitlementsBackend;
+    private readonly storage: PluginLoaderOptions['storage'];
+    private readonly isOnline: () => boolean;
+    private readonly now: () => number;
+    private readonly deadlines: { noCacheMs: number; withCacheMs: number };
+
+    constructor(options: PluginLoaderOptions = {}) {
+        this.backend = options.backend ?? (supabase as unknown as EntitlementsBackend);
+        this.storage = options.storage === undefined ? defaultStorage() : options.storage;
+        this.isOnline = options.isOnline ?? defaultIsOnline;
+        this.now = options.now ?? (() => Date.now());
+        this.deadlines = options.deadlines ?? { noCacheMs: FETCH_DEADLINE_NO_CACHE_MS, withCacheMs: FETCH_DEADLINE_WITH_CACHE_MS };
+    }
 
     static get instance(): PluginLoader {
         if (!PluginLoader.instance_) {
@@ -53,15 +200,6 @@ export class PluginLoader {
         }
         return PluginLoader.instance_;
     }
-
-    /**
-     * Fetch entitled plugins from the server.
-     * Returns cached data if within TTL. Falls back to localStorage cache offline.
-     *
-     * In dev mode (editor running on localhost / electron file:// protocol):
-     *   - Probes localhost:3002. If reachable → loads local image editor (HMR).
-     *   - If localhost:3002 is NOT reachable → falls back to Vercel (no blank screen).
-     */
 
     /**
      * AM I IN DEVELOPMENT? — asked of the BUILD, not of the URL.
@@ -95,11 +233,27 @@ export class PluginLoader {
         } catch { return false; }
     }
 
+    /**
+     * Fetch entitled plugins from the server.
+     *
+     * Returns the in-memory verdict while it is fresh. Otherwise asks the server, bounded by a
+     * deadline; on a miss, serves the stored verdict if one is inside the grace window, and
+     * only when there is nothing to show answers `unverified` — which is not remembered, so
+     * the next call asks again. A server answer that arrives after the deadline is still
+     * adopted (persisted + pushed to listeners).
+     *
+     * In dev mode (editor started from dev-main.js / webpack-dev-server):
+     *   - Probes localhost:3002. If reachable → loads local image editor (HMR).
+     *   - If localhost:3002 is NOT reachable → falls back to Vercel (no blank screen).
+     */
     async getEntitledPlugins(): Promise<EntitlementsResponse> {
         const isDev = PluginLoader.isDevEnvironment();
+        this.watchAuth();
 
         // In dev mode skip the in-memory cache so we re-probe localhost on
         // every call (the local server may have started since the last check).
+        // Only verdicts ever live in `this.entitlements`, so "fresh" here can never describe
+        // a "could not check" answer.
         if (!isDev && this.entitlements && this.isCacheFresh(this.entitlements)) {
             return this.entitlements;
         }
@@ -164,50 +318,53 @@ export class PluginLoader {
             );
         }
 
-        // Try fetching from server
-        if (navigator.onLine) {
+        // What is there to show if the server is slow? A stored verdict inside the grace
+        // window means we can afford to fall back quickly and let the late answer replace it.
+        const stored = this.loadCache();
+        const fallback = stored && this.isWithinGrace(stored) ? stored : null;
+
+        if (this.isOnline()) {
+            const attempt = this.fetchShared();
+            const deadlineMs = fallback ? this.deadlines.withCacheMs : this.deadlines.noCacheMs;
             try {
-                this.loading = true;
-                const response = await Promise.race([
-                    this.fetchFromServer(),
-                    new Promise<never>((_, reject) =>
-                        setTimeout(() => reject(new Error('Entitlements fetch timed out after 5s')), 5000)
-                    ),
-                ]);
-                if (isDev) {
-                    // Override URLs with local equivalents only when the local
-                    // server is actually running. Don't persist to localStorage
-                    // so production-mode cache is never polluted with localhost URLs.
-                    this.mergeDev(response, localImageEditorReachable, localAiChatReachable);
-                    this.entitlements = response;
-                    this.loading = false;
-                    this.notifyListeners(response);
-                    return response;
-                }
-                this.entitlements = response;
-                this.persistCache(response);
-                this.loading = false;
-                this.notifyListeners(response);
-                return response;
+                const response = await withDeadline(attempt, deadlineMs);
+                return this.adopt(response, isDev, localImageEditorReachable, localAiChatReachable);
             } catch (err: any) {
-                console.warn('[PluginLoader] Failed to fetch entitlements from server:', err);
-                this.loading = false;
+                if (err instanceof DeadlineError) {
+                    console.warn(`[PluginLoader] No entitlements answer after ${err.ms / 1000}s — falling back for now; the server's answer is adopted when it arrives.`);
+                    // THE LATE ANSWER IS NOT THROWN AWAY. The fetch is still running; when it
+                    // resolves, store it and tell every panel, so a slow network costs a delay
+                    // rather than a restart. One handler per fetch, however many callers timed out.
+                    if (!this.lateAdopters.has(attempt)) {
+                        this.lateAdopters.add(attempt);
+                        attempt.then(
+                            (late) => { this.adopt(late, isDev, localImageEditorReachable, localAiChatReachable); },
+                            () => { /* the failure is reported by whichever caller owns the deadline */ }
+                        );
+                    }
+                } else if (err instanceof NoSessionError) {
+                    console.warn('[PluginLoader] No Supabase session at the moment of the check — not a verdict; re-checked when the session appears.');
+                } else {
+                    console.warn('[PluginLoader] Failed to fetch entitlements from server:', err);
+                }
             }
         }
 
         // Fall back to the last GOOD answer the server gave us, but only for a
         // bounded window. This is the offline grace period: a paying user on a
-        // plane, or behind a 5s timeout, keeps working. It is not open-ended.
-        const cached = this.loadCache();
-        if (cached && this.isWithinGrace(cached)) {
-            const ageMin = Math.round((Date.now() - (cached.cachedAt || 0)) / 60000);
-            console.log(`[PluginLoader] Server unreachable — using cached entitlements (${ageMin}m old, grace ${GRACE_TTL / 3600000}h)`);
-            if (isDev) this.mergeDev(cached, localImageEditorReachable, localAiChatReachable);
-            this.entitlements = cached;
-            return cached;
+        // plane, or behind a slow link, keeps working. It is not open-ended.
+        if (fallback) {
+            const ageMin = Math.round((this.now() - (fallback.cachedAt || 0)) / 60000);
+            console.log(`[PluginLoader] Server not answering — using the stored entitlements (${ageMin}m old, grace ${GRACE_TTL / 3600000}h)`);
+            const served: EntitlementsResponse = { ...fallback, source: 'cache' };
+            if (isDev) this.mergeDev(served, localImageEditorReachable, localAiChatReachable);
+            // Kept in memory so panels agree with each other, but its cachedAt is the original
+            // one, so the next call asks the server again rather than trusting it for an hour.
+            this.entitlements = served;
+            return served;
         }
-        if (cached) {
-            console.warn('[PluginLoader] Cached entitlements are past the offline grace period — discarding.');
+        if (stored) {
+            console.warn('[PluginLoader] Stored entitlements are past the offline grace period — discarding.');
         }
 
         // (2026-08-28) FAIL CLOSED.
@@ -227,11 +384,13 @@ export class PluginLoader {
             return devFallback;
         }
 
-        console.warn('[PluginLoader] Could not verify entitlements — no plugins loaded.');
-        const denied: EntitlementsResponse = { plugins: [], tier: 'unverified', cachedAt: Date.now() };
-        this.entitlements = denied;
-        this.notifyListeners(denied);
-        return denied;
+        // Closed, but not decided. Nothing is unlocked, and nothing is remembered either:
+        // this answer is not stored in memory or on disk, so the next call asks the server
+        // again, and the auth watcher asks as soon as a session appears.
+        console.warn('[PluginLoader] Could not verify entitlements — nothing is unlocked until a check succeeds.');
+        const unverified: EntitlementsResponse = { plugins: [], tier: UNVERIFIED_TIER, cachedAt: this.now(), source: 'unverified' };
+        this.notifyListeners(unverified);
+        return unverified;
     }
 
     /**
@@ -245,7 +404,7 @@ export class PluginLoader {
      */
     private isWithinGrace(cache: EntitlementsResponse): boolean {
         if (typeof cache.cachedAt !== 'number' || !Number.isFinite(cache.cachedAt)) return false;
-        const age = Date.now() - cache.cachedAt;
+        const age = this.now() - cache.cachedAt;
         if (age < 0) return false; // clock moved, or a forged future timestamp
         return age < GRACE_TTL;
     }
@@ -301,15 +460,51 @@ export class PluginLoader {
 
     // --- Internal ---
 
+    /** Store a verdict, persist it (production only), and tell every listener. */
+    private adopt(
+        response: EntitlementsResponse,
+        isDev: boolean,
+        localImageEditorReachable: boolean,
+        localAiChatReachable: boolean
+    ): EntitlementsResponse {
+        // A shared fetch resolves the same object for every caller; adopt it once.
+        if (this.entitlements === response) return response;
+        if (isDev) {
+            // Override URLs with local equivalents only when the local
+            // server is actually running. Don't persist to localStorage
+            // so production-mode cache is never polluted with localhost URLs.
+            this.mergeDev(response, localImageEditorReachable, localAiChatReachable);
+            this.entitlements = response;
+            this.notifyListeners(response);
+            return response;
+        }
+        this.entitlements = response;
+        this.persistCache(response);
+        this.notifyListeners(response);
+        return response;
+    }
+
+    /** One server fetch at a time; callers that arrive while one runs share its outcome. */
+    private fetchShared(): Promise<EntitlementsResponse> {
+        if (this.inflight) return this.inflight;
+        const run = this.fetchFromServer();
+        this.inflight = run;
+        const release = () => { if (this.inflight === run) this.inflight = null; };
+        run.then(release, release);
+        return run;
+    }
+
     private async fetchFromServer(): Promise<EntitlementsResponse> {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await this.backend.auth.getSession();
 
         if (!session) {
-            // Not authenticated — return empty entitlements
-            return { plugins: [], tier: 'free', cachedAt: Date.now() };
+            // Not authenticated right now. For a signed-in user this is what getSession()
+            // answers when an expiring token could not be refreshed (a transient); for a
+            // signed-out one the panel is never mounted. Neither is a free account.
+            throw new NoSessionError();
         }
 
-        const { data, error } = await supabase.functions.invoke('plugin-entitlements', {
+        const { data, error } = await this.backend.functions.invoke('plugin-entitlements', {
             headers: {
                 Authorization: `Bearer ${session.access_token}`,
             },
@@ -318,11 +513,61 @@ export class PluginLoader {
         if (error) {
             throw new Error(`Entitlements fetch failed: ${error.message}`);
         }
+        if (!data || !Array.isArray(data.plugins) || typeof data.tier !== 'string') {
+            throw new Error('Entitlements fetch returned an unexpected payload');
+        }
 
         return {
-            ...data,
-            cachedAt: Date.now(),
+            plugins: data.plugins,
+            tier: data.tier,
+            cachedAt: this.now(),
+            source: 'server',
+            userId: session.user?.id,
         };
+    }
+
+    /**
+     * Re-check when the account changes underneath us. Registered on first use.
+     *
+     * Nothing used to listen here, which is why a bad first answer lasted until restart:
+     * the session could appear, refresh or change hands and every panel kept whatever the
+     * loader said at mount. The callback defers its work with setTimeout because supabase-js
+     * runs it while holding the auth lock, and calling back into the client from inside it
+     * can deadlock.
+     */
+    private watchAuth(): void {
+        if (this.watchingAuth) return;
+        this.watchingAuth = true;
+        try {
+            this.backend.auth.onAuthStateChange((event, session) => {
+                setTimeout(() => this.onAuthChange(event, session), 0);
+            });
+        } catch (e) {
+            console.warn('[PluginLoader] Could not watch auth changes:', e);
+        }
+    }
+
+    private onAuthChange(event: string, session: { user?: { id: string } } | null): void {
+        if (event === 'SIGNED_OUT') {
+            this.entitlements = null;
+            this.clearCache();
+            this.notifyListeners(null);
+            return;
+        }
+        if (!session) return;
+        if (event !== 'SIGNED_IN' && event !== 'TOKEN_REFRESHED' && event !== 'INITIAL_SESSION' && event !== 'USER_UPDATED') return;
+
+        const current = this.entitlements;
+        // The stored verdict belongs to an account. A different account signing in on this
+        // machine must not inherit it, not even for the offline grace window.
+        const switchedAccount = !!(current?.userId && session.user?.id && current.userId !== session.user.id);
+        if (switchedAccount) {
+            this.entitlements = null;
+            this.clearCache();
+        }
+        if (!current || switchedAccount || !this.isCacheFresh(current)) {
+            void this.getEntitledPlugins().catch((e) => console.warn('[PluginLoader] Re-check after auth change failed:', e));
+        }
     }
 
     /**
@@ -346,12 +591,14 @@ export class PluginLoader {
 
     private isCacheFresh(cache: EntitlementsResponse): boolean {
         if (!cache.cachedAt) return false;
-        return (Date.now() - cache.cachedAt) < CACHE_TTL;
+        return (this.now() - cache.cachedAt) < CACHE_TTL;
     }
 
+    /** Only a verdict straight from the server is written down. */
     private persistCache(data: EntitlementsResponse) {
+        if (!isVerdict(data) || data.source !== 'server') return;
         try {
-            localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+            this.storage?.setItem(CACHE_KEY, JSON.stringify(data));
         } catch (e: any) {
             console.warn('[PluginLoader] Failed to persist cache:', e);
         }
@@ -359,12 +606,26 @@ export class PluginLoader {
 
     private loadCache(): EntitlementsResponse | null {
         try {
-            const raw = localStorage.getItem(CACHE_KEY);
+            const raw = this.storage?.getItem(CACHE_KEY);
             if (!raw) return null;
-            return JSON.parse(raw) as EntitlementsResponse;
+            const parsed = JSON.parse(raw) as EntitlementsResponse;
+            if (!parsed || parsed.source !== 'server' || !isVerdict(parsed) || !Array.isArray(parsed.plugins)) {
+                // Written by a build before 2026-09-15 (no `source`), or not a verdict at all.
+                // Such an entry may be the persisted no-session guess — the one that made a
+                // paying user's fallback say "free". Drop it rather than serve it.
+                this.storage?.removeItem(CACHE_KEY);
+                return null;
+            }
+            return parsed;
         } catch {
             return null;
         }
+    }
+
+    private clearCache(): void {
+        try {
+            this.storage?.removeItem(CACHE_KEY);
+        } catch { /* nothing to clear */ }
     }
 
     /**
@@ -388,7 +649,8 @@ export class PluginLoader {
                 },
             ],
             tier: 'dev',
-            cachedAt: Date.now(),
+            cachedAt: this.now(),
+            source: 'dev',
         };
     }
 
@@ -415,7 +677,7 @@ export class PluginLoader {
 
     private notifyListeners(data: EntitlementsResponse | null) {
         for (const listener of this.listeners) {
-            try { listener(data); } catch { }
+            try { listener(data); } catch { /* one listener's failure must not stop the others */ }
         }
     }
 }
