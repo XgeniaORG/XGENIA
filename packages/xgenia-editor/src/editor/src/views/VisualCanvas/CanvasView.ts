@@ -59,6 +59,29 @@ export class CanvasView extends View {
   private _activeCapture: 'thumb' | 'fullpage' | 'design' | null = null;
 
   /**
+   * IPC listeners this view registered, so dispose() can remove them.
+   *
+   * (2026-09-17) Every CanvasView registered its capture/HTML/rendered-output listeners on the
+   * shared ipcRenderer and dispose() never removed them. Opening another project (or re-opening
+   * the same one) creates a new CanvasView while the old ones keep listening — and the requester
+   * takes the FIRST reply. A disposed view answered "design capture: webview not ready" ahead of
+   * the live one (seen 8/8 after a reopen), and a view whose preview was still attached but hidden
+   * could answer with a capture of the editor instead of the game. A disposed view now neither
+   * listens nor replies.
+   */
+  private _ipcListeners: Array<[string, (...args: any[]) => void]> = [];
+  private _disposed = false;
+
+  private onIpc(channel: string, handler: (...args: any[]) => any): void {
+    const wrapped = (...args: any[]) => {
+      if (this._disposed) return;
+      return handler(...args);
+    };
+    this._ipcListeners.push([channel, wrapped]);
+    ipcRenderer.on(channel, wrapped);
+  }
+
+  /**
    * Run a capture with everything that paints over the preview hidden for its duration.
    *
    * (2026-09-16, run 8) Every capture here is OUR window cropped to the preview iframe's box —
@@ -431,12 +454,12 @@ export class CanvasView extends View {
     // editor webContents). The <webview> showing the running project is a
     // separate webContents and must keep the canvas zoom the user set in the
     // topbar, so re-assert it whenever the interface zoom changes.
-    ipcRenderer.on('ui-zoom-changed', () => {
+    this.onIpc('ui-zoom-changed', () => {
       this.tryWebviewCall(() => (this.webview as any).setZoomFactor(this.zoomFactor || 1));
     });
 
     // HTML capture listener
-    ipcRenderer.on('embedded-viewer-get-full-html-request', async (...args) => {
+    this.onIpc('embedded-viewer-get-full-html-request', async (...args) => {
       console.log('[CanvasView] 📄 Received embedded-viewer-get-full-html-request');
 
       if (!this.webview || !this.webviewDomReady) {
@@ -471,7 +494,7 @@ export class CanvasView extends View {
     });
 
     // Keep only the screenshot capture listener - this is specific to webview functionality
-    ipcRenderer.on('embedded-viewer-capture-request', async (...args) => {
+    this.onIpc('embedded-viewer-capture-request', async (...args) => {
       console.log('[CanvasView] 📸 Received embedded-viewer-capture-request from main process, args:', args);
 
       if (this._activeCapture) {
@@ -537,7 +560,7 @@ export class CanvasView extends View {
     });
 
     // Full-page screenshot capture listener (scroll-and-stitch)
-    ipcRenderer.on('embedded-viewer-capture-fullpage-request', async () => {
+    this.onIpc('embedded-viewer-capture-fullpage-request', async () => {
       console.log('[CanvasView] 📸 Received embedded-viewer-capture-fullpage-request');
 
       if (!this.webview || !this.webviewDomReady || !this.webview.isConnected) {
@@ -693,7 +716,7 @@ export class CanvasView extends View {
     // ON-SCREEN (position:fixed, top/left 0, top z-index) instead of shoving it into negative
     // coordinates, and additionally verifies the CAPTURED pixel size against the requested size
     // before calling it a success — see the comment above the size check below.
-    ipcRenderer.on('embedded-viewer-capture-design-request', async (_e: any, size: any) => {
+    this.onIpc('embedded-viewer-capture-design-request', async (_e: any, size: any) => {
       const reply = (payload: any) => ipcRenderer.send('viewer-capture-design-reply', payload);
       const width = Math.round(Number(size?.width));
       const height = Math.round(Number(size?.height));
@@ -886,7 +909,7 @@ export class CanvasView extends View {
     });
 
     // Add HTML extraction IPC handler
-    ipcRenderer.on('viewer-get-full-html-request', async (...args) => {
+    this.onIpc('viewer-get-full-html-request', async (...args) => {
       console.log('[CanvasView] 📄 Received viewer-get-full-html-request from main process, args:', args);
 
       try {
@@ -935,7 +958,7 @@ export class CanvasView extends View {
     });
 
     // Add rendered output IPC handler
-    ipcRenderer.on('viewer-get-rendered-output-request', async (event: any, args: { nodeId: string }) => {
+    this.onIpc('viewer-get-rendered-output-request', async (event: any, args: { nodeId: string }) => {
       console.log('[CanvasView] 🎨 Received viewer-get-rendered-output-request from main process, args:', args);
 
       try {
@@ -1226,6 +1249,12 @@ export class CanvasView extends View {
   // Clean disposal method
   dispose() {
     console.log('[CanvasView] Disposing CanvasView');
+
+    this._disposed = true;
+    for (const [channel, fn] of this._ipcListeners) {
+      try { ipcRenderer.removeListener(channel, fn); } catch { /* already gone */ }
+    }
+    this._ipcListeners = [];
 
     this.clearNavigationTimeout();
     this.isNavigating = false;
