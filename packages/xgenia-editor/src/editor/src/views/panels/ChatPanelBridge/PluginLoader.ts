@@ -124,9 +124,21 @@ export class PluginLoader {
             const env: any = (typeof process !== 'undefined' && (process as any)?.env) || {};
             localAiChatOptIn = env.XGENIA_LOCAL_AI_CHAT === '1';
         } catch { /* no process in this context — stay on Vercel */ }
-        const localAiChatReachable = isDev && localAiChatOptIn
-            ? await this.probeLocalServer(LOCAL_AI_CHAT_URL)
-            : false;
+        // The dev launcher starts the panel's Vite server in parallel with the editor, so on a cold
+        // start the first probe can land before :3010 is listening. An explicit opt-in means "use the
+        // local panel", so wait for it (bounded) rather than silently falling back to Vercel.
+        let localAiChatReachable = false;
+        if (isDev && localAiChatOptIn) {
+            const deadline = Date.now() + 90_000;
+            do {
+                localAiChatReachable = await this.probeLocalServer(LOCAL_AI_CHAT_URL);
+                if (localAiChatReachable) break;
+                await new Promise((r) => setTimeout(r, 3000));
+            } while (Date.now() < deadline);
+            if (!localAiChatReachable) {
+                console.warn('[PluginLoader] XGENIA_LOCAL_AI_CHAT=1 but localhost:3010 never answered in 90s — falling back to Vercel');
+            }
+        }
 
         if (isDev) {
             console.log(
