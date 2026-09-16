@@ -3403,7 +3403,10 @@ export class EditorBridge {
                     const handler = (_event: any, data: any) => {
                         clearTimeout(timeout);
                         ipcRenderer.removeListener(replyChannel, handler);
-                        if (data) {
+                        if (data && typeof data === 'object' && typeof (data as any).error === 'string') {
+                            // (2026-09-17) The view refused rather than capture a stale frame — pass its reason on.
+                            resolve(JSON.stringify({ success: false, stale: !!(data as any).stale, message: (data as any).error }));
+                        } else if (data) {
                             resolve(JSON.stringify({ success: true, image: data, fullPage, timestamp: Date.now() }));
                         } else {
                             resolve(JSON.stringify({ success: false, message: 'Screenshot capture returned no data' }));

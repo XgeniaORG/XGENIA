@@ -72,6 +72,32 @@ export class CanvasView extends View {
   private _ipcListeners: Array<[string, (...args: any[]) => void]> = [];
   private _disposed = false;
 
+  /**
+   * Why a capture of this window would be a STALE frame, or null when it can render.
+   *
+   * (2026-09-17, run 11 export 1789591880674) Every take_screenshot in that run returned the editor
+   * at its normal layout instead of the resized 1920x1080 game surface, and the vision audit filed
+   * seven false critical findings (white band, clipped, no buttons) that blocked verify. Reproduced:
+   * with the editor window hidden or minimized, webContents.capturePage() returns the last frame the
+   * window presented — the design path's resize is laid out (the guest reports 1920 wide) but never
+   * painted. document.visibilityState stays "visible" here (disable-renderer-backgrounding), so the
+   * window itself is asked. Covering the window with another window does NOT cause it (verified).
+   */
+  private staleFrameReason(): string | null {
+    try {
+      const remote = require('@electron/remote');
+      const win = remote.getCurrentWindow();
+      if (win.isMinimized()) return 'the XGENIA editor window is minimized';
+      if (!win.isVisible()) return 'the XGENIA editor window is hidden (not on screen)';
+    } catch { /* no remote in this context — assume it can render */ }
+    return null;
+  }
+
+  private staleFrameMessage(reason: string): string {
+    return `screenshot unavailable: ${reason}, so no new frame can be rendered and a capture would show an old image of the editor, not the game. `
+      + `Nothing was captured. Measure with ui_layout_map / get_rendered_output instead, or ask the user to bring the editor window on screen and retry.`;
+  }
+
   private onIpc(channel: string, handler: (...args: any[]) => any): void {
     const wrapped = (...args: any[]) => {
       if (this._disposed) return;
@@ -497,6 +523,10 @@ export class CanvasView extends View {
     this.onIpc('embedded-viewer-capture-request', async (...args) => {
       console.log('[CanvasView] 📸 Received embedded-viewer-capture-request from main process, args:', args);
 
+      {
+        const stale = this.staleFrameReason();
+        if (stale) { ipcRenderer.send('viewer-capture-thumb-reply', { error: this.staleFrameMessage(stale), stale: true }); return; }
+      }
       if (this._activeCapture) {
         console.warn(`[CanvasView] Thumbnail capture refused: a '${this._activeCapture}' capture is already using the preview surface`);
         ipcRenderer.send('viewer-capture-thumb-reply', null);
@@ -569,6 +599,10 @@ export class CanvasView extends View {
         return;
       }
 
+      {
+        const stale = this.staleFrameReason();
+        if (stale) { ipcRenderer.send('viewer-capture-fullpage-reply', { error: this.staleFrameMessage(stale), stale: true }); return; }
+      }
       if (this._activeCapture) {
         console.warn(`[CanvasView] Full-page capture refused: a '${this._activeCapture}' capture is already using the preview surface`);
         ipcRenderer.send('viewer-capture-fullpage-reply', null);
@@ -731,6 +765,10 @@ export class CanvasView extends View {
       if (!this.webview || !this.webviewDomReady || !this.webview.isConnected) {
         reply({ success: false, message: 'design capture: webview not ready' });
         return;
+      }
+      {
+        const stale = this.staleFrameReason();
+        if (stale) { reply({ success: false, stale: true, message: `design capture: ${this.staleFrameMessage(stale)}` }); return; }
       }
 
       if (this._activeCapture) {
