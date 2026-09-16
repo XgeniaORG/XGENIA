@@ -114,7 +114,19 @@ export class PluginLoader {
         // FIX (2026-04-20): Always load AI chat from Vercel — never from localhost.
         // The local dev server was masking cache issues and deploy-vs-local drift;
         // forcing Vercel guarantees the iframe matches what's deployed.
-        const localAiChatReachable = false;
+        //
+        // (2026-09-16) EXPLICIT OPT-IN ONLY: XGENIA_LOCAL_AI_CHAT=1 in the environment that starts
+        // the dev editor. AI test runs need to exercise panel fixes before they can be deployed
+        // (and while a deploy path is down); the default stays Vercel so ordinary dev never
+        // drifts. A dev build only — isDevEnvironment() is false in every packaged install.
+        let localAiChatOptIn = false;
+        try {
+            const env: any = (typeof process !== 'undefined' && (process as any)?.env) || {};
+            localAiChatOptIn = env.XGENIA_LOCAL_AI_CHAT === '1';
+        } catch { /* no process in this context — stay on Vercel */ }
+        const localAiChatReachable = isDev && localAiChatOptIn
+            ? await this.probeLocalServer(LOCAL_AI_CHAT_URL)
+            : false;
 
         if (isDev) {
             console.log(
