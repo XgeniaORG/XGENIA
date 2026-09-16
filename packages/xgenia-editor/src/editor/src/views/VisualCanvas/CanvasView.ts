@@ -7,7 +7,7 @@ import View from '../../../../shared/view';
 import { InlineElementChat } from './InlineElementChat';
 import type { PreviewHost } from './IframeViewer';
 import { VisualCanvas } from './VisualCanvas';
-import { measureSurfaceProof, browserSurfaceProofEnv } from './surfaceProof';
+import { measureSurfaceProof, browserSurfaceProofEnv, sampleOccluders } from './surfaceProof';
 
 /**
  * Chatter from the running preview, off by default.
@@ -57,6 +57,42 @@ export class CanvasView extends View {
    * retry is merely scheduled).
    */
   private _activeCapture: 'thumb' | 'fullpage' | 'design' | null = null;
+
+  /**
+   * Run a capture with everything that paints over the preview hidden for its duration.
+   *
+   * (2026-09-16, run 8) Every capture here is OUR window cropped to the preview iframe's box —
+   * there is no guest-only capture for an in-process iframe — so a panel painted over that box
+   * (the node inspector, the chat panel's .Card) ends up in the image. The vision audit then
+   * reads editor chrome as the game and files findings the DOM contradicts. surfaceProof's hit
+   * test names the covering panels; hiding them (visibility, so layout does not move) for the
+   * two frames the capture takes gives an image of the preview and nothing else. Restored in
+   * finally, whatever the capture does.
+   */
+  private async withOccludersHidden<T>(fn: () => Promise<T>): Promise<T> {
+    const el: any = (this.webview as any)?.element;
+    if (!el || typeof document === 'undefined' || typeof document.elementFromPoint !== 'function') return fn();
+    const sample = sampleOccluders(el, browserSurfaceProofEnv());
+    const hidden: Array<{ node: any; prev: string }> = [];
+    for (const o of sample.occluders) {
+      if (o.node?.style && o.node !== document.body && o.node !== document.documentElement) {
+        hidden.push({ node: o.node, prev: o.node.style.visibility });
+        o.node.style.visibility = 'hidden';
+      }
+    }
+    if (hidden.length) {
+      console.log(
+        `[CanvasView] capture: hiding ${hidden.length} element(s) painted over the preview (${sample.covered}/${sample.total} samples): ` +
+          sample.occluders.map((o) => `${o.describe} ×${o.samples}`).join(', ')
+      );
+      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+    }
+    try {
+      return await fn();
+    } finally {
+      for (const h of hidden) h.node.style.visibility = h.prev;
+    }
+  }
 
   zoomFactor: number;
 
@@ -594,7 +630,7 @@ export class CanvasView extends View {
             await new Promise(resolve => setTimeout(resolve, 150));
 
             // Capture this tile
-            const nativeImage = await this.webview.capturePage();
+            const nativeImage = await this.withOccludersHidden(() => this.webview!.capturePage());
             if (!nativeImage || nativeImage.isEmpty()) {
               console.warn(`[CanvasView] Empty tile at (${col},${row}), skipping`);
               continue;
@@ -754,9 +790,11 @@ export class CanvasView extends View {
         // Measure the surface AFTER the last applySize() and BEFORE capturePage(), so this is
         // the same box (modulo the JS-turn gap between here and IframeViewer's own
         // getBoundingClientRect() call inside capturePage()) that ends up in the image.
-        const surfaceProof = measureProof();
-
-        const nativeImage = await this.webview.capturePage();
+        // Measured with the occluders hidden as well: a panel that is not painted is not over it.
+        const { surfaceProof, nativeImage } = await this.withOccludersHidden(async () => ({
+          surfaceProof: measureProof(),
+          nativeImage: await this.webview!.capturePage(),
+        }));
         if (!nativeImage || nativeImage.isEmpty()) {
           reply({ success: false, message: 'design capture: the captured image was empty' });
           return;
@@ -1492,7 +1530,7 @@ export class CanvasView extends View {
         this._lastCaptureTime = now;
       }
 
-      const nativeImage = await this.webview.capturePage();
+      const nativeImage = await this.withOccludersHidden(() => this.webview!.capturePage());
 
       if (!nativeImage || nativeImage.isEmpty()) {
         console.error('[CanvasView] captureThumbnail: captured image is empty or null');

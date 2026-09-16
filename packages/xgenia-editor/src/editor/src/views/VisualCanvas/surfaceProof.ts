@@ -147,3 +147,70 @@ export function measureSurfaceProof(el: any, width: number, height: number, env:
         return { ok: false, reason: 'not_measured' };
     }
 }
+
+// ─── What paints over the preview, so a capture can hide it first ───────────────────────────────
+//
+// (2026-09-16, run 8 export 1789558512782) The ordinary thumbnail capture — take_screenshot with
+// no declared design screen, and the project tile's own thumbnail — is this window cropped to the
+// preview iframe's box, and the node inspector was painted over the right third of that box. The
+// vision audit read the inspector as the game ("only a clipped Reset button is visible, no counter,
+// no Add"), filed a CRITICAL finding, and blocked verify on a page whose DOM measured every element
+// on screen. measureSurfaceProof() only ever ran on the design path. This samples the SAME grid over
+// the element's own box (no origin requirement) and returns each distinct element painted over it,
+// as the whole panel (the topmost ancestor that does not contain the capture element), so the
+// caller can hide those panels for the frames the capture takes and put them back.
+
+export interface Occluder {
+    /** The panel-level element to hide: the highest ancestor of the hit that does not contain `el`. */
+    node: any;
+    describe: string;
+    /** How many grid samples this occluder covered. */
+    samples: number;
+}
+
+export interface OcclusionSample {
+    covered: number;
+    total: number;
+    occluders: Occluder[];
+}
+
+function occluderRootOf(hit: any, el: any): any {
+    let node = hit;
+    for (let i = 0; i < 64 && node?.parentElement; i++) {
+        const parent = node.parentElement;
+        if (typeof parent.contains === 'function' && parent.contains(el)) break;
+        node = parent;
+    }
+    return node;
+}
+
+export function sampleOccluders(el: any, env: Pick<SurfaceProofEnv, 'elementFromPoint'>): OcclusionSample {
+    const total = GRID * GRID;
+    try {
+        const r = el.getBoundingClientRect();
+        const x0 = r.left + EDGE_INSET_PX;
+        const y0 = r.top + EDGE_INSET_PX;
+        const spanX = Math.max(0, r.width - 2 * EDGE_INSET_PX);
+        const spanY = Math.max(0, r.height - 2 * EDGE_INSET_PX);
+        const found: Occluder[] = [];
+        let covered = 0;
+        for (let row = 0; row < GRID; row++) {
+            for (let col = 0; col < GRID; col++) {
+                const x = x0 + (spanX * col) / (GRID - 1);
+                const y = y0 + (spanY * row) / (GRID - 1);
+                const hit = env.elementFromPoint(x, y);
+                if (!hit) continue; // nothing painted here at all — nothing to hide
+                const isEl = hit === el || (typeof el.contains === 'function' && el.contains(hit));
+                if (isEl) continue;
+                covered++;
+                const root = occluderRootOf(hit, el);
+                const known = found.find((o) => o.node === root);
+                if (known) known.samples++;
+                else found.push({ node: root, describe: describeElement(root), samples: 1 });
+            }
+        }
+        return { covered, total, occluders: found };
+    } catch {
+        return { covered: 0, total, occluders: [] };
+    }
+}
