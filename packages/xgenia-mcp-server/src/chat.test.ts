@@ -391,9 +391,12 @@ function stubChatPanelPage(opts: {
   evaluateSequence?: unknown[];
   alreadyOpen?: boolean;
   mountsOnClick?: boolean;
+  /** The frame is attached but its card is display:none (the state an editor reload leaves). */
+  mountedButHidden?: boolean;
 }): { page: Page; clicks: [number, number][]; moves: [number, number][] } {
   let call = 0;
-  let chatOpen = !!opts.alreadyOpen;
+  let chatOpen = !!opts.alreadyOpen || !!opts.mountedButHidden;
+  let visible = !!opts.alreadyOpen && !opts.mountedButHidden;
   const clicks: [number, number][] = [];
   const moves: [number, number][] = [];
   const chatFrame = {
@@ -402,6 +405,7 @@ function stubChatPanelPage(opts: {
   };
   const page = {
     frames: () => (chatOpen ? [chatFrame] : []),
+    $: async () => (chatOpen ? { boundingBox: async () => (visible ? { x: 0, y: 0, width: 400, height: 800 } : null) } : null),
     evaluate: async () => (opts.evaluateSequence ?? [])[call++],
     mouse: {
       move: async (x: number, y: number) => {
@@ -409,7 +413,7 @@ function stubChatPanelPage(opts: {
       },
       click: async (x: number, y: number) => {
         clicks.push([x, y]);
-        if (opts.mountsOnClick !== false) chatOpen = true;
+        if (opts.mountsOnClick !== false) { chatOpen = true; visible = true; }
       }
     }
   };
@@ -418,6 +422,17 @@ function stubChatPanelPage(opts: {
 
 describe('ensureChatPanelOpen', () => {
   beforeEach(() => resetChatButtonCache());
+
+  it('a mounted but hidden panel (0x0 after an editor reload) is NOT already open — it clicks the rail button', async () => {
+    const { page, clicks } = stubChatPanelPage({
+      mountedButHidden: true,
+      evaluateSequence: [[{ cx: 20, cy: 430, ariaLabel: 'Chat' }]],
+    });
+    const result = await ensureChatPanelOpen(page, { hoverDelayMs: 1, timeoutMs: 200, pollMs: 5 });
+    expect(clicks).toEqual([[20, 430]]);
+    expect(result.alreadyOpen).toBe(false);
+    expect(result.clicked).toBe(true);
+  });
 
   it('returns immediately, without hovering or clicking anything, when the chat iframe is already present', async () => {
     const { page, clicks, moves } = stubChatPanelPage({ alreadyOpen: true });
