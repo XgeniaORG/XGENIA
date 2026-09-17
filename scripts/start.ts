@@ -85,7 +85,8 @@ cloudRuntimeProcess.on('exit', (code) => {
 console.log('> MCP servers compiled successfully');
 
 // Step 1.5: Kill port 3001 if in use (MCP Proxy port) and start MCP Proxy
-killPort(3001);
+// Per-instance so a second dev stack never frees the first one's proxy (2026-09-17).
+killPort(Number(process.env.MCP_PROXY_PORT || 3001));
 console.log('> Starting MCP Proxy...');
 mcpProxyProcess = attachStdio(exec('npm run mcp-proxy -w @xgenia/runtime', processOptions), {
   prefix: 'MCPProxy',
@@ -113,7 +114,7 @@ viewerBuildProcess.on('exit', (code) => {
     console.log('✅ Viewer build completed successfully. Starting Editor and DeepSearch...');
 
     // Step 3: Kill port 3051 if in use (DeepSearch port)
-    killPort(3051);
+    killPort(Number(process.env.XGENIA_EDITOR_AUX_PORT || 3051));
 
     // Step 4: Start Editor
     editorProcess = attachStdio(exec('npm run start -w xgenia-editor', processOptions), {

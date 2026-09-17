@@ -70,7 +70,7 @@ module.exports = merge(shared, {
     './src/main/main': './src/main/main.js' // Add main process entry
   },
   output: {
-    publicPath: `http://localhost:8080/`
+    publicPath: `http://localhost:${process.env.XGENIA_EDITOR_PORT || 8080}/`
   },
   plugins: [
     new webpack.DefinePlugin({
@@ -125,7 +125,7 @@ module.exports = merge(shared, {
     // build you are looking at before concluding a fix did not work.
     liveReload: false,
     host: 'localhost', // Default: '0.0.0.0' that is causing issues on some OS / net interfaces
-    port: 8080,
+    port: Number(process.env.XGENIA_EDITOR_PORT || 8080),
     onListening(devServer) {
       if (process.env.WEB_MODE) {
         console.log('🌐 Web Mode Active. Skipping Electron spawn...');
