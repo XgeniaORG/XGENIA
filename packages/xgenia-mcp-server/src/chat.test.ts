@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import type { Frame, Page } from 'playwright-core';
-import { parseTranscript, readStructuredMessages, resolveReadWindow, normaliseWhitespace, promptSlice, transcriptContainsPrompt, confirmSent, chatNotReadyHint, isChatButtonLabel, labelNames, ensureChatPanelOpen, resetChatButtonCache, describeUnconfirmedSend, CONFIRM_DEADLINE_MS } from './chat.js';
+import { parseTranscript, readStructuredMessages, resolveReadWindow, olderMessagesNotRendered, planChatRead, normaliseWhitespace, promptSlice, transcriptContainsPrompt, confirmSent, chatNotReadyHint, isChatButtonLabel, labelNames, ensureChatPanelOpen, resetChatButtonCache, describeUnconfirmedSend, CONFIRM_DEADLINE_MS } from './chat.js';
 import { summariseMessages, type ChatMessage } from './editor-state.js';
 
 describe('parseTranscript', () => {
@@ -758,5 +758,35 @@ describe('the send path does not hand the panel a keystroke stream', () => {
     const enter = sendBody.indexOf("keyboard.press('Enter')");
     expect(esc).toBeGreaterThan(-1);
     expect(enter).toBeGreaterThan(esc);
+  });
+});
+
+describe('reading a transcript the panel has partly collapsed (AI run 14)', () => {
+  it('reads the collapse count from the "Load N older messages" control', () => {
+    expect(olderMessagesNotRendered(['Send', 'Load 33 older messages', 'Stop'])).toBe(33);
+    expect(olderMessagesNotRendered(['Load 1 older message'])).toBe(1);
+    expect(olderMessagesNotRendered(['Send', 'Stop'])).toBe(0);
+    expect(olderMessagesNotRendered(['Load older messages'])).toBe(0);
+  });
+
+  it('total counts the whole conversation, so polling since:total sees new messages', () => {
+    const before = planChatRead({ rendered: 30, hidden: 33, since: undefined, limit: 20 });
+    expect(before.total).toBe(63);
+    // one new message arrives: the panel still renders 30, and collapses one more
+    const after = planChatRead({ rendered: 30, hidden: 34, since: before.total, limit: 20 });
+    expect(after.total).toBe(64);
+    expect(after.renderedStart).toBe(29);
+    expect(after.skipped).toBe(0);
+  });
+
+  it('a since inside the collapsed range reports what it could not read instead of shifting', () => {
+    const plan = planChatRead({ rendered: 30, hidden: 33, since: 10, limit: 20 });
+    expect(plan.renderedStart).toBe(0);
+    expect(plan.skipped).toBe(23);
+  });
+
+  it('with nothing collapsed it behaves exactly as before', () => {
+    expect(planChatRead({ rendered: 12, hidden: 0, since: 4, limit: 5 })).toEqual({ total: 12, renderedStart: 4, skipped: 0 });
+    expect(planChatRead({ rendered: 12, hidden: 0, since: undefined, limit: 5 })).toEqual({ total: 12, renderedStart: 7, skipped: 0 });
   });
 });

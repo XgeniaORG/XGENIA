@@ -186,7 +186,7 @@ server.registerTool(
   {
     title: 'Read the XGENIA AI chat transcript',
     description:
-      'Read the AI chat transcript, paged from an index. Long messages are truncated; the message count and busy flag come from the live panel.',
+      'Read the AI chat transcript, paged from an index. Indexes and total count the WHOLE conversation: when the panel collapses older messages behind "Load N older messages", total includes them, olderNotRendered says how many, and a since below that count returns skipped instead of shifting onto other messages. Long messages are truncated; the message count and busy flag come from the live panel.',
     inputSchema: { since: z.number().optional(), limit: z.number().optional() }
   },
   ({ since, limit }) => guard('chat read', () => chatRead({ since, limit }))
