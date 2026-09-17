@@ -177,8 +177,24 @@ if (gpuMode) {
   }
 }
 
-// Enable Remote Debugging Protocol (CDP) for Playwright/MCP external agents
-app.commandLine.appendSwitch('remote-debugging-port', '9223');
+// Enable Remote Debugging Protocol (CDP) for Playwright/MCP external agents.
+// (2026-09-17) Every port here is overridable so a SECOND dev instance can run beside a first
+// one — one machine had five AI test runs killed by another session restarting the shared
+// editor. Defaults are the historical values, so an unset environment behaves exactly as before.
+const XGENIA_CDP_PORT = String(process.env.XGENIA_CDP_PORT || 9223);
+const XGENIA_EDITOR_PORT = String(process.env.XGENIA_EDITOR_PORT || 8080);
+app.commandLine.appendSwitch('remote-debugging-port', XGENIA_CDP_PORT);
+
+// A second instance must not share the first one's settings, recents or session: point it at its
+// own userData directory. Unset → the normal profile.
+if (process.env.XGENIA_USER_DATA_DIR) {
+  try {
+    app.setPath('userData', process.env.XGENIA_USER_DATA_DIR);
+    console.log('[Main Process] userData →', process.env.XGENIA_USER_DATA_DIR);
+  } catch (e) {
+    console.warn('[Main Process] Could not set userData to', process.env.XGENIA_USER_DATA_DIR, e);
+  }
+}
 
 var args = process.argv || [];
 
@@ -870,7 +886,7 @@ function launchApp() {
 
       // Load the main HTML file with enhanced debugging
       const indexPath = Config.devMode
-        ? 'http://localhost:8080/src/editor/index.html'
+        ? `http://localhost:${XGENIA_EDITOR_PORT}/src/editor/index.html`
         : 'file:///' + appPath + '/src/editor/index.html';
       console.log('[Main Process] Attempting to load URL:', indexPath);
 
@@ -1138,7 +1154,7 @@ function launchApp() {
       const width = Math.max(minWidth, Math.floor(((height - 37) * 9) / 16));
 
       const viewerUrl = Config.devMode
-        ? 'http://localhost:8080/src/frames/viewer-frame/index.html'
+        ? `http://localhost:${XGENIA_EDITOR_PORT}/src/frames/viewer-frame/index.html`
         : 'file:///' + appPath + '/src/frames/viewer-frame/index.html';
 
       viewerWindow.open({

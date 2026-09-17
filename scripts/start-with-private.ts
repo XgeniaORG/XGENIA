@@ -249,8 +249,9 @@ function startAIService(): void {
         return;
     }
 
-    log('Starting AI Service in background (port 3847)...');
-    killPort(3847);
+    const aiServicePort = Number(process.env.XGENIA_AI_SERVICE_PORT || 3847);
+    log(`Starting AI Service in background (port ${aiServicePort})...`);
+    killPort(aiServicePort);
 
     // Start AI service in background
     const aiProcess = spawn('npm', ['run', 'dev'], {
@@ -276,10 +277,11 @@ function startImageEditorApp(): void {
         installWorkspaceDeps('Image Editor App');
     }
 
-    log('Starting Image Editor App on http://localhost:3002 ...');
-    killPort(3002);
+    const imageEditorPort = Number(process.env.XGENIA_IMAGE_EDITOR_PORT || 3002);
+    log(`Starting Image Editor App on http://localhost:${imageEditorPort} ...`);
+    killPort(imageEditorPort);
 
-    const imageEditorProcess = spawn('npm', ['run', 'dev'], {
+    const imageEditorProcess = spawn('npm', ['run', 'dev', '--', '--port', String(imageEditorPort)], {
         cwd: IMAGE_EDITOR_APP_DIR,
         detached: true,
         stdio: 'ignore',
@@ -288,7 +290,7 @@ function startImageEditorApp(): void {
 
     backgroundProcesses.push(imageEditorProcess);
 
-    logSuccess('Image Editor App starting in background on port 3002 (PID: ' + imageEditorProcess.pid + ')');
+    logSuccess(`Image Editor App starting in background on port ${imageEditorPort} (PID: ` + imageEditorProcess.pid + ')');
 }
 
 const AI_APP_DIR = path.join(PRIVATE_DIR, 'xgenia-ai-app');
@@ -305,10 +307,14 @@ function startAiApp(): void {
         installWorkspaceDeps('AI App');
     }
 
-    log('Starting AI App on http://localhost:3010 ...');
-    killPort(3010);
+    // (2026-09-17) Per-instance ports so a second dev stack can run beside a first. killPort only
+    // ever touches THIS instance's port — the old unconditional killPort(3010) is what made a
+    // second stack impossible: starting it took the first one's panel server down.
+    const aiAppPort = Number(process.env.XGENIA_AI_APP_PORT || 3010);
+    log(`Starting AI App on http://localhost:${aiAppPort} ...`);
+    killPort(aiAppPort);
 
-    const aiAppProcess = spawn('npm', ['run', 'dev'], {
+    const aiAppProcess = spawn('npm', ['run', 'dev', '--', '--port', String(aiAppPort)], {
         cwd: AI_APP_DIR,
         detached: true,
         stdio: 'ignore',
@@ -317,7 +323,7 @@ function startAiApp(): void {
 
     backgroundProcesses.push(aiAppProcess);
 
-    logSuccess('AI App starting in background on port 3010 (PID: ' + aiAppProcess.pid + ')');
+    logSuccess(`AI App starting in background on port ${aiAppPort} (PID: ` + aiAppProcess.pid + ')');
 }
 
 async function main() {

@@ -117,12 +117,12 @@ const FETCH_DEADLINE_NO_CACHE_MS = 20_000;
 const FETCH_DEADLINE_WITH_CACHE_MS = 5_000;
 
 /** URL of the local image editor Vite dev server */
-const LOCAL_IMAGE_EDITOR_URL = 'http://localhost:3002';
+const LOCAL_IMAGE_EDITOR_URL = `http://localhost:${(globalThis as any)?.process?.env?.XGENIA_IMAGE_EDITOR_PORT || 3002}`;
 /** Fallback Vercel deployment (used when local server is not running) */
 const VERCEL_IMAGE_EDITOR_URL = 'https://xgenia-image-editor-plugin.vercel.app';
 
 /** URL of the local AI chat Vite dev server */
-const LOCAL_AI_CHAT_URL = 'http://localhost:3010';
+const LOCAL_AI_CHAT_URL = `http://localhost:${(globalThis as any)?.process?.env?.XGENIA_AI_APP_PORT || 3010}`;
 /** Fallback Vercel deployment */
 const VERCEL_AI_CHAT_URL = 'https://xgenia-ai-app-xgenia.vercel.app';
 
