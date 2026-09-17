@@ -1162,8 +1162,19 @@ export class EditorBridge {
                 // type "router": no ports, not a Router to set_router_config, and it took the model
                 // four more calls to notice. A type that is not registered is refused here; a
                 // case-only mismatch is corrected and said so.
-                if (typeof nodeType === 'string' && !nodeType.startsWith('/')) {
-                    const lib: any = NodeLibrary.instance;
+                //
+                // (2026-09-17, run 13) The editor's library is EMPTY until a viewer connects and sends
+                // its node types (NodeLibraryImporter.onClientImport). With the preview not yet
+                // mounted, every type was "unknown": Router and Page Stack were refused three times,
+                // and the model concluded this build cannot create navigation nodes. Only a loaded
+                // library can say a type does not exist; before that the node is created as before
+                // and resolves when the library arrives.
+                const lib: any = NodeLibrary.instance;
+                const libraryLoaded = !!lib?.isLoaded?.();
+                if (typeof nodeType === 'string' && !nodeType.startsWith('/') && !libraryLoaded) {
+                    console.warn(`[EditorBridge] graph.createNode: node library not loaded yet (no viewer connected) — creating "${nodeType}" without checking the name.`);
+                }
+                if (typeof nodeType === 'string' && !nodeType.startsWith('/') && libraryLoaded) {
                     const exact = lib?.getNodeTypeWithName?.(nodeType);
                     if (!exact) {
                         const all: any[] = Array.isArray(lib?.types) ? lib.types : [];
@@ -1172,7 +1183,7 @@ export class EditorBridge {
                             console.warn(`[EditorBridge] graph.createNode: type "${nodeType}" corrected to registered "${ci.name}"`);
                             nodeType = ci.name;
                         } else {
-                            throw new Error(`Unknown node type "${nodeType}" — no registered node type has that name. Node NOT created. Use the exact registered name (e.g. "Router", "Variable2", "JavaScriptFunction").`);
+                            throw new Error(`Node type "${nodeType}" not found among the ${all.length} registered node types. Node NOT created. Use the exact registered name (e.g. "Router", "Variable2", "JavaScriptFunction").`);
                         }
                     }
                 }
