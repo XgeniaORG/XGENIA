@@ -64,6 +64,14 @@ function startCloudFunctionServer(app, cloudServicesGetActive, mainWindow) {
   function startCloudRuntime() {
     const appPath = app.getAppPath();
 
+    // (2026-09-17) One cloud runtime per editor. `project-opened` fires again whenever the editor
+    // page reloads (dev reload, crash recovery, harness reload) or opens a project without a
+    // `project-closed` first, and this used to overwrite `sandbox` without destroying the old
+    // window. Each orphan stayed connected to the viewer socket as a "cloud" client: one session
+    // had 8 hidden runtime windows (~49 MB each), and 5 of them answered a single simulated
+    // signal, so the AI was told the node it clicked "is not running".
+    closeCloudRuntime();
+
     sandbox = new BrowserWindow({
       width: 10,
       height: 10,
