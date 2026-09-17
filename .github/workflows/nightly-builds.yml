@@ -199,6 +199,53 @@ jobs:
           path: publish
           retention-days: 7
 
+  notify-teams:
+    name: Notify Teams
+    needs: [build-macos, build-linux, build-windows]
+    # Runs whatever happened upstream: a broken nightly is the case worth being
+    # told about, and the per-platform results below say which one broke.
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get version from package.json
+        id: package-version
+        run: |
+          VERSION=$(jq -r .version packages/xgenia-editor/package.json)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Read version: $VERSION"
+
+      # needs.build-macos.result collapses the whole arch matrix into a single
+      # value, so arm64 and x64 are read back individually from the run's job
+      # list. This also picks up any build job added later without editing here.
+      - name: Collect per-platform results
+        id: results
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo 'text<<CARD_EOF'
+            gh api --paginate \
+              "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs" \
+              --jq '.jobs[] | select(.name | startswith("Build ")) | "\(.name): \(.conclusion // .status)"'
+            echo "Commit: ${{ github.sha }}"
+            echo 'CARD_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Send Teams notification
+        uses: ./.github/actions/teams-notification
+        with:
+          webhook-url: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          msg-title: 'XGENIA Nightly V${{ steps.package-version.outputs.version }} (build #${{ github.run_number }})'
+          msg-text: ${{ steps.results.outputs.text }}
+          status: ${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && 'failure' || 'success' }}
+          workflow-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
   # Temporarily disabled: the nightly build only publishes artifacts for now.
   # Re-enable by uncommenting the `release` and `upload-to-dropbox` jobs below.
 #   release:
