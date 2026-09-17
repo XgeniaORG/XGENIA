@@ -373,8 +373,26 @@ function repoRoot(): string | null {
  * remove this stripping "to simplify" — without it, the harness's own spawn
  * reproduces the exact failure that motivated it.
  */
+/**
+ * Put the directory of the node binary running this server at the front of
+ * PATH. An MCP client launched from a GUI (or configured with an absolute nvm
+ * node path, as this repo's setup is) does not carry a shell's PATH, so
+ * `spawn('npm', ['run', 'dev'])` failed with ENOENT on `restart` — after the
+ * previous editor had already been killed. npm ships next to node in every
+ * install (nvm, Homebrew, the official pkg), so the running node's own bin
+ * directory is the one place npm is guaranteed to be.
+ */
+export function withNodeBinOnPath(env: NodeJS.ProcessEnv, execPath: string): NodeJS.ProcessEnv {
+  const bin = path.dirname(execPath);
+  const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+  const current = env[key] ?? '';
+  const parts = current.split(path.delimiter).filter(Boolean);
+  if (parts.includes(bin)) return env;
+  return { ...env, [key]: [bin, ...parts].join(path.delimiter) };
+}
+
 function childEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
+  const env = withNodeBinOnPath({ ...process.env }, process.execPath);
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.ELECTRON_NO_ATTACH_CONSOLE;
   return env;

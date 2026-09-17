@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chromium, type Browser, type Page, type Frame } from 'playwright-core';
 import { userDataDirs, portOwner } from './platform.js';
-import { SELECTORS } from './selectors.js';
+import { SELECTORS, isChatFrameUrl } from './selectors.js';
 
 export type Target = 'app' | 'dev';
 
@@ -151,5 +151,5 @@ export async function connect(
 }
 
 export function getChatFrame(page: Page): Frame | null {
-  return page.frames().find((f) => f.url().includes(SELECTORS.chatFrameUrlSubstring)) ?? null;
+  return page.frames().find((f) => isChatFrameUrl(f.url())) ?? null;
 }

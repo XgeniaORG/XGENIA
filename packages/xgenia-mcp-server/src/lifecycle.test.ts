@@ -544,3 +544,24 @@ describe('shouldEscalateToSigkill', () => {
     expect(shouldEscalateToSigkill(12345)).toBe(true);
   });
 });
+
+describe('withNodeBinOnPath', () => {
+  it('puts the running node\'s bin directory first when PATH lacks it (npm lives next to node)', async () => {
+    const { withNodeBinOnPath } = await import('./lifecycle.js');
+    const env = withNodeBinOnPath({ PATH: '/usr/bin:/bin' }, '/opt/nvm/versions/node/v22.0.0/bin/node');
+    expect(env.PATH!.split(':')[0]).toBe('/opt/nvm/versions/node/v22.0.0/bin');
+    expect(env.PATH).toContain('/usr/bin:/bin');
+  });
+
+  it('leaves PATH alone when the bin directory is already on it', async () => {
+    const { withNodeBinOnPath } = await import('./lifecycle.js');
+    const env = { PATH: '/opt/nvm/versions/node/v22.0.0/bin:/usr/bin' };
+    expect(withNodeBinOnPath(env, '/opt/nvm/versions/node/v22.0.0/bin/node')).toBe(env);
+  });
+
+  it('works when PATH is absent entirely', async () => {
+    const { withNodeBinOnPath } = await import('./lifecycle.js');
+    const env = withNodeBinOnPath({}, '/opt/node/bin/node');
+    expect(env.PATH).toBe('/opt/node/bin');
+  });
+});

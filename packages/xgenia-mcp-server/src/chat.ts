@@ -610,6 +610,14 @@ export interface ChatPanelOpenResult {
  * attribute, hovering, or clicking anything, exactly per spec — a caller
  * must never see this nudge a panel that was already showing.
  */
+/** True when the chat iframe element is rendered with a non-empty box (display:none → no box). */
+export async function chatIframeVisible(page: Page): Promise<boolean> {
+  const el = await page.$(SELECTORS.chatIframe).catch(() => null);
+  if (!el) return false;
+  const box = await el.boundingBox().catch(() => null);
+  return !!box && box.width > 0 && box.height > 0;
+}
+
 export async function ensureChatPanelOpen(
   page: Page,
   opts: { timeoutMs?: number; pollMs?: number; hoverDelayMs?: number } = {}
@@ -617,7 +625,10 @@ export async function ensureChatPanelOpen(
   const timeoutMs = opts.timeoutMs ?? CHAT_OPEN_TIMEOUT_MS;
   const hoverDelayMs = opts.hoverDelayMs ?? TOOLTIP_HOVER_DELAY_MS;
 
-  if (getChatFrame(page)) {
+  // (2026-09-16) A mounted frame is not a showing panel. After an editor reload the chat card can be
+  // display:none with its iframe still attached (0x0), and "alreadyOpen" then sent every chat_send
+  // into a 30s click timeout on an input nobody could see. Open means the iframe has a box.
+  if (getChatFrame(page) && (await chatIframeVisible(page))) {
     return { opened: true, alreadyOpen: true, clicked: false };
   }
 

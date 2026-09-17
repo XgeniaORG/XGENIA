@@ -33,6 +33,7 @@ import { platform } from '@xgenia/platform';
 import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
 import { ParamAuthors } from '../propertyeditor/inspector/paramAuthors';
 import { supabase, refreshSessionShared } from '../../../supabaseInit';
+import { pickPersistedAccessToken } from './persisted-session-token';
 import {
     addProjectPalette,
     clearProjectBaseStyle,
@@ -345,7 +346,9 @@ export class EditorBridge {
                 if (!data || !data.nodeId) return;
                 this.pushEvent('nodeReferenced', {
                     nodeId: data.nodeId,
-                    nodeLabel: data.nodeLabel || 'Element'
+                    nodeLabel: data.nodeLabel || 'Element',
+                    nodeType: data.nodeType,
+                    component: data.component
                 });
             },
             this
@@ -1150,10 +1153,36 @@ export class EditorBridge {
                     throw new Error('No active graph');
                 }
 
-                const nodeType = data.type || data.typename;
+                let nodeType = data.type || data.typename;
                 if (!nodeType) {
                     console.error('[EditorBridge] graph.createNode: No type provided!', data);
                     throw new Error('Node type is required');
+                }
+                // (2026-09-16, run 9) `graph.createNode("router")` from run_editor_script made a node of
+                // type "router": no ports, not a Router to set_router_config, and it took the model
+                // four more calls to notice. A type that is not registered is refused here; a
+                // case-only mismatch is corrected and said so.
+                if (typeof nodeType === 'string' && !nodeType.startsWith('/')) {
+                    const lib: any = NodeLibrary.instance;
+                    const exact = lib?.getNodeTypeWithName?.(nodeType);
+                    if (!exact) {
+                        const all: any[] = Array.isArray(lib?.types) ? lib.types : [];
+                        const ci = all.find((t) => String(t?.name || '').toLowerCase() === String(nodeType).toLowerCase());
+                        if (ci) {
+                            console.warn(`[EditorBridge] graph.createNode: type "${nodeType}" corrected to registered "${ci.name}"`);
+                            nodeType = ci.name;
+                        } else {
+                            throw new Error(`Unknown node type "${nodeType}" — no registered node type has that name. Node NOT created. Use the exact registered name (e.g. "Router", "Variable2", "JavaScriptFunction").`);
+                        }
+                    }
+                }
+                // `parent` is what callers keep sending; `parentId` is what this handler read. A parent
+                // that is named but cannot be found used to fall back to a ROOT node silently — the
+                // detached-node class of bug — so it is an error now.
+                const parentRef = data.parentId || data.parent || data.parent_id;
+                const parentNode = parentRef ? this.findNode(parentRef) : null;
+                if (parentRef && !(parentNode && typeof parentNode.addChild === 'function')) {
+                    throw new Error(`Parent "${parentRef}" was not found in the active component's graph (or cannot take children). Node NOT created — pass the parent's id or @label from this component, or omit it to create a root node.`);
                 }
 
                 // 2026-05-23 (BUG 76 fix, bridge half): refuse to create a
@@ -1313,15 +1342,9 @@ export class EditorBridge {
                 // (removeNode) takes the node back out of the graph, which is the
                 // whole of "undo the node the AI just created".
                 const undoArgs = { undo: this.aiUndo(), label: this.aiUndoLabel };
-                if (data.parentId) {
-                    const parent = this.findNode(data.parentId);
-                    if (parent && typeof parent.addChild === 'function') {
-                        parent.addChild(node, undoArgs);
-                        console.log(`[EditorBridge] Added node ${nodeId} as child of ${data.parentId}`);
-                    } else {
-                        graph.addRoot(node, undoArgs);
-                        console.log(`[EditorBridge] Parent ${data.parentId} not found, added as root`);
-                    }
+                if (parentNode) {
+                    parentNode.addChild(node, undoArgs);
+                    console.log(`[EditorBridge] Added node ${nodeId} as child of ${parentRef}`);
                 } else {
                     graph.addRoot(node, undoArgs);
                     console.log(`[EditorBridge] Added node ${nodeId} as root`);
@@ -2824,9 +2847,16 @@ export class EditorBridge {
                         if (!key || !/^sb-.*-auth-token$/.test(key)) continue;
                         const raw = localStorage.getItem(key);
                         if (!raw) continue;
-                        const parsed = JSON.parse(raw);
-                        const token = parsed?.access_token || parsed?.currentSession?.access_token;
-                        if (token) return token;
+                        // (2026-09-16) Only a token that is still valid is worth handing out. An
+                        // expired one used to be caught by the gateway with a coded 401 the panel
+                        // recognised; with the gateway check off it reached check-entitlement and
+                        // came back as a plain 401 the panel painted as a paywall. See
+                        // persisted-session-token.ts.
+                        const pick = pickPersistedAccessToken(raw);
+                        if (pick.token) return pick.token;
+                        if (pick.reason === 'expired') {
+                            console.warn('[EditorBridge] auth.getJwt: the persisted session token has expired — answering null rather than a token the server will refuse.');
+                        }
                     }
                 } catch { /* storage unreadable — fall through to null */ }
                 return null;
@@ -3381,7 +3411,10 @@ export class EditorBridge {
                     const handler = (_event: any, data: any) => {
                         clearTimeout(timeout);
                         ipcRenderer.removeListener(replyChannel, handler);
-                        if (data) {
+                        if (data && typeof data === 'object' && typeof (data as any).error === 'string') {
+                            // (2026-09-17) The view refused rather than capture a stale frame — pass its reason on.
+                            resolve(JSON.stringify({ success: false, stale: !!(data as any).stale, message: (data as any).error }));
+                        } else if (data) {
                             resolve(JSON.stringify({ success: true, image: data, fullPage, timestamp: Date.now() }));
                         } else {
                             resolve(JSON.stringify({ success: false, message: 'Screenshot capture returned no data' }));
@@ -3460,11 +3493,27 @@ export class EditorBridge {
         //
         // Returns PLAIN OBJECTS — the previous shape was un-serialisable across postMessage, so
         // even a correct lookup would have arrived empty.
+        //
+        // (F2, verdict-string consumer audit 2026-09-15) AND IT MARKS ITS REPLY.
+        //
+        // This handler used to answer a bare array, and `[]` meant three different things: no
+        // warnings, `WarningsModel.instance` was null, or the lookup threw. The panel's reader
+        // (private/xgenia-ai/.../utils/editor-warnings.ts) therefore could not tell "asked, nothing
+        // to report" from "never read the model", and get_editor_warnings printed 🟢 HEALTHY plus
+        // "No issues found! Your graph looks good." over a warnings model it had never read — the
+        // same silent-empty that hid the polyPoints error above, one layer up.
+        //
+        //   { ok: true,  warnings: […] }                     a real read (possibly genuinely empty)
+        //   { ok: false, unavailable: true, reason: "…" }    it could not read the model
+        //
+        // The panel still accepts a bare array from an editor built before this marker, but treats
+        // an EMPTY one as unverified rather than clean — so this change needs an EDITOR REBUILD to
+        // take effect, and until then get_editor_warnings says so out loud instead of going green.
         h('warnings.get', ([componentName]: [string?] = [] as any) => {
             try {
                 const { WarningsModel } = require('@xgenia-models/warningsmodel');
                 const model = WarningsModel.instance;
-                if (!model) return [];
+                if (!model) return { ok: false, unavailable: true, reason: 'the editor has no WarningsModel instance in this session, so no node badge could be read.' };
 
                 // getAllWarningsForComponent only ever reads `.name`, so a bare {name} is a valid ref.
                 const namesToRead: string[] = [];
@@ -3504,10 +3553,10 @@ export class EditorBridge {
                         });
                     }
                 }
-                return out;
+                return { ok: true, warnings: out };
             } catch (e: any) {
                 console.warn('[EditorBridge] warnings.get failed:', e?.message || e);
-                return [];
+                return { ok: false, unavailable: true, reason: `reading the editor's WarningsModel threw: ${e?.message || e}` };
             }
         });
 

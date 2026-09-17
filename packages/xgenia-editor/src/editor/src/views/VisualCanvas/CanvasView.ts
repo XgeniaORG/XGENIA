@@ -7,6 +7,7 @@ import View from '../../../../shared/view';
 import { InlineElementChat } from './InlineElementChat';
 import type { PreviewHost } from './IframeViewer';
 import { VisualCanvas } from './VisualCanvas';
+import { measureSurfaceProof, browserSurfaceProofEnv, sampleOccluders } from './surfaceProof';
 
 /**
  * Chatter from the running preview, off by default.
@@ -56,6 +57,91 @@ export class CanvasView extends View {
    * retry is merely scheduled).
    */
   private _activeCapture: 'thumb' | 'fullpage' | 'design' | null = null;
+
+  /**
+   * IPC listeners this view registered, so dispose() can remove them.
+   *
+   * (2026-09-17) Every CanvasView registered its capture/HTML/rendered-output listeners on the
+   * shared ipcRenderer and dispose() never removed them. Opening another project (or re-opening
+   * the same one) creates a new CanvasView while the old ones keep listening — and the requester
+   * takes the FIRST reply. A disposed view answered "design capture: webview not ready" ahead of
+   * the live one (seen 8/8 after a reopen), and a view whose preview was still attached but hidden
+   * could answer with a capture of the editor instead of the game. A disposed view now neither
+   * listens nor replies.
+   */
+  private _ipcListeners: Array<[string, (...args: any[]) => void]> = [];
+  private _disposed = false;
+
+  /**
+   * Why a capture of this window would be a STALE frame, or null when it can render.
+   *
+   * (2026-09-17, run 11 export 1789591880674) Every take_screenshot in that run returned the editor
+   * at its normal layout instead of the resized 1920x1080 game surface, and the vision audit filed
+   * seven false critical findings (white band, clipped, no buttons) that blocked verify. Reproduced:
+   * with the editor window hidden or minimized, webContents.capturePage() returns the last frame the
+   * window presented — the design path's resize is laid out (the guest reports 1920 wide) but never
+   * painted. document.visibilityState stays "visible" here (disable-renderer-backgrounding), so the
+   * window itself is asked. Covering the window with another window does NOT cause it (verified).
+   */
+  private staleFrameReason(): string | null {
+    try {
+      const remote = require('@electron/remote');
+      const win = remote.getCurrentWindow();
+      if (win.isMinimized()) return 'the XGENIA editor window is minimized';
+      if (!win.isVisible()) return 'the XGENIA editor window is hidden (not on screen)';
+    } catch { /* no remote in this context — assume it can render */ }
+    return null;
+  }
+
+  private staleFrameMessage(reason: string): string {
+    return `screenshot unavailable: ${reason}, so no new frame can be rendered and a capture would show an old image of the editor, not the game. `
+      + `Nothing was captured. Measure with ui_layout_map / get_rendered_output instead, or ask the user to bring the editor window on screen and retry.`;
+  }
+
+  private onIpc(channel: string, handler: (...args: any[]) => any): void {
+    const wrapped = (...args: any[]) => {
+      if (this._disposed) return;
+      return handler(...args);
+    };
+    this._ipcListeners.push([channel, wrapped]);
+    ipcRenderer.on(channel, wrapped);
+  }
+
+  /**
+   * Run a capture with everything that paints over the preview hidden for its duration.
+   *
+   * (2026-09-16, run 8) Every capture here is OUR window cropped to the preview iframe's box —
+   * there is no guest-only capture for an in-process iframe — so a panel painted over that box
+   * (the node inspector, the chat panel's .Card) ends up in the image. The vision audit then
+   * reads editor chrome as the game and files findings the DOM contradicts. surfaceProof's hit
+   * test names the covering panels; hiding them (visibility, so layout does not move) for the
+   * two frames the capture takes gives an image of the preview and nothing else. Restored in
+   * finally, whatever the capture does.
+   */
+  private async withOccludersHidden<T>(fn: () => Promise<T>): Promise<T> {
+    const el: any = (this.webview as any)?.element;
+    if (!el || typeof document === 'undefined' || typeof document.elementFromPoint !== 'function') return fn();
+    const sample = sampleOccluders(el, browserSurfaceProofEnv());
+    const hidden: Array<{ node: any; prev: string }> = [];
+    for (const o of sample.occluders) {
+      if (o.node?.style && o.node !== document.body && o.node !== document.documentElement) {
+        hidden.push({ node: o.node, prev: o.node.style.visibility });
+        o.node.style.visibility = 'hidden';
+      }
+    }
+    if (hidden.length) {
+      console.log(
+        `[CanvasView] capture: hiding ${hidden.length} element(s) painted over the preview (${sample.covered}/${sample.total} samples): ` +
+          sample.occluders.map((o) => `${o.describe} ×${o.samples}`).join(', ')
+      );
+      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+    }
+    try {
+      return await fn();
+    } finally {
+      for (const h of hidden) h.node.style.visibility = h.prev;
+    }
+  }
 
   zoomFactor: number;
 
@@ -299,15 +385,15 @@ export class CanvasView extends View {
         // This is what EditorDocument listens for to select nodes
         EventDispatcher.instance.emit('inspectNodes', { nodeIds: [message.nodeId] });
 
-        // Single click selects ONLY. The inline chat popup used to open here
-        // on every click; a node now reaches the chat via double-click, as a
-        // reference (see inspector-node-dblclick below).
-      } else if (event.channel === 'inspector-node-dblclick') {
-        // Double-click: hand the node to the chat panel as a reference.
+        // Single click selects ONLY. A node reaches the chat as a reference via
+        // right-click > Add to chat, or double-click (inspector-node-reference).
+      } else if (event.channel === 'inspector-node-reference') {
         if (message && message.nodeId) {
           EventDispatcher.instance.emit('chat-add-node-reference', {
             nodeId: message.nodeId,
-            nodeLabel: message.nodeLabel || 'Element'
+            nodeLabel: message.nodeLabel || 'Element',
+            nodeType: message.nodeType,
+            component: message.component
           });
         }
       } else if (event.channel === 'editor-zoom-viewport') {
@@ -394,12 +480,12 @@ export class CanvasView extends View {
     // editor webContents). The <webview> showing the running project is a
     // separate webContents and must keep the canvas zoom the user set in the
     // topbar, so re-assert it whenever the interface zoom changes.
-    ipcRenderer.on('ui-zoom-changed', () => {
+    this.onIpc('ui-zoom-changed', () => {
       this.tryWebviewCall(() => (this.webview as any).setZoomFactor(this.zoomFactor || 1));
     });
 
     // HTML capture listener
-    ipcRenderer.on('embedded-viewer-get-full-html-request', async (...args) => {
+    this.onIpc('embedded-viewer-get-full-html-request', async (...args) => {
       console.log('[CanvasView] 📄 Received embedded-viewer-get-full-html-request');
 
       if (!this.webview || !this.webviewDomReady) {
@@ -434,9 +520,13 @@ export class CanvasView extends View {
     });
 
     // Keep only the screenshot capture listener - this is specific to webview functionality
-    ipcRenderer.on('embedded-viewer-capture-request', async (...args) => {
+    this.onIpc('embedded-viewer-capture-request', async (...args) => {
       console.log('[CanvasView] 📸 Received embedded-viewer-capture-request from main process, args:', args);
 
+      {
+        const stale = this.staleFrameReason();
+        if (stale) { ipcRenderer.send('viewer-capture-thumb-reply', { error: this.staleFrameMessage(stale), stale: true }); return; }
+      }
       if (this._activeCapture) {
         console.warn(`[CanvasView] Thumbnail capture refused: a '${this._activeCapture}' capture is already using the preview surface`);
         ipcRenderer.send('viewer-capture-thumb-reply', null);
@@ -500,7 +590,7 @@ export class CanvasView extends View {
     });
 
     // Full-page screenshot capture listener (scroll-and-stitch)
-    ipcRenderer.on('embedded-viewer-capture-fullpage-request', async () => {
+    this.onIpc('embedded-viewer-capture-fullpage-request', async () => {
       console.log('[CanvasView] 📸 Received embedded-viewer-capture-fullpage-request');
 
       if (!this.webview || !this.webviewDomReady || !this.webview.isConnected) {
@@ -509,6 +599,10 @@ export class CanvasView extends View {
         return;
       }
 
+      {
+        const stale = this.staleFrameReason();
+        if (stale) { ipcRenderer.send('viewer-capture-fullpage-reply', { error: this.staleFrameMessage(stale), stale: true }); return; }
+      }
       if (this._activeCapture) {
         console.warn(`[CanvasView] Full-page capture refused: a '${this._activeCapture}' capture is already using the preview surface`);
         ipcRenderer.send('viewer-capture-fullpage-reply', null);
@@ -593,7 +687,7 @@ export class CanvasView extends View {
             await new Promise(resolve => setTimeout(resolve, 150));
 
             // Capture this tile
-            const nativeImage = await this.webview.capturePage();
+            const nativeImage = await this.withOccludersHidden(() => this.webview!.capturePage());
             if (!nativeImage || nativeImage.isEmpty()) {
               console.warn(`[CanvasView] Empty tile at (${col},${row}), skipping`);
               continue;
@@ -656,7 +750,7 @@ export class CanvasView extends View {
     // ON-SCREEN (position:fixed, top/left 0, top z-index) instead of shoving it into negative
     // coordinates, and additionally verifies the CAPTURED pixel size against the requested size
     // before calling it a success — see the comment above the size check below.
-    ipcRenderer.on('embedded-viewer-capture-design-request', async (_e: any, size: any) => {
+    this.onIpc('embedded-viewer-capture-design-request', async (_e: any, size: any) => {
       const reply = (payload: any) => ipcRenderer.send('viewer-capture-design-reply', payload);
       const width = Math.round(Number(size?.width));
       const height = Math.round(Number(size?.height));
@@ -671,6 +765,10 @@ export class CanvasView extends View {
       if (!this.webview || !this.webviewDomReady || !this.webview.isConnected) {
         reply({ success: false, message: 'design capture: webview not ready' });
         return;
+      }
+      {
+        const stale = this.staleFrameReason();
+        if (stale) { reply({ success: false, stale: true, message: `design capture: ${this.staleFrameMessage(stale)}` }); return; }
       }
 
       if (this._activeCapture) {
@@ -698,7 +796,30 @@ export class CanvasView extends View {
         // output clipped to this element's box, so anything else painted over that box would
         // leak into the "design" screenshot.
         el.style.zIndex = '2147483647';
+        // Device-viewport mode (see setDeviceMode below, ~:1289) leaves `transform:
+        // scale(fitScale)` on this SAME element (this.webview.style is this.element.style).
+        // A transformed element's getBoundingClientRect() reports its VISUAL box, not the
+        // box position:fixed/width/height above just set — so the rect handed to
+        // capturePage() would not be the element's real box, and this was never cleared
+        // here before. Clear it unconditionally; a fresh call restores it via
+        // setDeviceMode() on the next real resize.
+        el.style.transform = 'none';
       };
+
+      // Proof, not assumption: capturePage() (IframeViewer.ts) clips OUR OWN window to
+      // `el.getBoundingClientRect()` taken at capture time, so "the image is the design surface"
+      // needs three things measured, not assumed from applySize() having run — no transform, the
+      // box at the window origin and inside the window, and NOTHING PAINTED OVER IT. The last one
+      // is a hit test, not a rect comparison: a stacking context that confines this element's
+      // z-index (the chat panel's .Card is z-index:10) leaves the rect exactly right while another
+      // element paints over it, so a rect match alone cannot see it. surfaceProof.ts has the full
+      // reasoning, including what the hit test cannot see.
+      //
+      // UNITS: getBoundingClientRect(), window.innerWidth/innerHeight and elementFromPoint() are all
+      // CSS px of THIS renderer's document — the space applySize() writes into — so none of these
+      // comparisons crosses the Electron zoom-factor boundary. That factor only scales the
+      // NativeImage buffer, checked separately below via scaleX/scaleY.
+      const measureProof = () => measureSurfaceProof(el, width, height, browserSurfaceProofEnv());
 
       try {
         applySize();
@@ -727,7 +848,14 @@ export class CanvasView extends View {
         // window a re-render could land in between the last size check and capturePage().
         applySize();
 
-        const nativeImage = await this.webview.capturePage();
+        // Measure the surface AFTER the last applySize() and BEFORE capturePage(), so this is
+        // the same box (modulo the JS-turn gap between here and IframeViewer's own
+        // getBoundingClientRect() call inside capturePage()) that ends up in the image.
+        // Measured with the occluders hidden as well: a panel that is not painted is not over it.
+        const { surfaceProof, nativeImage } = await this.withOccludersHidden(async () => ({
+          surfaceProof: measureProof(),
+          nativeImage: await this.webview!.capturePage(),
+        }));
         if (!nativeImage || nativeImage.isEmpty()) {
           reply({ success: false, message: 'design capture: the captured image was empty' });
           return;
@@ -777,8 +905,13 @@ export class CanvasView extends View {
         // that is exactly what the caller's reference capture at a second size settles.
         const axesAgree = Math.abs(scaleX - scaleY) < 0.02;
         const looksLikeUniformDownScale = scaleX > 0.2 && scaleY > 0.2 && scaleX < 1 && axesAgree;
+        // (2026-09-16) IframeViewer.capturePage() now hands capturePage() a DIP rect (CSS x zoom),
+        // so a correct capture measures CSS x zoom x display scale = window.devicePixelRatio on
+        // each axis (1.6 at zoom 0.8 on a 2x display) — neither a half-integer nor sub-1.
+        const dpr = typeof window !== 'undefined' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+        const matchesDevicePixels = Math.abs(scaleX - dpr) < 0.05 && Math.abs(scaleY - dpr) < 0.05;
 
-        if (!looksLikeUniformScale && !looksLikeUniformDownScale
+        if (!looksLikeUniformScale && !looksLikeUniformDownScale && !matchesDevicePixels
             && (actual.width < width - 2 || actual.height < height - 2)) {
           // Smaller than requested and not an even scale-up: the capture was clipped — almost
           // certainly the real editor window is not big enough to show the full design size on
@@ -791,7 +924,7 @@ export class CanvasView extends View {
           return;
         }
 
-        const payload: any = { success: true, image: nativeImage.toDataURL(), width: actual.width, height: actual.height };
+        const payload: any = { success: true, image: nativeImage.toDataURL(), width: actual.width, height: actual.height, surfaceProof };
         if (actual.width !== width || actual.height !== height) {
           // Name the direction. "a display scale factor" was written for the 2x case and reads as
           // nonsense on a capture that came back SMALLER, where the cause is this window's zoom
@@ -814,7 +947,7 @@ export class CanvasView extends View {
     });
 
     // Add HTML extraction IPC handler
-    ipcRenderer.on('viewer-get-full-html-request', async (...args) => {
+    this.onIpc('viewer-get-full-html-request', async (...args) => {
       console.log('[CanvasView] 📄 Received viewer-get-full-html-request from main process, args:', args);
 
       try {
@@ -863,7 +996,7 @@ export class CanvasView extends View {
     });
 
     // Add rendered output IPC handler
-    ipcRenderer.on('viewer-get-rendered-output-request', async (event: any, args: { nodeId: string }) => {
+    this.onIpc('viewer-get-rendered-output-request', async (event: any, args: { nodeId: string }) => {
       console.log('[CanvasView] 🎨 Received viewer-get-rendered-output-request from main process, args:', args);
 
       try {
@@ -1154,6 +1287,12 @@ export class CanvasView extends View {
   // Clean disposal method
   dispose() {
     console.log('[CanvasView] Disposing CanvasView');
+
+    this._disposed = true;
+    for (const [channel, fn] of this._ipcListeners) {
+      try { ipcRenderer.removeListener(channel, fn); } catch { /* already gone */ }
+    }
+    this._ipcListeners = [];
 
     this.clearNavigationTimeout();
     this.isNavigating = false;
@@ -1463,7 +1602,7 @@ export class CanvasView extends View {
         this._lastCaptureTime = now;
       }
 
-      const nativeImage = await this.webview.capturePage();
+      const nativeImage = await this.withOccludersHidden(() => this.webview!.capturePage());
 
       if (!nativeImage || nativeImage.isEmpty()) {
         console.error('[CanvasView] captureThumbnail: captured image is empty or null');

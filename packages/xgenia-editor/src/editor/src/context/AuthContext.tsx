@@ -206,9 +206,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         error: null // Clear errors on successful auth state change
       }));
 
-      // Validate the new session if it exists
+      // Validate the new session if it exists — but NOT inside this callback.
+      //
+      // (2026-09-16) supabase-js runs these callbacks synchronously inside its auth lock:
+      // _callRefreshToken → _notifyAllSubscribers('TOKEN_REFRESHED') is awaited from within
+      // _acquireLock (auth-js 2.103, GoTrueClient.js ~3888/4157), and the library's own doc on
+      // onAuthStateChange warns that awaiting another Supabase call here dead-locks. validateAuth
+      // does exactly that: its 24-hour online check queries `profiles` (fetchWithAuth →
+      // getSession → lock) and its expired-session path calls refreshSessionShared (→ lock).
+      // With the lock never released, every later refresh waited forever; the ChatPanel's
+      // bounded auth.refreshJwt reported AUTH_REFRESH_BUSY after 12s and the user saw
+      // "Session Still Refreshing" until a restart. Deferring by a macrotask lets the
+      // notifier return and the lock release before validation touches the client.
       if (session && session.user) {
-        await validateAuth(session.user, session);
+        const { user } = session;
+        setTimeout(() => {
+          void validateAuth(user, session);
+        }, 0);
       }
     });
 

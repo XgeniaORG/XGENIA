@@ -918,6 +918,76 @@ function launchApp() {
         return { action: 'deny' }; //deny a new electron window
       });
 
+      // A file dropped anywhere the page does not handle makes Chromium navigate
+      // to that file:// URL — which throws away the whole editor, unsaved work
+      // included. Nothing in this app ever navigates the main frame away from
+      // its own document, so refuse it outright and let the drop be a no-op.
+      win.webContents.on('will-navigate', (event, url) => {
+        const current = win.webContents.getURL();
+        if (url === current) return;
+        const sameDocument = current && url.split('#')[0] === current.split('#')[0];
+        if (sameDocument) return;
+
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+          // A real link the user clicked: honour it, just not in here.
+          event.preventDefault();
+          shell.openExternal(url);
+          return;
+        }
+
+        console.log('[Main Process] Blocked main-frame navigation to', url);
+        event.preventDefault();
+      });
+
+      // Right-click Cut/Copy/Paste.
+      //
+      // Electron ships no default context menu, so until this existed a
+      // right-click anywhere in the app — the chat input included — produced
+      // nothing at all, and paste was reachable only from the menu bar or
+      // Cmd/Ctrl+V. The event fires on the top-level webContents for every
+      // frame, so this covers the AI panel's iframe too; the `role` items act
+      // on whichever frame holds focus.
+      win.webContents.on('context-menu', (_event, params) => {
+        const flags = params.editFlags || {};
+        const items = [];
+
+        if (params.isEditable) {
+          items.push(
+            { role: 'undo', enabled: !!flags.canUndo },
+            { role: 'redo', enabled: !!flags.canRedo },
+            { type: 'separator' },
+            { role: 'cut', enabled: !!flags.canCut },
+            { role: 'copy', enabled: !!flags.canCopy },
+            { role: 'paste', enabled: !!flags.canPaste },
+            { role: 'pasteAndMatchStyle', enabled: !!flags.canPaste },
+            { type: 'separator' },
+            { role: 'selectAll', enabled: !!flags.canSelectAll }
+          );
+        } else if (params.selectionText && params.selectionText.trim()) {
+          items.push({ role: 'copy', enabled: !!flags.canCopy });
+        }
+
+        if (params.linkURL) {
+          if (items.length > 0) items.push({ type: 'separator' });
+          items.push({
+            label: 'Copy Link Address',
+            click: () => electron.clipboard.writeText(params.linkURL)
+          });
+          items.push({
+            label: 'Open Link in Browser',
+            click: () => shell.openExternal(params.linkURL)
+          });
+        }
+
+        if (params.mediaType === 'image' && params.srcURL) {
+          if (items.length > 0) items.push({ type: 'separator' });
+          items.push({ label: 'Copy Image', click: () => win.webContents.copyImageAt(params.x, params.y) });
+        }
+
+        if (items.length === 0) return;
+        Menu.buildFromTemplate(items).popup({ window: win });
+      });
+
       win.webContents.on('did-finish-load', () => {
         // No longer clearing cache or reloading to avoid infinite reload loop
         console.log('[Main Process] Page loaded successfully');
@@ -1326,9 +1396,11 @@ function launchApp() {
             { label: 'Undo', accelerator: 'CmdOrCtrl+Z', selector: 'undo:' },
             { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', selector: 'redo:' },
             { type: 'separator' },
-            { label: 'Cut', accelerator: 'CmdOrCtrl+X', selector: 'cut:' },
-            { label: 'Copy', accelerator: 'CmdOrCtrl+C', selector: 'copy:' },
-            { label: 'Paste', accelerator: 'CmdOrCtrl+V', selector: 'paste:' },
+            // `role` rather than `selector`: the selector form is a macOS-only
+            // ObjC message, so on Windows and Linux these entries were dead.
+            { label: 'Cut', accelerator: 'CmdOrCtrl+X', role: 'cut' },
+            { label: 'Copy', accelerator: 'CmdOrCtrl+C', role: 'copy' },
+            { label: 'Paste', accelerator: 'CmdOrCtrl+V', role: 'paste' },
             { label: 'Select All', accelerator: 'CmdOrCtrl+A', selector: 'selectAll:' }
           ]
         },

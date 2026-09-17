@@ -8,16 +8,29 @@
  */
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { editorBridge } from './EditorBridge';
-import { PluginLoader } from './PluginLoader';
+import { PluginLoader, isVerdict, type EntitlementsResponse } from './PluginLoader';
 
 const PLUGIN_ID = 'ai-chat';
 
 export const ChatPanelIframe_ID = 'ChatPanel';
 
+/**
+ * What the panel is doing.
+ *
+ * `not-entitled` is reserved for a VERDICT — the server said this account has no AI Chat.
+ * `unavailable` is "we could not check": the server did not answer in time, or there was
+ * no session to ask with. (2026-09-15) Before this distinction existed, both painted the
+ * same "requires a Pro subscription" screen, and paying users on slow links saw it on
+ * their first visit after every update until they restarted the editor.
+ */
+type PanelStatus = 'loading' | 'connected' | 'not-entitled' | 'unavailable' | 'error';
+
 export function ChatPanelIframe() {
     const iframeRef = useRef<HTMLIFrameElement>(null);
-    const [status, setStatus] = useState<'loading' | 'connected' | 'not-entitled' | 'error'>('loading');
+    const [status, setStatus] = useState<PanelStatus>('loading');
     const [pluginUrl, setPluginUrl] = useState<string | null>(null);
+    // The URL currently mounted (or mounting), readable from callbacks without a stale closure.
+    const pluginUrlRef = useRef<string | null>(null);
     const [errorMsg, setErrorMsg] = useState('');
     const [tier, setTier] = useState('');
     // When the AI plugin opens its full-screen Settings, it asks us to expand the
@@ -36,29 +49,47 @@ export function ChatPanelIframe() {
         return () => window.removeEventListener('message', onMessage);
     }, []);
 
+    /**
+     * Turn an entitlements answer into what this panel shows.
+     *
+     *   • a URL for our plugin → mount it (once; a repeat of the same URL is a no-op, so a
+     *     re-check after a token refresh does not flicker a connected panel);
+     *   • no URL, and not a verdict → a panel that is already up STAYS up, one that has
+     *     nothing yet says it could not check and offers a retry;
+     *   • no URL, and a verdict → the paywall. Only a verdict may take a working panel down.
+     */
+    const applyEntitlements = useCallback((e: EntitlementsResponse) => {
+        setTier(e.tier);
+        const url = e.plugins.find((p) => p.id === PLUGIN_ID)?.url ?? null;
+        if (url) {
+            if (pluginUrlRef.current === url) return;
+            pluginUrlRef.current = url;
+            setPluginUrl(url);
+            setStatus('loading');
+            return;
+        }
+        if (!isVerdict(e)) {
+            if (!pluginUrlRef.current) setStatus('unavailable');
+            return;
+        }
+        pluginUrlRef.current = null;
+        setPluginUrl(null);
+        setStatus('not-entitled');
+    }, []);
+
     // Fetch plugin URL from entitlements
     useEffect(() => {
         let cancelled = false;
+        const loader = PluginLoader.instance;
 
         const loadEntitlements = async () => {
             try {
                 console.log('[ChatPanelIframe] Loading entitlements...');
-                const loader = PluginLoader.instance;
                 const entitlements = await loader.getEntitledPlugins();
 
                 if (cancelled) return;
                 console.log('[ChatPanelIframe] Entitlements loaded:', entitlements);
-
-                setTier(entitlements.tier);
-
-                const url = loader.getPluginUrl(PLUGIN_ID);
-                console.log('[ChatPanelIframe] Plugin URL:', url);
-                if (url) {
-                    setPluginUrl(url);
-                    setStatus('loading');
-                } else {
-                    setStatus('not-entitled');
-                }
+                applyEntitlements(entitlements);
             } catch (err: any) {
                 if (cancelled) return;
                 console.error('[ChatPanelIframe] Error loading entitlements:', err);
@@ -69,21 +100,15 @@ export function ChatPanelIframe() {
 
         loadEntitlements();
 
-        // Listen for entitlement changes (e.g. user upgrades mid-session)
-        const unsub = PluginLoader.instance.onChange((e) => {
-            if (!e) return;
-            setTier(e.tier);
-            const url = e.plugins.find(p => p.id === PLUGIN_ID)?.url;
-            if (url) {
-                setPluginUrl(url);
-                setStatus('loading');
-            } else {
-                setStatus('not-entitled');
-            }
+        // Entitlement changes: the server's answer landing after a slow check, a re-check
+        // after sign-in or a token refresh, an upgrade mid-session.
+        const unsub = loader.onChange((e) => {
+            if (!e || cancelled) return;
+            applyEntitlements(e);
         });
 
         return () => { cancelled = true; unsub(); };
-    }, []);
+    }, [applyEntitlements]);
 
     const handleIframeLoad = useCallback(() => {
         if (iframeRef.current) {
@@ -97,19 +122,15 @@ export function ChatPanelIframe() {
         setErrorMsg(`Could not load AI plugin from ${pluginUrl}`);
     }, [pluginUrl]);
 
-    // Retry button handler
+    // Retry button handler — a fresh check, whatever the last answer was.
     const handleRetry = useCallback(() => {
         setStatus('loading');
         setErrorMsg('');
-        PluginLoader.instance.refresh().then((e) => {
-            const url = e.plugins.find(p => p.id === PLUGIN_ID)?.url;
-            if (url) {
-                setPluginUrl(url);
-            } else {
-                setStatus('not-entitled');
-            }
+        PluginLoader.instance.refresh().then(applyEntitlements).catch((err: any) => {
+            setStatus('error');
+            setErrorMsg(err?.message || 'Failed to check plugin access');
         });
-    }, []);
+    }, [applyEntitlements]);
 
     // Connection status polling
     useEffect(() => {
@@ -122,8 +143,14 @@ export function ChatPanelIframe() {
         return () => clearInterval(checkConnection);
     }, []);
 
+    const retryButtonStyle: React.CSSProperties = {
+        padding: '6px 14px',
+        background: '#333', border: '1px solid #555',
+        borderRadius: '4px', color: '#e0e0e0',
+        cursor: 'pointer', fontSize: '12px', marginTop: '8px',
+    };
 
-    // -- Not entitled: show upgrade prompt --
+    // -- Not entitled (a verdict): show upgrade prompt --
     if (status === 'not-entitled') {
         return (
             <div style={{
@@ -144,6 +171,34 @@ export function ChatPanelIframe() {
                 <p style={{ color: '#555', fontSize: '11px' }}>
                     Current plan: <span style={{ color: '#67DE92' }}>{tier || 'free'}</span>
                 </p>
+                <button onClick={handleRetry} style={retryButtonStyle}>
+                    Check again
+                </button>
+            </div>
+        );
+    }
+
+    // -- Could not check (not a verdict): say so, and offer a retry --
+    if (status === 'unavailable') {
+        return (
+            <div style={{
+                width: '100%', height: '100%',
+                display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center',
+                gap: '16px', background: '#1a1a1a',
+                color: '#999', fontSize: '13px',
+                padding: '32px', textAlign: 'center',
+            }}>
+                <div style={{ fontSize: '40px', opacity: 0.2, fontWeight: 300 }}>AI</div>
+                <p style={{ color: '#ccc', fontSize: '14px', fontWeight: 500 }}>
+                    Couldn&apos;t check your plan
+                </p>
+                <p style={{ color: '#777', fontSize: '12px', maxWidth: '260px', lineHeight: '1.5' }}>
+                    The editor could not reach XGENIA&apos;s licensing server in time. AI Chat stays locked until a check succeeds; it retries by itself when you sign in again or the connection returns.
+                </p>
+                <button onClick={handleRetry} style={retryButtonStyle}>
+                    Try again
+                </button>
             </div>
         );
     }
@@ -164,12 +219,7 @@ export function ChatPanelIframe() {
                 <p style={{ color: '#666', fontSize: '12px' }}>
                     Start the AI plugin server with: <code style={{ color: '#67DE92' }}>npm run dev:ai</code>
                 </p>
-                <button onClick={handleRetry} style={{
-                    padding: '6px 14px',
-                    background: '#333', border: '1px solid #555',
-                    borderRadius: '4px', color: '#e0e0e0',
-                    cursor: 'pointer', fontSize: '12px', marginTop: '8px',
-                }}>
+                <button onClick={handleRetry} style={retryButtonStyle}>
                     Retry
                 </button>
             </div>
@@ -222,7 +272,7 @@ export function ChatPanelIframe() {
                                 width: '100%', height: '100%',
                                 border: 'none', background: '#1a1a1a',
                             }}
-                            allow="clipboard-read; clipboard-write"
+                            allow="clipboard-read; clipboard-write; microphone"
                             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-storage-access-by-user-activation allow-downloads"
                         />
                     );

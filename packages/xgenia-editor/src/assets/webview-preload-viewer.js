@@ -272,6 +272,45 @@ function _injectSelectionStyles() {
       transition: opacity 0.12s ease-out;
     }
     .xg-tooltip.xg-tip-on { opacity: 1; }
+    .xg-context-menu {
+      position: fixed;
+      z-index: 1000002;
+      min-width: 220px;
+      max-width: 320px;
+      padding: 5px;
+      border-radius: 12px;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      font-size: 12px;
+      color: rgba(255,255,255,0.92);
+      background: rgba(28, 28, 30, 0.74);
+      border: 0.5px solid rgba(255, 255, 255, 0.16);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      box-shadow: 0 12px 34px rgba(0,0,0,0.38);
+      user-select: none;
+    }
+    .xg-cm-section {
+      padding: 6px 9px 3px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.45);
+    }
+    .xg-cm-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 9px;
+      border-radius: 7px;
+      cursor: default;
+      white-space: nowrap;
+    }
+    .xg-cm-row:hover, .xg-cm-row.xg-cm-active { background: rgba(10, 132, 255, 0.85); color: #fff; }
+    .xg-cm-row:hover .xg-cm-meta, .xg-cm-row.xg-cm-active .xg-cm-meta { color: rgba(255,255,255,0.8); }
+    .xg-cm-label { overflow: hidden; text-overflow: ellipsis; flex: 1; }
+    .xg-cm-meta { font-size: 10px; color: rgba(255,255,255,0.45); }
+    .xg-cm-sep { height: 0.5px; margin: 4px 6px; background: rgba(255,255,255,0.12); }
     .xg-handle {
       position: absolute;
       width: 11px;
@@ -617,7 +656,152 @@ function _setHotZone(zone) {
   else if (_gizmo.handleByName[zone]) _gizmo.handleByName[zone].classList.add('xg-hot');
 }
 
+// --- Right-click context menu: reference nodes in the chat ---
+// Right-clicking in Edit mode lists every node under the cursor (a click on a
+// label inside a button hits the label, the button and its row — the user
+// decides which one they mean) and offers to add it to the chat as a reference
+// or select it. Labels, types and owning component come from the editor model
+// (viewportNodeInfo), not from DOM attributes, so the chat reference names the
+// real node.
+
+let _contextMenu = null;
+
+function _closeContextMenu() {
+  if (_contextMenu && _contextMenu.parentNode) _contextMenu.parentNode.removeChild(_contextMenu);
+  _contextMenu = null;
+  document.removeEventListener('mousedown', _onContextMenuOutside, true);
+  document.removeEventListener('keydown', _onContextMenuKey, true);
+}
+
+function _onContextMenuOutside(e) {
+  if (_contextMenu && !_contextMenu.contains(e.target)) _closeContextMenu();
+}
+
+function _onContextMenuKey(e) {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    _closeContextMenu();
+  }
+}
+
+function _nodeIdsAtPoint(x, y) {
+  const ids = [];
+  for (const el of document.elementsFromPoint(x, y)) {
+    if (el.closest('.xg-hover-overlay, .xg-selection-overlay, .xg-label-badge, .xg-size-badge, .xg-tooltip, .xg-context-menu')) continue;
+    const id = findXgeniaNodeForElement(el);
+    if (id && id !== 'none' && ids.indexOf(id) === -1) ids.push(id);
+    if (ids.length >= 6) break;
+  }
+  return ids;
+}
+
+function _referenceNodeInChat(info) {
+  ipcRenderer.sendToHost('inspector-node-reference', {
+    nodeId: info.id,
+    nodeLabel: info.label,
+    nodeType: info.type,
+    component: info.component
+  });
+}
+
+function _selectNodeFromMenu(info) {
+  const el = document.querySelector('[data-xgenia-node-id="' + info.id + '"]');
+  if (el) _showSelection(el, info.id, info.label);
+  makeEditorAPIRequest('inspectNodes', { nodeIds: [info.id] }, () => { });
+}
+
+function _menuRow(label, meta, onPick) {
+  const row = document.createElement('div');
+  row.className = 'xg-cm-row';
+  const l = document.createElement('span');
+  l.className = 'xg-cm-label';
+  l.textContent = label;
+  row.appendChild(l);
+  if (meta) {
+    const m = document.createElement('span');
+    m.className = 'xg-cm-meta';
+    m.textContent = meta;
+    row.appendChild(m);
+  }
+  row.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); });
+  row.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    _closeContextMenu();
+    onPick();
+  });
+  return row;
+}
+
+function _menuSection(text) {
+  const d = document.createElement('div');
+  d.className = 'xg-cm-section';
+  d.textContent = text;
+  return d;
+}
+
+function _menuSep() {
+  const d = document.createElement('div');
+  d.className = 'xg-cm-sep';
+  return d;
+}
+
+/** Open the menu for nodeIds at (x, y); nodeIds[0] is the topmost hit. */
+function _openContextMenu(nodeIds, x, y) {
+  _closeContextMenu();
+  if (!nodeIds || !nodeIds.length) return;
+  _injectSelectionStyles();
+
+  const menu = document.createElement('div');
+  menu.className = 'xg-context-menu';
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.appendChild(_menuSection('Loading…'));
+  document.body.appendChild(menu);
+  _contextMenu = menu;
+  document.addEventListener('mousedown', _onContextMenuOutside, true);
+  document.addEventListener('keydown', _onContextMenuKey, true);
+
+  makeEditorAPIRequest('viewportNodeInfo', { nodeIds: nodeIds }, (res) => {
+    if (_contextMenu !== menu) return; // closed or replaced meanwhile
+    const infos = (res && Array.isArray(res.nodes)) ? res.nodes : [];
+    menu.textContent = '';
+    if (!infos.length) {
+      menu.appendChild(_menuSection('Node not found in project'));
+      return;
+    }
+    const top = infos[0];
+    const typeShort = (t) => String(t || '').split('.').pop();
+
+    menu.appendChild(_menuSection(top.label));
+    menu.appendChild(_menuRow('Add to chat', '@' + top.label, () => _referenceNodeInChat(top)));
+    menu.appendChild(_menuRow('Select', typeShort(top.type), () => _selectNodeFromMenu(top)));
+
+    if (infos.length > 1) {
+      menu.appendChild(_menuSep());
+      menu.appendChild(_menuSection('Also under cursor · add to chat'));
+      for (const info of infos.slice(1)) {
+        menu.appendChild(_menuRow(info.label, typeShort(info.type), () => _referenceNodeInChat(info)));
+      }
+    }
+
+    // Keep the menu inside the viewport.
+    const r = menu.getBoundingClientRect();
+    if (r.right > window.innerWidth - 8) menu.style.left = Math.max(8, window.innerWidth - r.width - 8) + 'px';
+    if (r.bottom > window.innerHeight - 8) menu.style.top = Math.max(8, window.innerHeight - r.height - 8) + 'px';
+  });
+}
+
+// Pixi sprites live on the gizmo canvas, not in the DOM; the bridge hit-tests
+// them and asks for the same menu.
+window.addEventListener('xg-gizmo-context', (e) => {
+  if (!_inspectorEnabled || !e.detail || !e.detail.nodeId) return;
+  _openContextMenu([e.detail.nodeId], e.detail.clientX, e.detail.clientY);
+});
+
 function _cleanupOverlays() {
+  _closeContextMenu();
   hideHighlight();
   _hideSelection();
   [_hoverOverlay, _selectionOverlay, _labelBadge, _sizeBadge, _gizmo && _gizmo.tooltip].forEach(el => {
@@ -1208,6 +1392,10 @@ document.addEventListener('keydown', (e) => {
 
 // Expose Inspector API
 window.XgeniaEditorInspectorAPI = {
+  // Whether the inspector is currently on. Read by the editor before it switches
+  // the inspector on for a one-off pick (Publish → telemetry form → "Select from
+  // UI"), so it can put it back the way it found it afterwards.
+  isEnabled: () => _inspectorEnabled,
   setEnabled: (enabled) => {
     console.log('[Inspector] setEnabled called:', enabled);
     _inspectorEnabled = enabled; // Gate zoom handlers to edit mode only
@@ -1219,6 +1407,7 @@ window.XgeniaEditorInspectorAPI = {
 
       // --- Hover handler ---
       const mouseMoveHandler = (e) => {
+        if (_contextMenu && _contextMenu.contains(e.target)) return;
         // Skip if a gesture is in progress (those run via _globalMouseMove)
         if (_isDragging || _isResizing || _isRotating) return;
 
@@ -1255,18 +1444,6 @@ window.XgeniaEditorInspectorAPI = {
           }
         }
 
-        // Resize/move cursors take precedence around the selected element
-        if (_selectedElement) {
-          const h = _handleAtPoint(e.clientX, e.clientY);
-          if (h) {
-            document.body.style.cursor = h + '-resize';
-          } else if (_isInsideSelection(e.clientX, e.clientY)) {
-            document.body.style.cursor = 'move';
-          } else {
-            document.body.style.cursor = 'crosshair';
-          }
-        }
-
         const element = document.elementFromPoint(e.clientX, e.clientY);
         if (!element) return;
 
@@ -1290,6 +1467,7 @@ window.XgeniaEditorInspectorAPI = {
 
       // --- Click handler (select + begin drag) ---
       const clickHandler = (e) => {
+        if (_contextMenu && _contextMenu.contains(e.target)) return;
         console.log('[Inspector] Click at', e.clientX, e.clientY);
 
         const elementsToTry = [];
@@ -1356,18 +1534,28 @@ window.XgeniaEditorInspectorAPI = {
         }
       };
 
-      // --- Double-click: send the node as a reference to the chat panel ---
+      // --- Double-click: add the topmost node to the chat as a reference ---
       const dblclickHandler = (e) => {
-        const element = document.elementFromPoint(e.clientX, e.clientY);
-        if (!element) return;
-        if (element.closest('.xg-hover-overlay, .xg-selection-overlay, .xg-label-badge, .xg-size-badge, .xg-tooltip')) return;
-        const nodeId = findXgeniaNodeForElement(element);
-        if (!nodeId) return;
+        if (_contextMenu && _contextMenu.contains(e.target)) return;
+        const nodeIds = _nodeIdsAtPoint(e.clientX, e.clientY);
+        if (!nodeIds.length) return;
         e.preventDefault();
         e.stopPropagation();
-        let nodeLabel = element.getAttribute('data-xgenia-node-label') ||
-          element.getAttribute('data-node-label') || 'Element';
-        ipcRenderer.sendToHost('inspector-node-dblclick', { nodeId: nodeId, nodeLabel: nodeLabel });
+        makeEditorAPIRequest('viewportNodeInfo', { nodeIds: [nodeIds[0]] }, (res) => {
+          const info = res && Array.isArray(res.nodes) ? res.nodes[0] : null;
+          if (info) _referenceNodeInChat(info);
+        });
+      };
+
+      // --- Right-click: context menu to reference nodes in the chat ---
+      const contextmenuHandler = (e) => {
+        if (e.target && e.target.closest && e.target.closest('.xg-context-menu')) return;
+        const nodeIds = _nodeIdsAtPoint(e.clientX, e.clientY);
+        // Always swallow in Edit mode: the game's own right-click handling is not
+        // what an editor right-click means.
+        e.preventDefault();
+        e.stopPropagation();
+        _openContextMenu(nodeIds, e.clientX, e.clientY);
       };
 
       // --- Mousedown handler: entry point for rotate, axis-move, edge-resize
@@ -1376,6 +1564,7 @@ window.XgeniaEditorInspectorAPI = {
       // still fails closed if state changed between fetch and gesture.
       const mousedownHandler = (e) => {
         if (e.button !== 0) return;
+        if (_contextMenu && _contextMenu.contains(e.target)) return;
         if (_isOnRotateHandle(e.clientX, e.clientY)) {
           _startRotate(e);
           return;
@@ -1400,7 +1589,6 @@ window.XgeniaEditorInspectorAPI = {
           } else if (_selectedCaps && _selectedCaps.moveReason) {
             _flashBlocked(_selectedCaps.moveReason);
           }
-
         }
         // Otherwise fall through: clickHandler does selection/deselection.
       };
@@ -1409,6 +1597,7 @@ window.XgeniaEditorInspectorAPI = {
       document.addEventListener('mousemove', mouseMoveHandler, true);
       document.addEventListener('click', clickHandler, true);
       document.addEventListener('dblclick', dblclickHandler, true);
+      document.addEventListener('contextmenu', contextmenuHandler, true);
       document.addEventListener('mousedown', mousedownHandler, true);
       document.addEventListener('mousemove', _globalMouseMove, true);
       document.addEventListener('mouseup', _globalMouseUp, true);
@@ -1419,6 +1608,7 @@ window.XgeniaEditorInspectorAPI = {
       window._inspectorMouseHandler = mouseMoveHandler;
       window._inspectorClickHandler = clickHandler;
       window._inspectorDblclickHandler = dblclickHandler;
+      window._inspectorContextmenuHandler = contextmenuHandler;
       window._inspectorMousedownHandler = mousedownHandler;
 
       // --- PixiJS Editing Bridge IPC ---
@@ -1485,6 +1675,10 @@ window.XgeniaEditorInspectorAPI = {
       if (window._inspectorDblclickHandler) {
         document.removeEventListener('dblclick', window._inspectorDblclickHandler, true);
         window._inspectorDblclickHandler = null;
+      }
+      if (window._inspectorContextmenuHandler) {
+        document.removeEventListener('contextmenu', window._inspectorContextmenuHandler, true);
+        window._inspectorContextmenuHandler = null;
       }
       if (window._inspectorMousedownHandler) {
         document.removeEventListener('mousedown', window._inspectorMousedownHandler, true);
