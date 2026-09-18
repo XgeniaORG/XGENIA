@@ -74,10 +74,29 @@ function recentProjectDirs(): string[] {
   return dirs.slice(0, 20);
 }
 
+/**
+ * The export directory of the project that is open right now, or null.
+ *
+ * (2026-09-18) Without this, `newestExport()` answered from whichever project had the newest
+ * file anywhere on disk. Opening a copy of an old project and asking what went wrong returned
+ * the ORIGINAL project's run — same-looking JSON, different session, no warning. A wrong answer
+ * that looks right is worse than no answer, so the open project wins and a fallback says so.
+ */
+async function openProjectExportDir(): Promise<string | null> {
+  try {
+    const { projectStatus } = await import('./editor-state.js');
+    const status: any = await projectStatus();
+    const dir = status?.project?.dir;
+    return typeof dir === 'string' && dir ? path.join(dir, '.xgenia', 'debug-exports') : null;
+  } catch {
+    return null; // editor down, or no project open — fall back to the global scan
+  }
+}
+
 /** Newest export file across the candidate directories, or null. */
-function newestExport(): { file: string; mtimeMs: number } | null {
+function newestExport(dirs: string[] = downloadDirs()): { file: string; mtimeMs: number } | null {
   let best: { file: string; mtimeMs: number } | null = null;
-  for (const dir of downloadDirs()) {
+  for (const dir of dirs) {
     let entries: string[];
     try {
       entries = fs.readdirSync(dir);
@@ -349,7 +368,10 @@ export async function debugQuery(options: DebugQueryOptions = {}) {
     clip = 1200
   } = options;
 
-  const file = options.file ?? newestExport()?.file;
+  const openDir = options.file ? null : await openProjectExportDir();
+  const preferred = openDir ? newestExport([openDir]) : null;
+  const fallback = preferred ? null : newestExport();
+  const file = options.file ?? preferred?.file ?? fallback?.file;
   if (!file) {
     return {
       error: 'no-export-found',
@@ -410,6 +432,12 @@ export async function debugQuery(options: DebugQueryOptions = {}) {
 
   return {
     file,
+    ...(openDir && !preferred
+      ? {
+          warning: 'export-from-another-project',
+          note: `The open project has no export in ${openDir}, so this answer comes from ${file}. It describes a DIFFERENT session — run xgenia_debug_export to get this project's own.`
+        }
+      : {}),
     section,
     scanned,
     matched,

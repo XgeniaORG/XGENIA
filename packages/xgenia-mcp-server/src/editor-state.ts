@@ -211,10 +211,12 @@ export function summariseMessages(
   messages: ChatMessage[],
   since: number,
   limit: number,
-  cap: number
+  cap: number,
+  /** Messages the panel has collapsed before the first rendered one; added to every index. */
+  indexOffset = 0
 ): ChatMessageOut[] {
   return messages.slice(since, since + limit).map((m, i) => ({
-    index: since + i,
+    index: indexOffset + since + i,
     role: m.role,
     text: m.text.length > cap ? m.text.slice(0, cap) : m.text,
     truncated: m.text.length > cap
