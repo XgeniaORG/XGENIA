@@ -7,8 +7,9 @@ description: |
   "open XGENIA", "XGENIA MCP", "send a prompt to the XGENIA chat", "restart XGENIA",
   "XGENIA is stuck", "build a slot", "screenshot the editor", or any task that needs the
   XGENIA desktop app driven from outside it.
-  Covers the tool sequence, the cost rule, verifying a panel change actually reached the
-  running editor, and the traps that make a call look like it failed when it did not.
+  Covers the tool sequence, the cost rule, sharing one editor with other agents, running the
+  panel from local source, verifying a panel change actually reached the running editor, and the
+  traps that make a call look like it failed when it did not.
 ---
 
 # Driving XGENIA over MCP
@@ -72,15 +73,37 @@ Two rules when reading that file:
 | `xgenia_close_project` | Back to the projects screen. |
 | `xgenia_open_chat_panel` | Only when someone closed the panel by hand — the open/new tools already do this. |
 | `xgenia_chat_send` | Type a prompt and send it. Refuses mid-generation unless `force`. |
-| `xgenia_chat_read` | Read the transcript, paged with `since` / `limit`. |
+| `xgenia_chat_read` | Read the transcript, paged with `since` / `limit`. The panel renders only the newest ~30 messages and collapses the rest behind "Load N older messages": `total` and every `index` count the WHOLE conversation, `olderNotRendered` says how many are collapsed, and a `since` inside that range returns `skipped`. On an older server `total` sticks at ~30 while the chat keeps growing — a driver polling `since: total` then sees nothing for hours. |
 | `xgenia_chat_wait_idle` | Block until generation stops. Returns `timedOut`, never throws. |
 | `xgenia_screenshot` | Capture `full`, `chat`, or `canvas`. |
 | `xgenia_probe` | Which DOM selectors still resolve. Run this on any `selector-missing`. |
-| `xgenia_debug_export` | Click Debug Export and return the **file path** plus a census of what the panel AI did — every tool call with its arguments and result, the thinking log, both consoles, the cost. Never returns the bundle (7.2MB / 640 calls in one build). |
+| `xgenia_debug_export` | Click Debug Export and return the **file path** (it writes `<project>/.xgenia/debug-exports/xgenia-debug-export-<ms>.json`; older panel builds also fired a browser download, which opened a native **Save As** sheet that no unattended driver can dismiss — if a call hangs, check for a sheet: `osascript -e 'tell application "System Events" to tell (first process whose name is "Electron") to get count of sheets of every window'`) plus a census of what the panel AI did — every tool call with its arguments and result, the thinking log, both consoles, the cost. Never returns the bundle (7.2MB / 640 calls in one build). |
 | `xgenia_debug_query` | Grep one section of that export. `tool` + `failuresOnly` answers "which calls to X failed and why" without reading the file. |
 | `xgenia_runtime_logs` | The live preview's own log buffer — what the game is doing **now**, no export step. Resets on preview reload. |
 | `xgenia_restart` | Save, kill, relaunch, reopen the project. |
 | `xgenia_quit` | Save and kill, no relaunch. |
+
+---
+
+## One editor, many drivers
+
+There is **one** editor per machine and no second instance: the dev ports (8080 editor, 3010
+panel, 8574 viewer, 3002 image editor, 9223 CDP) are fixed, and the start script *kills* whatever
+holds 3010. Another session's harness, or a person, can take the editor from you at any moment.
+
+Three run-killers seen in one afternoon, all silent from the driver's side:
+
+| What happened | How it looks | Guard |
+| --- | --- | --- |
+| Another agent ran `quit` + `launch` for its own run | `chat-frame-missing`, then a different project open, no crash-log entry, no human input | Re-check `xgenia_health.project` before and during a run |
+| Someone opened another side panel | chat iframe gone from the frame tree | Nothing to do but reopen the panel and resume |
+| A source edit hot-reloaded the panel | frame reloads mid-turn, transcript survives, the turn does not | Never edit panel or editor source while a run is in flight |
+
+Before taking the editor for a long run, wait for a genuinely idle window: the same project and
+the same frames for ~20 minutes, `chatBusy` false, and no keyboard or mouse input (`ioreg -c
+IOHIDSystem | awk '/HIDIdleTime/ …'`). A restart mid-run is recoverable if your driver reopens the
+project and sends *"continue — the editor restarted mid-turn; pick up exactly where you left
+off"*; the transcript survives a reload, so the AI can resume from its own last message.
 
 ---
 
@@ -165,6 +188,45 @@ idle before shipping, or expect to re-send.
 
 ---
 
+## Reading the running game
+
+| Symptom in the panel's own tools | What it usually means |
+| --- | --- |
+| `simulate_signal` → `NOT_MOUNTED`, and the result mentions other connected viewer clients | Stale viewer clients. Every project open used to leave a hidden cloud-runtime window connected; 8 of them answered one signal. Count them: `curl -s http://127.0.0.1:9223/json` and look for `cloudruntime`. More than one means a leak (fixed 2026-09-17; older builds need a restart). |
+| `observe_timeline` → "the bridge returned NO response … fully quit and relaunch" right after a preview refresh | The viewer was still reloading. The liveness probe used to be cut to 800 ms by the fast-fail window after one slow read. Retry once before believing it. |
+| A read says "the preview is NOT running" while the game is visibly playing | A timed-out read, not a stopped preview. Retry; if it keeps timing out, the editor is saturated (below). |
+| Screenshot refused: "the XGENIA editor window is hidden/minimized" | Correct refusal — a hidden window keeps handing back the last painted frame. Bring the window on screen; do not trust a capture taken while hidden. |
+
+**When everything feels slow:** a game with a tick loop pulses its connections continuously, and
+the node graph repaints on every pulse. Before the repaint cap (2026-09-17) that alone cost the
+editor process 76–88% CPU and swung its memory between 0.3 and 1.2 GB, which starves the chat
+panel in the same process. Check with `ps -o %cpu=,rss= -p <renderer pid>`; the editor's own
+`memory-log.jsonl` under `~/Library/Application Support/Electron/` records per-process working set
+and spikes, and `crash-log.jsonl` next to it records real crashes — **no entry there means the page
+reloaded or the app was quit, not that it crashed.**
+
+---
+
+## Driving the art loop
+
+- **Key art is the shape of the declared screen.** Declare the screen first (`screen({action:
+  "set"})` in the panel); a key-art call refuses outright when nothing is declared, because every
+  piece cut from it inherits that aspect.
+- **fal bills by tier.** `User is locked. Reason: TOP_UP.` is a BILLING refusal, not a size or key
+  problem — but the big sizes sit in the pricier tier, so the same prompt often still draws at a
+  smaller size or on another route. A 1920×1080 request was refused minutes before the same prompt
+  drew at 1024 high. Tell the user to top up; don't let the AI rebuild its art plan around it.
+- **Full-bleed art asks for the screen's aspect, not its pixels** — long edge capped at 1536.
+- **An AI edit hands back the canvas it was given** (resampled if the endpoint changes it), so a
+  piece still fits the box it was cut from.
+- **A named slot only receives a piece whose name matches it.** A slot the splitter cannot match
+  stays empty rather than taking the next layer in line, which is how a board ended up saved as
+  `btn-minus.png`.
+- Image `create`/`edit` calls in one batch run in parallel; `save` and `split` stay sequential
+  because they write the project's asset manifest.
+
+---
+
 ## Recovery
 
 | Symptom | Call |
@@ -191,10 +253,29 @@ next prompt.
 
 ---
 
+## Running the panel from local source (fast loop)
+
+The editor normally iframes the panel from Vercel. With `XGENIA_LOCAL_AI_CHAT=1` in the
+environment that launched the editor, the dev build loads it from `http://localhost:3010`
+instead — your edits are live on save, with no deploy. Use it for testing panel changes.
+
+- The loader records its decision at `window.__xgeniaPluginLoaderDecision` in the editor page:
+  `{ isDev, localAiChatOptIn, localAiChatReachable }`. Check it before blaming a fix.
+- Verify the served module rather than the file on disk:
+  `curl -s "http://localhost:3010/@fs/<abs path>/ChatPanel/providers/OpenRouterProvider.ts" | grep -c newSymbol`
+- **Saving any panel source hot-reloads the panel and kills the turn in flight.** The editor also
+  bundles the panel sources, so a save can reload the *editor* too, which recreates its side
+  panels. Update checkouts well before a run, never during one.
+- A dynamic import that fails once is cached by the page: the panel then shows "The AI panel hit
+  an error and could not start" until it is reloaded, even after the module is fixed. Reload the
+  panel frame (`location.reload()` in its context) rather than waiting.
+
+---
+
 ## Verifying a change actually reached the running editor
 
-The chat panel is served from Vercel and iframed by the editor, so **editing local source
-changes nothing you can see** until it is built, deployed and reloaded. Three checks, in order:
+When the panel comes from Vercel, **editing local source changes nothing you can see** until it
+is built, deployed and reloaded. Three checks, in order:
 
 1. **Ship it.** `npm run ship` from `private/xgenia-ai-app` — only `ship` re-aliases the prod
    URL. It prints `SHIP COMPLETE` and an `ai-chat` probe with a `git_sha`; confirm that sha is
@@ -226,3 +307,12 @@ up a new build. If you just fixed the harness, say so rather than claiming the f
   accept a calculated number after it. Make the tool print the new figure.
 - **Screenshot when the text is ambiguous.** `region: 'chat'` for the conversation and the
   model footer, `canvas` for the graph, `full` for the whole window.
+- **A turn that ends with no answer is a bug, not a decision.** Provider errors that arrive
+  *inside* the stream (`504 Upstream idle timeout`) used to be swallowed: each cut-off reply
+  counted as "the AI chose not to call a tool", and after three the loop closed the turn as a
+  normal completion with nothing shown. If a turn ends silently, read the panel console in the
+  debug export before concluding the AI gave up.
+- **Very large single calls are what time out.** One `create_ui_from_xml` carrying 78 pegs hit the
+  output limit, then three upstream timeouts. Ask for the screen in a few calls rather than one.
+- **The approval card times out after 300 s.** Unattended, key art auto-approves and the whole
+  build inherits it; the panel says so in its reply. Watch for that line if the look matters.
