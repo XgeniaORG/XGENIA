@@ -42,7 +42,8 @@ const WARNING_KEY = 'node-script-override';
 // Methods a script must not replace — they are the override machinery itself.
 const PROTECTED_METHODS = {
   applyNodeScript: true,
-  revertNodeScript: true
+  revertNodeScript: true,
+  scriptScopeNames: true
 };
 
 // ---------------------------------------------------------------------------
@@ -106,27 +107,219 @@ function normalizeWhitespace(source) {
     .trim();
 }
 
+// ---------------------------------------------------------------------------
+// Bundled import references -> the plain names a script can call
+// ---------------------------------------------------------------------------
+
+// 2026-09-17, export 1789661242337: the default Script is `fn.toString()` of the
+// BUNDLED function, and in the editor's viewer bundle a method's call to an
+// import reads `(0,filterUtils/* requestRender */.sG)(this)`. Kept in an edited
+// function that threw `filterUtils is not defined` and fell back to the
+// built-in, even though `requestRender` itself is in the override's scope. So
+// the text a user or the AI sees names in-scope imports by their plain names.
+//
+// The reference forms webpack 5 writes (the original export name is in the
+// comment, or is the property itself when exports are not mangled):
+//
+//   filterUtils/* requestRender */.sG                                 production, concatenated module
+//   _ticker_safety__WEBPACK_IMPORTED_MODULE_9__/* .tickerAdd */ .uD   production, module variable
+//   _Mgr__WEBPACK_IMPORTED_MODULE_1__/* ["default"] */ .A             production, module variable
+//   _filterUtils__WEBPACK_IMPORTED_MODULE_3__.requestRender           development
+//   _filterUtils__WEBPACK_IMPORTED_MODULE_3__["requestRender"]        development
+//
+// each either bare (a value) or wrapped as `(0,<ref>)` in call position. A
+// minified bundle (the deploy build) has no comments and mangled keys, so no
+// name can be recovered there and its text is left as it is.
+
+const IMPORT_IDENT = '[A-Za-z_$][\\w$]*';
+
+// One reference, matched from the first character of its namespace identifier
+// (sticky: the scan below finds where that is, so this never slides through a
+// long run of word characters — a quadratic stall on an inlined data string).
+const IMPORT_REF_AT = new RegExp(
+  IMPORT_IDENT +
+    '(?:' +
+    // groups 1-3: `NS/* .name */ .x`, `NS/* ["name"] */ .x`, `NS/* name */.x`
+    '\\s*\\/\\*\\s*(?:\\.(' +
+    IMPORT_IDENT +
+    ')|\\[\\s*"(' +
+    IMPORT_IDENT +
+    ')"\\s*\\]|(' +
+    IMPORT_IDENT +
+    '))\\s*\\*\\/\\s*\\.\\s*' +
+    IMPORT_IDENT +
+    '|' +
+    // groups 4-5: `X__WEBPACK_IMPORTED_MODULE_3__.name`, `…__["name"]` (the
+    // identifier above has already consumed the `__WEBPACK_…__` suffix)
+    '(?:\\s*\\.\\s*(' +
+    IMPORT_IDENT +
+    ')|\\[\\s*["\'](' +
+    IMPORT_IDENT +
+    ')["\']\\s*\\]))',
+  'y'
+);
+
+const IMPORT_ANCHOR_RE = /\/\*|__WEBPACK_IMPORTED_MODULE_\d+__(?=\s*[.[])/g;
+
+// Words after which `(` opens an expression rather than an argument list.
+const EXPRESSION_KEYWORDS = new Set(
+  'return typeof void delete await yield case throw in of instanceof new else do'.split(' ')
+);
+
+const isWordChar = (ch) => /[\w$]/.test(ch);
+const isSpace = (ch) => /\s/.test(ch);
+
 /**
- * The form used for "did the user change this function?" comparisons.
+ * Whether the `(` at `offset` is webpack's `(0,…)` call wrapper rather than the
+ * argument list of a call (`foo(0, ref)`), judged by what comes before it.
+ * Generated code never puts whitespace between a callee and its arguments, so
+ * `if (x) (0,…)(y)` is a new expression and `foo(0,…)` / `fn()(0,…)` are calls.
  */
-function canonicalFunctionText(fnOrSource) {
-  if (fnOrSource === undefined || fnOrSource === null) return undefined;
-  if (typeof fnOrSource !== 'function' && typeof fnOrSource !== 'string') return undefined;
-  return normalizeWhitespace(stripFunctionHeader(typeof fnOrSource === 'function' ? fnOrSource.toString() : fnOrSource));
+function isCallWrapper(text, offset) {
+  if (offset === 0 || isSpace(text[offset - 1])) return true;
+
+  const last = text[offset - 1];
+  if (last === ')' || last === ']') return false;
+  if (isWordChar(last)) {
+    let start = offset - 1;
+    while (start > 0 && isWordChar(text[start - 1])) start--;
+    return EXPRESSION_KEYWORDS.has(text.slice(start, offset)) && text[start - 1] !== '.';
+  }
+  return true;
 }
 
-function sameFunctionSource(a, b) {
-  const ca = canonicalFunctionText(a);
-  const cb = canonicalFunctionText(b);
+/** Index of the `(` of a `(0,` directly in front of `start`, or -1. */
+function callWrapperOpen(text, start) {
+  let i = start;
+  while (i > 0 && isSpace(text[i - 1])) i--;
+  if (text[i - 1] !== ',') return -1;
+  i--;
+  while (i > 0 && isSpace(text[i - 1])) i--;
+  if (text[i - 1] !== '0') return -1;
+  i--;
+  while (i > 0 && isSpace(text[i - 1])) i--;
+  return text[i - 1] === '(' ? i - 1 : -1;
+}
+
+/** Index just past the `)` closing a call wrapper right after `end`, or -1. */
+function callWrapperClose(text, end) {
+  let i = end;
+  while (i < text.length && isSpace(text[i])) i++;
+  return text[i] === ')' ? i + 1 : -1;
+}
+
+/**
+ * Rewrite the bundled import references in a function's source whose original
+ * name is in `scopeNames` to that plain name:
+ *
+ *   (0,filterUtils/* requestRender *\/.sG)(this)  ->  requestRender(this)
+ *   filterUtils/* requestRender *\/.sG            ->  requestRender
+ *
+ * A reference whose name is not in scope, and every `default` import, is left
+ * exactly as it is — the text stays honest about what will not compile.
+ */
+function unmangleImports(fnText, scopeNames) {
+  const text = String(fnText === undefined || fnText === null ? '' : fnText);
+  if (!scopeNames) return text;
+
+  const names = scopeNames instanceof Set ? scopeNames : new Set(scopeNames);
+  if (!names.size) return text;
+  if (text.indexOf('*/') === -1 && text.indexOf('__WEBPACK_IMPORTED_MODULE_') === -1) return text;
+
+  let out = '';
+  let copied = 0;
+  const anchor = new RegExp(IMPORT_ANCHOR_RE.source, 'g');
+  let hit;
+
+  while ((hit = anchor.exec(text)) !== null) {
+    // Back to the first character of the namespace identifier.
+    let start = hit.index;
+    if (hit[0] === '/*') {
+      while (start > copied && isSpace(text[start - 1])) start--;
+    }
+    const identEnd = start;
+    while (start > copied && isWordChar(text[start - 1])) start--;
+    if (start === identEnd && hit[0] === '/*') continue;
+
+    IMPORT_REF_AT.lastIndex = start;
+    const ref = IMPORT_REF_AT.exec(text);
+    if (!ref) continue;
+
+    const end = start + ref[0].length;
+    anchor.lastIndex = end;
+
+    const name = ref[1] || ref[2] || ref[3] || ref[4] || ref[5];
+    if (text[start - 1] === '.') continue;
+
+    // (2026-09-17) A member of the pixi.js namespace — `pixi_js__WEBPACK_IMPORTED_MODULE_17__.Texture`
+    // (41 in the viewer bundle), with or without the name comment — is `PIXI.<name>` when PIXI is
+    // in scope. Only the reference is rewritten; a `(0,…)` wrapper stays, so the call keeps its
+    // `this` exactly as bundled.
+    const nsIdent = (/^[A-Za-z_$][\w$]*/.exec(text.slice(start, end)) || [''])[0];
+    if (name && name !== 'default' && names.has('PIXI') && /^pixi_js__WEBPACK_IMPORTED_MODULE_\d+__$/.test(nsIdent)) {
+      out += text.slice(copied, start) + 'PIXI.' + name;
+      copied = end;
+      continue;
+    }
+
+    // Not a scope name, or a default import.
+    if (name === 'default' || !names.has(name)) continue;
+
+    let from = start;
+    let to = end;
+    let replacement = name;
+
+    const open = callWrapperOpen(text, start);
+    const close = open >= copied ? callWrapperClose(text, end) : -1;
+    if (open >= copied && close !== -1 && isCallWrapper(text, open)) {
+      from = open;
+      to = close;
+      // `return(0,…)` in tighter output: keep the keyword and the name apart.
+      if (open > 0 && isWordChar(text[open - 1])) replacement = ' ' + name;
+      anchor.lastIndex = close;
+    }
+
+    out += text.slice(copied, from) + replacement;
+    copied = to;
+  }
+
+  return copied === 0 ? text : out + text.slice(copied);
+}
+
+/**
+ * The names bundled imports are rewritten to for a node with this
+ * `scriptScope`. A node that declares no scope gets none, so its Script text
+ * and its baseline are exactly what they were before scopes existed.
+ */
+function unmangleNamesFor(scope) {
+  return scope && typeof scope === 'object' ? scriptScopeNames(scope) : [];
+}
+
+/**
+ * The form used for "did the user change this function?" comparisons.
+ * `scopeNames` (optional) rewrites bundled imports first — pass the same names
+ * the default Script was built with, so an untouched function compares equal.
+ */
+function canonicalFunctionText(fnOrSource, scopeNames) {
+  if (fnOrSource === undefined || fnOrSource === null) return undefined;
+  if (typeof fnOrSource !== 'function' && typeof fnOrSource !== 'string') return undefined;
+  const source = typeof fnOrSource === 'function' ? fnOrSource.toString() : fnOrSource;
+  return normalizeWhitespace(stripFunctionHeader(unmangleImports(source, scopeNames)));
+}
+
+function sameFunctionSource(a, b, scopeNames) {
+  const ca = canonicalFunctionText(a, scopeNames);
+  const cb = canonicalFunctionText(b, scopeNames);
   return ca !== undefined && ca === cb;
 }
 
 /**
  * Emit a function as a valid property value, re-indented to where it sits in
  * the generated script (unless re-indenting could change a template literal).
+ * `scopeNames`: bundled imports of these names are written as the plain name.
  */
-function emitFunction(fn, indent) {
-  const source = fn.toString().trim();
+function emitFunction(fn, indent, scopeNames) {
+  const source = unmangleImports(fn.toString(), scopeNames).trim();
   const isExpression = /^(?:async\s+)?(?:function|class)\b/.test(source) || /^[([]/.test(source);
   const asExpression = isExpression ? source : reheadShorthand(source);
 
@@ -187,8 +380,8 @@ function emitKey(key) {
   return /^[A-Za-z_$][\w$]*$/.test(key) ? key : JSON.stringify(key);
 }
 
-function emitValue(value, indent, seen) {
-  if (typeof value === 'function') return emitFunction(value, indent);
+function emitValue(value, indent, seen, scopeNames) {
+  if (typeof value === 'function') return emitFunction(value, indent, scopeNames);
   if (value === undefined) return 'undefined';
   if (value === null) return 'null';
 
@@ -206,7 +399,7 @@ function emitValue(value, indent, seen) {
 
   try {
     if (Array.isArray(value)) {
-      const items = value.map((item) => emitValue(item, indent + '  ', seen));
+      const items = value.map((item) => emitValue(item, indent + '  ', seen, scopeNames));
       if (!items.length) return '[]';
       const inline = '[' + items.join(', ') + ']';
       if (inline.length <= 96 && inline.indexOf('\n') === -1) return inline;
@@ -219,7 +412,7 @@ function emitValue(value, indent, seen) {
     }
 
     const keys = Object.keys(value);
-    const entries = keys.map((key) => emitKey(key) + ': ' + emitValue(value[key], indent + '  ', seen));
+    const entries = keys.map((key) => emitKey(key) + ': ' + emitValue(value[key], indent + '  ', seen, scopeNames));
     if (!entries.length) return '{}';
     const inline = '{ ' + entries.join(', ') + ' }';
     if (inline.length <= 96 && inline.indexOf('\n') === -1) return inline;
@@ -257,6 +450,9 @@ function reconstructNodeSource(opts) {
   try {
     const identifier = toIdentifier(opts.name || 'Node');
     const lines = [];
+    // 2026-09-17, export 1789661242337: bundled imports of in-scope names are
+    // written as those names, so an edited function compiles against the scope.
+    const scopeNames = unmangleNamesFor(opts.scriptScope);
 
     lines.push(SCRIPT_HEADER);
     lines.push('const ' + identifier + ' = {');
@@ -265,7 +461,7 @@ function reconstructNodeSource(opts) {
     if (opts.category !== undefined) lines.push('  category: ' + JSON.stringify(opts.category) + ',');
     if (opts.docs !== undefined) lines.push('  docs: ' + JSON.stringify(opts.docs) + ',');
     if (typeof opts.initialize === 'function') {
-      lines.push('  initialize: ' + emitFunction(opts.initialize, '  ') + ',');
+      lines.push('  initialize: ' + emitFunction(opts.initialize, '  ', scopeNames) + ',');
     }
 
     ['inputs', 'outputs'].forEach((section) => {
@@ -277,7 +473,7 @@ function reconstructNodeSource(opts) {
 
       lines.push('  ' + section + ': {');
       keys.forEach((key) => {
-        lines.push('    ' + emitKey(key) + ': ' + emitValue(value[key], '    ', []) + ',');
+        lines.push('    ' + emitKey(key) + ': ' + emitValue(value[key], '    ', [], scopeNames) + ',');
       });
       lines.push('  },');
     });
@@ -294,7 +490,7 @@ function reconstructNodeSource(opts) {
         keys.forEach((key) => {
           const method = methods[key];
           const fn = typeof method === 'function' ? method : method.value;
-          lines.push('    ' + emitKey(key) + ': ' + emitFunction(fn, '    ') + ',');
+          lines.push('    ' + emitKey(key) + ': ' + emitFunction(fn, '    ', scopeNames) + ',');
         });
         lines.push('  },');
       }
@@ -321,15 +517,25 @@ function isSignalInput(input) {
  * once per type at definition time and used to tell which parts of an edited
  * script actually differ from the built-in implementation.
  */
-/** A baseline member: the pristine function plus its comparable source. */
-function member(fn) {
+/**
+ * A baseline member: the pristine function plus its comparable source.
+ * `scopeNames` are the names its bundled imports were rewritten to — the same
+ * rewrite reconstructNodeSource applied to the default Script.
+ */
+function member(fn, scopeNames) {
   if (typeof fn !== 'function') return undefined;
-  return { fn: fn, text: canonicalFunctionText(fn) };
+  return { fn: fn, text: canonicalFunctionText(fn, scopeNames), scopeNames: scopeNames };
 }
 
 function snapshotDefinition(opts) {
+  // 2026-09-17, export 1789661242337: canonicalise the built-in side with the
+  // rewrite the default Script got (same `opts`, so the same scope). Otherwise
+  // an UNEDITED function saved back as `requestRender(this)` would differ from
+  // the bundle's `(0,filterUtils/* requestRender */.sG)(this)` and be recompiled.
+  const scopeNames = unmangleNamesFor(opts.scriptScope);
+
   const snapshot = {
-    initialize: member(opts.initialize),
+    initialize: member(opts.initialize, scopeNames),
     inputs: {},
     outputs: {},
     methods: {}
@@ -339,8 +545,8 @@ function snapshotDefinition(opts) {
   Object.keys(inputs).forEach((name) => {
     const input = inputs[name] || {};
     snapshot.inputs[name] = {
-      set: member(input.set),
-      valueChangedToTrue: member(input.valueChangedToTrue),
+      set: member(input.set, scopeNames),
+      valueChangedToTrue: member(input.valueChangedToTrue, scopeNames),
       isSignal: isSignalInput(input)
     };
   });
@@ -348,20 +554,25 @@ function snapshotDefinition(opts) {
   const outputs = opts.outputs || {};
   Object.keys(outputs).forEach((name) => {
     const output = outputs[name] || {};
-    snapshot.outputs[name] = { get: member(output.get || output.getter) };
+    snapshot.outputs[name] = { get: member(output.get || output.getter, scopeNames) };
   });
 
   const methods = opts.methods || opts.prototypeExtensions || {};
   Object.keys(methods).forEach((name) => {
     const method = methods[name];
-    snapshot.methods[name] = member(typeof method === 'function' ? method : method && method.value);
+    snapshot.methods[name] = member(typeof method === 'function' ? method : method && method.value, scopeNames);
   });
 
   return snapshot;
 }
 
+/**
+ * The saved side goes through the same rewrite as the baseline, so a script
+ * saved from an older default (still carrying the bundled form) also reads as
+ * unchanged where the user didn't touch it.
+ */
 function isUnchanged(fn, baselineMember) {
-  return !!baselineMember && sameFunctionSource(fn, baselineMember.text);
+  return !!baselineMember && sameFunctionSource(fn, baselineMember.text, baselineMember.scopeNames);
 }
 
 function builtIn(baselineMember) {
@@ -403,12 +614,265 @@ function collectDeclaredNames(script) {
   return names.reverse();
 }
 
+// ---------------------------------------------------------------------------
+// Script scope: names an edited function can call without importing them
+// ---------------------------------------------------------------------------
+
+// 2026-09-17, debug export 1789661242337: an AI editing pixi.ReelColumn's
+// `_cascadeDropIn` kept its `requestRender(this)` call. requestRender is an
+// import of PixiReelColumn.js, and a script is compiled on its own, so the
+// override threw on its first call and the node silently fell back to the
+// built-in. Two things are now in scope for every compiled script: the Babel
+// helpers transpiled node sources call (`_objectSpread`, `_slicedToArray`, …,
+// which lived at the top of the bundled file), and whatever the node's own
+// definition lists as `scriptScope` — the helpers its source file imports.
+
+const FIXED_SCRIPT_PARAMS = ['XGENIA', 'Component', 'module', 'exports', '__isDefinition'];
+
+// Keywords, strict-mode reserved words, and names a parameter must never shadow.
+const RESERVED_SCRIPT_NAMES = new Set(
+  (
+    'break case catch class const continue debugger default delete do else enum export extends false finally ' +
+    'for function if import in instanceof new null return super switch this throw true try typeof var void ' +
+    'while with yield let static implements interface package private protected public await async ' +
+    'eval arguments undefined NaN Infinity'
+  ).split(' ')
+);
+
+function _typeof(value) {
+  return typeof value;
+}
+
+function _defineProperty(obj, key, value) {
+  if (key in obj) {
+    Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true });
+  } else {
+    obj[key] = value;
+  }
+  return obj;
+}
+
+function ownKeys(object, enumerableOnly) {
+  const keys = Object.keys(object);
+  if (Object.getOwnPropertySymbols) {
+    let symbols = Object.getOwnPropertySymbols(object);
+    if (enumerableOnly) {
+      symbols = symbols.filter((symbol) => Object.getOwnPropertyDescriptor(object, symbol).enumerable);
+    }
+    keys.push.apply(keys, symbols);
+  }
+  return keys;
+}
+
+// Babel emits `_objectSpread(_objectSpread({}, a), {}, { b: 1 })`: odd arguments
+// are spread sources, the `{}` between them are there on purpose.
+function _objectSpread2(target) {
+  for (let i = 1; i < arguments.length; i++) {
+    const source = arguments[i] != null ? arguments[i] : {};
+    if (i % 2) {
+      ownKeys(Object(source), true).forEach((key) => _defineProperty(target, key, source[key]));
+    } else if (Object.getOwnPropertyDescriptors) {
+      Object.defineProperties(target, Object.getOwnPropertyDescriptors(source));
+    } else {
+      ownKeys(Object(source)).forEach((key) =>
+        Object.defineProperty(target, key, Object.getOwnPropertyDescriptor(source, key))
+      );
+    }
+  }
+  return target;
+}
+
+function _arrayLikeToArray(arr, len) {
+  if (len == null || len > arr.length) len = arr.length;
+  const copy = new Array(len);
+  for (let i = 0; i < len; i++) copy[i] = arr[i];
+  return copy;
+}
+
+function _arrayWithHoles(arr) {
+  if (Array.isArray(arr)) return arr;
+}
+
+function _arrayWithoutHoles(arr) {
+  if (Array.isArray(arr)) return _arrayLikeToArray(arr);
+}
+
+function iteratorMethod(value) {
+  if (value == null) return undefined;
+  return (typeof Symbol !== 'undefined' && value[Symbol.iterator]) || value['@@iterator'] || undefined;
+}
+
+function _iterableToArray(iter) {
+  if (iteratorMethod(iter) != null) return Array.from(iter);
+}
+
+function _iterableToArrayLimit(arr, limit) {
+  const method = iteratorMethod(arr);
+  if (method == null) return undefined;
+
+  const result = [];
+  const iterator = method.call(arr);
+  let finished = false;
+  try {
+    while (limit == null || result.length < limit) {
+      const step = iterator.next();
+      if (step.done) {
+        finished = true;
+        break;
+      }
+      result.push(step.value);
+    }
+  } catch (e) {
+    finished = true;
+    throw e;
+  } finally {
+    // Stopped early (limit reached): let the iterator clean up, like destructuring does.
+    if (!finished && typeof iterator.return === 'function') iterator.return();
+  }
+  return result;
+}
+
+function _unsupportedIterableToArray(value, minLen) {
+  if (!value) return undefined;
+  if (typeof value === 'string') return _arrayLikeToArray(value, minLen);
+  let name = Object.prototype.toString.call(value).slice(8, -1);
+  if (name === 'Object' && value.constructor) name = value.constructor.name;
+  if (name === 'Map' || name === 'Set') return Array.from(value);
+  if (name === 'Arguments' || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(name)) {
+    return _arrayLikeToArray(value, minLen);
+  }
+  return undefined;
+}
+
+function _nonIterableRest() {
+  throw new TypeError(
+    'Invalid attempt to destructure non-iterable instance.\n' +
+      'In order to be iterable, non-array objects must have a [Symbol.iterator]() method.'
+  );
+}
+
+function _nonIterableSpread() {
+  throw new TypeError(
+    'Invalid attempt to spread non-iterable instance.\n' +
+      'In order to be iterable, non-array objects must have a [Symbol.iterator]() method.'
+  );
+}
+
+function _slicedToArray(arr, i) {
+  return _arrayWithHoles(arr) || _iterableToArrayLimit(arr, i) || _unsupportedIterableToArray(arr, i) || _nonIterableRest();
+}
+
+function _toConsumableArray(arr) {
+  return _arrayWithoutHoles(arr) || _iterableToArray(arr) || _unsupportedIterableToArray(arr) || _nonIterableSpread();
+}
+
+function _classCallCheck(instance, Constructor) {
+  if (!(instance instanceof Constructor)) throw new TypeError('Cannot call a class as a function');
+}
+
+function defineDescriptors(target, props) {
+  for (let i = 0; i < props.length; i++) {
+    const descriptor = props[i];
+    descriptor.enumerable = descriptor.enumerable || false;
+    descriptor.configurable = true;
+    if ('value' in descriptor) descriptor.writable = true;
+    Object.defineProperty(target, descriptor.key, descriptor);
+  }
+}
+
+function _createClass(Constructor, protoProps, staticProps) {
+  if (protoProps) defineDescriptors(Constructor.prototype, protoProps);
+  if (staticProps) defineDescriptors(Constructor, staticProps);
+  Object.defineProperty(Constructor, 'prototype', { writable: false });
+  return Constructor;
+}
+
+/** Babel helpers transpiled node sources call; in scope for every script. */
+const ENGINE_SCRIPT_HELPERS = Object.freeze({
+  _typeof,
+  _defineProperty,
+  ownKeys,
+  _objectSpread: _objectSpread2,
+  _objectSpread2,
+  _arrayLikeToArray,
+  _unsupportedIterableToArray,
+  _iterableToArray,
+  _iterableToArrayLimit,
+  _arrayWithHoles,
+  _arrayWithoutHoles,
+  _nonIterableRest,
+  _nonIterableSpread,
+  _slicedToArray,
+  _toConsumableArray,
+  _classCallCheck,
+  _createClass
+});
+
+function isUsableScopeName(name) {
+  return /^[A-Za-z_$][\w$]*$/.test(name) && !RESERVED_SCRIPT_NAMES.has(name) && FIXED_SCRIPT_PARAMS.indexOf(name) === -1;
+}
+
+function mergedScriptScope(scope) {
+  return Object.assign({}, ENGINE_SCRIPT_HELPERS, scope && typeof scope === 'object' ? scope : {});
+}
+
+function usableNames(merged) {
+  // A helper whose value is missing (an import that didn't resolve in this
+  // build) is left out rather than shadowing a global of the same name.
+  return Object.keys(merged).filter((name) => isUsableScopeName(name) && merged[name] !== undefined);
+}
+
+/**
+ * The names a script for a node with this `scriptScope` can call directly, in
+ * the order they are passed to the compiled script: the engine helpers, then
+ * the node's own scope.
+ */
+function scriptScopeNames(scope) {
+  return usableNames(mergedScriptScope(scope));
+}
+
+/** The scope name a "can't redeclare" SyntaxError is about, if any. */
+function redeclaredScopeName(error, names) {
+  const message = String((error && error.message) || '');
+  for (let i = 0; i < names.length; i++) {
+    const escaped = names[i].replace(/\$/g, '\\$');
+    if (new RegExp('(^|[^\\w$])' + escaped + '([^\\w$]|$)').test(message)) return names[i];
+  }
+  return undefined;
+}
+
+/**
+ * Compile the script body with the scope names as extra parameters. A script
+ * may declare one of those names itself (`const requestRender = …`), which is a
+ * SyntaxError against a parameter of the same name — its own declaration wins,
+ * so that name is dropped and the body compiled again. A syntax error that has
+ * nothing to do with the scope comes out exactly as it did without one.
+ */
+function compileScriptFactory(body, names) {
+  let active = names.slice();
+  for (;;) {
+    try {
+      return { factory: Function.apply(null, FIXED_SCRIPT_PARAMS.concat(active, [body])), names: active };
+    } catch (e) {
+      if (!(e instanceof SyntaxError) || !active.length) throw e;
+      const clash = redeclaredScopeName(e, active);
+      if (!clash) {
+        return { factory: Function.apply(null, FIXED_SCRIPT_PARAMS.concat([body])), names: [] };
+      }
+      active = active.filter((name) => name !== clash);
+    }
+  }
+}
+
 /**
  * Evaluate a script and return the node definition object it produces.
  * Supports `const Foo = { … }`, `module.exports = { … }` and a bare object
  * literal. Returns null when the script doesn't produce a definition.
+ *
+ * `scope` (the node definition's `scriptScope`) and ENGINE_SCRIPT_HELPERS are
+ * callable by name from every function in the script.
  */
-function evaluateNodeScript(script, node) {
+function evaluateNodeScript(script, node, scope) {
   const trimmed = String(script).trim();
   const moduleObj = { exports: {} };
 
@@ -423,15 +887,18 @@ function evaluateNodeScript(script, node) {
     body = '"use strict";\n' + trimmed + '\n;return ' + candidates.join(' || ') + ' || null;';
   }
 
-  const factory = new Function('XGENIA', 'Component', 'module', 'exports', '__isDefinition', body);
+  const merged = mergedScriptScope(scope);
+  const compiled = compileScriptFactory(body, usableNames(merged));
 
-  return factory.call(
+  return compiled.factory.apply(
     undefined,
-    JavascriptNodeParser.createXgeniaAPI(),
-    node && node.nodeScope ? JavascriptNodeParser.getComponentScopeForNode(node) : {},
-    moduleObj,
-    moduleObj.exports,
-    isNodeDefinition
+    [
+      JavascriptNodeParser.createXgeniaAPI(),
+      node && node.nodeScope ? JavascriptNodeParser.getComponentScopeForNode(node) : {},
+      moduleObj,
+      moduleObj.exports,
+      isNodeDefinition
+    ].concat(compiled.names.map((name) => merged[name]))
   );
 }
 
@@ -839,7 +1306,7 @@ function applyNodeScript(node, script, options) {
   let definition = null;
   let evaluationError = null;
   try {
-    definition = evaluateNodeScript(script, node);
+    definition = evaluateNodeScript(script, node, options && options.scope);
   } catch (e) {
     evaluationError = e;
   }
@@ -880,9 +1347,12 @@ module.exports = {
   reconstructNodeSource,
   snapshotDefinition,
   evaluateNodeScript,
+  scriptScopeNames,
+  ENGINE_SCRIPT_HELPERS,
   isNodeDefinition,
   canonicalFunctionText,
   sameFunctionSource,
   isUnchanged,
+  unmangleImports,
   WARNING_KEY
 };
