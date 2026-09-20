@@ -19,6 +19,31 @@ class EditorAPI {
     cb();
   }
 
+  /**
+   * What the selected node can be DRAGGED to do — movable / resizable / rotatable, each with a
+   * reason when it is not. The preload asks on every selection and hides gizmo affordances until
+   * the answer arrives; a missing handler meant it never arrived, so the watchdog fired
+   * "IPC response routing broken?" and the gizmo stayed dead. `getCapabilities` was already
+   * imported here for exactly this and had no method to reach it.
+   */
+  viewportCapabilities(evt, cb) {
+    if (!ProjectModel.instance || !evt || !evt.nodeId) {
+      cb({ error: 'No project or nodeId' });
+      return;
+    }
+    const node = ProjectModel.instance.findNodeWithId(evt.nodeId);
+    if (!node) {
+      cb({ error: 'not-found' });
+      return;
+    }
+    cb(getCapabilities(
+      evt.kind,
+      node.parameters || {},
+      evt.ancestorTransformed,
+      parentLayoutOf(node)
+    ));
+  }
+
   viewportGesture(evt, cb) {
     if (!ProjectModel.instance || !evt || !Array.isArray(evt.targets) || evt.targets.length === 0) {
       cb({ error: 'No project or targets' });

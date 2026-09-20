@@ -582,6 +582,25 @@ function generateNodeLibrary(nodeRegister) {
       ]
     },
     {
+      name: '3D',
+      description: 'Real-time 3D with three.js — models, shapes, cameras, lights',
+      type: 'visual',
+      subCategories: [
+        {
+          name: 'Scene',
+          items: ['three.Stage', 'three.Group', 'three.Environment']
+        },
+        {
+          name: 'Objects',
+          items: ['three.Model', 'three.Mesh']
+        },
+        {
+          name: 'Camera & Light',
+          items: ['three.Camera', 'three.Light']
+        }
+      ]
+    },
+    {
       name: 'Logic & Utilities',
       description: 'Logic, events, string manipulation',
       type: 'logic',

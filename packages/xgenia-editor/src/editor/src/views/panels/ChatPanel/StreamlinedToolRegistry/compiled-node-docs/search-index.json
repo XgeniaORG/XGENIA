@@ -607,8 +607,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/counter.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/math/counter",
-      "lineCount": 125,
-      "byteSize": 3132,
+      "lineCount": 130,
+      "byteSize": 3583,
       "inputFormatHints": {
         "increase": {
           "displayName": "Increase Count",
@@ -7031,13 +7031,14 @@
       "relativePath": "private/xgenia-pro-nodes/src/ml/auto-ml-analyzer.js",
       "category": "Machine Learning",
       "docs": "Analyzes data using HuggingFace ML, detects patterns, suggests models and features",
-      "lineCount": 179,
-      "byteSize": 4994,
+      "lineCount": 198,
+      "byteSize": 5571,
       "inputFormatHints": {
         "analyze": {
           "displayName": "Analyze",
           "type": "signal",
-          "group": "Actions"
+          "group": "Actions",
+          "notSettableAsParameter": true
         },
         "data": {
           "displayName": "Data",
@@ -7117,9 +7118,10 @@
       "portsComplete": true,
       "closureRisk": {
         "byFunction": {
+          "getter": [],
+          "valueChangedToTrue": [],
           "initialize": [],
-          "doAnalyze": [],
-          "setup": []
+          "doAnalyze": []
         }
       }
     },
@@ -7129,13 +7131,14 @@
       "relativePath": "private/xgenia-pro-nodes/src/ml/auto-ml-predictor.js",
       "category": "Machine Learning",
       "docs": "Runs predictions via HuggingFace models (serverless or dedicated endpoints)",
-      "lineCount": 225,
-      "byteSize": 6715,
+      "lineCount": 235,
+      "byteSize": 7046,
       "inputFormatHints": {
         "predict": {
           "displayName": "Predict",
           "type": "signal",
-          "group": "Actions"
+          "group": "Actions",
+          "notSettableAsParameter": true
         },
         "modelRepo": {
           "displayName": "Model Repo",
@@ -7219,9 +7222,10 @@
       "portsComplete": true,
       "closureRisk": {
         "byFunction": {
+          "getter": [],
+          "valueChangedToTrue": [],
           "initialize": [],
-          "doPredict": [],
-          "setup": []
+          "doPredict": []
         }
       }
     },
@@ -7231,18 +7235,20 @@
       "relativePath": "private/xgenia-pro-nodes/src/ml/auto-ml-trainer.js",
       "category": "Machine Learning",
       "docs": "Trains ML models automatically via HuggingFace AutoTrain",
-      "lineCount": 277,
-      "byteSize": 8240,
+      "lineCount": 302,
+      "byteSize": 9080,
       "inputFormatHints": {
         "train": {
           "displayName": "Train",
           "type": "signal",
-          "group": "Actions"
+          "group": "Actions",
+          "notSettableAsParameter": true
         },
         "checkStatus": {
           "displayName": "Check Status",
           "type": "signal",
-          "group": "Actions"
+          "group": "Actions",
+          "notSettableAsParameter": true
         },
         "data": {
           "displayName": "Training Data",
@@ -7339,11 +7345,14 @@
       "portsComplete": true,
       "closureRisk": {
         "byFunction": {
+          "getter": [],
+          "valueChangedToTrue": [],
           "initialize": [],
           "doTrain": [],
           "doCheckStatus": [],
-          "setup": [],
-          "destroy": []
+          "startStatusPolling": [],
+          "stopStatusPolling": [],
+          "_onNodeDeleted": []
         }
       }
     },
@@ -7353,13 +7362,14 @@
       "relativePath": "private/xgenia-pro-nodes/src/ml/client-retention-analyzer.js",
       "category": "Business Intelligence",
       "docs": "AI-powered customer retention analysis with statistical risk factor identification",
-      "lineCount": 169,
-      "byteSize": 4852,
+      "lineCount": 182,
+      "byteSize": 5250,
       "inputFormatHints": {
         "analyze": {
           "displayName": "Analyze Customers",
           "type": "signal",
-          "group": "Actions"
+          "group": "Actions",
+          "notSettableAsParameter": true
         },
         "customerData": {
           "displayName": "Customer Data",
@@ -7429,9 +7439,10 @@
       "portsComplete": true,
       "closureRisk": {
         "byFunction": {
+          "getter": [],
+          "valueChangedToTrue": [],
           "initialize": [],
-          "doAnalyze": [],
-          "setup": []
+          "doAnalyze": []
         }
       }
     },
@@ -7441,8 +7452,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/ml/retention-action-engine.js",
       "category": "Business Intelligence",
       "docs": "Generates intelligent retention strategies from AI-powered risk analysis",
-      "lineCount": 265,
-      "byteSize": 9351,
+      "lineCount": 280,
+      "byteSize": 9807,
       "inputFormatHints": {
         "executeActions": {
           "displayName": "Generate Actions",
@@ -7518,6 +7529,7 @@
       "portsComplete": true,
       "closureRisk": {
         "byFunction": {
+          "getter": [],
           "valueChangedToTrue": [],
           "initialize": [],
           "doExecuteActions": [],
@@ -7794,8 +7806,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiBitmapText.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-bitmap-text/",
-      "lineCount": 469,
-      "byteSize": 24241,
+      "lineCount": 471,
+      "byteSize": 24329,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -8120,8 +8132,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiCamera2D.js",
       "category": "Pixi|Camera",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-camera2d/",
-      "lineCount": 290,
-      "byteSize": 11379,
+      "lineCount": 292,
+      "byteSize": 11467,
       "inputFormatHints": {
         "target": {
           "displayName": "Target",
@@ -8265,21 +8277,24 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiCellOverlay.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/cell-overlay",
-      "lineCount": 501,
-      "byteSize": 24313,
+      "lineCount": 503,
+      "byteSize": 24403,
       "inputFormatHints": {
         "cells": {
           "displayName": "Cells",
+          "tooltip": "[row, col] pairs, 0-based, row first — the same order Calculate Winnings and Cascade The Reels use.",
           "type": "array",
           "group": "Data"
         },
         "spans": {
           "displayName": "Spans",
+          "tooltip": "{ row, col, rows, cols, symbol } rectangles anchored at their top-left cell. A symbol picks a sprite from Sprite Images.",
           "type": "array",
           "group": "Data"
         },
         "spriteImages": {
           "displayName": "Sprite Images",
+          "tooltip": "symbol id -> image URL. Used by the sprite style and by any span that carries a symbol; \"default\" serves plain cells in sprite style.",
           "type": "object",
           "group": "Data"
         },
@@ -8295,21 +8310,25 @@
         },
         "cellPadding": {
           "displayName": "Cell Padding (row gap)",
+          "tooltip": "The vertical gap between rows — PixiReelController's cellPadding.",
           "type": "number",
           "group": "Grid"
         },
         "columnPadding": {
           "displayName": "Column Padding (column gap)",
+          "tooltip": "The horizontal gap between columns — PixiReelController's columnPadding.",
           "type": "number",
           "group": "Grid"
         },
         "originX": {
           "displayName": "Origin X",
+          "tooltip": "Where column 0 starts inside this node's parent container (the first column's X).",
           "type": "number",
           "group": "Grid"
         },
         "originY": {
           "displayName": "Origin Y",
+          "tooltip": "Where row 0 starts inside this node's parent container (the first column's Y).",
           "type": "number",
           "group": "Grid"
         },
@@ -8331,6 +8350,7 @@
         },
         "thickness": {
           "displayName": "Thickness",
+          "tooltip": "Frame stroke width in px; the glow bleeds three times this far outward.",
           "type": "number",
           "group": "Style"
         },
@@ -8341,6 +8361,7 @@
         },
         "fillAlpha": {
           "displayName": "Fill Alpha",
+          "tooltip": "Opacity of the colour wash in the fill style. Other styles ignore it.",
           "type": "number",
           "group": "Style"
         },
@@ -8365,11 +8386,13 @@
         },
         "pulseSpeed": {
           "displayName": "Pulse Speed",
+          "tooltip": "Cycles per second.",
           "type": "number",
           "group": "Pulse"
         },
         "zIndex": {
           "displayName": "Z-Index",
+          "tooltip": "Only sorts when the parent container has Sort Children by Z on; otherwise tree order decides.",
           "type": "number",
           "group": "Appearance"
         },
@@ -8632,8 +8655,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiContainerNode.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-container",
-      "lineCount": 280,
-      "byteSize": 17317,
+      "lineCount": 282,
+      "byteSize": 17405,
       "inputFormatHints": {
         "scaleX": {
           "displayName": "Scale X",
@@ -10410,8 +10433,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiGSAPInertiaNode.js",
       "category": "Pixi|Animation",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-gsap-inertia",
-      "lineCount": 331,
-      "byteSize": 13303,
+      "lineCount": 333,
+      "byteSize": 13391,
       "inputFormatHints": {
         "target": {
           "displayName": "Target Node",
@@ -10632,8 +10655,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiGSAPPhysicsNode.js",
       "category": "Pixi|Animation",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-gsap-physics",
-      "lineCount": 305,
-      "byteSize": 11719,
+      "lineCount": 307,
+      "byteSize": 11807,
       "inputFormatHints": {
         "target": {
           "displayName": "Target Node",
@@ -12282,8 +12305,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiParticleEmitter.js",
       "category": "Pixi|Effects",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-particle-emitter/",
-      "lineCount": 1602,
-      "byteSize": 64027,
+      "lineCount": 1603,
+      "byteSize": 64195,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -12555,8 +12578,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelCell.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-cell",
-      "lineCount": 777,
-      "byteSize": 32928,
+      "lineCount": 779,
+      "byteSize": 33018,
       "inputFormatHints": {
         "width": {
           "displayName": "Width",
@@ -12888,8 +12911,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelColumn.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-column",
-      "lineCount": 2168,
-      "byteSize": 101349,
+      "lineCount": 2342,
+      "byteSize": 112134,
       "inputFormatHints": {
         "visibleRows": {
           "displayName": "Visible Rows",
@@ -13051,6 +13074,7 @@
         },
         "anticipationEffect": {
           "displayName": "Animation",
+          "tooltip": "What this reel does while it is building tension. IGNORED when a Reel Controller is running the anticipation — set it on the controller instead.",
           "type": "enum",
           "group": "Anticipation",
           "enums": [
@@ -13064,16 +13088,19 @@
         },
         "anticipationSpeedFactor": {
           "displayName": "Reel Speed",
+          "tooltip": "How much this reel's speed changes while building tension, as a multiple of its normal speed — 0.35 is about a third speed, 2 is double. The Animation above decides the DIRECTION: a number pointing against it is flipped, so a Speed Up preset can never end up slowing the reel down. Capped by Max Spin Speed.",
           "type": "number",
           "group": "Anticipation"
         },
         "anticipationIntensity": {
           "displayName": "Animation Strength",
+          "tooltip": "Multiplies how far the shake travels. 1 is the tuned default, 2 is twice as dramatic, 0.5 is subtle. Ignored by the animations that only change speed.",
           "type": "number",
           "group": "Anticipation"
         },
         "anticipationHighlight": {
           "displayName": "Reel Highlight",
+          "tooltip": "What lights up around this reel while it builds tension. Glow is a soft bloom bleeding outward; Frame is a bright border on the reel edge. Nothing is drawn over the symbols. Only shows while the reel is anticipating.",
           "type": "enum",
           "group": "Anticipation",
           "enums": [
@@ -13085,65 +13112,87 @@
         },
         "anticipationHighlightColour": {
           "displayName": "Highlight Colour",
+          "tooltip": "The colour of the glow and the frame. Gold reads as \"big win coming\" in most games; a colour taken from the scatter symbol ties it to what the player is chasing.",
           "type": "color",
           "group": "Anticipation"
         },
         "anticipationHighlightSize": {
           "displayName": "Highlight Size",
+          "tooltip": "How far the glow spreads out from the reel, in pixels, and how thick the frame is drawn. Scales up automatically at levels 2 and 3.",
           "type": "number",
           "group": "Anticipation"
         },
         "anticipationHighlightPulse": {
           "displayName": "Highlight Pulse",
+          "tooltip": "How much the highlight breathes: 1 is the steady throb slot frames use, 0 holds it at a constant brightness, 2 makes it flash hard.",
           "type": "number",
           "group": "Anticipation"
         },
         "anticipationRampMs": {
           "displayName": "Slow-Down Time (ms)",
+          "tooltip": "How long this reel takes to ease from full speed down to its held speed.",
           "type": "number",
           "group": "Anticipation"
         },
         "startAnticipation": {
           "displayName": "Start Anticipation",
+          "tooltip": "Starts the animation on this reel by hand. Not needed when a Reel Controller is driving the anticipation — it calls this for you at the right moment.",
           "type": "signal",
           "group": "Anticipation",
           "notSettableAsParameter": true
         },
         "stopAnticipation": {
           "displayName": "Stop Anticipation",
+          "tooltip": "Ends the animation and puts the reel back exactly as it was.",
           "type": "signal",
           "group": "Anticipation",
           "notSettableAsParameter": true
         },
         "cascade": {
           "displayName": "Cascade",
+          "tooltip": "Runs ONE cascade pass on this column from Cascade Reels + Removed Cells: the removed cells burn out (40% of Cascade Duration), then the column settles (60%), then On Cascade Complete fires — exactly once per accepted signal. A signal that arrives while the column is still spinning or mid-cascade is QUEUED and runs when the current motion ends (it is never dropped), so wire the first pass from t...",
           "type": "signal",
           "group": "Cascade",
           "notSettableAsParameter": true
         },
         "cascadeReels": {
           "displayName": "Cascade Reels",
+          "tooltip": "The column AFTER this pass, top to bottom, as symbol ids (row 0 first). With the gravity style the survivors' ids must already sit at their fallen rows and the top rows hold the refills — i.e. the maths grid after gravity + refill.",
           "type": "array",
           "group": "Cascade"
         },
         "cascadeRemovedCells": {
           "displayName": "Removed Cells",
+          "tooltip": "Which rows burn this pass: [{row}] or [[row, col]]. Empty = nothing to remove, and On Cascade Complete fires immediately (use that for a settle-only pass). Rows are 0 at the top.",
           "type": "array",
           "group": "Cascade"
         },
         "cascadeStyle": {
           "displayName": "Cascade Style",
+          "tooltip": "gravity = a real tumble: removed cells burn, the survivors above them fall down by the number of gaps beneath them (order kept, no sideways motion), and only the refills enter from above the mask. Use it for tumble / cascade / cluster-pays mechanics. drop / shrink / explode / fade = the removed cells burn, then the WHOLE column is swapped to Cascade Reels and re-dropped from above — survivors d...",
           "type": "enum",
           "group": "Cascade",
           "enums": [
             "drop",
             "shrink",
             "explode",
-            "fade"
+            "fade",
+            "gravity"
+          ]
+        },
+        "cascadeDirection": {
+          "displayName": "Cascade Direction",
+          "tooltip": "gravity style only. down = survivors fall into the gaps beneath them and the refills enter from ABOVE the mask (the maths fills from the top). up = survivors rise into the gaps above them and the refills enter from BELOW the mask — set Cascade The Reels refillFrom to 'bottom' so the grid it emits agrees, or the landing snap shows a different board from the one that moved.",
+          "type": "enum",
+          "group": "Cascade",
+          "enums": [
+            "down",
+            "up"
           ]
         },
         "cascadeDuration": {
           "displayName": "Cascade Duration",
+          "tooltip": "Whole pass in ms: 40% burn, 60% fall/settle.",
           "type": "number",
           "group": "Cascade"
         },
@@ -13360,6 +13409,9 @@
           "_syncMask": [],
           "_startCascade": [],
           "_cascadeDropIn": [],
+          "_cascadeGravity": [],
+          "_applyCascadeSymbol": [],
+          "_drainPendingCascade": [],
           "_onNodeDeleted": [],
           "getDynamicPorts": [],
           "setSymbolVideos": [],
@@ -13739,8 +13791,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiSpineNode.js",
       "category": "Pixi|Animation",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-spine/",
-      "lineCount": 722,
-      "byteSize": 25906,
+      "lineCount": 724,
+      "byteSize": 25994,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -14117,8 +14169,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiSpriteNode.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-sprite/",
-      "lineCount": 627,
-      "byteSize": 41082,
+      "lineCount": 652,
+      "byteSize": 42171,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -14172,11 +14224,13 @@
         },
         "width": {
           "displayName": "Width",
+          "tooltip": "Leave EMPTY and the sprite takes the image's own pixel width (see the Natural Width output for what that is). Set a number to override it. Scale X multiplies whichever applies.",
           "type": "number",
           "group": "Dimensions"
         },
         "height": {
           "displayName": "Height",
+          "tooltip": "Leave EMPTY and the sprite takes the image's own pixel height (see the Natural Height output for what that is). Set a number to override it. Scale Y multiplies whichever applies.",
           "type": "number",
           "group": "Dimensions"
         },
@@ -14722,16 +14776,19 @@
       "inputFormatHints": {
         "width": {
           "displayName": "Design Width",
+          "tooltip": "The width you author your Pixi content at. Only used when Scale Content is on.",
           "type": "number",
           "group": "Scaling"
         },
         "height": {
           "displayName": "Design Height",
+          "tooltip": "The height you author your Pixi content at. Only used when Scale Content is on.",
           "type": "number",
           "group": "Scaling"
         },
         "fitMode": {
           "displayName": "Scale Content",
+          "tooltip": "Scales your Pixi content to whatever size the Stage ends up. Leave Off for 1:1 pixels.",
           "type": "enum",
           "enums": [
             "none",
@@ -14753,6 +14810,7 @@
         },
         "transparentBackground": {
           "displayName": "Transparent",
+          "tooltip": "Draw with no background at all, so whatever is behind the Stage shows through.",
           "type": "boolean",
           "group": "Appearance"
         },
@@ -14768,6 +14826,7 @@
         },
         "forceCanvas": {
           "displayName": "Force Canvas",
+          "tooltip": "Use the 2D canvas renderer instead of WebGL. Slower — only for debugging.",
           "type": "boolean",
           "group": "Rendering"
         },
@@ -16108,8 +16167,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiText.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-text/",
-      "lineCount": 413,
-      "byteSize": 18310,
+      "lineCount": 429,
+      "byteSize": 19159,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -16834,16 +16893,18 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiWheel.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/wheel",
-      "lineCount": 461,
-      "byteSize": 20860,
+      "lineCount": 463,
+      "byteSize": 20950,
       "inputFormatHints": {
         "segments": {
           "displayName": "Segments",
+          "tooltip": "Strings, or { label, colour } objects. Segment 0 starts at 12 o'clock and they run clockwise.",
           "type": "array",
           "group": "Segments"
         },
         "colours": {
           "displayName": "Colours",
+          "tooltip": "Cycled over the segments that carry no colour of their own.",
           "type": "array",
           "group": "Segments"
         },
@@ -16874,12 +16935,14 @@
         },
         "spinTo": {
           "displayName": "Spin To",
+          "tooltip": "Spins to Target Index. Wire Wheel Spin's segmentIndex into Target Index first.",
           "type": "signal",
           "group": "Spin",
           "notSettableAsParameter": true
         },
         "targetIndex": {
           "displayName": "Target Index",
+          "tooltip": "The 0-based segment to stop on — from the maths, e.g. Wheel Spin.segmentIndex.",
           "type": "number",
           "group": "Spin"
         },
@@ -16905,6 +16968,7 @@
         },
         "x": {
           "displayName": "X",
+          "tooltip": "Centre of the wheel inside its pixi parent.",
           "type": "number",
           "group": "Transform"
         },
@@ -17058,8 +17122,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 3053,
-      "byteSize": 166934,
+      "lineCount": 3057,
+      "byteSize": 167321,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
@@ -17178,11 +17242,13 @@
         },
         "anticipation": {
           "displayName": "Enable Anticipation",
+          "tooltip": "Once enough scatters have landed, hold the remaining reels back and animate them, so the player gets a moment of suspense before the result. This changes only how the spin LOOKS — the maths already decided the outcome.",
           "type": "boolean",
           "group": "Anticipation"
         },
         "anticipationMode": {
           "displayName": "When To Anticipate",
+          "tooltip": "Recommended: each reel is judged when its turn comes, on the scatters the player can already see. So reel 4 can slow down while reel 5 still spins at full speed, and reel 5 only starts once reel 4 has landed.",
           "type": "enum",
           "enums": [
             "progressive",
@@ -17193,51 +17259,61 @@
         },
         "scatterSymbol": {
           "displayName": "Scatter Symbol ID",
+          "tooltip": "Which symbol counts as a scatter, by its ID in your symbol list. Leave at -1 to switch anticipation off entirely.",
           "type": "number",
           "group": "Anticipation"
         },
         "scatterThreshold": {
           "displayName": "Scatters Before Anticipation",
+          "tooltip": "How many scatters must already be on screen before a reel starts to build tension. 2 is the usual choice for a 3-scatter feature: land 2, and every reel that could still bring the third one gets the treatment.",
           "type": "number",
           "group": "Anticipation"
         },
         "anticipationTargetCount": {
           "displayName": "Scatters Needed To Win",
+          "tooltip": "How many scatters your feature actually needs. Used to work out whether the reels still to come could possibly get there — see \"Stop If Impossible\".",
           "type": "number",
           "group": "Anticipation"
         },
         "anticipationRequirePossibleWin": {
           "displayName": "Stop If Impossible",
+          "tooltip": "Keep this ON. Once too few reels are left to ever reach \"Scatters Needed To Win\", the remaining reels land normally. Teasing for something the game has already ruled out is how players learn to ignore the slow-down.",
           "type": "boolean",
           "group": "Anticipation"
         },
         "anticipationScattersPerReel": {
           "displayName": "Scatters Per Reel",
+          "tooltip": "How many scatters a SINGLE reel can contribute to the count. Leave at 0 for automatic: each reel offers as many as it has rows, read from the reel itself — which is what lets one setting cover 3x3, 5x3, 7x3 and a stack whose reels differ in height. Set it to 1 if only ONE scatter per reel counts toward your feature, or to a fixed number for an unusual rule.",
           "type": "number",
           "group": "Anticipation"
         },
         "anticipationReels": {
           "displayName": "Anticipation Reels",
+          "tooltip": "Leave empty to allow any reel. Otherwise list reel numbers COUNTING FROM 0, matching the Column 0…11 inputs: \"3,4\" or \"3-4\" means only the 4th and 5th reels may build tension. Most cabinets never tease the first reels.",
           "type": "string",
           "group": "Anticipation"
         },
         "anticipationMaxReels": {
           "displayName": "Max Anticipating Reels",
+          "tooltip": "How many reels may build tension in one spin. 0 means automatic (",
           "type": "number",
           "group": "Anticipation"
         },
         "anticipationPreview": {
           "displayName": "Preview Mode",
+          "tooltip": "Forces the last two reels to anticipate on EVERY spin — the second-to-last at Level 1 and the last at Level 2 — so you can tune the look without waiting for a real scatter combination. Turn this OFF before you ship.",
           "type": "boolean",
           "group": "Anticipation"
         },
         "anticipationDelay": {
           "displayName": "Level 1 · Hold (ms)",
+          "tooltip": "Level 1 — the mildest step, and the one players see most often: the scatters on screen have just reached Scatters Before Anticipation (2 by default). Keep it gentle. This sets how long the reel is held back before it lands, in milliseconds. Bigger = longer suspense. Each anticipating reel adds its own hold, so the reels behind it wait too.",
           "type": "number",
           "group": "Anticipation: Levels"
         },
         "anticipationEffectL1": {
           "displayName": "Level 1 · Animation",
+          "tooltip": "Level 1 — the mildest step, and the one players see most often: the scatters on screen have just reached Scatters Before Anticipation (2 by default). Keep it gentle. This sets what the reel does while it is being held back.",
           "type": "enum",
           "group": "Anticipation: Levels",
           "enums": [
@@ -17251,16 +17327,19 @@
         },
         "anticipationSpeedL1": {
           "displayName": "Level 1 · Reel Speed",
+          "tooltip": "Level 1 — the mildest step, and the one players see most often: the scatters on screen have just reached Scatters Before Anticipation (2 by default). Keep it gentle. How much the reel speed changes while it is held back, as a multiple of its normal speed — 0.35 is about a third speed, 2 is double. The ANIMATION decides the direction: a Slow Down preset always slows and a Speed Up preset always ...",
           "type": "number",
           "group": "Anticipation: Levels"
         },
         "anticipationDelayL2": {
           "displayName": "Level 2 · Hold (ms)",
+          "tooltip": "Level 2 — one MORE scatter than the threshold has landed (3 by default). The player is nearer the win, so this should feel clearly heavier than Level 1. This sets how long the reel is held back before it lands, in milliseconds. Bigger = longer suspense. Each anticipating reel adds its own hold, so the reels behind it wait too.",
           "type": "number",
           "group": "Anticipation: Levels"
         },
         "anticipationEffectL2": {
           "displayName": "Level 2 · Animation",
+          "tooltip": "Level 2 — one MORE scatter than the threshold has landed (3 by default). The player is nearer the win, so this should feel clearly heavier than Level 1. This sets what the reel does while it is being held back.",
           "type": "enum",
           "group": "Anticipation: Levels",
           "enums": [
@@ -17274,16 +17353,19 @@
         },
         "anticipationSpeedL2": {
           "displayName": "Level 2 · Reel Speed",
+          "tooltip": "Level 2 — one MORE scatter than the threshold has landed (3 by default). The player is nearer the win, so this should feel clearly heavier than Level 1. How much the reel speed changes while it is held back, as a multiple of its normal speed — 0.35 is about a third speed, 2 is double. The ANIMATION decides the direction: a Slow Down preset always slows and a Speed Up preset always speeds up, an...",
           "type": "number",
           "group": "Anticipation: Levels"
         },
         "anticipationDelayL3": {
           "displayName": "Level 3 · Hold (ms)",
+          "tooltip": "Level 3 — two or more scatters past the threshold (4+ by default). The biggest moment the reels have; most games go all out here. This sets how long the reel is held back before it lands, in milliseconds. Bigger = longer suspense. Each anticipating reel adds its own hold, so the reels behind it wait too.",
           "type": "number",
           "group": "Anticipation: Levels"
         },
         "anticipationEffectL3": {
           "displayName": "Level 3 · Animation",
+          "tooltip": "Level 3 — two or more scatters past the threshold (4+ by default). The biggest moment the reels have. There is no bigger animation than Level 2's: Level 3 escalates through its Reel Speed and Hold, and the shake is automatically half again as strong. This sets what the reel does while it is being held back.",
           "type": "enum",
           "group": "Anticipation: Levels",
           "enums": [
@@ -17297,16 +17379,19 @@
         },
         "anticipationSpeedL3": {
           "displayName": "Level 3 · Reel Speed",
+          "tooltip": "Level 3 — two or more scatters past the threshold (4+ by default). The biggest moment the reels have; most games go all out here. How much the reel speed changes while it is held back, as a multiple of its normal speed — 0.35 is about a third speed, 2 is double. The ANIMATION decides the direction: a Slow Down preset always slows and a Speed Up preset always speeds up, and a number pointing the...",
           "type": "number",
           "group": "Anticipation: Levels"
         },
         "anticipationIntensity": {
           "displayName": "Animation Strength",
+          "tooltip": "Multiplies how far the shake travels and how bright the highlight burns. 1 is the tuned default; 2 is twice as dramatic; 0.5 is subtle. Levels 2 and 3 already scale up from here on their own.",
           "type": "number",
           "group": "Anticipation: Look"
         },
         "anticipationHighlight": {
           "displayName": "Reel Highlight",
+          "tooltip": "What lights up around the teasing reel — the part of an anticipation the player actually reads. Glow is a soft bloom bleeding outward from the reel; Frame is a bright border on its edge; Glow + Frame is what most games use. Nothing is ever drawn over the symbols. Pair it with Dim Other Reels for the full effect.",
           "type": "enum",
           "group": "Anticipation: Look",
           "enums": [
@@ -17318,31 +17403,37 @@
         },
         "anticipationHighlightColour": {
           "displayName": "Highlight Colour",
+          "tooltip": "The colour of the glow and the frame. Gold reads as \"big win coming\" in most games; taking the colour from your scatter symbol ties the tease to what the player is chasing.",
           "type": "color",
           "group": "Anticipation: Look"
         },
         "anticipationHighlightSize": {
           "displayName": "Highlight Size",
+          "tooltip": "How far the glow spreads out from the reel, in pixels, and how thick the frame is drawn. Levels 2 and 3 scale this up on their own, the same as the shake.",
           "type": "number",
           "group": "Anticipation: Look"
         },
         "anticipationHighlightPulse": {
           "displayName": "Highlight Pulse",
+          "tooltip": "How much the highlight breathes: 1 is the steady throb slot frames use, 0 holds it at constant brightness, 2 makes it flash hard.",
           "type": "number",
           "group": "Anticipation: Look"
         },
         "anticipationRampMs": {
           "displayName": "Slow-Down Time (ms)",
+          "tooltip": "How long the reel takes to ease from full speed down to its held speed. Small values snap and read as a dropped frame; 260ms is a natural drag.",
           "type": "number",
           "group": "Anticipation: Look"
         },
         "anticipationDimOthers": {
           "displayName": "Dim Other Reels",
+          "tooltip": "Fades every reel that is NOT building tension, so the player's eye goes to the one that matters. Restored automatically when the spin ends.",
           "type": "boolean",
           "group": "Anticipation: Look"
         },
         "anticipationDimAlpha": {
           "displayName": "Dim Amount",
+          "tooltip": "How visible the dimmed reels stay: 1 is no dimming at all, 0.55 is a clear fade, 0 is invisible. Only used when \"Dim Other Reels\" is on.",
           "type": "number",
           "group": "Anticipation: Look"
         },
@@ -17413,11 +17504,13 @@
         },
         "columnPadding": {
           "displayName": "Column Padding",
+          "tooltip": "Horizontal gap between reels, in pixels. 0 makes neighbouring reels touch.",
           "type": "number",
           "group": "Auto Layout"
         },
         "cellPadding": {
           "displayName": "Cell Padding",
+          "tooltip": "Vertical gap between rows, in pixels. 0 makes symbols in a reel touch.",
           "type": "number",
           "group": "Auto Layout"
         },
@@ -17575,12 +17668,14 @@
         },
         "cascadeStyle": {
           "displayName": "Cascade Style",
+          "tooltip": "Forwarded to every column. gravity = real tumble (survivors fall, refills enter from above); the other four re-drop the whole column after the burn.",
           "type": "enum",
           "enums": [
             "drop",
             "shrink",
             "explode",
-            "fade"
+            "fade",
+            "gravity"
           ],
           "group": "Cascade"
         },
@@ -17664,21 +17759,25 @@
         },
         "isAnticipating": {
           "displayName": "Is Anticipating",
+          "tooltip": "True while at least one reel is building tension.",
           "type": "boolean",
           "group": "Anticipation"
         },
         "anticipationLevel": {
           "displayName": "Anticipation Level",
+          "tooltip": "How intense the current anticipation is: 1 = the scatter threshold was just reached, 2 = one scatter past it, 3 = two or more past. 0 when no reel is anticipating. Use it to pick which sound to play.",
           "type": "number",
           "group": "Anticipation"
         },
         "anticipationColumnIndex": {
           "displayName": "Anticipating Reel",
+          "tooltip": "Which reel is building tension, counting from 0. -1 when none is. Use it to aim a spotlight or a frame at that reel.",
           "type": "number",
           "group": "Anticipation"
         },
         "anticipationScatterCount": {
           "displayName": "Scatters On Screen",
+          "tooltip": "How many scatters had already landed when this tease started — the reason it is happening.",
           "type": "number",
           "group": "Anticipation"
         },
@@ -18252,8 +18351,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/cascade-the-reels.js",
       "category": "Math",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/cascade-the-reels",
-      "lineCount": 268,
-      "byteSize": 12866,
+      "lineCount": 281,
+      "byteSize": 14054,
       "inputFormatHints": {
         "reels": {
           "displayName": "Reels",
@@ -18268,6 +18367,15 @@
         "symbolWeights": {
           "displayName": "Symbol Weights (optional)",
           "type": "array",
+          "group": "Parameters"
+        },
+        "refillFrom": {
+          "displayName": "Refill From",
+          "type": "enum",
+          "enums": [
+            "top",
+            "bottom"
+          ],
           "group": "Parameters"
         },
         "Seeds": {
@@ -18300,7 +18408,7 @@
           "group": "Results"
         }
       },
-      "description": "Tumble/cascade REMOVER + REFILL. It does NOT find wins and has no adjacency or cluster logic of its own: it clears ONLY the cells named in `winningLinesDetails`, drops the survivors down each column, refills the gaps from the top (weighted by `symbolWeights`, drawn from `Seeds` — REQUIRED: wire ISAAC Random Number Array Generator.array → Seeds; unseeded it FAILS CLOSED: throws \"[Cascade The Reels] Seeds is required\", logs it, writes the error into inspect data, empties `reels` and still fires Done — it no longer falls back to Math.random, which is not provably fair) and emits the new grid on `reels`. Fed no winningLinesDetails it clears NOTHING and still fires Done, so a silent no-op looks like a working cascade. `winningLinesDetails` shape: an array of objects, and only `positions` is read, as [row, col] pairs — ROW FIRST, the opposite order from Check Wins customPaylines ([col,row]) — e.g. [{ positions: [[2,0],[3,0],[2,1]], payout: 40 }]. {row, col} objects work too; out-of-range or other shapes are skipped in silence. Calculate Winnings:winningLinesDetails and Reel Ways Calculate Winnings:winningLinesDetails already emit this; Check Wins:winningLines does NOT (no positions), so wiring that in clears nothing. THE LOOP CONTRACT, and the part builds keep getting wrong: the grid is STATE. Hold it in a Variable2, wire that variable into `reels`, and write the `reels` output of this node BACK to the same variable each pass (Cascade.reels -> SetVariable -> Variable2 -> Cascade.reels). Wiring Weighted Reels:reels straight into `reels` gives a cascade that re-runs the original spin on every beat and never progresses. The WIN EVALUATOR and the DISPLAY must both read that same variable, or the maths scores a grid the player never saw. FIRING: one Do per evaluation pass, after the winningLinesDetails for that pass have been computed; the chain ends on the pass that pays nothing.",
+      "description": "Tumble/cascade REMOVER + REFILL. It does NOT find wins and has no adjacency or cluster logic of its own: it clears ONLY the cells named in `winningLinesDetails`, drops the survivors down each column and refills the gaps from the top — or, with refillFrom set to bottom, keeps the survivors at the top and refills from the bottom for a rise-up cascade (pair with pixi.ReelColumn cascadeDirection up) — (weighted by `symbolWeights`, drawn from `Seeds` — REQUIRED: wire ISAAC Random Number Array Generator.array → Seeds; unseeded it FAILS CLOSED: throws \"[Cascade The Reels] Seeds is required\", logs it, writes the error into inspect data, empties `reels` and still fires Done — it no longer falls back to Math.random, which is not provably fair) and emits the new grid on `reels`. Fed no winningLinesDetails it clears NOTHING and still fires Done, so a silent no-op looks like a working cascade. `winningLinesDetails` shape: an array of objects, and only `positions` is read, as [row, col] pairs — ROW FIRST, the opposite order from Check Wins customPaylines ([col,row]) — e.g. [{ positions: [[2,0],[3,0],[2,1]], payout: 40 }]. {row, col} objects work too; out-of-range or other shapes are skipped in silence. Calculate Winnings:winningLinesDetails and Reel Ways Calculate Winnings:winningLinesDetails already emit this; Check Wins:winningLines does NOT (no positions), so wiring that in clears nothing. THE LOOP CONTRACT, and the part builds keep getting wrong: the grid is STATE. Hold it in a Variable2, wire that variable into `reels`, and write the `reels` output of this node BACK to the same variable each pass (Cascade.reels -> SetVariable -> Variable2 -> Cascade.reels). Wiring Weighted Reels:reels straight into `reels` gives a cascade that re-runs the original spin on every beat and never progresses. The WIN EVALUATOR and the DISPLAY must both read that same variable, or the maths scores a grid the player never saw. FIRING: one Do per evaluation pass, after the winningLinesDetails for that pass have been computed; the chain ends on the pass that pays nothing.",
       "portsSource": "registry",
       "portsComplete": true,
       "closureRisk": {
@@ -24887,8 +24995,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/spin-calculate.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/spin-calculate",
-      "lineCount": 338,
-      "byteSize": 13642,
+      "lineCount": 363,
+      "byteSize": 15497,
       "inputFormatHints": {
         "betAmount": {
           "displayName": "Bet Amount",
@@ -25010,6 +25118,7 @@
           "set": [],
           "valueChangedToTrue": [],
           "getter": [],
+          "_noteChargeForRunawayCheck": [],
           "scheduleCalculation": [],
           "doCalculation": []
         }
@@ -26214,6 +26323,1639 @@
           "initialize": [],
           "set": [],
           "get": []
+        }
+      }
+    },
+    "three.Camera": {
+      "name": "three.Camera",
+      "file": "ThreeCamera.js",
+      "relativePath": "private/xgenia-pro-nodes/src/three/nodes/ThreeCamera.js",
+      "category": "Three",
+      "docs": "https://docsapp.xgenia.com/nodes/three-nodes/three-camera/",
+      "lineCount": 166,
+      "byteSize": 9089,
+      "inputFormatHints": {
+        "type": {
+          "displayName": "Type",
+          "tooltip": "Orthographic has no perspective distortion — the right choice for isometric looks and for rendering symbols.",
+          "type": "enum",
+          "enums": [
+            "perspective",
+            "orthographic"
+          ],
+          "group": "Camera"
+        },
+        "fov": {
+          "displayName": "Field Of View",
+          "tooltip": "Perspective only. Lower is more zoomed and flatter.",
+          "type": "number",
+          "group": "Camera"
+        },
+        "orthoSize": {
+          "displayName": "Ortho Size",
+          "tooltip": "Orthographic only: how many world units tall the view is.",
+          "type": "number",
+          "group": "Camera"
+        },
+        "near": {
+          "displayName": "Near Clip",
+          "type": "number",
+          "group": "Camera"
+        },
+        "far": {
+          "displayName": "Far Clip",
+          "type": "number",
+          "group": "Camera"
+        },
+        "posX": {
+          "displayName": "Position X",
+          "type": "number",
+          "group": "Transform"
+        },
+        "posY": {
+          "displayName": "Position Y",
+          "type": "number",
+          "group": "Transform"
+        },
+        "posZ": {
+          "displayName": "Position Z",
+          "type": "number",
+          "group": "Transform"
+        },
+        "targetX": {
+          "displayName": "Look At X",
+          "type": "number",
+          "group": "Transform"
+        },
+        "targetY": {
+          "displayName": "Look At Y",
+          "type": "number",
+          "group": "Transform"
+        },
+        "targetZ": {
+          "displayName": "Look At Z",
+          "type": "number",
+          "group": "Transform"
+        },
+        "orbit": {
+          "displayName": "Orbit Controls",
+          "tooltip": "Let the player drag to rotate the view.",
+          "type": "boolean",
+          "group": "Orbit"
+        },
+        "autoRotate": {
+          "displayName": "Auto Rotate",
+          "type": "boolean",
+          "group": "Orbit"
+        },
+        "autoRotateSpeed": {
+          "displayName": "Auto Rotate Speed",
+          "type": "number",
+          "group": "Orbit"
+        },
+        "enableZoom": {
+          "displayName": "Allow Zoom",
+          "type": "boolean",
+          "group": "Orbit"
+        },
+        "enablePan": {
+          "displayName": "Allow Pan",
+          "type": "boolean",
+          "group": "Orbit"
+        },
+        "dampingFactor": {
+          "displayName": "Damping",
+          "type": "number",
+          "group": "Orbit"
+        },
+        "minDistance": {
+          "displayName": "Min Distance",
+          "type": "number",
+          "group": "Orbit"
+        },
+        "maxDistance": {
+          "displayName": "Max Distance",
+          "type": "number",
+          "group": "Orbit"
+        },
+        "frameScene": {
+          "displayName": "Frame Scene",
+          "tooltip": "Point the camera at everything in the scene.",
+          "type": "signal",
+          "group": "Actions",
+          "notSettableAsParameter": true
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        },
+        "cssClassName": {
+          "displayName": "CSS Class",
+          "type": "string",
+          "group": "Advanced HTML"
+        },
+        "styleCss": {
+          "displayName": "CSS Style",
+          "type": "string",
+          "group": "Advanced HTML"
+        },
+        "variant": {
+          "displayName": "Variant",
+          "type": "string",
+          "notSettableAsParameter": true,
+          "group": "General"
+        },
+        "mounted": {
+          "displayName": "Mounted",
+          "type": "boolean",
+          "group": "General"
+        }
+      },
+      "outputFormatHints": {
+        "nodeReference": {
+          "displayName": "Node Reference",
+          "type": "node",
+          "group": "General"
+        },
+        "childIndex": {
+          "displayName": "Child Index",
+          "type": "number"
+        },
+        "this": {
+          "displayName": "This",
+          "type": "reference"
+        },
+        "screenPositionX": {
+          "displayName": "Screen Position X",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "screenPositionY": {
+          "displayName": "Screen Position Y",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "boundingWidth": {
+          "displayName": "Width",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "boundingHeight": {
+          "displayName": "Height",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "didMount": {
+          "displayName": "Did Mount",
+          "type": "signal",
+          "group": "Mounted"
+        },
+        "willUnmount": {
+          "displayName": "Will Unmount",
+          "type": "signal",
+          "group": "Mounted"
+        }
+      },
+      "shortDesc": "The viewpoint. Optional — a 3D Stage frames itself without one.",
+      "portsSource": "registry",
+      "portsComplete": true,
+      "closureRisk": {
+        "byFunction": {
+          "initialize": [],
+          "registerComponentRef": [],
+          "_rebuild": [],
+          "directUpdateObject": [],
+          "_applyControls": [],
+          "_disposeControls": []
+        }
+      }
+    },
+    "three.Environment": {
+      "name": "three.Environment",
+      "file": "ThreeEnvironment.js",
+      "relativePath": "private/xgenia-pro-nodes/src/three/nodes/ThreeEnvironment.js",
+      "category": "Three",
+      "docs": "https://docsapp.xgenia.com/nodes/three-nodes/three-environment/",
+      "lineCount": 158,
+      "byteSize": 6541,
+      "inputFormatHints": {
+        "preset": {
+          "displayName": "Preset",
+          "tooltip": "Reflections with no asset. Overridden by an HDR file.",
+          "type": "enum",
+          "group": "Environment",
+          "enums": [
+            "studio",
+            "soft",
+            "sunset",
+            "night",
+            "none"
+          ]
+        },
+        "hdrUrl": {
+          "displayName": "HDR File",
+          "tooltip": "Optional .hdr or equirectangular image in the project. Overrides the preset.",
+          "type": "string",
+          "group": "Environment"
+        },
+        "showBackground": {
+          "displayName": "Show As Background",
+          "tooltip": "Draw the environment behind the scene instead of only using it for reflections.",
+          "type": "boolean",
+          "group": "Environment"
+        },
+        "intensity": {
+          "displayName": "Intensity",
+          "type": "number",
+          "group": "Environment"
+        },
+        "toneMapping": {
+          "displayName": "Tone Mapping",
+          "type": "enum",
+          "enums": [
+            "aces",
+            "neutral",
+            "none"
+          ],
+          "group": "Look"
+        },
+        "exposure": {
+          "displayName": "Exposure",
+          "type": "number",
+          "group": "Look"
+        },
+        "fog": {
+          "displayName": "Fog",
+          "type": "boolean",
+          "group": "Fog"
+        },
+        "fogColor": {
+          "displayName": "Fog Color",
+          "type": "color",
+          "group": "Fog"
+        },
+        "fogNear": {
+          "displayName": "Fog Start",
+          "type": "number",
+          "group": "Fog"
+        },
+        "fogFar": {
+          "displayName": "Fog End",
+          "type": "number",
+          "group": "Fog"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        },
+        "cssClassName": {
+          "displayName": "CSS Class",
+          "type": "string",
+          "group": "Advanced HTML"
+        },
+        "styleCss": {
+          "displayName": "CSS Style",
+          "type": "string",
+          "group": "Advanced HTML"
+        },
+        "variant": {
+          "displayName": "Variant",
+          "type": "string",
+          "notSettableAsParameter": true,
+          "group": "General"
+        },
+        "mounted": {
+          "displayName": "Mounted",
+          "type": "boolean",
+          "group": "General"
+        }
+      },
+      "outputFormatHints": {
+        "nodeReference": {
+          "displayName": "Node Reference",
+          "type": "node",
+          "group": "General"
+        },
+        "childIndex": {
+          "displayName": "Child Index",
+          "type": "number"
+        },
+        "this": {
+          "displayName": "This",
+          "type": "reference"
+        },
+        "screenPositionX": {
+          "displayName": "Screen Position X",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "screenPositionY": {
+          "displayName": "Screen Position Y",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "boundingWidth": {
+          "displayName": "Width",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "boundingHeight": {
+          "displayName": "Height",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "didMount": {
+          "displayName": "Did Mount",
+          "type": "signal",
+          "group": "Mounted"
+        },
+        "willUnmount": {
+          "displayName": "Will Unmount",
+          "type": "signal",
+          "group": "Mounted"
+        }
+      },
+      "shortDesc": "Reflections, tone mapping and fog for a 3D Stage. Presets need no asset.",
+      "portsSource": "registry",
+      "portsComplete": true,
+      "closureRisk": {
+        "byFunction": {
+          "initialize": [],
+          "registerComponentRef": [],
+          "directUpdateObject": [],
+          "_loadHdr": []
+        }
+      }
+    },
+    "three.Group": {
+      "name": "three.Group",
+      "file": "ThreeGroup.js",
+      "relativePath": "private/xgenia-pro-nodes/src/three/nodes/ThreeGroup.js",
+      "category": "Three",
+      "docs": "https://docsapp.xgenia.com/nodes/three-nodes/three-group/",
+      "lineCount": 67,
+      "byteSize": 2560,
+      "inputFormatHints": {
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        },
+        "cssClassName": {
+          "displayName": "CSS Class",
+          "type": "string",
+          "group": "Advanced HTML"
+        },
+        "styleCss": {
+          "displayName": "CSS Style",
+          "type": "string",
+          "group": "Advanced HTML"
+        },
+        "variant": {
+          "displayName": "Variant",
+          "type": "string",
+          "notSettableAsParameter": true,
+          "group": "General"
+        },
+        "mounted": {
+          "displayName": "Mounted",
+          "type": "boolean",
+          "group": "General"
+        },
+        "posX": {
+          "displayName": "Position X",
+          "type": "number",
+          "group": "Transform"
+        },
+        "posY": {
+          "displayName": "Position Y",
+          "type": "number",
+          "group": "Transform"
+        },
+        "posZ": {
+          "displayName": "Position Z",
+          "type": "number",
+          "group": "Transform"
+        },
+        "rotX": {
+          "displayName": "Rotation X",
+          "type": "number",
+          "group": "Transform"
+        },
+        "rotY": {
+          "displayName": "Rotation Y",
+          "type": "number",
+          "group": "Transform"
+        },
+        "rotZ": {
+          "displayName": "Rotation Z",
+          "type": "number",
+          "group": "Transform"
+        },
+        "uniformScale": {
+          "displayName": "Scale",
+          "type": "number",
+          "group": "Transform"
+        },
+        "scaleX": {
+          "displayName": "Scale X",
+          "type": "number",
+          "group": "Transform"
+        },
+        "scaleY": {
+          "displayName": "Scale Y",
+          "type": "number",
+          "group": "Transform"
+        },
+        "scaleZ": {
+          "displayName": "Scale Z",
+          "type": "number",
+          "group": "Transform"
+        },
+        "visible": {
+          "displayName": "Visible",
+          "type": "boolean",
+          "group": "Appearance"
+        }
+      },
+      "outputFormatHints": {
+        "boundsWidth": {
+          "displayName": "Bounds Width",
+          "type": "number",
+          "group": "Bounds"
+        },
+        "boundsHeight": {
+          "displayName": "Bounds Height",
+          "type": "number",
+          "group": "Bounds"
+        },
+        "boundsDepth": {
+          "displayName": "Bounds Depth",
+          "type": "number",
+          "group": "Bounds"
+        },
+        "nodeReference": {
+          "displayName": "Node Reference",
+          "type": "node",
+          "group": "General"
+        },
+        "childIndex": {
+          "displayName": "Child Index",
+          "type": "number"
+        },
+        "this": {
+          "displayName": "This",
+          "type": "reference"
+        },
+        "screenPositionX": {
+          "displayName": "Screen Position X",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "screenPositionY": {
+          "displayName": "Screen Position Y",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "boundingWidth": {
+          "displayName": "Width",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "boundingHeight": {
+          "displayName": "Height",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "didMount": {
+          "displayName": "Did Mount",
+          "type": "signal",
+          "group": "Mounted"
+        },
+        "willUnmount": {
+          "displayName": "Will Unmount",
+          "type": "signal",
+          "group": "Mounted"
+        },
+        "childrenCount": {
+          "displayName": "Children Count",
+          "type": "number"
+        }
+      },
+      "shortDesc": "Groups 3D children so they move, rotate and scale together.",
+      "portsSource": "registry",
+      "portsComplete": true,
+      "closureRisk": {
+        "byFunction": {
+          "initialize": [],
+          "registerComponentRef": [],
+          "directUpdateObject": [],
+          "_bounds": []
+        }
+      }
+    },
+    "three.Light": {
+      "name": "three.Light",
+      "file": "ThreeLight.js",
+      "relativePath": "private/xgenia-pro-nodes/src/three/nodes/ThreeLight.js",
+      "category": "Three",
+      "docs": "https://docsapp.xgenia.com/nodes/three-nodes/three-light/",
+      "lineCount": 118,
+      "byteSize": 6265,
+      "inputFormatHints": {
+        "type": {
+          "displayName": "Type",
+          "type": "enum",
+          "group": "Light",
+          "enums": [
+            "ambient",
+            "hemisphere",
+            "directional",
+            "point",
+            "spot"
+          ]
+        },
+        "color": {
+          "displayName": "Color",
+          "type": "color",
+          "group": "Light"
+        },
+        "groundColor": {
+          "displayName": "Ground Color",
+          "tooltip": "Hemisphere only: the colour bouncing up from below.",
+          "type": "color",
+          "group": "Light"
+        },
+        "intensity": {
+          "displayName": "Intensity",
+          "type": "number",
+          "group": "Light"
+        },
+        "posX": {
+          "displayName": "Position X",
+          "type": "number",
+          "group": "Transform"
+        },
+        "posY": {
+          "displayName": "Position Y",
+          "type": "number",
+          "group": "Transform"
+        },
+        "posZ": {
+          "displayName": "Position Z",
+          "type": "number",
+          "group": "Transform"
+        },
+        "targetX": {
+          "displayName": "Aim At X",
+          "type": "number",
+          "group": "Transform"
+        },
+        "targetY": {
+          "displayName": "Aim At Y",
+          "type": "number",
+          "group": "Transform"
+        },
+        "targetZ": {
+          "displayName": "Aim At Z",
+          "type": "number",
+          "group": "Transform"
+        },
+        "distance": {
+          "displayName": "Range",
+          "tooltip": "Point and spot only. 0 means no limit.",
+          "type": "number",
+          "group": "Falloff"
+        },
+        "decay": {
+          "displayName": "Decay",
+          "type": "number",
+          "group": "Falloff"
+        },
+        "angle": {
+          "displayName": "Cone Angle",
+          "tooltip": "Spot only, in degrees.",
+          "type": "number",
+          "group": "Falloff"
+        },
+        "penumbra": {
+          "displayName": "Edge Softness",
+          "type": "number",
+          "group": "Falloff"
+        },
+        "castShadow": {
+          "displayName": "Cast Shadow",
+          "tooltip": "Also needs Shadows on the 3D Stage.",
+          "type": "boolean",
+          "group": "Shadow"
+        },
+        "shadowSize": {
+          "displayName": "Shadow Detail",
+          "type": "number",
+          "group": "Shadow"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        },
+        "cssClassName": {
+          "displayName": "CSS Class",
+          "type": "string",
+          "group": "Advanced HTML"
+        },
+        "styleCss": {
+          "displayName": "CSS Style",
+          "type": "string",
+          "group": "Advanced HTML"
+        },
+        "variant": {
+          "displayName": "Variant",
+          "type": "string",
+          "notSettableAsParameter": true,
+          "group": "General"
+        },
+        "mounted": {
+          "displayName": "Mounted",
+          "type": "boolean",
+          "group": "General"
+        }
+      },
+      "outputFormatHints": {
+        "nodeReference": {
+          "displayName": "Node Reference",
+          "type": "node",
+          "group": "General"
+        },
+        "childIndex": {
+          "displayName": "Child Index",
+          "type": "number"
+        },
+        "this": {
+          "displayName": "This",
+          "type": "reference"
+        },
+        "screenPositionX": {
+          "displayName": "Screen Position X",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "screenPositionY": {
+          "displayName": "Screen Position Y",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "boundingWidth": {
+          "displayName": "Width",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "boundingHeight": {
+          "displayName": "Height",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "didMount": {
+          "displayName": "Did Mount",
+          "type": "signal",
+          "group": "Mounted"
+        },
+        "willUnmount": {
+          "displayName": "Will Unmount",
+          "type": "signal",
+          "group": "Mounted"
+        }
+      },
+      "shortDesc": "A light. Optional — a 3D Stage lights itself until you add one.",
+      "portsSource": "registry",
+      "portsComplete": true,
+      "closureRisk": {
+        "byFunction": {
+          "initialize": [],
+          "registerComponentRef": [],
+          "directUpdateObject": []
+        }
+      }
+    },
+    "three.Mesh": {
+      "name": "three.Mesh",
+      "file": "ThreeMesh.js",
+      "relativePath": "private/xgenia-pro-nodes/src/three/nodes/ThreeMesh.js",
+      "category": "Three",
+      "docs": "https://docsapp.xgenia.com/nodes/three-nodes/three-mesh/",
+      "lineCount": 138,
+      "byteSize": 6972,
+      "inputFormatHints": {
+        "shape": {
+          "displayName": "Shape",
+          "type": "enum",
+          "group": "Shape",
+          "enums": [
+            "box",
+            "sphere",
+            "cylinder",
+            "cone",
+            "plane",
+            "torus"
+          ]
+        },
+        "sizeX": {
+          "displayName": "Size X / Diameter",
+          "type": "number",
+          "group": "Shape"
+        },
+        "sizeY": {
+          "displayName": "Size Y / Height",
+          "type": "number",
+          "group": "Shape"
+        },
+        "sizeZ": {
+          "displayName": "Size Z / Depth",
+          "type": "number",
+          "group": "Shape"
+        },
+        "segments": {
+          "displayName": "Smoothness",
+          "tooltip": "Higher is rounder and heavier. Ignored by Box and Plane.",
+          "type": "number",
+          "group": "Shape"
+        },
+        "color": {
+          "displayName": "Color",
+          "type": "color",
+          "group": "Material"
+        },
+        "metalness": {
+          "displayName": "Metalness",
+          "type": "number",
+          "group": "Material"
+        },
+        "roughness": {
+          "displayName": "Roughness",
+          "type": "number",
+          "group": "Material"
+        },
+        "emissive": {
+          "displayName": "Glow Color",
+          "type": "color",
+          "group": "Material"
+        },
+        "emissiveIntensity": {
+          "displayName": "Glow Strength",
+          "type": "number",
+          "group": "Material"
+        },
+        "opacity": {
+          "displayName": "Opacity",
+          "type": "number",
+          "group": "Material"
+        },
+        "wireframe": {
+          "displayName": "Wireframe",
+          "type": "boolean",
+          "group": "Material"
+        },
+        "flatShading": {
+          "displayName": "Flat Shading",
+          "tooltip": "Faceted, low-poly look.",
+          "type": "boolean",
+          "group": "Material"
+        },
+        "textureUrl": {
+          "displayName": "Texture",
+          "tooltip": "A project image wrapped onto the shape, e.g. assets/symbols/gold.png",
+          "type": "image",
+          "group": "Material"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        },
+        "cssClassName": {
+          "displayName": "CSS Class",
+          "type": "string",
+          "group": "Advanced HTML"
+        },
+        "styleCss": {
+          "displayName": "CSS Style",
+          "type": "string",
+          "group": "Advanced HTML"
+        },
+        "variant": {
+          "displayName": "Variant",
+          "type": "string",
+          "notSettableAsParameter": true,
+          "group": "General"
+        },
+        "mounted": {
+          "displayName": "Mounted",
+          "type": "boolean",
+          "group": "General"
+        },
+        "posX": {
+          "displayName": "Position X",
+          "type": "number",
+          "group": "Transform"
+        },
+        "posY": {
+          "displayName": "Position Y",
+          "type": "number",
+          "group": "Transform"
+        },
+        "posZ": {
+          "displayName": "Position Z",
+          "type": "number",
+          "group": "Transform"
+        },
+        "rotX": {
+          "displayName": "Rotation X",
+          "type": "number",
+          "group": "Transform"
+        },
+        "rotY": {
+          "displayName": "Rotation Y",
+          "type": "number",
+          "group": "Transform"
+        },
+        "rotZ": {
+          "displayName": "Rotation Z",
+          "type": "number",
+          "group": "Transform"
+        },
+        "uniformScale": {
+          "displayName": "Scale",
+          "type": "number",
+          "group": "Transform"
+        },
+        "scaleX": {
+          "displayName": "Scale X",
+          "type": "number",
+          "group": "Transform"
+        },
+        "scaleY": {
+          "displayName": "Scale Y",
+          "type": "number",
+          "group": "Transform"
+        },
+        "scaleZ": {
+          "displayName": "Scale Z",
+          "type": "number",
+          "group": "Transform"
+        },
+        "visible": {
+          "displayName": "Visible",
+          "type": "boolean",
+          "group": "Appearance"
+        },
+        "castShadow": {
+          "displayName": "Cast Shadow",
+          "type": "boolean",
+          "group": "Appearance"
+        },
+        "receiveShadow": {
+          "displayName": "Receive Shadow",
+          "type": "boolean",
+          "group": "Appearance"
+        },
+        "pickable": {
+          "displayName": "Pickable",
+          "type": "boolean",
+          "group": "Interaction"
+        }
+      },
+      "outputFormatHints": {
+        "nodeReference": {
+          "displayName": "Node Reference",
+          "type": "node",
+          "group": "General"
+        },
+        "childIndex": {
+          "displayName": "Child Index",
+          "type": "number"
+        },
+        "this": {
+          "displayName": "This",
+          "type": "reference"
+        },
+        "screenPositionX": {
+          "displayName": "Screen Position X",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "screenPositionY": {
+          "displayName": "Screen Position Y",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "boundingWidth": {
+          "displayName": "Width",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "boundingHeight": {
+          "displayName": "Height",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "didMount": {
+          "displayName": "Did Mount",
+          "type": "signal",
+          "group": "Mounted"
+        },
+        "willUnmount": {
+          "displayName": "Will Unmount",
+          "type": "signal",
+          "group": "Mounted"
+        },
+        "pointerdown": {
+          "displayName": "Pointer Down",
+          "type": "signal",
+          "group": "Pointer Events"
+        },
+        "pointerup": {
+          "displayName": "Pointer Up",
+          "type": "signal",
+          "group": "Pointer Events"
+        },
+        "pointertap": {
+          "displayName": "Pointer Tap",
+          "type": "signal",
+          "group": "Pointer Events"
+        },
+        "pointerover": {
+          "displayName": "Pointer Over",
+          "type": "signal",
+          "group": "Pointer Events"
+        },
+        "pointerout": {
+          "displayName": "Pointer Out",
+          "type": "signal",
+          "group": "Pointer Events"
+        },
+        "pointerX": {
+          "displayName": "Pointer X",
+          "type": "number",
+          "group": "Pointer Events"
+        },
+        "pointerY": {
+          "displayName": "Pointer Y",
+          "type": "number",
+          "group": "Pointer Events"
+        }
+      },
+      "shortDesc": "A 3D primitive (box, sphere, cylinder, cone, plane, torus) with a PBR material.",
+      "portsSource": "registry",
+      "portsComplete": true,
+      "closureRisk": {
+        "byFunction": {
+          "initialize": [],
+          "registerComponentRef": [],
+          "directUpdateObject": [],
+          "_applyTexture": []
+        }
+      }
+    },
+    "three.Model": {
+      "name": "three.Model",
+      "file": "ThreeModel.js",
+      "relativePath": "private/xgenia-pro-nodes/src/three/nodes/ThreeModel.js",
+      "category": "Three",
+      "docs": "https://docsapp.xgenia.com/nodes/three-nodes/three-model/",
+      "lineCount": 279,
+      "byteSize": 11061,
+      "inputFormatHints": {
+        "url": {
+          "displayName": "Model File",
+          "tooltip": "A .glb in the project, e.g. assets/models/dragon.glb",
+          "type": "string",
+          "group": "Model"
+        },
+        "autoFit": {
+          "displayName": "Auto Fit",
+          "tooltip": "Scale the model so its largest side is Fit Size. Generated models arrive at any scale, so leave this on.",
+          "type": "boolean",
+          "group": "Model"
+        },
+        "fitSize": {
+          "displayName": "Fit Size",
+          "tooltip": "World units for the largest side, when Auto Fit is on.",
+          "type": "number",
+          "group": "Model"
+        },
+        "groundToFloor": {
+          "displayName": "Stand On Floor",
+          "tooltip": "Put the bottom of the model on Y=0 instead of centring it.",
+          "type": "boolean",
+          "group": "Model"
+        },
+        "clip": {
+          "displayName": "Animation",
+          "tooltip": "Clip name. Leave empty for the first one. Read Clips to see what the file has.",
+          "type": "string",
+          "group": "Animation"
+        },
+        "autoplay": {
+          "displayName": "Autoplay",
+          "type": "boolean",
+          "group": "Animation"
+        },
+        "loop": {
+          "displayName": "Loop",
+          "type": "enum",
+          "group": "Animation",
+          "enums": [
+            "repeat",
+            "once",
+            "pingpong"
+          ]
+        },
+        "speed": {
+          "displayName": "Speed",
+          "type": "number",
+          "group": "Animation"
+        },
+        "play": {
+          "displayName": "Play",
+          "type": "signal",
+          "group": "Animation",
+          "notSettableAsParameter": true
+        },
+        "pause": {
+          "displayName": "Pause",
+          "type": "signal",
+          "group": "Animation",
+          "notSettableAsParameter": true
+        },
+        "stop": {
+          "displayName": "Stop",
+          "type": "signal",
+          "group": "Animation",
+          "notSettableAsParameter": true
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        },
+        "cssClassName": {
+          "displayName": "CSS Class",
+          "type": "string",
+          "group": "Advanced HTML"
+        },
+        "styleCss": {
+          "displayName": "CSS Style",
+          "type": "string",
+          "group": "Advanced HTML"
+        },
+        "variant": {
+          "displayName": "Variant",
+          "type": "string",
+          "notSettableAsParameter": true,
+          "group": "General"
+        },
+        "mounted": {
+          "displayName": "Mounted",
+          "type": "boolean",
+          "group": "General"
+        },
+        "posX": {
+          "displayName": "Position X",
+          "type": "number",
+          "group": "Transform"
+        },
+        "posY": {
+          "displayName": "Position Y",
+          "type": "number",
+          "group": "Transform"
+        },
+        "posZ": {
+          "displayName": "Position Z",
+          "type": "number",
+          "group": "Transform"
+        },
+        "rotX": {
+          "displayName": "Rotation X",
+          "type": "number",
+          "group": "Transform"
+        },
+        "rotY": {
+          "displayName": "Rotation Y",
+          "type": "number",
+          "group": "Transform"
+        },
+        "rotZ": {
+          "displayName": "Rotation Z",
+          "type": "number",
+          "group": "Transform"
+        },
+        "uniformScale": {
+          "displayName": "Scale",
+          "type": "number",
+          "group": "Transform"
+        },
+        "scaleX": {
+          "displayName": "Scale X",
+          "type": "number",
+          "group": "Transform"
+        },
+        "scaleY": {
+          "displayName": "Scale Y",
+          "type": "number",
+          "group": "Transform"
+        },
+        "scaleZ": {
+          "displayName": "Scale Z",
+          "type": "number",
+          "group": "Transform"
+        },
+        "visible": {
+          "displayName": "Visible",
+          "type": "boolean",
+          "group": "Appearance"
+        },
+        "castShadow": {
+          "displayName": "Cast Shadow",
+          "type": "boolean",
+          "group": "Appearance"
+        },
+        "receiveShadow": {
+          "displayName": "Receive Shadow",
+          "type": "boolean",
+          "group": "Appearance"
+        },
+        "pickable": {
+          "displayName": "Pickable",
+          "type": "boolean",
+          "group": "Interaction"
+        }
+      },
+      "outputFormatHints": {
+        "loaded": {
+          "displayName": "Loaded",
+          "type": "signal",
+          "group": "Model"
+        },
+        "loadError": {
+          "displayName": "Load Error",
+          "type": "string",
+          "group": "Model"
+        },
+        "clips": {
+          "displayName": "Clips",
+          "type": "array",
+          "group": "Animation"
+        },
+        "playing": {
+          "displayName": "Playing",
+          "type": "boolean",
+          "group": "Animation"
+        },
+        "progress": {
+          "displayName": "Progress",
+          "type": "number",
+          "group": "Animation"
+        },
+        "done": {
+          "displayName": "Done",
+          "type": "signal",
+          "group": "Animation"
+        },
+        "nodeReference": {
+          "displayName": "Node Reference",
+          "type": "node",
+          "group": "General"
+        },
+        "childIndex": {
+          "displayName": "Child Index",
+          "type": "number"
+        },
+        "this": {
+          "displayName": "This",
+          "type": "reference"
+        },
+        "screenPositionX": {
+          "displayName": "Screen Position X",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "screenPositionY": {
+          "displayName": "Screen Position Y",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "boundingWidth": {
+          "displayName": "Width",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "boundingHeight": {
+          "displayName": "Height",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "didMount": {
+          "displayName": "Did Mount",
+          "type": "signal",
+          "group": "Mounted"
+        },
+        "willUnmount": {
+          "displayName": "Will Unmount",
+          "type": "signal",
+          "group": "Mounted"
+        },
+        "pointerdown": {
+          "displayName": "Pointer Down",
+          "type": "signal",
+          "group": "Pointer Events"
+        },
+        "pointerup": {
+          "displayName": "Pointer Up",
+          "type": "signal",
+          "group": "Pointer Events"
+        },
+        "pointertap": {
+          "displayName": "Pointer Tap",
+          "type": "signal",
+          "group": "Pointer Events"
+        },
+        "pointerover": {
+          "displayName": "Pointer Over",
+          "type": "signal",
+          "group": "Pointer Events"
+        },
+        "pointerout": {
+          "displayName": "Pointer Out",
+          "type": "signal",
+          "group": "Pointer Events"
+        },
+        "pointerX": {
+          "displayName": "Pointer X",
+          "type": "number",
+          "group": "Pointer Events"
+        },
+        "pointerY": {
+          "displayName": "Pointer Y",
+          "type": "number",
+          "group": "Pointer Events"
+        }
+      },
+      "shortDesc": "Loads a .glb model from the project, fits it to the scene and plays its animations.",
+      "portsSource": "registry",
+      "portsComplete": true,
+      "closureRisk": {
+        "byFunction": {
+          "initialize": [],
+          "registerComponentRef": [],
+          "directUpdateObject": [],
+          "_teardownContent": [],
+          "_load": [],
+          "_stageNode": [],
+          "_applyFit": [],
+          "_applyClip": [],
+          "_play": [],
+          "_pause": [],
+          "_stop": []
+        }
+      }
+    },
+    "three.Stage": {
+      "name": "three.Stage",
+      "file": "ThreeStage.js",
+      "relativePath": "private/xgenia-pro-nodes/src/three/nodes/ThreeStage.js",
+      "category": "Three",
+      "docs": "https://docsapp.xgenia.com/nodes/three-nodes/three-stage/",
+      "lineCount": 237,
+      "byteSize": 10635,
+      "inputFormatHints": {
+        "mode": {
+          "displayName": "Mode",
+          "tooltip": "Overlay gives this Stage its own canvas, stacked by Z-Index. Shared draws into the nearest Pixi Stage's canvas, on top of the 2D — one GPU context instead of two.",
+          "type": "enum",
+          "enums": [
+            "overlay",
+            "shared"
+          ],
+          "group": "Rendering"
+        },
+        "domWidth": {
+          "displayName": "Width",
+          "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
+          "group": "Dimensions"
+        },
+        "domHeight": {
+          "displayName": "Height",
+          "type": "dimension",
+          "units": [
+            "%",
+            "px",
+            "vw",
+            "vh"
+          ],
+          "defaultUnit": "%",
+          "group": "Dimensions"
+        },
+        "position": {
+          "displayName": "CSS Position",
+          "tooltip": "Use absolute to float the 3D layer over the 2D game without taking layout space.",
+          "type": "enum",
+          "enums": [
+            "relative",
+            "absolute"
+          ],
+          "group": "Layout"
+        },
+        "zIndex": {
+          "displayName": "Z-Index",
+          "tooltip": "Higher sits in front. The Pixi canvas has no z-index, so 1 puts 3D in front of it and -1 behind.",
+          "type": "number",
+          "group": "Layout"
+        },
+        "transparent": {
+          "displayName": "Transparent",
+          "tooltip": "Draw with no background so the game shows through behind the 3D.",
+          "type": "boolean",
+          "group": "Appearance"
+        },
+        "backgroundColor": {
+          "displayName": "Bg Color",
+          "type": "color",
+          "group": "Appearance"
+        },
+        "backgroundAlpha": {
+          "displayName": "Bg Alpha",
+          "type": "number",
+          "group": "Appearance"
+        },
+        "environmentPreset": {
+          "displayName": "Lighting Preset",
+          "tooltip": "Environment reflections with no asset. A 3D Environment node overrides this.",
+          "type": "enum",
+          "enums": [
+            "studio",
+            "soft",
+            "sunset",
+            "night",
+            "none"
+          ],
+          "group": "Appearance"
+        },
+        "toneMapping": {
+          "displayName": "Tone Mapping",
+          "type": "enum",
+          "enums": [
+            "aces",
+            "neutral",
+            "none"
+          ],
+          "group": "Appearance"
+        },
+        "exposure": {
+          "displayName": "Exposure",
+          "type": "number",
+          "group": "Appearance"
+        },
+        "shadows": {
+          "displayName": "Shadows",
+          "tooltip": "Costs frames. Needs Cast Shadow on a model and a light that casts.",
+          "type": "boolean",
+          "group": "Rendering"
+        },
+        "antialias": {
+          "displayName": "Antialias",
+          "type": "boolean",
+          "group": "Rendering"
+        },
+        "resolutionCap": {
+          "displayName": "Max Pixel Ratio",
+          "tooltip": "Caps retina rendering. Lower this first if the frame rate drops.",
+          "type": "number",
+          "group": "Rendering"
+        },
+        "renderOnDemand": {
+          "displayName": "Render On Demand",
+          "tooltip": "Only draw when something changes. Animations and orbit keep the loop running anyway.",
+          "type": "boolean",
+          "group": "Rendering"
+        },
+        "interactive": {
+          "displayName": "Interactive",
+          "tooltip": "Off means pointer events pass straight through to whatever is behind the 3D layer.",
+          "type": "boolean",
+          "group": "Interaction"
+        },
+        "cameraView": {
+          "displayName": "View",
+          "tooltip": "Like Unity's 2D button. A 2D view locks the camera to a flat, straight-on orthographic angle with no perspective and no orbit — use it to show a 3D model as flat art, e.g. a reel symbol. A 3D Camera node overrides this.",
+          "type": "enum",
+          "enums": [
+            "auto",
+            "front",
+            "top",
+            "side"
+          ],
+          "group": "Camera"
+        },
+        "autoFrame": {
+          "displayName": "Auto Frame",
+          "tooltip": "With no 3D Camera node, point the default camera at whatever is in the scene.",
+          "type": "boolean",
+          "group": "Camera"
+        },
+        "frameScene": {
+          "displayName": "Frame Scene",
+          "type": "signal",
+          "group": "Camera",
+          "notSettableAsParameter": true
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        },
+        "cssClassName": {
+          "displayName": "CSS Class",
+          "type": "string",
+          "group": "Advanced HTML"
+        },
+        "styleCss": {
+          "displayName": "CSS Style",
+          "type": "string",
+          "group": "Advanced HTML"
+        },
+        "variant": {
+          "displayName": "Variant",
+          "type": "string",
+          "notSettableAsParameter": true,
+          "group": "General"
+        },
+        "mounted": {
+          "displayName": "Mounted",
+          "type": "boolean",
+          "group": "General"
+        },
+        "alignX": {
+          "displayName": "Align X",
+          "type": "enum",
+          "enums": [
+            "left",
+            "center",
+            "right"
+          ],
+          "group": "Alignment"
+        },
+        "alignY": {
+          "displayName": "Align Y",
+          "type": "enum",
+          "enums": [
+            "top",
+            "center",
+            "bottom"
+          ],
+          "group": "Alignment"
+        },
+        "marginLeft": {
+          "displayName": "Margin Left",
+          "type": "number",
+          "units": [
+            "px",
+            "%"
+          ],
+          "defaultUnit": "px",
+          "group": "Margin and padding"
+        },
+        "marginRight": {
+          "displayName": "Margin Right",
+          "type": "number",
+          "units": [
+            "px",
+            "%"
+          ],
+          "defaultUnit": "px",
+          "group": "Margin and padding"
+        },
+        "marginTop": {
+          "displayName": "Margin Top",
+          "type": "number",
+          "units": [
+            "px",
+            "%"
+          ],
+          "defaultUnit": "px",
+          "group": "Margin and padding"
+        },
+        "marginBottom": {
+          "displayName": "Margin Bottom",
+          "type": "number",
+          "units": [
+            "px",
+            "%"
+          ],
+          "defaultUnit": "px",
+          "group": "Margin and padding"
+        }
+      },
+      "outputFormatHints": {
+        "stageCreated": {
+          "displayName": "Stage Created",
+          "type": "signal",
+          "group": "Lifecycle"
+        },
+        "tick": {
+          "displayName": "Tick",
+          "type": "signal",
+          "group": "Lifecycle"
+        },
+        "delta": {
+          "displayName": "Delta",
+          "type": "number",
+          "group": "Lifecycle"
+        },
+        "currentWidth": {
+          "displayName": "Current Width",
+          "type": "number",
+          "group": "Dimensions"
+        },
+        "currentHeight": {
+          "displayName": "Current Height",
+          "type": "number",
+          "group": "Dimensions"
+        },
+        "nodeReference": {
+          "displayName": "Node Reference",
+          "type": "node",
+          "group": "General"
+        },
+        "childIndex": {
+          "displayName": "Child Index",
+          "type": "number"
+        },
+        "this": {
+          "displayName": "This",
+          "type": "reference"
+        },
+        "screenPositionX": {
+          "displayName": "Screen Position X",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "screenPositionY": {
+          "displayName": "Screen Position Y",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "boundingWidth": {
+          "displayName": "Width",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "boundingHeight": {
+          "displayName": "Height",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "didMount": {
+          "displayName": "Did Mount",
+          "type": "signal",
+          "group": "Mounted"
+        },
+        "willUnmount": {
+          "displayName": "Will Unmount",
+          "type": "signal",
+          "group": "Mounted"
+        },
+        "childrenCount": {
+          "displayName": "Children Count",
+          "type": "number"
+        }
+      },
+      "shortDesc": "The 3D canvas. Put 3D Model, Mesh, Camera and Light nodes inside it.",
+      "portsSource": "registry",
+      "portsComplete": true,
+      "closureRisk": {
+        "byFunction": {
+          "initialize": [],
+          "_pushOptions": [],
+          "registerAppRef": [],
+          "_onCanvasResized": [],
+          "_onTick": [],
+          "contentChanged": []
         }
       }
     },
@@ -48186,11 +49928,13 @@
         },
         "designWidth": {
           "displayName": "Design Width",
+          "tooltip": "The width you design at, in pixels. Children are positioned in these units and the whole group is scaled to fit. Only used when Scale Mode is on.",
           "type": "number",
           "group": "UI Scaling"
         },
         "designHeight": {
           "displayName": "Design Height",
+          "tooltip": "The height you design at, in pixels. Only used when Scale Mode is on.",
           "type": "number",
           "group": "UI Scaling"
         },
@@ -51349,6 +53093,7 @@
         },
         "alt": {
           "displayName": "Alternate text",
+          "tooltip": "The alt text is used by screen readers, or if the image can't be downloaded or displayed",
           "type": "string"
         },
         "sizeMode": {
@@ -57015,6 +58760,15 @@
       "stake.RoundActive",
       "stake.ToAPIAmount"
     ],
+    "Three": [
+      "three.Camera",
+      "three.Environment",
+      "three.Group",
+      "three.Light",
+      "three.Mesh",
+      "three.Model",
+      "three.Stage"
+    ],
     "Visual": [
       "net.xgenia.controls.button",
       "net.xgenia.controls.checkbox",
@@ -57890,6 +59644,34 @@
       },
       {
         "node": "stake.ToAPIAmount",
+        "direction": "input"
+      },
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      },
+      {
+        "node": "three.Environment",
+        "direction": "input"
+      },
+      {
+        "node": "three.Group",
+        "direction": "input"
+      },
+      {
+        "node": "three.Light",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      },
+      {
+        "node": "three.Stage",
         "direction": "input"
       },
       {
@@ -58786,6 +60568,10 @@
       },
       {
         "node": "RunTasks",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
         "direction": "output"
       },
       {
@@ -59758,6 +61544,10 @@
       },
       {
         "node": "stake.RGSPlay",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
         "direction": "input"
       }
     ],
@@ -62833,6 +64623,10 @@
         "direction": "input"
       },
       {
+        "node": "three.Stage",
+        "direction": "input"
+      },
+      {
         "node": "PageStackNavigate",
         "direction": "input"
       },
@@ -63223,6 +65017,10 @@
         "direction": "input"
       },
       {
+        "node": "three.Model",
+        "direction": "input"
+      },
+      {
         "node": "Sound",
         "direction": "input"
       },
@@ -63279,6 +65077,10 @@
       {
         "node": "pixi.Spine",
         "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "output"
       }
     ],
     "play": [
@@ -63292,6 +65094,10 @@
       },
       {
         "node": "stake.RGSPlay",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
         "direction": "input"
       },
       {
@@ -63350,6 +65156,10 @@
       },
       {
         "node": "Volume Ramp",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
         "direction": "input"
       },
       {
@@ -63452,6 +65262,34 @@
       },
       {
         "node": "Render Paylines Pixi",
+        "direction": "input"
+      },
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      },
+      {
+        "node": "three.Environment",
+        "direction": "input"
+      },
+      {
+        "node": "three.Group",
+        "direction": "input"
+      },
+      {
+        "node": "three.Light",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      },
+      {
+        "node": "three.Stage",
         "direction": "input"
       },
       {
@@ -63646,6 +65484,34 @@
       },
       {
         "node": "Render Paylines Pixi",
+        "direction": "input"
+      },
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      },
+      {
+        "node": "three.Environment",
+        "direction": "input"
+      },
+      {
+        "node": "three.Group",
+        "direction": "input"
+      },
+      {
+        "node": "three.Light",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      },
+      {
+        "node": "three.Stage",
         "direction": "input"
       },
       {
@@ -63847,6 +65713,34 @@
         "direction": "output"
       },
       {
+        "node": "three.Camera",
+        "direction": "input"
+      },
+      {
+        "node": "three.Environment",
+        "direction": "input"
+      },
+      {
+        "node": "three.Group",
+        "direction": "input"
+      },
+      {
+        "node": "three.Light",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      },
+      {
+        "node": "three.Stage",
+        "direction": "input"
+      },
+      {
         "node": "net.xgenia.controls.button",
         "direction": "input"
       },
@@ -64018,6 +65912,34 @@
       },
       {
         "node": "Render Paylines Pixi",
+        "direction": "input"
+      },
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      },
+      {
+        "node": "three.Environment",
+        "direction": "input"
+      },
+      {
+        "node": "three.Group",
+        "direction": "input"
+      },
+      {
+        "node": "three.Light",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      },
+      {
+        "node": "three.Stage",
         "direction": "input"
       },
       {
@@ -64261,6 +66183,34 @@
         "direction": "output"
       },
       {
+        "node": "three.Camera",
+        "direction": "output"
+      },
+      {
+        "node": "three.Environment",
+        "direction": "output"
+      },
+      {
+        "node": "three.Group",
+        "direction": "output"
+      },
+      {
+        "node": "three.Light",
+        "direction": "output"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
+        "direction": "output"
+      },
+      {
+        "node": "three.Stage",
+        "direction": "output"
+      },
+      {
         "node": "net.xgenia.controls.button",
         "direction": "output"
       },
@@ -64452,6 +66402,34 @@
       },
       {
         "node": "Render Paylines Pixi",
+        "direction": "output"
+      },
+      {
+        "node": "three.Camera",
+        "direction": "output"
+      },
+      {
+        "node": "three.Environment",
+        "direction": "output"
+      },
+      {
+        "node": "three.Group",
+        "direction": "output"
+      },
+      {
+        "node": "three.Light",
+        "direction": "output"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
+        "direction": "output"
+      },
+      {
+        "node": "three.Stage",
         "direction": "output"
       },
       {
@@ -64649,6 +66627,34 @@
         "direction": "output"
       },
       {
+        "node": "three.Camera",
+        "direction": "output"
+      },
+      {
+        "node": "three.Environment",
+        "direction": "output"
+      },
+      {
+        "node": "three.Group",
+        "direction": "output"
+      },
+      {
+        "node": "three.Light",
+        "direction": "output"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
+        "direction": "output"
+      },
+      {
+        "node": "three.Stage",
+        "direction": "output"
+      },
+      {
         "node": "net.xgenia.controls.button",
         "direction": "output"
       },
@@ -64840,6 +66846,34 @@
       },
       {
         "node": "Render Paylines Pixi",
+        "direction": "output"
+      },
+      {
+        "node": "three.Camera",
+        "direction": "output"
+      },
+      {
+        "node": "three.Environment",
+        "direction": "output"
+      },
+      {
+        "node": "three.Group",
+        "direction": "output"
+      },
+      {
+        "node": "three.Light",
+        "direction": "output"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
+        "direction": "output"
+      },
+      {
+        "node": "three.Stage",
         "direction": "output"
       },
       {
@@ -65037,6 +67071,34 @@
         "direction": "output"
       },
       {
+        "node": "three.Camera",
+        "direction": "output"
+      },
+      {
+        "node": "three.Environment",
+        "direction": "output"
+      },
+      {
+        "node": "three.Group",
+        "direction": "output"
+      },
+      {
+        "node": "three.Light",
+        "direction": "output"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
+        "direction": "output"
+      },
+      {
+        "node": "three.Stage",
+        "direction": "output"
+      },
+      {
         "node": "net.xgenia.controls.button",
         "direction": "output"
       },
@@ -65228,6 +67290,34 @@
       },
       {
         "node": "Render Paylines Pixi",
+        "direction": "output"
+      },
+      {
+        "node": "three.Camera",
+        "direction": "output"
+      },
+      {
+        "node": "three.Environment",
+        "direction": "output"
+      },
+      {
+        "node": "three.Group",
+        "direction": "output"
+      },
+      {
+        "node": "three.Light",
+        "direction": "output"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
+        "direction": "output"
+      },
+      {
+        "node": "three.Stage",
         "direction": "output"
       },
       {
@@ -65425,6 +67515,34 @@
         "direction": "output"
       },
       {
+        "node": "three.Camera",
+        "direction": "output"
+      },
+      {
+        "node": "three.Environment",
+        "direction": "output"
+      },
+      {
+        "node": "three.Group",
+        "direction": "output"
+      },
+      {
+        "node": "three.Light",
+        "direction": "output"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
+        "direction": "output"
+      },
+      {
+        "node": "three.Stage",
+        "direction": "output"
+      },
+      {
         "node": "net.xgenia.controls.button",
         "direction": "output"
       },
@@ -65619,6 +67737,34 @@
         "direction": "output"
       },
       {
+        "node": "three.Camera",
+        "direction": "output"
+      },
+      {
+        "node": "three.Environment",
+        "direction": "output"
+      },
+      {
+        "node": "three.Group",
+        "direction": "output"
+      },
+      {
+        "node": "three.Light",
+        "direction": "output"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
+        "direction": "output"
+      },
+      {
+        "node": "three.Stage",
+        "direction": "output"
+      },
+      {
         "node": "net.xgenia.controls.button",
         "direction": "output"
       },
@@ -65762,6 +67908,10 @@
       },
       {
         "node": "Volume Ramp",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
         "direction": "output"
       },
       {
@@ -66001,6 +68151,18 @@
         "direction": "input"
       },
       {
+        "node": "three.Group",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      },
+      {
         "node": "net.xgenia.gsapAnimator",
         "direction": "input"
       }
@@ -66052,6 +68214,18 @@
       },
       {
         "node": "pixi.TilingSprite",
+        "direction": "input"
+      },
+      {
+        "node": "three.Group",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
         "direction": "input"
       },
       {
@@ -66253,6 +68427,18 @@
         "direction": "input"
       },
       {
+        "node": "three.Group",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      },
+      {
         "node": "net.xgenia.controls.button",
         "direction": "input"
       },
@@ -66373,6 +68559,10 @@
       {
         "node": "pixi.TilingSprite",
         "direction": "input"
+      },
+      {
+        "node": "three.Stage",
+        "direction": "input"
       }
     ],
     "zIndex": [
@@ -66442,6 +68632,10 @@
       },
       {
         "node": "Render Paylines Pixi",
+        "direction": "input"
+      },
+      {
+        "node": "three.Stage",
         "direction": "input"
       },
       {
@@ -67053,6 +69247,14 @@
       {
         "node": "pixi.TilingSprite",
         "direction": "output"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
+        "direction": "output"
       }
     ],
     "pointerup": [
@@ -67078,6 +69280,14 @@
       },
       {
         "node": "pixi.TilingSprite",
+        "direction": "output"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
         "direction": "output"
       }
     ],
@@ -67131,6 +69341,14 @@
       {
         "node": "pixi.TilingSprite",
         "direction": "output"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
+        "direction": "output"
       }
     ],
     "pointerout": [
@@ -67157,6 +69375,14 @@
       {
         "node": "pixi.TilingSprite",
         "direction": "output"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
+        "direction": "output"
       }
     ],
     "pointertap": [
@@ -67182,6 +69408,14 @@
       },
       {
         "node": "pixi.TilingSprite",
+        "direction": "output"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
         "direction": "output"
       }
     ],
@@ -67629,6 +69863,10 @@
         "direction": "input"
       },
       {
+        "node": "three.Stage",
+        "direction": "input"
+      },
+      {
         "node": "net.xgenia.controls.button",
         "direction": "input"
       },
@@ -67684,6 +69922,10 @@
       },
       {
         "node": "pixi.Stage",
+        "direction": "input"
+      },
+      {
+        "node": "three.Stage",
         "direction": "input"
       }
     ],
@@ -70101,6 +72343,10 @@
         "direction": "input"
       },
       {
+        "node": "three.Stage",
+        "direction": "input"
+      },
+      {
         "node": "net.xgenia.controls.button",
         "direction": "input"
       },
@@ -70192,6 +72438,10 @@
       },
       {
         "node": "pixi.UIScaler",
+        "direction": "input"
+      },
+      {
+        "node": "three.Stage",
         "direction": "input"
       },
       {
@@ -70364,6 +72614,10 @@
       },
       {
         "node": "pixi.Stage",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
         "direction": "input"
       },
       {
@@ -70771,6 +73025,10 @@
         "direction": "input"
       },
       {
+        "node": "three.Stage",
+        "direction": "input"
+      },
+      {
         "node": "net.xgenia.controls.button",
         "direction": "input"
       },
@@ -70858,6 +73116,10 @@
       },
       {
         "node": "pixi.Stage",
+        "direction": "input"
+      },
+      {
+        "node": "three.Stage",
         "direction": "input"
       },
       {
@@ -70951,6 +73213,10 @@
         "direction": "input"
       },
       {
+        "node": "three.Stage",
+        "direction": "input"
+      },
+      {
         "node": "net.xgenia.controls.button",
         "direction": "input"
       },
@@ -71038,6 +73304,10 @@
       },
       {
         "node": "pixi.Stage",
+        "direction": "input"
+      },
+      {
+        "node": "three.Stage",
         "direction": "input"
       },
       {
@@ -71135,6 +73405,10 @@
         "direction": "input"
       },
       {
+        "node": "three.Stage",
+        "direction": "input"
+      },
+      {
         "node": "net.xgenia.controls.button",
         "direction": "input"
       },
@@ -71219,11 +73493,19 @@
       {
         "node": "pixi.Container",
         "direction": "output"
+      },
+      {
+        "node": "three.Stage",
+        "direction": "output"
       }
     ],
     "currentHeight": [
       {
         "node": "pixi.Container",
+        "direction": "output"
+      },
+      {
+        "node": "three.Stage",
         "direction": "output"
       }
     ],
@@ -71289,6 +73571,34 @@
         "direction": "output"
       },
       {
+        "node": "three.Camera",
+        "direction": "output"
+      },
+      {
+        "node": "three.Environment",
+        "direction": "output"
+      },
+      {
+        "node": "three.Group",
+        "direction": "output"
+      },
+      {
+        "node": "three.Light",
+        "direction": "output"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
+        "direction": "output"
+      },
+      {
+        "node": "three.Stage",
+        "direction": "output"
+      },
+      {
         "node": "Circle",
         "direction": "output"
       },
@@ -71344,6 +73654,14 @@
       },
       {
         "node": "Render Paylines Pixi",
+        "direction": "output"
+      },
+      {
+        "node": "three.Group",
+        "direction": "output"
+      },
+      {
+        "node": "three.Stage",
         "direction": "output"
       },
       {
@@ -72071,6 +74389,10 @@
         "direction": "input"
       },
       {
+        "node": "three.Model",
+        "direction": "input"
+      },
+      {
         "node": "Sound",
         "direction": "input"
       },
@@ -72333,6 +74655,10 @@
       {
         "node": "Wheel Spin",
         "direction": "output"
+      },
+      {
+        "node": "three.Light",
+        "direction": "input"
       }
     ],
     "velocity": [
@@ -73343,6 +75669,12 @@
         "direction": "input"
       }
     ],
+    "cascadeDirection": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      }
+    ],
     "cascadeDuration": [
       {
         "node": "pixi.ReelColumn",
@@ -74017,6 +76349,10 @@
       {
         "node": "pixi.Spritesheet",
         "direction": "output"
+      },
+      {
+        "node": "three.Model",
+        "direction": "output"
       }
     ],
     "frameNames": [
@@ -74047,6 +76383,10 @@
       {
         "node": "pixi.Stage",
         "direction": "input"
+      },
+      {
+        "node": "three.Stage",
+        "direction": "input"
       }
     ],
     "forceCanvas": [
@@ -74059,17 +76399,29 @@
       {
         "node": "pixi.Stage",
         "direction": "input"
+      },
+      {
+        "node": "three.Stage",
+        "direction": "input"
       }
     ],
     "domWidth": [
       {
         "node": "pixi.Stage",
         "direction": "input"
+      },
+      {
+        "node": "three.Stage",
+        "direction": "input"
       }
     ],
     "domHeight": [
       {
         "node": "pixi.Stage",
+        "direction": "input"
+      },
+      {
+        "node": "three.Stage",
         "direction": "input"
       }
     ],
@@ -74100,6 +76452,10 @@
     "stageCreated": [
       {
         "node": "pixi.Stage",
+        "direction": "output"
+      },
+      {
+        "node": "three.Stage",
         "direction": "output"
       }
     ],
@@ -74281,6 +76637,10 @@
       {
         "node": "Wheel Spin",
         "direction": "output"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
       }
     ],
     "colours": [
@@ -75568,6 +77928,12 @@
       },
       {
         "node": "Weighted Reels",
+        "direction": "input"
+      }
+    ],
+    "refillFrom": [
+      {
+        "node": "Cascade The Reels",
         "direction": "input"
       }
     ],
@@ -76959,6 +79325,10 @@
       {
         "node": "RGS Translations",
         "direction": "output"
+      },
+      {
+        "node": "three.Model",
+        "direction": "output"
       }
     ],
     "failed": [
@@ -77944,6 +80314,10 @@
       },
       {
         "node": "Win Rollup",
+        "direction": "output"
+      },
+      {
+        "node": "three.Stage",
         "direction": "output"
       }
     ],
@@ -79197,6 +81571,646 @@
         "direction": "output"
       }
     ],
+    "type": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      },
+      {
+        "node": "three.Light",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.textinput",
+        "direction": "input"
+      },
+      {
+        "node": "Static Data",
+        "direction": "input"
+      },
+      {
+        "node": "Open File Picker",
+        "direction": "output"
+      }
+    ],
+    "fov": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      }
+    ],
+    "orthoSize": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      }
+    ],
+    "near": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      }
+    ],
+    "far": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      }
+    ],
+    "posX": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      },
+      {
+        "node": "three.Group",
+        "direction": "input"
+      },
+      {
+        "node": "three.Light",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      }
+    ],
+    "posY": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      },
+      {
+        "node": "three.Group",
+        "direction": "input"
+      },
+      {
+        "node": "three.Light",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      }
+    ],
+    "posZ": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      },
+      {
+        "node": "three.Group",
+        "direction": "input"
+      },
+      {
+        "node": "three.Light",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      }
+    ],
+    "targetX": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      },
+      {
+        "node": "three.Light",
+        "direction": "input"
+      }
+    ],
+    "targetY": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      },
+      {
+        "node": "three.Light",
+        "direction": "input"
+      }
+    ],
+    "targetZ": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      },
+      {
+        "node": "three.Light",
+        "direction": "input"
+      }
+    ],
+    "orbit": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      }
+    ],
+    "autoRotate": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      }
+    ],
+    "autoRotateSpeed": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      }
+    ],
+    "enableZoom": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      }
+    ],
+    "enablePan": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      }
+    ],
+    "dampingFactor": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      }
+    ],
+    "minDistance": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      }
+    ],
+    "maxDistance": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      }
+    ],
+    "frameScene": [
+      {
+        "node": "three.Camera",
+        "direction": "input"
+      },
+      {
+        "node": "three.Stage",
+        "direction": "input"
+      }
+    ],
+    "preset": [
+      {
+        "node": "three.Environment",
+        "direction": "input"
+      }
+    ],
+    "hdrUrl": [
+      {
+        "node": "three.Environment",
+        "direction": "input"
+      }
+    ],
+    "showBackground": [
+      {
+        "node": "three.Environment",
+        "direction": "input"
+      }
+    ],
+    "intensity": [
+      {
+        "node": "three.Environment",
+        "direction": "input"
+      },
+      {
+        "node": "three.Light",
+        "direction": "input"
+      }
+    ],
+    "toneMapping": [
+      {
+        "node": "three.Environment",
+        "direction": "input"
+      },
+      {
+        "node": "three.Stage",
+        "direction": "input"
+      }
+    ],
+    "exposure": [
+      {
+        "node": "three.Environment",
+        "direction": "input"
+      },
+      {
+        "node": "three.Stage",
+        "direction": "input"
+      }
+    ],
+    "fog": [
+      {
+        "node": "three.Environment",
+        "direction": "input"
+      }
+    ],
+    "fogColor": [
+      {
+        "node": "three.Environment",
+        "direction": "input"
+      }
+    ],
+    "fogNear": [
+      {
+        "node": "three.Environment",
+        "direction": "input"
+      }
+    ],
+    "fogFar": [
+      {
+        "node": "three.Environment",
+        "direction": "input"
+      }
+    ],
+    "rotX": [
+      {
+        "node": "three.Group",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      }
+    ],
+    "rotY": [
+      {
+        "node": "three.Group",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      }
+    ],
+    "rotZ": [
+      {
+        "node": "three.Group",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      }
+    ],
+    "uniformScale": [
+      {
+        "node": "three.Group",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      }
+    ],
+    "scaleZ": [
+      {
+        "node": "three.Group",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      }
+    ],
+    "boundsWidth": [
+      {
+        "node": "three.Group",
+        "direction": "output"
+      }
+    ],
+    "boundsHeight": [
+      {
+        "node": "three.Group",
+        "direction": "output"
+      }
+    ],
+    "boundsDepth": [
+      {
+        "node": "three.Group",
+        "direction": "output"
+      }
+    ],
+    "color": [
+      {
+        "node": "three.Light",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.button",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.controls.textinput",
+        "direction": "input"
+      },
+      {
+        "node": "Text",
+        "direction": "input"
+      }
+    ],
+    "groundColor": [
+      {
+        "node": "three.Light",
+        "direction": "input"
+      }
+    ],
+    "distance": [
+      {
+        "node": "three.Light",
+        "direction": "input"
+      }
+    ],
+    "decay": [
+      {
+        "node": "three.Light",
+        "direction": "input"
+      }
+    ],
+    "penumbra": [
+      {
+        "node": "three.Light",
+        "direction": "input"
+      }
+    ],
+    "castShadow": [
+      {
+        "node": "three.Light",
+        "direction": "input"
+      },
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      }
+    ],
+    "shadowSize": [
+      {
+        "node": "three.Light",
+        "direction": "input"
+      }
+    ],
+    "shape": [
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      }
+    ],
+    "sizeX": [
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      }
+    ],
+    "sizeY": [
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      }
+    ],
+    "sizeZ": [
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      }
+    ],
+    "metalness": [
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      }
+    ],
+    "roughness": [
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      }
+    ],
+    "emissive": [
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      }
+    ],
+    "emissiveIntensity": [
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      }
+    ],
+    "wireframe": [
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      }
+    ],
+    "flatShading": [
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      }
+    ],
+    "textureUrl": [
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      }
+    ],
+    "receiveShadow": [
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      }
+    ],
+    "pickable": [
+      {
+        "node": "three.Mesh",
+        "direction": "input"
+      },
+      {
+        "node": "three.Model",
+        "direction": "input"
+      }
+    ],
+    "pointerX": [
+      {
+        "node": "three.Mesh",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
+        "direction": "output"
+      }
+    ],
+    "pointerY": [
+      {
+        "node": "three.Mesh",
+        "direction": "output"
+      },
+      {
+        "node": "three.Model",
+        "direction": "output"
+      }
+    ],
+    "autoFit": [
+      {
+        "node": "three.Model",
+        "direction": "input"
+      }
+    ],
+    "fitSize": [
+      {
+        "node": "three.Model",
+        "direction": "input"
+      }
+    ],
+    "groundToFloor": [
+      {
+        "node": "three.Model",
+        "direction": "input"
+      }
+    ],
+    "clip": [
+      {
+        "node": "three.Model",
+        "direction": "input"
+      },
+      {
+        "node": "Page Stack",
+        "direction": "input"
+      },
+      {
+        "node": "Router",
+        "direction": "input"
+      },
+      {
+        "node": "Group",
+        "direction": "input"
+      }
+    ],
+    "autoplay": [
+      {
+        "node": "three.Model",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.gsapAnimator",
+        "direction": "input"
+      },
+      {
+        "node": "Video",
+        "direction": "input"
+      }
+    ],
+    "speed": [
+      {
+        "node": "three.Model",
+        "direction": "input"
+      }
+    ],
+    "clips": [
+      {
+        "node": "three.Model",
+        "direction": "output"
+      }
+    ],
+    "transparent": [
+      {
+        "node": "three.Stage",
+        "direction": "input"
+      }
+    ],
+    "environmentPreset": [
+      {
+        "node": "three.Stage",
+        "direction": "input"
+      }
+    ],
+    "shadows": [
+      {
+        "node": "three.Stage",
+        "direction": "input"
+      }
+    ],
+    "resolutionCap": [
+      {
+        "node": "three.Stage",
+        "direction": "input"
+      }
+    ],
+    "cameraView": [
+      {
+        "node": "three.Stage",
+        "direction": "input"
+      }
+    ],
+    "autoFrame": [
+      {
+        "node": "three.Stage",
+        "direction": "input"
+      }
+    ],
+    "delta": [
+      {
+        "node": "three.Stage",
+        "direction": "output"
+      }
+    ],
     "testId": [
       {
         "node": "net.xgenia.controls.button",
@@ -79240,24 +82254,6 @@
       }
     ],
     "textStyle": [
-      {
-        "node": "net.xgenia.controls.button",
-        "direction": "input"
-      },
-      {
-        "node": "net.xgenia.controls.options",
-        "direction": "input"
-      },
-      {
-        "node": "net.xgenia.controls.textinput",
-        "direction": "input"
-      },
-      {
-        "node": "Text",
-        "direction": "input"
-      }
-    ],
-    "color": [
       {
         "node": "net.xgenia.controls.button",
         "direction": "input"
@@ -80379,20 +83375,6 @@
         "direction": "input"
       }
     ],
-    "type": [
-      {
-        "node": "net.xgenia.controls.textinput",
-        "direction": "input"
-      },
-      {
-        "node": "Static Data",
-        "direction": "input"
-      },
-      {
-        "node": "Open File Picker",
-        "direction": "output"
-      }
-    ],
     "maxLength": [
       {
         "node": "net.xgenia.controls.textinput",
@@ -80510,20 +83492,6 @@
     "useRoutes": [
       {
         "node": "Page Stack",
-        "direction": "input"
-      }
-    ],
-    "clip": [
-      {
-        "node": "Page Stack",
-        "direction": "input"
-      },
-      {
-        "node": "Router",
-        "direction": "input"
-      },
-      {
-        "node": "Group",
         "direction": "input"
       }
     ],
@@ -81696,16 +84664,6 @@
     "link": [
       {
         "node": "net.xgenia.externallink",
-        "direction": "input"
-      }
-    ],
-    "autoplay": [
-      {
-        "node": "net.xgenia.gsapAnimator",
-        "direction": "input"
-      },
-      {
-        "node": "Video",
         "direction": "input"
       }
     ],
