@@ -123,6 +123,35 @@ export function resolveReadWindow(total: number, since: number | undefined, limi
   return Math.max(0, total - limit);
 }
 
+/**
+ * How many messages the panel keeps collapsed behind its "Load N older messages" control.
+ *
+ * (2026-09-17, AI run 14) The panel renders only the newest ~30 messages of a long conversation.
+ * `total` was the RENDERED count, so it stopped at 30 while the chat kept growing, `since` pointed
+ * at a different message after every new one, and a run driver polling `since: total` saw no new
+ * messages for 30 minutes while the AI worked.
+ */
+export function olderMessagesNotRendered(controlTexts: string[]): number {
+  for (const text of controlTexts) {
+    const m = /^\s*Load (\d+) older messages?\s*$/.exec(text || '');
+    if (m) return Number(m[1]);
+  }
+  return 0;
+}
+
+/** Map an absolute `since` onto the rendered part of a partly collapsed transcript. */
+export function planChatRead(opts: { rendered: number; hidden: number; since?: number; limit: number }): {
+  total: number;
+  renderedStart: number;
+  /** Requested messages that sit behind the collapse control and cannot be read. */
+  skipped: number;
+} {
+  const total = opts.hidden + opts.rendered;
+  const absoluteStart = Math.max(0, resolveReadWindow(total, opts.since, opts.limit));
+  const firstReadable = Math.max(absoluteStart, opts.hidden);
+  return { total, renderedStart: firstReadable - opts.hidden, skipped: firstReadable - absoluteStart };
+}
+
 function fail(code: string, tried: string, hint: string) {
   return { error: code, tried, hint };
 }
@@ -733,13 +762,25 @@ export async function chatRead(opts: { since?: number; limit?: number } = {}) {
   }
 
   const messages = await readStructuredMessages(frame);
+  const controlTexts = (await frame
+    .evaluate(() => Array.from(document.querySelectorAll('button')).map((b) => (b as HTMLElement).innerText || ''))
+    .catch(() => [])) as string[];
+  const hidden = olderMessagesNotRendered(controlTexts);
   const limit = opts.limit ?? DEFAULT_TAIL_LIMIT;
-  const since = resolveReadWindow(messages.length, opts.since, limit);
+  const plan = planChatRead({ rendered: messages.length, hidden, since: opts.since, limit });
 
-  const out: ChatMessageOut[] = summariseMessages(messages, since, limit, MESSAGE_CAP);
+  const out: ChatMessageOut[] = summariseMessages(messages, plan.renderedStart, limit, MESSAGE_CAP, hidden);
 
   return {
-    total: messages.length,
+    total: plan.total,
+    rendered: messages.length,
+    ...(hidden > 0 ? { olderNotRendered: hidden } : {}),
+    ...(plan.skipped > 0
+      ? {
+          skipped: plan.skipped,
+          skippedHint: `${plan.skipped} requested message(s) are collapsed behind the panel's "Load ${hidden} older messages" control and cannot be read; indexes below ${hidden} are not rendered.`
+        }
+      : {}),
     messageCount: readiness.state.messageCount,
     busy: readiness.state.busy,
     messages: out
