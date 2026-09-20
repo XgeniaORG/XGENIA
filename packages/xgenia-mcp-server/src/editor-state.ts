@@ -1,5 +1,5 @@
 import type { Page } from 'playwright-core';
-import { connect, discoverPort, getChatFrame, type Target } from './connection.js';
+import { connect, discoverPort, getChatFrame, type RawCdpProbe, type Target } from './connection.js';
 import { SELECTORS } from './selectors.js';
 import { recentsFilePath, readRecents, type RecentEntry } from './recents.js';
 
@@ -127,6 +127,18 @@ export interface ChatState {
   unavailable?: 'no-frame' | 'evaluate-failed';
   /** The thrown message when `unavailable === 'evaluate-failed'`, trimmed. */
   error?: string;
+  /**
+   * Display name of the model the panel will run the next turn on, read from
+   * the footer's model selector — null when that control is not rendered.
+   * The model is chosen inside XGENIA, not by the caller, and a frontier
+   * model turns a long build into real money, so this is surfaced as text
+   * rather than leaving callers to read it off a screenshot.
+   */
+  model?: string | null;
+  /** Running conversation cost as the header shows it (e.g. "$0.42"), or null when not shown. */
+  cost?: string | null;
+  /** Context-window usage as the header shows it (e.g. "12% of context"), or null when not shown. */
+  contextUsage?: string | null;
 }
 
 const MAX_ERROR_LEN = 300;
@@ -136,12 +148,55 @@ export async function readChatState(page: Page): Promise<ChatState> {
   if (!frame) return { mounted: false, busy: false, messageCount: 0, unavailable: 'no-frame' };
   try {
     return await frame.evaluate(
-      (sel) => ({
-        mounted: !!document.querySelector(sel.chatInput),
-        busy: !!document.querySelector(sel.chatStop),
-        messageCount: document.querySelectorAll('[aria-label="Copy message to clipboard"]').length
-      }),
-      { chatInput: SELECTORS.chatInput, chatStop: SELECTORS.chatStop }
+      (sel) => {
+        // The trigger renders three spans: a status glyph, the model name, and a
+        // caret ("●", "Glm 5.3 Flashx", "▲"). innerText of the whole control is
+        // all three on separate lines, so take the longest span — the name.
+        const trigger = document.querySelector(sel.chatModelTrigger);
+        const model = trigger
+          ? Array.from(trigger.querySelectorAll('span'))
+              .map((el) => (el.textContent ?? '').trim())
+              .filter(Boolean)
+              .sort((a, b) => b.length - a.length)[0] ?? null
+          : null;
+        // The context meter is a role=progressbar with aria-valuenow in percent
+        // and one child per segment carrying `title="Input: 0.1%"` etc.
+        const meter = document.querySelector(sel.chatContextUsage);
+        const valueNow = meter?.getAttribute('aria-valuenow');
+        const contextPercent = valueNow !== null && valueNow !== undefined ? Number(valueNow) : null;
+        const contextBreakdown = meter
+          ? Array.from(meter.children)
+              .map((el) => el.getAttribute('title') ?? '')
+              .filter(Boolean)
+          : [];
+        // The cost is a pill in the header whose text starts with "$"; nothing
+        // labels it, so it is found by its text rather than a selector.
+        let cost: string | null = null;
+        for (const el of Array.from(document.querySelectorAll('span'))) {
+          const t = (el.textContent ?? '').trim();
+          if (/^\$\d[\d.,]*$/.test(t) && el.children.length <= 1) {
+            cost = t;
+            break;
+          }
+        }
+        return {
+          mounted: !!document.querySelector(sel.chatInput),
+          busy: !!document.querySelector(sel.chatStop),
+          messageCount: document.querySelectorAll('[aria-label="Copy message to clipboard"]').length,
+          model,
+          cost,
+          contextUsage:
+            contextPercent !== null && Number.isFinite(contextPercent)
+              ? `${contextPercent}%${contextBreakdown.length ? ` (${contextBreakdown.join(', ')})` : ''}`
+              : null
+        };
+      },
+      {
+        chatInput: SELECTORS.chatInput,
+        chatStop: SELECTORS.chatStop,
+        chatModelTrigger: SELECTORS.chatModelTrigger,
+        chatContextUsage: SELECTORS.chatContextUsage
+      }
     );
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -239,6 +294,12 @@ export interface HealthReport {
    * read threw. Absent when the read succeeded.
    */
   chatUnavailable?: 'no-frame' | 'evaluate-failed';
+  /** Active model's display name from the panel footer, or null when the panel is not showing one. See ChatState.model. */
+  chatModel?: string | null;
+  /** Running conversation cost as shown in the panel header, or null. */
+  chatCost?: string | null;
+  /** Context-window usage as shown in the panel header, or null. */
+  chatContextUsage?: string | null;
   /** The editor page's <title>. Always the literal "XGENIA" — carries no version. */
   pageTitle: string | null;
   /**
@@ -264,6 +325,14 @@ export interface HealthReport {
   code?: string;
   /** The human-readable detail behind `code`, present under the same condition. */
   hint?: string;
+  /**
+   * Present when `running` is false and something owned the port: what a raw
+   * CDP probe (HTTP /json/list + one Runtime.evaluate on the editor page over
+   * a fresh websocket, bypassing Playwright) saw. This is the evidence behind
+   * `code`: `connect-stalled` means the editor page answered here and only
+   * Playwright's connect failed, so a restart is not indicated.
+   */
+  rawCdp?: RawCdpProbe;
 }
 
 /**
@@ -272,7 +341,12 @@ export interface HealthReport {
  * of the other decision points in this package (`combinePreKillReads`,
  * `unresponsiveRefusal`, etc.).
  */
-export function unresponsiveHealthReport(port: number, code: string, hint: string): HealthReport {
+export function unresponsiveHealthReport(
+  port: number,
+  code: string,
+  hint: string,
+  rawCdp?: RawCdpProbe
+): HealthReport {
   return {
     running: false,
     target: null,
@@ -286,7 +360,8 @@ export function unresponsiveHealthReport(port: number, code: string, hint: strin
     pageTitle: null,
     authenticated: 'unknown',
     code,
-    hint
+    hint,
+    ...(rawCdp ? { rawCdp } : {})
   };
 }
 
@@ -297,8 +372,8 @@ export async function health(): Promise<HealthReport> {
   try {
     ({ page, target } = await connect(port));
   } catch (e) {
-    const err = e as Error & { code?: string };
-    return unresponsiveHealthReport(port, err.code ?? 'not-running', err.message);
+    const err = e as Error & { code?: string; probe?: RawCdpProbe };
+    return unresponsiveHealthReport(port, err.code ?? 'not-running', err.message, err.probe);
   }
 
   let pageResponsive = false;
@@ -336,6 +411,9 @@ export async function health(): Promise<HealthReport> {
     chatBusy: chat.busy,
     busyForMs: busySince(chat.busy),
     chatUnavailable: chat.unavailable,
+    chatModel: chat.model ?? null,
+    chatCost: chat.cost ?? null,
+    chatContextUsage: chat.contextUsage ?? null,
     pageTitle,
     authenticated: pageResponsive ? !loginScreen : 'unknown'
   };
@@ -368,7 +446,7 @@ export async function probe(): Promise<ProbeReport> {
   });
 
   if (frame) {
-    for (const name of ['chatInput', 'chatStop', 'chatSend'] as const) {
+    for (const name of ['chatInput', 'chatStop', 'chatSend', 'chatModelTrigger', 'chatContextUsage'] as const) {
       const selector = SELECTORS[name];
       const found = await frame
         .evaluate((s) => !!document.querySelector(s), selector)
@@ -386,7 +464,10 @@ export async function probe(): Promise<ProbeReport> {
 
   // chatStop and chatSend are mutually exclusive by design, so requiring both
   // would fail on a healthy panel. Everything else must be present.
-  const required = checks.filter((c) => c.name !== 'chatStop' && c.name !== 'chatSend');
+  // chatModelTrigger/chatContextUsage feed the model/cost/context read-outs;
+  // their absence degrades those to null rather than breaking the harness.
+  const optional = new Set(['chatStop', 'chatSend', 'chatModelTrigger', 'chatContextUsage']);
+  const required = checks.filter((c) => !optional.has(c.name));
   const eitherButton = checks.some((c) => (c.name === 'chatStop' || c.name === 'chatSend') && c.found);
 
   return { ok: required.every((c) => c.found) && eitherButton, checks };

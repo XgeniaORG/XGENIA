@@ -8,6 +8,7 @@ import { screenshot } from './screenshot.js';
 import { openProject, newProject, closeProject } from './project.js';
 import { launch, restart, quit } from './lifecycle.js';
 import { debugExport, debugQuery, runtimeLogs } from './debug-export.js';
+import { previewRead, previewClick } from './preview.js';
 
 const server = new McpServer({ name: 'xgenia-mcp', version: '1.0.0' });
 
@@ -42,7 +43,8 @@ server.registerTool(
       'Liveness of the XGENIA editor: whether it is running, dev or packaged, which project is open, whether the AI chat panel is mounted and how long it has been generating. Call this first. ' +
       'busyForMs is NOT wall-clock time since generation began — it is measured from this harness process\'s first observation of the busy state, because the underlying tracker is in-memory and has no earlier signal. A panel that has been stuck generating for hours looks identical to one that just started: both can read a small busyForMs right after this server starts. Treat busyForMs as a lower bound on how long it has been busy, never as the true duration. ' +
       'authenticated reports whether the editor is past the login screen (window.ProjectModel is defined on the login screen too, so nothing else here implies anyone is signed in) — it is "unknown", not a confident true, whenever pageResponsive is false. ' +
-      'Never throws just because the editor could not be reached: when connect fails, this returns {running: false, code, hint} instead — code is "not-running" when nothing is listening on the CDP port at all, or "editor-unresponsive" when something is listening but never became usable (e.g. a wedged renderer), a distinction this now makes automatically by checking whether anything actually owns the port. Use that to decide whether xgenia_launch or xgenia_restart with force is the right next call.',
+      'chatModel is the display name of the model the panel will run the next turn on, read from the panel footer as text; chatCost is the running conversation cost from the header and chatContextUsage the context meter — check chatModel before any run longer than a couple of turns, the model is chosen inside XGENIA, not by you. ' +
+      'Never throws just because the editor could not be reached: when connect fails, this returns {running: false, code, hint, rawCdp} instead. code is "not-running" when nothing is listening on the CDP port at all; "editor-unresponsive" when something is listening but the editor page did not answer a raw CDP probe either (a wedged renderer — xgenia_restart with force is the recovery); or "connect-stalled" when the editor page DID answer raw CDP and only Playwright\'s connectOverCDP failed to finish (it initialises every page target, so a hung or churning non-editor target stalls it) — retry, do not force-restart on that alone. rawCdp carries the evidence: every target on the port and whether the editor page answered, and in how long.',
     inputSchema: {}
   },
   () => guard('connect + evaluate', health)
@@ -186,7 +188,8 @@ server.registerTool(
   {
     title: 'Read the XGENIA AI chat transcript',
     description:
-      'Read the AI chat transcript, paged from an index. Indexes and total count the WHOLE conversation: when the panel collapses older messages behind "Load N older messages", total includes them, olderNotRendered says how many, and a since below that count returns skipped instead of shifting onto other messages. Long messages are truncated; the message count and busy flag come from the live panel.',
+      'Read the AI chat transcript, paged from an index. Indexes and total count the WHOLE conversation: when the panel collapses older messages behind "Load N older messages", total includes them, olderNotRendered says how many, and a since below that count returns skipped instead of shifting onto other messages. Long messages are truncated; the message count and busy flag come from the live panel. ' +
+      'Also returns model (the footer\'s active model display name), cost (the header\'s running $ figure) and contextUsage (the context meter, as "N% (Input: …, Output: …, Cache: …)"), so a driver can check what a run will cost before sending. An empty conversation returns total 0 — the recommended-defaults card, suggestion chips and footer are chrome, not messages. Roles: assistant for the panel\'s replies; unknown for everything else, because the DOM marks no user turn and this will not guess one.',
     inputSchema: { since: z.number().optional(), limit: z.number().optional() }
   },
   ({ since, limit }) => guard('chat read', () => chatRead({ since, limit }))
@@ -233,6 +236,11 @@ server.registerTool(
                 cssSize: result.cssSize,
                 imageSize: result.imageSize,
                 scale: result.scale,
+                // contentSize/note are what the description promises and what a
+                // caller needs to know which part of the buffer is page; they
+                // used to be computed by screenshot() and then dropped here.
+                contentSize: result.contentSize,
+                ...(result.note ? { note: result.note } : {}),
                 bytes: result.bytes
               },
               null,
@@ -331,4 +339,40 @@ server.registerTool(
     }
   },
   (args) => guard('read window.XgeniaRuntimeLogs in the preview frame', () => runtimeLogs(args))
+);
+
+server.registerTool(
+  'xgenia_preview_read',
+  {
+    title: 'Read the running game\'s DOM',
+    description:
+      "Read what the preview is actually showing, first-hand: the visible text of the whole game or of one element, plus every rendered node that carries an editor label (data-xgenia-node-label) with its current text and visibility. " +
+      'This is the driver\'s own evidence — the panel AI reads the same DOM and then reasons about it, and its report can be confidently wrong. Use this to check a claim like "the label now shows 3" instead of accepting it, and to learn the labels to pass to xgenia_preview_click. ' +
+      'Pass label (an editor node name) or selector to read one element; omit both for the whole body. Reports selector-missing with the labelled nodes actually rendered when nothing matches. Addresses the preview iframe by URL, so the empty cloudruntime page cannot answer it.',
+    inputSchema: {
+      label: z.string().optional(),
+      selector: z.string().optional(),
+      maxChars: z.number().optional()
+    }
+  },
+  (args) => guard('read the preview frame DOM', () => previewRead(args))
+);
+
+server.registerTool(
+  'xgenia_preview_click',
+  {
+    title: 'Click a node in the running game',
+    description:
+      'Click a rendered node in the preview by its editor label (or a CSS selector), optionally several times, and report the text of another labelled node before and after each press. ' +
+      'This is how a driver presses the button itself and reads the label itself, rather than asking the panel AI to do both and report back. ' +
+      'times defaults to 1, settleMs (wait after each click before reading) to 300. Pass readLabel to get before/after text for the node the click is supposed to change. Reports selector-missing with the labels actually rendered when the target is not in the DOM.',
+    inputSchema: {
+      label: z.string().optional(),
+      selector: z.string().optional(),
+      times: z.number().optional(),
+      settleMs: z.number().optional(),
+      readLabel: z.string().optional()
+    }
+  },
+  (args) => guard('click in the preview frame', () => previewClick(args))
 );
