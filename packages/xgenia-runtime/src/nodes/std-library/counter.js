@@ -47,7 +47,12 @@ const CounterNode = {
       group: 'Actions',
       displayName: 'Reset To Start',
       valueChangedToTrue: function () {
-        if (this.currentValue === 0) {
+        // A reset that leaves the count where it already is announces nothing. This used
+        // to read `this.currentValue` (never set on the node; the count lives in _internal),
+        // so the guard never fired and every reset emitted countChanged — a page that wired
+        // Settle → reset → countChanged → … → Settle looped ~200×/s from mount
+        // (export 1789727384756, 2026-09-18).
+        if (this._internal.currentValue === this._internal.startValue) {
           return;
         }
         this._internal.currentValue = this._internal.startValue;
