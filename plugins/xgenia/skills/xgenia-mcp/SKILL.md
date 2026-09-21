@@ -2,14 +2,16 @@
 name: xgenia-mcp
 description: |
   Drive the XGENIA editor over MCP: launch it, open or create a project, send prompts to its
-  AI chat panel, watch the conversation, screenshot it, and restart it when it wedges.
+  AI chat panel, watch the conversation, read and click the running game yourself, screenshot
+  it, and restart it when it wedges.
   Use when: "use XGENIA", "drive XGENIA", "build a game in XGENIA", "test XGENIA",
   "open XGENIA", "XGENIA MCP", "send a prompt to the XGENIA chat", "restart XGENIA",
   "XGENIA is stuck", "build a slot", "screenshot the editor", or any task that needs the
   XGENIA desktop app driven from outside it.
-  Covers the tool sequence, the cost rule, sharing one editor with other agents, running the
-  panel from local source, verifying a panel change actually reached the running editor, and the
-  traps that make a call look like it failed when it did not.
+  Covers the tool sequence, the cost rule, how to prompt the panel's AI without steering it
+  wrong, getting first-hand evidence from the preview, sharing one editor with other agents,
+  running the panel from local source, verifying a panel change actually reached the running
+  editor, and the traps that make a call look like it failed when it did not.
 ---
 
 # Driving XGENIA over MCP
@@ -21,7 +23,7 @@ Added by hand, not by the plugin: the package is **not on npm** (`npx -y xgenia-
 a marketplace install of the `xgenia` plugin ships this skill without the server, so no tools
 appear. Build `packages/xgenia-mcp-server` once and point `claude mcp add` at `dist/index.js`.
 
-All 17 tools return `{ error, tried, hint }` on failure rather than throwing. `hint` says
+All 19 tools return `{ error, tried, hint }` on failure rather than throwing. `hint` says
 what to do next — read it before deciding anything.
 
 ---
@@ -35,10 +37,15 @@ the OpenRouter account mid-session and blocking all further work. Nobody chose t
 the profile had a malformed id stored, it did not resolve, and the request went out on
 whatever the live list surfaced.
 
-- The panel footer shows the active model (bottom-left of the chat). A screenshot reads it.
+- `xgenia_health` returns `chatModel` (the footer's active model name), `chatCost` (the running
+  `$` figure) and `chatContextUsage`; `xgenia_chat_read` returns the same as `model`, `cost`,
+  `contextUsage`. Read them as text. A `region: 'chat'` screenshot of the footer is the
+  fallback when they come back `null` (a fresh conversation shows no cost yet).
 - The current default is `z-ai/glm-5.3-flash`. Never `openai/gpt-6-astra`.
-- Only `visionModel` / `uiModel` may sit on `anthropic/claude-opus-5` — that is deliberate,
-  they read screenshots and author screens.
+- Only `visionModel` / `uiModel` and the script judge/approver may sit on
+  `anthropic/claude-opus-5` — that is deliberate, they read screenshots and vet scripts. They
+  still cost: one cheap-model counter build spent $1.76 of its $3.62 on those passes. The debug
+  export's `tokenUsage.modelUsageBreakdown` and `section: 'subAgents'` show the split.
 - The chat panel's header shows a running **$ cost** for the conversation. Watch it.
 
 The model lives per-profile in `editorSettings.json` under
@@ -65,23 +72,44 @@ Two rules when reading that file:
 
 | Tool | Use it for |
 | --- | --- |
-| `xgenia_health` | **Always call first.** Running or not, dev or packaged, project open, chat mounted, chat busy, signed in. Never throws. |
+| `xgenia_health` | **Always call first.** Running or not, dev or packaged, project open, chat mounted, chat busy, signed in, active model, cost. Never throws. On a failed connect the `code` is `not-running`, `editor-unresponsive` or `connect-stalled`, with `rawCdp` evidence — see Recovery. |
 | `xgenia_launch` | Attach to a running editor, or start one (`app` / `dev` / `auto`). |
 | `xgenia_project_status` | Which project is open; when none, the 25 most recent. |
-| `xgenia_open_project` | Open by absolute `dir` or by `name`. Verifies it landed, and opens the chat panel if it is closed. |
-| `xgenia_new_project` | Create a project. |
+| `xgenia_open_project` | Open by absolute `dir` or by `name`. Saves whatever is open, appends the recents entry, reloads the lobby so it re-reads the file (the only moment it does), clicks the tile, verifies it landed, and opens the chat panel if it is closed. |
+| `xgenia_new_project` | Create a project and open it the same way. |
 | `xgenia_close_project` | Back to the projects screen. |
 | `xgenia_open_chat_panel` | Only when someone closed the panel by hand — the open/new tools already do this. |
 | `xgenia_chat_send` | Type a prompt and send it. Refuses mid-generation unless `force`. |
-| `xgenia_chat_read` | Read the transcript, paged with `since` / `limit`. The panel renders only the newest ~30 messages and collapses the rest behind "Load N older messages": `total` and every `index` count the WHOLE conversation, `olderNotRendered` says how many are collapsed, and a `since` inside that range returns `skipped`. On an older server `total` sticks at ~30 while the chat keeps growing — a driver polling `since: total` then sees nothing for hours. |
+| `xgenia_chat_read` | Read the transcript, paged with `since` / `limit`, plus `model` / `cost` / `contextUsage`. The panel renders only the newest ~30 messages and collapses the rest behind "Load N older messages": `total` and every `index` count the WHOLE conversation, `olderNotRendered` says how many are collapsed, and a `since` inside that range returns `skipped`. An empty conversation is `total: 0`. On an older server `total` sticks at ~30 while the chat keeps growing — a driver polling `since: total` then sees nothing for hours. |
 | `xgenia_chat_wait_idle` | Block until generation stops. Returns `timedOut`, never throws. |
-| `xgenia_screenshot` | Capture `full`, `chat`, or `canvas`. |
+| `xgenia_preview_read` | **Your own eyes on the game.** Visible text of the whole preview or one node (`label` = the editor node name, or a CSS `selector`), plus every rendered node with an editor label and its current text and visibility. Read straight from the preview DOM, not from the panel AI's account of it. |
+| `xgenia_preview_click` | **Your own hands on the game.** Click a node by `label` (or `selector`) `times` times and get another node's text (`readLabel`) before and after each press. |
+| `xgenia_screenshot` | Capture `full`, `chat`, or `canvas`. Returns `contentSize` and a `note` when the buffer is padded or cropped. |
 | `xgenia_probe` | Which DOM selectors still resolve. Run this on any `selector-missing`. |
-| `xgenia_debug_export` | Click Debug Export and return the **file path** (it writes `<project>/.xgenia/debug-exports/xgenia-debug-export-<ms>.json`; older panel builds also fired a browser download, which opened a native **Save As** sheet that no unattended driver can dismiss — if a call hangs, check for a sheet: `osascript -e 'tell application "System Events" to tell (first process whose name is "Electron") to get count of sheets of every window'`) plus a census of what the panel AI did — every tool call with its arguments and result, the thinking log, both consoles, the cost. Never returns the bundle (7.2MB / 640 calls in one build). |
-| `xgenia_debug_query` | Grep one section of that export. `tool` + `failuresOnly` answers "which calls to X failed and why" without reading the file. |
+| `xgenia_debug_export` | Click Debug Export and return the **file path** (it writes `<project>/.xgenia/debug-exports/xgenia-debug-export-<ms>.json`; older panel builds also fired a browser download, which opened a native **Save As** sheet that no unattended driver can dismiss — if a call hangs, check for a sheet: `osascript -e 'tell application "System Events" to tell (first process whose name is "Electron") to get count of sheets of every window'`) plus a census of what the panel AI did — every tool call with its arguments and result, the thinking log, both consoles, the cost by model. Never returns the bundle (7.2MB / 640 calls in one build). |
+| `xgenia_debug_query` | Grep one section of that export. `tool` + `failuresOnly` answers "which calls to X failed and why" without reading the file. `section: 'subAgents'` shows which model each judge/vision pass ran on. |
 | `xgenia_runtime_logs` | The live preview's own log buffer — what the game is doing **now**, no export step. Resets on preview reload. |
 | `xgenia_restart` | Save, kill, relaunch, reopen the project. |
 | `xgenia_quit` | Save and kill, no relaunch. |
+
+---
+
+## Prompting the panel's AI: outcomes, not mechanisms
+
+The panel's AI knows XGENIA's node library, ports and tools far better than a prompt written
+from outside does. Telling it *how* to build something when you are not certain how XGENIA
+works produces a worse graph than telling it *what you want to see*.
+
+- **Describe the observable result** — what appears on screen, what a press does, what the
+  label shows after three presses. Leave node types, ports and wiring to it unless you have
+  verified the mechanism yourself in this editor.
+- **Ask it to prove the result from the running game**, not from the graph: "press the button
+  three times yourself and tell me what the label actually displays after each press, taken
+  from the running game". It has tools to click and read the preview; make it use them.
+- **Then check its claim yourself** with `xgenia_preview_read` / `xgenia_preview_click`. A
+  confident report and a first-hand read that agree is evidence; the report alone is not.
+- **If you must specify a mechanism**, say why and mark the uncertainty ("I believe X, check
+  it") so the AI can push back with what it knows instead of following a wrong instruction.
 
 ---
 
@@ -91,13 +119,14 @@ There is **one** editor per machine and no second instance: the dev ports (8080 
 panel, 8574 viewer, 3002 image editor, 9223 CDP) are fixed, and the start script *kills* whatever
 holds 3010. Another session's harness, or a person, can take the editor from you at any moment.
 
-Three run-killers seen in one afternoon, all silent from the driver's side:
+Four run-killers, all silent from the driver's side:
 
 | What happened | How it looks | Guard |
 | --- | --- | --- |
 | Another agent ran `quit` + `launch` for its own run | `chat-frame-missing`, then a different project open, no crash-log entry, no human input | Re-check `xgenia_health.project` before and during a run |
 | Someone opened another side panel | chat iframe gone from the frame tree | Nothing to do but reopen the panel and resume |
 | A source edit hot-reloaded the panel | frame reloads mid-turn, transcript survives, the turn does not | Never edit panel or editor source while a run is in flight |
+| A script called `browser.close()` on a CDP connection | Project closed, lobby showing, no human input | Never close a CDP connection to XGENIA; disconnecting that way exits the project. The harness's own `connect()` never does |
 
 Before taking the editor for a long run, wait for a genuinely idle window: the same project and
 the same frames for ~20 minutes, `chatBusy` false, and no keyboard or mouse input (`ioreg -c
@@ -110,22 +139,25 @@ off"*; the transcript survives a reload, so the AI can resume from its own last 
 ## The standard loop
 
 ```
-xgenia_health                      → running? project open? chat mounted? busy?
+xgenia_health                      → running? project open? chat mounted? busy? chatModel? chatCost?
 xgenia_launch                      → only if not running
 xgenia_open_project {dir|name}     → only if no project, or the wrong one
-[check the model — see the cost rule]
-xgenia_chat_send { text, waitIdle: true, timeoutMs: 300000 }
-xgenia_chat_read { since: <last index> }
-xgenia_screenshot { region: 'chat' }   → when the text is not enough
+[check chatModel — see the cost rule]
+xgenia_chat_send { text, waitIdle: false }
+xgenia_chat_read { since: <last total> }   → poll; stop a run that goes astray
+xgenia_chat_wait_idle                       → when it is close to done
+xgenia_preview_read / xgenia_preview_click → check what the game actually does
+xgenia_debug_export + xgenia_debug_query   → when a tool call failed or a claim smells wrong
+xgenia_screenshot { region: 'chat' }        → when the text is not enough
 ```
 
-`waitIdle: true` blocks until the turn finishes and returns `{ idle, waitedMs, timedOut,
-newMessages }`. Prefer it over polling. For a long build, send with `waitIdle: false` and
-poll `xgenia_chat_read` so you can stop the run early if it goes astray.
+`waitIdle: true` on `xgenia_chat_send` blocks until the turn finishes and returns `{ idle,
+waitedMs, timedOut, newMessages }`. For a long build, send with `waitIdle: false` and poll
+`xgenia_chat_read` so you can stop the run early if it goes astray.
 
 Read incrementally: keep the last `total` and pass it as `since`. Long messages come back
 truncated — if you need a full one, ask the panel's AI to restate the part you want rather
-than fighting the truncation.
+than fighting the truncation, or pull the debug export and grep `visibleChat`.
 
 ---
 
@@ -172,13 +204,26 @@ of the image is blank.
   right/bottom of the page is genuinely missing from the image.
 
 `scale` was wrong before 2026-09-06 (reported 1.2503 where the truth was 1.0), so on an older
-build measure against a known element rather than trusting it.
+build measure against a known element rather than trusting it. Before 2026-09-19 the tool also
+computed `contentSize` and `note` and then dropped them from the reply.
 
 ### `busyForMs` is a floor, not a duration
 
 It is measured from this server process's first sight of the busy state, not from when
 generation began. A panel stuck for hours looks identical to one that just started. Never
 report it as "it has been running for N ms".
+
+### Transcript roles
+
+`assistant` is the panel's replies. Everything else is `unknown`: the DOM marks no user turn,
+and the reader will not guess one. Your own prompt is the `unknown` message whose text you sent.
+
+### The panel AI's tool errors are not always what they say
+
+`TRUNCATED_ARGS` from the panel's tools has been observed on a payload that was not cut off
+but *repeated* — the model looped on one key (`"componentName":"Router","componentName":
+"Router",…`). Its advice to "resend smaller" does not cure a repetition loop. When you see it,
+read the received text in the debug export before believing the diagnosis.
 
 ### Shipping while a turn is in flight kills the turn
 
@@ -190,11 +235,16 @@ idle before shipping, or expect to re-send.
 
 ## Reading the running game
 
+`xgenia_preview_read` and `xgenia_preview_click` are the first-hand route: they address the
+preview iframe by URL and read or press its DOM directly. The panel's own runtime tools are the
+AI's route, and they have their own failure modes:
+
 | Symptom in the panel's own tools | What it usually means |
 | --- | --- |
 | `simulate_signal` → `NOT_MOUNTED`, and the result mentions other connected viewer clients | Stale viewer clients. Every project open used to leave a hidden cloud-runtime window connected; 8 of them answered one signal. Count them: `curl -s http://127.0.0.1:9223/json` and look for `cloudruntime`. More than one means a leak (fixed 2026-09-17; older builds need a restart). |
 | `observe_timeline` → "the bridge returned NO response … fully quit and relaunch" right after a preview refresh | The viewer was still reloading. The liveness probe used to be cut to 800 ms by the fast-fail window after one slow read. Retry once before believing it. |
 | A read says "the preview is NOT running" while the game is visibly playing | A timed-out read, not a stopped preview. Retry; if it keeps timing out, the editor is saturated (below). |
+| A tool reports `success` with `verificationSkipped` / `verifiedSource: none` | The write did not error, but its read-back never ran. Not verified. Read the state yourself. |
 | Screenshot refused: "the XGENIA editor window is hidden/minimized" | Correct refusal — a hidden window keeps handing back the last painted frame. Bring the window on screen; do not trust a capture taken while hidden. |
 
 **When everything feels slow:** a game with a tick loop pulses its connections continuously, and
@@ -232,10 +282,12 @@ reloaded or the app was quit, not that it crashed.**
 | Symptom | Call |
 | --- | --- |
 | `not-running` | `xgenia_launch` |
-| `editor-unresponsive` (wedged renderer) | `xgenia_restart { force: true }` — skips the connect and every in-page read, goes straight to the kill |
+| `connect-stalled` | The editor page answered a raw CDP probe; only Playwright's attach stalled (it initialises every page target, so a hung or churning non-editor target can block it). **Retry.** Do not force-restart on this alone — `rawCdp` in the report lists the targets and the editor page's answer time. |
+| `editor-unresponsive` (the editor page did not answer raw CDP either — a wedged renderer) | `xgenia_restart { force: true }` — skips the connect and every in-page read, goes straight to the kill |
 | Chat stuck generating forever | `xgenia_restart` (or `xgenia_chat_send { force: true }` if the panel is otherwise fine) |
 | `not-authenticated` | **Stop and tell the user.** A human signs in once, in the editor. There is no tool, flag or env var that types, stores or reads a password. |
 | `selector-missing` | `xgenia_probe` — the chat panel deploys independently of XGENIA releases, so selectors move |
+| `preview-frame-missing` | No preview is mounted. Open a project; the preview mounts with it. The result lists the frames actually present. |
 
 `xgenia_restart` and `xgenia_quit` return more than `restarted` / `project`. **Check these
 before assuming a clean restart:**
@@ -292,6 +344,9 @@ Skipping step 3 is how a "verified" fix turns out to have been tested against th
 **The MCP server itself is different:** it is a local process started when the session began.
 Rebuilding it does **not** affect the running session — the client has to be restarted to pick
 up a new build. If you just fixed the harness, say so rather than claiming the fix is active.
+To test a rebuilt server without restarting the client, `import` the functions from `dist/*.js`
+in a node script (it shares the CDP port fine) or drive `dist/index.js` over stdio with the MCP
+SDK client — and never call `browser.close()` on the connection.
 
 ---
 
@@ -299,12 +354,15 @@ up a new build. If you just fixed the harness, say so rather than claiming the f
 
 - **Watch, do not just wait.** Poll `xgenia_chat_read` during long runs. Stop a run that is
   going astray rather than paying for it to finish.
-- **Ask for evidence, not reasoning.** The panel's AI will state a confident mechanism it has
-  not checked. Ask it to run `observe_timeline` / `get_execution_status` and report what
-  executed. It retracts cleanly when shown runtime evidence — and a retraction under evidence
-  is a signal the earlier claim was invented, not a signal to trust the next one more.
+- **Get evidence yourself.** The panel's AI will state a confident mechanism it has not
+  checked. Read the label with `xgenia_preview_read`, press the button with
+  `xgenia_preview_click`, and compare with what it told you. Or ask it to run
+  `observe_timeline` / `get_execution_status` and report what executed. It retracts cleanly
+  when shown runtime evidence — and a retraction under evidence is a signal the earlier claim
+  was invented, not a signal to trust the next one more.
 - **A fix is not verified by arithmetic.** If a tool reports a number before a change, do not
-  accept a calculated number after it. Make the tool print the new figure.
+  accept a calculated number after it. Make the tool print the new figure, or read it off the
+  preview.
 - **Screenshot when the text is ambiguous.** `region: 'chat'` for the conversation and the
   model footer, `canvas` for the graph, `full` for the whole window.
 - **A turn that ends with no answer is a bug, not a decision.** Provider errors that arrive

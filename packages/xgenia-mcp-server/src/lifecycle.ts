@@ -877,6 +877,17 @@ async function saveKillVerify(opts: {
       ? `read project/chat state before ${action} (bounded at ${PRE_KILL_READ_TIMEOUT_MS}ms)`
       : `connect to the editor before ${action} (bounded at ${CONNECT_TIMEOUT_MS}ms)`;
     const detail = attempt.ok ? '' : ` (${attempt.error.message})`;
+    // A connect that stalled while the editor page itself answered raw CDP is
+    // not an unresponsive editor: killing it on that evidence would throw
+    // away a healthy session (and its in-flight turn) over a Playwright
+    // initialisation stall. Say so, and point at a retry rather than force.
+    if (!attempt.ok && attempt.error.code === 'connect-stalled') {
+      return fail(
+        'connect-stalled',
+        tried,
+        `${attempt.error.message} The editor page is alive, so the pre-${action} save and busy-check were skipped only because this harness could not attach. Retry ${action}; pass force only if repeated retries stall and you accept losing unsaved work and any in-flight AI turn.`
+      );
+    }
     return fail(
       'editor-unresponsive',
       tried,

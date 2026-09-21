@@ -2,12 +2,13 @@
 
 Installs two things together:
 
-- the **`xgenia` MCP server** — 17 tools that drive the XGENIA desktop app over the Chrome
+- the **`xgenia` MCP server** — 19 tools that drive the XGENIA desktop app over the Chrome
   DevTools Protocol (launch, open or create a project, send chat prompts, read the transcript,
-  screenshot, pull and query the debug export, read the live runtime log, restart)
-- the **`xgenia-mcp` skill** — how to actually use them: the call sequence, the model-cost
-  rule, how to verify a panel change reached the running editor, and the traps that make a
-  working call look like it failed
+  read and click the running game, screenshot, pull and query the debug export, read the live
+  runtime log, restart)
+- the **`xgenia-mcp` skill** — how to actually use them: the call sequence, checking the
+  model and cost before a long run, sharing one editor with other drivers, recovery, and the
+  traps that make a working call look like it failed
 
 ## Install
 

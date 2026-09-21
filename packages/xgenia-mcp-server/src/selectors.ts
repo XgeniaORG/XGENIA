@@ -31,6 +31,14 @@ export const SELECTORS = Object.freeze({
   chatStop: '[aria-label="Stop generating"]',
   /** Present only while the panel is idle. */
   chatSend: '[aria-label="Send message"]',
+  /**
+   * The footer control showing the active model's display name (e.g. "Glm 5.3
+   * Flashx"). Read live 2026-09-19: `div.bottom-controls > div > div.model-selector-trigger > span`.
+   * Exposed so a caller can check the model before a paid run from text, without a screenshot.
+   */
+  chatModelTrigger: '.model-selector-trigger',
+  /** The header's context-window usage meter; its text carries the "N% of context" figure. */
+  chatContextUsage: '[aria-label="Context window usage"]',
   /** A project tile on the projects screen. */
   projectItem: '.projects-item',
   /** The visible label inside a project tile. */

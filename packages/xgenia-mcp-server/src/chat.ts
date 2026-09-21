@@ -94,7 +94,10 @@ function mapRawRow(row: RawMessageRow): ChatMessage {
  * reply" reachable at all — the innerText blob has no message boundaries, so
  * `parseTranscript` alone could never return less than the entire transcript.
  */
-export async function readStructuredMessages(frame: Frame): Promise<ChatMessage[]> {
+export async function readStructuredMessages(
+  frame: Frame,
+  opts: { messageCount?: number } = {}
+): Promise<ChatMessage[]> {
   const rows = (await frame.evaluate(() =>
     Array.from(document.querySelectorAll('.message-container')).map((el) => ({
       parentClasses: el.parentElement ? Array.from(el.parentElement.classList) : [],
@@ -103,8 +106,14 @@ export async function readStructuredMessages(frame: Frame): Promise<ChatMessage[
   )) as RawMessageRow[];
 
   if (rows.length === 0) {
-    // Structured query found nothing — degrade to the whole-blob parse
-    // instead of reporting an empty transcript.
+    // No containers AND the panel's own message count is zero: the
+    // conversation is genuinely empty. Falling through to the blob parse here
+    // returned the "XGENIA recommends some new defaults" card, the suggestion
+    // chips and the model footer as a single role-unknown "message" (read live
+    // 2026-09-19 on a fresh project) — chrome, not conversation.
+    if (opts.messageCount === 0) return [];
+    // Structured query found nothing but the panel says there are messages —
+    // degrade to the whole-blob parse instead of reporting an empty transcript.
     const raw = (await frame.evaluate(() => document.body.innerText)) as string;
     return parseTranscript(raw);
   }
@@ -761,7 +770,7 @@ export async function chatRead(opts: { since?: number; limit?: number } = {}) {
     );
   }
 
-  const messages = await readStructuredMessages(frame);
+  const messages = await readStructuredMessages(frame, { messageCount: readiness.state.messageCount });
   const controlTexts = (await frame
     .evaluate(() => Array.from(document.querySelectorAll('button')).map((b) => (b as HTMLElement).innerText || ''))
     .catch(() => [])) as string[];
@@ -783,6 +792,9 @@ export async function chatRead(opts: { since?: number; limit?: number } = {}) {
       : {}),
     messageCount: readiness.state.messageCount,
     busy: readiness.state.busy,
+    model: readiness.state.model ?? null,
+    cost: readiness.state.cost ?? null,
+    contextUsage: readiness.state.contextUsage ?? null,
     messages: out
   };
 }

@@ -97,15 +97,133 @@ export function connectFailureCode(listening: boolean): 'not-running' | 'editor-
   return listening ? 'editor-unresponsive' : 'not-running';
 }
 
-function connectError(port: number, cause: unknown): Error & { code: string } {
+export interface RawCdpTarget {
+  type: string;
+  url: string;
+  /** Whether a bounded Runtime.evaluate on this target answered. Only probed for the editor page. */
+  responsive?: boolean;
+  evaluateMs?: number;
+}
+
+export interface RawCdpProbe {
+  /** Whether http://127.0.0.1:<port>/json/list answered within the bound. */
+  httpOk: boolean;
+  targets: RawCdpTarget[];
+  /** Whether the editor page target itself answered a Runtime.evaluate over a fresh raw websocket. null when it could not be probed (no editor target, no WebSocket in this Node). */
+  editorPageResponsive: boolean | null;
+  error?: string;
+}
+
+const RAW_PROBE_TIMEOUT_MS = 3_000;
+
+/**
+ * Ask Chromium directly what is on the port, bypassing Playwright entirely.
+ *
+ * `connectOverCDP` initialises EVERY page target before it resolves, so one
+ * hung or mid-teardown target — the editor also hosts a cloud-runtime shell
+ * page and the viewer — stalls the whole connect even when the editor page is
+ * perfectly responsive. Reproduced 2026-09-19: connect timed out at 10s with
+ * `<ws connected>` and nothing after, while a raw websocket to the editor
+ * page answered `Runtime.evaluate` in 11ms and `/json/list` showed a third
+ * (second cloud-runtime) page that was gone a minute later. Reporting that as
+ * "the renderer may be wedged" was a guess dressed as a diagnosis; this probe
+ * is what lets the failure report say which it actually was.
+ */
+export async function probeRawCdp(port: number, timeoutMs = RAW_PROBE_TIMEOUT_MS): Promise<RawCdpProbe> {
+  const withTimeout = <T>(p: Promise<T>, label: string): Promise<T> =>
+    Promise.race([
+      p,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs))
+    ]);
+
+  let list: { type: string; url: string; webSocketDebuggerUrl?: string }[];
+  try {
+    const res = await withTimeout(fetch(`http://127.0.0.1:${port}/json/list`), 'GET /json/list');
+    list = (await res.json()) as typeof list;
+  } catch (e) {
+    return { httpOk: false, targets: [], editorPageResponsive: null, error: (e as Error).message };
+  }
+
+  const targets: RawCdpTarget[] = list.map((t) => ({ type: t.type, url: t.url }));
+  const editor = list.find((t) => t.url.includes(SELECTORS.editorPageUrlSuffix));
+  const editorTarget = targets.find((t) => t.url.includes(SELECTORS.editorPageUrlSuffix));
+  const WS = (globalThis as { WebSocket?: new (url: string) => WebSocket }).WebSocket;
+  if (!editor?.webSocketDebuggerUrl || !WS || !editorTarget) {
+    return { httpOk: true, targets, editorPageResponsive: null };
+  }
+
+  const started = Date.now();
+  try {
+    const responsive = await withTimeout(
+      new Promise<boolean>((resolve, reject) => {
+        const ws = new WS(editor.webSocketDebuggerUrl!);
+        ws.addEventListener('open', () => {
+          ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression: 'document.readyState', returnByValue: true } }));
+        });
+        ws.addEventListener('message', (ev: MessageEvent) => {
+          try {
+            const msg = JSON.parse(String(ev.data));
+            if (msg.id === 1) {
+              ws.close();
+              resolve(!msg.error);
+            }
+          } catch (e) {
+            ws.close();
+            reject(e);
+          }
+        });
+        ws.addEventListener('error', () => reject(new Error('websocket error')));
+      }),
+      'Runtime.evaluate on the editor page'
+    );
+    editorTarget.responsive = responsive;
+    editorTarget.evaluateMs = Date.now() - started;
+    return { httpOk: true, targets, editorPageResponsive: responsive };
+  } catch (e) {
+    editorTarget.responsive = false;
+    editorTarget.evaluateMs = Date.now() - started;
+    return { httpOk: true, targets, editorPageResponsive: false, error: (e as Error).message };
+  }
+}
+
+/**
+ * Which error code a failed connect should carry once the raw probe has spoken.
+ *
+ *   not-running          nothing owns the port
+ *   editor-unresponsive  something owns it but the editor page itself did not answer
+ *   connect-stalled      the editor page answered raw CDP; Playwright's connect is what stalled
+ *                        (another target hung or churning, or the connect timeout too short for a loaded machine)
+ */
+export function connectFailureCodeFromProbe(
+  listening: boolean,
+  probe: RawCdpProbe | null
+): 'not-running' | 'editor-unresponsive' | 'connect-stalled' {
+  if (!listening) return 'not-running';
+  if (probe?.editorPageResponsive === true) return 'connect-stalled';
+  return 'editor-unresponsive';
+}
+
+export function describeProbe(probe: RawCdpProbe | null): string {
+  if (!probe) return 'raw CDP not probed';
+  if (!probe.httpOk) return `raw CDP HTTP did not answer (${probe.error ?? 'no detail'})`;
+  const list = probe.targets.map((t) => `${t.type} ${t.url}${t.responsive === undefined ? '' : t.responsive ? ` [answered in ${t.evaluateMs}ms]` : ' [did NOT answer]'}`);
+  return `raw CDP sees ${probe.targets.length} target(s): ${list.join('; ')}`;
+}
+
+async function connectError(port: number, cause: unknown): Promise<Error & { code: string; probe?: RawCdpProbe }> {
   const listening = portOwner(port) !== null;
-  const code = connectFailureCode(listening);
+  const probe = listening ? await probeRawCdp(port).catch(() => null) : null;
+  const code = connectFailureCodeFromProbe(listening, probe);
+  const detail = describeProbe(probe);
   const message =
-    code === 'editor-unresponsive'
-      ? `XGENIA on 127.0.0.1:${port} is running but not responding (${String(cause)}). The renderer may be wedged.`
-      : `Could not reach XGENIA on 127.0.0.1:${port}. Is it running? (${String(cause)})`;
-  const err = new Error(message) as Error & { code: string };
+    code === 'connect-stalled'
+      ? `XGENIA on 127.0.0.1:${port} is up and its editor page answers raw CDP, but Playwright's connectOverCDP did not finish within the timeout (${String(cause)}). ${detail}. connectOverCDP waits for every page target to initialise, so a hung or churning non-editor target (cloud-runtime shell, viewer) stalls it. Retry; a forced restart is NOT indicated by this alone.`
+      : code === 'editor-unresponsive'
+        ? `XGENIA on 127.0.0.1:${port} is running but its editor page did not answer (${String(cause)}). ${detail}. The renderer may be wedged; xgenia_restart with force is the recovery.`
+        : `Could not reach XGENIA on 127.0.0.1:${port}. Is it running? (${String(cause)})`;
+  const err = new Error(message) as Error & { code: string; probe?: RawCdpProbe };
   err.code = code;
+  if (probe) err.probe = probe;
   return err;
 }
 
@@ -133,7 +251,7 @@ export async function connect(
       timeout: opts.timeoutMs ?? CONNECT_TIMEOUT_MS
     });
   } catch (e) {
-    throw connectError(port, e);
+    throw await connectError(port, e);
   }
 
   const pages = browser.contexts().flatMap((c) => c.pages());
