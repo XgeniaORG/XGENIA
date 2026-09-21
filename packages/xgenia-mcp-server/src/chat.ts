@@ -737,7 +737,9 @@ export async function openChatPanel(opts: { timeoutMs?: number } = {}): Promise<
   return ensureChatPanelOpen(page, opts);
 }
 
-export async function chatRead(opts: { since?: number; limit?: number } = {}) {
+export async function chatRead(
+  opts: { since?: number; limit?: number; maxChars?: number } = {}
+) {
   const { page } = await connect();
 
   const readiness = await waitForChatReady(page, CHAT_FRAME_RETRY_MS);
@@ -769,7 +771,12 @@ export async function chatRead(opts: { since?: number; limit?: number } = {}) {
   const limit = opts.limit ?? DEFAULT_TAIL_LIMIT;
   const plan = planChatRead({ rendered: messages.length, hidden, since: opts.since, limit });
 
-  const out: ChatMessageOut[] = summariseMessages(messages, plan.renderedStart, limit, MESSAGE_CAP, hidden);
+  // MESSAGE_CAP keeps routine reads small, but the panel's substantive replies — audit
+  // findings, worked examples, the answer to "what did you choose and why" — routinely run
+  // past 2000 chars and were coming back cut off mid-sentence. maxChars lets a caller pull
+  // one full message when it matters, instead of asking the panel to repeat itself (a paid turn).
+  const cap = typeof opts.maxChars === 'number' && opts.maxChars > 0 ? opts.maxChars : MESSAGE_CAP;
+  const out: ChatMessageOut[] = summariseMessages(messages, plan.renderedStart, limit, cap, hidden);
 
   return {
     total: plan.total,
@@ -787,9 +794,15 @@ export async function chatRead(opts: { since?: number; limit?: number } = {}) {
   };
 }
 
-export async function chatWaitIdle(timeoutMs = 300_000) {
+export async function chatWaitIdle(timeoutMs = 300_000, stableMs = 0) {
   const { page } = await connect();
   const startedAt = Date.now();
+  // The busy flag drops to false in the gap BETWEEN a turn's tool calls — a read that lands in
+  // that gap reports idle while the panel is mid-turn. Observed repeatedly: a caller treated
+  // the gap as completion, read a half-finished transcript, and sent the next prompt into a
+  // turn that was still running. stableMs requires not-busy to HOLD for that long before
+  // returning idle; 0 preserves the old first-observation behaviour.
+  let idleSince: number | null = null;
 
   // Give the panel the same short retry window as chatRead/chatSend before
   // concluding it is genuinely absent — see CHAT_FRAME_RETRY_MS.
@@ -816,12 +829,17 @@ export async function chatWaitIdle(timeoutMs = 300_000) {
       );
     }
     if (!state.busy) {
-      return {
-        idle: true,
-        waitedMs: Date.now() - startedAt,
-        timedOut: false,
-        newMessages: state.messageCount - before
-      };
+      if (idleSince === null) idleSince = Date.now();
+      if (Date.now() - idleSince >= stableMs) {
+        return {
+          idle: true,
+          waitedMs: Date.now() - startedAt,
+          timedOut: false,
+          newMessages: state.messageCount - before
+        };
+      }
+    } else {
+      idleSince = null; // busy again — the earlier idle was a mid-turn gap, start over
     }
     await new Promise((r) => setTimeout(r, 1000));
   }

@@ -152,7 +152,20 @@ const SimpleJavascriptNode = {
       const nodeId = this.id;
       const scriptContent = this.model.parameters.functionScript;
 
-      console.log(`[JSFunction RUN] Node ID: ${nodeId}, About to run script:`, scriptContent);
+      // Log the node, NOT the script body.
+      //
+      // This used to pass `scriptContent` — the entire source of the node — on EVERY run of
+      // EVERY JavaScript node. console.log here is hooked to sendToEditor, so each run
+      // serialised the whole body across the editor IPC channel. One real project reached
+      // 85 KB of source per pass, and a cascade runs many passes per spin: the channel
+      // floods, sendToEditor blocks, and the renderer wedges at 0% CPU with no crash report
+      // and no error anywhere. It looks exactly like the editor crashing at random, and it
+      // gets worse the more the project grows, which is the opposite of the signal you want
+      // from a debug log.
+      //
+      // The identifying information is kept; only the payload is dropped. The full body is
+      // still logged on error below, where it is rare and actually diagnostic.
+      console.log(`[JSFunction RUN] Node ID: ${nodeId}, running (${(scriptContent || '').length} chars)`);
 
       if (func === undefined) {
         console.log(`[JSFunction SKIP] Node ID: ${nodeId}, Function is undefined.`);

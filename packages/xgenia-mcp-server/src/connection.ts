@@ -3,6 +3,7 @@ import path from 'node:path';
 import { chromium, type Browser, type Page, type Frame } from 'playwright-core';
 import { userDataDirs, portOwner } from './platform.js';
 import { SELECTORS, isChatFrameUrl } from './selectors.js';
+import { rawProbe, classifyProbe, probeHint, type ProbeVerdict } from './rawprobe.js';
 
 export type Target = 'app' | 'dev';
 
@@ -97,15 +98,44 @@ export function connectFailureCode(listening: boolean): 'not-running' | 'editor-
   return listening ? 'editor-unresponsive' : 'not-running';
 }
 
-function connectError(port: number, cause: unknown): Error & { code: string } {
+/**
+ * Classify a failed connect using evidence rather than an assumption.
+ *
+ * The old behaviour was: port is listening => "editor-unresponsive, the renderer may be
+ * wedged". That is a diagnosis of the renderer produced without ever asking the renderer
+ * anything, and it was wrong often enough to send a build down a multi-hour dead end.
+ *
+ * Now the renderer gets asked directly, over a path that shares nothing with the connect
+ * that just failed. `connect-stalled` — the page is fine, Playwright stalled — is by far
+ * the most common outcome, and it is the one that should make a caller retry instead of
+ * restarting the editor.
+ */
+async function connectError(port: number, cause: unknown): Promise<Error & { code: string }> {
   const listening = portOwner(port) !== null;
-  const code = connectFailureCode(listening);
-  const message =
-    code === 'editor-unresponsive'
-      ? `XGENIA on 127.0.0.1:${port} is running but not responding (${String(cause)}). The renderer may be wedged.`
-      : `Could not reach XGENIA on 127.0.0.1:${port}. Is it running? (${String(cause)})`;
-  const err = new Error(message) as Error & { code: string };
+  let probe: Awaited<ReturnType<typeof rawProbe>> | null = null;
+  try {
+    probe = await rawProbe(port, SELECTORS.editorPageUrlSuffix, { timeoutMs: 6_000 });
+  } catch {
+    /* the probe must never mask the original failure */
+  }
+  const code: ProbeVerdict = probe
+    ? classifyProbe({
+        listening,
+        httpOk: probe.httpOk,
+        editorPageResponsive: probe.editorPageResponsive
+      })
+    : connectFailureCode(listening);
+
+  const detail =
+    probe && probe.editorPageResponsive === true
+      ? ` The editor page answered a direct CDP evaluate in ${probe.evalMs}ms, so it is alive.`
+      : '';
+  const err = new Error(
+    `Could not attach to XGENIA on 127.0.0.1:${port} (${String(cause)}).${detail} ${probeHint(code)}`
+  ) as Error & { code: string; probe?: unknown; retryable?: boolean };
   err.code = code;
+  err.retryable = code === 'connect-stalled';
+  if (probe) err.probe = probe;
   return err;
 }
 
@@ -133,7 +163,7 @@ export async function connect(
       timeout: opts.timeoutMs ?? CONNECT_TIMEOUT_MS
     });
   } catch (e) {
-    throw connectError(port, e);
+    throw await connectError(port, e);
   }
 
   const pages = browser.contexts().flatMap((c) => c.pages());

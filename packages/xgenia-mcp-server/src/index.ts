@@ -8,6 +8,18 @@ import { screenshot } from './screenshot.js';
 import { openProject, newProject, closeProject } from './project.js';
 import { launch, restart, quit } from './lifecycle.js';
 import { debugExport, debugQuery, runtimeLogs } from './debug-export.js';
+import { projectAudit } from './audit.js';
+import { runScriptNode } from './scriptrun.js';
+import { consoleTail } from './consoletail.js';
+import { buildStatus } from './buildstatus.js';
+import { inspectComponents } from './component.js';
+import { freezeWatch } from './freezewatch.js';
+import { previewText } from './previewtext.js';
+import { previewClick } from './previewclick.js';
+import { rawProbe, classifyProbe, probeHint } from './rawprobe.js';
+import { discoverPort } from './connection.js';
+import { portOwner } from './platform.js';
+import { SELECTORS } from './selectors.js';
 
 const server = new McpServer({ name: 'xgenia-mcp', version: '1.0.0' });
 
@@ -42,7 +54,7 @@ server.registerTool(
       'Liveness of the XGENIA editor: whether it is running, dev or packaged, which project is open, whether the AI chat panel is mounted and how long it has been generating. Call this first. ' +
       'busyForMs is NOT wall-clock time since generation began — it is measured from this harness process\'s first observation of the busy state, because the underlying tracker is in-memory and has no earlier signal. A panel that has been stuck generating for hours looks identical to one that just started: both can read a small busyForMs right after this server starts. Treat busyForMs as a lower bound on how long it has been busy, never as the true duration. ' +
       'authenticated reports whether the editor is past the login screen (window.ProjectModel is defined on the login screen too, so nothing else here implies anyone is signed in) — it is "unknown", not a confident true, whenever pageResponsive is false. ' +
-      'Never throws just because the editor could not be reached: when connect fails, this returns {running: false, code, hint} instead — code is "not-running" when nothing is listening on the CDP port at all, or "editor-unresponsive" when something is listening but never became usable (e.g. a wedged renderer), a distinction this now makes automatically by checking whether anything actually owns the port. Use that to decide whether xgenia_launch or xgenia_restart with force is the right next call.',
+      'Never throws just because the editor could not be reached: when connect fails, this returns {running: false, code, hint} instead — code is "not-running" when nothing is listening on the CDP port at all, or "editor-unresponsive" when something is listening but the connect never completed. IMPORTANT: "editor-unresponsive" is a statement about the connect, NOT a diagnosis of the renderer — the most common cause is a stalled Playwright connect in front of a completely healthy page. Run xgenia_editor_probe before concluding the editor is wedged, restarting it, or changing the project; it asks the page directly over raw CDP and returns connect-stalled (retry) vs editor-blocked (really wedged). Use that to decide whether xgenia_launch or xgenia_restart with force is the right next call.',
     inputSchema: {}
   },
   () => guard('connect + evaluate', health)
@@ -186,10 +198,14 @@ server.registerTool(
   {
     title: 'Read the XGENIA AI chat transcript',
     description:
-      'Read the AI chat transcript, paged from an index. Indexes and total count the WHOLE conversation: when the panel collapses older messages behind "Load N older messages", total includes them, olderNotRendered says how many, and a since below that count returns skipped instead of shifting onto other messages. Long messages are truncated; the message count and busy flag come from the live panel.',
-    inputSchema: { since: z.number().optional(), limit: z.number().optional() }
+      'Read the AI chat transcript, paged from an index. Indexes and total count the WHOLE conversation: when the panel collapses older messages behind "Load N older messages", total includes them, olderNotRendered says how many, and a since below that count returns skipped instead of shifting onto other messages. Messages are truncated at 2000 chars by default — pass maxChars (e.g. 20000) to read a long reply in full instead of asking the panel to restate it. The message count and busy flag come from the live panel.',
+    inputSchema: {
+      since: z.number().optional(),
+      limit: z.number().optional(),
+      maxChars: z.number().optional()
+    }
   },
-  ({ since, limit }) => guard('chat read', () => chatRead({ since, limit }))
+  ({ since, limit, maxChars }) => guard('chat read', () => chatRead({ since, limit, maxChars }))
 );
 
 server.registerTool(
@@ -197,10 +213,197 @@ server.registerTool(
   {
     title: 'Wait for the XGENIA AI chat to finish',
     description:
-      'Block until the AI chat panel stops generating. On timeout it returns timedOut instead of throwing, so you can screenshot and decide.',
-    inputSchema: { timeoutMs: z.number().optional() }
+      'Block until the AI chat panel stops generating. The busy flag drops in the gap between a turn\'s tool calls, so a bare wait can return mid-turn — pass stableMs (e.g. 30000) to require idle to hold that long first. On timeout it returns timedOut instead of throwing, so you can screenshot and decide.',
+    inputSchema: { timeoutMs: z.number().optional(), stableMs: z.number().optional() }
   },
-  ({ timeoutMs }) => guard('chat wait idle', () => chatWaitIdle(timeoutMs ?? 300_000))
+  ({ timeoutMs, stableMs }) =>
+    guard('chat wait idle', () => chatWaitIdle(timeoutMs ?? 300_000, stableMs ?? 0))
+);
+
+server.registerTool(
+  'xgenia_project_audit',
+  {
+    title: 'Audit the open project.json for structural defects',
+    description:
+      'Read the open project\'s project.json from disk (no panel turn, no preview) and report defect classes the editor accepts silently: ' +
+      'DATA DEPENDENCY CYCLES (the renderer-killer — the runtime walks data dependencies with no cycle guard, so a data loop recurses until the main thread dies; invisible until something instances the component), ' +
+      'a component instanced inside itself directly or transitively (infinite expansion, same outcome), ' +
+      'phantom ports (wires to undeclared ports that never fire), dangling wires, duplicate sources into one Component Output (evaluation-order dependent — a cap can be bypassed), ' +
+      'a self-restarting Timer (an unbounded wall-clock loop), a Timer inside a /#__maths__/ component (cannot run in the synchronous server script), ' +
+      'signal cycles, Text nodes with no incoming wire (a layout that looks finished but is unbound), and scripts reading Outputs.X.… they never assign (throws on first run). ' +
+      'Each finding names component, node and runtime consequence. Pass dir to audit a project that is not open. ' +
+      'Pass saveBaseline true to record the current findings, then compareBaseline true on a later run to get regressions (findings this turn introduced), fixed, and a verdict. Use it every turn: totals alone hide drift, because three fixed and three broken reads as no change — a builder can remove a fatal cycle, verify it, and rewire it two turns later while honestly reporting success.',
+    inputSchema: { dir: z.string().optional(), saveBaseline: z.boolean().optional(), compareBaseline: z.boolean().optional() }
+  },
+  ({ dir, saveBaseline, compareBaseline }) => guard('project audit', () => projectAudit({ dir, saveBaseline, compareBaseline }))
+);
+
+server.registerTool(
+  'xgenia_run_script_node',
+  {
+    title: 'Run a JavaScriptFunction node offline with stub inputs',
+    description:
+      'Execute one script node\'s STORED body under new Function(Inputs, Outputs) with the inputs you supply, and return its outputs, fired signals, and any thrown error. ' +
+      'No editor turn, no preview, no renderer risk — it tests the real stored code. Use it to prove behaviour (a meter threshold, a paytable band, a cap truncation) instead of trusting a completion claim. ' +
+      'Node is matched by label or id inside the named component. Signal outputs (Done, Do, …) are recorded, not propagated. Pass dir to target a project that is not open.',
+    inputSchema: {
+      component: z.string(),
+      node: z.string(),
+      inputs: z.record(z.unknown()).optional(),
+      dir: z.string().optional()
+    }
+  },
+  ({ component, node, inputs, dir }) =>
+    guard('run script node', () => runScriptNode({ component, node, inputs: inputs as Record<string, unknown> | undefined, dir }))
+);
+
+server.registerTool(
+  'xgenia_build_status',
+  {
+    title: 'Supervisor snapshot: on track, stopped, or built?',
+    description:
+      'One call answering the three questions a supervisor asks. (1) Did it stop — samples the panel twice around a window and reports working / idle / quiet. Quiet means busy with nothing new, which at short windows is normal mid-tool-call; use sampleMs 30000+ before treating it as a stall, then read the transcript. ' +
+      '(2) Did it build what was asked — an inventory of every component with node counts, node types, script size and whether it is a maths or visual component, to compare against the request. ' +
+      '(3) Is it on track — gaps: components created but never wired, display nodes with no incoming wire (showing defaults, not data), an /App with no connections, no maths component at all. ' +
+      'The project side is read from project.json on disk, so it works even when the renderer is too wedged to answer. Pass dir to inspect a project that is not open; sampleMs (default 8000) sets the stall window.',
+    inputSchema: { dir: z.string().optional(), sampleMs: z.number().optional() }
+  },
+  ({ dir, sampleMs }) => guard('build status', () => buildStatus({ dir, sampleMs }))
+);
+
+server.registerTool(
+  'xgenia_component_inspect',
+  {
+    title: 'What is inside a component, and what ports does it expose?',
+    description:
+      'Read a project\'s components from project.json: node counts, connection counts, the Component Inputs / Component Outputs port names each one exposes, and which other components it instances. ' +
+      'Call with no component to list them all; with component to get its full node list; with match ["/producer","/consumer"] to line up one component\'s outputs against another\'s inputs and get matched / consumerUnfed / producerUnused. ' +
+      'Use this BEFORE wiring two components together: guessing a port name is how phantom wires get made, and the editor accepts a wire to a non-existent port and then silently never fires it. ' +
+      'Matching names are a hint only — two ports can share a name and mean different quantities, so treat consumerUnfed as needing a human decision. Reads from disk, and reports how long ago the file was written so you can tell when unsaved editor state is missing.',
+    inputSchema: {
+      dir: z.string().optional(),
+      component: z.string().optional(),
+      nodes: z.boolean().optional(),
+      match: z.array(z.string()).length(2).optional()
+    }
+  },
+  ({ dir, component, nodes, match }) =>
+    guard('component inspect', async () => {
+      let d = dir;
+      if (!d) {
+        const st = await buildStatus({ sampleMs: 0 });
+        d = (st as { project?: { file?: string } }).project?.file?.replace(/\/project\.json$/, '');
+      }
+      if (!d) return { error: 'project-dir-missing', hint: 'No project is open and no dir was given.' };
+      return inspectComponents(d, {
+        component,
+        nodes,
+        match: match as [string, string] | undefined
+      });
+    })
+);
+
+server.registerTool(
+  'xgenia_preview_text',
+  {
+    title: 'Read what the running game actually shows on screen',
+    description:
+      'Return the visible text of the preview iframe — the running game, as a player sees it — addressed directly by its local http origin so the editor\'s own empty contexts cannot answer in its place. ' +
+      'This is how you check a build ACTUALLY works rather than trusting a report that it does. A graph can be perfect and the screen still wrong: one project had a verified maths-driven spin, real RNG, real win, capital moving in the model, while every readout on screen sat at its default because the data wires to the UI were never made. ' +
+      'Use it before and after an action and diff the two: read, spin, read again, and see whether the numbers moved. match is a regex that keeps only matching lines (e.g. "balance|win|heat") so a spin check is one call instead of a wall of text.',
+    inputSchema: {
+      match: z.string().optional(),
+      ignoreCase: z.boolean().optional(),
+      maxChars: z.number().optional()
+    }
+  },
+  ({ match, ignoreCase, maxChars }) =>
+    guard('preview text', () => previewText({ match, ignoreCase, maxChars }))
+);
+
+server.registerTool(
+  'xgenia_preview_click',
+  {
+    title: 'Press a control in the running game',
+    description:
+      'Dispatch a real click on a control in the preview iframe, found by its visible text (case-insensitive, smallest matching element — so "SPIN" presses the button, not the panel around it). ' +
+      'Pairs with xgenia_preview_text to close the verification loop WITHOUT asking the builder to do it: read the screen, click, read again, judge from the difference. ' +
+      '"I clicked SPIN and the balance updated" is the claim that decides whether a build is finished and the one most likely to be reported optimistically — this is how you check it yourself. ' +
+      'If no element matches, the result lists the text actually on screen so the miss is diagnosable. settleMs (default 1200) waits after the click before returning.',
+    inputSchema: { text: z.string(), settleMs: z.number().optional() }
+  },
+  ({ text, settleMs }) => guard('preview click', () => previewClick({ text, settleMs }))
+);
+
+server.registerTool(
+  'xgenia_freeze_watch',
+  {
+    title: 'Capture WHY the renderer froze — the blocking JS call stack',
+    description:
+      'Attach a debugger to the editor page while it is still healthy, watch for it to stop responding, then interrupt it and return the JavaScript call stack that is blocking it. ' +
+      'START THIS BEFORE the risky action (instancing a component, opening a project), then perform that action with another call — a debugger attached AFTER a freeze cannot work, because Debugger.enable needs the very thread that is stuck. ' +
+      'Verdicts: js-stack-captured (frames + repeatedFrames — repeated frames are the signature of a loop); not-blocked-in-javascript (a pre-armed pause never fired, so suspect a native/IPC wait or GC rather than a JS loop); no freeze within the window. ' +
+      'This is the difference between "the editor froze" and "the editor froze in Node._updateDependencies, so the graph has a dependency cycle" — the second is actionable, the first cost one project most of a day. ' +
+      'watchMs (default 120000) is how long to watch; pollMs (default 4000) how often to check.',
+    inputSchema: {
+      watchMs: z.number().optional(),
+      pollMs: z.number().optional(),
+      port: z.number().optional(),
+      evaluateTimeoutMs: z.number().optional()
+    }
+  },
+  ({ watchMs, pollMs, port, evaluateTimeoutMs }) =>
+    guard('freeze watch', () => freezeWatch({ watchMs, pollMs, port, evaluateTimeoutMs }))
+);
+
+server.registerTool(
+  'xgenia_editor_probe',
+  {
+    title: 'Is the editor really unresponsive? Ask it directly, without Playwright',
+    description:
+      'Reach the editor over raw CDP (HTTP + a single websocket evaluate) with nothing shared with the normal tool path, and classify what is actually wrong. ' +
+      'Run this WHENEVER a tool reports editor-unresponsive or times out, BEFORE concluding anything about the renderer and before restarting anything. ' +
+      'Verdicts: connect-stalled (the page answered — Playwright stalled, just retry the call, change nothing else); editor-blocked (CDP answers but the page will not evaluate — genuinely wedged, may recover on its own); editor-unresponsive (something owns the port but CDP is silent); not-running (nothing listening). ' +
+      'This distinction is not academic: a stalled connect and a blocked renderer look identical through every other tool, and treating the first as the second has cost real builds hours of wrong diagnosis.',
+    inputSchema: { port: z.number().optional(), timeoutMs: z.number().optional() }
+  },
+  ({ port, timeoutMs }) =>
+    guard('probe', async () => {
+      const p = port ?? discoverPort();
+      const probe = await rawProbe(p, SELECTORS.editorPageUrlSuffix, { timeoutMs });
+      // `listening` must be the PORT OWNER, not whether HTTP answered. Deriving it from
+      // httpOk made a live, port-owning editor whose CDP had stopped answering report
+      // "not-running" — the caller is then told there is nothing to wait for and nothing
+      // to kill, which is exactly backwards, and is the same conflation this whole module
+      // exists to remove.
+      const owner = portOwner(p);
+      // Nothing failed to prompt this call, so a responsive page means ok, not stalled.
+      const verdict = classifyProbe({
+        listening: owner !== null,
+        httpOk: probe.httpOk,
+        editorPageResponsive: probe.editorPageResponsive,
+        connectFailed: false
+      });
+      return { port: p, verdict, hint: probeHint(verdict), portOwner: owner, probe };
+    })
+);
+
+server.registerTool(
+  'xgenia_console_tail',
+  {
+    title: 'Capture the renderer console for a window of time',
+    description:
+      'Attach to the editor page\'s console and uncaught-error stream for durationMs (default 30s, max 10min) and return what was logged, with relative timestamps and a responsiveAtEnd flag. ' +
+      'Start this BEFORE a risky action (opening a project, instancing a component), perform the action with another call, then read the result — a renderer that hangs cannot export a debug bundle, so this is the only way to see what it logged in the seconds before it stopped. ' +
+      'Silence after a burst of activity is the signature of a synchronous loop; a pageerror entry is a crash. Optional filter is a case-insensitive regex on the text.',
+    inputSchema: {
+      durationMs: z.number().optional(),
+      filter: z.string().optional(),
+      maxEntries: z.number().optional()
+    }
+  },
+  ({ durationMs, filter, maxEntries }) =>
+    guard('console tail', () => consoleTail({ durationMs, filter, maxEntries }))
 );
 
 server.registerTool(
