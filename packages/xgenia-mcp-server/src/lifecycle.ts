@@ -345,10 +345,9 @@ async function waitForEditor(port: number, timeoutMs: number): Promise<EditorWai
   return 'timeout';
 }
 
-function repoRoot(): string | null {
-  const override = process.env.XGENIA_REPO_DIR;
-  if (override) return fs.existsSync(path.join(override, 'packages/xgenia-editor')) ? override : null;
-  let dir = process.cwd();
+/** Walk up from `start` looking for the checkout root (the dir holding packages/xgenia-editor). */
+function findRepoUpFrom(start: string): string | null {
+  let dir = start;
   for (let i = 0; i < 8; i += 1) {
     if (fs.existsSync(path.join(dir, 'packages', 'xgenia-editor'))) return dir;
     const up = path.dirname(dir);
@@ -356,6 +355,19 @@ function repoRoot(): string | null {
     dir = up;
   }
   return null;
+}
+
+function repoRoot(): string | null {
+  const override = process.env.XGENIA_REPO_DIR;
+  if (override) return fs.existsSync(path.join(override, 'packages/xgenia-editor')) ? override : null;
+  // This server is itself inside the checkout (packages/xgenia-mcp-server/dist), so its own
+  // location is the reliable anchor. Walking up from process.cwd() alone failed in practice:
+  // an MCP client spawns this server from wherever the CLIENT runs — a project folder, a
+  // parent directory — never from inside the repo, so cwd found nothing and `xgenia_restart`
+  // killed the editor then reported "no repo checkout found" and could not relaunch it.
+  const self = findRepoUpFrom(path.dirname(new URL(import.meta.url).pathname));
+  if (self) return self;
+  return findRepoUpFrom(process.cwd());
 }
 
 /**

@@ -403,10 +403,29 @@ export async function openProject(q: { dir?: string; name?: string; openChatIfCl
   const valid = validateProjectDir(dir!);
   if (!valid.ok) return fail('project-dir-missing', dir!, valid.reason);
 
-  // Already there? Nothing to do.
+  // Already there? Nothing to do — but say so loudly.
+  //
+  // `opened: true` here means "the editor is on this project", NOT "the project was just
+  // loaded from disk". That distinction has real teeth: the editor holds the project in
+  // memory, so any edit made to project.json from outside since it was opened is neither
+  // loaded nor merged, and the editor's next save will overwrite it. A caller that hand-
+  // edits project.json, calls this, sees `opened: true` and concludes the edit took effect
+  // will be wrong in a way nothing else reports — and will then draw confident conclusions
+  // from a test that never ran. Exactly that happened: an external edit was silently
+  // discarded and the no-op open was read as a successful load.
   const current = await readProject(page);
   if (current?.dir && canonicalDir(current.dir) === dir) {
-    return withChatReadiness(page, { opened: true, alreadyOpen: true, project: current }, { attemptOpen });
+    return withChatReadiness(
+      page,
+      {
+        opened: true,
+        alreadyOpen: true,
+        reloaded: false,
+        hint: 'This project was ALREADY open; nothing was reloaded from disk. If you edited project.json externally, that edit is NOT in the editor and will be overwritten on the next save — close the project first, then open it, to load changes from disk.',
+        project: current
+      },
+      { attemptOpen }
+    );
   }
 
   // Leave the current project first, so no in-project write races our

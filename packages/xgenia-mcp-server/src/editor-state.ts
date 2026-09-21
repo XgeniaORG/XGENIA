@@ -155,6 +155,49 @@ export async function readChatState(page: Page): Promise<ChatState> {
   }
 }
 
+/**
+ * Is the chat panel actually on screen?
+ *
+ * `readChatState` evaluates *inside* the chat iframe, so it reports a mounted, idle,
+ * fully-readable panel even when the panel is invisible to the user. That is not
+ * hypothetical: switching the editor into Canvases/art mode sets the panel's container to
+ * `display: none`, the iframe collapses to 0x0, and a human watching the screen reasonably
+ * concludes the panel has crashed — while every tool insists it is fine. A supervisor that
+ * cannot tell those apart will argue with the user about what is on their own screen.
+ *
+ * Measured from the parent document, because the iframe's own `document` knows nothing
+ * about the box the embedder gave it.
+ */
+export async function readChatVisibility(
+  page: Page
+): Promise<{ present: boolean; visible: boolean; width: number; height: number; hiddenBy?: string }> {
+  try {
+    return await page.evaluate((needle) => {
+      const frame = [...document.querySelectorAll('iframe')].find((i) => (i.src || '').includes(needle));
+      if (!frame) return { present: false, visible: false, width: 0, height: 0 };
+      const r = frame.getBoundingClientRect();
+      // Name the ancestor that actually hides it — that is the fix the user needs.
+      let hiddenBy: string | undefined;
+      for (let el: Element | null = frame; el && el !== document.body; el = el.parentElement) {
+        const cs = getComputedStyle(el);
+        if (cs.display === 'none' || cs.visibility === 'hidden') {
+          hiddenBy = (typeof el.className === 'string' && el.className) || el.tagName;
+          break;
+        }
+      }
+      return {
+        present: true,
+        visible: r.width > 0 && r.height > 0 && !hiddenBy,
+        width: Math.round(r.width),
+        height: Math.round(r.height),
+        ...(hiddenBy ? { hiddenBy } : {})
+      };
+    }, SELECTORS.chatFrameUrlSubstring);
+  } catch {
+    return { present: false, visible: false, width: 0, height: 0 };
+  }
+}
+
 export interface ChatReadiness {
   ready: boolean;
   /** The last observed `ChatState`, whether or not it ever became ready — so a caller that gave up can still report why. */
