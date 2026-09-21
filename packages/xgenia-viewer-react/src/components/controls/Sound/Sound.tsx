@@ -148,6 +148,37 @@ function SoundEngine({
   onLoadedChange,
   handlers
 }: SoundEngineProps) {
+  /**
+   * What this engine has ASKED the Howl to do, and which voice it asked for.
+   *
+   * ─── why intent, and not Howler's own state (2026-09-18) ──────────────────
+   * Howler runs one Howl as several simultaneous voices, and `play()` with no sound id starts
+   * ANOTHER one whenever the current voice has not ended: `_inactiveSound()` recycles only a
+   * sound marked `_ended`, never one that is playing, paused or still starting. So a Sound
+   * node — which is a single player — has to decide for itself whether a second Play means
+   * "again" or "you are already playing".
+   *
+   * Asking the Howl is not good enough, because with `html5: true` a voice spends a window
+   * being neither idle nor playing. `Howl.play()` defers to `canplaythrough` when the audio
+   * element is not ready (`node.readyState < 3`), and only the deferred part runs `setParams()`
+   * — so `_paused` stays TRUE, `playing()` answers false, and the 'play' event has not fired
+   * yet. During that same window `_playLock` is set, which also switches OFF Howler's own
+   * "resume the single paused sound" shortcut. A click landing there passed every check and
+   * opened a second voice, and both then started together once their audio caught up. That is
+   * the double playback, and it is the normal path here: every voice after the first comes
+   * from a pooled audio element with readyState 0.
+   *
+   * `playStateRef` is therefore written SYNCHRONOUSLY by play/pause/stop, before anything async
+   * can happen, and only corrected afterwards by Howler's events.
+   */
+  const playStateRef = useRef<'idle' | 'playing' | 'paused'>('idle');
+  const voiceIdRef = useRef<number | null>(null);
+
+  // Read inside Howler's callbacks, which are captured once at construction and so cannot see a
+  // later prop.
+  const loopRef = useRef(loop);
+  loopRef.current = loop;
+
   // Read through a ref so the Howl is never rebuilt just because the node handed down a fresh
   // closure. The node calls forceUpdate() on every parameter change, so these identities churn.
   const [play, { stop, pause, sound, duration }] = useSound(soundUrl, {
@@ -170,22 +201,43 @@ function SoundEngine({
       onLoadedChange(false);
       handlers.current.onError?.(error);
     },
-    onplay: () => {
+    onplay: (id: any) => {
+      voiceIdRef.current = typeof id === 'number' ? id : null;
+      playStateRef.current = 'playing';
       onPlayingChange(true);
       handlers.current.onPlay?.();
     },
-    onend: () => {
-      // Howler does not fire `end` for a looping sound, so this is a real stop.
-      onPlayingChange(false);
+    onend: (id: any) => {
+      // A looping HTML5 sound DOES fire 'end' on every pass — Howler emits it and then restarts
+      // that same voice itself (`stop(id, true).play(id)`), so the node is still playing and the
+      // voice id still valid. Only a real end frees it for a fresh play().
+      if (!loopRef.current) {
+        playStateRef.current = 'idle';
+        if (voiceIdRef.current === id) voiceIdRef.current = null;
+        onPlayingChange(false);
+      }
       handlers.current.onEnd?.();
     },
     onpause: () => {
+      // Paused, so the next play() resumes this voice instead of opening a second one.
+      playStateRef.current = 'paused';
       onPlayingChange(false);
       handlers.current.onPause?.();
     },
     onstop: () => {
+      playStateRef.current = 'idle';
+      voiceIdRef.current = null;
       onPlayingChange(false);
       handlers.current.onStop?.();
+    },
+    onplayerror: (_id: any, error: any) => {
+      // Playback that never started. Without this the node would sit on 'playing' for good and
+      // ignore every later Play — a browser blocking autoplay is enough to get here.
+      console.error('[Sound] Playback could not start:', soundUrl, error);
+      playStateRef.current = 'idle';
+      voiceIdRef.current = null;
+      onPlayingChange(false);
+      handlers.current.onError?.(error);
     }
   });
 
@@ -231,6 +283,14 @@ function SoundEngine({
     };
   }, []);
 
+  // A different Howl owns different voices, so the tracked state means nothing any more.
+  // Declared above the autoplay effect on purpose: effects run in order, so this can never wipe
+  // the state of a voice autoplay has just started.
+  useEffect(() => {
+    voiceIdRef.current = null;
+    playStateRef.current = 'idle';
+  }, [sound]);
+
   // Howler applies `loop` at construction, and use-sound only forwards volume and rate on
   // change, so loop has to be pushed by hand.
   useEffect(() => {
@@ -271,13 +331,71 @@ function SoundEngine({
           console.warn('[Sound] play() ignored — audio is not loaded:', soundUrl);
           return;
         }
+
+        // Read and written BEFORE the audio-context hop below, which can defer the actual call
+        // by a promise tick — long enough for a second click to arrive and be waved through.
+        const state = playStateRef.current;
+
+        // `interrupt` opts into "restart from the top" — the one mode where a Play during
+        // playback does anything. Restart the voice we already have rather than letting
+        // use-sound stop-then-play: its play() passes no id, so Howler opens a NEW voice, and
+        // the stop that was meant to clear the way is merely queued while the current voice is
+        // still starting (`_playLock`). That is the same doubling by another door.
+        if (interrupt && state === 'playing') {
+          const voiceId = voiceIdRef.current;
+          // No id yet means the voice has not started; there is nothing to restart, and asking
+          // for one more would be the second copy.
+          if (voiceId === null) return;
+          withAudioContext(() => {
+            sound.stop(voiceId);
+            sound.play(voiceId);
+          });
+          return;
+        }
+
+        if (!interrupt) {
+          // Already playing, or still starting: a second Play is this player being asked for
+          // what it is already doing, not a second voice.
+          if (state === 'playing') return;
+
+          if (state === 'paused') {
+            const voiceId = voiceIdRef.current;
+            playStateRef.current = 'playing';
+            onPlayingChange(true);
+            withAudioContext(() => {
+              // Resume THAT voice by id. use-sound's play() passes none, and Howler only
+              // auto-resumes when it can find exactly one paused sound — with a sprite key, or
+              // with any second voice around, it starts from the top instead of continuing.
+              if (voiceId !== null) sound.play(voiceId);
+              else play();
+            });
+            return;
+          }
+        }
+
+        playStateRef.current = 'playing';
+        onPlayingChange(true);
         withAudioContext(() => {
-          if (id && spriteData && spriteData[id]) play({ id });
+          const spriteKey = id && spriteData && spriteData[id] ? id : undefined;
+          if (spriteKey) play({ id: spriteKey });
           else play();
         });
       },
-      stop: () => stop(),
-      pause: () => pause(),
+      stop: () => {
+        // Marked here rather than in the 'stop' event, because Howler QUEUES stop() while a
+        // voice is still starting (`_playLock`) — the event can land after the next click.
+        playStateRef.current = 'idle';
+        voiceIdRef.current = null;
+        onPlayingChange(false);
+        stop();
+      },
+      pause: () => {
+        if (playStateRef.current === 'playing') {
+          playStateRef.current = 'paused';
+          onPlayingChange(false);
+        }
+        pause();
+      },
       getSound: () => sound,
       getDuration: () => duration ?? null
     };
@@ -285,7 +403,19 @@ function SoundEngine({
     return () => {
       apiRef.current = null;
     };
-  }, [apiRef, play, stop, pause, sound, duration, spriteData, soundUrl, withAudioContext]);
+  }, [
+    apiRef,
+    play,
+    stop,
+    pause,
+    sound,
+    duration,
+    spriteData,
+    soundUrl,
+    withAudioContext,
+    interrupt,
+    onPlayingChange
+  ]);
 
   // Autoplay once the file is actually loaded. Before this, `play()` was called as soon as a URL
   // existed, which is exactly when `sound` is still null and play is a no-op.
