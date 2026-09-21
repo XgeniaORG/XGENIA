@@ -33,12 +33,17 @@
 (function () {
   if (typeof window === 'undefined' || window.XgeniaLogCaptureInitialized) return;
   window.XgeniaLogCaptureInitialized = true;
+  // Version marker so the ChatPanel's late-installing snippet knows THIS capture already
+  // covers the console GROUP methods and stands down completely (2026-09-17, export
+  // 1789678030483). Bump both together.
+  window.XgeniaLogCaptureVersion = 2;
 
   var MAX_ENTRIES = 2000;
   var buffer = (window.XgeniaRuntimeLogs = window.XgeniaRuntimeLogs || []);
   var original = {
     log: console.log, debug: console.debug, info: console.info,
-    warn: console.warn, error: console.error
+    warn: console.warn, error: console.error,
+    group: console.group, groupCollapsed: console.groupCollapsed
   };
   // Quiet levels still record; they just do not reach the screen in a production build.
   var quiet = process.env.NODE_ENV === 'production';
@@ -51,11 +56,29 @@
     } catch (e) { return '[unserialisable]'; }
   }
 
+  // console's own %c/%s/%d substitution. Without it a
+  // groupCollapsed('%cPixiJS Deprecation Warning: %c%s', css, css, msg) records the format
+  // string and two CSS blobs instead of the message.
+  function substitute(args) {
+    var arr = Array.prototype.slice.call(args);
+    if (typeof arr[0] !== 'string' || !/%[csdifoO]/.test(arr[0])) return arr;
+    var rest = arr.slice(1), i = 0;
+    var out = arr[0].replace(/%[csdifoO]/g, function (tok) {
+      if (i >= rest.length) return tok;
+      var v = rest[i++];
+      if (tok === '%c') return '';
+      if (tok === '%d' || tok === '%i') return String(parseInt(v, 10));
+      if (tok === '%f') return String(Number(v));
+      return render(v);
+    });
+    return [out].concat(rest.slice(i));
+  }
+
   function capture(type, args, print) {
     try {
       buffer.push({
         type: type,
-        message: Array.prototype.map.call(args, render).join(' ').slice(0, 4000),
+        message: substitute(args).map(render).join(' ').trim().slice(0, 4000),
         timestamp: new Date().toISOString()
       });
       if (buffer.length > MAX_ENTRIES) buffer.shift();
@@ -69,6 +92,12 @@
   // Warnings and errors always print — they did before this change too.
   console.warn = function () { capture('warn', arguments, true); };
   console.error = function () { capture('error', arguments, true); };
+  // pixi logs EVERY deprecation as groupCollapsed(message) + warn(stack). Hooking only warn
+  // kept the stacks and dropped every message: export 1789678030483 carried four bare stacks
+  // with nothing saying what was deprecated, and `grep -i deprecat` over the whole export
+  // found nothing.
+  console.group = function () { capture('group', arguments, true); };
+  console.groupCollapsed = function () { capture('warn', arguments, true); };
 
   // Typed into DevTools at any point, this returns everything since boot — including the
   // levels that never printed. The whole point is that you do not have to have been
