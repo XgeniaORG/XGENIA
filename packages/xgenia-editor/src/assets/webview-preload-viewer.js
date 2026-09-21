@@ -1622,6 +1622,43 @@ window.XgeniaEditorInspectorAPI = {
       // the ask. Sticky on the bridge side, so a Stage that initialises before this runs still
       // gets its overlay.
       window.__PIXI_EDIT_BRIDGE?.setEditMode?.(true);
+
+      // --- three.js Editing Bridge IPC ---
+      // Same shape as the pixi bridge above. A 3D move reports three world coordinates rather
+      // than x/y, so it carries its own gesture kind through to TransformCommandResolver.
+      window.__THREE_EDIT_BRIDGE?.setEditMode?.(true);
+      window.__THREE_EDIT_CALLBACK = (channel, data) => {
+        try {
+          if (channel === 'three-select-node') {
+            _hideSelection();
+            hideHighlight();
+            makeEditorAPIRequest('inspectNodes', { nodeIds: [data.nodeId] }, () => {
+              console.log('[Inspector] 3D node selected:', data.nodeId);
+            });
+          } else if (channel === 'three-deselect-node') {
+            // nothing to do
+          } else if (channel === 'three-transform-node') {
+            if (!data.commit) return;
+            var g3 = data.gesture || 'move';
+            var label3 = g3 === 'rotate' ? 'Rotate 3D object'
+              : g3 === 'scale' ? 'Scale 3D object' : 'Move 3D object';
+            makeEditorAPIRequest('viewportGesture', {
+              label: label3,
+              targets: [{
+                nodeId: data.nodeId,
+                kind: 'three',
+                gesture: g3,
+                posX: data.posX, posY: data.posY, posZ: data.posZ,
+                rotX: data.rotX, rotY: data.rotY, rotZ: data.rotZ,
+                scaleX: data.scaleX, scaleY: data.scaleY, scaleZ: data.scaleZ
+              }]
+            }, () => { });
+          }
+        } catch (e) {
+          console.error('[Preload] Error in ThreeEdit callback:', e);
+        }
+      };
+
       window.__PIXI_EDIT_CALLBACK = (channel, data) => {
         try {
           if (channel === 'pixi-select-node') {
@@ -1694,6 +1731,8 @@ window.XgeniaEditorInspectorAPI = {
       // behind is how a preview-mode click ends up dragging a sprite.
       window.__PIXI_EDIT_BRIDGE?.setEditMode?.(false);
       window.__PIXI_EDIT_CALLBACK = null;
+      window.__THREE_EDIT_BRIDGE?.setEditMode?.(false);
+      window.__THREE_EDIT_CALLBACK = null;
 
       console.log('[Inspector] Interactive editing disabled');
     }
