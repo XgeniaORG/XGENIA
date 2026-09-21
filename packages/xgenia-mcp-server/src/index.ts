@@ -262,7 +262,7 @@ server.registerTool(
   {
     title: 'Supervisor snapshot: on track, stopped, or built?',
     description:
-      'One call answering the three questions a supervisor asks. (1) Did it stop — samples the panel twice around a window and reports working / idle / quiet. Quiet means busy with nothing new, which at short windows is normal mid-tool-call; use sampleMs 30000+ before treating it as a stall, then read the transcript. ' +
+      'One call answering the three questions a supervisor asks. (1) Did it stop — samples the panel twice around a window and reports working / idle / quiet — plus turnIncomplete, set when an IDLE turn did not actually finish because the platform paused it at a loop checkpoint or it never ran its own verification (from outside that is indistinguishable from completion, and its "done" claim is unvalidated). Quiet means busy with nothing new, which at short windows is normal mid-tool-call; use sampleMs 30000+ before treating it as a stall, then read the transcript. ' +
       '(2) Did it build what was asked — an inventory of every component with node counts, node types, script size and whether it is a maths or visual component, to compare against the request. ' +
       '(3) Is it on track — gaps: components created but never wired, display nodes with no incoming wire (showing defaults, not data), an /App with no connections, no maths component at all. ' +
       'The project side is read from project.json on disk, so it works even when the renderer is too wedged to answer. Pass dir to inspect a project that is not open; sampleMs (default 8000) sets the stall window.',

@@ -168,6 +168,50 @@ export async function readChatState(page: Page): Promise<ChatState> {
  * Measured from the parent document, because the iframe's own `document` knows nothing
  * about the box the embedder gave it.
  */
+/**
+ * Did the panel's own platform stop it mid-work, and did it skip its verification step?
+ *
+ * A turn can end for reasons that are not "finished". XGENIA pauses a long turn at a loop
+ * checkpoint and prints its own warning into the transcript — that the turn made structural
+ * changes but never called `verify_completion`, so any "done" claim is unvalidated. From
+ * outside, that panel is simply `idle`: the busy flag clears, message count stops growing,
+ * and a supervisor who does not read the transcript will take it for completion. It happened
+ * here — 35 connection changes, 12 deletions, five new nodes, and no verification.
+ *
+ * So read the tail of the transcript for the platform's own markers rather than inferring
+ * from state. These are strings XGENIA prints, not model output, which is why they can be
+ * matched: model prose would be a bad thing to pattern-match on.
+ */
+export async function readTurnCompletion(
+  page: Page
+): Promise<{ checkpointPaused: boolean; unverified: boolean; notice?: string }> {
+  const frame = getChatFrame(page);
+  if (!frame) return { checkpointPaused: false, unverified: false };
+  try {
+    const tail = await frame.evaluate(() => {
+      const nodes = [...document.querySelectorAll('[aria-label="Copy message to clipboard"]')];
+      const last = nodes[nodes.length - 1];
+      // The copy button sits inside the message; walk up to the block that holds its text.
+      let el: Element | null = last ?? null;
+      for (let i = 0; i < 6 && el; i++) {
+        const t = (el as HTMLElement).innerText ?? '';
+        if (t.length > 120) return t.slice(-2500);
+        el = el.parentElement;
+      }
+      return (document.body.innerText ?? '').slice(-2500);
+    });
+    const checkpointPaused = /Checkpoint reached:\s*\d+\s*loop iterations/i.test(tail);
+    const unverified = /verify_completion was never called|Treat any "done" or "fixed" claim as unverified/i.test(tail);
+    const line = tail
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => /Checkpoint reached:|verify_completion was never called/i.test(l));
+    return { checkpointPaused, unverified, ...(line ? { notice: line.slice(0, 300) } : {}) };
+  } catch {
+    return { checkpointPaused: false, unverified: false };
+  }
+}
+
 export async function readChatVisibility(
   page: Page
 ): Promise<{ present: boolean; visible: boolean; width: number; height: number; hiddenBy?: string }> {

@@ -22,7 +22,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { connect, getChatFrame } from './connection.js';
-import { readProject, readChatState, readChatVisibility } from './editor-state.js';
+import { readProject, readChatState, readChatVisibility, readTurnCompletion } from './editor-state.js';
 
 type Json = Record<string, unknown>;
 
@@ -136,11 +136,13 @@ export async function buildStatus(opts: { dir?: string; sampleMs?: number } = {}
   /** What the editor actually has open, which is not necessarily what we were asked about. */
   let live: { name: string; dir: string | null } | null = null;
   let visibility: Awaited<ReturnType<typeof readChatVisibility>> | null = null;
+  let completion: Awaited<ReturnType<typeof readTurnCompletion>> | null = null;
   try {
     const { page } = await connect();
     const frame = getChatFrame(page);
     const before = frame ? await readChatState(page) : null;
     visibility = await readChatVisibility(page);
+    completion = frame ? await readTurnCompletion(page) : null;
     const project = await readProject(page);
     live = project ? { name: project.name, dir: project.dir } : null;
     if (!dir && project?.dir) dir = project.dir;
@@ -159,8 +161,20 @@ export async function buildStatus(opts: { dir?: string; sampleMs?: number } = {}
       // A panel the user cannot see is the single most common "it crashed" report, and it
       // is indistinguishable from a healthy one from inside the frame. Say so explicitly.
       const hidden = visibility?.present === true && visibility.visible === false;
+      // An idle panel has not necessarily finished. See readTurnCompletion.
+      const stoppedShort = !after.busy && (completion?.checkpointPaused || completion?.unverified);
       panel = {
         state,
+        ...(stoppedShort
+          ? {
+              turnIncomplete: true,
+              ...(completion?.checkpointPaused ? { checkpointPaused: true } : {}),
+              ...(completion?.unverified ? { unverified: true } : {}),
+              ...(completion?.notice ? { notice: completion.notice } : {}),
+              turnIncompleteHint:
+                'This turn ENDED WITHOUT FINISHING: the platform paused it at a loop checkpoint and/or it never ran its own verification, so any "done" claim is unvalidated. Idle here does not mean complete. Verify the graph yourself, then send a message to resume — the next turn picks up where it stopped.'
+            }
+          : {}),
         ...(hidden
           ? {
               visible: false,
