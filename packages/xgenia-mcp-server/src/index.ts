@@ -277,7 +277,8 @@ server.registerTool(
     title: 'What is inside a component, and what ports does it expose?',
     description:
       'Read a project\'s components from project.json: node counts, connection counts, the Component Inputs / Component Outputs port names each one exposes, and which other components it instances. ' +
-      'Call with no component to list them all; with component to get its full node list; with match ["/producer","/consumer"] to line up one component\'s outputs against another\'s inputs and get matched / consumerUnfed / producerUnused. ' +
+      'Call with no component to list them all; with component to get its full node list and outputSources — who feeds each exposed output, as Label.port [NodeType], or (unfed); with match ["/producer","/consumer"] to line up one component\'s outputs against another\'s inputs and get matched / consumerUnfed / producerUnused plus matchedSources. ' +
+      'outputSources is how you tell a REAL feature from a wired placeholder: three boards of one game were fully wired to outputs fed by a paytable object, and rendered empty while every structural check passed. Read the producer type against the port name. ' +
       'Use this BEFORE wiring two components together: guessing a port name is how phantom wires get made, and the editor accepts a wire to a non-existent port and then silently never fires it. ' +
       'Matching names are a hint only — two ports can share a name and mean different quantities, so treat consumerUnfed as needing a human decision. Reads from disk, and reports how long ago the file was written so you can tell when unsaved editor state is missing.',
     inputSchema: {
@@ -393,7 +394,8 @@ server.registerTool(
   {
     title: 'Capture the renderer console for a window of time',
     description:
-      'Attach to the editor page\'s console and uncaught-error stream for durationMs (default 30s, max 10min) and return what was logged, with relative timestamps and a responsiveAtEnd flag. ' +
+      'Capture the console of the editor page AND of the preview frame the game runs in, for durationMs (default 30s, max 10min): every entry carries type, text, a relative timestamp and the frame it came from, plus a responsiveAtEnd flag. ' +
+      'The preview frame is hooked in-page and drained on a 2s poll, because the plain page console stream does not deliver that frame\'s messages under CDP attach — the runtime\'s own warnings (an update loop being halted, a runaway signal report) log THERE, not in the editor page. The hook is re-installed if the frame reloads. ' +
       'Start this BEFORE a risky action (opening a project, instancing a component), perform the action with another call, then read the result — a renderer that hangs cannot export a debug bundle, so this is the only way to see what it logged in the seconds before it stopped. ' +
       'Silence after a burst of activity is the signature of a synchronous loop; a pageerror entry is a crash. Optional filter is a case-insensitive regex on the text.',
     inputSchema: {

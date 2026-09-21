@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { auditProjectFile, diffFindings } from './audit.js';
+import { auditProjectFile, diffFindings, findingKey } from './audit.js';
 
 
 // A Timer that re-arms itself is an unbounded wall-clock loop. This is not theoretical:
@@ -252,5 +252,83 @@ describe('duplicate-input-source', () => {
     expect(
       find(proj([{ fromId: 'flag', toId: 'calc', fromProperty: 'out-roundEnded', toProperty: 'in-roundEnded' }]))
     ).toHaveLength(0);
+  });
+});
+
+// Variables link by NAME, not by wire. A read-modify-write routed through one is a real
+// dependency cycle that a wire-only walk calls clean — and that is not a hypothetical gap:
+// told to break wire cycles, a builder moved them onto variables and reasoned "no data wire
+// returns into the Variable2, so no cycle". The audit agreed, and the renderer then span a
+// full core at 100% CPU and wedged ~17s after every project open with eight of them live.
+describe('data-dependency-cycle through variables', () => {
+  const proj = (nodes: any[], connections: any[]) => ({
+    components: [{ name: '/#__maths__/M', graph: { roots: [{ id: 'r', type: 'Group', children: nodes }], connections } }]
+  });
+  const cycles = (p: any) =>
+    auditProjectFile(p).findings.filter((x) => x.rule === 'data-dependency-cycle');
+
+  const readWriteSameVar = proj(
+    [
+      { id: 'calc', type: 'JavaScriptFunction', parameters: { label: 'MeterPass' } },
+      { id: 'setv', type: 'Set Variable', parameters: { label: 'SetMeterHeat', name: 'meterHeatValue' } },
+      { id: 'readv', type: 'Variable2', parameters: { label: 'MeterHeatValue', name: 'meterHeatValue' } }
+    ],
+    [
+      { fromId: 'calc', toId: 'setv', fromProperty: 'out-heatValue', toProperty: 'value' },
+      { fromId: 'readv', toId: 'calc', fromProperty: 'value', toProperty: 'in-heatValue' }
+    ]
+  );
+
+  it('finds a cycle closed by a shared variable name, with no wire between them', () => {
+    const f = cycles(readWriteSameVar);
+    expect(f).toHaveLength(1);
+    expect(f[0]!.severity).toBe('error');
+    // The message must say WHY it is still a cycle, or the same "no wire, no cycle"
+    // reasoning just gets applied again.
+    expect(f[0]!.detail).toContain('VARIABLE');
+  });
+
+  it('does not link variables with different names', () => {
+    const other = JSON.parse(JSON.stringify(readWriteSameVar));
+    other.components[0].graph.roots[0].children[2].parameters.name = 'somethingElse';
+    expect(cycles(other)).toHaveLength(0);
+  });
+});
+
+// Cycle findings carry no node, so every cycle in a component collapsed to one key and a
+// turn that removed six of nine cycles read as "no change since baseline". The path is the
+// identity of a cycle; it belongs on the finding.
+describe('cycle findings are distinct to the baseline diff', () => {
+  it('reports removed cycles as fixed, not as no change', () => {
+    const comp = (connections: any[]) => ({
+      components: [{
+        name: '/#__maths__/M',
+        graph: {
+          roots: [{ id: 'r', type: 'Group', children: [
+            { id: 'a', type: 'JavaScriptFunction', parameters: { label: 'A' } },
+            { id: 'b', type: 'JavaScriptFunction', parameters: { label: 'B' } },
+            { id: 'c', type: 'JavaScriptFunction', parameters: { label: 'C' } },
+            { id: 'd', type: 'JavaScriptFunction', parameters: { label: 'D' } }
+          ] }],
+          connections
+        }
+      }]
+    });
+    const two = auditProjectFile(comp([
+      { fromId: 'a', toId: 'b', fromProperty: 'out-x', toProperty: 'in-x' },
+      { fromId: 'b', toId: 'a', fromProperty: 'out-y', toProperty: 'in-y' },
+      { fromId: 'c', toId: 'd', fromProperty: 'out-x', toProperty: 'in-x' },
+      { fromId: 'd', toId: 'c', fromProperty: 'out-y', toProperty: 'in-y' }
+    ])).findings.filter((f) => f.rule === 'data-dependency-cycle');
+    const one = auditProjectFile(comp([
+      { fromId: 'c', toId: 'd', fromProperty: 'out-x', toProperty: 'in-x' },
+      { fromId: 'd', toId: 'c', fromProperty: 'out-y', toProperty: 'in-y' }
+    ])).findings.filter((f) => f.rule === 'data-dependency-cycle');
+    expect(two).toHaveLength(2);
+    expect(new Set(two.map(findingKey)).size).toBe(2);
+    const d = diffFindings(two, one);
+    expect(d.fixed).toHaveLength(1);
+    expect(d.regressions).toHaveLength(0);
+    expect(d.verdict).toBe('strictly better than baseline');
   });
 });

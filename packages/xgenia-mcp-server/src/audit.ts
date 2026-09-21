@@ -55,7 +55,16 @@
  *   consecutive spins while crediting nothing. Every node ran and completed; the script was
  *   correct in isolation and returned the right answer when tested headless. Nothing but
  *   this rule can see it.
- * - data-dependency-cycle: a cycle over DATA (non-signal) connections. This is the one
+ * - data-dependency-cycle: a cycle over DATA dependencies — both wires AND variables.
+ *
+ *   The variable half matters enormously and was missed at first. A `Set Variable` and a
+ *   `Variable` sharing a NAME are linked by that name, not by any wire, so a
+ *   read-modify-write routed through a variable forms a real dependency cycle that a
+ *   wire-only walk reports as clean. That is not hypothetical: told to break wire cycles, a
+ *   builder moved them onto variables and wrote "read-modify-write without any data wire
+ *   returning into the Variable2, so no data dependency cycle". The audit agreed. The
+ *   renderer then span a full core at 100% CPU and wedged ~17 seconds after every project
+ *   open, with eight such cycles present and zero reported. This is the one
  *   that kills the renderer, and it is invisible until the component is instanced. The
  *   runtime resolves a node's value by walking its data dependencies
  *   (NodeContext.updateDirtyNodes -> Node.update -> Node._updateDependencies -> ...), and
@@ -464,12 +473,39 @@ export function auditProjectFile(projectJson: Json): { findings: Finding[]; summ
         );
       };
       const dataEdges = new Map<string, { to: string; from: string; toProp: string }[]>();
+      const addEdge = (from: string, to: string, fromProp: string, toProp: string) => {
+        const list = dataEdges.get(from) ?? [];
+        list.push({ to, from: fromProp, toProp });
+        dataEdges.set(from, list);
+      };
+      // Variables link by NAME, not by wire: every `Set Variable` feeds every `Variable`
+      // that shares its name. Without these edges a loop through a variable is invisible.
+      {
+        const varName = (n: Node): string | undefined => {
+          const p = (n.parameters ?? {}) as { name?: string; variableName?: string };
+          return p.name ?? p.variableName;
+        };
+        const readersByName = new Map<string, string[]>();
+        for (const n of nodes) {
+          const t = n.type ?? '';
+          if (t === 'Set Variable' || !t.includes('Variable')) continue;
+          const nm = varName(n);
+          if (!nm) continue;
+          readersByName.set(nm, [...(readersByName.get(nm) ?? []), n.id]);
+        }
+        for (const n of nodes) {
+          if (n.type !== 'Set Variable') continue;
+          const nm = varName(n);
+          if (!nm) continue;
+          for (const reader of readersByName.get(nm) ?? []) {
+            if (reader !== n.id) addEdge(n.id, reader, `variable:${nm}`, `variable:${nm}`);
+          }
+        }
+      }
       for (const k of conns) {
         if (!k.fromId || !k.toId || isSignal(k)) continue;
         if (!byId.has(k.fromId) || !byId.has(k.toId)) continue;
-        const list = dataEdges.get(k.fromId) ?? [];
-        list.push({ to: k.toId, from: k.fromProperty ?? '', toProp: k.toProperty ?? '' });
-        dataEdges.set(k.fromId, list);
+        addEdge(k.fromId, k.toId, k.fromProperty ?? '', k.toProperty ?? '');
       }
       const state = new Map<string, 'open' | 'done'>();
       const path: string[] = [];
@@ -484,8 +520,13 @@ export function auditProjectFile(projectJson: Json): { findings: Finding[]; summ
             const key = [...cyc].sort().join('|');
             if (!reported.has(key)) {
               reported.add(key);
-              add({ severity: 'error', rule: 'data-dependency-cycle', component: comp.name,
-                detail: `${cyc.map((n) => labelOf(byId.get(n)!)).join(' -> ')}. These are DATA wires, not signals. The runtime resolves values by walking data dependencies with no cycle guard, so this recurses until the renderer dies — the component looks fine until something instances it, then the editor freezes seconds after open. Accumulate inside one script node, or feed the value back through a variable read on a signal instead of a data wire.` });
+              const viaVariable = cyc.some((id) => (byId.get(id)?.type ?? '').includes('Variable'));
+              // `node` is the cycle path, so two different cycles in one component are two
+              // findings to the baseline diff. Without it every cycle in a component shared one
+              // key, and a turn that removed six of nine read as "no change since baseline".
+              const cyclePath = cyc.map((n) => labelOf(byId.get(n)!)).join(' -> ');
+              add({ severity: 'error', rule: 'data-dependency-cycle', component: comp.name, node: cyclePath,
+                detail: `${cyc.map((n) => labelOf(byId.get(n)!)).join(' -> ')}.${viaVariable ? ' This loop runs through a VARIABLE: a Set Variable and a Variable sharing a name are linked by that name, so routing a read-modify-write through one does NOT break the dependency — it only hides it from a wire-level reading of the graph.' : ' These are DATA wires, not signals.'} The runtime resolves values by walking data dependencies with no cycle guard, so this recurses until the renderer dies — the component looks fine until something instances it, then the editor freezes seconds after open. Accumulate inside one script node, or feed the value back through a variable read on a signal instead of a data wire.` });
             }
           } else if (!state.has(edge.to)) {
             walk(edge.to);
@@ -499,7 +540,7 @@ export function auditProjectFile(projectJson: Json): { findings: Finding[]; summ
 
     // signal-cycle
     for (const cyc of findSignalCycles(nodes, conns)) {
-      add({ severity: maths ? 'warning' : 'info', rule: 'signal-cycle', component: comp.name,
+      add({ severity: maths ? 'warning' : 'info', rule: 'signal-cycle', component: comp.name, node: cyc.join(' -> '),
         detail: `${cyc.join(' -> ')}. Signals propagate synchronously; make sure something bounds this loop.` });
     }
 

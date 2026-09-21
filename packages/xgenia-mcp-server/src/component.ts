@@ -82,6 +82,18 @@ export interface ComponentDetail {
   /** Ports the component exposes to whoever instances it. */
   inputs: string[];
   outputs: string[];
+  /**
+   * Who feeds each exposed output: `Label.port [NodeType]`, or `(unfed)` when the port is
+   * declared and nothing wires into it.
+   *
+   * This is the question that decides whether a feature is REAL. A UI can be fully wired to
+   * a component's outputs and still show nothing, because the output itself is fed by a
+   * placeholder. One project exposed OrbitDawnGrid, OrbitDuskGrid and UnderlayerState — three
+   * of its four boards — and all three were fed by `PaytableModifier.paytable`, a paytable
+   * object wired into grid ports. Every structural check passed; the boards were empty.
+   * The producer's type is included because that is how the mismatch shows.
+   */
+  outputSources: Record<string, string[]>;
   nodes: { id: string; type: string; label: string; scriptChars?: number }[];
   /** Other components instanced inside this one. */
   instances: string[];
@@ -97,11 +109,28 @@ export function describeComponent(c: Component, opts: { nodes?: boolean } = {}):
   const all = flatten(c.graph?.roots);
   let inputs: string[] = [];
   let outputs: string[] = [];
+  let outputsNode: Node | undefined;
   const instances: string[] = [];
   for (const n of all) {
     if (n.type === 'Component Inputs') inputs = portNames(n);
-    else if (n.type === 'Component Outputs') outputs = portNames(n);
-    else if (n.type?.startsWith('/')) instances.push(n.type);
+    else if (n.type === 'Component Outputs') {
+      outputs = portNames(n);
+      outputsNode = n;
+    } else if (n.type?.startsWith('/')) instances.push(n.type);
+  }
+  const byId = new Map(all.map((n) => [n.id, n]));
+  const outputSources: Record<string, string[]> = {};
+  for (const port of outputs) outputSources[port] = [];
+  if (outputsNode) {
+    for (const k of c.graph?.connections ?? []) {
+      if (k.toId !== outputsNode.id || !k.toProperty) continue;
+      const from = k.fromId ? byId.get(k.fromId) : undefined;
+      const desc = `${from ? labelOf(from) : '?'}.${k.fromProperty ?? '?'} [${from?.type ?? 'missing node'}]`;
+      (outputSources[k.toProperty] ??= []).push(desc);
+    }
+  }
+  for (const port of Object.keys(outputSources)) {
+    if (outputSources[port]!.length === 0) outputSources[port] = ['(unfed)'];
   }
   return {
     name: c.name,
@@ -110,6 +139,7 @@ export function describeComponent(c: Component, opts: { nodes?: boolean } = {}):
     connectionCount: c.graph?.connections?.length ?? 0,
     inputs,
     outputs,
+    outputSources,
     instances,
     nodes: opts.nodes
       ? all.map((n) => {
@@ -178,12 +208,16 @@ export function inspectComponents(
     }
     const da = describeComponent(pa);
     const db = describeComponent(pb);
+    const m = matchPorts(da, db);
     return {
       freshness,
       producer: { name: da.name, outputs: da.outputs },
       consumer: { name: db.name, inputs: db.inputs },
-      ...matchPorts(da, db),
-      hint: 'Matching names are a hint, not a guarantee that two ports mean the same quantity. Ports under consumerUnfed need a decision about which producer output (if any) is the right source.'
+      ...m,
+      // A matched name whose producer output is itself unfed, or fed by a node whose type
+      // does not plausibly produce that quantity, is wired to nothing real.
+      matchedSources: Object.fromEntries(m.matched.map((port) => [port, da.outputSources[port] ?? ['(unfed)']])),
+      hint: 'Matching names are a hint, not a guarantee that two ports mean the same quantity. Check matchedSources: a matched output fed by a placeholder (e.g. a paytable object into a grid port) or by nothing renders as empty on the consumer side even though every wire exists. Ports under consumerUnfed need a decision about which producer output (if any) is the right source.'
     };
   }
 

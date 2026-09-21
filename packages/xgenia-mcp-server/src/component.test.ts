@@ -74,3 +74,38 @@ describe('matchPorts', () => {
     expect(m.producerUnused).toEqual(['TotalWinnings']);
   });
 });
+
+// A wire to an output port proves nothing about what that port carries. Three boards of one
+// game were "wired" — and fed by a paytable object, so they rendered empty while every
+// structural check passed. Provenance names the producer and its type; that is where the
+// mismatch shows.
+describe('output provenance', () => {
+  const comp = {
+    name: '/#__maths__/GameMaths',
+    graph: {
+      roots: [
+        {
+          id: 'r',
+          type: 'Group',
+          children: [
+            { id: 'grid', type: 'Variable2', parameters: { label: 'CoreGridVar' } },
+            { id: 'pt', type: 'Paytable Modifier', parameters: { label: 'PaytableModifier' } },
+            { id: 'o', type: 'Component Outputs', ports: [{ name: 'CoreGrid' }, { name: 'OrbitDawnGrid' }, { name: 'MaskTier' }] }
+          ]
+        }
+      ],
+      connections: [
+        { fromId: 'grid', toId: 'o', fromProperty: 'value', toProperty: 'CoreGrid' },
+        { fromId: 'pt', toId: 'o', fromProperty: 'paytable', toProperty: 'OrbitDawnGrid' }
+      ]
+    }
+  };
+
+  it('names the producer and its type for every exposed output, and says when nothing feeds one', () => {
+    const d = describeComponent(comp);
+    expect(d.outputSources.CoreGrid).toEqual(['CoreGridVar.value [Variable2]']);
+    // The placeholder is visible as a type mismatch a reader can see: a paytable into a grid.
+    expect(d.outputSources.OrbitDawnGrid).toEqual(['PaytableModifier.paytable [Paytable Modifier]']);
+    expect(d.outputSources.MaskTier).toEqual(['(unfed)']);
+  });
+});
