@@ -37,9 +37,16 @@ pointer updates, config tweaks):
    ```
    More work on the same change after the PR is open goes on the same branch;
    don't open a second PR.
-6. Assign a reviewer from people who've recently pushed to `develop`
-   (`git log origin/develop -20 --format='%an <%ae>' | sort -u`), excluding
-   the PR author: `gh pr edit <number> --add-reviewer <username>`.
+6. Assign a reviewer from people who've recently pushed to `develop`,
+   excluding the PR author. `--add-reviewer` needs a GitHub login, so get
+   logins from GitHub, not from `git log`:
+   ```bash
+   ME=$(gh api user --jq .login)
+   gh api 'repos/{owner}/{repo}/commits?sha=develop&per_page=30' \
+     --jq '[.[] | .author | select(. != null) | .login] | unique | .[]' \
+     | grep -vx "$ME"
+   gh pr edit <number> --add-reviewer <login>
+   ```
 7. Never merge without an approval, even for a one-line change. Once
    approved, squash-merge: `gh pr merge <number> --squash`.
 8. `main` moves only at a public release, via a squash-merge from `develop`

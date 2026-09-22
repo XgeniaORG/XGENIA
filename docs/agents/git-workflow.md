@@ -69,11 +69,22 @@ Rules for the PR:
 
 - **Base is always `develop`**, never `main`.
 - Assign a reviewer from the people who have recently pushed into `develop`,
-  excluding the PR author:
+  excluding the PR author. `--add-reviewer` takes a GitHub **login**, not a
+  name or an email, so ask GitHub for the logins rather than reading them out
+  of `git log`:
   ```bash
-  git log origin/develop -20 --format='%an <%ae>' | sort -u
-  gh pr edit <number> --add-reviewer <github-username>
+  # Logins of the linked GitHub accounts behind the last 30 develop commits,
+  # deduplicated, with your own login dropped.
+  ME=$(gh api user --jq .login)
+  gh api 'repos/{owner}/{repo}/commits?sha=develop&per_page=30' \
+    --jq '[.[] | .author | select(. != null) | .login] | unique | .[]' \
+    | grep -vx "$ME"
+
+  gh pr edit <number> --add-reviewer <login>
   ```
+  `.author` is the GitHub account the commit is linked to; it is `null` when a
+  commit's email isn't linked to any account, which is why the `select` is
+  there. If the list comes back empty, ask the user who should review.
 - Do not merge without an approval — even for a one-line or "obviously safe"
   change.
 - Once approved, squash-merge:
