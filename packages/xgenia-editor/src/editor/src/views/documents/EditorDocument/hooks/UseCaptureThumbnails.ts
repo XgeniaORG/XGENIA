@@ -76,8 +76,9 @@ export function useCaptureThumbnails(canvasView: CanvasView, viewerDetached: boo
       if (viewerDetached) {
         // A `once` per tick leaked a listener on every tick whose reply never
         // arrived — and a detached viewer that has gone away never replies.
-        const onReply = (_event: unknown, url: string) => {
-          if (!cancelled) ProjectModel.instance.setThumbnailFromDataURI(url);
+        // Only a data URL is an image — a refusal ({ error, busy/stale }) or null is not.
+        const onReply = (_event: unknown, url: unknown) => {
+          if (!cancelled && typeof url === 'string' && url) ProjectModel.instance.setThumbnailFromDataURI(url);
         };
         ipcRenderer.once('viewer-capture-thumb-reply', onReply);
         ipcRenderer.send('viewer-capture-thumb');

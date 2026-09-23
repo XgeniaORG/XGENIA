@@ -58,3 +58,14 @@ export function collectGraphRefs(components: unknown[]): GraphAssetRefs {
   }
   return { paths, uids };
 }
+
+/**
+ * Should graph parameters holding `oldRel` be rewritten to `newRel`? A rename or a move, yes. A
+ * move into `.trash` is a deletion (or an overwrite's backup), and following it re-points every
+ * sprite at the discarded bytes — so never.
+ */
+export function shouldFollowInGraph(oldRel: string, newRel: string): boolean {
+  if (!oldRel || !newRel || oldRel === newRel) return false;
+  const target = newRel.replace(/^\/+/, '');
+  return !(target === '.trash' || target.startsWith('.trash/'));
+}

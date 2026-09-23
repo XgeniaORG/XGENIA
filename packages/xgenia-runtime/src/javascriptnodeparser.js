@@ -322,41 +322,67 @@ JavascriptNodeParser.parseAndAddPortsFromScript = function (script, ports, optio
   }
 };
 
+/**
+ * The port type name for what a script put in Inputs/Outputs.
+ *
+ * (2026-09-23, export 1790196874427) A string there is a type NAME (`Script.Outputs = { A: 'number' }`,
+ * `define({ outputs: { A: 'number' } })`), but the third-generation API is just as often used with an
+ * initial VALUE (`Script.Outputs.Total = 0`, `Script.Outputs.Done = false`). The value was emitted as
+ * the type name, so the editor saw ports of type `0` and `false` and flagged every wire from them as
+ * "source port of type 0 cannot be connected to … number". A value now names its type (the names
+ * nodelibraryexport's typecasts know), and nothing without an obvious type is narrower than `*`.
+ */
+function _portTypeNameForDeclaration(value) {
+  if (typeof value === 'string') return value || '*';
+  if (typeof value === 'number') return 'number';
+  if (typeof value === 'boolean') return 'boolean';
+  if (Array.isArray(value)) return 'array';
+  if (value !== null && typeof value === 'object') return 'object';
+  return '*'; // null, undefined, function, symbol, bigint
+}
+
+// `{ type: 'number', displayName: 'A', … }` — a port descriptor, not a value.
+function _isPortDescriptor(value) {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    (typeof value.type === 'string' || (value.type !== null && typeof value.type === 'object' && typeof value.type.name === 'string'))
+  );
+}
+
+JavascriptNodeParser.portTypeNameForDeclaration = _portTypeNameForDeclaration;
+
 JavascriptNodeParser.prototype.getPorts = function () {
   var ports = [];
 
   var self = this;
 
-  Object.keys(this.inputs).forEach(function (name) {
-    var inputPort = self.inputs[name];
-
+  function _portFor(name, declaration, plug, group) {
     var port = {
       name: name,
-      plug: 'input'
+      plug: plug
     };
-    if (typeof inputPort === 'string') {
-      port.type = {
-        name: inputPort
-      };
-      port.group = 'Inputs';
-    } else {
-      for (var p in inputPort) {
-        port[p] = inputPort[p];
+    if (_isPortDescriptor(declaration)) {
+      for (var p in declaration) {
+        port[p] = declaration[p];
       }
+      if (plug === 'output' && port.group === undefined) port.group = group;
+    } else {
+      port.type = {
+        name: _portTypeNameForDeclaration(declaration)
+      };
+      port.group = group;
     }
+    return port;
+  }
 
-    ports.push(port);
+  Object.keys(this.inputs).forEach(function (name) {
+    ports.push(_portFor(name, self.inputs[name], 'input', 'Inputs'));
   });
 
   Object.keys(this.outputs).forEach(function (name) {
-    ports.push({
-      name: name,
-      type: {
-        name: self.outputs[name]
-      },
-      plug: 'output',
-      group: 'Outputs'
-    });
+    ports.push(_portFor(name, self.outputs[name], 'output', 'Outputs'));
   });
 
   JavascriptNodeParser.parseAndAddPortsFromScript(this.code, ports, {});

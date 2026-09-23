@@ -93,6 +93,23 @@ export class CanvasView extends View {
     return null;
   }
 
+  /**
+   * The reply for a capture refused because another capture holds the preview surface.
+   *
+   * (2026-09-23, export 1790196874427) This used to be a bare `null` on the thumb/fullpage
+   * channels, which the bridge reports as "Screenshot capture returned no data" — the same words
+   * as "there is no preview", so the AI read a momentary lock as a dead preview and stopped
+   * looking. `busy` + `holder` say what it is; `error` keeps old readers working.
+   */
+  private busyReply(kind: string): { error: string; busy: true; holder: string } {
+    const holder = String(this._activeCapture);
+    return {
+      error: `${kind} capture refused: a '${holder}' capture is already using the preview surface — nothing is wrong with the preview; retry in a few seconds`,
+      busy: true,
+      holder
+    };
+  }
+
   private staleFrameMessage(reason: string): string {
     return `screenshot unavailable: ${reason}, so no new frame can be rendered and a capture would show an old image of the editor, not the game. `
       + `Nothing was captured. Measure with ui_layout_map / get_rendered_output instead, or ask the user to bring the editor window on screen and retry.`;
@@ -456,6 +473,9 @@ export class CanvasView extends View {
   }
 
   render() {
+    // (2026-09-23) A second render() on the same view would register every IPC listener below a
+    // second time, and each request would then get two replies from one view.
+    if (this.el) return this.el;
     const element = document.createElement('div');
     element.className = 'visual-canvas-container';
     element.style.cssText = `
@@ -529,7 +549,7 @@ export class CanvasView extends View {
       }
       if (this._activeCapture) {
         console.warn(`[CanvasView] Thumbnail capture refused: a '${this._activeCapture}' capture is already using the preview surface`);
-        ipcRenderer.send('viewer-capture-thumb-reply', null);
+        ipcRenderer.send('viewer-capture-thumb-reply', this.busyReply('screenshot'));
         return;
       }
       // Held across every retry below, released only on a TERMINAL reply — a retry scheduled via
@@ -538,6 +558,9 @@ export class CanvasView extends View {
       this._activeCapture = 'thumb';
 
       const attemptCapture = async (attemptNumber = 1, maxAttempts = 3) => {
+        // A retry scheduled before dispose() must not answer for a view that is gone — the live
+        // view's reply is the one the requester should get.
+        if (this._disposed) { this._activeCapture = null; return false; }
         try {
           console.log(`[CanvasView] Screenshot attempt ${attemptNumber}/${maxAttempts}`);
 
@@ -595,7 +618,7 @@ export class CanvasView extends View {
 
       if (!this.webview || !this.webviewDomReady || !this.webview.isConnected) {
         console.error('[CanvasView] Full-page capture: webview not ready');
-        ipcRenderer.send('viewer-capture-fullpage-reply', null);
+        ipcRenderer.send('viewer-capture-fullpage-reply', { error: 'full-page capture: the preview is not ready (no page loaded in it yet)', notReady: true });
         return;
       }
 
@@ -605,7 +628,7 @@ export class CanvasView extends View {
       }
       if (this._activeCapture) {
         console.warn(`[CanvasView] Full-page capture refused: a '${this._activeCapture}' capture is already using the preview surface`);
-        ipcRenderer.send('viewer-capture-fullpage-reply', null);
+        ipcRenderer.send('viewer-capture-fullpage-reply', this.busyReply('full-page'));
         return;
       }
       this._activeCapture = 'fullpage';
@@ -763,7 +786,7 @@ export class CanvasView extends View {
       }
 
       if (!this.webview || !this.webviewDomReady || !this.webview.isConnected) {
-        reply({ success: false, message: 'design capture: webview not ready' });
+        reply({ success: false, notReady: true, message: 'design capture: webview not ready' });
         return;
       }
       {
@@ -772,7 +795,8 @@ export class CanvasView extends View {
       }
 
       if (this._activeCapture) {
-        reply({ success: false, message: `design capture: refused — a '${this._activeCapture}' capture is already using the preview surface; try again shortly` });
+        const busy = this.busyReply('design');
+        reply({ success: false, busy: true, holder: busy.holder, message: busy.error });
         return;
       }
 
