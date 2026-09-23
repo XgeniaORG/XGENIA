@@ -775,11 +775,23 @@ export class CanvasView extends View {
         reply({ success: false, message: `design capture: refused — a '${this._activeCapture}' capture is already using the preview surface; try again shortly` });
         return;
       }
-      this._activeCapture = 'design';
 
       // The real DOM node, not the PreviewHost wrapper — PreviewHost.element is part of the
       // interface precisely for low-level sizing work like this.
+      //
+      // Resolved BEFORE the lock is taken, and the lock is taken INSIDE the try below. Until
+      // 2026-09-22 the lock was set here and this deref ran outside the try/finally that
+      // releases it, so a surface that had no element (export 1790076304584: "captureThumbnail:
+      // webview is null or undefined" in the same console) threw, `_activeCapture` stayed
+      // 'design' for the rest of the session, and every later thumbnail/fullpage/design capture
+      // was refused with "a 'design' capture is already using the preview surface" — the AI went
+      // blind while the user watched the game render. The 'thumb' and 'fullpage' paths already
+      // take and release their lock inside their try/finally; this brings 'design' in line.
       const el = this.webview.element;
+      if (!el) {
+        reply({ success: false, message: 'design capture: the preview surface has no DOM element to resize yet — try again shortly' });
+        return;
+      }
       // Restore EXACTLY what was there, including "no inline value at all" — writing '' back over
       // a style the stylesheet owns would silently resize the user's preview.
       const saved = el.getAttribute('style');
@@ -822,6 +834,9 @@ export class CanvasView extends View {
       const measureProof = () => measureSurfaceProof(el, width, height, browserSurfaceProofEnv());
 
       try {
+        // No await between the `_activeCapture` check above and this line, so the check-and-set
+        // is still atomic — and now every exit, thrown or returned, reaches the finally.
+        this._activeCapture = 'design';
         applySize();
 
         // Wait for the guest to actually report the new viewport before capturing, or the image is
@@ -941,8 +956,10 @@ export class CanvasView extends View {
       } catch (e: any) {
         reply({ success: false, message: `design capture failed: ${e?.message || e}` });
       } finally {
-        if (saved === null) el.removeAttribute('style'); else el.setAttribute('style', saved);
+        // Release the lock FIRST: if restoring the style throws, the surface must not stay
+        // locked behind it.
         this._activeCapture = null;
+        if (saved === null) el.removeAttribute('style'); else el.setAttribute('style', saved);
       }
     });
 
