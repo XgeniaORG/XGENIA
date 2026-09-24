@@ -177,8 +177,15 @@ if (gpuMode) {
   }
 }
 
-// Enable Remote Debugging Protocol (CDP) for Playwright/MCP external agents
-app.commandLine.appendSwitch('remote-debugging-port', '9223');
+// Remote Debugging Protocol (CDP) for Playwright/MCP external agents. It lets any local
+// process drive the fully privileged editor, so a release keeps it closed unless asked for:
+// dev builds, XGENIA_ENABLE_CDP=1, or --xgenia-cdp on the command line (the XGENIA MCP server
+// launches the app with that flag). An explicit --remote-debugging-port is left to Chromium.
+const cdpRequested =
+  !app.isPackaged || process.env.XGENIA_ENABLE_CDP === '1' || (process.argv || []).includes('--xgenia-cdp');
+if (cdpRequested && !app.commandLine.hasSwitch('remote-debugging-port')) {
+  app.commandLine.appendSwitch('remote-debugging-port', '9223');
+}
 
 var args = process.argv || [];
 

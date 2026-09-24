@@ -17,7 +17,9 @@ description: |
 # Driving XGENIA over MCP
 
 The `xgenia` MCP server drives the **installed XGENIA desktop app** through the Chrome
-DevTools Protocol on port 9223, which every build opens. No repo checkout is needed.
+DevTools Protocol on port 9223. Release builds open that port only when this server
+launches them (`--xgenia-cdp`), so an XGENIA the user opened by hand cannot be attached:
+quit it and call `xgenia_launch`. No repo checkout is needed.
 
 Added by hand, not by the plugin: the package is **not on npm** (`npx -y xgenia-mcp` fails), and
 a marketplace install of the `xgenia` plugin ships this skill without the server, so no tools

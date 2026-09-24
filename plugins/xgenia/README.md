@@ -45,8 +45,9 @@ Check it worked with `/mcp` (the `xgenia` server should be listed) and by asking
 
 ## Requirements
 
-- **XGENIA installed**, or a checkout to run `npm run dev` from. The editor opens a CDP port
-  on 9223 in every build, so nothing needs enabling.
+- **XGENIA installed**, or a checkout to run `npm run dev` from. Dev builds open a CDP port
+  on 9223; release builds open it only when started by this server (`--xgenia-cdp`), so let
+  `xgenia_launch` start XGENIA rather than opening it by hand.
 - **Someone signed in to XGENIA once.** The harness detects the login screen and stops; it
   has no tool, flag or environment variable that types, stores or reads a password.
 - Node 18+.
