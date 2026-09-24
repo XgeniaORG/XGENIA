@@ -33,6 +33,7 @@ import { platform } from '@xgenia/platform';
 import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
 import { ParamAuthors } from '../propertyeditor/inspector/paramAuthors';
 import { supabase, refreshSessionShared } from '../../../supabaseInit';
+import { AiBrowserManager } from '@xgenia-ai/ChatPanel/AiBrowserManager';
 import { pickPersistedAccessToken } from './persisted-session-token';
 import {
     addProjectPalette,
@@ -287,6 +288,15 @@ export class EditorBridge {
         }
         EditorBridge._active = this;
         this.registerCommands();
+        // The AI browser's state, pushed so the panel (or the agent server behind a thin panel)
+        // can answer isActive()/getState()/getConsoleLogs() without a round trip.
+        try {
+            this.aiBrowserUnsubscribe = AiBrowserManager.onStateChange((state: any) =>
+                this.pushEvent('aiBrowserState', { state, logs: AiBrowserManager.getConsoleLogs(false) }, 'aiBrowserState'),
+            );
+        } catch (e) {
+            console.warn('[EditorBridge] AI browser state is not available:', e);
+        }
         // NOT `.bind(this)`. `handleMessage` is already an arrow property, so it
         // is bound; wrapping it in `bind` produced a fresh function here and
         // ANOTHER fresh one in `destroy`, so `removeEventListener` was handed a
@@ -573,6 +583,8 @@ export class EditorBridge {
         // Commit any AI edits still inside the idle window — the flush timer dies
         // with the bridge, and an unpushed group is an unundoable edit.
         this.flushAiUndo();
+        this.aiBrowserUnsubscribe?.();
+        this.aiBrowserUnsubscribe = null;
         window.removeEventListener('message', this.handleMessage);
         if (EditorBridge._active === this) EditorBridge._active = null;
         this.iframe = null;
@@ -852,10 +864,27 @@ export class EditorBridge {
         }
     }
 
+    private aiBrowserUnsubscribe: (() => void) | null = null;
+
     private registerCommands() {
         const h = (name: string, handler: CommandExecutor) => {
             this.commandHandlers.set(name, handler);
         };
+
+        // --- AI browser (2026-09-24) ---
+        // The AI's browser is a <webview>, and Electron only runs webviews in the editor's main
+        // frame: one created inside the panel iframe never loads. So the editor owns it (the
+        // preview surface shows it) and the panel drives it through these commands.
+        h('aiBrowser.open', ([url]: [string]) => AiBrowserManager.open(url));
+        h('aiBrowser.close', () => AiBrowserManager.close());
+        h('aiBrowser.screenshot', () => AiBrowserManager.screenshot());
+        h('aiBrowser.nativeClick', ([x, y, doubleClick]: [number, number, boolean]) => AiBrowserManager.nativeClick(x, y, doubleClick));
+        h('aiBrowser.click', ([params]: [any]) => AiBrowserManager.click(params));
+        h('aiBrowser.type', ([params]: [any]) => AiBrowserManager.type(params));
+        h('aiBrowser.evaluate', ([code]: [string]) => AiBrowserManager.evaluate(code));
+        h('aiBrowser.getPageInfo', () => AiBrowserManager.getPageInfo());
+        h('aiBrowser.getState', () => ({ state: AiBrowserManager.getState(), logs: AiBrowserManager.getConsoleLogs(false) }));
+        h('aiBrowser.getConsoleLogs', ([clear]: [boolean]) => AiBrowserManager.getConsoleLogs(!!clear));
 
         // --- Project commands ---
         h('project.getComponents', () => {
