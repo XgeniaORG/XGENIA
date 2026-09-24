@@ -49,6 +49,21 @@ function downloadDirs(): string[] {
  * cost to reading both, and guessing which build is running is how the capability silently
  * disappears on whichever one you guessed wrong.
  */
+/**
+ * The entries array of a recently_opened_project.json.
+ *
+ * (2026-09-23) The file is { thumbsMigratedV1: true, recentProjects: [...] }. This used to take
+ * `Object.values(raw)[0]` — the boolean — so no project directory was ever searched and every
+ * export that had saved perfectly into <project>/.xgenia/debug-exports/ was reported
+ * "export-not-written" for a whole session. Exported for the test.
+ */
+export function recentsItems(raw: any): any[] {
+  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw?.recentProjects)) return raw.recentProjects;
+  const firstArray = Object.values(raw || {}).find((v) => Array.isArray(v));
+  return Array.isArray(firstArray) ? firstArray : [];
+}
+
 function recentProjectDirs(): string[] {
   const dirs: string[] = [];
   for (const profile of ['Electron', 'XGENIA']) {
@@ -61,7 +76,7 @@ function recentProjectDirs(): string[] {
         'recently_opened_project.json'
       );
       const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-      const items: any[] = Array.isArray(raw) ? raw : Object.values(raw)[0] as any[];
+      const items = recentsItems(raw);
       if (!Array.isArray(items)) continue;
       for (const it of items) {
         const d = it && it.retainedProjectDirectory;

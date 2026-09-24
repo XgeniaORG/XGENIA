@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Page } from 'playwright-core';
 import { spawn, execFileSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import {
@@ -345,10 +346,9 @@ async function waitForEditor(port: number, timeoutMs: number): Promise<EditorWai
   return 'timeout';
 }
 
-function repoRoot(): string | null {
-  const override = process.env.XGENIA_REPO_DIR;
-  if (override) return fs.existsSync(path.join(override, 'packages/xgenia-editor')) ? override : null;
-  let dir = process.cwd();
+/** Nearest ancestor of `start` (inclusive) that holds packages/xgenia-editor, or null. */
+export function findRepoRootFrom(start: string): string | null {
+  let dir = start;
   for (let i = 0; i < 8; i += 1) {
     if (fs.existsSync(path.join(dir, 'packages', 'xgenia-editor'))) return dir;
     const up = path.dirname(dir);
@@ -356,6 +356,18 @@ function repoRoot(): string | null {
     dir = up;
   }
   return null;
+}
+
+function repoRoot(): string | null {
+  const override = process.env.XGENIA_REPO_DIR;
+  if (override) return fs.existsSync(path.join(override, 'packages/xgenia-editor')) ? override : null;
+  // (2026-09-23) cwd alone missed: Claude Code starts this server in the folder ABOVE the repo
+  // (~/Documents/GitHub), so xgenia_launch {target:"dev"} and every xgenia_restart of a dev editor
+  // answered "no repo checkout found" — the restart killed XGENIA and could not bring it back.
+  // This server ships inside the repo (packages/xgenia-mcp-server/dist), so its own location is
+  // the dependable fallback.
+  return findRepoRootFrom(process.cwd())
+    ?? findRepoRootFrom(path.dirname(fileURLToPath(import.meta.url)));
 }
 
 /**
