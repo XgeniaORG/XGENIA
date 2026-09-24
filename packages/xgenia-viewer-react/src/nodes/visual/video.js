@@ -195,26 +195,56 @@ const VideoNode = {
       group: 'Events',
       displayName: 'On Can Play'
     },
+    // Playback outputs are driven by the Video component's media-event listeners,
+    // not by props on the <video> element.
+    onPlay: {
+      group: 'Playback',
+      displayName: 'On Play',
+      type: 'signal',
+      tooltip: {
+        standard: 'Sent when playback starts or resumes'
+      }
+    },
+    onPause: {
+      group: 'Playback',
+      displayName: 'On Pause',
+      type: 'signal',
+      tooltip: {
+        standard: 'Sent when playback is paused before the end. Reaching the end sends On Ended instead'
+      }
+    },
+    onEnded: {
+      group: 'Playback',
+      displayName: 'On Ended',
+      type: 'signal',
+      tooltip: {
+        standard:
+          'Sent once when the video plays to its end. Never sent while Loop is on (the video restarts instead). Not sent for animated WebP sources'
+      }
+    },
     onTimeUpdate: {
       group: 'Playback',
       displayName: 'Playback Position',
       type: 'number',
-      propPath: 'dom',
-      getValue(event) {
-        return event.target.currentTime;
+      tooltip: {
+        standard: 'Current time in seconds. Updates at most 4 times a second, and immediately on pause, end and seek'
       }
     },
-    onPlay: {
-      group: 'Events',
-      displayName: 'On Play',
-      type: 'signal',
-      propPath: 'dom'
+    duration: {
+      group: 'Playback',
+      displayName: 'Duration',
+      type: 'number',
+      tooltip: {
+        standard: 'Length of the video in seconds, set once its metadata loads. 0 while unknown or for a live stream'
+      }
     },
-    onPause: {
-      group: 'Events',
-      displayName: 'On Pause',
-      type: 'signal',
-      propPath: 'dom'
+    isPlaying: {
+      group: 'Playback',
+      displayName: 'Is Playing',
+      type: 'boolean',
+      tooltip: {
+        standard: 'True while the video is playing; false when paused or ended'
+      }
     },
     onVideoElementCreated: {
       type: 'domelement',
