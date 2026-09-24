@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectGraphRefs } from '../../src/editor/src/views/panels/AssetPanel/graphRefs';
+import { collectGraphRefs, shouldFollowInGraph } from '../../src/editor/src/views/panels/AssetPanel/graphRefs';
 
 const comp = (nodes: Array<Record<string, unknown>>) => ({
   name: 'Main',
@@ -50,4 +50,15 @@ test('a non-array argument yields empty sets rather than throwing', () => {
   const refs = collectGraphRefs(undefined as unknown as unknown[]);
   assert.equal(refs.paths.size, 0);
   assert.equal(refs.uids.size, 0);
+});
+
+// (2026-09-17) The AI's overwrite backup called assetMeta.migrate(live, '.trash/…'), and the bridge
+// followed every migrate with a graph rewrite — so each sprite using the file by path was
+// re-pointed at the OLD bytes in .trash. A move into .trash is a deletion, never a rename to follow.
+test('graph references never follow an asset into .trash', () => {
+  assert.equal(shouldFollowInGraph('assets/ui/a.png', '.trash/assets_ui_a.2026-09-17T10-00-00-000Z.png'), false);
+  assert.equal(shouldFollowInGraph('assets/ui/a.png', 'assets/ui/b.png'), true);
+  assert.equal(shouldFollowInGraph('assets/ui', 'assets/hud'), true);
+  assert.equal(shouldFollowInGraph('.trash/x.png', 'assets/ui/x.png'), true, 'a restore out of trash is followed');
+  assert.equal(shouldFollowInGraph('assets/a.png', 'assets/a.png'), false);
 });

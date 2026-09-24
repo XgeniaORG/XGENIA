@@ -1389,11 +1389,37 @@ export class EditorBridge {
         // tried 3× to move @ReelStage into @ReelArea, all failed). This
         // handler does the work directly: detach from old parent (or roots),
         // re-attach as a child of the new parent.
-        h('graph.reparent', ([nodeId, newParentId, index]: [string, string, number?]) => {
+        h('graph.reparent', ([nodeId, newParentId, index]: [string, string | null, number?]) => {
             const graph = this.getActiveGraph();
             if (!graph) throw new Error('No active graph');
             const node = this.findNode(nodeId);
             if (!node) throw new Error(`Node not found: ${nodeId}`);
+            // (2026-09-23, export 1790196874427) "Move to the component root" (newParentId null / ''
+            // / 'root') used to throw "New parent not found: null" before doing anything, so a node
+            // could be moved into a container but never back out. NodeGraphModel.detachNode is the
+            // model's own move-to-roots: it fires 'nodeDetached' (the canvas moves the existing box)
+            // and records its own undo into the AI group.
+            if (newParentId === null || newParentId === undefined || newParentId === '' || newParentId === 'root') {
+                const gm: any = (graph as any).model || graph;
+                const isRoot = () => Array.isArray(gm.roots) && gm.roots.some((r: any) => r === node || r?.id === node.id);
+                const oldParent: any = (node as any).parent || null;
+                if (!oldParent) {
+                    if (!isRoot()) throw new Error(`Node ${nodeId} has no parent and is not a component root — the graph is inconsistent; reopen the component.`);
+                    return { success: true, verified: true, alreadyRoot: true, message: `${nodeId} is already at the component root.` };
+                }
+                if (typeof gm.detachNode !== 'function') throw new Error('Moving a node to the component root is not supported by this graph model (no detachNode).');
+                if (!Array.isArray(oldParent.children) || !oldParent.children.includes(node)) {
+                    throw new Error(`Node ${nodeId} names ${oldParent.id || oldParent.label} as its parent, but that parent does not list it as a child — the graph is inconsistent; nothing was moved.`);
+                }
+                gm.detachNode(node, { undo: this.aiUndo(), label: this.aiUndoLabel });
+                const rootCount = Array.isArray(gm.roots) ? gm.roots.filter((r: any) => r === node || r?.id === node.id).length : 0;
+                const stillInOldParent = Array.isArray(oldParent.children) && oldParent.children.includes(node);
+                if (rootCount !== 1 || stillInOldParent || (node as any).parent) {
+                    throw new Error(`Move to component root verification FAILED: ${JSON.stringify({ rootCount, stillInOldParent, hasParent: !!(node as any).parent })}.`);
+                }
+                console.log(`[EditorBridge] Reparented ${nodeId} → component root (was under ${oldParent.id})`);
+                return { success: true, verified: true, movedToRoot: true, previousParentId: oldParent.id, viewSynced: true };
+            }
             const newParent = this.findNode(newParentId);
             if (!newParent) throw new Error(`New parent not found: ${newParentId}`);
             if (typeof newParent.addChild !== 'function') {
@@ -3229,6 +3255,9 @@ export class EditorBridge {
                 // `true` must mean "on disk": migrateAssetMeta persists without awaiting.
                 await flushAssetMeta();
                 try {
+                    // (2026-09-23, export 1790196874427) A migrate into .trash (delete, overwrite backup)
+                    // moves the file and its meta only — reconcileGraphAssetRefs refuses to re-point
+                    // live nodes at the trashed copy (shouldFollowInGraph).
                     reconcileGraphAssetRefs(oldPath, newPath);
                 } catch {
                     /* graph reconciliation is best-effort */
@@ -3424,10 +3453,20 @@ export class EditorBridge {
                         ipcRenderer.removeListener(replyChannel, handler);
                         if (data && typeof data === 'object' && typeof (data as any).error === 'string') {
                             // (2026-09-17) The view refused rather than capture a stale frame — pass its reason on.
-                            resolve(JSON.stringify({ success: false, stale: !!(data as any).stale, message: (data as any).error }));
-                        } else if (data) {
+                            // (2026-09-23, export 1790196874427) Same for "busy" (another capture holds the
+                            // surface; retry) and "notReady" (no page in the preview) — neither is "no data".
+                            const d = data as any;
+                            resolve(JSON.stringify({
+                                success: false,
+                                stale: !!d.stale,
+                                ...(d.busy ? { busy: true, holder: d.holder } : {}),
+                                ...(d.notReady ? { notReady: true } : {}),
+                                message: d.error
+                            }));
+                        } else if (typeof data === 'string' && data) {
                             resolve(JSON.stringify({ success: true, image: data, fullPage, timestamp: Date.now() }));
                         } else {
+                            // null: an older view's refusal, or a capture that failed after its retries.
                             resolve(JSON.stringify({ success: false, message: 'Screenshot capture returned no data' }));
                         }
                     };
