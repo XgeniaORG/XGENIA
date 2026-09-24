@@ -3773,13 +3773,29 @@ export class EditorBridge {
                         const returnVal = hasStructured ? raw.__result : raw;
                         const logs: Array<{level: string; message: string}> = hasStructured ? (raw.__logs || []) : [];
 
+                        // (2026-09-23) CONSOLE CAPPED, RETURN VALUE STILL LAST. Uncapped console
+                        // output (a few warnings, each with a stack trace) pushed the return value past
+                        // the result-size cap, so the caller saw only metadata, concluded execute_code
+                        // "swallows" results, and smuggled data out through hidden DOM nodes. The value
+                        // must stay LAST: viewer-snippet.parseViewerExecResult and read-viewer-port-value
+                        // read /Return value:\s*([\s\S]+)$/ to the end of the string.
                         const parts: string[] = [];
                         if (logs.length > 0) {
-                            parts.push('Console output:');
-                            for (const entry of logs) {
+                            const MAX_LOGS = 20, MAX_LEN = 240, MAX_TOTAL = 2400;
+                            parts.push(`Console output (${logs.length}${logs.length > MAX_LOGS ? `, first ${MAX_LOGS} shown` : ''}):`);
+                            let used = 0;
+                            for (const entry of logs.slice(0, MAX_LOGS)) {
                                 const prefix = entry.level === 'log' ? '' : `[${entry.level.toUpperCase()}] `;
-                                parts.push(`  ${prefix}${entry.message}`);
+                                const text = String(entry.message);
+                                const line = `  ${prefix}${text.length > MAX_LEN ? text.slice(0, MAX_LEN) + '…' : text}`;
+                                if (used + line.length > MAX_TOTAL) { parts.push('  … (console output capped)'); break; }
+                                used += line.length;
+                                parts.push(line);
                             }
+                        }
+                        if (returnVal === undefined) {
+                            // BEFORE the value line, so the payload parsers still see exactly "undefined".
+                            parts.push('(Your code runs as a function BODY: a bare `(() => {…})()` or a last expression is discarded. Use `return …` to get a value back.)');
                         }
                         const returnStr = returnVal === undefined ? 'undefined'
                             : typeof returnVal === 'object' ? JSON.stringify(returnVal, null, 2)

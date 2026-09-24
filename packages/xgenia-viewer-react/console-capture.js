@@ -48,10 +48,27 @@
   // Quiet levels still record; they just do not reach the screen in a production build.
   var quiet = process.env.NODE_ENV === 'production';
 
+  // (2026-09-23) `instanceof Error` misses errors from another realm (the preview is an iframe),
+  // and JSON.stringify sees none of an error's own properties — message and stack are
+  // non-enumerable. A pixi.ParticleEmitter failure therefore reached this buffer as the two
+  // characters `{}`, and a builder had to hook console.error by hand to learn what threw.
+  function looksLikeError(a) {
+    return a instanceof Error
+      || (typeof a === 'object' && a !== null && typeof a.message === 'string'
+        && (typeof a.stack === 'string' || typeof a.name === 'string'));
+  }
+
   function render(a) {
     try {
-      if (a instanceof Error) return a.name + ': ' + a.message + (a.stack ? '\n' + a.stack : '');
-      if (typeof a === 'object' && a !== null) return JSON.stringify(a);
+      if (looksLikeError(a)) return (a.name || 'Error') + ': ' + a.message + (a.stack ? '\n' + a.stack : '');
+      if (typeof a === 'object' && a !== null) {
+        var json = JSON.stringify(a);
+        if (json !== '{}') return json;
+        // Nothing enumerable: say what it is rather than print an empty object.
+        var tag = Object.prototype.toString.call(a);
+        var own = Object.getOwnPropertyNames(a);
+        return own.length ? tag + ' {' + own.slice(0, 8).join(', ') + '} ' + String(a) : tag;
+      }
       return String(a);
     } catch (e) { return '[unserialisable]'; }
   }
