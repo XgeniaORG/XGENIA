@@ -146,12 +146,41 @@ app.commandLine.appendSwitch('--preserve-symlinks-main');
 //   XGENIA_GPU_MODE=raster    CPU rasterisation, GPU compositing. Try this FIRST.
 //   XGENIA_GPU_MODE=angle-gl  OpenGL instead of Metal in ANGLE.
 //   XGENIA_GPU_MODE=mac-safe  no CALayer reuse, no delegated compositing (2026-09-08, see below).
+//   XGENIA_GPU_MODE=cpu-composite  CPU compositing, GPU still does WebGL/canvas. The half of
+//                             `software` that is actually usable (2026-09-21, see below).
 //   XGENIA_GPU_MODE=software  no GPU compositing at all. Slow, and the strongest signal:
 //                             if it still flashes here, the compositor is NOT the cause.
+//   XGENIA_GPU_MODE=default   Chromium's own defaults, i.e. what an unset value used to mean.
 // Unset (the default) changes nothing.
-const gpuMode = process.env.XGENIA_GPU_MODE;
+//
+// (2026-09-21) `mac-safe` was briefly made the macOS DEFAULT and then reverted the same day.
+// The reasoning for defaulting it was that its 09-08 verdict ("masks half the load") had been
+// measured while the editor still mounted its whole UI twice. That is true but it is an
+// argument, not evidence: the user ran mac-safe on 09-08 and reported the window still
+// flashed. Do not re-default it without a measurement that shows the flash count falling.
+// What IS measured (2026-09-21) is that the flash tracks frame production, and the editor
+// produced frames non-stop for two reasons that had nothing to do with these flags: the chat
+// input's border animated a paint property every frame, and the preview's pixi ticker
+// re-rendered a pixel-identical image ~119 times a second while its own dirty-tracker had
+// nothing pending. Cut frame production first; reach for GPU flags after.
+// (2026-09-22) `cpu-composite` is the DEFAULT ON macOS. Unlike the 09-21 attempt to default
+// `mac-safe`, this one is defaulted on a measured result rather than an argument. The bisect,
+// run on an M5 / macOS 26 with the user watching the window each time:
+//   normal (ANGLE Metal)  flashes | angle-gl  flashes | mac-safe  flashes
+//   software (GPU compositing off + hardware accel off)  NO flash
+//   cpu-composite (GPU compositing off ONLY)             NO flash
+// Four configurations flash and every one of them has GPU compositing on; the two clean ones
+// are exactly the two with it off. `cpu-composite` is the half of `software` that stays
+// usable: WebGL and canvas keep the GPU, so the preview still ticks at 119fps.
+// macOS only — the flash has never been reported on Windows or Linux, and those platforms
+// should not pay for CPU compositing. Opt out with XGENIA_GPU_MODE=default.
+// REMOVE THIS DEFAULT when Electron is bumped: it is a workaround for Chromium 126 (mid-2024)
+// compositing onto macOS 26 on an M5, and the upgrade is the real fix.
+const gpuMode = process.env.XGENIA_GPU_MODE || (process.platform === 'darwin' ? 'cpu-composite' : '');
 if (gpuMode) {
-  console.log(`[Main Process] XGENIA_GPU_MODE=${gpuMode}`);
+  console.log(
+    `[Main Process] XGENIA_GPU_MODE=${gpuMode}${process.env.XGENIA_GPU_MODE ? '' : ' (macOS default)'}`
+  );
   if (gpuMode === 'raster') {
     app.commandLine.appendSwitch('disable-gpu-rasterization');
   } else if (gpuMode === 'angle-gl') {
@@ -169,11 +198,26 @@ if (gpuMode) {
       'disable-features',
       'CALayerTreeOptimization,DelegatedCompositing,RasterDelegatedCompositing'
     );
+  } else if (gpuMode === 'cpu-composite') {
+    // (2026-09-21) Splits `software` in half. Measured that evening, on this machine:
+    //   normal (ANGLE Metal)            — flashes
+    //   angle-gl (OpenGL, not Metal)    — flashes
+    //   mac-safe (no CALayer reuse, no delegated compositing) — flashes
+    //   software (GPU compositing OFF *and* hardware accel off) — NO flash
+    // Every flashing configuration has GPU compositing on; the only clean one has it off.
+    // But `software` flips two switches at once, and the second one (disableHardwareAccel)
+    // costs WebGL — swiftshader only, so the game preview cannot render, which makes it
+    // unusable as a shipped setting. This turns off ONLY the compositor: the window is
+    // composited by the CPU, while WebGL and canvas keep the GPU. If the flash stops here,
+    // this is the shippable fix and `software` never needs to be the answer.
+    app.commandLine.appendSwitch('disable-gpu-compositing');
   } else if (gpuMode === 'software') {
     app.commandLine.appendSwitch('disable-gpu-compositing');
     app.disableHardwareAcceleration();
-  } else {
-    console.warn(`[Main Process] Unknown XGENIA_GPU_MODE "${gpuMode}" — expected raster, angle-gl or software. Ignoring.`);
+  } else if (gpuMode !== 'default') {
+    console.warn(
+      `[Main Process] Unknown XGENIA_GPU_MODE "${gpuMode}" — expected raster, angle-gl, mac-safe, software or default. Ignoring.`
+    );
   }
 }
 
