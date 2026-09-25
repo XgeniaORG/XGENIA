@@ -700,7 +700,9 @@ export async function launch(opts: { target?: Target | 'auto' } = {}) {
     return fail(
       'timeout',
       `waited ${timeout}ms for the editor page on ${port}`,
-      chosen === 'dev' ? 'Check the dev log in the temp directory.' : 'Is XGENIA installed?'
+      chosen === 'dev'
+        ? 'Check the dev log in the temp directory.'
+        : 'Is XGENIA installed? If XGENIA was already open before this launch, it is running without its automation port (releases only open it when started by this server): quit XGENIA, then launch again.'
     );
   }
   if (outcome === 'login-screen') {

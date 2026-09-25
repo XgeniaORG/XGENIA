@@ -22,8 +22,10 @@ starting the server. Reproduced 2026-09-14: the plugin installs, the skill
 loads, and no tools appear. Publishing this package and changing the plugin's
 `.mcp.json` to `npx -y xgenia-mcp` is the fix.
 
-XGENIA opens a Chrome DevTools Protocol port on 9223 in every build, so nothing
-needs enabling.
+XGENIA opens a Chrome DevTools Protocol port on 9223 in dev builds. Release builds
+open it only when launched with `--xgenia-cdp` (or `XGENIA_ENABLE_CDP=1`), which this
+server passes when it starts the app. An XGENIA opened by hand has no port: quit it and
+let `xgenia_launch` start it.
 
 User-facing documentation for all of this lives at
 [docsapp.xgenia.com](https://docsapp.xgenia.com/nodes/ai-agents/claude-code).

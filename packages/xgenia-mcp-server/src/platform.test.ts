@@ -110,6 +110,16 @@ describe('appLaunchCandidates', () => {
     expect(c.cmd).toBe('open');
     expect(c.probe).toBe('/Applications/XGENIA.app');
   });
+
+  it('asks every release launch to open the CDP port', async () => {
+    const { appLaunchCandidates, CDP_FLAG } = await import('./platform.js');
+    for (const platform of ['darwin', 'win32', 'linux'] as NodeJS.Platform[]) {
+      for (const c of appLaunchCandidates(platform)) expect(c.args).toContain(CDP_FLAG);
+    }
+    const [mac] = appLaunchCandidates('darwin');
+    // `open -a` only forwards what follows --args to the app.
+    expect(mac.args.indexOf('--args')).toBe(mac.args.indexOf(CDP_FLAG) - 1);
+  });
 });
 
 describe('userDataDirs', () => {

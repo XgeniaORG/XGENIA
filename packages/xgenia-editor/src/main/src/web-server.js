@@ -582,7 +582,24 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
 
   function handleRequest(request, response) {
     var parsedUrl = URL.parse(request.url, true);
-    let requestPath = decodeURI(parsedUrl.pathname);
+    let requestPath;
+    try {
+      requestPath = decodeURI(parsedUrl.pathname);
+    } catch (e) {
+      response.writeHead(400);
+      response.end('Bad request');
+      return;
+    }
+
+    // Every route below builds a filesystem path by concatenating the URL path onto a base
+    // directory, and serveFile decodes it once more. The server also listens on the LAN, so a
+    // ".." segment (plain or percent-encoded, even twice) would read files outside the app and
+    // project. No legitimate request contains one.
+    if (hasTraversal(parsedUrl.pathname)) {
+      response.writeHead(403);
+      response.end('Forbidden');
+      return;
+    }
 
     // console.log('Web server request:', requestPath); // Commented out to avoid EPIPE error
 
@@ -1171,6 +1188,23 @@ function failResponse(response, err) {
   } else {
     response.destroy();
   }
+}
+
+function hasTraversal(rawPath) {
+  let p = String(rawPath || '');
+  // Decode until stable so %2e%2e and %252e%252e are both caught.
+  for (let i = 0; i < 4; i++) {
+    let next;
+    try {
+      next = decodeURIComponent(p);
+    } catch (e) {
+      return true;
+    }
+    if (next === p) break;
+    p = next;
+  }
+  if (p.includes('\0')) return true;
+  return p.split(/[\\/]/).some((segment) => segment === '..');
 }
 
 function serveFile(filePath, request, response) {

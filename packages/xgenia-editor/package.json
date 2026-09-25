@@ -87,7 +87,13 @@
       "src/editor/src/styles/custom-properties/app-colors.css",
       "src/editor/src/styles/custom-properties/colors.css",
       "!src/frames/viewer-frame/src",
-      "!src/shared"
+      "!src/shared",
+      "!**/*.map",
+      "!dist/maps",
+      "!dist/mac*",
+      "!dist/win*",
+      "!dist/linux*",
+      "!dist/*.{dmg,zip,exe,AppImage,deb,rpm,blockmap,yml,yaml}"
     ]
   },
   "dependencies": {
