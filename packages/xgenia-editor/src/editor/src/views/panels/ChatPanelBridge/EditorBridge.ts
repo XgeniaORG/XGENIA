@@ -15,7 +15,7 @@
 // still called below, which is why tsc reported them as undefined names.
 import ThumbnailCache from '@xgenia-utils/thumbnailcache';
 import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
-import { isBloatPort, isTooLargeToSerialize, unwrapValueUnit, portUnitInfo } from './serialize-param-guard';
+import { serializeNodeParameters } from './serialize-param-guard';
 import { mergeAssetMeta, loadAssetMeta, migrateAssetMeta, flushAssetMeta, type AssetMetaEntry } from '../AssetPanel/assetMeta';
 import { reconcileGraphAssetRefs } from '../AssetPanel/assetGraphRefs';
 import { AiActivity } from '@xgenia-models/aiactivity';
@@ -4183,128 +4183,14 @@ ${autoReturnCode}
         return serialized;
     }
 
+    // Stored-parameter union + port walk; see serializeNodeParameters in
+    // serialize-param-guard.ts (debug export 1790277377788: Variable2 `name`
+    // dropped when the node's port list was incomplete).
     private serializeParameters(node: any): Record<string, any> {
-        const params: Record<string, any> = {};
-        try {
-            if (typeof node.getParameters === 'function') {
-                const paramList = node.getParameters();
-                for (const p of paramList) {
-                    params[p.name] = p.value;
-                }
-            }
-        } catch { }
-
-        // FIX (2026-03-10): JavaScript function nodes store functionScript, scriptInputs,
-        // and scriptOutputs as internal parameters NOT enumerated by getParameters().
-        // Without this, the bridge copy has empty parameters and the iframe side falls back
-        // to a lossy scriptInputs/scriptOutputs-only reconstruction.
-        const nodeType = (node.typename || node.type?.name || '').toLowerCase();
-        if (nodeType === 'javascriptfunction' || nodeType === 'javascript2' || nodeType === 'xgenia.javascript') {
-            const jsParamKeys = ['functionScript', 'scriptInputs', 'scriptOutputs'];
-            for (const key of jsParamKeys) {
-                if (params[key] === undefined || params[key] === null) {
-                    try {
-                        const val = typeof node.getParameter === 'function' ? node.getParameter(key) : undefined;
-                        if (val !== undefined && val !== null) {
-                            params[key] = val;
-                        }
-                    } catch { /* skip inaccessible params */ }
-                }
-            }
-        }
-
-        // FIX (2026-05-25): Pixi pro nodes (pixi.MatterPhysics, pixi.Camera2D,
-        // pixi.CollisionDetector, pixi.Graphics, pixi.Sprite, etc.) store
-        // input port values via setter -> this._internal.X. getParameters()
-        // typically does NOT enumerate those — only params explicitly tracked
-        // in the model's parameter list show up. Result: AI calls
-        // set_node_parameters({ enabled: true }) which succeeds (setter runs,
-        // _internal.enabled = true), but the bridge then serializes
-        // parameters: {} and tools like verify_logic_correctness see the node
-        // as if `enabled` were never set. Trace 2026-05-25: CHECK 23 falsely
-        // reported `visual_render_blank` on 3 MatterPhysics nodes whose
-        // enabled was actually true at runtime.
-        //
-        // Fix: for any node, walk its declared input ports and explicitly
-        // call getParameter(portName) for each one not already in params.
-        // This catches every port the node type declares, regardless of
-        // whether getParameters() exposes it.
-        //
-        // FIX (2026-05-25 — same trace, second issue): the editor model wraps
-        // some dimension params (width/height/fontSize/padding/margin) as
-        // {value, unit} objects for its property-editor UI. When we surface
-        // the wrap to the AI side via getParameter, tools like
-        // verify_logic_correctness's malformed_dimension_param check trip on
-        // it as if the AI passed bad input. Flatten via unwrapValueUnit
-        // (serialize-param-guard.ts) — which, since traces 1784010250453 /
-        // 1784051747260 (the "width: 100" phantom), preserves responsive units
-        // (%/vw/vh/em/rem) as CSS strings instead of collapsing everything to
-        // a bare number. Exotic units (deg, vmin, …) intentionally stay bare
-        // numbers — see the export's doc comment and the shared regression
-        // lock (unwrap-value-unit.test.ts) that pins both this and the
-        // xgenia-ai twin preserveDimensionUnit to the same unit set.
-        // 2026-06-22: serialize every declared input port, skipping only the known
-        // bloat pseudo-port (see isBloatPort) + a size backstop. The earlier
-        // inputFormatHints allowlist (2026-05-25) over-corrected the pixi
-        // functionScript bloat by also dropping PRIMARY params (Text.text,
-        // button.label) — trace 1782150899325.
-        try {
-            let rawPorts: any[] = [];
-            if (typeof node.getPorts === 'function') {
-                rawPorts = node.getPorts() || [];
-            }
-            if (!rawPorts.length) {
-                rawPorts = node.ports || [];
-            }
-            if (!rawPorts.length) {
-                const typeName2 = node.type?.name || node.typename;
-                if (typeName2) {
-                    const type = (NodeLibrary.instance as any)?.getNodeTypeWithName?.(typeName2);
-                    if (type?.ports && Array.isArray(type.ports)) {
-                        rawPorts = type.ports;
-                    }
-                }
-            }
-            const typeName3 = node.type?.name || node.typename || '';
-            const isJSFunction = (typeName3 || '').toLowerCase() === 'javascriptfunction'
-                || (typeName3 || '').toLowerCase() === 'javascript2';
-            for (const p of rawPorts) {
-                if (!p?.name) continue;
-                // Skip output ports — those are computed, not stored.
-                if (p.plug === 'output') continue;
-                // Skip signal ports — they're triggers, not values.
-                const portTypeName = (p.type?.name || p.type || '').toString().toLowerCase();
-                if (portTypeName === 'signal') continue;
-                if (params[p.name] !== undefined && params[p.name] !== null) continue;
-                // GATE: serialize EVERY declared input port except the known bloat
-                // pseudo-port (functionScript on pixi.* returns the whole ~98KB
-                // node-type def). The previous allowlist (compiled-docs
-                // inputFormatHints) was partial and dropped PRIMARY params like
-                // Text.text and button.label — so inspect_node, verify_logic_correctness
-                // and the debug export saw empty content and a button with params:[]
-                // (trace 1782150899325, the phantom "empty text"). A size backstop
-                // catches any other pathologically-large value.
-                if (isBloatPort(p.name, isJSFunction)) continue;
-                try {
-                    const v = typeof node.getParameter === 'function' ? node.getParameter(p.name) : undefined;
-                    if (v !== undefined && v !== null && !isTooLargeToSerialize(v)) {
-                        params[p.name] = unwrapValueUnit(v, portTypeName, portUnitInfo(p));
-                    }
-                } catch { /* skip ports that error on read */ }
-            }
-            // Also unwrap any pre-existing params (from getParameters()) that
-            // arrived in {value,unit} form for number ports.
-            for (const p of rawPorts) {
-                if (!p?.name || p.plug === 'output') continue;
-                const portTypeName = (p.type?.name || p.type || '').toString().toLowerCase();
-                if (portTypeName === 'signal') continue;
-                if (params[p.name] !== undefined && params[p.name] !== null) {
-                    params[p.name] = unwrapValueUnit(params[p.name], portTypeName, portUnitInfo(p));
-                }
-            }
-        } catch { /* defensive: never let serializer throw */ }
-
-        return params;
+        return serializeNodeParameters(node, (typeName) => {
+            const type = (NodeLibrary.instance as any)?.getNodeTypeWithName?.(typeName);
+            return type?.ports && Array.isArray(type.ports) ? type.ports : undefined;
+        });
     }
 
     private serializeComponent(comp: any): any {
