@@ -381,9 +381,9 @@
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid var(--glass-ctrl-border);
-  background: var(--glass-pop-bg);
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
+  // Solid, not glass: `.Root` is a backdrop root (see `.Menu`), so a nested blur here has
+  // nothing to blur and the card's name and tagline read straight through a 78% fill.
+  background: var(--theme-color-bg-2);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
   font-size: 11.5px;
 
@@ -480,6 +480,24 @@
 
 .List:hover .Actions {
   opacity: 1;
+}
+
+// A row is only ~63px tall, so the tile's two-line confirm (text on its own line, buttons
+// beneath) grew past the top of the row and over the section header. On its side it is one
+// line, centred in the row: text takes the slack, buttons sit at the right edge.
+.List .Confirm {
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+  flex-wrap: nowrap;
+}
+
+.List .ConfirmText {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 // Motion is a nicety; legibility is not. Everything above is decoration on a page that reads

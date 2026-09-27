@@ -120,6 +120,10 @@ export function GameCard({
   // Holds the layer while open: closes any other card's menu, and closes this one on the next
   // click, right-click, Escape or scroll anywhere on the page. See useMenuLayer.ts.
   const menuRef = useMenuLayer<HTMLDivElement>(menuOpen, closeMenu);
+  // The remove confirm is a popup too, and holds the same layer: a click on empty floor or on
+  // another card, Escape, a scroll, or opening any other lobby menu all mean "keep".
+  const closeConfirm = useCallback(() => setConfirming(false), []);
+  const confirmRef = useMenuLayer<HTMLDivElement>(confirming, closeConfirm);
 
   // The menu is portalled to <body> and placed here rather than laid out inside the card, and
   // both halves of that are load-bearing:
@@ -384,7 +388,7 @@ export function GameCard({
         )}
 
       {confirming && (
-        <div className={css.Confirm} onClick={stop}>
+        <div className={css.Confirm} ref={confirmRef} onClick={stop}>
           {/* The wording is the whole reason this is a confirm and not a dialog: `removeProject`
               drops the entry and never touches the folder, and the card should say so. */}
           <span className={css.ConfirmText}>
