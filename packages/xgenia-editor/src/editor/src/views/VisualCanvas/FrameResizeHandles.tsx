@@ -5,7 +5,7 @@ import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 
 import { screenSizesWithDividers } from '../EditorTopbar/ScreenSizes';
 import css from './FrameResizeHandles.module.scss';
-import { snapSize } from './frameSnap';
+import { dragSize, type DragAxis } from './frameSnap';
 
 export interface FrameResizeHandlesProps {
   /** Device pixels of the current viewport; null = "Fit viewport" (handles hidden). */
@@ -25,7 +25,9 @@ export interface FrameResizeHandlesProps {
   rect: { left: number; top: number; width: number; height: number } | null;
 }
 
-type Axis = 'x' | 'y' | 'xy';
+type Axis = DragAxis;
+
+const CURSORS: Record<Axis, string> = { x: 'ew-resize', y: 'ns-resize', xy: 'nwse-resize' };
 
 const PRESETS = screenSizesWithDividers.filter((s) => typeof s !== 'string') as {
   name: string;
@@ -58,6 +60,8 @@ export function FrameResizeHandles({ width, height, scale, deviceName, rect }: F
     /** Captured once at pointerdown: the mapping must not change mid-gesture. */
     scale: number;
     pointerId: number;
+    /** The size at pointerdown, restored if the drag is cancelled with Escape. */
+    origin: { w: number; h: number; name: string | null };
     last: { w: number; h: number; name: string | null };
   } | null>(null);
 
@@ -108,11 +112,7 @@ export function FrameResizeHandles({ width, height, scale, deviceName, rect }: F
         endGesture();
         return;
       }
-      const dx = (e.clientX - g.startX) / g.scale;
-      const dy = (e.clientY - g.startY) / g.scale;
-      const w = g.axis === 'y' ? g.w0 : g.w0 + dx;
-      const h = g.axis === 'x' ? g.h0 : g.h0 + dy;
-      const r = snapSize(w, h, PRESETS, 24);
+      const r = dragSize(g, e.clientX - g.startX, e.clientY - g.startY, PRESETS, 24);
       const changed = r.width !== g.last.w || r.height !== g.last.h;
       g.last = { w: r.width, h: r.height, name: r.deviceName };
       showChip(r.width, r.height, r.deviceName, true);
@@ -130,22 +130,46 @@ export function FrameResizeHandles({ width, height, scale, deviceName, rect }: F
       endGesture();
     };
 
+    // Escape abandons the drag and puts the frame back to the size it started at.
+    const onKey = (e: KeyboardEvent) => {
+      const g = gesture.current;
+      if (!g || e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      g.last = g.origin;
+      emitSize(g.origin);
+      endGesture();
+    };
+
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     // pointercancel fires when the browser takes over the gesture (a touch turning
     // into a scroll, a window losing focus mid-drag). Without it the frame keeps
     // resizing on button-less pointer movement.
     window.addEventListener('pointercancel', onUp);
+    // Capture phase, so an Escape meant for the drag does not also close a panel.
+    window.addEventListener('keydown', onKey, true);
     return () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
+      window.removeEventListener('keydown', onKey, true);
     };
     // Deliberately NOT dependent on the gesture data or on `scale`: the listeners read
     // both through the ref, so they attach once per drag and stay attached.
   }, [dragAxis, showChip]);
 
-  if (width === null || height === null || !rect || rect.width <= 0) return null;
+  const shield = dragAxis && (
+    // Transparent full-window cover while dragging, so the iframe never gets the
+    // pointer. Carries the drag cursor, otherwise it flickers to the preview's.
+    <div className={css.Shield} style={{ cursor: CURSORS[dragAxis] }} onPointerDown={(e) => e.preventDefault()} />
+  );
+
+  // A drag in flight keeps its shield even if the frame loses its box mid-gesture (the
+  // preview being recreated): the handle holding pointer capture unmounts with the
+  // frame, and without the shield the release could land on the new iframe and the
+  // drag would never end.
+  if (width === null || height === null || !rect || rect.width <= 0) return shield || null;
 
   const start = (axis: Axis) => (e: React.PointerEvent) => {
     e.preventDefault();
@@ -160,8 +184,20 @@ export function FrameResizeHandles({ width, height, scale, deviceName, rect }: F
       // the delta that was already accumulated.
       scale: Math.max(scale, 0.05),
       pointerId: e.pointerId,
+      origin: { w: width, h: height, name: deviceName ?? null },
       last: { w: width, h: height, name: deviceName ?? null }
     };
+    // Dragging inward moves the cursor over the preview <iframe>, and an iframe's
+    // document swallows pointer events: the window listeners below go silent the
+    // moment the cursor crosses the frame edge, so the frame could only ever grow.
+    // Capturing the pointer on the handle keeps every move and the release routed to
+    // our document; the shield rendered during the drag covers the case where capture
+    // is refused or lost.
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Pointer already released: nothing to capture, the shield still applies.
+    }
     setDragAxis(axis);
     showChip(width, height, deviceName ?? null, true);
   };
@@ -173,6 +209,7 @@ export function FrameResizeHandles({ width, height, scale, deviceName, rect }: F
 
   return (
     <>
+      {shield}
       <div
         style={{ position: 'absolute', ...right }}
         className={classNames(css.Handle, css.Right, dragAxis === 'x' && css.isActive)}

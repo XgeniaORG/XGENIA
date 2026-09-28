@@ -36,6 +36,17 @@
   cursor: nwse-resize;
 }
 
+// Covers the whole window during a drag. `fixed` so it reaches past the container
+// (the cursor can leave the panel entirely); z-index below the handles so the active
+// handle keeps its hover colour.
+.Shield {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  background: transparent;
+  touch-action: none;
+}
+
 .Chip {
   position: absolute;
   z-index: 3;
