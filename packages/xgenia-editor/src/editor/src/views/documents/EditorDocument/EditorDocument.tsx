@@ -20,6 +20,7 @@ import { MenuDialogWidth } from '@xgenia-core-ui/components/popups/MenuDialog';
 import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
 import { Frame } from '../../common/Frame';
 import { PreviewSurface } from '../../VisualCanvas/PreviewSurface';
+import { clampSize } from '../../VisualCanvas/frameSnap';
 import { EditorTopbar } from '../../EditorTopbar';
 import { HelpCenter } from '../../HelpCenter';
 import { NodeGraphEditor } from '../../nodegrapheditor';
@@ -587,7 +588,16 @@ function EditorDocument() {
     }
 
     if (settings.viewportSize) {
-      setViewportSize(settings.viewportSize);
+      // A size saved by an older build can sit outside the drag bounds, and the first
+      // handle drag would then jump it to the bound. Null axes mean "Fit viewport".
+      const saved = settings.viewportSize;
+      if (typeof saved.width === 'number' && typeof saved.height === 'number') {
+        const { width, height } = clampSize(saved.width, saved.height);
+        const changed = width !== saved.width || height !== saved.height;
+        setViewportSize({ ...saved, width, height, deviceName: changed ? 'Custom' : saved.deviceName });
+      } else {
+        setViewportSize(saved);
+      }
     }
 
     if (settings.frameDividerSize) {
