@@ -38,6 +38,7 @@ const PAYTABLE = { 1: { 3: 5, 4: 10, 5: 50 }, 2: { 3: 4 }, 3: { 3: 3 }, 4: { 3: 
 
 /** Side-panel parameters per node type; also the arguments the direct core call is derived from. */
 const PARAMS: Record<string, AnyRec> = {
+  'Cascade The Reels': { reels: REELS, winningLinesDetails: [{ positions: [[0, 0], [1, 0], [0, 1], { row: 2, col: 4 }], payout: 5 }], symbolWeights: [5, 4, 3, 2, 1, 1, 2], refillFrom: 'top', Seeds: SEEDS },
   'Cluster Pays': { reels: REELS, minClusterSize: 3, wildSymbol: 0, paytable: { 1: { 3: 2, 5: 10 }, 2: { 3: 1 } }, betAmount: 100, adjacency: 'orthogonal' },
   'Progressive Meter': { increment: 40, target: 100, startValue: 0, resetOnFill: true, carryOverflow: true, addOnDo: true },
   'Multiplier Ladder': { ladder: [1, 2, 3, 5], startIndex: 0, stepBy: 1, stepOnDo: true },

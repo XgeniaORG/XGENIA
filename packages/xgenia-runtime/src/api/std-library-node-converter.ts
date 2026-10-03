@@ -628,36 +628,42 @@ const ${functionName} = (inputs: Record<string, any>) => {
    * Convert Expression node
    */
   private convertExpressionNode(node: Node, functionName: string): StdLibraryNodeResult {
+    // (2026-10-02) This used to build the evaluator at RUN time with `new Function(...)` — which
+    // the XRGS sandbox refuses, so every maths with an Expression node was rejected whole (GuardTest,
+    // GremlinGold: "Function() … compiles in global scope") — and wrote `random=Math.random`, also
+    // refused. The expression is a fixed node setting, so it is compiled HERE into plain code: each
+    // name it reads becomes a const from the node's inputs, and `random` is the round's own RNG.
+    const exprSource = String((node.parameters as any)?.expression ?? '0').trim() || '0';
+    const PREAMBLE = ['min', 'max', 'cos', 'sin', 'tan', 'sqrt', 'pi', 'round', 'floor', 'ceil', 'abs', 'random'];
+    const RESERVED = new Set([
+      ...PREAMBLE, 'Math', 'Number', 'String', 'Boolean', 'Array', 'Object', 'JSON', 'isNaN', 'isFinite', 'parseInt', 'parseFloat',
+      'true', 'false', 'null', 'undefined', 'NaN', 'Infinity', 'typeof', 'instanceof', 'in', 'new', 'void', 'this',
+      'if', 'else', 'return', 'var', 'let', 'const', 'function', 'inputs', 'scope', 'result', 'error',
+    ]);
+    // Names the expression reads: identifiers not after a `.`, outside string literals.
+    const code = exprSource.replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '""');
+    const names: string[] = [];
+    for (const m of code.matchAll(/(^|[^.\w$])([A-Za-z_$][\w$]*)/g)) {
+      const id = m[2];
+      if (!RESERVED.has(id) && !names.includes(id)) names.push(id);
+    }
+    const decls = names.map((n) => `const ${n} = scope[${JSON.stringify(n)}];`).join(' ');
     return {
       functionName,
       functionDefinition: `
-const ${functionName} = (inputs: Record<string, any>) => {
-  const exprSource = String(inputs.expression || '0');
-
-  // Build scope from all inputs except reserved keys
-  const scope: Record<string, any> = {};
-  Object.keys(inputs).forEach((key) => {
-    if (key === 'expression' || key === 'requestBody') return;
-    scope[key] = inputs[key];
-  });
-
-  const argNames = Object.keys(scope);
-  const argValues = argNames.map((k) => scope[k]);
-
-  let result: any = 0;
+const ${functionName} = (inputs) => {
+  const scope = inputs || {};
+  const min = Math.min, max = Math.max, cos = Math.cos, sin = Math.sin, tan = Math.tan, sqrt = Math.sqrt, pi = Math.PI,
+    round = Math.round, floor = Math.floor, ceil = Math.ceil, abs = Math.abs, random = rgsRandom;
+  let result = 0;
   let error = false;
-
   try {
-    // Math preamble similar to local node
-    const preamble = \`const min=Math.min,max=Math.max,cos=Math.cos,sin=Math.sin,tan=Math.tan,sqrt=Math.sqrt,pi=Math.PI,round=Math.round,floor=Math.floor,ceil=Math.ceil,abs=Math.abs,random=Math.random;\`;
-    const body = \`\${preamble} return ( \${exprSource} );\`;
-    const fn = new Function(...argNames, body) as (...args: any[]) => any;
-    result = fn(...argValues);
-  } catch (e: any) {
+    ${decls}
+    result = (${exprSource});
+  } catch (e) {
     result = 0;
     error = true;
   }
-
   const isTrue = !!result;
   const isFalse = !isTrue;
   return { result, isTrue, isFalse, error };

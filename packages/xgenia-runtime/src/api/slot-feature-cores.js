@@ -1070,6 +1070,84 @@ function defineSlotFeatureCores() {
     return { rows: rows, flatRows: flat, symbolCount: rows.length, betPerLine: perLine };
   }
 
+  // ── Cascade The Reels — tumble REMOVER + seeded REFILL ─────────────────────────
+  // (2026-10-02) The native node had no server implementation, so every maths using it was
+  // refused by the RGS (COol's round player). This is that node's doCascade for the RGS script.
+  // The editor node (private xgenia-pro-nodes cascade-the-reels.js) keeps its own copy so it runs on
+  // older runtimes; xgenia-runtime test/slot-features/cascade-the-reels.test.js holds the two equal
+  // (recorded goldens + 500 random boards). Bit-exact with the node: its
+  // own Park-Miller seeding (`seed % MOD`, no flooring — normaliseSeed floors), [row, col] or
+  // {row, col} positions, symbolWeights replicated by ceil(w / min w), else the grid's symbols in
+  // column-major first-seen order, and refillFrom top (fill above the survivors) or bottom.
+  function cascadeTheReels(args) {
+    var a = args || {};
+    var NODE = 'Cascade The Reels';
+    var inputReels = Array.isArray(a.reels) ? a.reels : [];
+    if (inputReels.length === 0) fail(NODE, 'Reels must be a non-empty array of columns');
+    var columnSize = inputReels.length;
+    var rowSize = Array.isArray(inputReels[0]) ? inputReels[0].length : 0;
+    if (rowSize === 0 || !inputReels.every(function (col) { return Array.isArray(col) && col.length === rowSize; })) {
+      fail(NODE, 'All columns in reels must be arrays of equal length');
+    }
+    var clear = {};
+    var cleared = 0;
+    var details = Array.isArray(a.winningLinesDetails) ? a.winningLinesDetails : [];
+    for (var i = 0; i < details.length; i++) {
+      var item = details[i];
+      var positions = item && Array.isArray(item.positions) ? item.positions : [];
+      for (var j = 0; j < positions.length; j++) {
+        var pos = positions[j];
+        var row, col;
+        if (Array.isArray(pos) && pos.length >= 2) { row = Number(pos[0]); col = Number(pos[1]); }
+        else if (pos && typeof pos === 'object') { row = Number(pos.row); col = Number(pos.col); }
+        else { row = NaN; col = NaN; }
+        if (Number.isInteger(row) && Number.isInteger(col) && row >= 0 && col >= 0 && col < columnSize && row < rowSize) {
+          var key = col + ':' + row;
+          if (!clear[key]) { clear[key] = true; cleared++; }
+        }
+      }
+    }
+    var weights = Array.isArray(a.symbolWeights) ? a.symbolWeights : [];
+    var base = [];
+    if (weights.length > 0 && weights.every(function (w) { return typeof w === 'number' && w > 0; })) {
+      var minW = Math.min.apply(null, weights);
+      for (var s = 1; s <= weights.length; s++) {
+        var reps = Math.ceil(weights[s - 1] / minW);
+        for (var k = 0; k < reps; k++) base.push(s);
+      }
+    } else {
+      var seen = {};
+      for (var c0 = 0; c0 < inputReels.length; c0++) {
+        for (var r0 = 0; r0 < inputReels[c0].length; r0++) {
+          var v = inputReels[c0][r0];
+          if (typeof v === 'number' && v > 0 && !seen[v]) { seen[v] = true; base.push(v); }
+        }
+      }
+      if (base.length === 0) fail(NODE, 'Cannot infer symbols for refill');
+    }
+    var seeds = a.seeds;
+    if (!Array.isArray(seeds) || seeds.length === 0) {
+      fail(NODE, 'Seeds is required: wire ISAAC Random Number Array Generator.array \u2192 Seeds. Unseeded cascade refills are not provably fair and are refused.');
+    }
+    var st = seeds[0] % LCG_MOD;
+    if (st <= 0) st += LCG_MOD - 1;
+    function pickSymbol() {
+      st = (st * LCG_MUL) % LCG_MOD;
+      return base[Math.floor(((st - 1) / (LCG_MOD - 1)) * base.length)];
+    }
+    var out = [];
+    for (var c = 0; c < columnSize; c++) {
+      var kept = [];
+      for (var r = 0; r < rowSize; r++) {
+        if (!clear[c + ':' + r]) kept.push(inputReels[c][r]);
+      }
+      var fill = [];
+      for (var e = 0; e < rowSize - kept.length; e++) fill.push(pickSymbol());
+      out.push(a.refillFrom === 'bottom' ? kept.concat(fill) : fill.concat(kept));
+    }
+    return { reels: out, clearedPositions: cleared, rowSize: rowSize, columnSize: columnSize, baseReelLength: base.length };
+  }
+
   return {
     // helpers (also useful to the client nodes)
     normaliseSeed: normaliseSeed, requireSeeds: requireSeeds, lcg: lcg, gridDims: gridDims, cloneGrid: cloneGrid,
@@ -1095,7 +1173,8 @@ function defineSlotFeatureCores() {
     pickBonus: pickBonus,
     modifyPaytable: modifyPaytable,
     chapterBranch: chapterBranch,
-    paytableRows: paytableRows
+    paytableRows: paytableRows,
+    cascadeTheReels: cascadeTheReels
   };
 }
 
