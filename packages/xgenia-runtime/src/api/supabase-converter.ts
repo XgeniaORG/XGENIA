@@ -684,6 +684,14 @@ export class CloudFunctionConverter {
   // Nodes no converter handles, collected per generateRgsScript run. See
   // getUnsupportedNodes() for why this has to be reported rather than skipped.
   private _unsupportedNodes: UnsupportedNode[] = [];
+  /**
+   * Wired loops among the compiled nodes (2026-10-02, COol): each entry is one strongly connected
+   * set of node ids, in run order. They compile to an event-driven runner instead of one straight
+   * pass — see generateRgsFunctionInvocations. Filled by sortNodesByExecutionOrder.
+   */
+  private _loopBlocks: string[][] = [];
+  /** JavaScriptFunction nodes whose script uses `this` — invoked with a per-node state object. */
+  private _jsUsesThis: Set<string> = new Set();
   // Ids of the nodes in this compile that carry state through
   // `ctx.state.__nodes` (STATE_CHANNEL_NODE_TYPES). Null on the cloud-function
   // path, where a request is a one-shot with nothing to persist between calls.
@@ -1252,6 +1260,8 @@ ${originalComponentStructure}
     script: string;
     configData: Record<string, any>;
     unsupportedNodes: UnsupportedNode[];
+    /** Wired loops compiled to an event-driven runner (0 = a straight-through maths). */
+    loopsCompiled: number;
   } {
     // Stage-2 cross-spin persistence: variables written via Set Variable
     // compile to a ctx.state-backed `_vars` store (see collectStatefulVariables).
@@ -1263,6 +1273,8 @@ ${originalComponentStructure}
     // has since been deleted.
     this._unsupportedNodes = [];
     this.collectUnsupportedNodes();
+    this._jsUsesThis = new Set();
+    this._loopBlocks = [];
 
     // Discover ALL node types — matching generateSupabaseFunction()
     const jsFunctionNodes = this.findAllNodesByType('JavaScriptFunction');
@@ -1352,7 +1364,22 @@ ${originalComponentStructure}
           'var _nodeState = (ctx.state && typeof ctx.state === "object" && ctx.state.__nodes && typeof ctx.state.__nodes === "object") ? Object.assign({}, ctx.state.__nodes) : {};',
         ].join('\n');
 
-    const script = [
+    // Per-node `this` for scripts that keep state on it (generateJavaScriptFunctionDefinition) —
+    // fresh every round, shared by every run of that node within the round (a loop's passes).
+    const loopPrelude = this._loopBlocks.length === 0
+      ? ''
+      : [
+          '// --- Wired loops: an output a run does not write keeps its last value, as in the editor ---',
+          'function __keepOutputs(prev, next) { var out = {}, k; for (k in prev) out[k] = prev[k]; if (next) { for (k in next) { if (next[k] !== undefined) out[k] = next[k]; } } return out; }',
+        ].join('\n');
+    const jsThisPrelude = this._jsUsesThis.size === 0
+      ? ''
+      : [
+          '// --- Per-node state for scripts that use `this` (one object per node, per round) ---',
+          'var __jsThis = {};',
+          'function __jsThisFor(id) { return __jsThis[id] || (__jsThis[id] = {}); }',
+        ].join('\n');
+    let script = [
       '// XGENIA RGS Maths Script - Auto-generated from editor graph',
       '// Generated: ' + new Date().toISOString(),
       '// Component: ' + this.component.name,
@@ -1362,6 +1389,8 @@ ${originalComponentStructure}
       '',
       statefulPrelude,
       nodeStatePrelude,
+      jsThisPrelude,
+      loopPrelude,
       '',
       '// --- Node invocations (wired via graph connections) ---',
       functionInvocations,
@@ -1390,6 +1419,9 @@ ${originalComponentStructure}
       '  else if (fr && fr.spinResults && fr.spinResults.totalPayout != null) w = fr.spinResults.totalPayout;',
       '  else if (fr && fr.totalWinnings != null) w = fr.totalWinnings;',
       '  else if (fr && fr.spinWinnings != null) w = fr.spinWinnings;',
+      // (2026-10-02, Olympus) A maths whose round win leaves on a Component Outputs port named
+      // FinalWin / TotalWin / RoundWin scored every round 0 here: 0% RTP from a game that pays.
+      '  else { var _wk = Object.keys(d).filter(function (k) { return /^(final|total|round)_?win(nings|amount)?$/i.test(k) && d[k] != null; })[0]; if (_wk) w = d[_wk]; }',
       '  var n = Number(w);',
       '  return isFinite(n) ? n : 0;',
       '})(_dataOut);',
@@ -1404,10 +1436,29 @@ ${originalComponentStructure}
       '};',
     ].join('\n');
 
+    // (2026-10-02) `globalThis` in a maths script: the XRGS sandbox refuses the whole script for
+    // the word. Two uses were found — COol's bonus popup handshake, and Olympus keeping its
+    // free-spins state (fsActive / fsLeft / fsMeter) on it between spins, which the editor's global
+    // does for a whole session. It becomes a plain object carried round to round through
+    // ctx.state.__global, like `_vars`: the free spins continue exactly as in the editor, and
+    // nothing reaches the host. A round-local object would have silently dropped them.
+    const usesGlobal = /\bglobalThis\b/.test(script);
+    if (usesGlobal) {
+      script = script
+        .replace(/\bglobalThis\b/g, '__sessionGlobal')
+        .replace(
+          '// --- Node function definitions ---',
+          '// --- Session global (the script\'s globalThis), hydrated from ctx.state.__global ---\n' +
+            'var __sessionGlobal = (ctx.state && typeof ctx.state === "object" && ctx.state.__global && typeof ctx.state.__global === "object") ? Object.assign({}, ctx.state.__global) : {};\n\n' +
+            '// --- Node function definitions ---'
+        )
+        .replace("  state: { ...ctx.state, round: ctx.round", "  state: { ...ctx.state, round: ctx.round, __global: __sessionGlobal");
+    }
+
     // Sanitize the script to be sandbox-compatible
     const sanitizedScript = this.sanitizeForSandbox(script);
 
-    return { script: sanitizedScript, configData, unsupportedNodes: this._unsupportedNodes };
+    return { script: sanitizedScript, configData, unsupportedNodes: this._unsupportedNodes, loopsCompiled: this._loopBlocks.length };
   }
 
   /**
@@ -1519,7 +1570,13 @@ ${originalComponentStructure}
         .join(' || ');
     };
 
-    nodes.forEach((node) => {
+    // Per loop-node incoming edges, for the loop runner: which input, from which compiled node,
+    // read through which expression (the same one the call uses).
+    const incomingFor = new Map<string, Array<{ conn: Connection; inputName: string; sourceValue: string; fromId: string }>>();
+    // Inside a loop a node runs many times; like the editor, an output it does not write on a run
+    // keeps its last value (the pass loop's Grid on a refill run). Set while emitting loop nodes.
+    let emittingLoopNode = false;
+    const emitNode = (node: Node) => {
       const functionName = this.getFunctionName(node);
       const inputConnections = this.connections.filter((c) => c.toId === node.id);
       const inputMappings = new Map<string, string>();
@@ -1670,6 +1727,8 @@ ${originalComponentStructure}
         }
 
         inputMappings.set(inputName, sourceValue);
+        if (!incomingFor.has(node.id)) incomingFor.set(node.id, []);
+        incomingFor.get(node.id)!.push({ conn, inputName, sourceValue, fromId: _resolved.fromId });
       });
 
       // Stage-2: a stateful Set Variable node compiles to a signal-gated write
@@ -1754,14 +1813,20 @@ ${originalComponentStructure}
       // Un-triggered nodes yield {} so downstream reads are undefined and their
       // response fields are dropped by the trigger-gated response mapping below.
       // Wrap the call in try/catch so any thrown error names the node.
+      // A script that keeps state on `this` gets its own object (generateJavaScriptFunctionDefinition).
+      const rawCallee = this._jsUsesThis.has(node.id)
+        ? `${functionName}.call(__jsThisFor(${JSON.stringify(node.id)}), `
+        : `${functionName}(`;
+      const callee = emittingLoopNode ? `__keepOutputs(${outputVar}, ${rawCallee}` : rawCallee;
+      const callClose = emittingLoopNode ? '))' : ')';
       invocationCode += `let ${outputVar} = {};\n    `;
       if (gate === null) {
-        invocationCode += `try { ${outputVar} = ${functionName}({ ${inputObject} }); }\n    `;
+        invocationCode += `try { ${outputVar} = ${callee}{ ${inputObject} }${callClose}; }\n    `;
         invocationCode += `catch(_e) { throw new Error("[${nodeLabel}] " + _e.message); }\n    `;
       } else if (gate === 'false') {
         invocationCode += `/* [${nodeLabel}] not invoked: no request trigger reaches its Do */\n    `;
       } else {
-        invocationCode += `if (${gate}) {\n      try { ${outputVar} = ${functionName}({ ${inputObject} }); }\n      catch(_e) { throw new Error("[${nodeLabel}] " + _e.message); }\n    }\n    `;
+        invocationCode += `if (${gate}) {\n      try { ${outputVar} = ${callee}{ ${inputObject} }${callClose}; }\n      catch(_e) { throw new Error("[${nodeLabel}] " + _e.message); }\n    }\n    `;
       }
 
       // Keep what a state-carrying node returned, for the next round.
@@ -1777,6 +1842,34 @@ ${originalComponentStructure}
 
       outputVariableMap.set(node.id, outputVar);
       lastResultVar = outputVar;
+    };
+
+    const loopOf = new Map<string, number>();
+    this._loopBlocks.forEach((b, i) => b.forEach((id) => loopOf.set(id, i)));
+    const collected = new Map<number, Map<string, string>>();
+    nodes.forEach((node) => {
+      const bi = loopOf.get(node.id);
+      if (bi === undefined) { emitNode(node); return; }
+      if (!collected.has(bi)) {
+        // Every node of the loop is a source for the others' back edges: name their results first,
+        // so a back edge reads `<node>Result.<port>` instead of a request-payload key.
+        for (const id of this._loopBlocks[bi]) {
+          const n = this.nodes.get(id);
+          if (n && !this.isStatefulSetVariable(n)) outputVariableMap.set(id, `${this.getFunctionName(n)}Result`);
+        }
+        collected.set(bi, new Map());
+      }
+      const before = invocationCode.length;
+      emittingLoopNode = true;
+      try { emitNode(node); } finally { emittingLoopNode = false; }
+      collected.get(bi)!.set(node.id, invocationCode.slice(before));
+      invocationCode = invocationCode.slice(0, before);
+      if (collected.get(bi)!.size === this._loopBlocks[bi].length) {
+        invocationCode += this.loopRunner(bi, collected.get(bi)!, incomingFor);
+        const last = this._loopBlocks[bi][this._loopBlocks[bi].length - 1];
+        const lastNode = this.nodes.get(last);
+        if (lastNode && !this.isStatefulSetVariable(lastNode)) lastResultVar = `${this.getFunctionName(lastNode)}Result`;
+      }
     });
 
     invocationCode += lastResultVar
@@ -2299,6 +2392,37 @@ ${originalComponentStructure}
         const field = `${name.charAt(0).toLowerCase()}${name.slice(1)}`;
         resultFields.push(`${field}: ${name} || false`);
       });
+    }
+
+    // (2026-10-02, COol's round player) A script that keeps state on `this` or leaves early with a
+    // bare `return;` broke here: the arrow function had no `this` of its own (`s._spinBoard` threw
+    // on every round), and `return;` returned undefined instead of the outputs, so the next node
+    // read a property of undefined. Such a body now runs as an inner function called with the
+    // node's own state object, and the outputs are returned after it whatever path it took.
+    // Bodies with neither keep the old shape byte for byte.
+    const usesThis = /\bthis\b/.test(transformedScript);
+    const hasReturn = /\breturn\b/.test(transformedScript);
+    if (usesThis) this._jsUsesThis.add(node.id);
+    if (usesThis || hasReturn) {
+      let body = transformedScript;
+      let outerDecls = '';
+      for (const portName of outputPorts) {
+        const esc = portName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // An output the body declares itself must live in the OUTER scope, or the return below
+        // cannot see it.
+        body = body.replace(new RegExp(`\\b(?:let|const|var)\\s+${esc}\\s*=`, 'g'), `${portName} =`);
+        body = body.replace(new RegExp(`\\b(?:let|var)\\s+${esc}\\s*;`, 'g'), '');
+        if (!new RegExp(`let\\s+${esc}\\b`).test(variableDeclarations)) outerDecls += `let ${portName};\n`;
+      }
+      const head = hasAsyncOperations ? `const ${functionName} = async function (inputs) {` : `const ${functionName} = function (inputs) {`;
+      const runBody = hasAsyncOperations
+        ? `await (async function () {\n${body}\n          }).call(this);`
+        : `(function () {\n${body}\n          }).call(this);`;
+      return `
+        ${head}
+          ${variableDeclarations}${outerDecls}${runBody}
+          return { ${outputPorts.join(', ')} };
+        };`;
     }
 
     // Determine if function should be async — use PLAIN JS (no TS annotations) for RGS sandbox
@@ -3734,10 +3858,182 @@ ${originalComponentStructure}
     return { fromId: resolvedFromId, fromProperty: resolvedFromProperty };
   }
 
+  private isStatefulSetVariable(n: Node): boolean {
+    return (n.typename === 'Set Variable' || n.typename === '/#__cloud__/Set Variable') &&
+      !!this._statefulVars?.has((n.parameters as any)?.name);
+  }
+
+  /** A trigger input: typed signal on the node, else a conventional trigger name. */
+  private isSignalInput(nodeId: string, port: string): boolean {
+    const p: any = this.findPort(nodeId, port);
+    const t = p ? (typeof p.type === 'object' && p.type ? p.type.name : p.type) : undefined;
+    if (t === 'signal') return true;
+    if (t !== undefined && p) return false;
+    return /^(Do|do|run|eval|update|trigger|reset|step|start|refresh|show)$/.test(port);
+  }
+
+  /**
+   * One wired loop as an event-driven runner — the editor's own semantics for these nodes: a node
+   * runs when its trigger fires (a script's signal output that was set, or any native node that ran,
+   * since native nodes fire Done when they run); a node with no trigger wired (a script with `run`
+   * unwired) runs again whenever a value it reads was produced. Back edges read the previous run's
+   * result. Capped, so a loop that never settles fails the round loudly instead of hanging it.
+   */
+  private loopRunner(
+    bi: number,
+    snippets: Map<string, string>,
+    incomingFor: Map<string, Array<{ conn: Connection; inputName: string; sourceValue: string; fromId: string }>>
+  ): string {
+    const LIMIT = 5000;
+    const ids = this._loopBlocks[bi];
+    const inBlock = new Set(ids);
+    const label = (id: string) => this.nodes.get(id)?.label || this.nodes.get(id)?.typename || id;
+    const resultVar = (id: string) => `${this.getFunctionName(this.nodes.get(id)!)}Result`;
+    const triggerWired = (id: string) => this.connections.some((c) => c.toId === id && this.isSignalInput(id, c.toProperty));
+    const firedExpr = (fromId: string, sourceValue: string) =>
+      this.nodes.get(fromId)?.typename === 'JavaScriptFunction' ? `!!(${sourceValue})` : `((${sourceValue}) !== false)`;
+    const q = `__q${bi}`, enq = `__enq${bi}`, runs = `__runs${bi}`, cur = `__id${bi}`;
+    const lines: string[] = [];
+    lines.push(`/* --- wired loop: ${ids.map(label).join(' → ')} — runs event-driven, as in the editor --- */`);
+    for (const id of ids) if (!this.isStatefulSetVariable(this.nodes.get(id)!)) lines.push(`let ${resultVar(id)} = {};`);
+    lines.push(`{`);
+    lines.push(`  const ${q} = [];`);
+    lines.push(`  const ${enq} = function (id) { if (${q}.indexOf(id) < 0) ${q}.push(id); };`);
+    let entries = 0;
+    for (const id of ids) {
+      for (const e of incomingFor.get(id) || []) {
+        if (inBlock.has(e.fromId)) continue;
+        if (this.isSignalInput(id, e.conn.toProperty)) { lines.push(`  if (${firedExpr(e.fromId, e.sourceValue)}) ${enq}(${JSON.stringify(id)});`); entries++; }
+        else if (!triggerWired(id)) { lines.push(`  ${enq}(${JSON.stringify(id)});`); entries++; }
+      }
+    }
+    if (entries === 0) lines.push(`  ${enq}(${JSON.stringify(ids[0])});`);
+    lines.push(`  let ${runs} = 0;`);
+    lines.push(`  while (${q}.length) {`);
+    lines.push(`    if (++${runs} > ${LIMIT}) throw new Error(${JSON.stringify(`[loop ${ids.map(label).join(' → ')}] did not settle after ${LIMIT} node runs`)});`);
+    lines.push(`    const ${cur} = ${q}.shift();`);
+    ids.forEach((id, k) => {
+      const n = this.nodes.get(id)!;
+      let snip = snippets.get(id) || '';
+      if (!this.isStatefulSetVariable(n)) snip = snip.replace(`let ${resultVar(id)} = {};`, '');
+      lines.push(`    ${k ? 'else ' : ''}if (${cur} === ${JSON.stringify(id)}) {`);
+      lines.push(`      ${snip.trim()}`);
+      // Who this run wakes up, in loop order.
+      const woken = new Set<string>();
+      for (const t of ids) {
+        for (const e of incomingFor.get(t) || []) {
+          if (e.fromId !== id || woken.has(t + '|' + e.inputName)) continue;
+          woken.add(t + '|' + e.inputName);
+          if (this.isSignalInput(t, e.conn.toProperty)) lines.push(`      if (${firedExpr(id, e.sourceValue)}) ${enq}(${JSON.stringify(t)});`);
+          else if (!triggerWired(t)) lines.push(`      ${enq}(${JSON.stringify(t)});`);
+        }
+      }
+      lines.push(`    }`);
+    });
+    lines.push(`  }`);
+    lines.push(`}`);
+    return lines.join('\n    ') + '\n    ';
+  }
+
+  /** Strongly connected sets (size >= 2) of the wire graph, each listed in run order (entries first). */
+  private findWiredLoops(nodes: Node[], wireEdges: Array<[string, string, string]>): string[][] {
+    const order = new Map(nodes.map((n, i) => [n.id, i] as [string, number]));
+    // Only TRIGGERING wires make an iteration loop: into a trigger input, or into a node that has
+    // no trigger wired (a script with `run` unwired re-runs when what it reads changes). A pure
+    // value feedback — SpinCalc.capital → GameState → SpinCalc.capital, carried to the next round —
+    // is not a loop the editor iterates, and keeps the straight-through order it always had.
+    const triggerWired = (id: string) => this.connections.some((c) => c.toId === id && this.isSignalInput(id, c.toProperty));
+    const out = new Map<string, string[]>();
+    for (const n of nodes) out.set(n.id, []);
+    for (const [a, b, port] of wireEdges) {
+      if (this.isSignalInput(b, port) || !triggerWired(b)) out.get(a)!.push(b);
+    }
+    // Tarjan, iterative enough for maths graphs (they are small).
+    let index = 0;
+    const idx = new Map<string, number>(), low = new Map<string, number>(), onStack = new Set<string>();
+    const stack: string[] = [];
+    const sccs: string[][] = [];
+    const visit = (v: string) => {
+      idx.set(v, index); low.set(v, index); index++;
+      stack.push(v); onStack.add(v);
+      for (const w of out.get(v) || []) {
+        if (!idx.has(w)) { visit(w); low.set(v, Math.min(low.get(v)!, low.get(w)!)); }
+        else if (onStack.has(w)) low.set(v, Math.min(low.get(v)!, idx.get(w)!));
+      }
+      if (low.get(v) === idx.get(v)) {
+        const comp: string[] = [];
+        let w: string;
+        do { w = stack.pop()!; onStack.delete(w); comp.push(w); } while (w !== v);
+        if (comp.length > 1) sccs.push(comp);
+      }
+    };
+    for (const n of nodes) if (!idx.has(n.id)) visit(n.id);
+    // Run order inside a loop: the nodes something OUTSIDE the loop feeds first, then along the wires.
+    return sccs.map((comp) => {
+      const inComp = new Set(comp);
+      const entries = comp.filter((id) => wireEdges.some(([a, b]) => b === id && !inComp.has(a)))
+        .sort((a, b) => order.get(a)! - order.get(b)!);
+      const seen = new Set<string>();
+      const ordered: string[] = [];
+      const queue = entries.length ? entries.slice() : [comp.slice().sort((a, b) => order.get(a)! - order.get(b)!)[0]];
+      while (queue.length) {
+        const v = queue.shift()!;
+        if (seen.has(v)) continue;
+        seen.add(v); ordered.push(v);
+        for (const w of out.get(v) || []) if (inComp.has(w) && !seen.has(w)) queue.push(w);
+      }
+      for (const id of comp.slice().sort((a, b) => order.get(a)! - order.get(b)!)) if (!seen.has(id)) ordered.push(id);
+      return ordered;
+    });
+  }
+
+  /** Kahn over the graph with each wired loop collapsed to one block; blocks keep their run order. */
+  private orderWithLoopBlocks(nodes: Node[], adj: Map<string, string[]>, _wireEdges: Array<[string, string, string]>): Node[] {
+    const blockOf = new Map<string, number>();
+    this._loopBlocks.forEach((b, i) => b.forEach((id) => blockOf.set(id, i)));
+    const keyOf = (id: string) => (blockOf.has(id) ? `#loop${blockOf.get(id)}` : id);
+    const keys: string[] = [];
+    const members = new Map<string, string[]>();
+    for (const n of nodes) {
+      const k = keyOf(n.id);
+      if (!members.has(k)) { members.set(k, []); keys.push(k); }
+    }
+    this._loopBlocks.forEach((b, i) => members.set(`#loop${i}`, b.slice()));
+    for (const n of nodes) if (!blockOf.has(n.id)) members.set(n.id, [n.id]);
+    const kAdj = new Map<string, Set<string>>(keys.map((k) => [k, new Set<string>()]));
+    const kIn = new Map<string, number>(keys.map((k) => [k, 0]));
+    for (const [from, tos] of adj) {
+      for (const to of tos) {
+        const a = keyOf(from), b = keyOf(to);
+        if (a === b || kAdj.get(a)!.has(b)) continue;
+        kAdj.get(a)!.add(b);
+        kIn.set(b, kIn.get(b)! + 1);
+      }
+    }
+    const queue = keys.filter((k) => kIn.get(k) === 0);
+    const sorted: string[] = [];
+    while (queue.length > 0) {
+      const u = queue.shift()!;
+      sorted.push(u);
+      for (const v of kAdj.get(u) || []) {
+        kIn.set(v, kIn.get(v)! - 1);
+        if (kIn.get(v) === 0) queue.push(v);
+      }
+    }
+    // Same safety net as the plain sort: anything still held by a variable-mediated cycle keeps
+    // its original order instead of vanishing.
+    if (sorted.length < keys.length) {
+      const seen = new Set(sorted);
+      for (const k of keys) if (!seen.has(k)) sorted.push(k);
+    }
+    return sorted.flatMap((k) => members.get(k)!).map((id) => this.nodes.get(id)!);
+  }
+
   private sortNodesByExecutionOrder(nodes: Node[]): Node[] {
     const nodeIds = new Set(nodes.map((n) => n.id));
     const adj: Map<string, string[]> = new Map();
     const inDegree: Map<string, number> = new Map();
+    const wireEdges: Array<[string, string, string]> = [];
     for (const node of nodes) {
       adj.set(node.id, []);
       inDegree.set(node.id, 0);
@@ -3775,8 +4071,16 @@ ${originalComponentStructure}
       if (nodeIds.has(fromId) && fromId !== conn.toId) {
         adj.get(fromId)!.push(conn.toId);
         inDegree.set(conn.toId, (inDegree.get(conn.toId) || 0) + 1);
+        wireEdges.push([fromId, conn.toId, conn.toProperty]);
       }
     }
+    // (2026-10-02, COol) A WIRED loop — the round player's score → refill → score pass loop — used
+    // to fall into the remainder below and run once, in node order, with its back edges read off
+    // the request payload. Those loops now become one block each, placed where the block belongs
+    // in the order and compiled to an event-driven runner. Loops that exist only through a stored
+    // variable (read-modify-write) are not wires and keep the old ordering.
+    this._loopBlocks = this.findWiredLoops(nodes, wireEdges);
+    if (this._loopBlocks.length > 0) return this.orderWithLoopBlocks(nodes, adj, wireEdges);
     const queue = nodes.filter((n) => (inDegree.get(n.id) || 0) === 0).map((n) => n.id);
     const sorted: string[] = [];
     while (queue.length > 0) {

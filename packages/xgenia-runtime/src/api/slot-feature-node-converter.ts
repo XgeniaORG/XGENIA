@@ -48,6 +48,20 @@ const SIGNAL_FALSE = false;
 export class SlotFeatureNodeRegistry {
   private static readonly NODES: Map<string, SlotFeatureNodeSpec> = new Map<string, SlotFeatureNodeSpec>([
     [
+      // (2026-10-02) The native tumble remover/refill. Not a "Slot Features" node, but the same
+      // contract: the RGS runs slot-feature-cores.cascadeTheReels, held equal to the editor node
+      // (xgenia-pro-nodes cascade-the-reels.js) by test/slot-features/cascade-the-reels.test.js.
+      'Cascade The Reels',
+      {
+        core: 'cascadeTheReels',
+        stateful: false,
+        inputs: ['reels', 'winningLinesDetails', 'symbolWeights', 'refillFrom', 'Seeds'],
+        defaults: { reels: [], winningLinesDetails: [], symbolWeights: [], refillFrom: 'top', Seeds: [] },
+        outputs: ['reels'],
+        rename: { Seeds: 'seeds' }
+      }
+    ],
+    [
       'Cluster Pays',
       {
         core: 'evaluateClusterPays',
