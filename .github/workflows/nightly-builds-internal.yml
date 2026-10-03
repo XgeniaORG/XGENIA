@@ -30,7 +30,9 @@ jobs:
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            git submodule update --init private
+            # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
+            git submodule update --init --remote private
+            echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
           else
             echo "Private submodule PAT not available, building with stubs"
           fi
@@ -110,7 +112,9 @@ jobs:
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            git submodule update --init private
+            # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
+            git submodule update --init --remote private
+            echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
           else
             echo "Private submodule PAT not available, building with stubs"
           fi
@@ -165,7 +169,9 @@ jobs:
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            git submodule update --init private
+            # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
+            git submodule update --init --remote private
+            echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
           else
             echo "Private submodule PAT not available, building with stubs"
           fi
