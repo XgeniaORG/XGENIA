@@ -12,6 +12,21 @@ Design: `docs/superpowers/specs/2026-10-03-live-engine-design.md`.
 4. Promote to **stable** (everyone): Actions → Live Engine → Run workflow → `action: promote`
    (empty version = current beta), or `node scripts/live-engine/promote.mjs [version]` with both keys set.
 
+## Checks and downloads
+
+- Update checks run 15 s after start and every 6 h; a failed or refused check is retried once after 5 min.
+- Downloads use Electron's network stack (system proxy, OS certificates), with byte caps on every file.
+- Engine files are hash-checked at every start, and their size/mtime re-checked whenever the preview
+  server, export or the compiler loader uses them: a file changed since, or not in the manifest, is not
+  served, stops the export, or makes the Maths panel fall back to the app's own compiler (its result then
+  carries `compiler.warning`). A restart re-verifies.
+
+## Minified viewer (optional)
+
+Repo variable `XGENIA_MINIFY_VIEWER=1` makes CI minify `viewer/xgenia.viewer.js` the way a release build
+does (`scripts/live-engine/minify-viewer.mjs`). Leave it off until a game has been played on a minified
+build — the same rule as the release switch.
+
 ## Rollback
 
 Promote the previous version: `action: promote`, `version: <old version>`. Apps install it (newer
