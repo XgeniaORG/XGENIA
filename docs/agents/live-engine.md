@@ -21,13 +21,17 @@ dropped there automatically on the next start.
 ## When an engine change needs an editor change
 
 Bump `SHELL_API_VERSION` (`packages/xgenia-editor/src/main/src/live-engine/shell-api.js`) and
-`minShell` (`packages/xgenia-viewer-react/engine-compat.json`) in the same PR. Older apps keep
-their current engine and record `needsAppUpdate` until they get an app build.
+`minShell` (`packages/xgenia-viewer-react/engine-compat.json`) in the same PR. An engine runs only on
+the shell it was built for: older apps keep their current engine and record `needsAppUpdate` until they
+get an app build; the new app ignores engines built for the old shell and runs its own until CI
+publishes one for the new shell.
 
 ## What a machine runs
 
-- Main-process log line: `[live-engine] live <version> — …` or `[live-engine] builtin builtin — <reason>`.
-- `<userData>/engine/state.json`: `active`, `previous`, `pending`, `trial`, `bad`, `needsAppUpdate`.
+`<userData>/engine/state.json` (the production main process silences `console.log`, so this is the record):
+- `lastStart` — what this start chose (`version`, `source`, `reason`); `lastCheck` — the last update check.
+- `active`, `previous` (always an engine that proved itself), `pending`, `trial`, `trialTimedOut`, `bad`,
+  `needsAppUpdate`, `accepted` (replay floor per channel).
 - Compiled RGS scripts: the statement `var __xgeniaCompiler = "<version>";` (`"bundled"` = the app's
   own compiler). It is a statement, not a comment, because the sandbox sanitiser strips comments.
 
@@ -37,9 +41,16 @@ their current engine and record `needsAppUpdate` until they get an app build.
 - `XGENIA_LIVE_ENGINE=1` — let a development build use and download live engines.
 - `XGENIA_ENGINE_CHANNEL=beta|stable` — channel override.
 
+## Secrets and the `live-engine` environment
+
+`ENGINE_SIGNING_KEY` and `SUPABASE_ENGINE_SERVICE_KEY` are used only by the `publish` and `promote` jobs,
+which install no npm packages and run in the GitHub environment `live-engine`. Store both as
+**environment secrets** of `live-engine` and restrict its deployment branches to `develop` (add a
+required reviewer for promote if wanted); repo-level secrets would be readable from any branch.
+
 ## Signing key
 
-Private key: GitHub secret `ENGINE_SIGNING_KEY` only. Public key: `src/main/src/live-engine/public-key.js`.
+Private key: the `ENGINE_SIGNING_KEY` environment secret only. Public key: `src/main/src/live-engine/public-key.js`.
 Rotating means `node scripts/live-engine/keygen.mjs <out.pem>`, a new secret, and a new app build.
 
 ## Building a pack locally (no upload)

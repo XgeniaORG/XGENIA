@@ -51,8 +51,9 @@ test('the app supports the minShell the engine source declares', () => {
   const { SHELL_API_VERSION } = require('../../src/main/src/live-engine/shell-api');
   const { minShell } = require('../../../xgenia-viewer-react/engine-compat.json');
   assert.ok(Number.isInteger(minShell) && minShell >= 1);
-  assert.ok(
-    SHELL_API_VERSION >= minShell,
-    `the engine needs app shell ${minShell}, the app is ${SHELL_API_VERSION}: bump SHELL_API_VERSION in the same PR as the editor change`
+  assert.equal(
+    SHELL_API_VERSION,
+    minShell,
+    `the engine is built for app shell ${minShell}, the app is ${SHELL_API_VERSION}: bump both in the same PR as the editor change`
   );
 });

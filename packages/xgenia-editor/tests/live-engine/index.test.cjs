@@ -6,7 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const EventEmitter = require('events');
-const { setupLiveEngine, channelFor } = require('../../src/main/src/live-engine');
+const { setupLiveEngine, channelFor, fetchBytes } = require('../../src/main/src/live-engine');
 const { EngineStore } = require('../../src/main/src/live-engine/engine-store');
 const { signManifest } = require('../../src/main/src/live-engine/manifest');
 const { keys, packFiles, makeManifest, fakeCdn } = require('./helpers.cjs');
@@ -57,14 +57,80 @@ test('the preview reporting in on this engine ends its trial; a report from anot
   r.stop();
 });
 
-test('a preview that never reports in marks the engine bad', async () => {
+test('a trial engine whose preview never reports in is dropped at the next start, even after a clean quit', async () => {
   const app = fakeApp();
   await withPending(app, 'v1');
   const r = setup(app, { timings: { checkAfterMs: 1e9, healthTimeoutMs: 20 } });
   app.emit('xgenia:viewer-bundle-served');
   await new Promise((res) => setTimeout(res, 80));
-  assert.deepEqual(r.store.readState().bad, ['v1']);
+  assert.equal(r.store.readState().trialTimedOut, 'v1');
+  app.emit('will-quit');
   r.stop();
+  const next = setup(app);
+  assert.equal(next.info.source, 'builtin');
+  assert.deepEqual(next.store.readState().bad, ['v1']);
+  next.stop();
+});
+
+test('a late report after the timeout still keeps the engine', async () => {
+  const app = fakeApp();
+  await withPending(app, 'v1');
+  const ipcMain = new EventEmitter();
+  const r = setup(app, { ipcMain, timings: { checkAfterMs: 1e9, healthTimeoutMs: 20 } });
+  app.emit('xgenia:viewer-bundle-served');
+  await new Promise((res) => setTimeout(res, 80));
+  ipcMain.emit('live-engine:viewer-ok', {}, 'v1');
+  r.stop();
+  const next = setup(app);
+  assert.equal(next.info.version, 'v1');
+  assert.deepEqual(next.store.readState().bad, []);
+  next.stop();
+});
+
+test('a proven engine is never put on trial again', async () => {
+  const app = fakeApp();
+  await withPending(app, 'v1');
+  const ipcMain = new EventEmitter();
+  const r = setup(app, { ipcMain });
+  app.emit('xgenia:viewer-bundle-served');
+  ipcMain.emit('live-engine:viewer-ok', {}, 'v1');
+  app.emit('will-quit');
+  r.stop();
+  const next = setup(app, { timings: { checkAfterMs: 1e9, healthTimeoutMs: 20 } });
+  app.emit('xgenia:viewer-bundle-served');
+  await new Promise((res) => setTimeout(res, 80));
+  assert.deepEqual(next.store.readState().bad, []);
+  assert.equal(next.store.readState().trialTimedOut, null);
+  next.stop();
+});
+
+test('state.json records what this start chose and the last update check', async () => {
+  const app = fakeApp();
+  await withPending(app, 'v1');
+  const cdn = fakeCdn({ version: 'v2', channel: 'stable', signKey: k.privateKey, cdn: 'https://pcrghrjikkcmelflwiys.supabase.co/storage/v1/object/public/engine' });
+  const r = setup(app, { fetch: cdn.fetchBytes, timings: { checkAfterMs: 0 } });
+  assert.equal(r.store.readState().lastStart.version, 'v1');
+  for (let i = 0; i < 50 && !r.store.readState().lastCheck; i++) await new Promise((res) => setTimeout(res, 20));
+  assert.equal(r.store.readState().lastCheck.status, 'installed');
+  r.stop();
+});
+
+test('downloads stop at their byte cap, with or without a content-length', async () => {
+  const http = require('http');
+  const server = http.createServer((req, res) => {
+    if (req.url === '/sized') { res.setHeader('content-length', 5000); res.end(Buffer.alloc(5000)); return; }
+    res.write(Buffer.alloc(3000)); res.write(Buffer.alloc(3000)); res.end();
+  });
+  await new Promise((res) => server.listen(0, '127.0.0.1', res));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    await assert.rejects(async () => fetchBytes(base + '/sized', 1000), /exceeds 1000 bytes/);
+    await assert.rejects(async () => fetchBytes(base + '/chunked', 1000), /exceeds 1000 bytes/);
+    assert.equal((await fetchBytes(base + '/sized', 10000)).length, 5000);
+  } finally {
+    server.close();
+    server.closeAllConnections();
+  }
 });
 
 test('quitting records a clean exit', async () => {

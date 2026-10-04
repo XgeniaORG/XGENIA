@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { EngineStore } = require('../../src/main/src/live-engine/engine-store');
-const { selectEngine, markHealthy, markBad, markCleanExit } = require('../../src/main/src/live-engine/select');
+const { selectEngine, markHealthy, markBad, markCleanExit, markTrialTimedOut } = require('../../src/main/src/live-engine/select');
 const { signManifest } = require('../../src/main/src/live-engine/manifest');
 const { keys, packFiles, makeManifest } = require('./helpers.cjs');
 
@@ -114,4 +114,46 @@ test('an engine needing a newer app, a tampered file, or a foreign signature is 
   await installed(s3, 'v1');
   s3.writeState({ ...s3.readState(), active: 'v1' });
   assert.equal(pick(s3, { publicKeyPem: keys().publicKey }).source, 'builtin');
+});
+
+// ── final-review fixes (2026-10-04) ──
+test('falling back from a failed trial lands on the last proven engine, not an unproven one', async () => {
+  const store = newStore();
+  for (const v of ['A1', 'B2', 'C3']) await installed(store, v);
+  store.writeState({ ...store.readState(), active: 'A1' }); // A1 proven
+  store.writeState({ ...store.readState(), pending: 'B2' });
+  pick(store); // B2 on trial
+  markCleanExit(store); // quit before any preview: B2 unproven
+  store.writeState({ ...store.readState(), pending: 'C3' });
+  pick(store); // C3 on trial, then the app dies
+  assert.equal(pick(store).version, 'A1');
+});
+
+test('the run that activates an engine is its trial; later runs are not', async () => {
+  const store = newStore();
+  await installed(store, 'v1');
+  store.writeState({ ...store.readState(), pending: 'v1' });
+  assert.equal(pick(store).trial, true);
+  markHealthy(store, 'v1');
+  markCleanExit(store);
+  assert.equal(pick(store).trial, false);
+});
+
+test('a trial that timed out is dropped at the next start even after a clean quit', async () => {
+  const store = newStore();
+  await installed(store, 'v1');
+  await installed(store, 'v2');
+  store.writeState({ ...store.readState(), active: 'v1', pending: 'v2' });
+  pick(store);
+  markTrialTimedOut(store, 'v2');
+  markCleanExit(store);
+  assert.equal(pick(store).version, 'v1');
+  assert.deepEqual(store.readState().bad, ['v2']);
+});
+
+test('an engine built for an older app shell is not used by a newer app', async () => {
+  const s = newStore();
+  await installed(s, 'v1', { minShell: 1 });
+  s.writeState({ ...s.readState(), active: 'v1' });
+  assert.equal(pick(s, { shellApi: 2 }).source, 'builtin');
 });

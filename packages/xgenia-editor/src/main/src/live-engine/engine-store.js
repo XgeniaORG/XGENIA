@@ -5,7 +5,9 @@ const fs = require('fs');
 const path = require('path');
 const { sha256, verifyManifest, isSafePath } = require('./manifest');
 
-const EMPTY = { active: null, previous: null, pending: null, trial: null, accepted: null, bad: [], cleanExit: true, needsAppUpdate: null };
+// accepted: { [channel]: { version, issuedAt } } — the replay floor, one per channel.
+// previous: always an engine that proved itself (its preview came up), or null (the app's own).
+const EMPTY = { active: null, previous: null, pending: null, trial: null, trialTimedOut: null, accepted: {}, bad: [], cleanExit: true, needsAppUpdate: null, lastStart: null, lastCheck: null };
 
 class EngineStore {
   constructor(baseDir) {
@@ -29,6 +31,7 @@ class EngineStore {
     }
     const s = { ...EMPTY, ...parsed };
     s.bad = Array.isArray(s.bad) ? s.bad.slice() : [];
+    s.accepted = s.accepted && typeof s.accepted === 'object' && !('version' in s.accepted) ? { ...s.accepted } : {};
     return s;
   }
 

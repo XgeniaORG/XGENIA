@@ -5,15 +5,42 @@
 const fs = require('fs');
 const path = require('path');
 const { EngineStore } = require('./engine-store');
-const { selectEngine, markHealthy, markBad, markCleanExit } = require('./select');
+const { selectEngine, markHealthy, markTrialTimedOut, markCleanExit } = require('./select');
 const { checkForEngineUpdate } = require('./updater');
 const { ENGINE_PUBLIC_KEY_PEM } = require('./public-key');
 const { SHELL_API_VERSION } = require('./shell-api');
 
-async function fetchBytes(url) {
+/** GET a URL into a Buffer, refusing anything over `maxBytes` (declared or streamed). */
+async function fetchBytes(url, maxBytes = 64 * 1024 * 1024) {
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`${res.status} ${url}`);
-  return Buffer.from(await res.arrayBuffer());
+  const tooBig = () => new Error(`${url} exceeds ${maxBytes} bytes`);
+  if (Number(res.headers.get('content-length')) > maxBytes) {
+    try {
+      await res.body.cancel();
+    } catch {
+      /* already closed */
+    }
+    throw tooBig();
+  }
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of res.body) {
+    total += chunk.length;
+    if (total > maxBytes) throw tooBig();
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+function record(store, key, value) {
+  try {
+    const s = store.readState();
+    s[key] = { at: new Date().toISOString(), ...value };
+    store.writeState(s);
+  } catch {
+    /* bookkeeping only */
+  }
 }
 
 function channelFor(env, store) {
@@ -44,12 +71,14 @@ function setupLiveEngine({
     info = selectEngine({ appPath: app.getAppPath(), isPackaged: app.isPackaged, env, store, publicKeyPem, shellApi });
   } catch (e) {
     const root = path.join(app.getAppPath(), 'src/external');
-    info = { root, builtinRoot: root, version: 'builtin', source: 'builtin', reason: 'engine selection failed: ' + e.message, allowUpdates: false };
+    info = { root, builtinRoot: root, version: 'builtin', source: 'builtin', reason: 'engine selection failed: ' + e.message, allowUpdates: false, trial: false };
   }
   env.XGENIA_ENGINE_ROOT = info.root;
   env.XGENIA_ENGINE_VERSION = info.version;
   global.xgeniaLiveEngine = info;
   log.log(`[live-engine] ${info.source} ${info.version} — ${info.reason} (${info.root})`);
+  // The production main process silences console.log; state.json is the record of what ran.
+  if (info.source === 'live' || info.allowUpdates) record(store, 'lastStart', { version: info.version, source: info.source, reason: info.reason });
 
   const timers = [];
   if (info.source === 'live') {
@@ -61,12 +90,13 @@ function setupLiveEngine({
       if (healthTimer) clearTimeout(healthTimer);
       markHealthy(store, info.version);
     });
+    // Only a run that is an engine's trial can fail it; a proven engine is never banned by one slow preview.
     app.on('xgenia:viewer-bundle-served', () => {
-      if (healthy || healthTimer) return;
+      if (!info.trial || healthy || healthTimer) return;
       healthTimer = setTimeout(() => {
         if (healthy) return;
-        log.warn(`[live-engine] the preview never reported in on ${info.version}; the next start returns to the previous engine`);
-        markBad(store, info.version);
+        log.warn(`[live-engine] the preview has not reported in on ${info.version}; unless it does, the next start returns to the previous engine`);
+        markTrialTimedOut(store, info.version);
       }, healthTimeoutMs);
       if (healthTimer.unref) healthTimer.unref();
       timers.push(healthTimer);
@@ -85,7 +115,10 @@ function setupLiveEngine({
   if (info.allowUpdates) {
     const check = () =>
       checkForEngineUpdate({ store, channel: channelFor(env, store), fetchBytes: fetchImpl, publicKeyPem, shellApi })
-        .then((r) => log.log('[live-engine] update check: ' + JSON.stringify(r)))
+        .then((r) => {
+          record(store, 'lastCheck', r);
+          log.log('[live-engine] update check: ' + JSON.stringify(r));
+        })
         .catch((e) => log.warn('[live-engine] update check failed: ' + e.message));
     const first = setTimeout(check, checkAfterMs);
     const every = setInterval(check, checkEveryMs);
@@ -105,4 +138,4 @@ function setupLiveEngine({
   };
 }
 
-module.exports = { setupLiveEngine, channelFor };
+module.exports = { setupLiveEngine, channelFor, fetchBytes };
