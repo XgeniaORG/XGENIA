@@ -46,7 +46,8 @@ for (const p of ['viewer/xgenia.viewer.js', 'deploy/xgenia.deploy.js']) {
 const compiler = require(path.join(unpacked, 'compiler/xgenia.rgs-compiler.js'));
 const mapNode = (n) => ({ ...n, typename: n.type || n.typename, dynamicports: n.dynamicports || n.ports || [], children: (n.children || []).map(mapNode) });
 for (const file of ['round-player-parrot.json', 'round-player-leprechaun.json']) {
-  const fx = JSON.parse(fs.readFileSync(path.join(ROOT, 'packages/xgenia-runtime/src/api/fixtures', file), 'utf8'));
+  // Users' game maths: kept in the private repo, not in this public one.
+  const fx = JSON.parse(fs.readFileSync(path.join(ROOT, 'private/test-fixtures/rgs-maths', file), 'utf8'));
   const comp = { ...fx.component, graph: { roots: fx.component.graph.roots.map(mapNode), connections: fx.component.graph.connections } };
   const quiet = console.warn;
   console.warn = () => {};

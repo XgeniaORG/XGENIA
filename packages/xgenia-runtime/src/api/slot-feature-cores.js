@@ -1072,7 +1072,7 @@ function defineSlotFeatureCores() {
 
   // ── Cascade The Reels — tumble REMOVER + seeded REFILL ─────────────────────────
   // (2026-10-02) The native node had no server implementation, so every maths using it was
-  // refused by the RGS (COol's round player). This is that node's doCascade for the RGS script.
+  // refused by the RGS (a round-player slot). This is that node's doCascade for the RGS script.
   // The editor node (private xgenia-pro-nodes cascade-the-reels.js) keeps its own copy so it runs on
   // older runtimes; xgenia-runtime test/slot-features/cascade-the-reels.test.js holds the two equal
   // (recorded goldens + 500 random boards). Bit-exact with the node: its

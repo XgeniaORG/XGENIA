@@ -690,7 +690,7 @@ export class CloudFunctionConverter {
   // getUnsupportedNodes() for why this has to be reported rather than skipped.
   private _unsupportedNodes: UnsupportedNode[] = [];
   /**
-   * Wired loops among the compiled nodes (2026-10-02, COol): each entry is one strongly connected
+   * Wired loops among the compiled nodes (2026-10-02): each entry is one strongly connected
    * set of node ids, in run order. They compile to an event-driven runner instead of one straight
    * pass — see generateRgsFunctionInvocations. Filled by sortNodesByExecutionOrder.
    */
@@ -1428,7 +1428,7 @@ ${originalComponentStructure}
       '  else if (fr && fr.spinResults && fr.spinResults.totalPayout != null) w = fr.spinResults.totalPayout;',
       '  else if (fr && fr.totalWinnings != null) w = fr.totalWinnings;',
       '  else if (fr && fr.spinWinnings != null) w = fr.spinWinnings;',
-      // (2026-10-02, Olympus) A maths whose round win leaves on a Component Outputs port named
+      // (2026-10-02) A maths whose round win leaves on a Component Outputs port named
       // FinalWin / TotalWin / RoundWin scored every round 0 here: 0% RTP from a game that pays.
       '  else { var _wk = Object.keys(d).filter(function (k) { return /^(final|total|round)_?win(nings|amount)?$/i.test(k) && d[k] != null; })[0]; if (_wk) w = d[_wk]; }',
       '  var n = Number(w);',
@@ -1446,7 +1446,7 @@ ${originalComponentStructure}
     ].join('\n');
 
     // (2026-10-02) `globalThis` in a maths script: the XRGS sandbox refuses the whole script for
-    // the word. Two uses were found — COol's bonus popup handshake, and Olympus keeping its
+    // the word. Two uses were found — a bonus popup handshake, and a free-spins maths keeping its
     // free-spins state (fsActive / fsLeft / fsMeter) on it between spins, which the editor's global
     // does for a whole session. It becomes a plain object carried round to round through
     // ctx.state.__global, like `_vars`: the free spins continue exactly as in the editor, and
@@ -2403,7 +2403,7 @@ ${originalComponentStructure}
       });
     }
 
-    // (2026-10-02, COol's round player) A script that keeps state on `this` or leaves early with a
+    // (2026-10-02, a round-player slot) A script that keeps state on `this` or leaves early with a
     // bare `return;` broke here: the arrow function had no `this` of its own (`s._spinBoard` threw
     // on every round), and `return;` returned undefined instead of the outputs, so the next node
     // read a property of undefined. Such a body now runs as an inner function called with the
@@ -4083,7 +4083,7 @@ ${originalComponentStructure}
         wireEdges.push([fromId, conn.toId, conn.toProperty]);
       }
     }
-    // (2026-10-02, COol) A WIRED loop — the round player's score → refill → score pass loop — used
+    // (2026-10-02) A WIRED loop — the round player's score → refill → score pass loop — used
     // to fall into the remainder below and run once, in node order, with its back edges read off
     // the request payload. Those loops now become one block each, placed where the block belongs
     // in the order and compiled to an event-driven runner. Loops that exist only through a stored
