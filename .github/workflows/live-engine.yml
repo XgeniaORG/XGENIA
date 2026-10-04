@@ -1,0 +1,97 @@
+name: Live Engine
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - 'packages/xgenia-runtime/**'
+      - 'packages/xgenia-viewer-react/**'
+      - 'scripts/live-engine/**'
+      - '.github/workflows/live-engine.yml'
+  repository_dispatch:
+    types: [private-main-push]
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        options: [build, promote]
+        default: build
+      version:
+        type: string
+        required: false
+        description: 'promote: version to make stable (empty = current beta)'
+
+concurrency:
+  group: live-engine
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event_name != 'workflow_dispatch' || inputs.action == 'build'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+
+      - name: Private main (required — no engine without the slot nodes)
+        env:
+          PRIVATE_PAT: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
+        run: |
+          test -n "$PRIVATE_PAT" || { echo "PRIVATE_SUBMODULE_PAT is missing"; exit 1; }
+          git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
+          git submodule update --init --remote private
+          test -f private/xgenia-pro-nodes/src/index.js
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: npm install
+
+      - name: Engine tests
+        run: |
+          npm test -w @xgenia/runtime -- --ci
+          node --test 'packages/xgenia-editor/tests/live-engine/*.test.cjs'
+          node --test scripts/live-engine/pack.test.mjs
+          npx tsx packages/xgenia-runtime/src/api/test-compiler-bundle-parity.ts
+
+      - name: Version
+        run: |
+          echo "XGENIA_ENGINE_VERSION=$(date -u +%Y%m%d.%H%M)-$(git rev-parse --short=8 HEAD)-$(git -C private rev-parse --short=8 HEAD)" >> "$GITHUB_ENV"
+          echo "ENGINE_OUTER_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "ENGINE_PRIVATE_SHA=$(git -C private rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Build engine files
+        run: |
+          OUTPUT_PATH="$RUNNER_TEMP/engine/files" npm run build -w @xgenia/xgenia-viewer-react
+          node scripts/live-engine/build-compiler.mjs "$RUNNER_TEMP/engine/files/compiler/xgenia.rgs-compiler.js" "$XGENIA_ENGINE_VERSION"
+
+      - name: Pack and sign
+        env:
+          ENGINE_SIGNING_KEY: ${{ secrets.ENGINE_SIGNING_KEY }}
+        run: node scripts/live-engine/pack.mjs --files "$RUNNER_TEMP/engine/files" --out "$RUNNER_TEMP/engine/upload" --channel beta
+
+      - name: Smoke
+        run: node scripts/live-engine/smoke.mjs "$RUNNER_TEMP/engine/upload" beta
+
+      - name: Publish to beta
+        env:
+          SUPABASE_ENGINE_SERVICE_KEY: ${{ secrets.SUPABASE_ENGINE_SERVICE_KEY }}
+        run: node scripts/live-engine/publish.mjs "$RUNNER_TEMP/engine/upload" "$XGENIA_ENGINE_VERSION" beta
+
+  promote:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'promote'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Promote to stable
+        env:
+          ENGINE_SIGNING_KEY: ${{ secrets.ENGINE_SIGNING_KEY }}
+          SUPABASE_ENGINE_SERVICE_KEY: ${{ secrets.SUPABASE_ENGINE_SERVICE_KEY }}
+        run: node scripts/live-engine/promote.mjs ${{ inputs.version }}
