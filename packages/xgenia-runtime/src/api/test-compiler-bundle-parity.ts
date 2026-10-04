@@ -3,7 +3,8 @@
  * bundles. Scripts are compared after reprinting both through esbuild (the bundle reprints the
  * embedded slot-feature cores) with the compiler stamp line removed. Also: the bundle carries its
  * version, its cores text runs standalone (as it does inside an RGS script) and reproduces the
- * Cascade The Reels goldens, and no esbuild helper leaks in. (2026-10-03)
+ * Cascade The Reels goldens, and no esbuild helper leaks in. (2026-10-03) The slot GAME cores and the
+ * formula evaluator (2026-10-04) run standalone from the bundle's text and match the source module.
  *
  * Usage (repo root): npx tsx packages/xgenia-runtime/src/api/test-compiler-bundle-parity.ts
  */
@@ -62,6 +63,25 @@ async function main() {
   const bad = goldens.filter((g: any) => JSON.stringify(cores.cascadeTheReels({ ...g.in, seeds: g.in.seeds }).reels) !== JSON.stringify(g.out));
   if (bad.length) fail('cores', `${bad.length}/${goldens.length} Cascade The Reels goldens differ when the bundle's cores run standalone`);
   if (JSON.stringify(Object.keys(cores).sort()) !== JSON.stringify([...bundled.coreNames].sort())) fail('cores', 'core names differ');
+
+  // (2026-10-04) The slot GAME cores and the one formula evaluator: the bundle's texts run standalone
+  // (as they do inside an RGS script) and compute what the source module computes.
+  const gameCores = new Function('return (' + bundled.SLOT_GAME_CORES_SOURCE + ')((' + bundled.FORMULA_SOURCE + ')())')();
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const sourceGameCores = require('./slot-game-cores');
+  if (JSON.stringify(Object.keys(gameCores).sort()) !== JSON.stringify([...bundled.slotGameCoreNames].sort())) fail('slot game cores', 'core names differ');
+  const grid = [[9, 4, 5], [3, 5, 4], [3, 4, 5], [3, 5, 4], [3, 4, 5]];
+  const probes: Array<[string, any]> = [
+    ['checkWins', { reels: grid }],
+    ['getPaytable', { payoutFormula: 'round(-x / 2) + max(x, 3) ^ 2 % 7', symbolPayout2: '5' }],
+    ['generateSymbolWeights', { weightFormula: 'exp(-x / 6)' }],
+    ['weightedReels', { reelStrips: [[1, 2, 3, 4], [4, 3, 2, 1]], Seeds: [1e11, 7.5e11], rowSize: 3 }]
+  ];
+  for (const [core, args] of probes) {
+    const a = JSON.stringify(gameCores[core](args));
+    const b = JSON.stringify(sourceGameCores[core](args));
+    if (a !== b) fail('slot game cores', `${core} differs when the bundle's text runs standalone:\n  bundle: ${a.slice(0, 200)}\n  source: ${b.slice(0, 200)}`);
+  }
 
   if (failures) process.exit(1);
   console.log('\nthe live compiler bundle compiles exactly like the source');

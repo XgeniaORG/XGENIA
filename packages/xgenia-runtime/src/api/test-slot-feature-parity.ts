@@ -11,9 +11,10 @@
  *      threading `state` for a second round on stateful nodes.
  *
  * Then (2026-10-04, certification — one certified value per random outcome):
- *   6. Weighted Reels, a slot-GAME node with two hand-kept copies (the private editor node and the RGS
- *      template in slot-game-node-converter.ts): static and dynamic grids, editor-integer and RGS-float
- *      seeds, and the fail-closed refusals, compiled script vs. the editor node's own generate path;
+ *   6. Weighted Reels, a slot-GAME node (since 2026-10-04 both sides run slot-game-cores.js
+ *      weightedReels; src/api/test-slot-game-parity.ts covers every slot-game node): static and dynamic
+ *      grids, editor-integer and RGS-float seeds, and the fail-closed refusals, compiled script vs. the
+ *      editor node's own generate path;
  *   7. an ISAAC left at an old size (1, or one value per reel) wired into each consumer that now takes
  *      one value per outcome compiles to at least SEEDS_MIN_BY_CONSUMER values, and the compiled
  *      round runs (it would be refused with the old size).

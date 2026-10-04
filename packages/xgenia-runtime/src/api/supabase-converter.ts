@@ -22,7 +22,7 @@ import { SlotFeatureNodeConverter, SlotFeatureNodeRegistry } from './slot-featur
 // Import signal passthrough node converter
 import { SignalPassthroughNodeConverter } from './signal-passthrough-node-converter';
 // Import slot game node converter
-import { SlotGameNodeConverter } from './slot-game-node-converter';
+import { SlotGameNodeConverter, SlotGameNodeRegistry } from './slot-game-node-converter';
 // Import standard library node converter
 import { StdLibraryNodeConverter } from './std-library-node-converter';
 // Import the RGS sandbox sanitizer (extracted pure function, parity-tested)
@@ -136,6 +136,8 @@ export interface UnsupportedNode {
    * inputs cannot receive this node's value.
    */
   feeds: Array<{ node: string; port: string }>;
+  /** Why the compiler refuses a node it knows (e.g. Generate Reel Strips); absent for unknown nodes. */
+  reason?: string;
 }
 
 /**
@@ -1161,7 +1163,11 @@ ${functionSignature}
     const cloudFeaturePrelude = this.slotFeatureNodeConverter.hasAnySlotFeatureNode(allFunctionNodes.map((n) => n.typename))
       ? SlotFeatureNodeConverter.corePrelude()
       : '';
-    const functionDefinitions = cloudFeaturePrelude + this.generateFunctionDefinitions(sortedFunctionNodes);
+    // Slot game cores (slot-game-cores.js + formula-eval-core.js) — the maths the editor nodes run.
+    const cloudGamePrelude = this.slotGameNodeConverter.hasAnySlotGameNode(allFunctionNodes.map((n) => n.typename))
+      ? SlotGameNodeConverter.corePrelude()
+      : '';
+    const functionDefinitions = cloudGamePrelude + cloudFeaturePrelude + this.generateFunctionDefinitions(sortedFunctionNodes);
     const functionInvocations = this.generateFunctionInvocations(sortedFunctionNodes, requestNode);
     const { responseStatement, statusCodeLogic } = this.getFinalResponseStatementWithStatus();
 
@@ -1350,9 +1356,15 @@ ${originalComponentStructure}
     const featurePrelude = this.slotFeatureNodeConverter.hasAnySlotFeatureNode(allFunctionNodes.map((n) => n.typename))
       ? SlotFeatureNodeConverter.corePrelude()
       : '';
+    // Slot game cores (slot-game-cores.js + the one formula evaluator) — embedded ONCE, only when a
+    // core slot node (Weighted Reels, Check Wins, Calculate Winnings, …) is present: the same maths
+    // the editor nodes run (2026-10-04, see slot-game-node-converter.ts).
+    const gamePrelude = this.slotGameNodeConverter.hasAnySlotGameNode(allFunctionNodes.map((n) => n.typename))
+      ? SlotGameNodeConverter.corePrelude()
+      : '';
 
     // Generate function definitions (same code generators as cloud)
-    const functionDefinitions = extraPrelude + featurePrelude + this.generateFunctionDefinitions(sortedFunctionNodes);
+    const functionDefinitions = extraPrelude + gamePrelude + featurePrelude + this.generateFunctionDefinitions(sortedFunctionNodes);
 
     // Generate invocations with RGS-specific wiring
     const functionInvocations = this.generateRgsFunctionInvocations(sortedFunctionNodes);
@@ -2585,6 +2597,8 @@ ${originalComponentStructure}
         id: node.id,
         feeds: [],
       };
+      const reason = SlotGameNodeRegistry.rgsUnsupportedReason(String(node.typename || ''));
+      if (reason) entry.reason = reason;
       this._unsupportedNodes.push(entry);
     }
     if (feeds && !entry.feeds.some((f) => f.node === feeds.node && f.port === feeds.port)) {

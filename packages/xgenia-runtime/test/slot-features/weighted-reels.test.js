@@ -3,11 +3,12 @@
 // (static: one LCG step of Seeds[idx]; static free-spin: two steps of Seeds[idx]; dynamic: one LCG per
 // column, stepped once per row). Too few values, or a value that is not ISAAC output, fails closed.
 //
-// The editor node lives in the private repo (xgenia-pro-nodes/src/slot-games/weighted-reels.js); its
-// RGS copy is the template in src/api/slot-game-node-converter.ts generateWeightedReelsLogic, which
-// src/api/test-slot-feature-parity.ts runs in the real XRGS sandbox against this same node. Here the
-// node is held to `reference` below — the rules written as plainly as possible, from the rule and not
-// from either copy — on fixed cases and 600 random ones, through its real ports for a few.
+// The editor node lives in the private repo (xgenia-pro-nodes/src/slot-games/weighted-reels.js) and,
+// since 2026-10-04, runs src/api/slot-game-cores.js weightedReels — the function the RGS compiler embeds
+// (src/api/test-slot-game-parity.ts and test-slot-feature-parity.ts run the compiled script in the real
+// XRGS sandbox against this same node). Here the node is held to `reference` below — the rules written
+// as plainly as possible, from the rule and not from the core — on fixed cases and 600 random ones,
+// through its real ports for a few.
 // There are no recorded goldens for this node (there were none before either): the reference IS the
 // expected output.
 'use strict';
