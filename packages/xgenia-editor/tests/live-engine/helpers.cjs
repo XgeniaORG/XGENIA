@@ -39,4 +39,27 @@ function makeManifest(files, over = {}) {
   };
 }
 
-module.exports = { keys, packFiles, makeManifest };
+const zlib = require('zlib');
+const { signManifest } = require('../../src/main/src/live-engine/manifest');
+
+/** A channel manifest + gzipped files served from memory, as the Supabase bucket serves them. */
+function fakeCdn({ version = 'v2', channel = 'beta', issuedAt = '2026-10-03T12:00:00.000Z', minShell = 1, files = packFiles(), signKey, corrupt, cdn = 'https://cdn.example/engine' } = {}) {
+  const m = makeManifest(files, { version, channel, issuedAt, minShell, filesBase: `${cdn}/${version}/files/` });
+  const raw = Buffer.from(JSON.stringify(m));
+  const objects = new Map([
+    [`${cdn}/channels/${channel}/manifest.json`, raw],
+    [`${cdn}/channels/${channel}/manifest.sig`, Buffer.from(signManifest(raw, signKey))]
+  ]);
+  for (const [p, body] of Object.entries(files)) {
+    objects.set(`${cdn}/${version}/files/${p}.gz`, zlib.gzipSync(Buffer.from(corrupt === p ? 'CORRUPT' : body)));
+  }
+  const fetched = [];
+  const fetchBytes = async (url) => {
+    fetched.push(url);
+    if (!objects.has(url)) throw new Error('404 ' + url);
+    return objects.get(url);
+  };
+  return { m, fetchBytes, fetched };
+}
+
+module.exports = { keys, packFiles, makeManifest, fakeCdn };
