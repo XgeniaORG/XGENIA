@@ -41,6 +41,23 @@ import {
 declare const __XGENIA_ENGINE_VERSION__: string;
 const COMPILER_VERSION: string = typeof __XGENIA_ENGINE_VERSION__ !== 'undefined' ? __XGENIA_ENGINE_VERSION__ : 'bundled';
 
+/**
+ * (2026-10-04, certification) The fewest values an ISAAC Random Number Array Generator yields when its
+ * array feeds `Seeds` on one of these nodes — they take one certified value per random outcome and
+ * refuse a shorter array. The SAME table as the ISAAC node's own (private xgenia-pro-nodes
+ * isaac-rng-array.js SEEDS_MIN_BY_CONSUMER, which explains each number) and the editor's project-load
+ * patch (xgenia-editor ProjectPatches/applypatches.js); test/slot-features/cascade-seeds-upgrade.test.js
+ * checks the three are equal.
+ */
+const SEEDS_MIN_BY_CONSUMER: Readonly<Record<string, number>> = {
+  'Cascade The Reels': 100,
+  'Directional Cascade': 100,
+  'Weighted Reels': 100,
+  'Symbol Value Grid': 100,
+  'Pick Bonus': 100,
+  'Hold And Win Grid': 200
+};
+
 // ============================================================================
 // TYPE DEFINITIONS
 // ============================================================================
@@ -1780,19 +1797,24 @@ ${originalComponentStructure}
         }
       });
 
-      // (2026-10-04, certification) Cascade The Reels / Directional Cascade take one value per refilled
-      // cell and refuse a short Seeds array, and games built before that left their refill ISAAC at size
-      // 1. The ISAAC node itself yields at least 100 values when its array feeds a cascade's Seeds
-      // (private xgenia-pro-nodes isaac-rng-array.js _effectiveSize); the compiled maths must draw the
-      // same, or the editor and the RGS play different games.
+      // (2026-10-04, certification) Cascade The Reels / Directional Cascade, Weighted Reels, Symbol Value
+      // Grid, Pick Bonus and Hold And Win Grid take one value per random outcome and refuse a short Seeds
+      // array, and games built before that left these ISAACs at size 1 (or one per reel). The ISAAC node
+      // itself yields at least SEEDS_MIN_BY_CONSUMER[type] values when its array feeds one of their
+      // Seeds (private xgenia-pro-nodes isaac-rng-array.js _effectiveSize — see the table there); the
+      // compiled maths must draw the same, or the editor and the RGS play different games.
       if (/(^|\/)ISAAC Random Number Array Generator$/.test(String(node.typename))) {
-        const feedsCascade = this.connections.some((c) =>
-          c.fromId === node.id && c.fromProperty === 'array' && /^seeds$/i.test(String(c.toProperty)) &&
-          /(^|\/)(Cascade The Reels|Directional Cascade)$/.test(String(this.nodes.get(c.toId)?.typename ?? '')));
+        let min = 0;
+        for (const c of this.connections) {
+          if (c.fromId !== node.id || c.fromProperty !== 'array' || !/^seeds$/i.test(String(c.toProperty))) continue;
+          const type = String(this.nodes.get(c.toId)?.typename ?? '').replace(/^.*\//, '');
+          const need = Object.prototype.hasOwnProperty.call(SEEDS_MIN_BY_CONSUMER, type) ? SEEDS_MIN_BY_CONSUMER[type] : 0;
+          if (need > min) min = need;
+        }
         const sizeWired = this.connections.some((c) => c.toId === node.id && c.toProperty === 'size');
-        if (feedsCascade && !sizeWired) {
+        if (min > 0 && !sizeWired) {
           const current = Number(inputMappings.get('size'));
-          if (!(Number.isFinite(current) && current >= 100)) inputMappings.set('size', '100');
+          if (!(Number.isFinite(current) && current >= min)) inputMappings.set('size', String(min));
         }
       }
 

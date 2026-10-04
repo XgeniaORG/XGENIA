@@ -132,12 +132,29 @@ function _convertNoodlToXgenia(obj) {
  * whose `array` feeds a cascade's Seeds to at least CASCADE_SEEDS_MIN (covers boards up to 10×10).
  * Idempotent and version-free: it runs on every load and only ever raises a size, so a project it
  * touched still opens in an older editor.
+ *
+ * The same day the rule reached every other node that drew several outcomes from one value: Weighted
+ * Reels (dynamic mode one value per cell, static one per reel, two in the free-spin path), Symbol
+ * Value Grid (one per coin), Pick Bonus (one per shuffle step) and Hold And Win Grid (up to two per
+ * free cell on a respin). SEEDS_MIN_BY_CONSUMER holds the minimum for each; an ISAAC feeding several
+ * gets the largest. The SAME table lives in the ISAAC node (private xgenia-pro-nodes
+ * isaac-rng-array.js, which explains each number) and the RGS compiler (xgenia-runtime
+ * src/api/supabase-converter.ts); xgenia-runtime test/slot-features/cascade-seeds-upgrade.test.js
+ * checks the three are equal.
  */
 const CASCADE_SEEDS_MIN = 100;
-const CASCADE_TYPES = new Set(['Cascade The Reels', 'Directional Cascade']);
+const SEEDS_MIN_BY_CONSUMER = {
+  'Cascade The Reels': CASCADE_SEEDS_MIN,
+  'Directional Cascade': CASCADE_SEEDS_MIN,
+  'Weighted Reels': 100,
+  'Symbol Value Grid': 100,
+  'Pick Bonus': 100,
+  'Hold And Win Grid': 200
+};
 const ISAAC_TYPE = 'ISAAC Random Number Array Generator';
+const _bareType = (t) => String(t || '').replace(/^.*\//, '');
 
-function _ensureCascadeSeedsSize(component) {
+function _ensureSeedsSize(component) {
   const graph = component && component.graph;
   if (!graph || !Array.isArray(graph.connections)) return;
   const byId = new Map();
@@ -153,17 +170,21 @@ function _ensureCascadeSeedsSize(component) {
     if (!c || c.fromProperty !== 'array' || !/^seeds$/i.test(String(c.toProperty || ''))) continue;
     const from = byId.get(c.fromId);
     const to = byId.get(c.toId);
-    if (!from || !to || from.type !== ISAAC_TYPE || !CASCADE_TYPES.has(to.type)) continue;
-    if (sizeWired.has(from.id)) continue;
+    if (!from || !to || _bareType(from.type) !== ISAAC_TYPE) continue;
+    const min = Object.prototype.hasOwnProperty.call(SEEDS_MIN_BY_CONSUMER, _bareType(to.type)) ? SEEDS_MIN_BY_CONSUMER[_bareType(to.type)] : 0;
+    if (!min || sizeWired.has(from.id)) continue;
     if (!from.parameters) from.parameters = {};
     const size = Number(from.parameters.size);
-    if (!(Number.isFinite(size) && size >= CASCADE_SEEDS_MIN)) from.parameters.size = CASCADE_SEEDS_MIN;
+    if (!(Number.isFinite(size) && size >= min)) from.parameters.size = min;
   }
 }
 
 module.exports = {
-  _ensureCascadeSeedsSize,
+  _ensureSeedsSize,
+  // the name the 2026-10-04 cascade patch shipped under
+  _ensureCascadeSeedsSize: _ensureSeedsSize,
   CASCADE_SEEDS_MIN,
+  SEEDS_MIN_BY_CONSUMER,
   applyPatches: function (projectJSON, patchSets = Patches) {
     // Handle the case where projectJSON might be a direct nodes array
     if (projectJSON.nodes && Array.isArray(projectJSON.nodes)) {
@@ -184,7 +205,7 @@ module.exports = {
         component.graph.roots.forEach((node) => {
           _applyPatchesRecursive(node, patchSets);
         });
-      _ensureCascadeSeedsSize(component);
+      _ensureSeedsSize(component);
     });
     }
     

@@ -13,7 +13,9 @@ export function defineSlotFeatureCores(): Record<string, SlotFeatureCore>;
 
 export const normaliseSeed: SlotFeatureCore;
 export const requireSeeds: SlotFeatureCore;
-export const lcg: SlotFeatureCore;
+export const outcomeSeeds: SlotFeatureCore;
+export const scaledIndex: SlotFeatureCore;
+export const scaledWeightedIndex: SlotFeatureCore;
 export const gridDims: SlotFeatureCore;
 export const cloneGrid: SlotFeatureCore;
 export const readPositions: SlotFeatureCore;

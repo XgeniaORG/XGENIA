@@ -21,15 +21,14 @@
  *
  * Grid conventions (identical to the existing slot nodes): reels[col][row], 1-based integer
  * symbols, 0 = blank; positions are [row, col]; paytable[symbol][count] = multiplier; money in
- * integer minor units; randomness from `Seeds` (ISAAC Random Number Array Generator integers,
- * 0..1e12) through the same Park-Miller LCG that Weighted Reels uses — except the two cascades
- * (Cascade The Reels, Directional Cascade), which since 2026-10-04 take one Seeds value per refilled
- * cell (see cellSeedPicker).
- * Unseeded => throw (fail closed, the 2026-09-08 product rule).
+ * integer minor units; randomness from `Seeds` (ISAAC Random Number Array Generator values,
+ * 0..1e12): since 2026-10-04 every random outcome takes its OWN Seeds value, scaled directly to the
+ * outcome (cascade refills: one per refilled cell, cellSeedPicker; every other seeded core:
+ * outcomeSeeds) — no outcome comes from a generator seeded by one value any more.
+ * Unseeded or too few values => throw (fail closed, the 2026-09-08 product rule).
  */
 function defineSlotFeatureCores() {
   var LCG_MOD = 2147483647;
-  var LCG_MUL = 16807;
 
   // ── generic helpers ──────────────────────────────────────────────────────
 
@@ -83,7 +82,10 @@ function defineSlotFeatureCores() {
     return row + ':' + col;
   }
 
-  // ── randomness: Seeds -> Park-Miller LCG (same generator as Weighted Reels) ──
+  // ── randomness: Seeds, one certified value per outcome ─────────────────────
+  // normaliseSeed / requireSeeds only decide whether a node is seeded at all (and word its refusal);
+  // no outcome is drawn from them. The Park-Miller LCG that used to turn seeds[0] into a stream of
+  // outcomes is gone (2026-10-04) — see cellSeedPicker and outcomeSeeds.
 
   function normaliseSeed(seed) {
     var n = Number(seed);
@@ -120,6 +122,14 @@ function defineSlotFeatureCores() {
   // outside 0..1e12, or a 0..1 float (ISAAC never yields one; it would refill every cell with the
   // first symbol) => throw, fail closed like unseeded. The producing ISAAC needs size >= rows x columns.
   var SEED_RANGE = 1e12;
+  /** Throws unless seeds[k] is an ISAAC Random Number Array Generator value (see cellSeedPicker). */
+  function checkSeedValue(seeds, k, nodeName) {
+    var v = seeds[k];
+    if (typeof v !== 'number' || !(v >= 0 && v < SEED_RANGE) || (v > 0 && v < 1)) {
+      fail(nodeName, 'Seeds[' + k + '] = ' + String(v) + ' is not an ISAAC Random Number Array Generator value ' +
+        '(a number, 0 <= n < 1e12; a 0..1 float is refused). Wire ISAAC Random Number Array Generator.array \u2192 Seeds.');
+    }
+  }
   function cellSeedPicker(seeds, cells, rows, cols, nodeName) {
     var have = Array.isArray(seeds) ? seeds.length : 0;
     if (have < cells) {
@@ -128,49 +138,66 @@ function defineSlotFeatureCores() {
         'Set the ISAAC Random Number Array Generator feeding Seeds (RP_PassISAAC or RP_RefillISAAC when the round player built it) ' +
         'to size >= rows x columns (' + rows + ' x ' + cols + ' = ' + rows * cols + ').');
     }
-    for (var k = 0; k < cells; k++) {
-      var v = seeds[k];
-      if (typeof v !== 'number' || !(v >= 0 && v < SEED_RANGE) || (v > 0 && v < 1)) {
-        fail(nodeName, 'Seeds[' + k + '] = ' + String(v) + ' is not an ISAAC Random Number Array Generator value ' +
-          '(a number, 0 <= n < 1e12; a 0..1 float is refused). Wire ISAAC Random Number Array Generator.array \u2192 Seeds.');
-      }
-    }
+    for (var k = 0; k < cells; k++) checkSeedValue(seeds, k, nodeName);
     var next = 0;
     return {
-      pick: function (base) {
-        var u = seeds[next++];
-        return base[Math.min(base.length - 1, Math.floor((u * base.length) / SEED_RANGE))];
-      },
+      pick: function (base) { return base[scaledIndex(seeds[next++], base.length)]; },
       used: function () { return next; }
     };
   }
-  function lcg(seed) {
-    var s = normaliseSeed(seed);
-    function next() { s = (s * LCG_MUL) % LCG_MOD; return s; }
-    function nextFloat() { return (next() - 1) / (LCG_MOD - 1); }
+
+  // \u2500\u2500 one certified value per random OUTCOME (every other seeded core) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  // (2026-10-04, certification \u2014 the cascades' rule above, for the rest) Symbol Value Grid, Hold And
+  // Win Grid and Pick Bonus drew all their outcomes from ONE Park-Miller LCG stream seeded by seeds[0];
+  // Feature Trigger and Wheel Spin took one LCG step of seeds[0]. A lab flags outcomes a simple
+  // generator derives from one certified draw, and an LCG step is not a scaling it can audit. Now each
+  // random outcome takes its own Seeds value, consumed in order, and maps to the outcome directly:
+  //   * one of n equally likely:  index = floor(v * n / 1e12)                     (scaledIndex)
+  //   * weighted w_0 .. w_m-1:    the index whose slice of [0, W) holds v * W / 1e12, W = sum of w
+  //                               (scaledWeightedIndex; a zero weight never lands)
+  //   * a probability p:          v / 1e12 < p                                    (Feature Trigger)
+  // Each map is monotone in the 32-bit ISAAC draw x behind v (editor v = floor(x / 2^32 * 1e12), RGS
+  // v = x / 2^32 * 1e12), so every outcome is ONE contiguous run of the 2^32 draws, 2^32 * p_i long
+  // give or take about one draw (counted exactly in both forms), so |P - p_i| < 2.4e-10 \u2014 the same
+  // bound as the cascades, the least one 32-bit draw can do when p_i * 2^32 is not a whole number.
+  // How many values a call needs is decided by its inputs before anything is drawn (never by an
+  // earlier draw), and fewer than that throws: fail closed, like unseeded, the same way every time.
+  function scaledIndex(v, n) {
+    return Math.min(n - 1, Math.floor((v * n) / SEED_RANGE));
+  }
+  function scaledWeightedIndex(v, weights) {
+    var total = 0, last = -1, i, w;
+    for (i = 0; i < weights.length; i++) {
+      w = Math.max(0, toNum(weights[i], 0));
+      if (w > 0) { total += w; last = i; }
+    }
+    if (total <= 0) return -1;
+    var r = (v * total) / SEED_RANGE, acc = 0;
+    for (i = 0; i < weights.length; i++) {
+      w = Math.max(0, toNum(weights[i], 0));
+      if (w > 0) { acc += w; if (r < acc) return i; }
+    }
+    return last; // r rounded up to W itself: the top of the range belongs to the last weighted index
+  }
+  /**
+   * The values for `needed` outcomes, in order. `what` finishes "N values but M ...", `sizeHint` says
+   * what size the producing ISAAC node needs. Empty Seeds keeps the old "Seeds is required" refusal.
+   */
+  function outcomeSeeds(seeds, needed, nodeName, what, sizeHint) {
+    var have = Array.isArray(seeds) ? seeds.length : 0;
+    if (have === 0) requireSeeds(seeds, Math.max(1, needed), nodeName);
+    if (have < needed) {
+      fail(nodeName, 'Seeds has ' + have + ' values but ' + needed + ' ' + what +
+        ': every random outcome takes its own Seeds value and none is reused. ' +
+        'Set the ISAAC Random Number Array Generator feeding Seeds to size >= ' + sizeHint + '.');
+    }
+    for (var k = 0; k < needed; k++) checkSeedValue(seeds, k, nodeName);
+    var next = 0;
     return {
-      nextFloat: nextFloat,
-      integer: function (min, max) { return Math.floor(nextFloat() * (max - min + 1)) + min; },
-      pick: function (list) { return list[Math.floor(nextFloat() * list.length)]; },
-      weightedIndex: function (weights) {
-        var total = 0, i;
-        for (i = 0; i < weights.length; i++) total += Math.max(0, toNum(weights[i], 0));
-        if (total <= 0) return -1;
-        var r = nextFloat() * total;
-        for (i = 0; i < weights.length; i++) {
-          r -= Math.max(0, toNum(weights[i], 0));
-          if (r < 0) return i;
-        }
-        return weights.length - 1;
-      },
-      shuffle: function (list) {
-        var out = list.slice();
-        for (var i = out.length - 1; i > 0; i--) {
-          var j = Math.floor(nextFloat() * (i + 1));
-          var t = out[i]; out[i] = out[j]; out[j] = t;
-        }
-        return out;
-      }
+      index: function (n) { return scaledIndex(seeds[next++], n); },
+      weighted: function (weights) { return scaledWeightedIndex(seeds[next++], weights); },
+      unit: function () { return seeds[next++] / SEED_RANGE; },
+      used: function () { return next; }
     };
   }
 
@@ -397,10 +424,12 @@ function defineSlotFeatureCores() {
     var valueGrid = blankGrid(dims.cols, dims.rows, 0);
     var total = 0;
     if (coinPositions.length > 0) {
-      requireSeeds(a.seeds, 1, NODE);
-      var rng = lcg(a.seeds[0]);
+      // (2026-10-04, certification) coin k (in coinPositions order: column by column, top to bottom)
+      // takes Seeds[k] for its value — it was one LCG stream from seeds[0]. See outcomeSeeds.
+      var draw = outcomeSeeds(a.seeds, coinPositions.length, NODE, 'coins need a value',
+        'the most coins the grid can show (rows x columns = ' + dims.rows * dims.cols + ')');
       for (var i = 0; i < coinPositions.length; i++) {
-        var idx = rng.weightedIndex(weights);
+        var idx = draw.weighted(weights);
         var v = idx >= 0 ? values[idx] : 0;
         var amount = asMultiples ? roundMoney(v * bet) : roundMoney(v);
         valueGrid[coinPositions[i][1]][coinPositions[i][0]] = amount;
@@ -756,18 +785,28 @@ function defineSlotFeatureCores() {
     var active = toBool(st.active);
     var doReset = toBool(a.reset), doStart = toBool(a.start), doRespin = toBool(a.respin);
     var newCoins = 0;
-    var rng = null;
-    function ensureRng() {
-      if (rng === null) { requireSeeds(a.seeds, 1, NODE); rng = lcg(a.seeds[0]); }
-      return rng;
+    // (2026-10-04, certification) every draw takes its own Seeds value, in draw order — it was one LCG
+    // stream from seeds[0]. start: one value per landed coin that needs a value. respin: each free
+    // cell takes one value for what lands there and, when that is a coin, the next value for its
+    // value; the count is not known until the cells are drawn, so the respin needs the most it can
+    // use, 2 x free cells, before it draws anything. See outcomeSeeds.
+    var SIZE_HINT = '2 x rows x columns = ' + 2 * dims.rows * dims.cols;
+    var draw = null;
+    function givenValue(c0, r0) {
+      return Array.isArray(valueGridIn[c0]) && typeof valueGridIn[c0][r0] === 'number' && valueGridIn[c0][r0] > 0 ? valueGridIn[c0][r0] : 0;
     }
     function drawValue() {
-      var idx = ensureRng().weightedIndex(coinWeights);
+      var idx = draw.weighted(coinWeights);
       var v = idx >= 0 ? coinValues[idx] : 0;
       return asMultiples ? roundMoney(v * bet) : roundMoney(v);
     }
     if (doReset) { grid = null; values = null; respinsLeft = 0; active = false; }
     if (doStart || (!active && !doRespin)) {
+      var toPrice = 0;
+      for (var c0 = 0; c0 < dims.cols; c0++) {
+        for (var r0 = 0; r0 < dims.rows; r0++) if (reels[c0][r0] === coin && givenValue(c0, r0) === 0) toPrice++;
+      }
+      if (toPrice > 0) draw = outcomeSeeds(a.seeds, toPrice, NODE, 'landed coins need a value', SIZE_HINT);
       grid = [];
       values = [];
       for (var c = 0; c < dims.cols; c++) {
@@ -775,7 +814,7 @@ function defineSlotFeatureCores() {
         values.push([]);
         for (var r = 0; r < dims.rows; r++) {
           if (reels[c][r] === coin) {
-            var given = Array.isArray(valueGridIn[c]) && typeof valueGridIn[c][r] === 'number' && valueGridIn[c][r] > 0 ? valueGridIn[c][r] : 0;
+            var given = givenValue(c, r);
             grid[c].push(coin);
             values[c].push(given > 0 ? given : drawValue());
             newCoins++;
@@ -789,11 +828,16 @@ function defineSlotFeatureCores() {
       active = newCoins > 0 || doStart;
     } else if (doRespin && active && grid !== null) {
       var base = weightedBaseReel(a.symbolWeights, reels, NODE);
-      var r2 = ensureRng();
+      var free = 0;
+      for (var c1 = 0; c1 < dims.cols; c1++) {
+        for (var r1 = 0; r1 < dims.rows; r1++) if (grid[c1][r1] !== coin) free++;
+      }
+      draw = outcomeSeeds(a.seeds, Math.max(1, 2 * free), NODE,
+        'are needed to respin ' + free + ' free cells (one for each cell, one more for each coin that lands)', SIZE_HINT);
       for (var c2 = 0; c2 < dims.cols; c2++) {
         for (var rr = 0; rr < dims.rows; rr++) {
           if (grid[c2][rr] === coin) continue;
-          var drawn = r2.pick(base);
+          var drawn = base[draw.index(base.length)];
           if (drawn === coin) { grid[c2][rr] = coin; values[c2][rr] = drawValue(); newCoins++; }
           else { grid[c2][rr] = blank; values[c2][rr] = 0; }
         }
@@ -852,8 +896,9 @@ function defineSlotFeatureCores() {
     var a = args || {};
     var NODE = 'Feature Trigger';
     var chance = Math.max(0, Math.min(1, toNum(a.chance, 0.05)));
-    requireSeeds(a.seeds, 1, NODE);
-    var roll = lcg(a.seeds[0]).nextFloat();
+    // (2026-10-04, certification) roll = Seeds[0] / 1e12 — the certified value itself, no LCG step
+    // between it and the outcome. P(triggered) is within 2.4e-10 of chance (see outcomeSeeds).
+    var roll = outcomeSeeds(a.seeds, 1, NODE, 'roll needs a value', '1').unit();
     return { triggered: roll < chance, roll: roll, chance: chance };
   }
 
@@ -940,8 +985,10 @@ function defineSlotFeatureCores() {
       segments.push(seg);
     }
     if (segments.length === 0) fail(NODE, 'segments is empty: provide an array of labels or of { label, weight, prize } objects.');
-    requireSeeds(a.seeds, 1, NODE);
-    var idx = lcg(a.seeds[0]).weightedIndex(segments.map(function (sg) { return sg.weight; }));
+    // (2026-10-04, certification) the segment is Seeds[0] scaled straight onto the weights — it was one
+    // LCG step of seeds[0]. See outcomeSeeds.
+    var draw = outcomeSeeds(a.seeds, 1, NODE, 'spin needs a value', '1');
+    var idx = draw.weighted(segments.map(function (sg) { return sg.weight; }));
     if (idx < 0) fail(NODE, 'all segment weights are zero.');
     var sweep = 360 / segments.length;
     return {
@@ -970,10 +1017,19 @@ function defineSlotFeatureCores() {
     if (toBool(a.reset)) { pool = []; revealedIdx = []; total = 0; active = false; ended = false; picksMade = 0; }
     if (toBool(a.start)) {
       if (prizes.length === 0) fail(NODE, 'prizes is empty.');
-      requireSeeds(a.seeds, 1, NODE);
       var full = prizes.slice();
       for (var e = 0; e < endMarkers; e++) full.push(endValue);
-      pool = lcg(a.seeds[0]).shuffle(full);
+      // (2026-10-04, certification) Fisher-Yates where each swap takes its own Seeds value — it was one
+      // LCG stream from seeds[0]. Step k (k = 0 .. n-2) fixes tile n-1-k: it swaps it with tile
+      // floor(Seeds[k] * (n - k) / 1e12), so a pool of n tiles needs n - 1 values (at least one, to
+      // prove it is seeded). See outcomeSeeds.
+      var draw = outcomeSeeds(a.seeds, Math.max(1, full.length - 1), NODE, 'shuffle steps need a value',
+        'prizes + endMarkers - 1 = ' + Math.max(1, full.length - 1));
+      pool = full.slice();
+      for (var i0 = pool.length - 1; i0 > 0; i0--) {
+        var j0 = draw.index(i0 + 1);
+        var t0 = pool[i0]; pool[i0] = pool[j0]; pool[j0] = t0;
+      }
       revealedIdx = []; total = 0; picksMade = 0; ended = false; active = true;
     }
     if (toBool(a.pick) && active && !ended) {
@@ -1195,7 +1251,8 @@ function defineSlotFeatureCores() {
 
   return {
     // helpers (also useful to the client nodes)
-    normaliseSeed: normaliseSeed, requireSeeds: requireSeeds, lcg: lcg, gridDims: gridDims, cloneGrid: cloneGrid,
+    normaliseSeed: normaliseSeed, requireSeeds: requireSeeds, outcomeSeeds: outcomeSeeds, scaledIndex: scaledIndex,
+    scaledWeightedIndex: scaledWeightedIndex, gridDims: gridDims, cloneGrid: cloneGrid,
     readPositions: readPositions, weightedBaseReel: weightedBaseReel, bracketMultiplier: bracketMultiplier,
     // cores
     evaluateClusterPays: evaluateClusterPays,

@@ -1287,25 +1287,47 @@ export class SlotGameCalculationGenerator {
   }
 
   private static generateWeightedReelsLogic(): string {
+    // ONE CERTIFIED VALUE PER OUTCOME (2026-10-04, certification) — the same rules, messages and
+    // scaling as the editor node (private xgenia-pro-nodes weighted-reels.js, see the note at its top):
+    //   * static: reel idx stops at floor(Seeds[idx] * L / 1e12) — it was Seeds[idx] % (2^31 - 1) put
+    //     through one Park-Miller LCG step;
+    //   * dynamic: cell (col, row) takes Seeds[col * rowSize + row], scaled as
+    //     baseReel[floor(v * n / 1e12)] — it was one LCG per column seeded by Seeds[col], and when Seeds
+    //     was short it fell back to Math.random() (rgsRandom after sanitizing): the editor refused, the
+    //     RGS played on. It also read an undeclared lower-case `seeds`, so every dynamic round threw
+    //     "seeds is not defined". Now both sides refuse fewer than rows x columns values;
+    //   * a value that is not ISAAC output (outside 0..1e12, or a 0..1 float) is refused.
+    // |P - 1/n| < 2.4e-10 per outcome (see slot-feature-cores.js outcomeSeeds). The RGS has no
+    // freeSpinTrigger, so the editor's two free-spin paths have no counterpart here.
+    // xgenia-runtime src/api/test-slot-feature-parity.ts runs this script in the real XRGS sandbox
+    // against the editor node.
     return `
-      // Inputs (reelStrips, seeds, rowSize, symbolWeights, freeSpinSymbol, blockedReels, stopPosList, isDynamic) come from input mapping
+      // Inputs (reelStrips, Seeds, rowSize, symbolWeights, freeSpinSymbol, blockedReels, stopPosList, isDynamic) come from input mapping
       const inputStopPosList = Array.isArray(stopPosList) ? stopPosList : [];
-
-      // Seeded random number generator (Linear Congruential Generator)
-      function SeededRandom(seed) {
-        this.seed = seed % 2147483647;
-        if (this.seed <= 0) this.seed += 2147483646;
+      const _SEED_RANGE = 1e12;
+      function _requireSeeds(needed, sizeHint) {
+        const have = Array.isArray(Seeds) ? Seeds.length : 0;
+        if (have === 0) {
+          throw new Error('[Weighted Reels] Seeds is required (' + needed + ' needed, got 0): wire ' +
+            'ISAAC Random Number Array Generator.array \u2192 Seeds (ISAAC size >= ' + sizeHint + '). ' +
+            'Unseeded spins are not provably fair and are refused.');
+        }
+        if (have < needed) {
+          throw new Error('[Weighted Reels] Seeds has ' + have + ' values but ' + needed + ' are needed: every random outcome ' +
+            'takes its own Seeds value and none is reused. Set the ISAAC Random Number Array Generator feeding ' +
+            'Seeds to size >= ' + sizeHint + '.');
+        }
+        for (let k = 0; k < needed; k++) {
+          const v = Seeds[k];
+          if (typeof v !== 'number' || !(v >= 0 && v < _SEED_RANGE) || (v > 0 && v < 1)) {
+            throw new Error('[Weighted Reels] Seeds[' + k + '] = ' + String(v) + ' is not an ISAAC Random Number Array Generator value ' +
+              '(a number, 0 <= n < 1e12; a 0..1 float is refused). Wire ISAAC Random Number Array Generator.array \u2192 Seeds.');
+          }
+        }
       }
-      SeededRandom.prototype.next = function () {
-        this.seed = (this.seed * 16807) % 2147483647;
-        return this.seed;
-      };
-      SeededRandom.prototype.nextFloat = function () {
-        return (this.next() - 1) / 2147483646;
-      };
-      SeededRandom.prototype.integer = function (min, max) {
-        return Math.floor(this.nextFloat() * (max - min + 1)) + min;
-      };
+      function _scaledIndex(v, n) {
+        return Math.min(n - 1, Math.floor((v * n) / _SEED_RANGE));
+      }
 
       let reels = [];
       let outputStopPosList = [];
@@ -1328,21 +1350,12 @@ export class SlotGameCalculationGenerator {
         for (let i = 1; i <= symbolWeights.length; i++) {
           baseReel.push(...Array(symbolWeightsRelativeToMin[i - 1]).fill(i));
         }
-        // PROVABLY FAIR (2026-07-03, mirrors the editor's 2026-06-23 fix in
-        // weighted-reels.js): seed each column's RNG from the server-provided seeds
-        // so dynamic-mode outcomes are reproducible/auditable from the seed. The
-        // unseeded Math.random() here made server outcomes non-reproducible — a
-        // provably-fair violation the editor side had already fixed. Falls back to
-        // Math.random() only when seeds aren't provided (one per column).
-        const _dynSeeds = Array.isArray(seeds) ? seeds : [];
-        const _haveDynSeeds = _dynSeeds.length >= columnSize;
+        // one value per cell, column by column; fewer than rows x columns is refused (no fallback)
+        _requireSeeds(rowSize * columnSize, 'rows x columns (' + rowSize + ' x ' + columnSize + ' = ' + rowSize * columnSize + ')');
         for (let col = 0; col < columnSize; col++) {
           const reel = [];
-          const colRng = _haveDynSeeds ? new SeededRandom(_dynSeeds[col]) : null;
           for (let row = 0; row < rowSize; row++) {
-            const rand = colRng ? colRng.nextFloat() : Math.random();
-            const idx = Math.floor(rand * baseReel.length);
-            reel.push(baseReel[idx]);
+            reel.push(baseReel[_scaledIndex(Seeds[col * rowSize + row], baseReel.length)]);
           }
           reels.push(reel);
         }
@@ -1365,14 +1378,13 @@ export class SlotGameCalculationGenerator {
           Array.isArray(inputStopPosList) &&
           inputStopPosList.length === reelStrips.length &&
           inputStopPosList.every((pos) => Number.isInteger(pos) && pos >= 0 && pos < reelStripLength);
-        if (!useInputStops && (!Array.isArray(Seeds) || Seeds.length < reelStrips.length)) {
-          throw new Error('Seeds array must contain at least ' + reelStrips.length + ' elements');
-        }
+        // one value per reel
+        if (!useInputStops) _requireSeeds(reelStrips.length, 'the number of reels (' + reelStrips.length + ')');
         for (let idx = 0; idx < reelStrips.length; idx++) {
           const reelStrip = reelStrips[idx];
           const pointerPos = useInputStops
             ? inputStopPosList[idx]
-            : new SeededRandom(Seeds[idx]).integer(0, reelStripLength - 1);
+            : _scaledIndex(Seeds[idx], reelStripLength);
           const reel = Array.from({ length: rowSize }, (_, i) => reelStrip[(pointerPos + i) % reelStripLength]);
           outputStopPosList.push(pointerPos);
           reels.push(reel);
