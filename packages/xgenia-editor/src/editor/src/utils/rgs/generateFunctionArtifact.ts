@@ -330,7 +330,7 @@ function buildProjectContext(project: any) {
 
 export function generateFunctionArtifact(component: any, project: any): FunctionArtifact {
   // Lazily require to avoid bundling the converter where it isn't needed.
-  const { CloudFunctionConverter } = require('@xgenia/runtime/src/api/supabase-converter');
+  const { CloudFunctionConverter } = require('@xgenia-utils/liveEngine').loadRgsCompiler().mod;
 
   // "/#__cloud__/__Component_1__" → "__Component_1__";
   // "/#__maths__/Slot/SlotMaths" → "SlotMaths" (a maths component may be filed in

@@ -4,6 +4,7 @@ import { ProjectModel } from '@xgenia-models/projectmodel';
 import { createHash } from '@xgenia-utils/exporter/hash/xxhash64';
 
 import { HtmlProcessor } from './processors/html-processor';
+import { resolveExternalPath } from '@xgenia-utils/liveEngine';
 
 type DeployIndexItem = {
   url: string;
@@ -30,7 +31,7 @@ export function getExternalFolderPath() {
  * @returns
  */
 export async function loadDeployIndex(filePath: string): Promise<DeployIndex> {
-  const indexPath = filesystem.join(getExternalFolderPath(), filePath);
+  const indexPath = resolveExternalPath(filePath);
   const index: DeployIndex = await filesystem.readJson(indexPath);
 
   return withRuntimeChunks(index, filePath);
@@ -60,10 +61,7 @@ export async function loadDeployIndex(filePath: string): Promise<DeployIndex> {
  */
 async function withRuntimeChunks(index: DeployIndex, indexFilePath: string): Promise<DeployIndex> {
   try {
-    const runtimeDir = filesystem.join(
-      getExternalFolderPath(),
-      indexFilePath.replace(/[\\\/][^\\\/]*$/, '')
-    );
+    const runtimeDir = resolveExternalPath(indexFilePath.replace(/[\\\/][^\\\/]*$/, ''));
 
     const listed = new Set(index.map((f: any) => String(f.url)));
     const files = await filesystem.listDirectoryFiles(runtimeDir);
@@ -126,7 +124,7 @@ async function _writeFileToFolder({
   flatAssetMap,
   suppressConsole
 }: WriteFileToFolderArgs) {
-  const fullPath = filesystem.join(getExternalFolderPath(), runtimeType, url);
+  const fullPath = resolveExternalPath(filesystem.join(runtimeType, url));
 
   if (!filesystem.exists(fullPath)) {
     // TODO: Save this warning somewhere, usually, this is not an issue though.
