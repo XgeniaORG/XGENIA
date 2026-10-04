@@ -122,7 +122,48 @@ function _convertNoodlToXgenia(obj) {
   }
 }
 
+
+/**
+ * (2026-10-04, certification) Cascade refills take one certified RNG value PER REFILLED CELL
+ * (Cascade The Reels / Directional Cascade): they used to run one LCG stream from Seeds[0], which a
+ * test lab flags. The nodes now fail closed when Seeds holds fewer values than cells to refill —
+ * and every existing round-player game created its refill ISAAC with the default size of 1, so on
+ * the new nodes every multi-cell refill would be refused. This raises the size of any ISAAC node
+ * whose `array` feeds a cascade's Seeds to at least CASCADE_SEEDS_MIN (covers boards up to 10×10).
+ * Idempotent and version-free: it runs on every load and only ever raises a size, so a project it
+ * touched still opens in an older editor.
+ */
+const CASCADE_SEEDS_MIN = 100;
+const CASCADE_TYPES = new Set(['Cascade The Reels', 'Directional Cascade']);
+const ISAAC_TYPE = 'ISAAC Random Number Array Generator';
+
+function _ensureCascadeSeedsSize(component) {
+  const graph = component && component.graph;
+  if (!graph || !Array.isArray(graph.connections)) return;
+  const byId = new Map();
+  const walk = (nodes) => {
+    for (const n of nodes || []) {
+      if (n && n.id) byId.set(n.id, n);
+      if (n && Array.isArray(n.children)) walk(n.children);
+    }
+  };
+  walk(graph.roots);
+  const sizeWired = new Set(graph.connections.filter((c) => c && c.toProperty === 'size').map((c) => c.toId));
+  for (const c of graph.connections) {
+    if (!c || c.fromProperty !== 'array' || !/^seeds$/i.test(String(c.toProperty || ''))) continue;
+    const from = byId.get(c.fromId);
+    const to = byId.get(c.toId);
+    if (!from || !to || from.type !== ISAAC_TYPE || !CASCADE_TYPES.has(to.type)) continue;
+    if (sizeWired.has(from.id)) continue;
+    if (!from.parameters) from.parameters = {};
+    const size = Number(from.parameters.size);
+    if (!(Number.isFinite(size) && size >= CASCADE_SEEDS_MIN)) from.parameters.size = CASCADE_SEEDS_MIN;
+  }
+}
+
 module.exports = {
+  _ensureCascadeSeedsSize,
+  CASCADE_SEEDS_MIN,
   applyPatches: function (projectJSON, patchSets = Patches) {
     // Handle the case where projectJSON might be a direct nodes array
     if (projectJSON.nodes && Array.isArray(projectJSON.nodes)) {
@@ -143,6 +184,7 @@ module.exports = {
         component.graph.roots.forEach((node) => {
           _applyPatchesRecursive(node, patchSets);
         });
+      _ensureCascadeSeedsSize(component);
     });
     }
     

@@ -22,7 +22,9 @@
  * Grid conventions (identical to the existing slot nodes): reels[col][row], 1-based integer
  * symbols, 0 = blank; positions are [row, col]; paytable[symbol][count] = multiplier; money in
  * integer minor units; randomness from `Seeds` (ISAAC Random Number Array Generator integers,
- * 0..1e12) through the same Park-Miller LCG that Weighted Reels and Cascade The Reels use.
+ * 0..1e12) through the same Park-Miller LCG that Weighted Reels uses — except the two cascades
+ * (Cascade The Reels, Directional Cascade), which since 2026-10-04 take one Seeds value per refilled
+ * cell (see cellSeedPicker).
  * Unseeded => throw (fail closed, the 2026-09-08 product rule).
  */
 function defineSlotFeatureCores() {
@@ -101,6 +103,46 @@ function defineSlotFeatureCores() {
       if (isNaN(normaliseSeed(seeds[i]))) fail(nodeName, 'Seeds[' + i + '] is not a number.');
     }
     return seeds;
+  }
+  // ── one certified value per refilled cell (Cascade The Reels, Directional Cascade) ──
+  // (2026-10-04, certification) A tumble's refill symbols are game OUTCOMES. They used to come from
+  // ONE Park-Miller LCG stream seeded by Seeds[0]: only that first value came from the certified RNG,
+  // every other symbol from a 2^31-state generator whose successive outputs are correlated. GLI-11 /
+  // GLI-19, UKGC RTS and MGA labs require every outcome to come from the certified RNG with unbiased
+  // scaling, and flag outcomes a simple PRNG derives from one certified draw. Now refilled cell k (in
+  // the order the refill fills them) takes seeds[k] alone; nothing is reused, stretched or chained.
+  // Seeds are ISAAC Random Number Array Generator values, 0 <= v < 1e12, each one 32-bit draw scaled
+  // by 1e12 / 2^32 (the compiled ISAAC array is rgsRandom() * 1e12, unfloored; the editor floors it).
+  // Symbol = base[floor(v * n / 1e12)], the standard multiply-and-floor scaling: over all 2^32 draws
+  // each index gets 2^32 / n draws give or take 1.002 (counted exactly for n = 1..1000 in both
+  // forms), so |P - 1/n| < 2.4e-10 — the least one 32-bit draw can do when n does not divide 2^32;
+  // rejection would need a variable number of values per cell. Fewer values than cells, a value
+  // outside 0..1e12, or a 0..1 float (ISAAC never yields one; it would refill every cell with the
+  // first symbol) => throw, fail closed like unseeded. The producing ISAAC needs size >= rows x columns.
+  var SEED_RANGE = 1e12;
+  function cellSeedPicker(seeds, cells, rows, cols, nodeName) {
+    var have = Array.isArray(seeds) ? seeds.length : 0;
+    if (have < cells) {
+      fail(nodeName, 'Seeds has ' + have + ' values but ' + cells +
+        ' cells need refilling: every refilled cell takes its own Seeds value and none is reused. ' +
+        'Set the ISAAC Random Number Array Generator feeding Seeds (RP_PassISAAC or RP_RefillISAAC when the round player built it) ' +
+        'to size >= rows x columns (' + rows + ' x ' + cols + ' = ' + rows * cols + ').');
+    }
+    for (var k = 0; k < cells; k++) {
+      var v = seeds[k];
+      if (typeof v !== 'number' || !(v >= 0 && v < SEED_RANGE) || (v > 0 && v < 1)) {
+        fail(nodeName, 'Seeds[' + k + '] = ' + String(v) + ' is not an ISAAC Random Number Array Generator value ' +
+          '(a number, 0 <= n < 1e12; a 0..1 float is refused). Wire ISAAC Random Number Array Generator.array \u2192 Seeds.');
+      }
+    }
+    var next = 0;
+    return {
+      pick: function (base) {
+        var u = seeds[next++];
+        return base[Math.min(base.length - 1, Math.floor((u * base.length) / SEED_RANGE))];
+      },
+      used: function () { return next; }
+    };
   }
   function lcg(seed) {
     var s = normaliseSeed(seed);
@@ -839,8 +881,11 @@ function defineSlotFeatureCores() {
     if (cleared.length === 0) return { reels: out, removedPositions: [], removedCount: 0, hadRemoval: false, direction: direction };
     var base = weightedBaseReel(a.symbolWeights, reels, NODE);
     requireSeeds(a.seeds, 1, NODE);
-    var rng = lcg(a.seeds[0]);
-    function pickSymbol() { return base[Math.floor(rng.nextFloat() * base.length)]; }
+    // (2026-10-04, certification) one Seeds value per refilled cell, in fill order (down / up: column
+    // by column; left / right: row by row) — it was one LCG stream from seeds[0]. See cellSeedPicker.
+    // 'down' stays identical to Cascade The Reels, which follows the same rule.
+    var cellSeeds = cellSeedPicker(a.seeds, cleared.length, dims.rows, dims.cols, NODE);
+    function pickSymbol() { return cellSeeds.pick(base); }
     var c, r, kept, empties, fill, n;
     if (direction === 'down' || direction === 'up') {
       for (c = 0; c < dims.cols; c++) {
@@ -1070,15 +1115,19 @@ function defineSlotFeatureCores() {
     return { rows: rows, flatRows: flat, symbolCount: rows.length, betPerLine: perLine };
   }
 
-  // ── Cascade The Reels — tumble REMOVER + seeded REFILL ─────────────────────────
+  // ── Cascade The Reels — tumble REMOVER + REFILL, one Seeds value per refilled cell ───
   // (2026-10-02) The native node had no server implementation, so every maths using it was
   // refused by the RGS (a round-player slot). This is that node's doCascade for the RGS script.
   // The editor node (private xgenia-pro-nodes cascade-the-reels.js) keeps its own copy so it runs on
   // older runtimes; xgenia-runtime test/slot-features/cascade-the-reels.test.js holds the two equal
-  // (recorded goldens + 500 random boards). Bit-exact with the node: its
-  // own Park-Miller seeding (`seed % MOD`, no flooring — normaliseSeed floors), [row, col] or
-  // {row, col} positions, symbolWeights replicated by ceil(w / min w), else the grid's symbols in
+  // (recorded goldens + 500 random boards). Bit-exact with the node: [row, col] or {row, col}
+  // positions, symbolWeights replicated by ceil(w / min w), else the grid's symbols in
   // column-major first-seen order, and refillFrom top (fill above the survivors) or bottom.
+  //
+  // ONE VALUE PER CELL (2026-10-04, certification): the refill used to be ONE LCG stream from
+  // seeds[0] (`seeds[0] % MOD`, one LCG step per cell). Now cell k in refill order (column 0 first,
+  // then down the gap in each column) takes seeds[k] alone — see cellSeedPicker for the rule, the
+  // scaling and its bias bound. The editor node implements the same rule in its own doCascade.
   function cascadeTheReels(args) {
     var a = args || {};
     var NODE = 'Cascade The Reels';
@@ -1129,12 +1178,8 @@ function defineSlotFeatureCores() {
     if (!Array.isArray(seeds) || seeds.length === 0) {
       fail(NODE, 'Seeds is required: wire ISAAC Random Number Array Generator.array \u2192 Seeds. Unseeded cascade refills are not provably fair and are refused.');
     }
-    var st = seeds[0] % LCG_MOD;
-    if (st <= 0) st += LCG_MOD - 1;
-    function pickSymbol() {
-      st = (st * LCG_MUL) % LCG_MOD;
-      return base[Math.floor(((st - 1) / (LCG_MOD - 1)) * base.length)];
-    }
+    var cellSeeds = cellSeedPicker(seeds, cleared, rowSize, columnSize, NODE);
+    function pickSymbol() { return cellSeeds.pick(base); }
     var out = [];
     for (var c = 0; c < columnSize; c++) {
       var kept = [];
@@ -1145,7 +1190,7 @@ function defineSlotFeatureCores() {
       for (var e = 0; e < rowSize - kept.length; e++) fill.push(pickSymbol());
       out.push(a.refillFrom === 'bottom' ? kept.concat(fill) : fill.concat(kept));
     }
-    return { reels: out, clearedPositions: cleared, rowSize: rowSize, columnSize: columnSize, baseReelLength: base.length };
+    return { reels: out, clearedPositions: cleared, rowSize: rowSize, columnSize: columnSize, baseReelLength: base.length, seedsUsed: cellSeeds.used() };
   }
 
   return {

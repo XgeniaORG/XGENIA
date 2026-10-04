@@ -27,6 +27,10 @@ const EDITOR_VALIDATOR = path.resolve(HERE, '../../../xgenia-editor/src/editor/s
 type AnyRec = Record<string, any>;
 
 const SEEDS = [123456789012, 987654321098, 55555555, 4242424242];
+// Cascade The Reels takes one Seeds value per refilled cell (2026-10-04), so it gets what a correctly
+// sized ISAAC node (size >= rows x columns = 15 here) hands it: editor integers and RGS-style floats.
+const CASCADE_SEEDS = [123456789012, 987654321098, 55555555, 4242424242, 731846092157.25, 2.3e11, 499999999999,
+  618033988749, 999999999767, 314159265358, 271828182845.5, 0, 141421356237, 577215664901, 866025403784];
 const REELS = [
   [1, 1, 7],
   [1, 1, 3],
@@ -38,7 +42,7 @@ const PAYTABLE = { 1: { 3: 5, 4: 10, 5: 50 }, 2: { 3: 4 }, 3: { 3: 3 }, 4: { 3: 
 
 /** Side-panel parameters per node type; also the arguments the direct core call is derived from. */
 const PARAMS: Record<string, AnyRec> = {
-  'Cascade The Reels': { reels: REELS, winningLinesDetails: [{ positions: [[0, 0], [1, 0], [0, 1], { row: 2, col: 4 }], payout: 5 }], symbolWeights: [5, 4, 3, 2, 1, 1, 2], refillFrom: 'top', Seeds: SEEDS },
+  'Cascade The Reels': { reels: REELS, winningLinesDetails: [{ positions: [[0, 0], [1, 0], [0, 1], { row: 2, col: 4 }], payout: 5 }], symbolWeights: [5, 4, 3, 2, 1, 1, 2], refillFrom: 'top', Seeds: CASCADE_SEEDS },
   'Cluster Pays': { reels: REELS, minClusterSize: 3, wildSymbol: 0, paytable: { 1: { 3: 2, 5: 10 }, 2: { 3: 1 } }, betAmount: 100, adjacency: 'orthogonal' },
   'Progressive Meter': { increment: 40, target: 100, startValue: 0, resetOnFill: true, carryOverflow: true, addOnDo: true },
   'Multiplier Ladder': { ladder: [1, 2, 3, 5], startIndex: 0, stepBy: 1, stepOnDo: true },

@@ -1780,6 +1780,22 @@ ${originalComponentStructure}
         }
       });
 
+      // (2026-10-04, certification) Cascade The Reels / Directional Cascade take one value per refilled
+      // cell and refuse a short Seeds array, and games built before that left their refill ISAAC at size
+      // 1. The ISAAC node itself yields at least 100 values when its array feeds a cascade's Seeds
+      // (private xgenia-pro-nodes isaac-rng-array.js _effectiveSize); the compiled maths must draw the
+      // same, or the editor and the RGS play different games.
+      if (/(^|\/)ISAAC Random Number Array Generator$/.test(String(node.typename))) {
+        const feedsCascade = this.connections.some((c) =>
+          c.fromId === node.id && c.fromProperty === 'array' && /^seeds$/i.test(String(c.toProperty)) &&
+          /(^|\/)(Cascade The Reels|Directional Cascade)$/.test(String(this.nodes.get(c.toId)?.typename ?? '')));
+        const sizeWired = this.connections.some((c) => c.toId === node.id && c.toProperty === 'size');
+        if (feedsCascade && !sizeWired) {
+          const current = Number(inputMappings.get('size'));
+          if (!(Number.isFinite(current) && current >= 100)) inputMappings.set('size', '100');
+        }
+      }
+
       // Inject RGS RNG for slot game nodes (and the Slot Features nodes, whose
       // betAmount is likewise the round's stake).
       if (
