@@ -1,0 +1,67 @@
+/**
+ * The live-engine compiler bundle must compile maths exactly like the compiler source the editor
+ * bundles. Scripts are compared after reprinting both through esbuild (the bundle reprints the
+ * embedded slot-feature cores) with the compiler stamp line removed. Also: the bundle carries its
+ * version, its cores text runs standalone (as it does inside an RGS script) and reproduces the
+ * Cascade The Reels goldens, and no esbuild helper leaks in. (2026-10-03)
+ *
+ * Usage (repo root): npx tsx packages/xgenia-runtime/src/api/test-compiler-bundle-parity.ts
+ */
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { pathToFileURL } from 'url';
+import { CloudFunctionConverter as SourceConverter } from './supabase-converter';
+
+const { transformSync } = require('esbuild');
+const HERE = __dirname;
+const ROOT = path.resolve(HERE, '../../../..');
+const FIXTURES = ['round-player-parrot.json', 'round-player-leprechaun.json'];
+const GOLDENS = path.resolve(HERE, '../../test/slot-features/cascade-the-reels.goldens.json');
+const HELPERS = /\b__(name|spreadValues|spreadProps|async|publicField|objRest|toESM|toCommonJS|commonJS|require|export|defProp)\b/;
+const STAMP = /^var __xgeniaCompiler = "[^"]*";$/m;
+
+const mapNode = (n: any): any => ({ ...n, typename: n.type || n.typename, dynamicports: n.dynamicports || n.ports || [], children: (n.children || []).map(mapNode) });
+const canon = (s: string) => transformSync('(function (ctx) {\n' + s.replace(STAMP, '') + '\n})', { loader: 'js', legalComments: 'none' }).code as string;
+
+async function main() {
+  const { buildCompiler } = await import(pathToFileURL(path.join(ROOT, 'scripts/live-engine/build-compiler.mjs')).href);
+  const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'xgenia-compiler-')), 'xgenia.rgs-compiler.js');
+  await buildCompiler(out, 'vPARITY');
+  const bundled = require(out);
+  let failures = 0;
+  const fail = (what: string, msg: string) => { failures++; console.log(`FAIL  ${what}: ${msg}`); };
+
+  for (const file of FIXTURES) {
+    const before = failures;
+    const fx = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', file), 'utf8'));
+    const comp = { ...fx.component, graph: { roots: fx.component.graph.roots.map(mapNode), connections: fx.component.graph.connections } };
+    const project = { name: 'fixture', components: [comp] };
+    const quiet = console.warn;
+    console.warn = () => {};
+    const a = new SourceConverter(comp as any, project as any).generateRgsScript();
+    const b = new bundled.CloudFunctionConverter(comp, project).generateRgsScript();
+    console.warn = quiet;
+    const ca = canon(a.script).split('\n');
+    const cb = canon(b.script).split('\n');
+    const at = ca.findIndex((l, i) => l !== cb[i]);
+    if (at >= 0 || ca.length !== cb.length) fail(file, `scripts differ at canonical line ${at}:\n  source: ${ca[at]}\n  bundle: ${cb[at]}`);
+    if (JSON.stringify(a.unsupportedNodes) !== JSON.stringify(b.unsupportedNodes)) fail(file, 'unsupported nodes differ');
+    if (a.loopsCompiled !== b.loopsCompiled) fail(file, `loops ${a.loopsCompiled} vs ${b.loopsCompiled}`);
+    if (!/^var __xgeniaCompiler = "vPARITY";$/m.test(b.script) || b.compilerVersion !== 'vPARITY') fail(file, 'the bundle does not carry its version');
+    if (a.compilerVersion !== 'bundled') fail(file, `the source compiler reports ${a.compilerVersion}`);
+    if (HELPERS.test(b.script)) fail(file, 'an esbuild helper leaked into the script');
+    if (failures === before) console.log(`ok    ${file} — ${b.script.length} bytes, ${b.loopsCompiled} loop(s)`);
+  }
+
+  const cores = new Function('return (' + bundled.CORES_SOURCE + ')()')();
+  const goldens = JSON.parse(fs.readFileSync(GOLDENS, 'utf8'));
+  const bad = goldens.filter((g: any) => JSON.stringify(cores.cascadeTheReels({ ...g.in, seeds: g.in.seeds }).reels) !== JSON.stringify(g.out));
+  if (bad.length) fail('cores', `${bad.length}/${goldens.length} Cascade The Reels goldens differ when the bundle's cores run standalone`);
+  if (JSON.stringify(Object.keys(cores).sort()) !== JSON.stringify([...bundled.coreNames].sort())) fail('cores', 'core names differ');
+
+  if (failures) process.exit(1);
+  console.log('\nthe live compiler bundle compiles exactly like the source');
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });
