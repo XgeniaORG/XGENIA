@@ -43,6 +43,9 @@ function parseRangeHeader(range, length) {
 
 function startServer(app, projectGetSettings, projectGetInfo, projectGetComponentBundleExport) {
   const appPath = app.getAppPath();
+  // (2026-10-03) Viewer files come from the engine this run uses (src/live-engine/select.js):
+  // a verified live engine when one was chosen, the app's own otherwise.
+  const viewerDir = () => (process.env.XGENIA_ENGINE_ROOT || appPath + '/src/external') + '/viewer/';
   console.log(`[web-server.js] appPath: ${appPath}`);
 
   //accept any certificate from localhost (e.g. self signed)
@@ -134,7 +137,7 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
 
       // Serve the tools project exactly like a normal XGENIA project
       // but with the component specified in the URL fragment
-      const indexHtmlPath = appPath + '/src/external/viewer/index.html';
+      const indexHtmlPath = viewerDir() + 'index.html';
 
       console.log(`[WebServer - handleToolsRequest] Serving tools project index file: ${indexHtmlPath}`);
       fs.readFile(indexHtmlPath, 'utf8', function (err, data) {
@@ -616,7 +619,7 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
 
     // Explicitly handle the root path first
     if (requestPath === '/') {
-      serveIndexFile(appPath + '/src/external/viewer/index.html', response);
+      serveIndexFile(viewerDir() + 'index.html', response);
       return;
     }
 
@@ -877,7 +880,7 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
     //previous versions of XGENIA will request /external/viewer/index.html or /external/viewer/index.htmlnull
     //new version can also do this if old requests are cached by electron
     if (requestPath === '/external/viewer/index.html' || requestPath.endsWith('viewer/index.htmlnull')) {
-      serveIndexFile(appPath + '/src/external/viewer/index.html', response);
+      serveIndexFile(viewerDir() + 'index.html', response);
       return;
     }
 
@@ -914,7 +917,7 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
       (requestPath.endsWith('index.html') || requestPath.includes('.') === false)
     ) {
       // Revert path calculation to point to the build output directory within the editor's structure
-      const indexHtmlPath = appPath + '/src/external/viewer/index.html';
+      const indexHtmlPath = viewerDir() + 'index.html';
       serveIndexFile(indexHtmlPath, response);
       return;
     }
@@ -950,8 +953,12 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
 
     //by this point it must be a static file in either the viewer folder or the project
     //check if it's a viewer file
-    const viewerFilePath = appPath + '/src/external/viewer/' + requestPath;
+    const viewerFilePath = viewerDir() + requestPath;
     if (fs.existsSync(viewerFilePath)) {
+      // The live engine's health check starts when the preview asks for the engine bundle.
+      if (requestPath.replace(/^\/+/, '') === 'xgenia.viewer.js' && typeof app.emit === 'function') {
+        app.emit('xgenia:viewer-bundle-served');
+      }
       serveFile(viewerFilePath, request, response);
     } else {
       // Check if file exists in project directory
