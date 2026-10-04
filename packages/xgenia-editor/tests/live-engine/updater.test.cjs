@@ -140,3 +140,10 @@ test('an engine built for an older app shell is not downloaded by a newer app', 
   assert.equal(store.readState().pending, null);
   assert.equal(cdn.fetched.length, 2);
 });
+
+test('a stale needsAppUpdate is cleared once the channel names an engine this app runs', async () => {
+  const store = newStore();
+  store.writeState({ ...store.readState(), active: 'v1', needsAppUpdate: 'v9' });
+  await run(store, cdnWith({ version: 'v1' }));
+  assert.equal(store.readState().needsAppUpdate, null);
+});

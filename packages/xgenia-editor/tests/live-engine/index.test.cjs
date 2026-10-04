@@ -6,7 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const EventEmitter = require('events');
-const { setupLiveEngine, channelFor, fetchBytes } = require('../../src/main/src/live-engine');
+const { setupLiveEngine, channelFor, fetchBytes, pickFetch } = require('../../src/main/src/live-engine');
 const { EngineStore } = require('../../src/main/src/live-engine/engine-store');
 const { signManifest } = require('../../src/main/src/live-engine/manifest');
 const { keys, packFiles, makeManifest, fakeCdn } = require('./helpers.cjs');
@@ -49,7 +49,7 @@ test('the preview reporting in on this engine ends its trial; a report from anot
   await withPending(app, 'v1');
   const ipcMain = new EventEmitter();
   const r = setup(app, { ipcMain });
-  app.emit('xgenia:viewer-bundle-served');
+  app.emit('xgenia:preview-requested');
   ipcMain.emit('live-engine:viewer-ok', {}, 'local');
   assert.equal(r.store.readState().trial, 'v1');
   ipcMain.emit('live-engine:viewer-ok', {}, 'v1');
@@ -61,7 +61,7 @@ test('a trial engine whose preview never reports in is dropped at the next start
   const app = fakeApp();
   await withPending(app, 'v1');
   const r = setup(app, { timings: { checkAfterMs: 1e9, healthTimeoutMs: 20 } });
-  app.emit('xgenia:viewer-bundle-served');
+  app.emit('xgenia:preview-requested');
   await new Promise((res) => setTimeout(res, 80));
   assert.equal(r.store.readState().trialTimedOut, 'v1');
   app.emit('will-quit');
@@ -77,7 +77,7 @@ test('a late report after the timeout still keeps the engine', async () => {
   await withPending(app, 'v1');
   const ipcMain = new EventEmitter();
   const r = setup(app, { ipcMain, timings: { checkAfterMs: 1e9, healthTimeoutMs: 20 } });
-  app.emit('xgenia:viewer-bundle-served');
+  app.emit('xgenia:preview-requested');
   await new Promise((res) => setTimeout(res, 80));
   ipcMain.emit('live-engine:viewer-ok', {}, 'v1');
   r.stop();
@@ -92,12 +92,12 @@ test('a proven engine is never put on trial again', async () => {
   await withPending(app, 'v1');
   const ipcMain = new EventEmitter();
   const r = setup(app, { ipcMain });
-  app.emit('xgenia:viewer-bundle-served');
+  app.emit('xgenia:preview-requested');
   ipcMain.emit('live-engine:viewer-ok', {}, 'v1');
   app.emit('will-quit');
   r.stop();
   const next = setup(app, { timings: { checkAfterMs: 1e9, healthTimeoutMs: 20 } });
-  app.emit('xgenia:viewer-bundle-served');
+  app.emit('xgenia:preview-requested');
   await new Promise((res) => setTimeout(res, 80));
   assert.deepEqual(next.store.readState().bad, []);
   assert.equal(next.store.readState().trialTimedOut, null);
@@ -173,4 +173,26 @@ test('channel: env, then settings.json, then stable', () => {
   assert.equal(channelFor({}, store), 'beta');
   assert.equal(channelFor({ XGENIA_ENGINE_CHANNEL: 'stable' }, store), 'stable');
   assert.equal(channelFor({ XGENIA_ENGINE_CHANNEL: 'nonsense' }, store), 'beta');
+});
+
+// ── 2026-10-04: deferred review minors ──
+test('a failed check is retried soon, not 6 hours later', async () => {
+  const app = fakeApp();
+  await withPending(app, 'v1');
+  const cdn = fakeCdn({ version: 'v2', channel: 'stable', signKey: k.privateKey, cdn: 'https://pcrghrjikkcmelflwiys.supabase.co/storage/v1/object/public/engine' });
+  let calls = 0;
+  const flaky = async (url, max) => { if (calls++ === 0) throw new Error('signature fetched mid-publish'); return cdn.fetchBytes(url, max); };
+  const r = setup(app, { fetch: flaky, timings: { checkAfterMs: 0, retryAfterMs: 30 } });
+  for (let i = 0; i < 50 && r.store.readState().pending !== 'v2'; i++) await new Promise((res) => setTimeout(res, 20));
+  assert.equal(r.store.readState().pending, 'v2');
+  r.stop();
+});
+
+test("downloads go through Electron's network stack when there is one (system proxy, OS certificates)", () => {
+  const netFetch = function () {};
+  const net = { fetch: netFetch };
+  const picked = pickFetch({ net }, globalThis.fetch);
+  assert.notEqual(picked, globalThis.fetch);
+  assert.equal(pickFetch('/path/to/electron/binary', globalThis.fetch), globalThis.fetch);
+  assert.equal(pickFetch(undefined, globalThis.fetch), globalThis.fetch);
 });

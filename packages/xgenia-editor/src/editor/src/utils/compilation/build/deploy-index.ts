@@ -4,7 +4,7 @@ import { ProjectModel } from '@xgenia-models/projectmodel';
 import { createHash } from '@xgenia-utils/exporter/hash/xxhash64';
 
 import { HtmlProcessor } from './processors/html-processor';
-import { resolveExternalPath } from '@xgenia-utils/liveEngine';
+import { resolveExternalPath, engineFileProblemFor } from '@xgenia-utils/liveEngine';
 
 type DeployIndexItem = {
   url: string;
@@ -71,6 +71,8 @@ async function withRuntimeChunks(index: DeployIndex, indexFilePath: string): Pro
       // source maps are opt-in per entry rather than shipped for every chunk.
       if (!/^xgenia\.\d+\.js$/.test(file.name)) continue;
       if (listed.has(file.name)) continue;
+      // A live engine ships only the files its signed manifest lists.
+      if (engineFileProblemFor(filesystem.join(indexFilePath.replace(/[\\\/][^\\\/]*$/, ''), file.name))) continue;
 
       console.log(`[deploy] Including runtime chunk missing from index.json: ${file.name}`);
       index.push({ url: file.name } as any);
@@ -132,6 +134,10 @@ async function _writeFileToFolder({
     // files which it expects to copy over.
     return;
   }
+  // (2026-10-04) An exported game must carry the signed engine: a live engine file changed on disk
+  // since it was verified, or not in its manifest, stops the export instead of shipping.
+  const engineProblem = engineFileProblemFor(filesystem.join(runtimeType, url));
+  if (engineProblem) throw new Error(`[deploy] refusing to export: ${engineProblem}. Restart XGENIA to re-verify the engine.`);
 
   let content = await filesystem.readFile(fullPath);
   let filename = targetFilename || url;

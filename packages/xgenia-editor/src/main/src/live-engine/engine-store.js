@@ -12,6 +12,8 @@ const EMPTY = { active: null, previous: null, pending: null, trial: null, trialT
 class EngineStore {
   constructor(baseDir) {
     this.baseDir = baseDir;
+    // Versions being downloaded right now: prune must not pull them out from under the install.
+    this.installing = new Set();
   }
 
   statePath() {
@@ -74,20 +76,25 @@ class EngineStore {
     const final = this.versionDir(manifest.version);
     if (fs.existsSync(final) && this.isComplete(manifest)) return final;
     const tmp = path.join(this.baseDir, 'versions', '.partial-' + manifest.version);
-    fs.rmSync(tmp, { recursive: true, force: true });
-    for (const f of manifest.files) {
-      if (!isSafePath(f.path)) throw new Error('unsafe path ' + f.path);
-      const body = await fetchFile(f);
-      if (body.length !== f.size || sha256(body) !== f.sha256) throw new Error('hash mismatch for ' + f.path);
-      const out = path.join(tmp, f.path);
-      fs.mkdirSync(path.dirname(out), { recursive: true });
-      fs.writeFileSync(out, body);
+    this.installing.add(manifest.version);
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true });
+      for (const f of manifest.files) {
+        if (!isSafePath(f.path)) throw new Error('unsafe path ' + f.path);
+        const body = await fetchFile(f);
+        if (body.length !== f.size || sha256(body) !== f.sha256) throw new Error('hash mismatch for ' + f.path);
+        const out = path.join(tmp, f.path);
+        fs.mkdirSync(path.dirname(out), { recursive: true });
+        fs.writeFileSync(out, body);
+      }
+      fs.writeFileSync(path.join(tmp, 'manifest.json'), rawManifest);
+      fs.writeFileSync(path.join(tmp, 'manifest.sig'), sigB64);
+      fs.rmSync(final, { recursive: true, force: true });
+      fs.renameSync(tmp, final);
+      return final;
+    } finally {
+      this.installing.delete(manifest.version);
     }
-    fs.writeFileSync(path.join(tmp, 'manifest.json'), rawManifest);
-    fs.writeFileSync(path.join(tmp, 'manifest.sig'), sigB64);
-    fs.rmSync(final, { recursive: true, force: true });
-    fs.renameSync(tmp, final);
-    return final;
   }
 
   prune(keep) {
@@ -98,7 +105,11 @@ class EngineStore {
     } catch {
       return;
     }
-    for (const n of names) if (!keep.includes(n)) fs.rmSync(path.join(root, n), { recursive: true, force: true });
+    for (const n of names) {
+      const version = n.startsWith('.partial-') ? n.slice('.partial-'.length) : n;
+      if (keep.includes(n) || this.installing.has(version)) continue;
+      fs.rmSync(path.join(root, n), { recursive: true, force: true });
+    }
   }
 }
 

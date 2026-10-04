@@ -52,6 +52,7 @@ async function checkForEngineUpdate({ store, channel, fetchBytes, publicKeyPem, 
   if (m.version === state.active || m.version === state.pending) {
     // The channel names what already runs (a rollback): an engine waiting for restart is cancelled.
     if (m.version === state.active) state.pending = null;
+    state.needsAppUpdate = null;
     state.accepted = { ...state.accepted, [channel]: { version: m.version, issuedAt: m.issuedAt } };
     store.writeState(state);
     return { status: 'up-to-date', version: m.version };

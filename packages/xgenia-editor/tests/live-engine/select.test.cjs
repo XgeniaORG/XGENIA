@@ -157,3 +157,13 @@ test('an engine built for an older app shell is not used by a newer app', async 
   s.writeState({ ...s.readState(), active: 'v1' });
   assert.equal(pick(s, { shellApi: 2 }).source, 'builtin');
 });
+
+test('a live choice carries the size and time of every engine file, to check them later', async () => {
+  const store = newStore();
+  const m = await installed(store, 'v1');
+  store.writeState({ ...store.readState(), active: 'v1' });
+  const r = pick(store);
+  assert.deepEqual(Object.keys(r.files).sort(), m.files.map((f) => f.path).sort());
+  const st = fs.statSync(path.join(store.versionDir('v1'), 'viewer/xgenia.viewer.js'));
+  assert.deepEqual(r.files['viewer/xgenia.viewer.js'], { size: st.size, mtimeMs: st.mtimeMs });
+});

@@ -32,7 +32,7 @@ function get(port, p) {
   });
 }
 
-async function startServer(engineRoot) {
+async function startServer(engineRoot, liveInfo) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xgenia-ws-engine-'));
   const appDir = path.join(root, 'app');
   const projectDir = path.join(root, 'project');
@@ -49,6 +49,7 @@ async function startServer(engineRoot) {
       if (request === 'electron' || request === '@electron/remote') return { app: { getPath: () => ${JSON.stringify(root)} } };
       return load.call(this, request, ...rest);
     };
+    ${liveInfo ? `global.xgeniaLiveEngine = ${JSON.stringify(liveInfo)};` : ''}
     const startServer = require(${JSON.stringify(SERVER)});
     const app = { getAppPath: () => ${JSON.stringify(appDir)}, on() {}, quit() {}, emit(name) { process.stdout.write('EVENT ' + name + '\\n'); } };
     startServer(app, (cb) => cb && cb({}), (cb) => cb({ projectDirectory: ${JSON.stringify(projectDir)} }), () => '');
@@ -85,6 +86,37 @@ test('with a live engine chosen, its viewer files are served and the bundle requ
   assert.equal((await get(s.port, '/xgenia.viewer.js')).body, 'LIVE VIEWER');
   assert.equal((await get(s.port, '/xgenia.683.js')).body, 'LIVE CHUNK');
   await new Promise((r) => setTimeout(r, 50));
-  assert.match(s.events(), /EVENT xgenia:viewer-bundle-served/);
+  assert.match(s.events(), /EVENT xgenia:preview-requested/);
   assert.notEqual((await get(s.port, '/../secret.txt')).body, 'TOP SECRET');
+});
+
+// ── 2026-10-04: deferred review minors ──
+function liveEngineDir(files) {
+  const engine = fs.mkdtempSync(path.join(os.tmpdir(), 'xgenia-live-'));
+  const stats = {};
+  for (const [rel, body] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(engine, rel)), { recursive: true });
+    fs.writeFileSync(path.join(engine, rel), body);
+    const st = fs.statSync(path.join(engine, rel));
+    stats[rel] = { size: st.size, mtimeMs: st.mtimeMs };
+  }
+  return { engine, info: { source: 'live', version: 'v1', root: engine, builtinRoot: '/x', files: stats } };
+}
+
+test('asking for the preview page starts the health check, even if it never loads the bundle', async () => {
+  const { engine, info } = liveEngineDir({ 'viewer/index.html': '<html>broken</html>', 'viewer/xgenia.viewer.js': 'LIVE', 'viewer/xgenia.683.js': 'C' });
+  const s = await startServer(engine, info);
+  await get(s.port, '/');
+  await new Promise((r) => setTimeout(r, 50));
+  assert.match(s.events(), /EVENT xgenia:preview-requested/);
+});
+
+test('a live engine file changed on disk after start, or not in its manifest, is not served', async () => {
+  const { engine, info } = liveEngineDir({ 'viewer/xgenia.viewer.js': 'LIVE', 'viewer/xgenia.683.js': 'C' });
+  const s = await startServer(engine, info);
+  assert.equal((await get(s.port, '/xgenia.viewer.js')).body, 'LIVE');
+  fs.writeFileSync(path.join(engine, 'viewer/xgenia.viewer.js'), 'TAMPERED AFTER START');
+  assert.notEqual((await get(s.port, '/xgenia.viewer.js')).body, 'TAMPERED AFTER START');
+  fs.writeFileSync(path.join(engine, 'viewer/planted.js'), 'PLANTED');
+  assert.notEqual((await get(s.port, '/planted.js')).body, 'PLANTED');
 });

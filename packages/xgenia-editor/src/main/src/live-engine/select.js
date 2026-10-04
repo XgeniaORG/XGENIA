@@ -2,6 +2,7 @@
 // network). The web server, export and the Maths panel all read the answer, so the preview,
 // exported games and compiled maths always come from the same engine. (2026-10-03)
 'use strict';
+const fs = require('fs');
 const path = require('path');
 
 function selectEngine({ appPath, isPackaged, env, store, publicKeyPem, shellApi }) {
@@ -50,6 +51,17 @@ function selectEngine({ appPath, isPackaged, env, store, publicKeyPem, shellApi 
   store.writeState(state);
 
   if (!chosen) return builtin('no verified live engine installed', true);
+  // Size and mtime of every file just hash-checked: whoever reads an engine file later (the preview
+  // server, export, the compiler loader) can tell it is still the file that was verified.
+  const files = {};
+  for (const f of chosen.files) {
+    try {
+      const st = fs.statSync(path.join(store.versionDir(chosen.version), f.path));
+      files[f.path] = { size: st.size, mtimeMs: st.mtimeMs };
+    } catch {
+      /* isComplete just read it; a file gone since is caught when it is used */
+    }
+  }
   return {
     root: store.versionDir(chosen.version),
     builtinRoot,
@@ -57,7 +69,8 @@ function selectEngine({ appPath, isPackaged, env, store, publicKeyPem, shellApi 
     source: 'live',
     reason: state.trial === chosen.version ? 'on trial' : 'live',
     allowUpdates: true,
-    trial: state.trial === chosen.version
+    trial: state.trial === chosen.version,
+    files
   };
 }
 

@@ -84,3 +84,20 @@ test('prune keeps only the named versions', () => {
   s.store.prune(['b2']);
   assert.deepEqual(fs.readdirSync(path.join(s.dir, 'versions')), ['b2']);
 });
+
+// ── 2026-10-04: deferred review minors ──
+test('prune never removes a download in progress', async () => {
+  const s = setup();
+  let release;
+  const gate = new Promise((r) => (release = r));
+  let n = 0;
+  const installing = s.store.install(s.raw, s.sig, s.m, async (f) => {
+    if (++n === 2) await gate;
+    return Buffer.from(s.files[f.path]);
+  });
+  await new Promise((r) => setImmediate(r));
+  s.store.prune([]);
+  release();
+  await installing;
+  assert.equal(s.store.isComplete(s.m), true);
+});

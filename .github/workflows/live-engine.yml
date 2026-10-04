@@ -59,7 +59,7 @@ jobs:
         run: |
           npm test -w @xgenia/runtime -- --ci
           node --test 'packages/xgenia-editor/tests/live-engine/*.test.cjs'
-          node --test scripts/live-engine/pack.test.mjs scripts/live-engine/workflow.test.mjs
+          node --test scripts/live-engine/pack.test.mjs scripts/live-engine/workflow.test.mjs scripts/live-engine/minify-viewer.test.mjs
           npx tsx packages/xgenia-runtime/src/api/test-compiler-bundle-parity.ts
 
       - name: Version
@@ -74,6 +74,11 @@ jobs:
         run: |
           OUTPUT_PATH="$RUNNER_TEMP/engine/files" npm run build -w @xgenia/xgenia-viewer-react
           node scripts/live-engine/build-compiler.mjs "$RUNNER_TEMP/engine/files/compiler/xgenia.rgs-compiler.js" "$XGENIA_ENGINE_VERSION"
+
+      # Off until a game has been played on a minified build (same switch as the release build).
+      - name: Minify the viewer (repo variable XGENIA_MINIFY_VIEWER=1)
+        if: vars.XGENIA_MINIFY_VIEWER == '1'
+        run: node scripts/live-engine/minify-viewer.mjs "$RUNNER_TEMP/engine/files/viewer/xgenia.viewer.js"
 
       - uses: actions/upload-artifact@v4
         with:

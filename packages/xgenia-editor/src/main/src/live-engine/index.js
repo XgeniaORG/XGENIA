@@ -10,9 +10,29 @@ const { checkForEngineUpdate } = require('./updater');
 const { ENGINE_PUBLIC_KEY_PEM } = require('./public-key');
 const { SHELL_API_VERSION } = require('./shell-api');
 
+/**
+ * Electron's own network stack when there is one (system proxy settings, the OS certificate store,
+ * as corporate networks need), Node's fetch otherwise. Electron's net is usable once the app is
+ * ready; the first update check runs well after that.
+ */
+function pickFetch(electronModule, nodeFetch) {
+  if (electronModule && electronModule.net && typeof electronModule.net.fetch === 'function') {
+    return (url, init) => electronModule.net.fetch(url, init);
+  }
+  return nodeFetch;
+}
+
+let electronModule;
+try {
+  electronModule = require('electron');
+} catch {
+  electronModule = undefined;
+}
+const doFetch = pickFetch(electronModule, globalThis.fetch);
+
 /** GET a URL into a Buffer, refusing anything over `maxBytes` (declared or streamed). */
 async function fetchBytes(url, maxBytes = 64 * 1024 * 1024) {
-  const res = await fetch(url, { cache: 'no-store' });
+  const res = await doFetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`${res.status} ${url}`);
   const tooBig = () => new Error(`${url} exceeds ${maxBytes} bytes`);
   if (Number(res.headers.get('content-length')) > maxBytes) {
@@ -64,7 +84,7 @@ function setupLiveEngine({
   fetch: fetchImpl = fetchBytes,
   timings = {}
 }) {
-  const { checkAfterMs = 15000, checkEveryMs = 6 * 3600 * 1000, healthTimeoutMs = 90000 } = timings;
+  const { checkAfterMs = 15000, checkEveryMs = 6 * 3600 * 1000, retryAfterMs = 5 * 60 * 1000, healthTimeoutMs = 90000 } = timings;
   const store = new EngineStore(path.join(app.getPath('userData'), 'engine'));
   let info;
   try {
@@ -90,8 +110,9 @@ function setupLiveEngine({
       if (healthTimer) clearTimeout(healthTimer);
       markHealthy(store, info.version);
     });
-    // Only a run that is an engine's trial can fail it; a proven engine is never banned by one slow preview.
-    app.on('xgenia:viewer-bundle-served', () => {
+    // Only a run that is an engine's trial can fail it; a proven engine is never banned by one slow
+    // preview. The web server announces the first request for the preview page or the engine bundle.
+    app.on('xgenia:preview-requested', () => {
       if (!info.trial || healthy || healthTimer) return;
       healthTimer = setTimeout(() => {
         if (healthy) return;
@@ -113,15 +134,27 @@ function setupLiveEngine({
   }
 
   if (info.allowUpdates) {
-    const check = () =>
+    // A failed or refused check (offline, or the manifest and its signature fetched mid-publish) is
+    // tried again soon, once, rather than at the next 6-hour tick.
+    let retryPending = false;
+    const check = (isRetry = false) =>
       checkForEngineUpdate({ store, channel: channelFor(env, store), fetchBytes: fetchImpl, publicKeyPem, shellApi })
         .then((r) => {
           record(store, 'lastCheck', r);
           log.log('[live-engine] update check: ' + JSON.stringify(r));
+          if ((r.status === 'error' || r.status === 'rejected') && !isRetry && !retryPending) {
+            retryPending = true;
+            const t = setTimeout(() => {
+              retryPending = false;
+              check(true);
+            }, retryAfterMs);
+            if (t.unref) t.unref();
+            timers.push(t);
+          }
         })
         .catch((e) => log.warn('[live-engine] update check failed: ' + e.message));
-    const first = setTimeout(check, checkAfterMs);
-    const every = setInterval(check, checkEveryMs);
+    const first = setTimeout(() => check(), checkAfterMs);
+    const every = setInterval(() => check(), checkEveryMs);
     for (const t of [first, every]) {
       if (t.unref) t.unref();
       timers.push(t);
@@ -138,4 +171,4 @@ function setupLiveEngine({
   };
 }
 
-module.exports = { setupLiveEngine, channelFor, fetchBytes };
+module.exports = { setupLiveEngine, channelFor, fetchBytes, pickFetch };
