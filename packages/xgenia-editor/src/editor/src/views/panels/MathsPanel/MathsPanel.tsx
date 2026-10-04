@@ -146,7 +146,8 @@ function mergeRgsSettings(patch: Record<string, any>): void {
     generateRgsScript: (componentName?: string) => {
         try {
             const { ProjectModel } = require('@xgenia-models/projectmodel');
-            const { CloudFunctionConverter } = require('@xgenia/runtime/src/api/supabase-converter');
+            const compiler = require('@xgenia-utils/liveEngine').loadRgsCompiler();
+            const { CloudFunctionConverter } = compiler.mod;
 
             const project = ProjectModel.instance;
             if (!project) return { error: 'No project loaded' };
@@ -231,6 +232,13 @@ function mergeRgsSettings(patch: Record<string, any>): void {
                 // refuses on, instead of measuring an RTP against a script
                 // that is missing part of the graph.
                 unsupportedNodes: result.unsupportedNodes,
+                // Which compiler built this script: the live engine's, or the app's own.
+                compiler: {
+                    source: compiler.source,
+                    version: compiler.version,
+                    // Set when the live engine's compiler could not be used and the app's own compiled this.
+                    ...(compiler.fallbackReason ? { warning: compiler.fallbackReason } : {}),
+                },
             };
         } catch (e: any) {
             console.error('[__xrgs] generateRgsScript error:', e);

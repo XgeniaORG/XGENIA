@@ -107,6 +107,10 @@ module.exports = {
     }
   },
   plugins: [
+    // (2026-10-03) The live-engine pack version (CI sets XGENIA_ENGINE_VERSION); 'local' otherwise.
+    new webpack.DefinePlugin({
+      __XGENIA_ENGINE_VERSION__: JSON.stringify(process.env.XGENIA_ENGINE_VERSION || 'local')
+    }),
     // Fix broken relative imports in pro-nodes
     ...(hasProNodes ? [
       new NormalModuleReplacementPlugin(

@@ -1,7 +1,7 @@
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import { filesystem } from '@xgenia/platform';
 
-import { getExternalFolderPath } from '@xgenia-utils/compilation/build/deploy-index';
+import { resolveExternalPath } from '@xgenia-utils/liveEngine';
 
 import { TypescriptModule } from '../helper';
 
@@ -39,7 +39,7 @@ export function GetOrCreateViewerReactModel(): TypescriptModule {
   if (!initializationPromise) {
     initializationPromise = (async () => {
       try {
-        const filePath = filesystem.join(getExternalFolderPath(), 'viewer', 'global.d.ts.keep');
+        const filePath = resolveExternalPath(filesystem.join('viewer', 'global.d.ts.keep'));
         const source = await filesystem.readFile(filePath);
 
         // Double check model wasn't disposed while we were awaiting

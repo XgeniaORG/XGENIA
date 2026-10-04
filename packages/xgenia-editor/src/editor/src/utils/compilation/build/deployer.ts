@@ -5,7 +5,8 @@ import { ProjectModel } from '@xgenia-models/projectmodel';
 
 import * as Exporter from '../../exporter';
 import { copyProjectFilesToFolder, copyProjectFilesToFlatFolderStake } from './copy';
-import { loadDeployIndex, copyDeployFilesToFolder, copyDeployFilesToStakeFolder, getExternalFolderPath } from './deploy-index';
+import { loadDeployIndex, copyDeployFilesToFolder, copyDeployFilesToStakeFolder } from './deploy-index';
+import { resolveExternalPath } from '@xgenia-utils/liveEngine';
 import { HtmlProcessor, HtmlProcessorParameters } from './processors/html-processor';
 
 export type DeployToFolderOptions = {
@@ -315,7 +316,7 @@ export async function createIndexPage(project: ProjectModel, parameters: HtmlPro
   }
 
   // Read the index.html file
-  const indexFilePath = filesystem.join(getExternalFolderPath(), 'deploy', indexFile.url);
+  const indexFilePath = resolveExternalPath(filesystem.join('deploy', indexFile.url));
   const indexContent = await filesystem.readFile(indexFilePath);
 
   const htmlProcessor = new HtmlProcessor(project);

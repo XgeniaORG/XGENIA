@@ -36,6 +36,11 @@ import {
     Project
 } from './types';
 
+// (2026-10-03) Set by the live-engine compiler bundle (esbuild define); the compiler built into the
+// app has none and reports 'bundled'. Every compiled script names the compiler that made it.
+declare const __XGENIA_ENGINE_VERSION__: string;
+const COMPILER_VERSION: string = typeof __XGENIA_ENGINE_VERSION__ !== 'undefined' ? __XGENIA_ENGINE_VERSION__ : 'bundled';
+
 // ============================================================================
 // TYPE DEFINITIONS
 // ============================================================================
@@ -1262,6 +1267,8 @@ ${originalComponentStructure}
     unsupportedNodes: UnsupportedNode[];
     /** Wired loops compiled to an event-driven runner (0 = a straight-through maths). */
     loopsCompiled: number;
+    /** Which compiler made the script: a live-engine version, or 'bundled' (the app's own). */
+    compilerVersion: string;
   } {
     // Stage-2 cross-spin persistence: variables written via Set Variable
     // compile to a ctx.state-backed `_vars` store (see collectStatefulVariables).
@@ -1382,6 +1389,8 @@ ${originalComponentStructure}
     let script = [
       '// XGENIA RGS Maths Script - Auto-generated from editor graph',
       '// Generated: ' + new Date().toISOString(),
+      // A statement, not a comment: sanitizeForSandbox strips comments, and this must reach XRGS.
+      'var __xgeniaCompiler = ' + JSON.stringify(COMPILER_VERSION) + ';',
       '// Component: ' + this.component.name,
       '',
       '// --- Node function definitions ---',
@@ -1458,7 +1467,7 @@ ${originalComponentStructure}
     // Sanitize the script to be sandbox-compatible
     const sanitizedScript = this.sanitizeForSandbox(script);
 
-    return { script: sanitizedScript, configData, unsupportedNodes: this._unsupportedNodes, loopsCompiled: this._loopBlocks.length };
+    return { script: sanitizedScript, configData, unsupportedNodes: this._unsupportedNodes, loopsCompiled: this._loopBlocks.length, compilerVersion: COMPILER_VERSION };
   }
 
   /**
