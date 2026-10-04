@@ -1846,6 +1846,10 @@ function launchApp() {
       // <userData>/memory-log.jsonl — main-process side, survives renderer death.
       MemoryTelemetry.start();
 
+      // (2026-10-03) Before the window: which engine (preview, export runtime, RGS compiler) this
+      // run uses — the signed live engine CI published, or the app's own. See src/live-engine.
+      require('./src/live-engine').setupLiveEngine({ app, ipcMain: require('electron').ipcMain });
+
       console.log('[Main Process] About to call createWindow()...');
       createWindow();
       if (process.platform === 'darwin') {
