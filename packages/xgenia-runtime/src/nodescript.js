@@ -535,6 +535,7 @@ function snapshotDefinition(opts) {
   const scopeNames = unmangleNamesFor(opts.scriptScope);
 
   const snapshot = {
+    typeName: opts.name,
     initialize: member(opts.initialize, scopeNames),
     inputs: {},
     outputs: {},
@@ -564,6 +565,63 @@ function snapshotDefinition(opts) {
   });
 
   return snapshot;
+}
+
+/**
+ * Earlier engine versions of each member, by node type: FNV-1a hashes of their
+ * canonical text, generated from git history by scripts/generate-engine-history.cjs.
+ *
+ * (2026-10-04, COol: "they change before spin") A Script is saved as a FULL copy
+ * of the node's definition, and a member counts as edited when it differs from
+ * the CURRENT engine. So when the engine fixed four PixiReelColumn methods, every
+ * game holding an older full copy reinstalled the old four — the fix never ran,
+ * though nobody had edited them. A member whose text is a known earlier engine
+ * version is a stale copy, not an edit: the current engine runs it.
+ */
+let ENGINE_HISTORY = null;
+
+function engineHistory() {
+  if (ENGINE_HISTORY === null) {
+    try {
+      ENGINE_HISTORY = require('./engine-history.generated.js');
+    } catch (e) {
+      ENGINE_HISTORY = { types: {} };
+    }
+  }
+  return ENGINE_HISTORY;
+}
+
+/** Tests (and tools) replace the history; pass null to reload the generated one. */
+function setEngineHistory(history) {
+  ENGINE_HISTORY = history === null ? null : history || { types: {} };
+}
+
+/** FNV-1a, 32 bits, as 8 hex digits — the same function the generator uses. */
+function memberHash(text) {
+  let h = 0x811c9dc5;
+  const str = String(text);
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return ('0000000' + h.toString(16)).slice(-8);
+}
+
+/**
+ * Is `fn` a copy of an earlier engine version of this member (by node type and
+ * member key, e.g. "methods._startStop", "inputs.spin.valueChangedToTrue")?
+ * Shared members of every React-based node (initialize, the generic methods) are
+ * recorded under the type "*".
+ */
+function isPastEngineVersion(fn, baselineMember, typeName, key) {
+  if (!baselineMember || typeof fn !== 'function') return false;
+  const types = engineHistory().types || {};
+  const lists = [typeName && types[typeName] && types[typeName][key], types['*'] && types['*'][key]].filter(Boolean);
+  if (!lists.length) return false;
+  const text = canonicalFunctionText(fn, baselineMember.scopeNames);
+  if (!text) return false;
+  const hash = memberHash(text);
+  return lists.some((list) => list.indexOf(hash) !== -1);
 }
 
 /**
@@ -1154,6 +1212,16 @@ function applyDefinitionOverride(node, definition, baseline) {
 
   let unchangedCount = 0;
   let changedCount = 0;
+  const staleCopies = [];
+  // Untouched: the same as the current engine, or a copy of an earlier engine version.
+  const untouched = (fn, base, key) => {
+    if (isUnchanged(fn, base)) return true;
+    if (isPastEngineVersion(fn, base, baseline.typeName, key)) {
+      staleCopies.push(key);
+      return true;
+    }
+    return false;
+  };
 
   const methods = definition.methods || definition.prototypeExtensions;
   if (methods && typeof methods === 'object') {
@@ -1165,7 +1233,7 @@ function applyDefinitionOverride(node, definition, baseline) {
       if (typeof fn !== 'function') return;
 
       const base = baseline.methods[name];
-      if (isUnchanged(fn, base)) {
+      if (untouched(fn, base, 'methods.' + name)) {
         unchangedCount++;
         return;
       }
@@ -1185,7 +1253,7 @@ function applyDefinitionOverride(node, definition, baseline) {
       const base = baseline.inputs[name] || {};
 
       if (typeof spec.set === 'function') {
-        if (isUnchanged(spec.set, base.set)) {
+        if (untouched(spec.set, base.set, 'inputs.' + name + '.set')) {
           unchangedCount++;
           return;
         }
@@ -1202,7 +1270,7 @@ function applyDefinitionOverride(node, definition, baseline) {
       }
 
       if (typeof spec.valueChangedToTrue === 'function') {
-        if (isUnchanged(spec.valueChangedToTrue, base.valueChangedToTrue)) {
+        if (untouched(spec.valueChangedToTrue, base.valueChangedToTrue, 'inputs.' + name + '.valueChangedToTrue')) {
           unchangedCount++;
           return;
         }
@@ -1230,7 +1298,7 @@ function applyDefinitionOverride(node, definition, baseline) {
       if (typeof fn !== 'function') return;
 
       const base = (baseline.outputs[name] || {}).get;
-      if (isUnchanged(fn, base)) {
+      if (untouched(fn, base, 'outputs.' + name + '.get')) {
         unchangedCount++;
         return;
       }
@@ -1241,7 +1309,7 @@ function applyDefinitionOverride(node, definition, baseline) {
   }
 
   if (typeof definition.initialize === 'function') {
-    if (isUnchanged(definition.initialize, baseline.initialize)) {
+    if (untouched(definition.initialize, baseline.initialize, 'initialize')) {
       unchangedCount++;
     } else {
       changedCount++;
@@ -1265,6 +1333,20 @@ function applyDefinitionOverride(node, definition, baseline) {
         changedCount +
         " functions in the script match this build's implementation, so the script is applied in full."
     );
+  }
+
+  if (staleCopies.length) {
+    node._internal.__nodeScriptStaleCopies = staleCopies;
+    console.info(
+      '[Node Script] "' +
+        (node.name || baseline.typeName || 'node') +
+        '": ' +
+        staleCopies.length +
+        ' function(s) in its Script are copies of an earlier engine version, not edits — the current engine runs them: ' +
+        staleCopies.join(', ')
+    );
+  } else if (node._internal) {
+    delete node._internal.__nodeScriptStaleCopies;
   }
 
   const applied = state.restore.length > 0;
@@ -1353,6 +1435,9 @@ module.exports = {
   canonicalFunctionText,
   sameFunctionSource,
   isUnchanged,
+  isPastEngineVersion,
+  memberHash,
+  setEngineHistory,
   unmangleImports,
   WARNING_KEY
 };
