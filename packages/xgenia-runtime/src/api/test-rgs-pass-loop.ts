@@ -1,14 +1,15 @@
 /**
  * Round-player pass loop on the RGS — compiled graph vs. the round's own book, in the REAL XRGS sandbox.
  *
- * (2026-10-02, COol) A slot whose tumbles run through the round player's pass loop
+ * (2026-10-02) A slot whose tumbles run through the round player's pass loop
  * (RP_PassLoop → Check Wins → Calculate Winnings → back; RP_PassLoop → TRNG → ISAAC → Cascade The
  * Reels → back) could not be measured or certified on the RGS: Cascade The Reels had no server
  * implementation, the compiler ran every node once in a straight line, the loop script's `this`
  * did not exist and its bare `return;` returned undefined. Every round threw. The AI then rewrote
  * the user's certified maths into a single script to get past it.
  *
- * For each fixture (two real projects' maths components):
+ * For each fixture (two real projects' maths components — users' game maths, so they live in the
+ * private repo at private/test-fixtures/rgs-maths, not here):
  *   1. generateRgsScript() reports nothing unsupported and exactly one compiled loop,
  *   2. the editor's blocked-construct mirror and XRGS compileScript both accept the script,
  *   3. N rounds run with no error, and every round's RoundBook is a real tumble record:
@@ -29,6 +30,7 @@ const XRGS_SANDBOX = process.env.XRGS_SANDBOX || path.resolve(HERE, '../../../..
 const XRGS_ISAAC = path.join(path.dirname(XRGS_SANDBOX), 'isaac.ts');
 const EDITOR_VALIDATOR = path.resolve(HERE, '../../../xgenia-editor/src/editor/src/utils/rgs/validateRgsScript.ts');
 const FIXTURES = ['round-player-parrot.json', 'round-player-leprechaun.json'];
+const FIXTURE_DIR = path.resolve(HERE, '../../../../private/test-fixtures/rgs-maths');
 const MAX_PASSES = 12;
 
 const mapNode = (n: AnyRec): AnyRec => ({ ...n, typename: n.type || n.typename, dynamicports: n.dynamicports || n.ports || [], children: (n.children || []).map(mapNode) });
@@ -41,8 +43,9 @@ async function main() {
   let failures = 0;
   const fail = (name: string, msg: string) => { console.log(`FAIL  ${name}: ${msg}`); failures++; };
 
+  if (!fs.existsSync(FIXTURE_DIR)) throw new Error(`needs the private repo checked out: ${FIXTURE_DIR} is missing`);
   for (const file of FIXTURES) {
-    const fx = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', file), 'utf8'));
+    const fx = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, file), 'utf8'));
     const comp = { ...fx.component, graph: { roots: fx.component.graph.roots.map(mapNode), connections: fx.component.graph.connections } };
     const quiet = console.warn; console.warn = () => {};
     const out = new CloudFunctionConverter(comp as any, { name: 'fixture', components: [comp] } as any).generateRgsScript();

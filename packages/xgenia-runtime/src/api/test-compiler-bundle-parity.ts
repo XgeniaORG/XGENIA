@@ -17,6 +17,8 @@ const { transformSync } = require('esbuild');
 const HERE = __dirname;
 const ROOT = path.resolve(HERE, '../../../..');
 const FIXTURES = ['round-player-parrot.json', 'round-player-leprechaun.json'];
+// Users' game maths: kept in the private repo, not in this public one.
+const FIXTURE_DIR = path.join(ROOT, 'private/test-fixtures/rgs-maths');
 const GOLDENS = path.resolve(HERE, '../../test/slot-features/cascade-the-reels.goldens.json');
 const HELPERS = /\b__(name|spreadValues|spreadProps|async|publicField|objRest|toESM|toCommonJS|commonJS|require|export|defProp)\b/;
 const STAMP = /^var __xgeniaCompiler = "[^"]*";$/m;
@@ -32,9 +34,10 @@ async function main() {
   let failures = 0;
   const fail = (what: string, msg: string) => { failures++; console.log(`FAIL  ${what}: ${msg}`); };
 
+  if (!fs.existsSync(FIXTURE_DIR)) throw new Error(`needs the private repo checked out: ${FIXTURE_DIR} is missing`);
   for (const file of FIXTURES) {
     const before = failures;
-    const fx = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', file), 'utf8'));
+    const fx = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, file), 'utf8'));
     const comp = { ...fx.component, graph: { roots: fx.component.graph.roots.map(mapNode), connections: fx.component.graph.connections } };
     const project = { name: 'fixture', components: [comp] };
     const quiet = console.warn;
