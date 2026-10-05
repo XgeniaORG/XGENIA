@@ -2704,7 +2704,7 @@ ${originalComponentStructure}
     return Array.from(inputMappings.entries())
       .map(([name, value]) => {
         const needsQuotes = /[^a-zA-Z0-9_]/.test(name);
-        return needsQuotes ? `"${name}": ${value}` : `${name}: ${value}`;
+        return needsQuotes ? `${JSON.stringify(name)}: ${value}` : `${name}: ${value}`;
       })
       .join(', ');
   }
@@ -3595,7 +3595,7 @@ ${originalComponentStructure}
             // Check if property name contains hyphens or other special characters that require quoting
             // JavaScript/TypeScript requires quoted property names when they contain hyphens or other non-alphanumeric characters (except _)
             const needsQuotes = /[^a-zA-Z0-9_]/.test(name);
-            return needsQuotes ? `"${name}": ${value}` : `${name}: ${value}`;
+            return needsQuotes ? `${JSON.stringify(name)}: ${value}` : `${name}: ${value}`;
           })
           .join(', ');
       } else {
@@ -3669,7 +3669,7 @@ ${originalComponentStructure}
 
             // Check if property name contains hyphens or other special characters that require quoting
             const needsQuotes = /[^a-zA-Z0-9_]/.test(inputName);
-            return needsQuotes ? `"${inputName}": ${sourceValue}` : `${inputName}: ${sourceValue}`;
+            return needsQuotes ? `${JSON.stringify(inputName)}: ${sourceValue}` : `${inputName}: ${sourceValue}`;
           })
           .filter((mapping) => mapping !== '') // Remove empty mappings
           .join(', ');
@@ -3759,7 +3759,7 @@ ${originalComponentStructure}
                 }
 
                 const needsQuotes = /[^a-zA-Z0-9_]/.test(inputName);
-                return needsQuotes ? `"${inputName}": ${sourceValue}` : `${inputName}: ${sourceValue}`;
+                return needsQuotes ? `${JSON.stringify(inputName)}: ${sourceValue}` : `${inputName}: ${sourceValue}`;
               })
               .filter((mapping) => mapping !== '')
               .join(', ');
@@ -4405,7 +4405,9 @@ ${originalComponentStructure}
   private safePropertyAccess(obj: string, prop: string): string {
     // A property name is safe for dot notation if it matches a JS identifier
     const isSafeIdentifier = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(prop);
-    return isSafeIdentifier ? `${obj}.${prop}` : `${obj}["${prop}"]`;
+    // (2026-10-05, security review) JSON.stringify, not hand-written quotes: a port name is the
+    // project author's text, and `foo"]; …` would otherwise close the string and run as code.
+    return isSafeIdentifier ? `${obj}.${prop}` : `${obj}[${JSON.stringify(prop)}]`;
   }
 
   /**
