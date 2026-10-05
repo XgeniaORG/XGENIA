@@ -404,6 +404,11 @@ export class SlotGameNodeConverter {
     lines.push(`  const __r = ${call};`);
     if (config.reportsFailure) lines.push(`  if (__r.failure) throw new Error(__r.message);`);
     const outs = config.outputPorts.map((o) => `${JSON.stringify(o)}: __r[${JSON.stringify(o)}]`);
+    // (2026-10-05) The editor node fires Done when it has run, and graphs wire it onward (Spin
+    // Result.Done → Component Outputs.SpinDone). The function had no Done, so a Component Output fed
+    // by it read undefined on every round. A refusal throws above, so reaching here IS the Done the
+    // editor sends (the Slot Features functions already return it).
+    outs.push(`"Done": true`);
     if (config.isStateful) outs.push(`updatedState: __r.updatedState`);
     lines.push(`  return { ${outs.join(', ')} };`);
     lines.push(`};`);

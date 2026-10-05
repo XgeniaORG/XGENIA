@@ -495,6 +495,10 @@ export class MathCalculationGenerator {
   // RANDOM NUMBER GENERATORS
   // ============================================================================
 
+  // (2026-10-05) The editor's TRNG, TRNG Array, ISAAC and ISAAC Array nodes all yield INTEGERS in
+  // [0, 1e12) — Math.floor of the scaled draw (private xgenia-pro-nodes maths/trng.js, isaac-rng-array.js
+  // randomInt). These four emitted the unfloored float, so a script that tested `seed % 2` or used a
+  // seed as an index saw a different value on the RGS than in the editor for the same draw.
   private static generateTRNGLogic(): string {
     return `
       // Use crypto.getRandomValues for true randomness when available
@@ -503,10 +507,10 @@ export class MathCalculationGenerator {
         const array = new Uint32Array(1);
         crypto.getRandomValues(array);
         const normalizedRandom = array[0] / (0xffffffff + 1);
-        value = normalizedRandom * 1000000000000;
+        value = Math.floor(normalizedRandom * 1000000000000);
       } else {
         // Fallback to Math.random
-        value = Math.random() * 1000000000000;
+        value = Math.floor(Math.random() * 1000000000000);
       }`;
   }
 
@@ -521,9 +525,9 @@ export class MathCalculationGenerator {
           const array = new Uint32Array(1);
           crypto.getRandomValues(array);
           const normalizedRandom = array[0] / (0xffffffff + 1);
-          randomValue = normalizedRandom * 1000000000000;
+          randomValue = Math.floor(normalizedRandom * 1000000000000);
         } else {
-          randomValue = Math.random() * 1000000000000;
+          randomValue = Math.floor(Math.random() * 1000000000000);
         }
         value.push(randomValue);
       }`;
@@ -533,7 +537,7 @@ export class MathCalculationGenerator {
     return `
       // Simplified ISAAC implementation for Edge Functions
       const isaac = new IsaacRNG(seed, nonce);
-      const value = isaac.randomFloat(0, 1000000000000);`;
+      const value = isaac.randomInt(0, 1000000000000);`;
   }
 
   public static generateISAACRNGClassDefinition(): string {
@@ -652,6 +656,10 @@ export class MathCalculationGenerator {
       randomFloat(min, max) {
         return min + this.random() * (max - min);
       }
+
+      randomInt(min, max) {
+        return min + Math.floor(this.random() * (max - min));
+      }
     }`;
   }
 
@@ -662,7 +670,7 @@ export class MathCalculationGenerator {
       const array = [];
       
       for (let i = 0; i < arrayLength; i++) {
-        const randomValue = isaac.randomFloat(0, 1000000000000);
+        const randomValue = isaac.randomInt(0, 1000000000000);
         array.push(randomValue);
       }`;
   }
