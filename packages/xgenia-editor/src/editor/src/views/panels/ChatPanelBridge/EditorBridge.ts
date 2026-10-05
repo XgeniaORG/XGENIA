@@ -46,6 +46,13 @@ import {
     setProjectGlobalStylePrompt,
 } from '../ProjectStylesPanel/ProjectStylesPanel';
 import { PluginLoader } from './PluginLoader';
+import {
+    checkPublishName,
+    publishJob,
+    publishStatus,
+    startPublish,
+    type PublishStartSpec,
+} from '@xgenia-utils/publish/publishCommands';
 
 interface PluginCommand {
     id: string;
@@ -3058,6 +3065,44 @@ export class EditorBridge {
         h('xrgs.getMathsComponents', () => {
             try { return (window as any).__xrgs?.getMathsComponents?.() ?? []; } catch { return []; }
         });
+
+        // --- Publish (2026-10-05) ---
+        // Publishing the open game as a playable demo with a shareable link — the same thing the
+        // user gets from Publish → Deploy (XGENIA tab), and the Maths RGS panel's Math Components →
+        // Deploy that the published game's backend calls come from. Before this, both pipelines
+        // lived inside React components and the AI could not run either. They are plain modules
+        // now (utils/publish), the popup and the panel call them, and these commands call the SAME
+        // modules — no second pipeline. See utils/publish/publishCommands.ts.
+        //
+        // WHY START-AND-POLL. A game publish takes minutes (UI build, GitHub push, then up to 2 min
+        // of Vercel polling), and the panel forwards each command with a hard 30 s timeout. So
+        // `publish.start` validates and returns a job id at once, and `publish.job` reports the
+        // job's steps and, eventually, its result. One job at a time. The user sees the job happen:
+        // an editor toast narrates each step, and a game publish drives the topbar publish pill.
+        //
+        // Errors come back as `{ error }` results (like xrgs.generateScript), never as throws: a
+        // refusal such as an unresolvable telemetry mapping carries data the caller needs.
+        //
+        //   publish.status()                        → { connected, activeGame, mathsComponents[{name, slug,
+        //                                               state}], savedTelemetry, deployTokensReady,
+        //                                               deployedDomains[{name, url, deploymentId, …}], … }
+        //   publish.checkName([name])               → { valid, available (null = could not tell), url, reason?,
+        //                                               republish? (this editor's own earlier publish of it) }
+        //   publish.start([{ kind: 'maths', commitMessage? }])
+        //   publish.start([{ kind: 'game', name, telemetry?: { betInput?, winOutput?, betButton? }, isPrivate? }])
+        //                                           → { jobId, kind, startedAt } | { error, unresolved?, candidates? }
+        //   publish.job([jobId?])                   → { jobId, kind, state, step, steps, startedAt, finishedAt?,
+        //                                               result?, error? }
+        h('publish.status', async () => {
+            try { return await publishStatus(); } catch (e: any) { return { error: e?.message || String(e) }; }
+        });
+        h('publish.checkName', async ([name]: [string]) => {
+            try { return await checkPublishName(name); } catch (e: any) { return { error: e?.message || String(e) }; }
+        });
+        h('publish.start', ([spec]: [PublishStartSpec]) => {
+            try { return startPublish(spec); } catch (e: any) { return { error: e?.message || String(e) }; }
+        });
+        h('publish.job', ([jobId]: [string?]) => publishJob(jobId));
 
         // --- Filesystem commands ---
         //

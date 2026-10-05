@@ -229,3 +229,173 @@ export function toServerTelemetry(mapping: CompleteTelemetryMapping): Record<str
     bet_button: ref(mapping.betButton)
   };
 }
+
+// ─── Resolving a mapping without the form ─────────────────────────────────────
+//
+// The AI publishes without seeing the telemetry form, so it names each element
+// in words instead of clicking: a node id, a node label, or nothing at all
+// (meaning "what the last publish chose"). Resolution has to be exact — the
+// mapping is how XGENIA RGS follows the deployed game's rounds — so a name that
+// matches nothing, or matches several nodes, is refused with the list of nodes
+// that COULD be meant, never guessed at.
+
+/** For each field: a node id, a node label, or omitted to reuse the project's saved choice. */
+export type TelemetryRequest = Partial<Record<TelemetryField, string | null>>;
+
+/** A UI node as offered to a caller choosing by name. */
+export interface TelemetryCandidateSummary {
+  nodeId: string;
+  label: string;
+  typeLabel: string;
+  componentName: string;
+  kind: UiNodeKind;
+}
+
+export interface TelemetryFieldProblem {
+  field: TelemetryField;
+  /** What the caller asked for, or null when the field was left to the saved choice. */
+  asked: string | null;
+  reason: string;
+  /** For an ambiguous label: the nodes it matched. */
+  matches?: TelemetryCandidateSummary[];
+}
+
+// One shape rather than an ok/failed union: the editor compiles without
+// strictNullChecks, where a union does not narrow on `if (result.mapping)`.
+export interface TelemetryResolution {
+  /** Set when every field resolved. */
+  mapping?: CompleteTelemetryMapping;
+  /** Set when one did not — names each field and why. */
+  error?: string;
+  unresolved?: TelemetryFieldProblem[];
+  /** Every UI node there is to choose from, when something did not resolve. */
+  candidates?: TelemetryCandidateSummary[];
+  /** Not errors (the form only warns about these either): e.g. two fields naming one element. */
+  warnings?: string[];
+}
+
+export interface TelemetrySources {
+  /** Every visual node of the project (collectUiNodeCandidates). */
+  candidates: UiNodeCandidate[];
+  /** The last publish's answer, already re-resolved against the project, or null. */
+  stored: DeployTelemetryMapping | null;
+  /**
+   * Look up an id that is not among the candidates — the same fallback the form
+   * uses (`resolveNodeId`), for a node that is not a visual type but exists.
+   */
+  refForNodeId?: (nodeId: string) => TelemetryElementRef | null;
+}
+
+/** Cap on how many candidates a refusal carries — a large project has hundreds of visual nodes. */
+const MAX_CANDIDATES = 100;
+const MAX_CANDIDATES_IN_TEXT = 12;
+
+/** The recorded reference, without the ranking-only `kind`. */
+function toElementRef(ref: TelemetryElementRef): TelemetryElementRef {
+  return {
+    nodeId: ref.nodeId,
+    label: ref.label,
+    typename: ref.typename,
+    typeLabel: ref.typeLabel,
+    componentName: ref.componentName,
+    pickedFrom: ref.pickedFrom
+  };
+}
+
+function summarize(c: UiNodeCandidate): TelemetryCandidateSummary {
+  return { nodeId: c.nodeId, label: c.label, typeLabel: c.typeLabel, componentName: c.componentName, kind: c.kind };
+}
+
+/** `"Spin" (Button, /Components/Controls, id n-1)` — one candidate in an error sentence. */
+function describeCandidate(c: TelemetryCandidateSummary): string {
+  return `"${c.label}" (${[c.typeLabel, c.componentName, `id ${c.nodeId}`].filter(Boolean).join(', ')})`;
+}
+
+/**
+ * Resolve the bet input, win output and bet button from names.
+ *
+ * Per field, in order: an exact node id (among the visual nodes first, then any
+ * node, as the form does); an exact label; a label ignoring case and surrounding
+ * spaces. Several nodes sharing the label is an error, not a pick. An omitted
+ * field falls back to the saved mapping.
+ */
+export function resolveTelemetryRequest(request: TelemetryRequest | null | undefined, sources: TelemetrySources): TelemetryResolution {
+  const candidates = sources.candidates || [];
+  const mapping = emptyMapping();
+  const unresolved: TelemetryFieldProblem[] = [];
+
+  for (const spec of TELEMETRY_FIELDS) {
+    const raw = request ? request[spec.key] : undefined;
+    const asked = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+
+    if (!asked) {
+      const saved = sources.stored ? sources.stored[spec.key] : null;
+      if (saved) {
+        mapping[spec.key] = toElementRef(saved);
+      } else {
+        unresolved.push({
+          field: spec.key,
+          asked: null,
+          reason: 'not given, and the project has no saved choice for it from an earlier publish'
+        });
+      }
+      continue;
+    }
+
+    const byId = candidates.find((c) => c.nodeId === asked);
+    if (byId) {
+      mapping[spec.key] = toElementRef({ ...byId, pickedFrom: 'graph' });
+      continue;
+    }
+    const anyNode = sources.refForNodeId ? sources.refForNodeId(asked) : null;
+    if (anyNode) {
+      mapping[spec.key] = toElementRef({ ...anyNode, pickedFrom: 'graph' });
+      continue;
+    }
+
+    let byLabel = candidates.filter((c) => c.label === asked);
+    if (byLabel.length === 0) {
+      const folded = asked.toLowerCase();
+      byLabel = candidates.filter((c) => String(c.label || '').trim().toLowerCase() === folded);
+    }
+    if (byLabel.length === 1) {
+      mapping[spec.key] = toElementRef({ ...byLabel[0], pickedFrom: 'graph' });
+    } else if (byLabel.length > 1) {
+      unresolved.push({
+        field: spec.key,
+        asked,
+        reason: `${byLabel.length} UI nodes are labelled "${asked}" — name one of them by its node id`,
+        matches: rankCandidates(byLabel, spec.key).map(summarize)
+      });
+    } else {
+      unresolved.push({ field: spec.key, asked, reason: `no node has the id or label "${asked}"` });
+    }
+  }
+
+  if (unresolved.length === 0 && isCompleteMapping(mapping)) {
+    const warnings = duplicateElementFields(mapping).map(
+      (fields) => `${fields.join(' and ')} name the same element (${describeRef(mapping[fields[0]])}).`
+    );
+    return warnings.length > 0 ? { mapping, warnings } : { mapping };
+  }
+
+  // Say what could have been meant, per field, best guesses first — the same
+  // order the form's dropdowns offer them in.
+  const sentences = unresolved.map((problem) => {
+    const options = problem.matches || rankCandidates(candidates, problem.field).map(summarize);
+    const shown = options.slice(0, MAX_CANDIDATES_IN_TEXT).map(describeCandidate).join('; ');
+    const more = options.length > MAX_CANDIDATES_IN_TEXT ? `; and ${options.length - MAX_CANDIDATES_IN_TEXT} more` : '';
+    return `${problem.field}: ${problem.reason}.` + (options.length > 0 ? ` Candidates: ${shown}${more}.` : '');
+  });
+  const none = candidates.length === 0 ? ' The project has no visual UI nodes to choose from.' : '';
+
+  return {
+    error: `Could not resolve the telemetry mapping (bet input, win output, bet button). ${sentences.join(' ')}${none}`,
+    unresolved,
+    candidates: candidates
+      .slice()
+      .sort((a, b) => a.componentName.localeCompare(b.componentName) || a.label.localeCompare(b.label))
+      .slice(0, MAX_CANDIDATES)
+      .map(summarize)
+  };
+}
