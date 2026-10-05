@@ -107,4 +107,8 @@ try {
       env: process.env
     });
   }
+
+  // Without this the script exits 0 and CI packs and uploads whatever the
+  // failed build left behind.
+  process.exit(1);
 }

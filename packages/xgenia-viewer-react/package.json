@@ -23,6 +23,7 @@
     "gsap": "^3.13.0",
     "lodash.difference": "^4.5.0",
     "lodash.isequal": "^4.5.0",
+    "matter-js": "^0.20.0",
     "passport": "0.7.0",
     "path-browserify": "^1.0.1",
     "performance-now": "^2.1.0",

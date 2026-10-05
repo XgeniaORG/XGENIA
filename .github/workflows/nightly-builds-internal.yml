@@ -25,14 +25,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Init private submodule (optional)
-        continue-on-error: true
+      - name: Init private submodule
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
             # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
             git submodule update --init --remote private
             echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
+          elif [ "$GITHUB_REPOSITORY" = "XgeniaORG/XGENIA" ]; then
+            # Without private/ the viewer aliases @xgenia/pro-nodes to dummy-pro-nodes.js:
+            # the app builds green and ships with no slot nodes.
+            echo "::error::PRIVATE_SUBMODULE_PAT is not set; refusing to build XGENIA without the private nodes"
+            exit 1
           else
             echo "Private submodule PAT not available, building with stubs"
           fi
@@ -107,14 +111,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Init private submodule (optional)
-        continue-on-error: true
+      - name: Init private submodule
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
             # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
             git submodule update --init --remote private
             echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
+          elif [ "$GITHUB_REPOSITORY" = "XgeniaORG/XGENIA" ]; then
+            # Without private/ the viewer aliases @xgenia/pro-nodes to dummy-pro-nodes.js:
+            # the app builds green and ships with no slot nodes.
+            echo "::error::PRIVATE_SUBMODULE_PAT is not set; refusing to build XGENIA without the private nodes"
+            exit 1
           else
             echo "Private submodule PAT not available, building with stubs"
           fi
@@ -163,8 +171,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Init private submodule (optional)
-        continue-on-error: true
+      - name: Init private submodule
         shell: bash
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
@@ -172,6 +179,11 @@ jobs:
             # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
             git submodule update --init --remote private
             echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
+          elif [ "$GITHUB_REPOSITORY" = "XgeniaORG/XGENIA" ]; then
+            # Without private/ the viewer aliases @xgenia/pro-nodes to dummy-pro-nodes.js:
+            # the app builds green and ships with no slot nodes.
+            echo "::error::PRIVATE_SUBMODULE_PAT is not set; refusing to build XGENIA without the private nodes"
+            exit 1
           else
             echo "Private submodule PAT not available, building with stubs"
           fi

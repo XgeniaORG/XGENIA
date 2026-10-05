@@ -4,6 +4,8 @@ const webpack = require('webpack');
 const path = require('path');
 const fs = require('fs');
 const NormalModuleReplacementPlugin = webpack.NormalModuleReplacementPlugin;
+const { execSync } = require('child_process');
+const FailOnMissingModules = require('./fail-on-missing-modules');
 
 // Get the real path with correct casing
 // const projectRoot = fs.realpathSync.native ? fs.realpathSync.native(path.resolve(__dirname, '../../../')) : fs.realpathSync(path.resolve(__dirname, '../../../'));
@@ -24,6 +26,17 @@ const agentNodesSrcPath = path.join(agentNodesDir, 'src', 'index.js');
 const hasPrivateDir = fs.existsSync(privateDir);
 const hasProNodes = hasPrivateDir && (fs.existsSync(proNodesPath) || fs.existsSync(proNodesSrcPath));
 const hasAgentNodes = hasPrivateDir && fs.existsSync(agentNodesSrcPath);
+
+// Which source the engine was built from: short commit, '-dirty' for uncommitted changes.
+function gitCommit(dir) {
+  try {
+    const run = (cmd) => execSync(cmd, { cwd: dir, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    return run('git rev-parse --short=8 HEAD') + (run('git status --porcelain --untracked-files=no') ? '-dirty' : '');
+  } catch {
+    return 'unknown';
+  }
+}
+const engineCommit = gitCommit(projectRoot) + (hasPrivateDir ? '+private.' + gitCommit(privateDir) : '');
 
 // Build alias object conditionally
 const alias = {};
@@ -109,7 +122,15 @@ module.exports = {
   plugins: [
     // (2026-10-03) The live-engine pack version (CI sets XGENIA_ENGINE_VERSION); 'local' otherwise.
     new webpack.DefinePlugin({
-      __XGENIA_ENGINE_VERSION__: JSON.stringify(process.env.XGENIA_ENGINE_VERSION || 'local')
+      __XGENIA_ENGINE_VERSION__: JSON.stringify(process.env.XGENIA_ENGINE_VERSION || 'local'),
+      __XGENIA_ENGINE_COMMIT__: JSON.stringify(engineCommit)
+    }),
+    new FailOnMissingModules({
+      allow: [
+        '@xgenia/mcp', // node-only MCP service; nodecontext.js runs without it in the browser
+        /^@mastra\//, // agent nodes: server-side only, the bridge reports "not available"
+        /mastra-main\// // agent nodes: local mastra checkout fallback
+      ]
     }),
     // Fix broken relative imports in pro-nodes
     ...(hasProNodes ? [

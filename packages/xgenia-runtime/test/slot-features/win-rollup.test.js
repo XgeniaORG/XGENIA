@@ -18,7 +18,7 @@ describe('Win Rollup', () => {
     expect(typeof mod.node.description).toBe('string');
     const inputs = Object.keys(WinRollup.metadata.inputs).filter((n) => n !== 'functionScript');
     expect(inputs.sort()).toEqual(
-      ['start', 'amount', 'durationMs', 'skip', 'decimals', 'prefix', 'suffix', 'tickEveryMs', 'minorUnits'].sort()
+      ['start', 'amount', 'durationMs', 'skip', 'decimals', 'prefix', 'suffix', 'tickEveryMs', 'minorUnits', 'currency', 'locale'].sort()
     );
     expect(Object.keys(WinRollup.metadata.outputs).sort()).toEqual(
       ['value', 'text', 'running', 'tick', 'finished'].sort()
@@ -97,6 +97,34 @@ describe('Win Rollup', () => {
     expect(h.out('text')).toBe('3');
     h.set('prefix', '$');
     expect(h.out('text')).toBe('$3');
+  });
+
+  test('currency formats the text as money for the locale and ignores decimals', async () => {
+    const h = await mount(WinRollup, { amount: 123450, durationMs: 0, decimals: 0, currency: 'eur', locale: 'de-DE' });
+    h.fire('start');
+    expect(h.out('value')).toBe(1234.5);
+    expect(h.out('text')).toBe(new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(1234.5));
+    expect(h.out('text')).toMatch(/1\.234,50/);
+
+    h.set('currency', 'JPY');
+    h.set('locale', 'ja-JP');
+    expect(h.out('text')).toBe(new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY' }).format(1234.5));
+    expect(h.out('text')).not.toMatch(/[.,]\d{2}$/);
+  });
+
+  test('prefix and suffix wrap the money text; a bad code or locale degrades, never throws', async () => {
+    const h = await mount(WinRollup, { amount: 250, durationMs: 0, currency: 'USD', locale: 'en-US', prefix: 'WIN ', suffix: '!' });
+    h.fire('start');
+    expect(h.out('text')).toBe('WIN $2.50!');
+
+    h.set('locale', 'not a locale');
+    expect(h.out('text')).toBe('WIN ' + new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(2.5) + '!');
+
+    h.set('currency', 'dollars');
+    expect(h.out('text')).toBe('WIN 2.50!');
+
+    h.set('currency', '');
+    expect(h.out('text')).toBe('WIN 2.50!');
   });
 
   test('amount 0 finishes immediately; durationMs 0 shows the amount at once', async () => {
