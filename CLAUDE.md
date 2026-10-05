@@ -61,18 +61,16 @@ commit, push, or merge — ask first, then follow the branch rules above.
 ## The `private/` submodule
 
 `private/` is a separate repository (`XgeniaORG/XFORGE_Private`) with its own
-conventions: `main` is the working branch and changes are normally committed
-straight to it. A `develop` branch exists there but is not part of the usual
-flow, so don't assume it's current or route work through it by habit. The
-rules above do not apply inside it — no feature branch, no PR, no approval
-gate is required.
+conventions: `main` is the working branch. **Commit and push straight to
+`main`** — no feature branch, no PR, no reviewer, and no need to ask the user
+first. Don't open a PR there or ask "should I push private?"; just push it.
+A `develop` branch exists there but is not part of the usual flow, so don't
+assume it's current or route work through it by habit.
 
-Because there is no review gate in that repo, the "ask first" rule carries
-more weight there, not less: confirm with the user before every commit and
-push inside `private/`.
+Before pushing, `git -C private fetch origin` and rebase onto `origin/main` if
+someone else pushed, so the push is a fast-forward.
 
-Two things still hold when you touch the submodule:
-
-- Bumping the submodule pointer is a change **in this repo**, so that commit
-  goes on its own branch and through a PR against `develop` like any other.
-- Ask the user before running any commit, push, or merge — in either repo.
+One thing still holds when you touch the submodule: bumping the submodule
+pointer is a change **in this repo**, so that commit goes on its own branch
+and through a PR against `develop` like any other. The "ask first" rule above
+applies to this repo only.

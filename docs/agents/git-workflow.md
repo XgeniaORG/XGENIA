@@ -126,23 +126,23 @@ that working tree:
   change inside `private/`. That is a deliberate difference, not an
   oversight, and you should not "helpfully" route a submodule change through
   a PR that nobody there is expecting.
-- Because nothing gates a commit in that repo, confirm with the user before
-  every commit and push inside `private/`. The absence of review makes that
-  confirmation the only checkpoint there is.
+- Commit and push to `private/` `main` directly, without asking the user
+  first. The owner asked for this explicitly (2026-10-05): asking "should I
+  push private?" or opening a PR there only adds a round trip.
+- Before pushing, `git -C private fetch origin` and rebase onto
+  `origin/main` if someone else pushed, so the push is a fast-forward.
 
-Two boundaries are easy to get wrong, so state them plainly:
-
-1. **Updating the submodule pointer is a change in *this* repo.** The commit
-   that moves `private` to a new SHA is an XGENIA commit, and it is fully
-   covered by the rules above: its own branch, PR against `develop`,
-   approval, squash-merge. "It's only a pointer bump" is not an exemption —
-   it is precisely the case this document exists for.
-2. **The "ask before touching production" rule is not repo-scoped.** Confirm
-   with the user before any commit, push, or merge, in either repository.
+One boundary is easy to get wrong, so state it plainly: **updating the
+submodule pointer is a change in *this* repo.** The commit that moves
+`private` to a new SHA is an XGENIA commit, and it is fully covered by the
+rules above: its own branch, PR against `develop`, approval, squash-merge.
+"It's only a pointer bump" is not an exemption — it is precisely the case
+this document exists for.
 
 ## Relationship to "ask before touching production"
 
 This document governs *which branches* a change is allowed to land on in the
 XGENIA repo. It does not loosen any standing instruction to confirm with the
-user before actually running a commit, push, or merge — confirm first, then
-follow the branch rules above.
+user before actually running a commit, push, or merge in this repo — confirm
+first, then follow the branch rules above. `private/` is the exception: see
+above.
