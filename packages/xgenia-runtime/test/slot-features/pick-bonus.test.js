@@ -1,6 +1,8 @@
 // Pick Bonus (slot feature 18, stateful + seeded): registry port mirror, start / pick / Do /
 // reset parity with the shared core (state threaded as the server does), the picks cap, the
 // same-frame pickIndex + pick contract, and the unseeded fail-closed contract.
+// (2026-10-04, certification) The shuffle is Fisher-Yates where every swap takes its own Seeds value
+// (a pool of n tiles needs n - 1); fewer fail closed. SEEDS is sized for the 5-tile pool below.
 'use strict';
 
 const { defineFeature, mount } = require('./harness');
@@ -12,7 +14,7 @@ const REGISTRY_INPUTS = ['prizes', 'endMarkers', 'endValue', 'picks', 'pickIndex
 const REGISTRY_OUTPUTS = ['revealed', 'total', 'remaining', 'ended', 'active', 'lastPrize', 'lastIsEnd', 'revealedNow', 'poolSize', 'picksMade', 'hiddenCount'];
 
 const PARAMS = { prizes: [10, 20, 50, 100], endMarkers: 1, endValue: 'END', picks: 0 };
-const SEEDS = [555555555555];
+const SEEDS = [555555555555, 723456789012, 987654321098, 31415926535]; // shuffles to [20, 10, 100, END, 50]
 
 function coreArgs(pickIndex, flags, seeds, params) {
   return Object.assign({}, params || PARAMS, { pickIndex, seeds: seeds || SEEDS, start: false, pick: false, reset: false }, flags || {});
@@ -143,6 +145,27 @@ describe('Pick Bonus', () => {
     expect(h.out('remaining')).toBe(0);
     expect(h.out('ended')).toBe(true);
     expect(h.out('total')).toBe(state.pool[3]);
+  });
+
+  test('every swap of the shuffle takes its own Seeds value: swap k puts tile floor(Seeds[k] * (n - k) / 1e12) at n - 1 - k', () => {
+    const q = (i, n) => ((i + 0.5) / n) * 1e12; // the middle of slice i of n
+    const params = { prizes: [10, 20, 30, 40], endMarkers: 1, endValue: 'END', picks: 0 };
+    // pool [10, 20, 30, 40, END]; swap 0 moves tile 0 to the end, swap 1 keeps 3, swap 2 moves 1 to 2, swap 3 keeps 1
+    const r = cores.pickBonus({}, coreArgs(-1, { start: true }, [q(0, 5), q(3, 4), q(1, 3), q(1, 2)], params));
+    expect(r.updatedState.pool).toEqual(['END', 30, 20, 40, 10]);
+    // changing the last value changes only the last swap
+    const r2 = cores.pickBonus({}, coreArgs(-1, { start: true }, [q(0, 5), q(3, 4), q(1, 3), q(0, 2)], params));
+    expect(r2.updatedState.pool).toEqual([30, 'END', 20, 40, 10]);
+  });
+
+  test('fewer Seeds values than shuffle steps fails closed; a value that is not ISAAC output is refused', () => {
+    expect(() => cores.pickBonus({}, coreArgs(-1, { start: true }, [1e11, 2e11, 3e11]))).toThrow(
+      '[Pick Bonus] Seeds has 3 values but 4 shuffle steps need a value: every random outcome takes its own Seeds value and none is reused. ' +
+      'Set the ISAAC Random Number Array Generator feeding Seeds to size >= prizes + endMarkers - 1 = 4.'
+    );
+    expect(() => cores.pickBonus({}, coreArgs(-1, { start: true }, [1e11, 0.25, 3e11, 4e11]))).toThrow(
+      /^\[Pick Bonus\] Seeds\[1\] = 0.25 is not an ISAAC Random Number Array Generator value/
+    );
   });
 
   test('unseeded start fails closed: error logged + in inspect data, outputs empty, state untouched, Done fires', async () => {

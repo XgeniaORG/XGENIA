@@ -1,5 +1,6 @@
 // Feature Trigger (slot feature 15, seeded): registry port mirror, client/core parity of the
-// seeded roll, chance edge cases, and the unseeded fail-closed contract.
+// seeded roll, chance edge cases, and the unseeded fail-closed contract. (2026-10-04, certification)
+// roll is Seeds[0] / 1e12 — it was the first step of a Park-Miller LCG seeded by Seeds[0].
 'use strict';
 
 const { defineFeature, mount } = require('./harness');
@@ -87,6 +88,19 @@ describe('Feature Trigger', () => {
     h.ctx.update();
     expectParity(h, cores.rollFeatureTrigger({ chance: 0.3, seeds: [99999] }));
     expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  test('roll IS Seeds[0] / 1e12 — the certified value itself, no generator step (2026-10-04)', () => {
+    expect(cores.rollFeatureTrigger({ chance: 0.25, seeds: [2.5e11 - 1] })).toEqual({ triggered: true, roll: (2.5e11 - 1) / 1e12, chance: 0.25 });
+    expect(cores.rollFeatureTrigger({ chance: 0.25, seeds: [2.5e11] })).toEqual({ triggered: false, roll: 0.25, chance: 0.25 });
+    expect(cores.rollFeatureTrigger({ chance: 1, seeds: [1e12 - 1] }).triggered).toBe(true);
+    expect(cores.rollFeatureTrigger({ chance: 0, seeds: [0] }).triggered).toBe(false);
+    // only Seeds[0] is read
+    expect(cores.rollFeatureTrigger({ chance: 0.5, seeds: [1e11, 'anything'] }).roll).toBe(0.1);
+    // a 0..1 float or anything outside 0..1e12 is refused, not scaled
+    for (const bad of [0.3, -5, 1e12, NaN, '42']) {
+      expect(() => cores.rollFeatureTrigger({ chance: 0.5, seeds: [bad] })).toThrow(/^\[Feature Trigger\] Seeds\[0\] = .* is not an ISAAC Random Number Array Generator value/);
+    }
   });
 
   test('unseeded fails closed: error logged + in inspect data, outputs empty, Done fires', async () => {

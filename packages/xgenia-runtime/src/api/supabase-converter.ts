@@ -22,7 +22,7 @@ import { SlotFeatureNodeConverter, SlotFeatureNodeRegistry } from './slot-featur
 // Import signal passthrough node converter
 import { SignalPassthroughNodeConverter } from './signal-passthrough-node-converter';
 // Import slot game node converter
-import { SlotGameNodeConverter } from './slot-game-node-converter';
+import { SlotGameNodeConverter, SlotGameNodeRegistry } from './slot-game-node-converter';
 // Import standard library node converter
 import { StdLibraryNodeConverter } from './std-library-node-converter';
 // Import the RGS sandbox sanitizer (extracted pure function, parity-tested)
@@ -40,6 +40,23 @@ import {
 // app has none and reports 'bundled'. Every compiled script names the compiler that made it.
 declare const __XGENIA_ENGINE_VERSION__: string;
 const COMPILER_VERSION: string = typeof __XGENIA_ENGINE_VERSION__ !== 'undefined' ? __XGENIA_ENGINE_VERSION__ : 'bundled';
+
+/**
+ * (2026-10-04, certification) The fewest values an ISAAC Random Number Array Generator yields when its
+ * array feeds `Seeds` on one of these nodes — they take one certified value per random outcome and
+ * refuse a shorter array. The SAME table as the ISAAC node's own (private xgenia-pro-nodes
+ * isaac-rng-array.js SEEDS_MIN_BY_CONSUMER, which explains each number) and the editor's project-load
+ * patch (xgenia-editor ProjectPatches/applypatches.js); test/slot-features/cascade-seeds-upgrade.test.js
+ * checks the three are equal.
+ */
+const SEEDS_MIN_BY_CONSUMER: Readonly<Record<string, number>> = {
+  'Cascade The Reels': 100,
+  'Directional Cascade': 100,
+  'Weighted Reels': 100,
+  'Symbol Value Grid': 100,
+  'Pick Bonus': 100,
+  'Hold And Win Grid': 200
+};
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -119,6 +136,8 @@ export interface UnsupportedNode {
    * inputs cannot receive this node's value.
    */
   feeds: Array<{ node: string; port: string }>;
+  /** Why the compiler refuses a node it knows (e.g. Generate Reel Strips); absent for unknown nodes. */
+  reason?: string;
 }
 
 /**
@@ -1144,7 +1163,11 @@ ${functionSignature}
     const cloudFeaturePrelude = this.slotFeatureNodeConverter.hasAnySlotFeatureNode(allFunctionNodes.map((n) => n.typename))
       ? SlotFeatureNodeConverter.corePrelude()
       : '';
-    const functionDefinitions = cloudFeaturePrelude + this.generateFunctionDefinitions(sortedFunctionNodes);
+    // Slot game cores (slot-game-cores.js + formula-eval-core.js) — the maths the editor nodes run.
+    const cloudGamePrelude = this.slotGameNodeConverter.hasAnySlotGameNode(allFunctionNodes.map((n) => n.typename))
+      ? SlotGameNodeConverter.corePrelude()
+      : '';
+    const functionDefinitions = cloudGamePrelude + cloudFeaturePrelude + this.generateFunctionDefinitions(sortedFunctionNodes);
     const functionInvocations = this.generateFunctionInvocations(sortedFunctionNodes, requestNode);
     const { responseStatement, statusCodeLogic } = this.getFinalResponseStatementWithStatus();
 
@@ -1333,9 +1356,15 @@ ${originalComponentStructure}
     const featurePrelude = this.slotFeatureNodeConverter.hasAnySlotFeatureNode(allFunctionNodes.map((n) => n.typename))
       ? SlotFeatureNodeConverter.corePrelude()
       : '';
+    // Slot game cores (slot-game-cores.js + the one formula evaluator) — embedded ONCE, only when a
+    // core slot node (Weighted Reels, Check Wins, Calculate Winnings, …) is present: the same maths
+    // the editor nodes run (2026-10-04, see slot-game-node-converter.ts).
+    const gamePrelude = this.slotGameNodeConverter.hasAnySlotGameNode(allFunctionNodes.map((n) => n.typename))
+      ? SlotGameNodeConverter.corePrelude()
+      : '';
 
     // Generate function definitions (same code generators as cloud)
-    const functionDefinitions = extraPrelude + featurePrelude + this.generateFunctionDefinitions(sortedFunctionNodes);
+    const functionDefinitions = extraPrelude + gamePrelude + featurePrelude + this.generateFunctionDefinitions(sortedFunctionNodes);
 
     // Generate invocations with RGS-specific wiring
     const functionInvocations = this.generateRgsFunctionInvocations(sortedFunctionNodes);
@@ -1779,6 +1808,27 @@ ${originalComponentStructure}
           }
         }
       });
+
+      // (2026-10-04, certification) Cascade The Reels / Directional Cascade, Weighted Reels, Symbol Value
+      // Grid, Pick Bonus and Hold And Win Grid take one value per random outcome and refuse a short Seeds
+      // array, and games built before that left these ISAACs at size 1 (or one per reel). The ISAAC node
+      // itself yields at least SEEDS_MIN_BY_CONSUMER[type] values when its array feeds one of their
+      // Seeds (private xgenia-pro-nodes isaac-rng-array.js _effectiveSize — see the table there); the
+      // compiled maths must draw the same, or the editor and the RGS play different games.
+      if (/(^|\/)ISAAC Random Number Array Generator$/.test(String(node.typename))) {
+        let min = 0;
+        for (const c of this.connections) {
+          if (c.fromId !== node.id || c.fromProperty !== 'array' || !/^seeds$/i.test(String(c.toProperty))) continue;
+          const type = String(this.nodes.get(c.toId)?.typename ?? '').replace(/^.*\//, '');
+          const need = Object.prototype.hasOwnProperty.call(SEEDS_MIN_BY_CONSUMER, type) ? SEEDS_MIN_BY_CONSUMER[type] : 0;
+          if (need > min) min = need;
+        }
+        const sizeWired = this.connections.some((c) => c.toId === node.id && c.toProperty === 'size');
+        if (min > 0 && !sizeWired) {
+          const current = Number(inputMappings.get('size'));
+          if (!(Number.isFinite(current) && current >= min)) inputMappings.set('size', String(min));
+        }
+      }
 
       // Inject RGS RNG for slot game nodes (and the Slot Features nodes, whose
       // betAmount is likewise the round's stake).
@@ -2547,6 +2597,8 @@ ${originalComponentStructure}
         id: node.id,
         feeds: [],
       };
+      const reason = SlotGameNodeRegistry.rgsUnsupportedReason(String(node.typename || ''));
+      if (reason) entry.reason = reason;
       this._unsupportedNodes.push(entry);
     }
     if (feeds && !entry.feeds.some((f) => f.node === feeds.node && f.port === feeds.port)) {

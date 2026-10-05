@@ -1,6 +1,10 @@
 // Hold And Win Grid (slot feature 13, stateful + seeded): registry port mirror, start / respin /
 // Do / reset parity with the shared core (state threaded as the server does, fresh seeds per
 // call), pre-priced valueGrid, and the unseeded fail-closed contract.
+// (2026-10-04, certification) Every draw takes its own Seeds value, in draw order: start one per coin
+// it prices, a respin one per free cell plus one per new coin's value, and a respin needs 2 x free
+// cells before it draws. The seed arrays below are 2 x rows x columns long (what a correctly sized
+// ISAAC hands over); the last tests pin the rule itself.
 'use strict';
 
 const { defineFeature, mount } = require('./harness');
@@ -34,7 +38,15 @@ const PARAMS = {
   valuesAreBetMultiples: true,
   valueGrid: []
 };
-const SEEDS = [[123456789012], [987654321098], [555555555555], [246813579135]];
+// one ISAAC-shaped array per call, 2 x 5 x 3 = 30 values each (editor integers)
+function isaacLike(seed, n) {
+  let x = seed >>> 0;
+  return Array.from({ length: n }, () => {
+    x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0;
+    return Math.floor((x / 4294967296) * 1e12);
+  });
+}
+const SEEDS = [isaacLike(1234567, 30), isaacLike(9876543, 30), isaacLike(5555555, 30), isaacLike(2468135, 30)];
 
 function coreArgs(reels, seeds, flags) {
   return Object.assign({ reels }, PARAMS, { seeds, start: false, respin: false, reset: false }, flags || {});
@@ -152,6 +164,40 @@ describe('Hold And Win Grid', () => {
     expect(h.out('valueGrid')[1][0]).toBe(700);
     expect(h.out('valueGrid')[3][2]).toBe(300);
     expect(h.out('totalValue')).toBe(1000);
+  });
+
+  test('each draw takes its own Seeds value, in draw order (start: coins; respin: cell, then a new coin\'s value)', () => {
+    const args = (seeds, flags) => coreArgs(SPIN, seeds, flags);
+    const q = (i, n) => ((i + 0.5) / n) * 1e12; // the middle of slice i of n
+    // start: the two coins (col 1 row 0, then col 3 row 2) take Seeds[0], Seeds[1] on weights [5, 3, 1]
+    const start = cores.holdAndWin({}, Object.assign(args([q(0, 9), q(8, 9)]), { symbolWeights: [], start: true }));
+    expect(start.valueGrid[1][0]).toBe(100); // slice 0 of 9 -> value 1 x bet
+    expect(start.valueGrid[3][2]).toBe(500); // slice 8 of 9 -> value 5 x bet
+    // respin with weights [1, 1, 1, 1, 1, 1, 1, 1] -> base [1..8]; 13 free cells need 26 values.
+    // Cells in column order skip the two coins; free cell 0 (col 0 row 0) draws symbol 8 (slice 7 of 8),
+    // so the NEXT value prices it; every other cell draws symbol 1.
+    const seeds = [q(7, 8), 9.5e11].concat(Array.from({ length: 24 }, () => q(0, 8)));
+    const respin = cores.holdAndWin(start.updatedState, Object.assign(args(seeds), { symbolWeights: [1, 1, 1, 1, 1, 1, 1, 1], respin: true }));
+    expect(respin.newCoins).toBe(1);
+    expect(respin.grid[0][0]).toBe(8);
+    expect(respin.valueGrid[0][0]).toBe(500); // its value took Seeds[1] (9.5e11: past 8/9 of [5, 3, 1] -> 5)
+    expect(respin.lockedCount).toBe(3);
+  });
+
+  test('too few Seeds values fails closed before anything is drawn (start and respin)', () => {
+    expect(() => cores.holdAndWin({}, coreArgs(SPIN, [1e11], { start: true }))).toThrow(
+      '[Hold And Win Grid] Seeds has 1 values but 2 landed coins need a value: every random outcome takes its own Seeds value and none is reused. ' +
+      'Set the ISAAC Random Number Array Generator feeding Seeds to size >= 2 x rows x columns = 30.'
+    );
+    const started = cores.holdAndWin({}, coreArgs(SPIN, SEEDS[0], { start: true }));
+    // 13 free cells -> 26 values needed whatever lands; 25 is refused and the state is not touched
+    expect(() => cores.holdAndWin(started.updatedState, coreArgs(SPIN, SEEDS[1].slice(0, 25), { respin: true }))).toThrow(
+      /^\[Hold And Win Grid\] Seeds has 25 values but 26 are needed to respin 13 free cells/
+    );
+    expect(cores.holdAndWin(started.updatedState, coreArgs(SPIN, SEEDS[1].slice(0, 26), { respin: true })).respinsLeft).toBeGreaterThanOrEqual(2);
+    // a pre-priced start needs no values at all
+    const priced = [[0, 0, 0], [700, 0, 0], [0, 0, 0], [0, 0, 300], [0, 0, 0]];
+    expect(cores.holdAndWin({}, Object.assign(coreArgs(SPIN, [], { start: true }), { valueGrid: priced })).totalValue).toBe(1000);
   });
 
   test('unseeded start fails closed: error logged + in inspect data, outputs empty, state untouched, Done fires', async () => {

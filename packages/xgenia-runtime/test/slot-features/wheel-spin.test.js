@@ -1,5 +1,7 @@
 // Wheel Spin (slot feature 17, seeded): registry port mirror, client/core parity for label and
 // object segment lists, weight overrides, and the unseeded / empty fail-closed contract.
+// (2026-10-04, certification) The segment is Seeds[0] scaled straight onto the weights — it was one
+// Park-Miller LCG step of Seeds[0].
 'use strict';
 
 const { defineFeature, mount } = require('./harness');
@@ -71,6 +73,16 @@ describe('Wheel Spin', () => {
       h.fire('Do');
       expectParity(h, cores.spinWheel({ segments: LABELS, weights: WEIGHTS, prizes: PRIZES, seeds: [seed] }));
     }
+  });
+
+  test('the segment is Seeds[0] scaled straight onto the weights (2026-10-04)', () => {
+    // weights [50, 30, 15, 5] split [0, 1e12) at 5e11, 8e11, 9.5e11
+    const land = (v) => cores.spinWheel({ segments: LABELS, weights: WEIGHTS, prizes: PRIZES, seeds: [v] }).segmentIndex;
+    expect([0, 5e11 - 1, 5e11, 8e11 - 1, 8e11, 9.5e11 - 1, 9.5e11, 1e12 - 1].map(land)).toEqual([0, 0, 1, 1, 2, 2, 3, 3]);
+    // zero weights never land, not even at the edges
+    const zero = (v) => cores.spinWheel({ segments: ['a', 'b', 'c', 'd'], weights: [0, 1, 0, 1], seeds: [v] }).segmentIndex;
+    expect([0, 5e11 - 1, 5e11, 1e12 - 1].map(zero)).toEqual([1, 1, 3, 3]);
+    expect(() => cores.spinWheel({ segments: LABELS, seeds: [0.7] })).toThrow(/^\[Wheel Spin\] Seeds\[0\] = 0.7 is not an ISAAC Random Number Array Generator value/);
   });
 
   test('object segments keep non-numeric prizes; a zero-weight segment never lands (core parity)', async () => {

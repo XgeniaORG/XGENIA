@@ -59,7 +59,7 @@ async function main() {
 
     const round = sandbox.createScriptRoundFn(out.script, out.configData || {});
     const rng = Isaac.fromEntropy();
-    let errors = 0, firstErr = '', tumbled = 0, bad = 0, firstBad = '', staked = 0, won = 0;
+    let errors = 0, firstErr = '', tumbled = 0, bad = 0, firstBad = '', staked = 0, won = 0, sameGrid = 0, tumbles = 0, firstSame = '';
     for (let i = 0; i < rounds; i++) {
       let o: AnyRec;
       try { o = round(rng, 100); } catch (e) { errors++; if (!firstErr) firstErr = String((e as Error).message).slice(0, 200); continue; }
@@ -75,7 +75,14 @@ async function main() {
         const last = k === passes.length - 1;
         if (!last && !(p.win > 0)) problems.push(`pass ${k} paid nothing but the round went on`);
         if (last && p.win > 0 && passes.length < MAX_PASSES) problems.push(`last pass ${k} paid ${p.win} but no refill followed`);
-        if (k > 0 && JSON.stringify(p.grid) === JSON.stringify(passes[k - 1].grid)) problems.push(`pass ${k} scored the same grid as pass ${k - 1} (no tumble)`);
+        // A refill CAN reproduce the cleared symbols exactly (each refilled cell matches with roughly the
+        // symbol's share, ~0.2^cluster-size when the cluster sits at the top of its columns) — once in a few
+        // thousand tumbles, legitimately. A refill that is not applied repeats the grid on EVERY tumble.
+        // So the same grid is counted, not failed per round (2026-10-04: 1 in 3,000 rounds, by chance).
+        if (k > 0) {
+          tumbles++;
+          if (JSON.stringify(p.grid) === JSON.stringify(passes[k - 1].grid)) { sameGrid++; if (!firstSame) firstSame = `round ${i}: pass ${k} scored the same grid as pass ${k - 1}`; }
+        }
       });
       if (passes.length > 1) tumbled++;
       if (problems.length) { bad++; if (!firstBad) firstBad = `round ${i}: ${problems.join('; ')}`; }
@@ -83,6 +90,7 @@ async function main() {
     if (errors) fail(name, `${errors}/${rounds} rounds threw: ${firstErr}`);
     else if (bad) fail(name, `${bad}/${rounds} rounds broke the tumble record — ${firstBad}`);
     else if (tumbled === 0) fail(name, `no round tumbled in ${rounds}`);
+    else if (sameGrid > Math.max(3, tumbles * 0.005)) fail(name, `${sameGrid}/${tumbles} tumbles left the grid unchanged — the refill is not being applied (${firstSame})`);
     else console.log(`ok    ${name} — ${rounds} rounds, ${tumbled} tumbled, RTP ${(100 * won / staked).toFixed(2)}% (${out.script.length} bytes)`);
   }
   if (failures) { console.log(`\n${failures} fixture(s) failed`); process.exit(1); }

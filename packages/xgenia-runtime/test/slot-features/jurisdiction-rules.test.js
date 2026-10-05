@@ -12,8 +12,8 @@ describe('Jurisdiction Rules', () => {
 
   test('ports match the spec', () => {
     const inputs = Object.keys(Def.metadata.inputs).filter((n) => n !== 'functionScript').sort();
-    expect(inputs).toEqual(['rules', 'fetch', 'gameSlug', 'rgsUrl', 'fallbackAutoplay', 'fallbackTurbo', 'fallbackSlamStop', 'fallbackFeatureBuy'].sort());
-    expect(Object.keys(Def.metadata.outputs).sort()).toEqual(['autoplayAllowed', 'turboAllowed', 'slamStopAllowed', 'featureBuyAllowed', 'maxStake', 'minSpinIntervalMs', 'realityCheckIntervalMin', 'netPositionDisplay', 'jurisdictionCode', 'source', 'loaded', 'failed', 'error'].sort());
+    expect(inputs).toEqual(['rules', 'fetch', 'gameSlug', 'rgsUrl', 'fallbackAutoplay', 'fallbackTurbo', 'fallbackSlamStop', 'fallbackFeatureBuy', 'fallbackCelebrateSmallWins'].sort());
+    expect(Object.keys(Def.metadata.outputs).sort()).toEqual(['autoplayAllowed', 'turboAllowed', 'slamStopAllowed', 'featureBuyAllowed', 'maxStake', 'minSpinIntervalMs', 'realityCheckIntervalMin', 'netPositionDisplay', 'celebrateWinsAtOrBelowStake', 'jurisdictionCode', 'source', 'loaded', 'failed', 'error'].sort());
     expect(Def.metadata.outputs.loaded.type).toBe('signal');
     expect(Def.metadata.outputs.failed.type).toBe('signal');
   });
@@ -25,6 +25,17 @@ describe('Jurisdiction Rules', () => {
     expect(h.out('turboAllowed')).toBe(true);
     expect(h.out('maxStake')).toBe(0);
     expect(h.out('minSpinIntervalMs')).toBe(0);
+  });
+
+  // (2026-10-04) UKGC: a return <= the stake must not be celebrated (losses disguised as wins).
+  test('celebrateWinsAtOrBelowStake: true by default, false from a GB rules object, and a restrictive fallback holds when no rules load', async () => {
+    const h = await mount(Def, {});
+    expect(h.out('celebrateWinsAtOrBelowStake')).toBe(true);
+    h.set('rules', { code: 'GB', celebrate_wins_at_or_below_stake: false });
+    expect(h.out('celebrateWinsAtOrBelowStake')).toBe(false);
+    const safe = await mount(Def, { fallbackCelebrateSmallWins: false });
+    expect(safe.out('source')).toBe('default');
+    expect(safe.out('celebrateWinsAtOrBelowStake')).toBe(false);
   });
 
   test('a supplied rules object wins over defaults', async () => {
