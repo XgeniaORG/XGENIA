@@ -1,5 +1,5 @@
-// The web half of Publish: push a built folder to a GitHub repository, have
-// Vercel build and serve it, and find out which URL it is reachable on.
+// The web half of Publish: upload a built folder straight to Vercel, have it
+// serve it, and find out which URL it is reachable on.
 //
 // Moved out of XgeniaDeployTab so the AI's publish commands (EditorBridge
 // `publish.*`) run the same pipeline as the Publish popup instead of a copy of
@@ -10,16 +10,6 @@
 import { filesystem } from '@xgenia/platform';
 
 import { DomainAvailability, pickLiveUrl, subdomainProbeVerdict, vercelProjectName } from './deployDomain';
-
-// GitHub API constants
-export const GITHUB_API_BASE = 'https://api.github.com';
-
-// Generic, provider-agnostic message shown to the user when the source-hosting
-// step of a publish fails. The deploy pipeline uses GitHub + Vercel under the
-// hood, but that's an implementation detail collaborators shouldn't see — so all
-// GitHub-specific failures surface as this instead. Real diagnostics still go to
-// the devtools console.
-export const GENERIC_DEPLOY_ERROR = 'Project compilation error';
 
 // Team info — falls back to XGENIA team when user has no personal Vercel account
 export const XGENIA_VERCEL_TEAM = { id: 'team_N25wk38vGG6CZAyu8JUhf1fe', slug: 'xgenia' };
@@ -43,7 +33,7 @@ export const XGENIA_VERCEL_TEAM = { id: 'team_N25wk38vGG6CZAyu8JUhf1fe', slug: '
  */
 export function nodeHttpsRequest(
   url: string,
-  options: { method?: string; headers?: Record<string, string>; body?: string } = {}
+  options: { method?: string; headers?: Record<string, string>; body?: string | Uint8Array } = {}
 ): Promise<{
   ok: boolean;
   status: number;
@@ -150,6 +140,28 @@ export class VercelSDKWrapper {
     }
   }
 
+  // Files API: content-addressed uploads a deployment then names by sha1.
+  files = {
+    /** Upload one file's bytes under its sha1. Vercel answers 200 when it already has it. */
+    upload: async (sha: string, body: Uint8Array, teamId?: string) => {
+      const q = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
+      const response = await nodeHttpsRequest(`${this.baseUrl}/v2/files${q}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.bearerToken}`,
+          'Content-Type': 'application/octet-stream',
+          'x-vercel-digest': sha,
+          'Content-Length': String(body.length),
+        },
+        body,
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`Vercel API Error: ${response.status} - ${errorData.error?.message || response.statusText}`);
+      }
+    },
+  };
+
   // Deployments API following official SDK pattern
   deployments = {
     createDeployment: async (data: {
@@ -159,12 +171,14 @@ export class VercelSDKWrapper {
         name: string;
         project?: string;
         target?: string;
-        gitSource: {
+        gitSource?: {
           type: string;
           repo: string;
           ref: string;
           org: string;
         };
+        /** Files already uploaded with files.upload, by path — the deployment is built from these. */
+        files?: VercelFileRef[];
         projectSettings?: {
           buildCommand?: string | null;
           devCommand?: string | null;
@@ -373,6 +387,41 @@ export class VercelSDKWrapper {
     },
   };
 
+  /**
+   * The Vercel team this token can actually deploy into.
+   *
+   * (2026-10-05) The shared deploy token belongs to "freddy-xgenias-projects"
+   * and cannot see the hard-coded XGENIA_VERCEL_TEAM: every call addressed to
+   * that team — file uploads, deployments, the name check, the live-URL read —
+   * answered 403 "Not authorized", and the name check read that as "free".
+   * Prefer XGENIA_VERCEL_TEAM when the token is a member, else the token's own
+   * default team (else its first). On a failed read, XGENIA_VERCEL_TEAM as before.
+   * Cached per token: the popup builds a new client on every render.
+   */
+  team(): Promise<{ id: string; slug: string }> {
+    const cached = VercelSDKWrapper.teamByToken.get(this.bearerToken);
+    if (cached) return cached;
+    const resolving = (async () => {
+      try {
+        const listed = await this.request('/v2/teams');
+        const teams: any[] = Array.isArray(listed?.teams) ? listed.teams : [];
+        const preferred = teams.find((t) => t?.id === XGENIA_VERCEL_TEAM.id);
+        if (preferred) return { id: preferred.id, slug: preferred.slug };
+        const user = await this.request('/v2/user').catch(() => null);
+        const defaultTeamId = user?.user?.defaultTeamId;
+        const chosen = teams.find((t) => t?.id === defaultTeamId) || teams[0];
+        return chosen ? { id: String(chosen.id), slug: String(chosen.slug) } : XGENIA_VERCEL_TEAM;
+      } catch {
+        VercelSDKWrapper.teamByToken.delete(this.bearerToken);
+        return XGENIA_VERCEL_TEAM;
+      }
+    })();
+    VercelSDKWrapper.teamByToken.set(this.bearerToken, resolving);
+    return resolving;
+  }
+
+  private static teamByToken = new Map<string, Promise<{ id: string; slug: string }>>();
+
   // Teams API for team management
   teams = {
     getTeams: async (data?: {
@@ -388,6 +437,13 @@ export class VercelSDKWrapper {
       return this.request(`/v2/teams${queryString}`);
     },
   };
+}
+
+/** A file of a deployment, uploaded to Vercel under its sha1 (uploadFilesToVercel). */
+export interface VercelFileRef {
+  file: string;
+  sha: string;
+  size: number;
 }
 
 export interface GitHubFile {
@@ -431,7 +487,8 @@ export async function checkDomainAvailability(vercel: VercelSDKWrapper, domain: 
   // For .vercel.app, availability is effectively whether a project of that name exists in the team
   const projectName = vercelProjectName(domain);
   try {
-    await vercel.projects.getProject({ idOrName: projectName, teamId: XGENIA_VERCEL_TEAM.id, slug: XGENIA_VERCEL_TEAM.slug });
+    const team = await vercel.team();
+    await vercel.projects.getProject({ idOrName: projectName, teamId: team.id, slug: team.slug });
     // Project exists in this team -> domain (default alias) is taken
     return { available: false, reason: 'existing-project' };
   } catch (error: any) {
@@ -443,7 +500,7 @@ export async function checkDomainAvailability(vercel: VercelSDKWrapper, domain: 
   }
 }
 
-// Helper to collect files for GitHub upload
+// Helper to collect the built files for upload
 export async function collectProjectFiles(tempDir: string): Promise<GitHubFile[]> {
   const files: GitHubFile[] = [];
 
@@ -472,6 +529,10 @@ export async function collectProjectFiles(tempDir: string): Promise<GitHubFile[]
     const entries = await filesystem.listDirectory(dirPath);
 
     for (const entry of entries) {
+      // Hidden entries are the editor's own bookkeeping, never part of the game:
+      // .trash/ holds deleted assets' backups (2026-10-05: the publish uploaded
+      // .trash/clover-beer-mug-symbol.<date>.png), .xgenia/ the AI's notes, .git.
+      if (entry.name.startsWith('.')) continue;
       const fullPath = filesystem.join(dirPath, entry.name);
       const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name;
 
@@ -508,142 +569,6 @@ export async function collectProjectFiles(tempDir: string): Promise<GitHubFile[]
   return files;
 }
 
-// Upload files to GitHub repository
-export async function uploadToGitHub(
-  githubToken: string | null,
-  files: GitHubFile[],
-  repositoryName: string,
-  isPrivateRepo: boolean
-): Promise<{ repoOwner: string; repoName: string }> {
-  if (!githubToken) {
-    console.error('Deploy: source-hosting token unavailable');
-    throw new Error(GENERIC_DEPLOY_ERROR);
-  }
-  const headers = {
-    'Authorization': `token ${githubToken}`,
-    'Accept': 'application/vnd.github.v3+json',
-    'Content-Type': 'application/json'
-  };
-
-  // Create repository
-  const createRepoResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/user/repos`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      name: repositoryName,
-      description: `XGENIA project deployed at ${new Date().toISOString()}`,
-      private: isPrivateRepo,
-      auto_init: true
-    })
-  });
-
-  if (!createRepoResponse.ok) {
-    const errorData = await createRepoResponse.json().catch(() => ({}));
-    console.error('Deploy: create-repository step failed:', createRepoResponse.status, errorData?.message);
-    throw new Error(GENERIC_DEPLOY_ERROR);
-  }
-
-  const repoData = await createRepoResponse.json();
-  const repoOwner = repoData.owner.login;
-
-  // Get the latest commit SHA
-  const commitResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/commits/main`, {
-    headers
-  });
-
-  if (!commitResponse.ok) {
-    console.error('Deploy: get-latest-commit step failed:', commitResponse.status);
-    throw new Error(GENERIC_DEPLOY_ERROR);
-  }
-
-  const commitData = await commitResponse.json();
-  const commitSha = commitData.sha;
-
-  // Prepare tree items: create blobs for binary files and inline text files
-  const treeItems: any[] = [];
-
-  for (const file of files) {
-    if (file.encoding === 'base64') {
-      // Create a blob for binary content
-      const blobResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/blobs`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          content: file.content,
-          encoding: 'base64'
-        })
-      });
-      if (!blobResponse.ok) {
-        const errorData = await blobResponse.json().catch(() => ({}));
-        console.error(`Deploy: blob step failed for ${file.path}:`, blobResponse.status, errorData?.message || blobResponse.statusText);
-        throw new Error(GENERIC_DEPLOY_ERROR);
-      }
-      const blobData = await blobResponse.json();
-      treeItems.push({ path: file.path, mode: file.mode, type: file.type, sha: blobData.sha });
-    } else {
-      // Inline text content directly in tree
-      treeItems.push({ path: file.path, mode: file.mode, type: file.type, content: file.content });
-    }
-  }
-
-  // Create tree with prepared items
-  const treeResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/trees`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      base_tree: commitSha,
-      tree: treeItems
-    })
-  });
-
-  if (!treeResponse.ok) {
-    const errorData = await treeResponse.json().catch(() => ({}));
-    console.error('Deploy: create-tree step failed:', treeResponse.status, errorData?.message);
-    throw new Error(GENERIC_DEPLOY_ERROR);
-  }
-
-  const treeData = await treeResponse.json();
-  const treeSha = treeData.sha;
-
-  // Create commit
-  const newCommitResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/commits`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      message: 'Deploy XGENIA project',
-      parents: [commitSha],
-      tree: treeSha
-    })
-  });
-
-  if (!newCommitResponse.ok) {
-    const errorData = await newCommitResponse.json().catch(() => ({}));
-    console.error('Deploy: create-commit step failed:', newCommitResponse.status, errorData?.message);
-    throw new Error(GENERIC_DEPLOY_ERROR);
-  }
-
-  const newCommitData = await newCommitResponse.json();
-  const newCommitSha = newCommitData.sha;
-
-  // Update main branch
-  const updateRefResponse = await nodeHttpsRequest(`${GITHUB_API_BASE}/repos/${repoOwner}/${repositoryName}/git/refs/heads/main`, {
-    method: 'PATCH',
-    headers,
-    body: JSON.stringify({
-      sha: newCommitSha,
-      force: true
-    })
-  });
-
-  if (!updateRefResponse.ok) {
-    const errorData = await updateRefResponse.json().catch(() => ({}));
-    console.error('Deploy: update-branch step failed:', updateRefResponse.status, errorData?.message);
-    throw new Error(GENERIC_DEPLOY_ERROR);
-  }
-
-  return { repoOwner, repoName: repositoryName };
-}
-
 /**
  * Which URL is this project actually reachable on?
  *
@@ -665,8 +590,8 @@ export async function resolveLiveUrl(
   try {
     const result = await vercel.domains.getProjectDomains({
       projectName,
-      teamId: XGENIA_VERCEL_TEAM.id,
-      slug: XGENIA_VERCEL_TEAM.slug,
+      teamId: (await vercel.team()).id,
+      slug: (await vercel.team()).slug,
     });
     candidates = (result?.domains || []).map((d: any) => d?.name).filter(Boolean);
   } catch (error: any) {
@@ -684,19 +609,71 @@ export async function resolveLiveUrl(
 export const VERCEL_POLL_INTERVAL_MS = 5000;
 export const VERCEL_POLL_ATTEMPTS = 24;
 
+/** Files uploaded at once to Vercel; more only queue up behind the same connection pool. */
+export const VERCEL_UPLOAD_CONCURRENCY = 6;
+
 /**
- * Deploy a GitHub repository to Vercel and wait until it is serving.
+ * Upload the built files straight to Vercel, content-addressed by sha1.
+ *
+ * (2026-10-05) Publishing went build → a new GitHub repo per publish (one API
+ * call per binary file) → a Vercel deployment from that repo. The shared GitHub
+ * token went bad (401) and every publish — the popup's and the assistant's —
+ * failed as "Project compilation error", which is GENERIC_DEPLOY_ERROR hiding a
+ * GitHub failure. Vercel takes the files itself: each is uploaded once under its
+ * sha1 (a file Vercel already has costs one quick request), and the deployment
+ * names them. No repository, no GitHub token.
+ */
+export async function uploadFilesToVercel(
+  vercel: VercelSDKWrapper,
+  files: GitHubFile[],
+  onProgress?: (step: string) => void
+): Promise<VercelFileRef[]> {
+  const nodeRequire = (window as any).require;
+  const crypto = nodeRequire('crypto');
+  const { Buffer } = nodeRequire('buffer');
+  const prepared = files.map((f) => {
+    const data = Buffer.from(f.content, f.encoding === 'base64' ? 'base64' : 'utf8');
+    return { file: f.path, sha: crypto.createHash('sha1').update(data).digest('hex') as string, size: data.length as number, data };
+  });
+  const queue = [...prepared];
+  let done = 0;
+  const worker = async () => {
+    while (queue.length > 0) {
+      const item = queue.shift()!;
+      let lastError: any = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          await vercel.files.upload(item.sha, item.data, (await vercel.team()).id);
+          lastError = null;
+          break;
+        } catch (e) {
+          lastError = e;
+        }
+      }
+      if (lastError) throw new Error(`Uploading ${item.file} to Vercel failed: ${lastError?.message || lastError}`);
+      done++;
+      if (onProgress && (done % 10 === 0 || done === prepared.length)) {
+        onProgress(`Uploading files (${done}/${prepared.length})...`);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(VERCEL_UPLOAD_CONCURRENCY, prepared.length) }, worker));
+  return prepared.map(({ file, sha, size }) => ({ file, sha, size }));
+}
+
+/**
+ * Deploy to Vercel and wait until it is serving: from files already uploaded
+ * (uploadFilesToVercel — what Publish uses) or from a GitHub repository.
  *
  * Returns the live alias (resolveLiveUrl) — the URL to hand out. Marking the
  * publish live (PublishState) is the caller's job: this function shows nothing.
  */
 export async function deployToVercel(
   vercel: VercelSDKWrapper,
-  repoOwner: string,
-  repoName: string,
+  source: { files: VercelFileRef[] } | { repoOwner: string; repoName: string },
   domainName: string
 ): Promise<{ deploymentId: string; deploymentUrl: string; aliasUrl: string }> {
-  const teamInfo = XGENIA_VERCEL_TEAM;
+  const teamInfo = await vercel.team();
   try {
     console.log('Starting deployment with team info:', teamInfo);
 
@@ -708,12 +685,16 @@ export async function deployToVercel(
         name: domainName, // Use original domain name instead of timestamped repo name
         project: domainName, // Use original domain name for project
         target: 'production',
-        gitSource: {
-          type: 'github',
-          repo: repoName, // This is the timestamped GitHub repo name
-          ref: 'main',
-          org: 'freddy-xgenia', // GitHub org remains the same
-        },
+        ...('files' in source
+          ? { files: source.files }
+          : {
+              gitSource: {
+                type: 'github',
+                repo: source.repoName, // This is the timestamped GitHub repo name
+                ref: 'main',
+                org: 'freddy-xgenia', // GitHub org remains the same
+              },
+            }),
         projectSettings: {
           buildCommand: null, // Let Vercel auto-detect
           devCommand: null, // Let Vercel auto-detect
