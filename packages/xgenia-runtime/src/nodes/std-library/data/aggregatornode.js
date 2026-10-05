@@ -24,6 +24,15 @@
 //                      that originally displayed that value (the reverse of the
 //                      input aggregation).
 //
+//   * `signalOutputs` -> the subset of `outputs` that are SIGNALS on the logic
+//                      component (a maths component's Done, BonusTriggered, …).
+//                      Their port is a signal, fired once for each response
+//                      that carries the field as true — after every data output
+//                      of that response is set, so a listener reads fresh values.
+//                      (2026-10-05) Without it a maths component's signals came
+//                      back as plain values: Done never reached what waited for
+//                      it, and a value that stayed true could fire only once.
+//
 // Example payload (calculator with Addition / Subtraction):
 //   { "firstNumber": 1, "secondNumber": 2, "isAddition": true, "isSubtraction": false }
 // Example response -> outputs:
@@ -140,6 +149,14 @@ const AggregatorNode = {
       set: function (value) {
         this._internal.outputs = value;
       }
+    },
+    signalOutputs: {
+      type: { name: 'stringlist', allowEditOnly: true },
+      displayName: 'Signal Outputs',
+      group: 'Configuration',
+      set: function (value) {
+        this._internal.signalOutputs = value;
+      }
     }
   },
   outputs: {
@@ -193,14 +210,29 @@ const AggregatorNode = {
     // flagged every DECLARED output dirty regardless, triggering one operation
     // would push values into — and visibly "trigger" — UI bound to unrelated
     // operations. So we iterate the response body's own keys only.
-    applyOutputs: function (body) {
+    // `ok`: the response was a 2xx. A declared signal the response does not
+    // mention at all is fired on a 2xx — what every signal output did before
+    // signalOutputs existed (they all rode `success`) — so a script deployed by an
+    // older compiler, which never reports signals, keeps its game working.
+    applyOutputs: function (body, ok) {
       if (!body || typeof body !== 'object') return;
       this._internal.outputValues = this._internal.outputValues || {};
+      const signals = new Set(splitList(this._internal.signalOutputs));
+      const fired = ok === true ? Array.from(signals).filter((s) => !Object.prototype.hasOwnProperty.call(body, s)) : [];
       for (const field in body) {
         if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
+        if (signals.has(field)) {
+          // A signal is not a value: fire it (below) when this response says it fired.
+          if (body[field] === true) fired.push(field);
+          continue;
+        }
         this._internal.outputValues[field] = body[field];
         this.registerOutputIfNeeded('out-' + field);
         if (this.hasOutput('out-' + field)) this.flagOutputDirty('out-' + field);
+      }
+      for (const field of fired) {
+        this.registerOutputIfNeeded('out-' + field);
+        if (this.hasOutput('out-' + field)) this.sendSignalOnOutput('out-' + field);
       }
     },
     doSend: function () {
@@ -254,7 +286,7 @@ const AggregatorNode = {
               _this._internal.lastResponse = body;
               _this._internal.inspectData = { status: response.status, payload: payload, response: body };
               // Map response fields -> output ports -> connected UI components.
-              _this.applyOutputs(body);
+              _this.applyOutputs(body, response.ok);
               _this.sendSignalOnOutput(response.ok ? 'success' : 'failure');
             });
         })
@@ -289,9 +321,10 @@ function buildPorts(parameters) {
     });
   });
 
+  const signalOutputs = new Set(splitList(parameters.signalOutputs));
   splitList(parameters.outputs).forEach(function (field) {
     ports.push({
-      type: { name: '*', allowConnectionsOnly: true },
+      type: signalOutputs.has(field) ? 'signal' : { name: '*', allowConnectionsOnly: true },
       plug: 'output',
       group: 'Outputs',
       name: 'out-' + field,
@@ -315,7 +348,7 @@ module.exports = {
     function manage(node) {
       context.editorConnection.sendDynamicPorts(node.id, buildPorts(node.parameters));
       node.on('parameterUpdated', function (event) {
-        if (event.name === 'dataInputs' || event.name === 'triggers' || event.name === 'outputs') {
+        if (event.name === 'dataInputs' || event.name === 'triggers' || event.name === 'outputs' || event.name === 'signalOutputs') {
           context.editorConnection.sendDynamicPorts(node.id, buildPorts(node.parameters));
         }
       });
