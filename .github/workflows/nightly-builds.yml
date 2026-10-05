@@ -9,6 +9,11 @@ on:
   #   - cron: '0 0 * * *' # Runs every day at midnight UTC
   workflow_dispatch: # Allows manual triggering
   workflow_call:
+    inputs:
+      release:
+        description: 'Pack the macOS update zip too (release.yml)'
+        type: boolean
+        default: false
 
 jobs:
   build-macos:
@@ -91,6 +96,8 @@ jobs:
 
       - name: Packing DMG file
         run: npm run build:editor:pack
+        env:
+          XGENIA_RELEASE: ${{ inputs.release && '1' || '' }}
 
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4
@@ -155,6 +162,8 @@ jobs:
 
       - name: Packing AppImage and Deb File
         run: npm run build:editor:pack
+        env:
+          XGENIA_RELEASE: ${{ inputs.release && '1' || '' }}
 
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
@@ -209,6 +218,8 @@ jobs:
 
       - name: Packing NSIS Installer
         run: npm run build:editor:pack
+        env:
+          XGENIA_RELEASE: ${{ inputs.release && '1' || '' }}
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
