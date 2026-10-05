@@ -184,12 +184,20 @@ function prepareCloudServices(args: CreateGameArgs): Promise<CloudServiceMetadat
   });
 }
 
+/**
+ * Only the Hello World template is offered for now. The feed is served from the docs site, so the
+ * other entries are hidden here rather than removed at the source.
+ */
+const OFFERED_TEMPLATE = /hello[\s_-]*world/i;
+
 /** The template feed. Returns an empty list rather than throwing, so the sheet still renders. */
 export async function listTemplates(): Promise<TemplateItem[]> {
   try {
     const templates = await templateRegistry.list({});
     // `type` marks the non-basic entries the old screen filtered out of the template grid.
-    return (templates || []).filter((t) => (t as any).type === undefined);
+    return (templates || [])
+      .filter((t) => (t as any).type === undefined)
+      .filter((t) => OFFERED_TEMPLATE.test(t.title || '') || OFFERED_TEMPLATE.test(t.projectURL || ''));
   } catch (e: any) {
     console.warn('[lobby] Failed to fetch templates:', e?.message || e);
     return [];
