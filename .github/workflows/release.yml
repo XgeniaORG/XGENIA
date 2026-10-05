@@ -4,6 +4,8 @@ name: Release (draft)
 # manifests, and opens a DRAFT GitHub release tagged v<packages/xgenia-editor version>.
 # The auto-updater ignores drafts: check the assets, then press Publish. A version with a
 # pre-release part (3.1.0-beta.1) is marked as a pre-release, which only beta installs pick up.
+# Run it on main, after develop is squash-merged there: GitHub only offers a workflow_dispatch
+# workflow that exists on the default branch.
 on:
   workflow_dispatch:
 
