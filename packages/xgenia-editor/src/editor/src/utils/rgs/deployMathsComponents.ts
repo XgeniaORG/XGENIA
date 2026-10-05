@@ -35,7 +35,7 @@ import { guid } from '@xgenia-utils/utils';
 import { cloneRootsWithIdMap, inlineAll } from '../compile/flattenLogic';
 import { toFunctionSlug } from './functionSlug';
 import { generateFunctionArtifact, FunctionArtifact } from './generateFunctionArtifact';
-import { createEdgeDeployment, deployEdgeFunction } from './deployEdgeFunction';
+import { createEdgeDeployment, deployEdgeFunction, listEdgeDeployments } from './deployEdgeFunction';
 import { XRGS_URL, rgsHeaders } from './rgsClient';
 
 /** Sheet every Math Component lives under. */
@@ -600,19 +600,11 @@ export async function mathsEndpointsForGame(
   gameId: string,
   project: any
 ): Promise<Record<string, MathsEndpoint>> {
-  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
-    method: 'POST',
-    headers: rgsHeaders(apiKey),
-    body: JSON.stringify({ action: 'list-edge-deployments', game_id: gameId })
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error((data && data.error) || `Could not read deployed components (HTTP ${res.status})`);
-  }
+  const deployments = await listEdgeDeployments(apiKey, gameId);
 
   // Newest active row per slug, by created_at.
   const liveBySlug = new Map<string, { url: string; createdAt: string }>();
-  for (const deployment of data.deployments || []) {
+  for (const deployment of deployments) {
     for (const fn of deployment.functions || []) {
       if (fn.status !== 'active' || !fn.function_url) continue;
       const current = liveBySlug.get(fn.function_slug);

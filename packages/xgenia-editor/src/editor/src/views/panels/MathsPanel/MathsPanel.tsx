@@ -42,10 +42,11 @@ import {
     MathsStatus,
     readDeployedComponents
 } from '@xgenia-utils/rgs/mathsComponentStatus';
-import { setMathsDeployState } from '@xgenia-utils/rgs/mathsDeployState';
+import { MATHS_DEPLOYED_ELSEWHERE, setMathsDeployState } from '@xgenia-utils/rgs/mathsDeployState';
 import {
     CommitFileInput,
     ComponentCommit,
+    commitFilesForDeploy,
     createComponentCommit,
     listComponentCommits
 } from '@xgenia-utils/rgs/componentCommits';
@@ -939,6 +940,24 @@ export function MathsPanel() {
     // than leaving the tree badging rows against a game that is no longer selected.
     useEffect(() => () => setMathsDeployState(null), []);
 
+    // A deploy made somewhere other than this panel — the AI's publish commands
+    // (EditorBridge `publish.start`, kind 'maths') — changes what is live, can open
+    // a new Server Version and records a commit. Re-read all three, or Changed
+    // would go on offering a deploy that has already happened.
+    useEffect(() => {
+        const group = {};
+        EventDispatcher.instance.on(
+            MATHS_DEPLOYED_ELSEWHERE,
+            () => {
+                void fetchVersions();
+                void refreshDeployed();
+                void refreshCommits();
+            },
+            group
+        );
+        return () => { EventDispatcher.instance.off(group); };
+    }, [fetchVersions, refreshDeployed, refreshCommits]);
+
     /**
      * Deploy = commit.
      *
@@ -990,28 +1009,11 @@ export function MathsPanel() {
             // written up front would claim a deploy that might still fail. If this
             // throws, the components are live and only the history entry is
             // missing — worth saying, not worth calling the deploy failed.
-            const kindBySlug = new Map(mathsStatus.changed.map((c) => [c.slug, c.kind]));
-            const files: CommitFileInput[] = results.map((r) => ({
-                function_slug: r.slug,
-                function_name: r.functionName,
-                change_kind: kindBySlug.get(r.slug) === 'added' ? 'added' : 'modified',
-                script: r.script,
-                project_json: r.projectJson
-            }));
-
-            // Each deletion carries the component's last-known state, read from what
-            // we already fetched off the platform. This is what makes the removal
-            // recoverable — after the delete below, this commit is the only place
-            // the component's graph still exists.
-            toDelete.forEach((entry) => {
-                const live = mathsStatus.deployedBySlug.get(entry.slug);
-                files.push({
-                    function_slug: entry.slug,
-                    function_name: live?.functionName || entry.displayName,
-                    change_kind: 'deleted',
-                    ...(live?.component ? { project_json: { components: [live.component] } } : {})
-                });
-            });
+            //
+            // Each deletion carries the component's last-known state (see
+            // commitFilesForDeploy) — after the delete below, this commit is the
+            // only place the component's graph still exists.
+            const files: CommitFileInput[] = commitFilesForDeploy(results, mathsStatus, toDelete);
 
             let commitWarning: string | null = null;
             try {

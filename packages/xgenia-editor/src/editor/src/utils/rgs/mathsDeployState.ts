@@ -17,6 +17,13 @@ import { emptyMathsStatus, MathsComponentStatus, MathsStatus } from './mathsComp
 /** Fired whenever the state below is replaced. The tree listens and re-renders. */
 export const MATHS_DEPLOY_STATE_CHANGED = 'mathsDeployState.changed';
 
+/**
+ * Fired when Math Components were deployed by something other than the Maths RGS
+ * panel (the AI's publish commands), so the panel re-reads versions, what is
+ * deployed and the commit history. Payload: `{ gameId, deploymentId }`.
+ */
+export const MATHS_DEPLOYED_ELSEWHERE = 'rgs.mathsDeployedElsewhere';
+
 let current: MathsStatus = emptyMathsStatus();
 
 export function setMathsDeployState(status: MathsStatus | null): void {

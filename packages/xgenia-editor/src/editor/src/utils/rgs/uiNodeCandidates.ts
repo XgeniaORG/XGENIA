@@ -6,6 +6,10 @@
 //   * refForNodeId — one node by id, for an element clicked in the rendered
 //     preview (the preload reports the `data-xgenia-node-id` it found).
 //
+// Built on those two: storedTelemetryMapping (last publish's answer, re-read
+// against the project — what the form opens pre-filled with) and
+// resolveTelemetryMapping (the same answer by id or label, for the AI's publish).
+//
 // Both resolve against ProjectModel.instance, i.e. the project the user has
 // open. That is also the project Publish copies byte-for-byte, so an id chosen
 // here names the same node in the deployed build.
@@ -13,7 +17,17 @@
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import { isVisualType } from '@xgenia-utils/compile/util';
 
-import { classifyUiNode, UiNodeCandidate } from './telemetryMapping';
+import {
+  classifyUiNode,
+  DeployTelemetryMapping,
+  emptyMapping,
+  normalizeStoredMapping,
+  resolveTelemetryRequest,
+  TELEMETRY_METADATA_KEY,
+  TelemetryRequest,
+  TelemetryResolution,
+  UiNodeCandidate
+} from './telemetryMapping';
 
 // Machine-made components: the old compile output and the Math Components the
 // Maths RGS panel deploys. Neither renders anything a player could click.
@@ -82,4 +96,42 @@ export function refForNodeId(
   // graph -> component. A node with no owner is not part of any component.
   const componentName = String(node.owner?.owner?.name || '');
   return candidateFor(node, componentName, pickedFrom);
+}
+
+/**
+ * Last publish's mapping, re-resolved against the open project: labels and
+ * component names are re-read from the nodes (they may have been renamed), and
+ * a reference whose node no longer exists is dropped so the form asks again
+ * rather than offering a dead answer.
+ */
+export function storedTelemetryMapping(project: any = ProjectModel.instance): DeployTelemetryMapping | null {
+  let stored: DeployTelemetryMapping | null = null;
+  try {
+    stored = normalizeStoredMapping(project?.getMetaData?.(TELEMETRY_METADATA_KEY));
+  } catch (e) {
+    return null;
+  }
+  if (!stored) return null;
+  const mapping = emptyMapping();
+  for (const key of ['betInput', 'winOutput', 'betButton'] as const) {
+    const ref = stored[key];
+    mapping[key] = ref ? refForNodeId(ref.nodeId, ref.pickedFrom, project) : null;
+  }
+  return mapping;
+}
+
+/**
+ * The telemetry mapping for a caller with no form to fill in (the AI's publish):
+ * each field named by node id or label, or omitted to reuse the project's saved
+ * choice. See resolveTelemetryRequest for the rules and the refusal shape.
+ */
+export function resolveTelemetryMapping(
+  project: any = ProjectModel.instance,
+  request?: TelemetryRequest | null
+): TelemetryResolution {
+  return resolveTelemetryRequest(request, {
+    candidates: collectUiNodeCandidates(project),
+    stored: storedTelemetryMapping(project),
+    refForNodeId: (nodeId) => refForNodeId(nodeId, 'graph', project)
+  });
 }
