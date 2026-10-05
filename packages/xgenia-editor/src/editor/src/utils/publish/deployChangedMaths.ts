@@ -105,7 +105,17 @@ function refOf(status: MathsComponentStatus): MathsComponentRef {
  * then — and comes back as `commit.recorded: false` plus a warning.
  */
 export async function deployChangedMathsComponents(
-  opts: { commitMessage?: string; onProgress?: (step: string) => void } = {}
+  opts: {
+    commitMessage?: string;
+    onProgress?: (step: string) => void;
+    /**
+     * Recompile and redeploy every component, unchanged ones included. (2026-10-05) A component
+     * is "unchanged" by its GRAPH, so a fixed compiler never reached a game that was already
+     * deployed: leprechaun-cluster kept the script that charged a bet on init and dealt the
+     * bonus every spin. A demo publish asks for this so its link runs this editor's compiler.
+     */
+    redeployAll?: boolean;
+  } = {}
 ): Promise<ChangedMathsDeployResult> {
   const progress = (step: string) => opts.onProgress?.(step);
   const rgs = getRgsSettings();
@@ -141,9 +151,11 @@ export async function deployChangedMathsComponents(
   }
 
   const status = await loadMathsStatus(rgs.apiKey, target.deploymentId, project);
-  const toDeploy = status.changed.filter((c) => c.kind === 'added' || c.kind === 'modified');
+  const toDeploy = opts.redeployAll
+    ? status.all.filter((c) => c.kind !== 'deleted' && !!c.componentName)
+    : status.changed.filter((c) => c.kind === 'added' || c.kind === 'modified');
   const notDeleted = status.changed.filter((c) => c.kind === 'deleted').map(refOf);
-  const unchanged = status.all.filter((c) => c.kind === 'unchanged').map(refOf);
+  const unchanged = opts.redeployAll ? [] : status.all.filter((c) => c.kind === 'unchanged').map(refOf);
   const warnings: string[] = [];
   if (notDeleted.length > 0) {
     warnings.push(`${notDeleted.map((c) => c.name).join(', ')}: ${NOT_DELETED_NOTE}`);
