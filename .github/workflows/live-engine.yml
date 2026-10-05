@@ -75,6 +75,15 @@ jobs:
           OUTPUT_PATH="$RUNNER_TEMP/engine/files" npm run build -w @xgenia/xgenia-viewer-react
           node scripts/live-engine/build-compiler.mjs "$RUNNER_TEMP/engine/files/compiler/xgenia.rgs-compiler.js" "$XGENIA_ENGINE_VERSION"
 
+      # A game's node Script is a full copy of the engine it was saved from. The runtime tells a stale
+      # copy from a real edit by hashes of every engine version (packages/xgenia-runtime/scripts/
+      # generate-engine-history.cjs), so the record must hold THIS build's text: build, record, build
+      # again with the record inside. The member text does not depend on the record, so one pass is enough.
+      - name: Engine history (stale node-Script copies)
+        run: |
+          node packages/xgenia-runtime/scripts/generate-engine-history.cjs --repo private --bundles "$RUNNER_TEMP/engine/files/viewer/xgenia.viewer.js"
+          OUTPUT_PATH="$RUNNER_TEMP/engine/files" npm run build -w @xgenia/xgenia-viewer-react
+
       # Off until a game has been played on a minified build (same switch as the release build).
       - name: Minify the viewer (repo variable XGENIA_MINIFY_VIEWER=1)
         if: vars.XGENIA_MINIFY_VIEWER == '1'

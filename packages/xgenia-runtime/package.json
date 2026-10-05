@@ -4,6 +4,7 @@
   "main": "xgenia-runtime.js",
   "scripts": {
     "test": "jest",
+    "engine-history": "node scripts/generate-engine-history.cjs",
     "mcp-proxy": "node start-mcp-proxy.js",
     "mcp-proxy-v1": "node start-mcp-proxy.js --v1",
     "start-proxy": "npm run mcp-proxy",
