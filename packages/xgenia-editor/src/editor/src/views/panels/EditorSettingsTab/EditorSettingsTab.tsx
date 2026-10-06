@@ -12,6 +12,8 @@ import { ExperimentalFlag, ExperimentalFlagVariant } from '@xgenia-core-ui/compo
 import { Section } from '@xgenia-core-ui/components/sidebar/Section';
 import { Text, TextSize } from '@xgenia-core-ui/components/typography/Text';
 
+import { UpdatesSection } from './UpdatesSection';
+
 /**
  * Editor-scoped settings — the "Editor" tab of the Settings panel.
  *
@@ -40,6 +42,8 @@ export function EditorSettingsTab() {
       <Section hasGutter hasVisibleOverflow>
         <Text size={TextSize.Medium}>Applies to this machine only — not saved in the project.</Text>
       </Section>
+
+      <UpdatesSection />
 
       {/* Only the panel list depends on there being experimental panels registered.
           The feature toggles below are independent — they used to share this guard,

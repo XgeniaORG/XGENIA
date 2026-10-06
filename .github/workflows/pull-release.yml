@@ -1,0 +1,52 @@
+name: Pull a release
+
+# Stops a bad release from spreading: turns it back into a draft, which no install can see.
+# Installs that already took it are fixed by the next release with a higher version (a nightly from
+# a revert on develop is always higher, since nightly versions carry a timestamp). Runbook:
+# update-plan.md → "When a bad build gets out".
+#
+# Same as running: gh release edit <tag> --draft=true -R XgeniaORG/XGENIA
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to pull, e.g. v3.0.1-beta.9.nightly.202610070215'
+        type: string
+        required: true
+      reason:
+        description: 'Why (goes to the team channel)'
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+
+      - name: Turn the release back into a draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' || { echo "::error::not a release tag: $TAG"; exit 1; }
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft | grep -qx false || { echo "::error::$TAG is not a published release"; exit 1; }
+          gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --draft=true
+          echo "$TAG is a draft again; installs no longer see it."
+
+      - name: Tell the team
+        if: always()
+        uses: ./.github/actions/teams-notification
+        with:
+          webhook-url: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          msg-title: 'Release pulled: ${{ inputs.tag }}'
+          msg-text: |
+            Reason: ${{ inputs.reason }}
+            Pulled by: ${{ github.actor }}
+          status: ${{ job.status }}
+          workflow-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

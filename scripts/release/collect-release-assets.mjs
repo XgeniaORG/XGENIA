@@ -13,8 +13,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// No latest-linux.yml: the app never checks for updates on Linux (autoupdater.js returns early).
-const SHIPPED = [/\.dmg$/, /-mac-.*\.zip$/, /\.blockmap$/, /Setup.*\.exe$/, /\.deb$/, /\.AppImage$/, /^latest\.yml$/];
+// latest-linux.yml lists both the AppImage and the .deb: electron-updater's AppImageUpdater and
+// DebUpdater each pick their own file from it (2026-10-06).
+const SHIPPED = [/\.dmg$/, /-mac-.*\.zip$/, /\.blockmap$/, /Setup.*\.exe$/, /\.deb$/, /\.AppImage$/, /^latest\.yml$/, /^latest-linux\.yml$/];
 
 // electron-builder's latest*.yml: top-level scalars and one `files:` list of `- url:` entries.
 // Values are kept as written (quotes included) so they come back out unchanged.
@@ -102,6 +103,7 @@ export function collectReleaseAssets(srcDir, outDir) {
 
   const manifests = fs.readdirSync(outDir).filter((n) => /^latest.*\.yml$/.test(n));
   if (!manifests.includes('latest.yml')) throw new Error('no latest.yml: the Windows build left no update manifest');
+  if (!manifests.includes('latest-linux.yml')) throw new Error('no latest-linux.yml: the Linux build left no update manifest');
   for (const name of manifests) {
     const { files } = parseManifest(fs.readFileSync(path.join(outDir, name), 'utf8'));
     for (const { url } of files) {

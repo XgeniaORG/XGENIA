@@ -6,14 +6,29 @@ name: Release (draft)
 # pre-release part (3.1.0-beta.1) is marked as a pre-release, which only beta installs pick up.
 # Run it on main, after develop is squash-merged there: GitHub only offers a workflow_dispatch
 # workflow that exists on the default branch.
+#
+# nightly.yml calls it too, with a nightly version (3.0.1-beta.9.nightly.<stamp>): that release is
+# published straight away as a pre-release, so installs on the Beta channel update to it without
+# anyone pressing Publish. Installs on Stable (the default) never see pre-releases.
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Release this version instead of the one in packages/xgenia-editor/package.json'
+        type: string
+        default: ''
+      nightly:
+        description: 'Publish as a nightly pre-release instead of a draft'
+        type: boolean
+        default: false
 
 jobs:
   build:
     uses: ./.github/workflows/nightly-builds.yml
     with:
       release: true
+      version: ${{ inputs.version || '' }}
     secrets: inherit
 
   draft-release:
@@ -33,8 +48,10 @@ jobs:
 
       - name: Read version
         id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          VERSION=$(node -p "require('./packages/xgenia-editor/package.json').version")
+          VERSION="${INPUT_VERSION:-$(node -p "require('./packages/xgenia-editor/package.json').version")}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Releasing v$VERSION"
 
@@ -57,17 +74,58 @@ jobs:
       - name: Collect assets and merge the macOS update manifests
         run: node scripts/release/collect-release-assets.mjs release-assets release-dist
 
-      - name: Create draft release
+      # Installs refuse an update whose latest*.yml has no valid signature (update-manifest.js).
+      # This job installs no npm packages, so only the repo's own dependency-free scripts see the key.
+      - name: Sign the update manifests
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: node scripts/release/sign-update-manifests.mjs release-dist
+
+      - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
+          NIGHTLY: ${{ inputs.nightly && '1' || '' }}
         run: |
           # Lowercase v: electron-updater reads the channel (beta, alpha) from the tag with semver,
           # and semver cannot parse the old "V2.1.0" style.
           PRERELEASE=""
           case "$VERSION" in *-*) PRERELEASE="--prerelease" ;; esac
+          if [ -n "$NIGHTLY" ]; then
+            test -n "$PRERELEASE" || { echo "::error::a nightly version must be a pre-release, got $VERSION"; exit 1; }
+            TITLE="XGENIA Nightly v$VERSION"
+          else
+            TITLE="XGENIA v$VERSION"
+          fi
+          # Always a draft first: no install sees a release while its files are still uploading.
           gh release create "v$VERSION" release-dist/* \
             --draft $PRERELEASE \
             --target "$GITHUB_SHA" \
-            --title "XGENIA v$VERSION" \
+            --title "$TITLE" \
             --generate-notes
+
+      # Read back what GitHub actually holds, the way an install will use it: every manifest signed
+      # with the key the app trusts, every listed file uploaded at the size the manifest says.
+      - name: Verify the draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: node scripts/release/verify-release.mjs "v$VERSION" --draft
+
+      # Nightly: no human step, so it is published here, then checked once more from the public URLs
+      # an install downloads from. If that fails it goes back to a draft, so no install takes it.
+      - name: Publish the nightly
+        if: inputs.nightly
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release edit "v$VERSION" --draft=false
+          for i in 1 2 3 4 5; do
+            node scripts/release/verify-release.mjs "v$VERSION" --public && exit 0
+            echo "Public check failed (try $i), retrying in 30s"
+            sleep 30
+          done
+          echo "::error::v$VERSION failed the public check; turning it back into a draft"
+          gh release edit "v$VERSION" --draft=true
+          exit 1

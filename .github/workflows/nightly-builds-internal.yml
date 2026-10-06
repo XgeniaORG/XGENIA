@@ -29,9 +29,10 @@ jobs:
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
-            git submodule update --init --remote private
-            echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
+            # The pinned commit, not the latest private main: the pointer is what this build ships,
+            # and private-pointer.yml keeps it current on develop.
+            git submodule update --init private
+            echo "private at $(git -C private rev-parse --short HEAD) (pinned)"
           elif [ "$GITHUB_REPOSITORY" = "XgeniaORG/XGENIA" ]; then
             # Without private/ the viewer aliases @xgenia/pro-nodes to dummy-pro-nodes.js:
             # the app builds green and ships with no slot nodes.
@@ -115,9 +116,10 @@ jobs:
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
-            git submodule update --init --remote private
-            echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
+            # The pinned commit, not the latest private main: the pointer is what this build ships,
+            # and private-pointer.yml keeps it current on develop.
+            git submodule update --init private
+            echo "private at $(git -C private rev-parse --short HEAD) (pinned)"
           elif [ "$GITHUB_REPOSITORY" = "XgeniaORG/XGENIA" ]; then
             # Without private/ the viewer aliases @xgenia/pro-nodes to dummy-pro-nodes.js:
             # the app builds green and ships with no slot nodes.
@@ -176,9 +178,10 @@ jobs:
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
-            git submodule update --init --remote private
-            echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
+            # The pinned commit, not the latest private main: the pointer is what this build ships,
+            # and private-pointer.yml keeps it current on develop.
+            git submodule update --init private
+            echo "private at $(git -C private rev-parse --short HEAD) (pinned)"
           elif [ "$GITHUB_REPOSITORY" = "XgeniaORG/XGENIA" ]; then
             # Without private/ the viewer aliases @xgenia/pro-nodes to dummy-pro-nodes.js:
             # the app builds green and ships with no slot nodes.

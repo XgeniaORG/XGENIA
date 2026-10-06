@@ -1,0 +1,65 @@
+name: PR checks
+
+# Runs on every PR into develop, with private/ at the commit the PR pins. It is the gate the private
+# pointer bot waits on before merging (private-pointer.yml), so make "PR checks / Engine tests" a
+# required check on develop.
+on:
+  pull_request:
+    branches: [develop, workflow/update] # TEST-BRANCH: [develop]
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  engine:
+    name: Engine tests
+    # Fork PRs get no secrets, so they cannot check out private/; a maintainer reviews those.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # workflow/update stood in for develop while the release pipeline was tested (update-plan.md →
+      # "Testing on workflow/update"). Those settings must not reach develop.
+      - name: No test-branch settings into develop
+        if: github.base_ref == 'develop'
+        run: |
+          if grep -rn 'TEST-BRANCH' .github/; then
+            echo "::error::undo the TEST-BRANCH settings above before merging into develop"
+            exit 1
+          fi
+
+      - name: Private (pinned)
+        env:
+          PRIVATE_PAT: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
+        run: |
+          test -n "$PRIVATE_PAT" || { echo "::error::PRIVATE_SUBMODULE_PAT is missing"; exit 1; }
+          git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
+          git submodule update --init private
+          git config --global --unset-all url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf
+          echo "private at $(git -C private rev-parse --short HEAD)"
+          test -f private/xgenia-pro-nodes/src/index.js
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: npm install
+
+      - name: Engine tests
+        run: |
+          npm test -w @xgenia/runtime -- --ci
+          node --test 'packages/xgenia-editor/tests/live-engine/*.test.cjs' 'packages/xgenia-editor/tests/auto-update/*.test.cjs'
+          node --test scripts/live-engine/pack.test.mjs scripts/live-engine/workflow.test.mjs scripts/live-engine/minify-viewer.test.mjs
+          node --test scripts/release/*.test.mjs
+          npx tsx packages/xgenia-runtime/src/api/test-compiler-bundle-parity.ts
+
+      # The pro nodes are bundled into the viewer: a private change that breaks the bundle fails here,
+      # not in the nightly an hour later.
+      - name: Build the viewer
+        run: OUTPUT_PATH="$RUNNER_TEMP/viewer-check" npm run build -w @xgenia/xgenia-viewer-react

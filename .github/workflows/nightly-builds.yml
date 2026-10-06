@@ -14,6 +14,10 @@ on:
         description: 'Pack the macOS update zip too (release.yml)'
         type: boolean
         default: false
+      version:
+        description: 'Build as this version instead of the one in packages/xgenia-editor/package.json (nightly.yml)'
+        type: string
+        default: ''
 
 jobs:
   build-macos:
@@ -34,9 +38,10 @@ jobs:
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
-            git submodule update --init --remote private
-            echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
+            # The pinned commit, not the latest private main: the pointer is what this build ships,
+            # and private-pointer.yml keeps it current on develop.
+            git submodule update --init private
+            echo "private at $(git -C private rev-parse --short HEAD) (pinned)"
           elif [ "$GITHUB_REPOSITORY" = "XgeniaORG/XGENIA" ]; then
             # Without private/ the viewer aliases @xgenia/pro-nodes to dummy-pro-nodes.js:
             # the app builds green and ships with no slot nodes.
@@ -47,6 +52,16 @@ jobs:
           fi
         env:
           PRIVATE_PAT: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
+
+      # Only in this checkout, never committed: electron-builder and app.getVersion() read it here.
+      - name: Set build version
+        if: inputs.version != ''
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          node -e "const fs=require('fs');const f='packages/xgenia-editor/package.json';const p=JSON.parse(fs.readFileSync(f,'utf8'));p.version=process.env.VERSION;fs.writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
+          echo "Building as $VERSION"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -94,6 +109,18 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: npm run build:editor -- --skip-git
 
+      # electron-builder only warns when it finds no signing identity, and macos-notarize.js skips
+      # when the Apple credentials are missing: both leave a green build that macOS refuses to run
+      # and Squirrel.Mac refuses to install as an update. Check what was actually produced.
+      - name: Verify signature and notarization
+        run: |
+          APP=$(find packages/xgenia-editor/dist -maxdepth 2 -type d -name '*.app' | head -1)
+          test -n "$APP" || { echo "::error::no .app in packages/xgenia-editor/dist"; exit 1; }
+          echo "Checking $APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          spctl --assess --type execute --verbose=4 "$APP"
+          xcrun stapler validate "$APP"
+
       - name: Packing DMG file
         run: npm run build:editor:pack
         env:
@@ -104,6 +131,7 @@ jobs:
         with:
           name: XGENIA-macOS-${{ matrix.arch }}
           path: publish
+          if-no-files-found: error
           retention-days: 7
 
       - name: Remove code-signing keychain
@@ -122,9 +150,10 @@ jobs:
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
-            git submodule update --init --remote private
-            echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
+            # The pinned commit, not the latest private main: the pointer is what this build ships,
+            # and private-pointer.yml keeps it current on develop.
+            git submodule update --init private
+            echo "private at $(git -C private rev-parse --short HEAD) (pinned)"
           elif [ "$GITHUB_REPOSITORY" = "XgeniaORG/XGENIA" ]; then
             # Without private/ the viewer aliases @xgenia/pro-nodes to dummy-pro-nodes.js:
             # the app builds green and ships with no slot nodes.
@@ -135,6 +164,16 @@ jobs:
           fi
         env:
           PRIVATE_PAT: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
+
+      # Only in this checkout, never committed: electron-builder and app.getVersion() read it here.
+      - name: Set build version
+        if: inputs.version != ''
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          node -e "const fs=require('fs');const f='packages/xgenia-editor/package.json';const p=JSON.parse(fs.readFileSync(f,'utf8'));p.version=process.env.VERSION;fs.writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
+          echo "Building as $VERSION"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -160,6 +199,26 @@ jobs:
           DISABLE_SIGNING: true
         run: npm run build:editor -- --skip-git
 
+      # Starts the packaged app in a virtual display: the build passes only if the editor window
+      # loads and renders (src/main/src/smoke-test.js). Catches a build that compiles but crashes or
+      # shows a blank window, which no other step does. A hang hits the timeout.
+      - name: Launch smoke test
+        run: |
+          sudo apt-get install -y -qq --no-install-recommends xvfb
+          DIR=packages/xgenia-editor/dist/linux-unpacked
+          BIN=$(find "$DIR" -maxdepth 1 -type f -perm -u+x ! -name 'chrome*' ! -name '*.so*' | head -1)
+          test -n "$BIN" || { echo "::error::no app executable in $DIR"; ls -la "$DIR"; exit 1; }
+          echo "Launching $BIN"
+          # A fresh profile, no update checks, the app's own engine: nothing from this machine or
+          # the network decides the result.
+          export XDG_CONFIG_HOME="$(mktemp -d)" XGENIA_SMOKE_TEST=1 autoUpdate=no XGENIA_ENGINE=builtin
+          timeout 180 xvfb-run -a --server-args="-screen 0 1920x1080x24" "$BIN" --no-sandbox --disable-gpu || {
+            code=$?
+            [ "$code" = 124 ] && echo "::error::the app did not exit within 180s (hang or main-process crash)"
+            echo "::error::launch smoke test failed (exit $code)"
+            exit 1
+          }
+
       - name: Packing AppImage and Deb File
         run: npm run build:editor:pack
         env:
@@ -170,6 +229,7 @@ jobs:
         with:
           name: XGENIA-Linux-x64
           path: publish
+          if-no-files-found: error
           retention-days: 7
 
   build-windows:
@@ -185,9 +245,10 @@ jobs:
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
-            git submodule update --init --remote private
-            echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
+            # The pinned commit, not the latest private main: the pointer is what this build ships,
+            # and private-pointer.yml keeps it current on develop.
+            git submodule update --init private
+            echo "private at $(git -C private rev-parse --short HEAD) (pinned)"
           elif [ "$GITHUB_REPOSITORY" = "XgeniaORG/XGENIA" ]; then
             # Without private/ the viewer aliases @xgenia/pro-nodes to dummy-pro-nodes.js:
             # the app builds green and ships with no slot nodes.
@@ -198,6 +259,16 @@ jobs:
           fi
         env:
           PRIVATE_PAT: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
+
+      # Only in this checkout, never committed: electron-builder and app.getVersion() read it here.
+      - name: Set build version
+        if: inputs.version != ''
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          node -e "const fs=require('fs');const f='packages/xgenia-editor/package.json';const p=JSON.parse(fs.readFileSync(f,'utf8'));p.version=process.env.VERSION;fs.writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
+          echo "Building as $VERSION"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -226,6 +297,7 @@ jobs:
         with:
           name: XGENIA-Windows-x64
           path: publish
+          if-no-files-found: error
           retention-days: 7
 
   notify-teams:
@@ -244,8 +316,10 @@ jobs:
 
       - name: Get version from package.json
         id: package-version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          VERSION=$(jq -r .version packages/xgenia-editor/package.json)
+          VERSION="${INPUT_VERSION:-$(jq -r .version packages/xgenia-editor/package.json)}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Read version: $VERSION"
 

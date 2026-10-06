@@ -57,7 +57,10 @@
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "linux": {
-      "target": "deb",
+      "target": [
+        "deb",
+        "AppImage"
+      ],
       "icon": "build/icons",
       "category": "Development"
     },

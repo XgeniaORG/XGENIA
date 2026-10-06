@@ -1,16 +1,10 @@
 name: Live Engine
 
+# Manual only (2026-10-06). Engine and private changes now reach users as app builds: the private
+# pointer bot (private-pointer.yml) keeps develop current and every push to develop becomes a
+# nightly pre-release (nightly.yml). Kept for an emergency engine hotfix between app builds; an app
+# update drops any live engine (live-engine/select.js), since the new build carries a newer one.
 on:
-  push:
-    branches: [develop]
-    paths:
-      - 'packages/xgenia-runtime/**'
-      - 'packages/xgenia-viewer-react/**'
-      - 'scripts/live-engine/**'
-      - 'package-lock.json'
-      - '.github/workflows/live-engine.yml'
-  repository_dispatch:
-    types: [private-main-push]
   workflow_dispatch:
     inputs:
       action:
