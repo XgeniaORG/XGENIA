@@ -212,6 +212,24 @@ export interface EdgeDeploymentBundle {
 }
 
 /**
+ * Every Server Version of a game, NEWEST FIRST (maths-deployer orders by version
+ * descending), each with its component functions' API docs but not their scripts
+ * — the Maths RGS panel's "Server Versions" list.
+ */
+export async function listEdgeDeployments(apiKey: string, gameId: string): Promise<any[]> {
+  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+    method: 'POST',
+    headers: rgsHeaders(apiKey),
+    body: JSON.stringify({ action: 'list-edge-deployments', game_id: gameId })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data && data.error) || `Could not read deployed components (HTTP ${res.status})`);
+  }
+  return data.deployments || [];
+}
+
+/**
  * Fetches one Server Version's component edge functions (including their
  * scripts) so the caller can build a downloadable JSON bundle — the same
  * bundle the RGS studio Versions tab downloads.

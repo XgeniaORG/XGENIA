@@ -1,5 +1,6 @@
 import { ProjectModel } from '../../../models/projectmodel';
 import { getAssetUid, buildUidToPathMap } from './assetMeta';
+import { shouldFollowInGraph } from './graphRefs';
 
 /**
  * When an asset is renamed or moved, node-graph parameters that referenced the old path
@@ -16,7 +17,7 @@ import { getAssetUid, buildUidToPathMap } from './assetMeta';
  * format-changing phase.)
  */
 export function reconcileGraphAssetRefs(oldRel: string, newRel: string): number {
-  if (!oldRel || !newRel || oldRel === newRel) return 0;
+  if (!shouldFollowInGraph(oldRel, newRel)) return 0;
 
   const pm = ProjectModel.instance;
   if (!pm || !Array.isArray(pm.components)) return 0;

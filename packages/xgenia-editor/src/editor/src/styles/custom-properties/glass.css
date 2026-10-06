@@ -47,6 +47,14 @@
   /* ---- left rail + floating panel cards (2026-09-06) ---- */
   --rail-width: 48px;
   --card-bg: rgba(22, 22, 24, 0.62);
+
+  /* Opaque counterpart to --card-bg, for surfaces that sit INSIDE a card and have to
+     hide what scrolls beneath them — the inspector's sticky filter bar and group
+     headers. They cannot just reuse --card-bg: a backdrop-filter nested inside another
+     backdrop-filter (the card's own) does not re-filter the card's interior in Chromium,
+     so a 62% bar simply lets the scrolled rows read straight through it. Matched to how
+     --card-bg composites over the editor's dark chrome. */
+  --card-bg-solid: #1c1c1e;
   --card-blur: blur(40px) saturate(180%);
   --card-radius: 12px;
   --card-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 8px 40px rgba(0, 0, 0, 0.45), 0 2px 12px rgba(0, 0, 0, 0.3);

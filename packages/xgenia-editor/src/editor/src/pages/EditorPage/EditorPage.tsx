@@ -44,6 +44,8 @@ import { Rail } from '../../views/Rail';
 import { LeftPanelCard } from '../../views/LeftPanelCard';
 import { RightPropertyPanel } from '../../views/RightPropertyPanel';
 import { ToastLayer } from '../../views/ToastLayer/ToastLayer';
+import { getPendingSeed } from '../../models/lobby/lobbySeed';
+import { openChatPanel } from '../../views/lobby/lobbyOperations';
 import { BaseWindow } from '../../views/windows/BaseWindow';
 import { whatsnewRender } from '../../whats-new';
 import { IRouteProps } from '../AppRoute';
@@ -118,6 +120,15 @@ export function EditorPage({ route }: EditorPageProps) {
         }
 
         setupSidePanels();
+
+        // A game created from a description in the lobby: bring the chat into view, because
+        // the panel is about to send that description as the first message (it pulls it over
+        // the bridge — see models/lobby/lobbySeed.ts) and a message into a closed panel is a
+        // message nobody sees. This has to run HERE, not in the lobby: the lobby routes to
+        // this page synchronously, and the chat's sidebar item does not exist until the
+        // installSidePanel() call just above.
+        const projectId = ProjectModel.instance?.id;
+        if (projectId && getPendingSeed(projectId)) openChatPanel();
         installDocuments();
 
         const eventGroup = {};

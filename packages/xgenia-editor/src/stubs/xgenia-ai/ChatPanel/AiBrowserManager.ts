@@ -14,5 +14,17 @@ export const AiBrowserManager: any = {
   onStateChange: () => noopUnsubscribe,
   getWebviewElement: () => null,
   returnWebviewToHiddenContainer: noop,
-  close: noop,
+  close: () => ({ success: true }),
+  getConsoleLogs: () => [],
+  // The AI browser ships with the private AI module; say so instead of failing obscurely.
+  open: async () => unavailable(),
+  screenshot: async () => unavailable(),
+  nativeClick: async () => unavailable(),
+  click: async () => unavailable(),
+  type: async () => unavailable(),
+  evaluate: async () => unavailable(),
+  getPageInfo: async () => ({ title: '', url: '', active: false }),
 };
+function unavailable() {
+  return { success: false, error: 'The AI browser is not available in this build of XGENIA.' };
+}

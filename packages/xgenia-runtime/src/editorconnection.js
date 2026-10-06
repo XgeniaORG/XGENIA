@@ -1,3 +1,4 @@
+/* global __XGENIA_ENGINE_VERSION__ */
 'use strict';
 
 var EventSender = require('./eventsender'),
@@ -469,7 +470,9 @@ EditorConnection.prototype.sendNodeLibrary = function (nodelibrary) {
     type: 'viewer',
     runtimeType: this.runtimeType,
     content: nodelibrary,
-    clientId: this.clientId
+    clientId: this.clientId,
+    // (2026-10-03) Which engine build this is (live-engine pack version, 'local' for a dev build).
+    engineVersion: typeof __XGENIA_ENGINE_VERSION__ !== 'undefined' ? __XGENIA_ENGINE_VERSION__ : 'unknown'
   });
 };
 

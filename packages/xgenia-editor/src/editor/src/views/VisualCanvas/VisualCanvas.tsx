@@ -3,16 +3,16 @@ import { app } from '@electron/remote';
 import { useThrottle } from '@xgenia-hooks/useThrottleState';
 import React, { useEffect, useRef, useState, useCallback, CSSProperties } from 'react';
 // Import app from remote for renderer process
-import { platform } from '@xgenia/platform';
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 
-// Correct import for platform
 
 import { useTrackBounds } from '@xgenia-core-ui/hooks/useTrackBounds';
 
 import { CanvasView } from './CanvasView';
 import { IframeViewer, type PreviewHost } from './IframeViewer';
+import { clearActivePreviewHost, setActivePreviewHost } from '../../utils/previewHostRegistry';
 import { FrameResizeHandles } from './FrameResizeHandles';
+import { useFrameRect } from './useFrameRect';
 import css from './VisualCanvas.module.scss';
 
 export interface VisualCanvasProps {
@@ -45,20 +45,20 @@ export function VisualCanvas({
   let preloadPath = '';
   try {
     const cacheBuster = Date.now(); // Add timestamp to force fresh load
-    if (app.isPackaged) {
-      // Production: Assume assets are copied to the app's resource root/assets
-      // Use platform.getAppPath() which points to resources directory in packaged app
-      preloadPath = `file://${path.join(platform.getAppPath(), 'assets/webview-preload-viewer.js')}?v=${cacheBuster}`;
-    } else {
-      // Development: Construct path relative to the project root
-      // Assuming app.getAppPath() points to the xgenia-editor package root in dev mode
-      preloadPath = `file://${path.join(app.getAppPath(), 'src/assets/webview-preload-viewer.js')}?v=${cacheBuster}`;
+    // Same relative location in dev and packaged builds: app.getAppPath() is the editor
+    // package root in dev and app.asar when packaged, and electron-builder ships `src`
+    // (including src/assets) into the asar. The packaged branch used to point at
+    // `assets/…` at the asar root, which does not exist, so installed builds never got
+    // the viewer bridge: no Edit mode, no selection, no gizmo, no editor API.
+    const preloadFile = path.join(app.getAppPath(), 'src/assets/webview-preload-viewer.js');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    if (!(window as any).require('fs').existsSync(preloadFile)) {
+      console.error(`[VisualCanvas] Viewer preload missing at ${preloadFile} — Edit mode will not work`);
     }
-    console.log(`[VisualCanvas] Using preload path: ${preloadPath}`);
+    preloadPath = `file://${preloadFile}?v=${cacheBuster}`;
   } catch (error: any) {
     console.error('[VisualCanvas] Failed to determine preload path:', error);
-    // Fallback or default path if needed, though likely indicates a setup issue
-    preloadPath = ''; // Or some default known path if applicable
+    preloadPath = '';
   }
 
   const onNavigationStateChanged = useCallback(({ route, canGoBack, canGoForward }) => {
@@ -111,6 +111,8 @@ export function VisualCanvas({
       // for why: the <webview>'s separate compositor surface is what flashed the window.
       const host = new IframeViewer(webviewRef.current, preloadPath);
       hostRef.current = host;
+      // Let the Publish popup's telemetry form reach the frame (see previewHostRegistry).
+      setActivePreviewHost(host);
       onWebView(host);
 
       const handleDomReady = () => {
@@ -122,6 +124,7 @@ export function VisualCanvas({
       return () => {
         host.removeEventListener('dom-ready', handleDomReady);
         host.dispose();
+        clearActivePreviewHost(host);
         if (hostRef.current === host) hostRef.current = null;
       };
     }
@@ -232,19 +235,14 @@ export function VisualCanvas({
     return () => clearTimeout(timer);
   }, [preloadKey]); // Re-run when webview is recreated
 
-  // The webview's visual box, expressed relative to .WebviewContainer (its positioned
-  // parent). getBoundingClientRect() on a CSS-transformed element returns the VISUAL
-  // box, which is what the handles have to sit on — the container is a centering flex
-  // box that is normally much larger than the frame.
-  const frameRect =
-    webviewBounds && containerBounds && webviewBounds.width > 0
-      ? {
-        left: webviewBounds.left - containerBounds.left,
-        top: webviewBounds.top - containerBounds.top,
-        width: webviewBounds.width,
-        height: webviewBounds.height
-      }
-      : null;
+  // The frame's visual box, in the coordinate space the handles are positioned in.
+  //
+  // Measured by useFrameRect rather than differenced from the two tracked bounds above:
+  // those are throttled, they are blind to a fit-scale change (a transform fires no
+  // ResizeObserver), and differencing two viewport rects inside an `overflow: auto`
+  // container counts the scroll offset twice. All three left the handles sitting away
+  // from the frame instead of on its edge. See useFrameRect.ts.
+  const frameRect = useFrameRect(webviewRef, containerRef);
 
   // The scale that maps pointer pixels onto device pixels. NOT the `zoom` prop:
   // CanvasView.renderReact() passes `this.zoomFactor` (the user's content zoom, applied

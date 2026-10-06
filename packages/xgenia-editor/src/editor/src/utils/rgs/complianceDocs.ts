@@ -1,4 +1,5 @@
-// Compliance documents for a DEPLOYED component — generated on the RGS platform.
+// Compliance documents for a DEPLOYED component or a DEPLOYED GAME — generated on
+// the RGS platform.
 //
 // A thin client over the platform's `compliance-docs` edge function, which is the
 // only thing that can produce one of these documents. That is not an accident of
@@ -23,6 +24,15 @@
 // Version, so the pair identifies exactly one row; and deriving the game from
 // the version rather than passing a game id separately means the two can never
 // disagree about which game is being documented.
+//
+// TWO KINDS OF SUBJECT. A COMPONENT document describes one maths function of
+// one Server Version — named by `deployment_id` + `function_slug`, as above. A
+// DEPLOYED GAME document (Publish → deployed domains → Compliance) describes a
+// published frontend as a whole: its entire uploaded source and every maths
+// component that source calls on the platform — named by `deployed_game_slug`,
+// the Vercel project name the game was registered under when it was published
+// (see deployedGames.ts). The platform builds that subject itself from the
+// source it holds; the editor sends the name and nothing else.
 
 import { XRGS_URL, rgsHeaders } from './rgsClient';
 
@@ -79,6 +89,10 @@ export interface ComplianceAiStatus {
   provider: string;
   /** How the model is chosen: the strongest the credential can afford, free last. */
   policy?: 'best-affordable';
+  /** What "strongest" is measured by: the Artificial Analysis indices, read live. */
+  ranking?: 'artificial-analysis-index';
+  /** Whether a screening is one call or two (analyse, then draft from that analysis). */
+  screening?: 'two-pass';
   /** The last-resort model — what a credential with no spending room gets. */
   floor_model?: string;
   /** COMPLIANCE_AI_MODEL, when the platform pinned the analysis model. */
@@ -93,7 +107,25 @@ export interface ComplianceAiStatus {
   key_source?: 'caller' | 'platform' | 'none';
 }
 
+/**
+ * What a document is about — one component of a Server Version, or a whole
+ * deployed game. The platform keeps the two kinds' documents apart: a deployed
+ * game's AML pack never satisfies a component pack's prerequisite.
+ */
+export type ComplianceTarget = { deploymentId: string } | { deployedGameSlug: string };
+
+/** The anchor fields the endpoint reads for a target. */
+function targetBody(target: ComplianceTarget | string): Record<string, unknown> {
+  if (typeof target === 'string') return { deployment_id: target };
+  if ('deployedGameSlug' in target) return { deployed_game_slug: target.deployedGameSlug };
+  return { deployment_id: target.deploymentId };
+}
+
 export interface ComplianceCatalog {
+  /** Which subject the state below belongs to. Absent from a platform deployed before deployed-game documents. */
+  subject?:
+    | { kind: 'game'; game_id: string }
+    | { kind: 'deployed_game'; id: string; slug: string; name: string; domain: string; live_url: string; publish_count: number; game_id: string };
   catalog: Record<string, ComplianceCatalogEntry>;
   mailer: { configured: boolean; provider: string; missing: string[] };
   ai?: ComplianceAiStatus;
@@ -156,14 +188,22 @@ export interface ComplianceAiRun {
   key_source?: 'caller' | 'platform' | 'none';
   model?: string;
   requested_model?: string;
-  /** How the model came to be the model: scout, spending room, every candidate and its fate. */
+  /** How the model came to be the model: the index, the spending room, every candidate and its fate. */
   selection?: {
-    method: 'web-scouted' | 'catalogue-ranked' | 'operator-pinned' | 'router-fallback';
+    method: 'index-ranked' | 'operator-pinned' | 'router-fallback';
     model: string;
-    scout?: { model: string; query: string; recommended: string[]; validated: string[] };
+    /**
+     * The measurement that ordered the candidates: an Artificial Analysis index
+     * (artificialanalysis.ai), republished per model in OpenRouter's live
+     * catalogue and read at generation time. Which one depends on the document
+     * — coding where the analysis reads deployed source, intelligence where it
+     * reads records and figures — and `reason` is the platform's own words for
+     * why, which the generated document prints.
+     */
+    index?: { name: 'intelligence' | 'coding'; label: string; scored: number; reason: string };
     reason?: string;
     budget?: { usd: number | null; note: string };
-    candidates?: { model: string; free: boolean; estimatedCostUsd: number | null; outcome: string; detail?: string }[];
+    candidates?: { model: string; free: boolean; estimatedCostUsd: number | null; outcome: string; detail?: string; indexScore?: number }[];
   };
   /** The worst-case estimate the model was admitted on; null when it was unlisted. */
   estimated_cost_usd?: number | null;
@@ -171,6 +211,14 @@ export interface ComplianceAiRun {
   duration_ms?: number;
   prompt_tokens?: number | null;
   completion_tokens?: number | null;
+  /**
+   * The two calls one screening is made of: the chosen model analyses the
+   * material, then drafts the document's screening from that analysis alone.
+   * Absent from a platform deployed before the split.
+   */
+  phases?: { phase: string; model: string; duration_ms: number; prompt_tokens: number | null; completion_tokens: number | null }[];
+  /** What the analysis pass found for the drafting pass to work from. */
+  dossier?: { observations: number; gaps: number; open_questions: number };
 }
 
 export interface ComplianceGenerateResult {
@@ -243,8 +291,11 @@ async function callComplianceDocs<T>(
     // not have, which is a confusing thing to show someone who pressed Generate.
     if (res.status === 400 && /(game_id|function_id) is required/i.test(serverError)) {
       throw new Error(
-        'XGENIA RGS backend is out of date — its compliance-docs function cannot resolve a component ' +
-          'by server version yet. Redeploy `compliance-docs` to the RGS project, then try again.'
+        body.deployed_game_slug
+          ? 'XGENIA RGS backend is out of date — its compliance-docs function cannot document a deployed ' +
+              'game yet. Redeploy `compliance-docs` to the RGS project, then try again.'
+          : 'XGENIA RGS backend is out of date — its compliance-docs function cannot resolve a component ' +
+              'by server version yet. Redeploy `compliance-docs` to the RGS project, then try again.'
       );
     }
 
@@ -261,22 +312,23 @@ async function callComplianceDocs<T>(
 }
 
 /**
- * The game's whole document position for the Server Version in hand: what can be
- * generated, what already exists, what each type is waiting on, and whether mail
- * and AI screening are configured.
+ * The subject's whole document position: what can be generated, what already
+ * exists, what each type is waiting on, and whether mail and AI screening are
+ * configured. For a Server Version (a string, or `{ deploymentId }`) that is the
+ * game's component documents; for `{ deployedGameSlug }` it is that deployed
+ * game's own.
  */
-export function fetchComplianceCatalog(apiKey: string, deploymentId: string): Promise<ComplianceCatalog> {
-  return callComplianceDocs<ComplianceCatalog>(
-    apiKey,
-    { action: 'catalog', deployment_id: deploymentId },
-    READ_TIMEOUT_MS
-  );
+export function fetchComplianceCatalog(apiKey: string, target: ComplianceTarget | string): Promise<ComplianceCatalog> {
+  return callComplianceDocs<ComplianceCatalog>(apiKey, { action: 'catalog', ...targetBody(target) }, READ_TIMEOUT_MS);
 }
 
 export interface GenerateComplianceOptions {
   apiKey: string;
-  deploymentId: string;
-  functionSlug: string;
+  /** With `functionSlug`: the component of this Server Version the document is about. */
+  deploymentId?: string;
+  functionSlug?: string;
+  /** Instead of the two above: the deployed game (Vercel project name) the document is about. */
+  deployedGameSlug?: string;
   documentType: string;
   /**
    * The requester's own OpenRouter key: the screening then runs on the
@@ -292,13 +344,18 @@ export function generateComplianceDocument(
   opts: GenerateComplianceOptions
 ): Promise<ComplianceGenerateResult> {
   const key = opts.openrouterApiKey?.trim();
+  const anchor: Record<string, unknown> = opts.deployedGameSlug
+    ? { deployed_game_slug: opts.deployedGameSlug }
+    : { deployment_id: opts.deploymentId, function_slug: opts.functionSlug };
+  if (!opts.deployedGameSlug && (!opts.deploymentId || !opts.functionSlug)) {
+    return Promise.reject(new Error('Nothing to document: name a component (Server Version + slug) or a deployed game.'));
+  }
   return callComplianceDocs<ComplianceGenerateResult>(
     opts.apiKey,
     {
       action: 'generate',
       document_type: opts.documentType,
-      deployment_id: opts.deploymentId,
-      function_slug: opts.functionSlug,
+      ...anchor,
       // Absent rather than empty: an empty string at the endpoint would be
       // indistinguishable from "use mine", and the platform's own key is the
       // right default.

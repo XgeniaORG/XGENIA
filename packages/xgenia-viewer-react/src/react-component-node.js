@@ -444,6 +444,19 @@ function flattenArray(target, array) {
   }
 }
 
+/** The DOM element a visual node rendered, or null. Exported for tests. */
+export function resolveNodeDomElement(xgeniaNode) {
+  if (typeof HTMLElement === 'undefined' || !xgeniaNode) return null;
+  const inner = xgeniaNode.innerReactComponentRef;
+  if (inner instanceof HTMLElement) return inner;
+  if (inner && inner.current instanceof HTMLElement) return inner.current;
+  if (inner && inner.domElement instanceof HTMLElement) return inner.domElement;
+  if (typeof document === 'undefined' || !xgeniaNode.id) return null;
+  const id = String(xgeniaNode.id).replace(/["\\]/g, '\\$&');
+  const el = document.querySelector('[data-xgenia-node-id="' + id + '"]');
+  return el instanceof HTMLElement ? el : null;
+}
+
 class XgeniaReactComponent extends React.Component {
   constructor(props) {
     super(props);
@@ -460,10 +473,38 @@ class XgeniaReactComponent extends React.Component {
 
   componentDidMount() {
     this.props.xgeniaNode.sendSignalOnOutput('didMount');
+    this._syncBoundingBoxTarget();
+  }
+
+  componentDidUpdate() {
+    // A re-render can replace the element (key change, conditional markup); keep observing
+    // the one actually on screen.
+    this._syncBoundingBoxTarget();
+  }
+
+  // ─── THE BOUNDING-BOX OUTPUTS HAD NO ELEMENT TO MEASURE (2026-09-23) ─────────────
+  // screenPositionX/Y and boundingWidth/Height are fed by DOMBoundingBoxObserver, which
+  // only starts once it has a target — and nothing ever called setTarget(). Wiring an
+  // Image's screenPositionX into anything delivered undefined/0 forever: live, a
+  // "particles fly to the clicked image" test read (0, 0) for every target, and the
+  // builder had to fall back to reading getBoundingClientRect from a script.
+  // Upstream set the target from ReactDOM.findDOMNode(this), which React 19 removed, and
+  // most visual components do not forward refs — so resolve the element the same way
+  // the inspector does: the inner ref when it is an element, else the node's own
+  // data-xgenia-node-id stamp (written into attrs/dom by render() below).
+  _syncBoundingBoxTarget() {
+    const xgeniaNode = this.props.xgeniaNode;
+    const observer = xgeniaNode && xgeniaNode.boundingBoxObserver;
+    if (!observer) return;
+    const el = resolveNodeDomElement(xgeniaNode);
+    if (el && observer.target !== el) observer.setTarget(el);
   }
 
   componentWillUnmount() {
     this.props.xgeniaNode.sendSignalOnOutput('willUnmount');
+    if (this.props.xgeniaNode && this.props.xgeniaNode.boundingBoxObserver) {
+      this.props.xgeniaNode.boundingBoxObserver.setTarget(undefined);
+    }
     //Remove
     const xgeniaNode = this.props.xgeniaNode;
     if (xgeniaNode.currentVisualStates) {
@@ -1316,7 +1357,13 @@ function createNodeFromReactComponent(def) {
         if (ref.domElement instanceof HTMLElement) return ref.domElement;
         if (ref.elementRef && ref.elementRef.current instanceof HTMLElement) return ref.elementRef.current;
         if (ref._owner && ref._owner.stateNode instanceof HTMLElement) return ref._owner.stateNode;
-        return null;
+        // (2026-09-23) For the standard wrapper `ref` is the XgeniaReactComponent INSTANCE, which
+        // carries none of the shapes above (React 19 removed findDOMNode, and Group/Text/Image do
+        // not forward refs), so this returned null for ordinary visual nodes. Every setStyle then
+        // fell back to a frame-deferred forceUpdate that skips a node already rendered this frame:
+        // a scale "pop" wired into transformScale (1.25, back to 1 after 140ms) never rendered
+        // once, while the same value set statically did. Animation targets read this too.
+        return resolveNodeDomElement(this);
       },
       
       getVisualParentNode() {

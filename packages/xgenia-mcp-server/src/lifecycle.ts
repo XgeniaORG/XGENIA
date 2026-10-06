@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Page } from 'playwright-core';
 import { spawn, execFileSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import {
@@ -345,10 +346,9 @@ async function waitForEditor(port: number, timeoutMs: number): Promise<EditorWai
   return 'timeout';
 }
 
-function repoRoot(): string | null {
-  const override = process.env.XGENIA_REPO_DIR;
-  if (override) return fs.existsSync(path.join(override, 'packages/xgenia-editor')) ? override : null;
-  let dir = process.cwd();
+/** Nearest ancestor of `start` (inclusive) that holds packages/xgenia-editor, or null. */
+export function findRepoRootFrom(start: string): string | null {
+  let dir = start;
   for (let i = 0; i < 8; i += 1) {
     if (fs.existsSync(path.join(dir, 'packages', 'xgenia-editor'))) return dir;
     const up = path.dirname(dir);
@@ -356,6 +356,18 @@ function repoRoot(): string | null {
     dir = up;
   }
   return null;
+}
+
+function repoRoot(): string | null {
+  const override = process.env.XGENIA_REPO_DIR;
+  if (override) return fs.existsSync(path.join(override, 'packages/xgenia-editor')) ? override : null;
+  // (2026-09-23) cwd alone missed: Claude Code starts this server in the folder ABOVE the repo
+  // (~/Documents/GitHub), so xgenia_launch {target:"dev"} and every xgenia_restart of a dev editor
+  // answered "no repo checkout found" — the restart killed XGENIA and could not bring it back.
+  // This server ships inside the repo (packages/xgenia-mcp-server/dist), so its own location is
+  // the dependable fallback.
+  return findRepoRootFrom(process.cwd())
+    ?? findRepoRootFrom(path.dirname(fileURLToPath(import.meta.url)));
 }
 
 /**
@@ -373,8 +385,26 @@ function repoRoot(): string | null {
  * remove this stripping "to simplify" — without it, the harness's own spawn
  * reproduces the exact failure that motivated it.
  */
+/**
+ * Put the directory of the node binary running this server at the front of
+ * PATH. An MCP client launched from a GUI (or configured with an absolute nvm
+ * node path, as this repo's setup is) does not carry a shell's PATH, so
+ * `spawn('npm', ['run', 'dev'])` failed with ENOENT on `restart` — after the
+ * previous editor had already been killed. npm ships next to node in every
+ * install (nvm, Homebrew, the official pkg), so the running node's own bin
+ * directory is the one place npm is guaranteed to be.
+ */
+export function withNodeBinOnPath(env: NodeJS.ProcessEnv, execPath: string): NodeJS.ProcessEnv {
+  const bin = path.dirname(execPath);
+  const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+  const current = env[key] ?? '';
+  const parts = current.split(path.delimiter).filter(Boolean);
+  if (parts.includes(bin)) return env;
+  return { ...env, [key]: [bin, ...parts].join(path.delimiter) };
+}
+
 function childEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
+  const env = withNodeBinOnPath({ ...process.env }, process.execPath);
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.ELECTRON_NO_ATTACH_CONSOLE;
   return env;
@@ -670,7 +700,9 @@ export async function launch(opts: { target?: Target | 'auto' } = {}) {
     return fail(
       'timeout',
       `waited ${timeout}ms for the editor page on ${port}`,
-      chosen === 'dev' ? 'Check the dev log in the temp directory.' : 'Is XGENIA installed?'
+      chosen === 'dev'
+        ? 'Check the dev log in the temp directory.'
+        : 'Is XGENIA installed? If XGENIA was already open before this launch, it is running without its automation port (releases only open it when started by this server): quit XGENIA, then launch again.'
     );
   }
   if (outcome === 'login-screen') {
@@ -859,6 +891,17 @@ async function saveKillVerify(opts: {
       ? `read project/chat state before ${action} (bounded at ${PRE_KILL_READ_TIMEOUT_MS}ms)`
       : `connect to the editor before ${action} (bounded at ${CONNECT_TIMEOUT_MS}ms)`;
     const detail = attempt.ok ? '' : ` (${attempt.error.message})`;
+    // A connect that stalled while the editor page itself answered raw CDP is
+    // not an unresponsive editor: killing it on that evidence would throw
+    // away a healthy session (and its in-flight turn) over a Playwright
+    // initialisation stall. Say so, and point at a retry rather than force.
+    if (!attempt.ok && attempt.error.code === 'connect-stalled') {
+      return fail(
+        'connect-stalled',
+        tried,
+        `${attempt.error.message} The editor page is alive, so the pre-${action} save and busy-check were skipped only because this harness could not attach. Retry ${action}; pass force only if repeated retries stall and you accept losing unsaved work and any in-flight AI turn.`
+      );
+    }
     return fail(
       'editor-unresponsive',
       tried,

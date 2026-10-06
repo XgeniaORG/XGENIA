@@ -131,15 +131,21 @@ export function Rail() {
       depth = 0;
       setDropMode(false);
     };
-    window.addEventListener('dragenter', onEnter);
-    window.addEventListener('dragleave', onLeave);
-    window.addEventListener('drop', onDrop);
-    window.addEventListener('dragend', onDrop);
+    // Capture phase, not bubble: drop targets (the Assets rail button itself, the asset
+    // panel, the canvas) call stopPropagation() on their drop, so a bubbling window
+    // listener never hears the drop and the rail stays stuck in drop mode. Capturing on
+    // window runs before any target handler, so it sees every enter/leave/drop regardless
+    // — which also keeps the enter/leave depth count symmetric.
+    const capture = { capture: true };
+    window.addEventListener('dragenter', onEnter, capture);
+    window.addEventListener('dragleave', onLeave, capture);
+    window.addEventListener('drop', onDrop, capture);
+    window.addEventListener('dragend', onDrop, capture);
     return () => {
-      window.removeEventListener('dragenter', onEnter);
-      window.removeEventListener('dragleave', onLeave);
-      window.removeEventListener('drop', onDrop);
-      window.removeEventListener('dragend', onDrop);
+      window.removeEventListener('dragenter', onEnter, capture);
+      window.removeEventListener('dragleave', onLeave, capture);
+      window.removeEventListener('drop', onDrop, capture);
+      window.removeEventListener('dragend', onDrop, capture);
     };
   }, []);
 

@@ -105,3 +105,13 @@ describe('login-screen false positives', () => {
     expect(fixtureDoc.querySelector(SELECTORS.loginPasswordInput)).toBeNull();
   });
 });
+
+describe('isChatFrameUrl', () => {
+  it('recognises the deployed panel and the local panel dev server, nothing else', async () => {
+    const { isChatFrameUrl } = await import('./selectors.js');
+    expect(isChatFrameUrl('https://xgenia-ai-app-xgenia.vercel.app/')).toBe(true);
+    expect(isChatFrameUrl('http://localhost:3010/?mode=agent')).toBe(true);
+    expect(isChatFrameUrl('http://localhost:8574/?t=1')).toBe(false);
+    expect(isChatFrameUrl('http://localhost:8080/src/editor/index.html')).toBe(false);
+  });
+});

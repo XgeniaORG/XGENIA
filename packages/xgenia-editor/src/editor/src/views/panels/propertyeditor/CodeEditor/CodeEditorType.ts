@@ -280,6 +280,8 @@ export class CodeEditorType extends TypeView {
       // NOTE(auto-saving): Add debounce to enable auto saving
       // onSave: debounce(save, 500)
       onSave: save,
+      // hidePopout runs the popout's onClose below, which saves and disposes.
+      onClose: () => this.parent.hidePopout(),
       outEditor: (editor) => {
         this.editor = editor;
 

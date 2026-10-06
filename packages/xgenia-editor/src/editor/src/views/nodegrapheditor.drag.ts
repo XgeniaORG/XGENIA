@@ -205,7 +205,7 @@ export function onDrop(editor: NodeGraphEditor, dragItem: DragItem, position: IV
     // to tell us which ports the user will actually wire, and a port they cannot
     // see is a port they cannot use. (Publish's swap declares only the used ones,
     // because by then the connections say.)
-    const { dataInputs, triggers, outputs } = mathsComponentContract(definition);
+    const { dataInputs, triggers, outputs, outputSignals } = mathsComponentContract(definition);
 
     editor.createNewNode(aggregatorType, position, {
       // Names it after the component rather than "Aggregator Node", so a graph
@@ -216,6 +216,7 @@ export function onDrop(editor: NodeGraphEditor, dragItem: DragItem, position: IV
         dataInputs,
         triggers,
         outputs,
+        signalOutputs: outputSignals,
         targetComponent: definition.name
       })
     } as TSFixme);

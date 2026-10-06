@@ -10,7 +10,8 @@ import {
   describePageState,
   describePageStateText,
   waitForChatReady,
-  type ChatReadiness
+  type ChatReadiness,
+  type ProjectInfo
 } from './editor-state.js';
 import { recentsFilePath, readRecents, addRecentEntry, type RecentEntry } from './recents.js';
 
@@ -312,33 +313,69 @@ export async function closeProject(opts: { force?: boolean } = {}) {
     return { closed: false as const, reason: 'no-project' as const };
   }
 
-  // A reload discards anything unsaved exactly like a kill does, so the save
-  // must actually be confirmed before proceeding — see saveOpenProject's doc
-  // comment for why the previous unconditional call could not tell a real
-  // save from a save that silently failed to confirm.
-  const saveOutcome = await saveOpenProject(page);
-  if (!saveOutcome.confirmed && !opts.force) {
+  const saved = await saveBeforeLeaving(page, current, opts.force ?? false);
+  if ('error' in saved) return saved;
+
+  const reloaded = await reloadToLobby(page);
+  if ('error' in reloaded) return reloaded;
+
+  return { closed: true as const, project: current, save: saved.save };
+}
+
+/**
+ * Save the open project before a reload discards whatever autosave has not
+ * flushed. Refuses on an unconfirmed save unless `force` — see
+ * saveOpenProject's doc comment for why an unconditional call could not tell
+ * a real save from one that silently failed to confirm.
+ */
+async function saveBeforeLeaving(
+  page: Page,
+  current: ProjectInfo,
+  force: boolean
+): Promise<{ save: SaveOutcome } | ReturnType<typeof fail>> {
+  const save = await saveOpenProject(page);
+  if (!save.confirmed && !force) {
     return fail(
       'save-unconfirmed',
       `save '${current.name}' before closing it`,
-      `The editor's save could not be confirmed (${saveOutcome.reason}${
-        'error' in saveOutcome ? `: ${saveOutcome.error}` : ''
+      `The editor's save could not be confirmed (${save.reason}${
+        'error' in save ? `: ${save.error}` : ''
       }) before reloading to close the project. Reloading now would risk unsaved work, so the close was refused. Retry, or pass force to close anyway.`
     );
   }
+  return { save };
+}
 
+/**
+ * Reload the page and wait for the projects screen to render a tile.
+ *
+ * This is also the only way to make the lobby re-read the recents file:
+ * `LocalProjectsModel.fetch()` runs when the lobby mounts and nowhere else,
+ * and every `store()` rewrites the whole file from the in-memory list. An
+ * entry appended to the file while the lobby is already showing is therefore
+ * invisible — and the next `store()` drops it from disk. A reload remounts
+ * the lobby, so `fetch()` reads the file with the new entry in it.
+ */
+async function reloadToLobby(page: Page): Promise<{ ok: true } | ReturnType<typeof fail>> {
   await page.reload({ waitUntil: 'domcontentloaded' });
   try {
-    await page.waitForSelector(SELECTORS.projectItem, { timeout: 60_000 });
+    await page.waitForSelector(SELECTORS.projectItem, { timeout: PROJECTS_LIST_TIMEOUT_MS });
   } catch {
+    const state = await describePageState(page);
+    if (state.kind === 'login-screen') {
+      return fail(
+        'not-authenticated',
+        `${SELECTORS.projectItem} after reload`,
+        'The projects screen never appeared after reloading because nobody is signed in. A human must sign in once — this harness cannot and must not handle credentials.'
+      );
+    }
     return fail(
       'selector-missing',
       `${SELECTORS.projectItem} after reload`,
-      'The projects screen did not appear after reloading the editor.'
+      `The projects screen did not appear after reloading the editor. Actual state: ${describePageStateText(state)}. Run xgenia_probe.`
     );
   }
-
-  return { closed: true as const, project: current, save: saveOutcome };
+  return { ok: true };
 }
 
 /**
@@ -347,8 +384,9 @@ export async function closeProject(opts: { force?: boolean } = {}) {
  * The editor's own `openProjectFromFolder` is unreachable — the router exposes
  * only `ProjectModel` on window, and LocalProjectsModel is module-scoped — so
  * this drives the projects screen the way a person would. The recents file is
- * the seam: the projects screen re-reads it from disk on render and on mouse
- * movement, so a directory the harness appends there becomes clickable.
+ * the seam: the lobby reads it from disk when it mounts, so a directory the
+ * harness appends there becomes clickable after a reload (and only after one —
+ * see reloadToLobby).
  *
  * `openChatIfClosed` (default true) controls what `withChatReadiness` does
  * when the AI chat panel is not showing once the project is confirmed open:
@@ -409,18 +447,21 @@ export async function openProject(q: { dir?: string; name?: string; openChatIfCl
     return withChatReadiness(page, { opened: true, alreadyOpen: true, project: current }, { attemptOpen });
   }
 
-  // Leave the current project first, so no in-project write races our
-  // append. `closeProject` never overrides an unconfirmed save with `force`
-  // here, matching this function's previous behaviour of refusing outright
-  // rather than risking unsaved work.
+  // Save the current project first: the reload below discards whatever
+  // autosave has not flushed, exactly like a kill does. Never `force` here —
+  // refusing outright beats risking unsaved work on a project switch.
   if (current) {
-    const closeResult = await closeProject({ force: false });
-    if ('error' in closeResult) {
-      return closeResult;
-    }
+    const saved = await saveBeforeLeaving(page, current, false);
+    if ('error' in saved) return saved;
   }
 
-  // Make sure the tile exists, then make the screen re-read the file.
+  // Append the entry, THEN reload. Order matters: the lobby reads the recents
+  // file only when it mounts (see reloadToLobby), so an append after the
+  // reload is invisible, and an append with no reload at all is both invisible
+  // and dropped by the lobby's next write. This used to append and then wiggle
+  // the mouse, on the belief that the screen re-read the file on mouse
+  // movement; it does not, and the tile never appeared (`selector-missing`
+  // with N tiles rendered, none of them the new one).
   //
   // addRecentEntry fails closed: if the recents file exists but cannot be
   // read or parsed, it throws rather than silently starting from `{}` and
@@ -436,8 +477,8 @@ export async function openProject(q: { dir?: string; name?: string; openChatIfCl
       `Could not add ${dir} to the recents file: ${message}`
     );
   }
-  await page.mouse.move(10, 10);
-  await page.mouse.move(11, 11);
+  const reloaded = await reloadToLobby(page);
+  if ('error' in reloaded) return reloaded;
 
   // Exact label match, not substring: `hasText` with a string matches
   // anywhere in the label, so a project named "Amazing thing" would also

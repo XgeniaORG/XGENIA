@@ -213,6 +213,9 @@ export function killTreeCommand(
   return { cmd: 'kill', args: [force ? '-9' : '-15', String(pid)] };
 }
 
+/** Asks a release build to open its CDP port; dev builds open it regardless. */
+export const CDP_FLAG = '--xgenia-cdp';
+
 /**
  * Where an installed XGENIA might be, in the order worth trying.
  *
@@ -221,14 +224,15 @@ export function killTreeCommand(
 export function appLaunchCandidates(
   platform: NodeJS.Platform = process.platform
 ): { cmd: string; args: string[]; probe: string }[] {
+  // A release opens its CDP port only when launched with this flag (see the editor's main.js).
   const override = process.env.XGENIA_APP_PATH;
-  if (override) return [{ cmd: override, args: [], probe: override }];
+  if (override) return [{ cmd: override, args: [CDP_FLAG], probe: override }];
 
   if (platform === 'darwin') {
     // `probe` is what gets existence-checked. Checking `cmd` would test /usr/bin/open,
     // which always exists, and would make "is XGENIA installed?" always answer yes.
     return [
-      { cmd: 'open', args: ['-a', '/Applications/XGENIA.app'], probe: '/Applications/XGENIA.app' }
+      { cmd: 'open', args: ['-a', '/Applications/XGENIA.app', '--args', CDP_FLAG], probe: '/Applications/XGENIA.app' }
     ];
   }
   if (platform === 'win32') {
@@ -237,12 +241,12 @@ export function appLaunchCandidates(
     const a = path.join(local, 'Programs', 'XGENIA', 'XGENIA.exe');
     const b = path.join(programs, 'XGENIA', 'XGENIA.exe');
     return [
-      { cmd: a, args: [], probe: a },
-      { cmd: b, args: [], probe: b }
+      { cmd: a, args: [CDP_FLAG], probe: a },
+      { cmd: b, args: [CDP_FLAG], probe: b }
     ];
   }
   return [
-    { cmd: 'xgenia', args: [], probe: '/usr/bin/xgenia' },
-    { cmd: '/opt/XGENIA/xgenia', args: [], probe: '/opt/XGENIA/xgenia' }
+    { cmd: 'xgenia', args: [CDP_FLAG], probe: '/usr/bin/xgenia' },
+    { cmd: '/opt/XGENIA/xgenia', args: [CDP_FLAG], probe: '/opt/XGENIA/xgenia' }
   ];
 }

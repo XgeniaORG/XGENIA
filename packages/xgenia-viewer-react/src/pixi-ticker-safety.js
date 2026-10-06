@@ -59,10 +59,14 @@ export function isTickerAlive(ticker) {
   return true;
 }
 
-/** `ticker.add(fn, context)` if the ticker is alive. @returns whether it ran. */
-export function tickerAdd(ticker, fn, context) {
+/** `ticker.add(fn, context, priority)` if the ticker is alive. @returns whether it ran. */
+export function tickerAdd(ticker, fn, context, priority) {
   if (!isTickerAlive(ticker) || typeof ticker.add !== 'function' || !fn) return false;
-  ticker.add(fn, context);
+  // `priority` is forwarded so a caller can order itself against Application's own render
+  // (UPDATE_PRIORITY.LOW, -25) — three.Stage in `shared` mode adds at UTILITY (-50) so its draw
+  // lands AFTER the 2D frame rather than being cleared by it. Omitting the argument is unchanged
+  // behaviour: pixi's own default applies, exactly as when this took three parameters.
+  ticker.add(fn, context, priority);
   return true;
 }
 

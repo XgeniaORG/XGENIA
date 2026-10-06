@@ -53,12 +53,16 @@ export class PagesType extends TypeView {
         const div = document.createElement('div');
         this.el = $(div);
 
-        // Ensure we create the React root only once
-        if (!this.reactRoot) {
-            this.reactRoot = createRoot(div);
+        // render() can be called again for the same view, and it hands back a NEW div each
+        // time. Keeping the previous root would keep rendering into the old, detached div
+        // and return an empty element — the Pages section would silently go blank. Bind a
+        // root to the element actually being returned.
+        if (this.reactRoot) {
+            const previousRoot = this.reactRoot;
+            // Deferred: unmounting synchronously here can land while React is rendering.
+            setTimeout(() => previousRoot.unmount(), 0);
         }
-
-        // Render the component using React 18 API
+        this.reactRoot = createRoot(div);
         this.reactRoot.render(React.createElement(Pages, props));
 
         return this.el;

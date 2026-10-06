@@ -15,7 +15,7 @@
 // still called below, which is why tsc reported them as undefined names.
 import ThumbnailCache from '@xgenia-utils/thumbnailcache';
 import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
-import { isBloatPort, isTooLargeToSerialize, unwrapValueUnit, portUnitInfo } from './serialize-param-guard';
+import { serializeNodeParameters } from './serialize-param-guard';
 import { mergeAssetMeta, loadAssetMeta, migrateAssetMeta, flushAssetMeta, type AssetMetaEntry } from '../AssetPanel/assetMeta';
 import { reconcileGraphAssetRefs } from '../AssetPanel/assetGraphRefs';
 import { AiActivity } from '@xgenia-models/aiactivity';
@@ -32,7 +32,9 @@ import { guid } from '@xgenia-utils/utils';
 import { platform } from '@xgenia/platform';
 import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
 import { ParamAuthors } from '../propertyeditor/inspector/paramAuthors';
-import { supabase } from '../../../supabaseInit';
+import { supabase, refreshSessionShared } from '../../../supabaseInit';
+import { AiBrowserManager } from '@xgenia-ai/ChatPanel/AiBrowserManager';
+import { pickPersistedAccessToken } from './persisted-session-token';
 import {
     addProjectPalette,
     clearProjectBaseStyle,
@@ -44,6 +46,13 @@ import {
     setProjectGlobalStylePrompt,
 } from '../ProjectStylesPanel/ProjectStylesPanel';
 import { PluginLoader } from './PluginLoader';
+import {
+    checkPublishName,
+    publishJob,
+    publishStatus,
+    startPublish,
+    type PublishStartSpec,
+} from '@xgenia-utils/publish/publishCommands';
 
 interface PluginCommand {
     id: string;
@@ -258,8 +267,43 @@ export class EditorBridge {
         UndoQueue.instance?.push?.(group);
     }
 
+    /**
+     * Command ids already dispatched, per source window, shared across every instance in this
+     * document. A WeakMap so a closed/reloaded plugin iframe's entry is collected with it.
+     */
+    private static _handledIdsBySource = new WeakMap<Window, Set<string>>();
+    /** The instance currently holding the window `message` listener. */
+    private static _active: EditorBridge | null = null;
+    /** How many bridges this document has constructed — >1 is the bug. */
+    private static _instancesConstructed = 0;
+    private readonly _instanceId: number;
+
     constructor() {
+        // ONE BRIDGE OWNS THE LISTENER. A previous instance (module re-evaluation, HMR, a
+        // second import) keeps its listener forever because nothing calls destroy() — and two
+        // listeners mean every AI command executes twice. See the duplicate-id guard in
+        // handleMessage for what that cost.
+        this._instanceId = ++EditorBridge._instancesConstructed;
+        if (EditorBridge._active) {
+            console.warn(
+                `[EditorBridge] SECOND BRIDGE CONSTRUCTED (instance #${this._instanceId}). Instance `
+                + `#${EditorBridge._active._instanceId} still owns the message listener — detaching it. `
+                + `Every AI command would otherwise execute once per live listener. Construction stack:\n`
+                + (new Error().stack || '(no stack)'),
+            );
+            try { EditorBridge._active.destroy(); } catch (e) { console.warn('[EditorBridge] Detaching the previous bridge failed:', e); }
+        }
+        EditorBridge._active = this;
         this.registerCommands();
+        // The AI browser's state, pushed so the panel (or the agent server behind a thin panel)
+        // can answer isActive()/getState()/getConsoleLogs() without a round trip.
+        try {
+            this.aiBrowserUnsubscribe = AiBrowserManager.onStateChange((state: any) =>
+                this.pushEvent('aiBrowserState', { state, logs: AiBrowserManager.getConsoleLogs(false) }, 'aiBrowserState'),
+            );
+        } catch (e) {
+            console.warn('[EditorBridge] AI browser state is not available:', e);
+        }
         // NOT `.bind(this)`. `handleMessage` is already an arrow property, so it
         // is bound; wrapping it in `bind` produced a fresh function here and
         // ANOTHER fresh one in `destroy`, so `removeEventListener` was handed a
@@ -319,7 +363,9 @@ export class EditorBridge {
                 if (!data || !data.nodeId) return;
                 this.pushEvent('nodeReferenced', {
                     nodeId: data.nodeId,
-                    nodeLabel: data.nodeLabel || 'Element'
+                    nodeLabel: data.nodeLabel || 'Element',
+                    nodeType: data.nodeType,
+                    component: data.component
                 });
             },
             this
@@ -544,7 +590,10 @@ export class EditorBridge {
         // Commit any AI edits still inside the idle window — the flush timer dies
         // with the bridge, and an unpushed group is an unundoable edit.
         this.flushAiUndo();
+        this.aiBrowserUnsubscribe?.();
+        this.aiBrowserUnsubscribe = null;
         window.removeEventListener('message', this.handleMessage);
+        if (EditorBridge._active === this) EditorBridge._active = null;
         this.iframe = null;
         this.connected = false;
     }
@@ -636,6 +685,57 @@ export class EditorBridge {
 
         // Command from plugin
         if (msg.type === 'command' && msg.id && msg.command) {
+            // EXACTLY-ONCE. A command id must never execute twice.
+            //
+            // (2026-09-12, export 1789204750104) Every node the AI created that session was
+            // created TWICE — 20 UI nodes became 40, one create_logic_node produced two Routers,
+            // a 20-node maths batch became 40. The panel sent each command ONCE (its own logs
+            // show one line per call) and each duplicate carried a DIFFERENT guid, so the only
+            // explanation is this handler running twice per message: more than one live
+            // `message` listener on the window, each executing the full dispatch below.
+            //
+            // That is possible because `destroy()` — the only thing that removes the listener —
+            // has no callers anywhere in the repo, while `editorBridge` is a module-scope
+            // singleton; any second evaluation of this module leaves the previous listener
+            // attached. The comment above the addEventListener call already describes this exact
+            // failure from a previous incident.
+            //
+            // The duplicate was invisible: PluginBridge deletes its pending entry on the FIRST
+            // response and silently drops the second, so the tool honestly reported 20 while 40
+            // existed. The session then burned six calls hand-deleting its own duplicates, and
+            // every shared label came back as an AMBIGUOUS REF refusal.
+            //
+            // Guarding here rather than only at construction means this holds however a second
+            // listener arrives (HMR, a second window, a second bundle copy).
+            // Keyed PER SOURCE WINDOW, not by id alone. Two plugin iframes (the AI chat panel and
+            // the image editor) each run their own PluginBridge whose counter starts at 1, so both
+            // can mint "cmd_1_<same ms>". A global id set would drop the second plugin's genuine
+            // command and leave it hanging until its 30s timeout.
+            const src = event.source as Window | null;
+            if (src) {
+                let seen = EditorBridge._handledIdsBySource.get(src);
+                if (!seen) { seen = new Set<string>(); EditorBridge._handledIdsBySource.set(src, seen); }
+                if (seen.has(msg.id)) {
+                    console.warn(
+                        `[EditorBridge] DUPLICATE DISPATCH BLOCKED — command id ${msg.id} (${msg.command}) `
+                        + `was already executed for this source window. This bridge is instance `
+                        + `#${this._instanceId}; ${EditorBridge._instancesConstructed} bridge(s) have been `
+                        + `constructed in this document. If that count is >1, a second EditorBridge was `
+                        + `created and its listener is still attached — capture this log, it names the cause.`,
+                    );
+                    return;
+                }
+                seen.add(msg.id);
+                if (seen.size > 2000) {
+                    // Bounded: ids are monotonic within one panel session, so the oldest are safe to drop.
+                    const it = seen.values();
+                    for (let i = 0; i < 500; i++) {
+                        const v = it.next();
+                        if (v.done) break;
+                        seen.delete(v.value);
+                    }
+                }
+            }
             // Every command is a sign the AI is working, read-only ones included. Tying
             // this to undo bursts alone meant a turn made entirely of inspection tools
             // never lit the top bar at all. AiActivity ends itself on an idle window,
@@ -771,10 +871,27 @@ export class EditorBridge {
         }
     }
 
+    private aiBrowserUnsubscribe: (() => void) | null = null;
+
     private registerCommands() {
         const h = (name: string, handler: CommandExecutor) => {
             this.commandHandlers.set(name, handler);
         };
+
+        // --- AI browser (2026-09-24) ---
+        // The AI's browser is a <webview>, and Electron only runs webviews in the editor's main
+        // frame: one created inside the panel iframe never loads. So the editor owns it (the
+        // preview surface shows it) and the panel drives it through these commands.
+        h('aiBrowser.open', ([url]: [string]) => AiBrowserManager.open(url));
+        h('aiBrowser.close', () => AiBrowserManager.close());
+        h('aiBrowser.screenshot', () => AiBrowserManager.screenshot());
+        h('aiBrowser.nativeClick', ([x, y, doubleClick]: [number, number, boolean]) => AiBrowserManager.nativeClick(x, y, doubleClick));
+        h('aiBrowser.click', ([params]: [any]) => AiBrowserManager.click(params));
+        h('aiBrowser.type', ([params]: [any]) => AiBrowserManager.type(params));
+        h('aiBrowser.evaluate', ([code]: [string]) => AiBrowserManager.evaluate(code));
+        h('aiBrowser.getPageInfo', () => AiBrowserManager.getPageInfo());
+        h('aiBrowser.getState', () => ({ state: AiBrowserManager.getState(), logs: AiBrowserManager.getConsoleLogs(false) }));
+        h('aiBrowser.getConsoleLogs', ([clear]: [boolean]) => AiBrowserManager.getConsoleLogs(!!clear));
 
         // --- Project commands ---
         h('project.getComponents', () => {
@@ -1072,10 +1189,47 @@ export class EditorBridge {
                     throw new Error('No active graph');
                 }
 
-                const nodeType = data.type || data.typename;
+                let nodeType = data.type || data.typename;
                 if (!nodeType) {
                     console.error('[EditorBridge] graph.createNode: No type provided!', data);
                     throw new Error('Node type is required');
+                }
+                // (2026-09-16, run 9) `graph.createNode("router")` from run_editor_script made a node of
+                // type "router": no ports, not a Router to set_router_config, and it took the model
+                // four more calls to notice. A type that is not registered is refused here; a
+                // case-only mismatch is corrected and said so.
+                //
+                // (2026-09-17, run 13) The editor's library is EMPTY until a viewer connects and sends
+                // its node types (NodeLibraryImporter.onClientImport). With the preview not yet
+                // mounted, every type was "unknown": Router and Page Stack were refused three times,
+                // and the model concluded this build cannot create navigation nodes. Only a loaded
+                // library can say a type does not exist; before that the node is created as before
+                // and resolves when the library arrives.
+                const lib: any = NodeLibrary.instance;
+                const libraryLoaded = !!lib?.isLoaded?.();
+                if (typeof nodeType === 'string' && !nodeType.startsWith('/') && !libraryLoaded) {
+                    console.warn(`[EditorBridge] graph.createNode: node library not loaded yet (no viewer connected) — creating "${nodeType}" without checking the name.`);
+                }
+                if (typeof nodeType === 'string' && !nodeType.startsWith('/') && libraryLoaded) {
+                    const exact = lib?.getNodeTypeWithName?.(nodeType);
+                    if (!exact) {
+                        const all: any[] = Array.isArray(lib?.types) ? lib.types : [];
+                        const ci = all.find((t) => String(t?.name || '').toLowerCase() === String(nodeType).toLowerCase());
+                        if (ci) {
+                            console.warn(`[EditorBridge] graph.createNode: type "${nodeType}" corrected to registered "${ci.name}"`);
+                            nodeType = ci.name;
+                        } else {
+                            throw new Error(`Node type "${nodeType}" not found among the ${all.length} registered node types. Node NOT created. Use the exact registered name (e.g. "Router", "Variable2", "JavaScriptFunction").`);
+                        }
+                    }
+                }
+                // `parent` is what callers keep sending; `parentId` is what this handler read. A parent
+                // that is named but cannot be found used to fall back to a ROOT node silently — the
+                // detached-node class of bug — so it is an error now.
+                const parentRef = data.parentId || data.parent || data.parent_id;
+                const parentNode = parentRef ? this.findNode(parentRef) : null;
+                if (parentRef && !(parentNode && typeof parentNode.addChild === 'function')) {
+                    throw new Error(`Parent "${parentRef}" was not found in the active component's graph (or cannot take children). Node NOT created — pass the parent's id or @label from this component, or omit it to create a root node.`);
                 }
 
                 // 2026-05-23 (BUG 76 fix, bridge half): refuse to create a
@@ -1117,6 +1271,53 @@ export class EditorBridge {
 
                 console.log('[EditorBridge] Creating node from JSON:', nodeJSON);
                 const node = NodeGraphNode.fromJSON(nodeJSON);
+
+                // ── PORTS THE CALLER ASKED FOR ARE NOT OPTIONAL ──────────────────────────────
+                // (2026-09-09, export 1788945061662) `ports` above is hardcoded `[]` and
+                // `data.ports` was never read, so every port a caller sent was DISCARDED at this
+                // line. `create_component_instance` is built on sending them: it walks the target
+                // component's Component Inputs/Outputs, turns them into the instance's own ports,
+                // sets `nodeJSON.ports`, and then REPORTS THOSE PORTS AS THE INSTANCE'S. The
+                // instance arrived with none.
+                //
+                // What that cost, in one run: the tool answered "Component instance created
+                // successfully" listing inputs ["BetAmount","Spin",…] while its own auto-wire in
+                // the SAME reply failed all four with «Target port 'Spin' does not exist» — the
+                // result contradicting itself. The model read that correctly ("the instance lost
+                // its custom ports; creation saw them, they're gone now"), deleted the instance and
+                // built it again, which failed identically because the cause was here.
+                //
+                // Added through `addPort` rather than by trusting the JSON, matching the R37 block
+                // below: that is the path the node types actually honour. Duplicates are skipped
+                // so this can never fight the static-port initialisation that follows.
+                try {
+                    const requested = Array.isArray((data as any).ports) ? (data as any).ports : [];
+                    const requestedDynamic = Array.isArray((data as any).dynamicports) ? (data as any).dynamicports : [];
+                    const wanted = [...requested, ...requestedDynamic].filter((p: any) => p && p.name);
+                    if (wanted.length > 0 && typeof (node as any).addPort === 'function') {
+                        const present = new Set(
+                            ((typeof node.getPorts === 'function' ? node.getPorts() : (node as any).ports) || [])
+                                .map((p: any) => `${p.plug}:${p.name}`)
+                        );
+                        let added = 0;
+                        for (const p of wanted) {
+                            const key = `${p.plug}:${p.name}`;
+                            if (present.has(key)) continue;
+                            try {
+                                (node as any).addPort({ name: p.name, plug: p.plug, type: p.type });
+                                present.add(key);
+                                added++;
+                            } catch (e: any) {
+                                console.warn(`[EditorBridge] graph.createNode: port "${p.name}" was refused by ${nodeType}:`, e?.message || e);
+                            }
+                        }
+                        if (added !== wanted.length) {
+                            console.warn(`[EditorBridge] graph.createNode: ${added} of ${wanted.length} requested port(s) were added to ${nodeType} — the caller's report of this node's ports will be wrong unless it reads them back.`);
+                        }
+                    }
+                } catch (e: any) {
+                    console.warn('[EditorBridge] graph.createNode: requested-port application failed:', e?.message || e);
+                }
 
                 // FIX (2026-04-21 R37): Force-initialize static ports from the type definition.
                 // For certain node types (notably the Logic family: And, Or, Not, Xor) the ports
@@ -1188,15 +1389,9 @@ export class EditorBridge {
                 // (removeNode) takes the node back out of the graph, which is the
                 // whole of "undo the node the AI just created".
                 const undoArgs = { undo: this.aiUndo(), label: this.aiUndoLabel };
-                if (data.parentId) {
-                    const parent = this.findNode(data.parentId);
-                    if (parent && typeof parent.addChild === 'function') {
-                        parent.addChild(node, undoArgs);
-                        console.log(`[EditorBridge] Added node ${nodeId} as child of ${data.parentId}`);
-                    } else {
-                        graph.addRoot(node, undoArgs);
-                        console.log(`[EditorBridge] Parent ${data.parentId} not found, added as root`);
-                    }
+                if (parentNode) {
+                    parentNode.addChild(node, undoArgs);
+                    console.log(`[EditorBridge] Added node ${nodeId} as child of ${parentRef}`);
                 } else {
                     graph.addRoot(node, undoArgs);
                     console.log(`[EditorBridge] Added node ${nodeId} as root`);
@@ -1230,11 +1425,37 @@ export class EditorBridge {
         // tried 3× to move @ReelStage into @ReelArea, all failed). This
         // handler does the work directly: detach from old parent (or roots),
         // re-attach as a child of the new parent.
-        h('graph.reparent', ([nodeId, newParentId, index]: [string, string, number?]) => {
+        h('graph.reparent', ([nodeId, newParentId, index]: [string, string | null, number?]) => {
             const graph = this.getActiveGraph();
             if (!graph) throw new Error('No active graph');
             const node = this.findNode(nodeId);
             if (!node) throw new Error(`Node not found: ${nodeId}`);
+            // (2026-09-23, export 1790196874427) "Move to the component root" (newParentId null / ''
+            // / 'root') used to throw "New parent not found: null" before doing anything, so a node
+            // could be moved into a container but never back out. NodeGraphModel.detachNode is the
+            // model's own move-to-roots: it fires 'nodeDetached' (the canvas moves the existing box)
+            // and records its own undo into the AI group.
+            if (newParentId === null || newParentId === undefined || newParentId === '' || newParentId === 'root') {
+                const gm: any = (graph as any).model || graph;
+                const isRoot = () => Array.isArray(gm.roots) && gm.roots.some((r: any) => r === node || r?.id === node.id);
+                const oldParent: any = (node as any).parent || null;
+                if (!oldParent) {
+                    if (!isRoot()) throw new Error(`Node ${nodeId} has no parent and is not a component root — the graph is inconsistent; reopen the component.`);
+                    return { success: true, verified: true, alreadyRoot: true, message: `${nodeId} is already at the component root.` };
+                }
+                if (typeof gm.detachNode !== 'function') throw new Error('Moving a node to the component root is not supported by this graph model (no detachNode).');
+                if (!Array.isArray(oldParent.children) || !oldParent.children.includes(node)) {
+                    throw new Error(`Node ${nodeId} names ${oldParent.id || oldParent.label} as its parent, but that parent does not list it as a child — the graph is inconsistent; nothing was moved.`);
+                }
+                gm.detachNode(node, { undo: this.aiUndo(), label: this.aiUndoLabel });
+                const rootCount = Array.isArray(gm.roots) ? gm.roots.filter((r: any) => r === node || r?.id === node.id).length : 0;
+                const stillInOldParent = Array.isArray(oldParent.children) && oldParent.children.includes(node);
+                if (rootCount !== 1 || stillInOldParent || (node as any).parent) {
+                    throw new Error(`Move to component root verification FAILED: ${JSON.stringify({ rootCount, stillInOldParent, hasParent: !!(node as any).parent })}.`);
+                }
+                console.log(`[EditorBridge] Reparented ${nodeId} → component root (was under ${oldParent.id})`);
+                return { success: true, verified: true, movedToRoot: true, previousParentId: oldParent.id, viewSynced: true };
+            }
             const newParent = this.findNode(newParentId);
             if (!newParent) throw new Error(`New parent not found: ${newParentId}`);
             if (typeof newParent.addChild !== 'function') {
@@ -2412,6 +2633,34 @@ export class EditorBridge {
             const pm = ProjectModel.instance as any;
             if (!pm) throw new Error('ProjectModel not available');
 
+            // NAME UNIQUENESS IS THE WRITER'S JOB.
+            //
+            // (2026-09-12, export 1789204750104) ProjectModel.addComponent has no name check, and
+            // this was the only creation path in the editor without one — the Components panel,
+            // duplicate, the Router page editor, the project importer and the Supabase importer
+            // all guard. The AI's create_component does check, but it reads getComponents() and
+            // then writes over a bridge round-trip, so nothing holds between the read and the
+            // write. That project ended with TWO "/Pages/SpaceGorilla" and TWO
+            // "/#__maths__/SpaceGorillaMaths" — in each pair one real component and one empty
+            // template twin — from a single create call each.
+            //
+            // The twins are not merely untidy. The runtime keys components by NAME
+            // (graphmodel.addComponent), so one silently shadows the other; toJSON sorts by name,
+            // so which one wins can flip between saves; and the AI's index merges them, turning
+            // every label they share into an ambiguity refusal.
+            const existingSameName = (pm.getComponents?.() || []).filter(
+                (c: any) => c && (c.name === name || c.fullName === name),
+            );
+            if (existingSameName.length > 0) {
+                const e = existingSameName[0];
+                throw new Error(
+                    `A component named "${name}" already exists (id ${e.id}). Refusing to create a `
+                    + `second one: the runtime keys components by name, so the two would shadow each `
+                    + `other unpredictably. Switch to it (component.switchTo), delete it first, or `
+                    + `choose a different name.`,
+                );
+            }
+
             // Create component from template JSON (same as tool-side ComponentModel creation)
             const Utils = (window as any).Utils || { guid: () => crypto.randomUUID() };
             const undoGroup = new UndoActionGroup({ label: 'create component' });
@@ -2671,9 +2920,16 @@ export class EditorBridge {
                         if (!key || !/^sb-.*-auth-token$/.test(key)) continue;
                         const raw = localStorage.getItem(key);
                         if (!raw) continue;
-                        const parsed = JSON.parse(raw);
-                        const token = parsed?.access_token || parsed?.currentSession?.access_token;
-                        if (token) return token;
+                        // (2026-09-16) Only a token that is still valid is worth handing out. An
+                        // expired one used to be caught by the gateway with a coded 401 the panel
+                        // recognised; with the gateway check off it reached check-entitlement and
+                        // came back as a plain 401 the panel painted as a paywall. See
+                        // persisted-session-token.ts.
+                        const pick = pickPersistedAccessToken(raw);
+                        if (pick.token) return pick.token;
+                        if (pick.reason === 'expired') {
+                            console.warn('[EditorBridge] auth.getJwt: the persisted session token has expired — answering null rather than a token the server will refuse.');
+                        }
                     }
                 } catch { /* storage unreadable — fall through to null */ }
                 return null;
@@ -2722,13 +2978,22 @@ export class EditorBridge {
          * same single-flight discipline the panel uses — two concurrent 401s must not double-spend.
          */
         h('auth.refreshJwt', async () => {
-            const g: any = window as any;
-            if (g.__xgeniaAuthRefreshInFlight) {
-                // Share the outcome — including the thrown reason — with the in-flight caller.
-                return await g.__xgeniaAuthRefreshInFlight;
-            }
+            // Single-flighting lives in `refreshSessionShared` now (supabaseInit.ts), because the
+            // bridge was never the only refresher: AuthContext and AuthValidationService call it
+            // too, and the client's own autoRefresh tick makes a fourth. A latch local to this
+            // handler could not see any of them — two concurrent 401s must not double-spend, and
+            // neither must a 401 racing the editor's own background refresh.
+            //
+            // WHY THIS IS BOUNDED (2026-09-10). refreshSession() waits on the auth lock, and
+            // supabase-js keeps retrying a failing refresh inside that lock for up to 30s
+            // (AUTO_REFRESH_TICK_DURATION). The panel gave up at 15s and rendered "Session
+            // Expired — Please Log In Again" for a session that was mid-refresh and fine. The
+            // owner must answer before the consumer's patience runs out, and it must say WHICH
+            // it was: busy, or actually dead. Silence cannot distinguish those; a message can.
+            const REFRESH_BOUND_MS = 12_000;
+
             const run = (async () => {
-                const { data, error } = await supabase.auth.refreshSession();
+                const { data, error } = await refreshSessionShared();
                 if (error) {
                     // "Already Used" means the family is revoked server-side — no client-side
                     // retry can recover it, and adding one would only spend more tokens.
@@ -2742,8 +3007,23 @@ export class EditorBridge {
                 if (!token) throw new Error('refreshSession returned no session');
                 return token;
             })();
-            g.__xgeniaAuthRefreshInFlight = run;
-            try { return await run; } finally { g.__xgeniaAuthRefreshInFlight = null; }
+
+            // Whoever else is waiting on the shared refresh still gets its result; this bound
+            // only limits how long the PANEL is made to wait for an answer.
+            const timeout = new Promise<'__timeout'>((resolve) => setTimeout(() => resolve('__timeout'), REFRESH_BOUND_MS));
+            const result = await Promise.race([run, timeout]);
+
+            if (result === '__timeout') {
+                // Don't let an abandoned rejection surface as an unhandled promise.
+                run.catch(() => { /* reported to whoever is still awaiting it */ });
+                console.warn(`[EditorBridge] auth.refreshJwt: still refreshing after ${REFRESH_BOUND_MS / 1000}s — answering BUSY so the panel retries instead of declaring the session dead`);
+                throw new Error(
+                    `AUTH_REFRESH_BUSY: the editor is still refreshing the session after ${REFRESH_BOUND_MS / 1000}s `
+                    + `(the auth lock is held by an in-progress refresh). The session is not necessarily expired.`,
+                );
+            }
+
+            return result;
         });
 
         // --- XRGS (maths/RGS) bridge ---
@@ -2785,6 +3065,44 @@ export class EditorBridge {
         h('xrgs.getMathsComponents', () => {
             try { return (window as any).__xrgs?.getMathsComponents?.() ?? []; } catch { return []; }
         });
+
+        // --- Publish (2026-10-05) ---
+        // Publishing the open game as a playable demo with a shareable link — the same thing the
+        // user gets from Publish → Deploy (XGENIA tab), and the Maths RGS panel's Math Components →
+        // Deploy that the published game's backend calls come from. Before this, both pipelines
+        // lived inside React components and the AI could not run either. They are plain modules
+        // now (utils/publish), the popup and the panel call them, and these commands call the SAME
+        // modules — no second pipeline. See utils/publish/publishCommands.ts.
+        //
+        // WHY START-AND-POLL. A game publish takes minutes (UI build, GitHub push, then up to 2 min
+        // of Vercel polling), and the panel forwards each command with a hard 30 s timeout. So
+        // `publish.start` validates and returns a job id at once, and `publish.job` reports the
+        // job's steps and, eventually, its result. One job at a time. The user sees the job happen:
+        // an editor toast narrates each step, and a game publish drives the topbar publish pill.
+        //
+        // Errors come back as `{ error }` results (like xrgs.generateScript), never as throws: a
+        // refusal such as an unresolvable telemetry mapping carries data the caller needs.
+        //
+        //   publish.status()                        → { connected, activeGame, mathsComponents[{name, slug,
+        //                                               state}], savedTelemetry, deployTokensReady,
+        //                                               deployedDomains[{name, url, deploymentId, …}], … }
+        //   publish.checkName([name])               → { valid, available (null = could not tell), url, reason?,
+        //                                               republish? (this editor's own earlier publish of it) }
+        //   publish.start([{ kind: 'maths', commitMessage? }])
+        //   publish.start([{ kind: 'game', name, telemetry?: { betInput?, winOutput?, betButton? }, isPrivate? }])
+        //                                           → { jobId, kind, startedAt } | { error, unresolved?, candidates? }
+        //   publish.job([jobId?])                   → { jobId, kind, state, step, steps, startedAt, finishedAt?,
+        //                                               result?, error? }
+        h('publish.status', async () => {
+            try { return await publishStatus(); } catch (e: any) { return { error: e?.message || String(e) }; }
+        });
+        h('publish.checkName', async ([name]: [string]) => {
+            try { return await checkPublishName(name); } catch (e: any) { return { error: e?.message || String(e) }; }
+        });
+        h('publish.start', ([spec]: [PublishStartSpec]) => {
+            try { return startPublish(spec); } catch (e: any) { return { error: e?.message || String(e) }; }
+        });
+        h('publish.job', ([jobId]: [string?]) => publishJob(jobId));
 
         // --- Filesystem commands ---
         //
@@ -3011,6 +3329,9 @@ export class EditorBridge {
                 // `true` must mean "on disk": migrateAssetMeta persists without awaiting.
                 await flushAssetMeta();
                 try {
+                    // (2026-09-23, export 1790196874427) A migrate into .trash (delete, overwrite backup)
+                    // moves the file and its meta only — reconcileGraphAssetRefs refuses to re-point
+                    // live nodes at the trashed copy (shouldFollowInGraph).
                     reconcileGraphAssetRefs(oldPath, newPath);
                 } catch {
                     /* graph reconciliation is best-effort */
@@ -3063,6 +3384,37 @@ export class EditorBridge {
                     isFile: e.isFile(),
                     isDirectory: e.isDirectory()
                 }));
+        });
+
+        // --- The preview device the USER pinned in the topbar ---
+        //
+        // (2026-09-10.) The `screen` tool had three sources — the bible's declared target,
+        // a measurement of the live preview, and the last authored surface — and none of
+        // them was the device chip in the top bar. Its own docs tell it to distrust the
+        // measurement ("a docked panel and a phone preset measure alike"), so the one
+        // signal carrying the user's choice was both invisible and untrusted, and a build
+        // silently defaulted to desktop 1920x1080.
+        //
+        // Note the null case is REAL and must stay distinguishable: the chip's
+        // unconstrained option stores {null,null,null} and renders as the word "Desktop",
+        // which is the absence of a choice rather than a 1920x1080 target.
+        h('project.getPinnedViewport', () => {
+            try {
+                const { EditorSettings } = require('../../../utils/editorsettings');
+                const id = (ProjectModel.instance as any)?.id;
+                if (!id) return null;
+                const vs = EditorSettings?.instance?.get(id)?.viewportSize;
+                if (!vs) return null;
+                const width = typeof vs.width === 'number' ? vs.width : null;
+                const height = typeof vs.height === 'number' ? vs.height : null;
+                const deviceName = typeof vs.deviceName === 'string' ? vs.deviceName : null;
+                if (width === null && height === null && deviceName === null) {
+                    return { pinned: false, width: null, height: null, deviceName: null };
+                }
+                return { pinned: true, width, height, deviceName };
+            } catch {
+                return null;
+            }
         });
 
         // --- Project directory ---
@@ -3173,15 +3525,55 @@ export class EditorBridge {
                     const handler = (_event: any, data: any) => {
                         clearTimeout(timeout);
                         ipcRenderer.removeListener(replyChannel, handler);
-                        if (data) {
+                        if (data && typeof data === 'object' && typeof (data as any).error === 'string') {
+                            // (2026-09-17) The view refused rather than capture a stale frame — pass its reason on.
+                            // (2026-09-23, export 1790196874427) Same for "busy" (another capture holds the
+                            // surface; retry) and "notReady" (no page in the preview) — neither is "no data".
+                            const d = data as any;
+                            resolve(JSON.stringify({
+                                success: false,
+                                stale: !!d.stale,
+                                ...(d.busy ? { busy: true, holder: d.holder } : {}),
+                                ...(d.notReady ? { notReady: true } : {}),
+                                message: d.error
+                            }));
+                        } else if (typeof data === 'string' && data) {
                             resolve(JSON.stringify({ success: true, image: data, fullPage, timestamp: Date.now() }));
                         } else {
+                            // null: an older view's refusal, or a capture that failed after its retries.
                             resolve(JSON.stringify({ success: false, message: 'Screenshot capture returned no data' }));
                         }
                     };
                     ipcRenderer.on(replyChannel, handler);
                 } catch (e: any) {
                     resolve(JSON.stringify({ success: false, message: `Screenshot error: ${e.message}` }));
+                }
+            });
+        });
+
+        // The screen at its AUTHORED size (e.g. 1920x1080), not the preview pane's current size.
+        // (2026-09-08, export 1788857897227) See CanvasView.ts's
+        // 'embedded-viewer-capture-design-request' handler for why a plain off-screen resize
+        // (the old <webview> trick) does not work now that the preview is an in-process <iframe>,
+        // and why the reply's width/height are the MEASURED captured pixels, not an echo of what
+        // was asked for.
+        h('viewer.captureDesign', ([width, height]: [number, number]) => {
+            return new Promise((resolve) => {
+                try {
+                    const { ipcRenderer } = require('electron');
+                    ipcRenderer.send('viewer-capture-design', { width, height });
+                    const timeout = setTimeout(() => {
+                        ipcRenderer.removeListener('viewer-capture-design-reply', handler);
+                        resolve(JSON.stringify({ success: false, message: 'Design-size screenshot timed out after 20s' }));
+                    }, 20000);
+                    const handler = (_event: any, payload: any) => {
+                        clearTimeout(timeout);
+                        ipcRenderer.removeListener('viewer-capture-design-reply', handler);
+                        resolve(JSON.stringify(payload || { success: false, message: 'Design capture returned no data' }));
+                    };
+                    ipcRenderer.on('viewer-capture-design-reply', handler);
+                } catch (e: any) {
+                    resolve(JSON.stringify({ success: false, message: `Design capture error: ${e.message}` }));
                 }
             });
         });
@@ -3225,11 +3617,27 @@ export class EditorBridge {
         //
         // Returns PLAIN OBJECTS — the previous shape was un-serialisable across postMessage, so
         // even a correct lookup would have arrived empty.
+        //
+        // (F2, verdict-string consumer audit 2026-09-15) AND IT MARKS ITS REPLY.
+        //
+        // This handler used to answer a bare array, and `[]` meant three different things: no
+        // warnings, `WarningsModel.instance` was null, or the lookup threw. The panel's reader
+        // (private/xgenia-ai/.../utils/editor-warnings.ts) therefore could not tell "asked, nothing
+        // to report" from "never read the model", and get_editor_warnings printed 🟢 HEALTHY plus
+        // "No issues found! Your graph looks good." over a warnings model it had never read — the
+        // same silent-empty that hid the polyPoints error above, one layer up.
+        //
+        //   { ok: true,  warnings: […] }                     a real read (possibly genuinely empty)
+        //   { ok: false, unavailable: true, reason: "…" }    it could not read the model
+        //
+        // The panel still accepts a bare array from an editor built before this marker, but treats
+        // an EMPTY one as unverified rather than clean — so this change needs an EDITOR REBUILD to
+        // take effect, and until then get_editor_warnings says so out loud instead of going green.
         h('warnings.get', ([componentName]: [string?] = [] as any) => {
             try {
                 const { WarningsModel } = require('@xgenia-models/warningsmodel');
                 const model = WarningsModel.instance;
-                if (!model) return [];
+                if (!model) return { ok: false, unavailable: true, reason: 'the editor has no WarningsModel instance in this session, so no node badge could be read.' };
 
                 // getAllWarningsForComponent only ever reads `.name`, so a bare {name} is a valid ref.
                 const namesToRead: string[] = [];
@@ -3269,10 +3677,10 @@ export class EditorBridge {
                         });
                     }
                 }
-                return out;
+                return { ok: true, warnings: out };
             } catch (e: any) {
                 console.warn('[EditorBridge] warnings.get failed:', e?.message || e);
-                return [];
+                return { ok: false, unavailable: true, reason: `reading the editor's WarningsModel threw: ${e?.message || e}` };
             }
         });
 
@@ -3439,13 +3847,29 @@ export class EditorBridge {
                         const returnVal = hasStructured ? raw.__result : raw;
                         const logs: Array<{level: string; message: string}> = hasStructured ? (raw.__logs || []) : [];
 
+                        // (2026-09-23) CONSOLE CAPPED, RETURN VALUE STILL LAST. Uncapped console
+                        // output (a few warnings, each with a stack trace) pushed the return value past
+                        // the result-size cap, so the caller saw only metadata, concluded execute_code
+                        // "swallows" results, and smuggled data out through hidden DOM nodes. The value
+                        // must stay LAST: viewer-snippet.parseViewerExecResult and read-viewer-port-value
+                        // read /Return value:\s*([\s\S]+)$/ to the end of the string.
                         const parts: string[] = [];
                         if (logs.length > 0) {
-                            parts.push('Console output:');
-                            for (const entry of logs) {
+                            const MAX_LOGS = 20, MAX_LEN = 240, MAX_TOTAL = 2400;
+                            parts.push(`Console output (${logs.length}${logs.length > MAX_LOGS ? `, first ${MAX_LOGS} shown` : ''}):`);
+                            let used = 0;
+                            for (const entry of logs.slice(0, MAX_LOGS)) {
                                 const prefix = entry.level === 'log' ? '' : `[${entry.level.toUpperCase()}] `;
-                                parts.push(`  ${prefix}${entry.message}`);
+                                const text = String(entry.message);
+                                const line = `  ${prefix}${text.length > MAX_LEN ? text.slice(0, MAX_LEN) + '…' : text}`;
+                                if (used + line.length > MAX_TOTAL) { parts.push('  … (console output capped)'); break; }
+                                used += line.length;
+                                parts.push(line);
                             }
+                        }
+                        if (returnVal === undefined) {
+                            // BEFORE the value line, so the payload parsers still see exactly "undefined".
+                            parts.push('(Your code runs as a function BODY: a bare `(() => {…})()` or a last expression is discarded. Use `return …` to get a value back.)');
                         }
                         const returnStr = returnVal === undefined ? 'undefined'
                             : typeof returnVal === 'object' ? JSON.stringify(returnVal, null, 2)
@@ -3804,128 +4228,14 @@ ${autoReturnCode}
         return serialized;
     }
 
+    // Stored-parameter union + port walk; see serializeNodeParameters in
+    // serialize-param-guard.ts (debug export 1790277377788: Variable2 `name`
+    // dropped when the node's port list was incomplete).
     private serializeParameters(node: any): Record<string, any> {
-        const params: Record<string, any> = {};
-        try {
-            if (typeof node.getParameters === 'function') {
-                const paramList = node.getParameters();
-                for (const p of paramList) {
-                    params[p.name] = p.value;
-                }
-            }
-        } catch { }
-
-        // FIX (2026-03-10): JavaScript function nodes store functionScript, scriptInputs,
-        // and scriptOutputs as internal parameters NOT enumerated by getParameters().
-        // Without this, the bridge copy has empty parameters and the iframe side falls back
-        // to a lossy scriptInputs/scriptOutputs-only reconstruction.
-        const nodeType = (node.typename || node.type?.name || '').toLowerCase();
-        if (nodeType === 'javascriptfunction' || nodeType === 'javascript2' || nodeType === 'xgenia.javascript') {
-            const jsParamKeys = ['functionScript', 'scriptInputs', 'scriptOutputs'];
-            for (const key of jsParamKeys) {
-                if (params[key] === undefined || params[key] === null) {
-                    try {
-                        const val = typeof node.getParameter === 'function' ? node.getParameter(key) : undefined;
-                        if (val !== undefined && val !== null) {
-                            params[key] = val;
-                        }
-                    } catch { /* skip inaccessible params */ }
-                }
-            }
-        }
-
-        // FIX (2026-05-25): Pixi pro nodes (pixi.MatterPhysics, pixi.Camera2D,
-        // pixi.CollisionDetector, pixi.Graphics, pixi.Sprite, etc.) store
-        // input port values via setter -> this._internal.X. getParameters()
-        // typically does NOT enumerate those — only params explicitly tracked
-        // in the model's parameter list show up. Result: AI calls
-        // set_node_parameters({ enabled: true }) which succeeds (setter runs,
-        // _internal.enabled = true), but the bridge then serializes
-        // parameters: {} and tools like verify_logic_correctness see the node
-        // as if `enabled` were never set. Trace 2026-05-25: CHECK 23 falsely
-        // reported `visual_render_blank` on 3 MatterPhysics nodes whose
-        // enabled was actually true at runtime.
-        //
-        // Fix: for any node, walk its declared input ports and explicitly
-        // call getParameter(portName) for each one not already in params.
-        // This catches every port the node type declares, regardless of
-        // whether getParameters() exposes it.
-        //
-        // FIX (2026-05-25 — same trace, second issue): the editor model wraps
-        // some dimension params (width/height/fontSize/padding/margin) as
-        // {value, unit} objects for its property-editor UI. When we surface
-        // the wrap to the AI side via getParameter, tools like
-        // verify_logic_correctness's malformed_dimension_param check trip on
-        // it as if the AI passed bad input. Flatten via unwrapValueUnit
-        // (serialize-param-guard.ts) — which, since traces 1784010250453 /
-        // 1784051747260 (the "width: 100" phantom), preserves responsive units
-        // (%/vw/vh/em/rem) as CSS strings instead of collapsing everything to
-        // a bare number. Exotic units (deg, vmin, …) intentionally stay bare
-        // numbers — see the export's doc comment and the shared regression
-        // lock (unwrap-value-unit.test.ts) that pins both this and the
-        // xgenia-ai twin preserveDimensionUnit to the same unit set.
-        // 2026-06-22: serialize every declared input port, skipping only the known
-        // bloat pseudo-port (see isBloatPort) + a size backstop. The earlier
-        // inputFormatHints allowlist (2026-05-25) over-corrected the pixi
-        // functionScript bloat by also dropping PRIMARY params (Text.text,
-        // button.label) — trace 1782150899325.
-        try {
-            let rawPorts: any[] = [];
-            if (typeof node.getPorts === 'function') {
-                rawPorts = node.getPorts() || [];
-            }
-            if (!rawPorts.length) {
-                rawPorts = node.ports || [];
-            }
-            if (!rawPorts.length) {
-                const typeName2 = node.type?.name || node.typename;
-                if (typeName2) {
-                    const type = (NodeLibrary.instance as any)?.getNodeTypeWithName?.(typeName2);
-                    if (type?.ports && Array.isArray(type.ports)) {
-                        rawPorts = type.ports;
-                    }
-                }
-            }
-            const typeName3 = node.type?.name || node.typename || '';
-            const isJSFunction = (typeName3 || '').toLowerCase() === 'javascriptfunction'
-                || (typeName3 || '').toLowerCase() === 'javascript2';
-            for (const p of rawPorts) {
-                if (!p?.name) continue;
-                // Skip output ports — those are computed, not stored.
-                if (p.plug === 'output') continue;
-                // Skip signal ports — they're triggers, not values.
-                const portTypeName = (p.type?.name || p.type || '').toString().toLowerCase();
-                if (portTypeName === 'signal') continue;
-                if (params[p.name] !== undefined && params[p.name] !== null) continue;
-                // GATE: serialize EVERY declared input port except the known bloat
-                // pseudo-port (functionScript on pixi.* returns the whole ~98KB
-                // node-type def). The previous allowlist (compiled-docs
-                // inputFormatHints) was partial and dropped PRIMARY params like
-                // Text.text and button.label — so inspect_node, verify_logic_correctness
-                // and the debug export saw empty content and a button with params:[]
-                // (trace 1782150899325, the phantom "empty text"). A size backstop
-                // catches any other pathologically-large value.
-                if (isBloatPort(p.name, isJSFunction)) continue;
-                try {
-                    const v = typeof node.getParameter === 'function' ? node.getParameter(p.name) : undefined;
-                    if (v !== undefined && v !== null && !isTooLargeToSerialize(v)) {
-                        params[p.name] = unwrapValueUnit(v, portTypeName, portUnitInfo(p));
-                    }
-                } catch { /* skip ports that error on read */ }
-            }
-            // Also unwrap any pre-existing params (from getParameters()) that
-            // arrived in {value,unit} form for number ports.
-            for (const p of rawPorts) {
-                if (!p?.name || p.plug === 'output') continue;
-                const portTypeName = (p.type?.name || p.type || '').toString().toLowerCase();
-                if (portTypeName === 'signal') continue;
-                if (params[p.name] !== undefined && params[p.name] !== null) {
-                    params[p.name] = unwrapValueUnit(params[p.name], portTypeName, portUnitInfo(p));
-                }
-            }
-        } catch { /* defensive: never let serializer throw */ }
-
-        return params;
+        return serializeNodeParameters(node, (typeName) => {
+            const type = (NodeLibrary.instance as any)?.getNodeTypeWithName?.(typeName);
+            return type?.ports && Array.isArray(type.ports) ? type.ports : undefined;
+        });
     }
 
     private serializeComponent(comp: any): any {

@@ -15,6 +15,8 @@ import './console-capture';
   }
 })();
 
+import './src/engine-stamp';
+
 // Import for side effects only (runs the script, sets window.XgeniaViewerReact)
 import './xgenia-viewer-react';
 

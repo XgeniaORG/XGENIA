@@ -1,5 +1,5 @@
 import { execSync } from 'child_process';
-import { mkdirSync, rmSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 
@@ -107,16 +107,50 @@ dotenv.config();
   const platformName = getDistPlatform(target.platform);
   const args = [`--${platformName}`, `--${target.arch}`, '--publish', 'never'].join(' ');
 
-  console.log(`--- Run: 'npx electron-builder ${args}' ...`);
-  execSync('npx electron-builder ' + args, {
-    stdio: [0, 1, 2],
-    env: Object.assign(
-      DISABLE_SIGNING
-        ? {}
-        : {
-            CSC_NAME
-          },
-      withNodeHeap(process.env)
-    )
-  });
+  // The game viewer carries the pro-node runtime (it has to run it), and is built unminified with
+  // comments for development and the engine drift tests. A release ships it minified instead:
+  // mangled locals, no comments. Function and class names are kept (engine code reads them). The
+  // readable copy is restored afterwards, so dev and tests never see the minified one.
+  // Opt-in (XGENIA_MINIFY_VIEWER=1) until a game has been played on a minified build; then make
+  // it the default. Measured 2026-09-24: 19.9 MB → 7.6 MB, readable pro-node lines 2,002 → 62.
+  const viewerPath = path.join(__dirname, '../src/external/viewer/xgenia.viewer.js');
+  const viewerBackup = viewerPath + '.readable';
+  const minifyViewer = process.env.XGENIA_MINIFY_VIEWER === '1' && existsSync(viewerPath);
+  if (minifyViewer) {
+    console.log('--- Minifying xgenia.viewer.js for the release ...');
+    copyFileSync(viewerPath, viewerBackup);
+    const { minify } = require('terser');
+    const out = await minify(readFileSync(viewerBackup, 'utf8'), {
+      ecma: 2020,
+      compress: { passes: 1 },
+      mangle: { keep_fnames: true, keep_classnames: true },
+      keep_fnames: true,
+      keep_classnames: true,
+      format: { comments: false }
+    });
+    if (!out.code) throw new Error('terser produced no output for xgenia.viewer.js');
+    writeFileSync(viewerPath, out.code);
+    console.log(`--- done! (${statSync(viewerBackup).size} → ${statSync(viewerPath).size} bytes)`);
+  }
+
+  try {
+    console.log(`--- Run: 'npx electron-builder ${args}' ...`);
+    execSync('npx electron-builder ' + args, {
+      stdio: [0, 1, 2],
+      env: Object.assign(
+        DISABLE_SIGNING
+          ? {}
+          : {
+              CSC_NAME
+            },
+        withNodeHeap(process.env)
+      )
+    });
+  } finally {
+    if (minifyViewer && existsSync(viewerBackup)) {
+      copyFileSync(viewerBackup, viewerPath);
+      rmSync(viewerBackup);
+      console.log('--- Restored the readable xgenia.viewer.js');
+    }
+  }
 })();

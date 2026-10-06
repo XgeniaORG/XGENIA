@@ -262,6 +262,10 @@ PopupLayer.prototype._undimBackground = function () {
 
 // Popups
 PopupLayer.prototype.hidePopup = function (args) {
+  if (this._popupResizeObserver) {
+    this._popupResizeObserver.disconnect();
+    this._popupResizeObserver = undefined;
+  }
   if (this.popup && this.isShowingPopup) {
     this._undimBackground();
     this.popup && this.popup.content.el.detach();
@@ -297,8 +301,6 @@ PopupLayer.prototype.setContentSize = function (contentWidth, contentHeight) {
 
 // Popup
 PopupLayer.prototype.showPopup = function (args) {
-  var arrowSize = 10;
-
   this.hidePopup();
   this.$('.popup-layer-blocker').css({ display: '' });
 
@@ -306,28 +308,65 @@ PopupLayer.prototype.showPopup = function (args) {
   args.content.owner = this;
 
   this.$('.popup-layer-popup-content').append(content);
+
+  // The entrance animation runs once, here — _layoutPopup() below is re-run whenever the
+  // content resizes and must stay pure geometry, or a late-rendering popup would restart
+  // its fade every time.
+  if (args.position === 'screen-center' && args.isBackgroundDimmed) {
+    this._dimBakckground();
+
+    this.$('.popup-layer-popup').css({
+      transition: '',
+      transform: 'translateY(20px)',
+      opacity: 0
+    });
+
+    setTimeout(() => {
+      this.$('.popup-layer-popup').css({
+        transition: 'all 200ms ease',
+        transform: 'translateY(0)',
+        opacity: 1
+      });
+    }, 100);
+  }
+
+  this._layoutPopup(args);
+
+  if (args.hasDynamicHeight) {
+    this._enablePopupAutoheight();
+  }
+
+  this.popup = args;
+  this.popup.onOpen && this.popup.onOpen();
+  this.popup.content.onOpen && this.popup.content.onOpen();
+  this.isShowingPopup = true;
+  this.contentId = args.contentId;
+
+  // Content rendered with createRoot().render() only reaches the DOM after this function
+  // returns, so the measurement inside _layoutPopup() can run against a still-empty
+  // element. The popup then gets sized 0x0 and positioned — and clamped to the window
+  // edge — as if it had no content, which parks it partly or entirely off screen. Watch
+  // the content and lay out again once it has a real size; showPopout() has always done
+  // this, showPopup() measured exactly once.
+  if (typeof ResizeObserver !== 'undefined' && content[0] && !args.hasDynamicHeight) {
+    const observer = new ResizeObserver(() => {
+      // Only the popup that is currently up owns the layout.
+      if (!this.isShowingPopup || this.popup !== args) return;
+      this._layoutPopup(args);
+    });
+    observer.observe(content[0]);
+    this._popupResizeObserver = observer;
+  }
+};
+
+PopupLayer.prototype._layoutPopup = function (args) {
+  var arrowSize = 10;
+
+  var content = args.content.el;
   var contentWidth = content.outerWidth(true);
   var contentHeight = content.outerHeight(true);
 
   if (args.position === 'screen-center') {
-    if (args.isBackgroundDimmed) {
-      this._dimBakckground();
-
-      this.$('.popup-layer-popup').css({
-        transition: '',
-        transform: 'translateY(20px)',
-        opacity: 0
-      });
-
-      setTimeout(() => {
-        this.$('.popup-layer-popup').css({
-          transition: 'all 200ms ease',
-          transform: 'translateY(0)',
-          opacity: 1
-        });
-      }, 100);
-    }
-
     var x = this.width / 2 - contentWidth / 2,
       y = this.height / 2 - contentHeight / 2;
 
@@ -383,7 +422,6 @@ PopupLayer.prototype.showPopup = function (args) {
 
     if (y < topBarHeight) y = topBarHeight;
 
-    console.log(x,y)
     // Position the popup
     this.$('.popup-layer-popup').css({
       position: 'absolute',
@@ -409,16 +447,6 @@ PopupLayer.prototype.showPopup = function (args) {
     this.$('.popup-layer-popup-arrow').css({ display: 'initial' });
     this.$('.popup-layer-popup').css({ visibility: 'visible' });
   }
-
-  if (args.hasDynamicHeight) {
-    this._enablePopupAutoheight();
-  }
-
-  this.popup = args;
-  this.popup.onOpen && this.popup.onOpen();
-  this.popup.content.onOpen && this.popup.content.onOpen();
-  this.isShowingPopup = true;
-  this.contentId = args.contentId;
 };
 
 PopupLayer.prototype._resizePopout = function (popout, args) {

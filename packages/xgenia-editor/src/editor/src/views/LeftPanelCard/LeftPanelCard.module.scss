@@ -1,3 +1,7 @@
+/* Width of the resize handle's hit area, and of the strip it occupies just OUTSIDE the
+   card's right edge. See .ResizeHandle at the bottom for why it lives outside. */
+$resize-handle-width: 8px;
+
 .Card {
   position: relative;
   flex-shrink: 0;
@@ -7,7 +11,11 @@
   flex-direction: column;
   border-radius: 0 var(--card-radius) var(--card-radius) 0; /* square left corners, rounded right */
   box-shadow: var(--card-shadow);
-  overflow: hidden;
+  /* Deliberately NOT `overflow: hidden`: the resize handle hangs off the right edge (see
+     .ResizeHandle) and would be clipped away by it. The rounded-corner clipping that
+     `hidden` used to provide now lives on .Content, which fills the card exactly, so
+     panels are clipped as before. */
+  overflow: visible;
   box-sizing: border-box;
 
   // The glass lives on a pseudo-element, NOT on the card itself. `backdrop-filter` (like
@@ -15,9 +23,10 @@
   // `position: fixed` descendant, and this card hosts panels that lift themselves out to
   // cover the window that way: the image editor always, the chat when its plugin asks for
   // fullscreen. With the filter on the card, those "fixed" overlays were positioned from
-  // the card's origin and clipped to its width by the `overflow: hidden` above — the image
-  // editor showed as a 380px strip with the node graph behind it. A pseudo-element is not
-  // an ancestor of the content, so it can carry the blur without capturing anything.
+  // the card's origin, and the card's clipping (on .Card itself back then, on .Content
+  // now) cut them down to its width — the image editor showed as a 380px strip with the
+  // node graph behind it. A pseudo-element is not an ancestor of the content, so it can
+  // carry the blur without capturing anything.
   &::before {
     content: '';
     position: absolute;
@@ -45,27 +54,44 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  /* Takes over the corner clipping .Card used to do — this is the element that actually
+     holds the panels, and it fills the card's content box exactly (sole in-flow child,
+     flex: 1, no padding on the card). */
+  border-radius: inherit;
 }
 
 .Host { position: relative; width: 100%; height: 100%; }
 .PanelItem { position: relative; width: 100%; height: 100%; }
 
-/* Right edge: 8px hit area, hairline appears on hover/drag. Mirrors RightPropertyPanel. */
+/* The hit area sits just OUTSIDE the card, in the first 8px of the canvas, rather than
+   over the last 8px of the panel. Inside, it covered whatever the panel drew against its
+   right edge — and what a panel draws there is its scrollbar. The AI Chat panel's is 6px
+   wide, so an 8px handle at `right: 0` swallowed all of it: the scrollbar could not be
+   clicked, dragged or hovered, and the wheel was the only way to scroll a chat. Every
+   other panel had the same bug, and for the two remote-iframe panels (chat, image editor)
+   this side cannot move the scrollbar out of the way either.
+   Sitting outside costs the canvas its leftmost 8px while the card is open — the usual
+   trade for a splitter, and how the panel edge behaves in most editors — and leaves every
+   pixel a panel paints reachable. `left: 100%` (not a negative `right`) so the strip stays
+   put while a drag is changing the card's width. RightPropertyPanel keeps its handle
+   inside: that one is on the panel's LEFT edge, the side its scrollbar is never on. */
 .ResizeHandle {
   position: absolute;
   top: 0;
   bottom: 0;
-  right: 0;
-  width: 8px;
+  left: 100%;
+  width: $resize-handle-width;
   cursor: col-resize;
   z-index: 3;
 
+  /* Hairline on the card side of the strip, so it reads as the panel's edge rather than
+     as a line floating on the canvas. */
   &::after {
     content: '';
     position: absolute;
     top: 8px;
     bottom: 8px;
-    right: 3px;
+    left: 3px;
     width: 2px;
     border-radius: 1px;
     background: transparent;

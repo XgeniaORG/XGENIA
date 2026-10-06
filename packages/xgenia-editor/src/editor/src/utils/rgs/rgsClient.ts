@@ -234,6 +234,24 @@ export async function fetchOperatorInfo(apiKey: string): Promise<OperatorInfo | 
   return (data?.operator as OperatorInfo | null) ?? null;
 }
 
+/**
+ * The games this key can see (maths-deployer `list-games`), each with its
+ * lifecycle `status` and money `mode` — the list the Maths RGS panel's game
+ * picker shows.
+ */
+export async function listGames(apiKey: string): Promise<any[]> {
+  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+    method: 'POST',
+    headers: rgsHeaders(apiKey),
+    body: JSON.stringify({ action: 'list-games' })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.error) {
+    throw new Error(data?.error || `Could not list games (HTTP ${res.status})`);
+  }
+  return data.games || [];
+}
+
 /** Format a cents amount for display, e.g. 100000000 → "$1,000,000.00". */
 export function formatOperatorFunds(cents: number | null | undefined, currency = 'USD'): string {
   if (cents === null || cents === undefined) return '—';

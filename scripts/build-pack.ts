@@ -58,6 +58,9 @@ const regexList: RegExp[] = [
   // nothing consumes it. Re-add only alongside a real macOS update channel.
   /.*\.dmg$/,
   /.*\.blockmap$/,
+  // Release builds (XGENIA_RELEASE=1, set by release.yml) are that channel: the
+  // zip is the only file the macOS auto-updater can install.
+  ...(process.env.XGENIA_RELEASE === '1' ? [/-mac-.*\.zip$/] : []),
 
   /* Linux */
   /.*\.AppImage$/,

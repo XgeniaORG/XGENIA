@@ -94,7 +94,10 @@ function mapRawRow(row: RawMessageRow): ChatMessage {
  * reply" reachable at all — the innerText blob has no message boundaries, so
  * `parseTranscript` alone could never return less than the entire transcript.
  */
-export async function readStructuredMessages(frame: Frame): Promise<ChatMessage[]> {
+export async function readStructuredMessages(
+  frame: Frame,
+  opts: { messageCount?: number } = {}
+): Promise<ChatMessage[]> {
   const rows = (await frame.evaluate(() =>
     Array.from(document.querySelectorAll('.message-container')).map((el) => ({
       parentClasses: el.parentElement ? Array.from(el.parentElement.classList) : [],
@@ -103,8 +106,14 @@ export async function readStructuredMessages(frame: Frame): Promise<ChatMessage[
   )) as RawMessageRow[];
 
   if (rows.length === 0) {
-    // Structured query found nothing — degrade to the whole-blob parse
-    // instead of reporting an empty transcript.
+    // No containers AND the panel's own message count is zero: the
+    // conversation is genuinely empty. Falling through to the blob parse here
+    // returned the "XGENIA recommends some new defaults" card, the suggestion
+    // chips and the model footer as a single role-unknown "message" (read live
+    // 2026-09-19 on a fresh project) — chrome, not conversation.
+    if (opts.messageCount === 0) return [];
+    // Structured query found nothing but the panel says there are messages —
+    // degrade to the whole-blob parse instead of reporting an empty transcript.
     const raw = (await frame.evaluate(() => document.body.innerText)) as string;
     return parseTranscript(raw);
   }
@@ -121,6 +130,35 @@ export async function readStructuredMessages(frame: Frame): Promise<ChatMessage[
 export function resolveReadWindow(total: number, since: number | undefined, limit: number): number {
   if (since !== undefined) return since;
   return Math.max(0, total - limit);
+}
+
+/**
+ * How many messages the panel keeps collapsed behind its "Load N older messages" control.
+ *
+ * (2026-09-17, AI run 14) The panel renders only the newest ~30 messages of a long conversation.
+ * `total` was the RENDERED count, so it stopped at 30 while the chat kept growing, `since` pointed
+ * at a different message after every new one, and a run driver polling `since: total` saw no new
+ * messages for 30 minutes while the AI worked.
+ */
+export function olderMessagesNotRendered(controlTexts: string[]): number {
+  for (const text of controlTexts) {
+    const m = /^\s*Load (\d+) older messages?\s*$/.exec(text || '');
+    if (m) return Number(m[1]);
+  }
+  return 0;
+}
+
+/** Map an absolute `since` onto the rendered part of a partly collapsed transcript. */
+export function planChatRead(opts: { rendered: number; hidden: number; since?: number; limit: number }): {
+  total: number;
+  renderedStart: number;
+  /** Requested messages that sit behind the collapse control and cannot be read. */
+  skipped: number;
+} {
+  const total = opts.hidden + opts.rendered;
+  const absoluteStart = Math.max(0, resolveReadWindow(total, opts.since, opts.limit));
+  const firstReadable = Math.max(absoluteStart, opts.hidden);
+  return { total, renderedStart: firstReadable - opts.hidden, skipped: firstReadable - absoluteStart };
 }
 
 function fail(code: string, tried: string, hint: string) {
@@ -610,6 +648,14 @@ export interface ChatPanelOpenResult {
  * attribute, hovering, or clicking anything, exactly per spec — a caller
  * must never see this nudge a panel that was already showing.
  */
+/** True when the chat iframe element is rendered with a non-empty box (display:none → no box). */
+export async function chatIframeVisible(page: Page): Promise<boolean> {
+  const el = await page.$(SELECTORS.chatIframe).catch(() => null);
+  if (!el) return false;
+  const box = await el.boundingBox().catch(() => null);
+  return !!box && box.width > 0 && box.height > 0;
+}
+
 export async function ensureChatPanelOpen(
   page: Page,
   opts: { timeoutMs?: number; pollMs?: number; hoverDelayMs?: number } = {}
@@ -617,7 +663,10 @@ export async function ensureChatPanelOpen(
   const timeoutMs = opts.timeoutMs ?? CHAT_OPEN_TIMEOUT_MS;
   const hoverDelayMs = opts.hoverDelayMs ?? TOOLTIP_HOVER_DELAY_MS;
 
-  if (getChatFrame(page)) {
+  // (2026-09-16) A mounted frame is not a showing panel. After an editor reload the chat card can be
+  // display:none with its iframe still attached (0x0), and "alreadyOpen" then sent every chat_send
+  // into a 30s click timeout on an input nobody could see. Open means the iframe has a box.
+  if (getChatFrame(page) && (await chatIframeVisible(page))) {
     return { opened: true, alreadyOpen: true, clicked: false };
   }
 
@@ -721,16 +770,31 @@ export async function chatRead(opts: { since?: number; limit?: number } = {}) {
     );
   }
 
-  const messages = await readStructuredMessages(frame);
+  const messages = await readStructuredMessages(frame, { messageCount: readiness.state.messageCount });
+  const controlTexts = (await frame
+    .evaluate(() => Array.from(document.querySelectorAll('button')).map((b) => (b as HTMLElement).innerText || ''))
+    .catch(() => [])) as string[];
+  const hidden = olderMessagesNotRendered(controlTexts);
   const limit = opts.limit ?? DEFAULT_TAIL_LIMIT;
-  const since = resolveReadWindow(messages.length, opts.since, limit);
+  const plan = planChatRead({ rendered: messages.length, hidden, since: opts.since, limit });
 
-  const out: ChatMessageOut[] = summariseMessages(messages, since, limit, MESSAGE_CAP);
+  const out: ChatMessageOut[] = summariseMessages(messages, plan.renderedStart, limit, MESSAGE_CAP, hidden);
 
   return {
-    total: messages.length,
+    total: plan.total,
+    rendered: messages.length,
+    ...(hidden > 0 ? { olderNotRendered: hidden } : {}),
+    ...(plan.skipped > 0
+      ? {
+          skipped: plan.skipped,
+          skippedHint: `${plan.skipped} requested message(s) are collapsed behind the panel's "Load ${hidden} older messages" control and cannot be read; indexes below ${hidden} are not rendered.`
+        }
+      : {}),
     messageCount: readiness.state.messageCount,
     busy: readiness.state.busy,
+    model: readiness.state.model ?? null,
+    cost: readiness.state.cost ?? null,
+    contextUsage: readiness.state.contextUsage ?? null,
     messages: out
   };
 }

@@ -1,3 +1,5 @@
+import { ipcRenderer } from 'electron';
+
 import { NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 import { RuntimeType } from '@xgenia-models/nodelibrary/NodeLibraryData';
 import { NodeLibraryImporter } from '@xgenia-models/nodelibrary/NodeLibraryImporter';
@@ -158,6 +160,11 @@ export class ViewerConnection extends Model {
       }
     } else if (request.cmd === 'nodelibrary' && request.type === 'viewer') {
       const content = JSON.parse(request.content);
+      // (2026-10-03) The preview says which engine build it runs; the main process ends a new live
+      // engine's trial on it (src/main/src/live-engine).
+      if (request.runtimeType === 'browser' && typeof request.engineVersion === 'string') {
+        ipcRenderer.send('live-engine:viewer-ok', request.engineVersion);
+      }
 
       this.loadNodeLibrary(request.clientId, request.runtimeType, content);
     } else if (request.cmd === 'sendToOtherClients' && request.type === 'viewer') {

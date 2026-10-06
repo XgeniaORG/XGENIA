@@ -27,13 +27,91 @@ const EXPORT_GLOB = /^xgenia-debug-export-(\d+)\.json$/;
 
 function downloadDirs(): string[] {
   const home = os.homedir();
-  return [path.join(home, 'Downloads'), home, os.tmpdir()];
+  const dirs = [path.join(home, 'Downloads'), home, os.tmpdir()];
+  // The panel now also writes every export into the open project at
+  // .xgenia/debug-exports/ (ChatPanel.tsx strategy 0), because a browser download can
+  // silently produce no file at all — which is how a click could report success with
+  // nothing on disk. That copy is the deterministic one, so look there too.
+  for (const dir of recentProjectDirs()) {
+    dirs.push(path.join(dir, '.xgenia', 'debug-exports'));
+  }
+  return dirs;
+}
+
+/**
+ * Project directories from the editor's recents, newest first. Best-effort.
+ *
+ * BOTH PROFILES, ALWAYS. (2026-09-11) This read only `Application Support/XGENIA` — the
+ * PACKAGED app's profile. The dev build stores its recents under `.../Electron`, so on a dev
+ * session this returned nothing, the project-local export directory was never searched, and
+ * two exports that had saved perfectly were reported as "export-not-written". The same
+ * wrong-profile mistake the editorSettings model lookup has to make twice a day; there is no
+ * cost to reading both, and guessing which build is running is how the capability silently
+ * disappears on whichever one you guessed wrong.
+ */
+/**
+ * The entries array of a recently_opened_project.json.
+ *
+ * (2026-09-23) The file is { thumbsMigratedV1: true, recentProjects: [...] }. This used to take
+ * `Object.values(raw)[0]` — the boolean — so no project directory was ever searched and every
+ * export that had saved perfectly into <project>/.xgenia/debug-exports/ was reported
+ * "export-not-written" for a whole session. Exported for the test.
+ */
+export function recentsItems(raw: any): any[] {
+  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw?.recentProjects)) return raw.recentProjects;
+  const firstArray = Object.values(raw || {}).find((v) => Array.isArray(v));
+  return Array.isArray(firstArray) ? firstArray : [];
+}
+
+function recentProjectDirs(): string[] {
+  const dirs: string[] = [];
+  for (const profile of ['Electron', 'XGENIA']) {
+    try {
+      const file = path.join(
+        os.homedir(),
+        'Library',
+        'Application Support',
+        profile,
+        'recently_opened_project.json'
+      );
+      const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const items = recentsItems(raw);
+      if (!Array.isArray(items)) continue;
+      for (const it of items) {
+        const d = it && it.retainedProjectDirectory;
+        if (typeof d === 'string' && d.length > 0 && !dirs.includes(d)) dirs.push(d);
+      }
+    } catch {
+      /* profile absent — the other one may still answer */
+    }
+  }
+  return dirs.slice(0, 20);
+}
+
+/**
+ * The export directory of the project that is open right now, or null.
+ *
+ * (2026-09-18) Without this, `newestExport()` answered from whichever project had the newest
+ * file anywhere on disk. Opening a copy of an old project and asking what went wrong returned
+ * the ORIGINAL project's run — same-looking JSON, different session, no warning. A wrong answer
+ * that looks right is worse than no answer, so the open project wins and a fallback says so.
+ */
+async function openProjectExportDir(): Promise<string | null> {
+  try {
+    const { projectStatus } = await import('./editor-state.js');
+    const status: any = await projectStatus();
+    const dir = status?.project?.dir;
+    return typeof dir === 'string' && dir ? path.join(dir, '.xgenia', 'debug-exports') : null;
+  } catch {
+    return null; // editor down, or no project open — fall back to the global scan
+  }
 }
 
 /** Newest export file across the candidate directories, or null. */
-function newestExport(): { file: string; mtimeMs: number } | null {
+function newestExport(dirs: string[] = downloadDirs()): { file: string; mtimeMs: number } | null {
   let best: { file: string; mtimeMs: number } | null = null;
-  for (const dir of downloadDirs()) {
+  for (const dir of dirs) {
     let entries: string[];
     try {
       entries = fs.readdirSync(dir);
@@ -112,7 +190,22 @@ export async function debugExport(options: DebugExportOptions = {}) {
         hint: 'The panel deploys independently of the editor, so its header controls move. Run xgenia_probe, then read ChatPanel.tsx for the current button.'
       };
     }
-    await button.click({ timeout: 10_000 });
+    // The panel's header icons are hover-revealed:
+    //   .header-controls { opacity: 0; pointer-events: none; }
+    //   .chat-panel-root:hover .header-controls { pointer-events: auto; }
+    // Playwright's click hit-tests the topmost element at the point, which without a
+    // hover is the header row, not the button — the click was reported as intercepted
+    // by "<div class=\"flex items-center gap-3\"> intercepts pointer events" and timed
+    // out. Hover the panel root first so the controls become clickable; fall back to a
+    // forced click if the hover itself is not enough.
+    try {
+      await frame.locator('.chat-panel-root').first().hover({ timeout: 5_000 });
+    } catch { /* the panel may not use that class any more — the click below still tries */ }
+    try {
+      await button.click({ timeout: 10_000 });
+    } catch {
+      await button.click({ timeout: 10_000, force: true });
+    }
     clicked = true;
 
     const deadline = Date.now() + timeoutMs;
@@ -290,7 +383,10 @@ export async function debugQuery(options: DebugQueryOptions = {}) {
     clip = 1200
   } = options;
 
-  const file = options.file ?? newestExport()?.file;
+  const openDir = options.file ? null : await openProjectExportDir();
+  const preferred = openDir ? newestExport([openDir]) : null;
+  const fallback = preferred ? null : newestExport();
+  const file = options.file ?? preferred?.file ?? fallback?.file;
   if (!file) {
     return {
       error: 'no-export-found',
@@ -351,6 +447,12 @@ export async function debugQuery(options: DebugQueryOptions = {}) {
 
   return {
     file,
+    ...(openDir && !preferred
+      ? {
+          warning: 'export-from-another-project',
+          note: `The open project has no export in ${openDir}, so this answer comes from ${file}. It describes a DIFFERENT session — run xgenia_debug_export to get this project's own.`
+        }
+      : {}),
     section,
     scanned,
     matched,

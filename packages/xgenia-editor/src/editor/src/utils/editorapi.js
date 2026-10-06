@@ -19,6 +19,31 @@ class EditorAPI {
     cb();
   }
 
+  /**
+   * What the selected node can be DRAGGED to do — movable / resizable / rotatable, each with a
+   * reason when it is not. The preload asks on every selection and hides gizmo affordances until
+   * the answer arrives; a missing handler meant it never arrived, so the watchdog fired
+   * "IPC response routing broken?" and the gizmo stayed dead. `getCapabilities` was already
+   * imported here for exactly this and had no method to reach it.
+   */
+  viewportCapabilities(evt, cb) {
+    if (!ProjectModel.instance || !evt || !evt.nodeId) {
+      cb({ error: 'No project or nodeId' });
+      return;
+    }
+    const node = ProjectModel.instance.findNodeWithId(evt.nodeId);
+    if (!node) {
+      cb({ error: 'not-found' });
+      return;
+    }
+    cb(getCapabilities(
+      evt.kind,
+      node.parameters || {},
+      evt.ancestorTransformed,
+      parentLayoutOf(node)
+    ));
+  }
+
   viewportGesture(evt, cb) {
     if (!ProjectModel.instance || !evt || !Array.isArray(evt.targets) || evt.targets.length === 0) {
       cb({ error: 'No project or targets' });
@@ -46,9 +71,6 @@ class EditorAPI {
         blocked.push({ nodeId: target.nodeId, reason: result.blocked });
         continue;
       }
-      if (result.needsExplicitSizeMode) {
-        node.setParameter('sizeMode', 'explicit', { undo: group, label });
-      }
       for (const w of result.writes) {
         node.setParameter(w.param, w.value, { undo: group, label });
       }
@@ -57,6 +79,38 @@ class EditorAPI {
 
     if (!group.isEmpty()) UndoQueue.instance.push(group);
     cb({ applied, blocked });
+  }
+
+  viewportCapabilities(evt, cb) {
+    if (!ProjectModel.instance || !evt || !evt.nodeId) {
+      cb({ error: 'No project or nodeId' });
+      return;
+    }
+    const node = ProjectModel.instance.findNodeWithId(evt.nodeId);
+    if (!node) {
+      cb({ error: 'Node not found' });
+      return;
+    }
+    cb(getCapabilities(evt.kind || 'dom', node.parameters || {}, !!evt.ancestorTransformed, parentLayoutOf(node)));
+  }
+
+  viewportNodeInfo(evt, cb) {
+    if (!ProjectModel.instance || !evt || !Array.isArray(evt.nodeIds)) {
+      cb({ error: 'No project or nodeIds' });
+      return;
+    }
+    const nodes = [];
+    for (const id of evt.nodeIds) {
+      const node = ProjectModel.instance.findNodeWithId(id);
+      if (!node) continue;
+      nodes.push({
+        id: node.id,
+        label: node.label || node.typename || 'Node',
+        type: node.typename,
+        component: node.owner && node.owner.owner ? node.owner.owner.name : ''
+      });
+    }
+    cb({ nodes });
   }
 
   getProjectData(evt, cb) {

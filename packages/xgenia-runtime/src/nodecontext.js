@@ -523,7 +523,7 @@ NodeContext.prototype._formatTimelineValue = function (value) {
 // captures every fire regardless of whether a debug connection is live. Cheap
 // (a few reads + one push) and fully wrapped: a failure here must never disturb
 // the running graph.
-NodeContext.prototype._recordTimelineEvent = function (output, kind, value) {
+NodeContext.prototype._recordTimelineEvent = function (output, kind, value, via) {
   if (this._eventTimelineEnabled === false) return;
   try {
     const owner = output && output.owner;
@@ -547,6 +547,9 @@ NodeContext.prototype._recordTimelineEvent = function (output, kind, value) {
     };
     if (kind !== 'signal') {
       evt.value = this._formatTimelineValue(value);
+    }
+    if (via) {
+      evt.via = via;
     }
     this._eventTimeline.push(evt);
 
@@ -601,12 +604,83 @@ NodeContext.prototype.getEventTimeline = function (opts) {
   };
 };
 
+// Component Inputs and component instances forward a signal across a
+// component boundary as TWO plain boolean writes (true, then false) via
+// Node.prototype.sendValue — see componentinstance.js
+// registerComponentInputPort/setOutputFromComponentOutput and
+// componentinputs.js registerOutputIfNeeded. Without this, connectionSentValue
+// (below) records both edges as 'value' events and the signal disappears from
+// every kind:'signal' timeline read.
+//
+// ('Component Outputs' never reaches here as an owner at all: componentoutputs.js
+// registers only an INPUT (registerInputIfNeeded), never an output, so this
+// function and connectionSentValue are never called with that node as
+// output.owner — there is deliberately no case for it below.)
+//
+// The declared port type does NOT reliably live on the Component-Inputs
+// node's own model: the editor's exporter only emits node-level `ports` for
+// types with exportDynamicPorts (packages/xgenia-editor/src/editor/src/utils/
+// exporter/util.ts:16-35 exportPorts; Component Inputs/Outputs are not among
+// them), so on real preview data output.owner.model.outputPorts is `{}` and
+// the old `owner.model.outputPorts[name]` lookup always missed. The type
+// instead has to come from the OWNING component instance's own NodeModel —
+// GraphModel._addComponentPorts (models/graphmodel.js:295-311) copies the
+// ComponentModel's declared inputPorts/outputPorts onto that instance's
+// model — reached the exact way componentinputs.js's own
+// registerOutputIfNeeded getter reaches the instance: via
+// `owner.nodeScope.componentOwner` (componentinputs.js:31-40, using
+// `this.nodeScope.componentOwner._internal.inputValues[name]`; every Node's
+// `.nodeScope` is the scope it was created in — nodedefinition.js:415 —
+// whose `.componentOwner` is the owning ComponentInstanceNode, nodescope.js:8).
+//
+// For a component INSTANCE's own output (setOutputFromComponentOutput's
+// flagOutputDirty call on the instance itself), `output.owner.model` already
+// IS that same populated instance model, so the direct
+// `model.outputPorts[name]` lookup is correct and unchanged.
+NodeContext.prototype._isBoundarySignalPort = function (output) {
+  try {
+    const owner = output && output.owner;
+    if (!owner) return false;
+    const model = owner.model;
+    const ownerType = (model && model.type) || owner.type;
+    if (typeof ownerType !== 'string' || ownerType.length === 0) return false;
+    // A component instance's model.type is the component's path, e.g.
+    // '/Components/GremlinGold/Logic' — that's how setOutputFromComponentOutput's
+    // flagOutputDirty call (on the instance itself) is told apart from an
+    // ordinary node type name.
+    const isComponentInstance = ownerType.charAt(0) === '/';
+    const isComponentInputs = ownerType === 'Component Inputs';
+    if (!isComponentInputs && !isComponentInstance) return false;
+
+    let portDef;
+    if (isComponentInputs) {
+      const componentOwner = owner.nodeScope && owner.nodeScope.componentOwner;
+      const instanceModel = componentOwner && componentOwner.model;
+      portDef = instanceModel && instanceModel.inputPorts && instanceModel.inputPorts[output.name];
+    } else {
+      portDef = model && model.outputPorts && model.outputPorts[output.name];
+    }
+    if (!portDef) return false;
+    const portType = typeof portDef.type === 'object' && portDef.type ? portDef.type.name : portDef.type;
+    return portType === 'signal';
+  } catch (e) {
+    return false;
+  }
+};
+
 NodeContext.prototype.connectionSentValue = function (output, value) {
   // Ordered ground-truth record (Path B). Skip the synthetic '[Signal] …' value
   // that connectionSentSignal routes through here — that fire is already recorded
   // as a 'signal' event, so recording it again as a 'value' would double-count.
   if (!(typeof value === 'string' && value.indexOf('[Signal]') === 0)) {
-    this._recordTimelineEvent(output, 'value', value);
+    if (typeof value === 'boolean' && this._isBoundarySignalPort(output)) {
+      if (value === true) {
+        this._recordTimelineEvent(output, 'signal', undefined, 'component-boundary');
+      }
+      // the falling edge of a boundary-forwarded pulse is not a separate event
+    } else {
+      this._recordTimelineEvent(output, 'value', value);
+    }
   }
 
   if (!this.editorConnection || !this.editorConnection.isConnected() || !this.debugInspectorsEnabled) {
@@ -644,6 +718,38 @@ NodeContext.prototype.connectionSentValue = function (output, value) {
   }
 };
 
+// ── RUNAWAY SIGNAL LOOP GUARD ───────────────────────────────────────────────
+// Export 1789727384756 (2026-09-18): a page wired CascadeSettled → Counter.reset →
+// countChanged → Expression → CascadeNext → … → CascadeSettled. It started itself at
+// mount, with no click, and ran ~184 passes a second for 28 minutes — a bet billed on
+// every pass (balance −259,791) and the renderer busy enough that every executeCode
+// bridge call timed out, so the whole session was spent diagnosing "the eval bridge
+// died". Nothing in the engine ever mentioned the loop.
+//
+// The discriminator is RATE ON ONE OUTPUT, not frame saturation: the loop converged
+// every frame (~3 passes per frame), so the updateDirtyNodes iteration cap never fired.
+// A frame-driven emitter cannot exceed the display's refresh rate, and 120Hz ProMotion
+// panels are common, so the floor for "impossible for a legitimate per-frame emitter" is
+// 120/s, not 60/s. The threshold sits just above it at 150/s sustained across 3
+// consecutive seconds — under the 184/s this defect produced, over anything a ticker can
+// reach on any display.
+//
+// KNOWN LIMIT, measured: a self-sustaining loop can also run SLOWLY. A probe of a real
+// Counter→Expression→Counter accumulator settled into ~15 passes/second, far under this
+// threshold. Rate is the last net, not the only one — the loop SHAPE is caught statically
+// by verify_logic_correctness's signal-cycle check, the commonest re-arm (a Counter reset
+// that re-emits countChanged when nothing changed) no longer happens, and Spin Calculate
+// reports a runaway BILLING rate independently of how fast the signals move.
+//
+// It REPORTS and never halts. The threshold is a judgement about rates, and freezing a
+// live player's game on a judgement is not a trade to make unilaterally. The report goes
+// to the console AND to the editor's warning channel — a different transport from
+// executeCode, which is exactly what stops answering while this is happening.
+var RUNAWAY_SIGNALS_PER_SECOND = 150;
+var RUNAWAY_SUSTAINED_SECONDS = 3;
+var RUNAWAY_REPORT_INTERVAL_MS = 5000;
+var RUNAWAY_WARNING_KEY = 'runaway-signal-loop';
+
 NodeContext.prototype.connectionSentSignal = function (output) {
   // Ordered ground-truth record (Path B): a signal fire, recorded before the
   // debug gate so it's captured whether or not a debug connection is live.
@@ -652,13 +758,126 @@ NodeContext.prototype.connectionSentSignal = function (output) {
   const id = output.id;
   if (!this._signalHistory.hasOwnProperty(id)) {
     this._signalHistory[id] = {
-      count: 0
+      count: 0,
+      nodeId: output.owner ? output.owner.id : undefined,
+      port: output.name,
+      type: (output.owner && output.owner.name) || 'unknown'
     };
   }
 
   this._signalHistory[id].count++;
+  this._noteSignalRate(output, this._signalHistory[id]);
 
   this.connectionSentValue(output, '[Signal] Trigger count ' + this._signalHistory[id].count);
+};
+
+/**
+ * Measure this output's emission rate in closed one-second windows. Everything but the
+ * increment and one comparison is skipped until a window closes, so the hot path stays
+ * a counter bump.
+ */
+NodeContext.prototype._noteSignalRate = function (output, h) {
+  var now = Date.now();
+
+  if (h.windowStart === undefined) {
+    h.windowStart = now;
+    h.windowCount = 0;
+    h.sustainedSeconds = 0;
+    h.lastReportAt = 0;
+  }
+
+  h.windowCount++;
+  var elapsed = now - h.windowStart;
+  if (elapsed < 1000) return;
+
+  h.perSecond = Math.round((h.windowCount / elapsed) * 1000);
+  h.windowStart = now;
+  h.windowCount = 0;
+
+  if (h.perSecond < RUNAWAY_SIGNALS_PER_SECOND) {
+    h.sustainedSeconds = 0;
+    if (h.warned) {
+      h.warned = false;
+      if (this.editorConnection && this.editorConnection.clearWarning) {
+        try {
+          this.editorConnection.clearWarning(h.componentName || '', h.nodeId, RUNAWAY_WARNING_KEY);
+        } catch (e) {
+          /* the warning channel is best-effort; never let it break a frame */
+        }
+      }
+    }
+    return;
+  }
+
+  h.sustainedSeconds++;
+  if (h.sustainedSeconds < RUNAWAY_SUSTAINED_SECONDS) return;
+  if (h.lastReportAt && now - h.lastReportAt < RUNAWAY_REPORT_INTERVAL_MS) return;
+  h.lastReportAt = now;
+  this._reportRunawaySignal(output, h);
+};
+
+NodeContext.prototype._reportRunawaySignal = function (output, h) {
+  var label = '@' + (h.nodeId || '?') + ' (' + h.type + ')';
+  var detail =
+    label + ' has fired "' + h.port + '" ' + h.perSecond + ' times a second for ' +
+    h.sustainedSeconds + ' consecutive seconds — past anything a frame-driven emitter ' +
+    'can reach (a per-frame emitter is capped by the display, at most 120/s). With no user '+
+    'input arriving, the graph ' +
+    'is re-triggering itself: this is a RUNAWAY SIGNAL LOOP. Anything downstream that bills, ' +
+    'counts or writes state is doing it once per pass, and the preview\'s eval bridge will ' +
+    'time out while this runs. Find the wire that closes the loop — a Counter whose reset ' +
+    're-emits countChanged back into the chain, an Expression true at its own start value, ' +
+    'or a Timer restarted by its own timerFinished are the usual shapes.';
+
+  console.error('[XGENIA] RUNAWAY SIGNAL LOOP: ' + detail);
+
+  if (
+    this.editorConnection &&
+    typeof this.editorConnection.isConnected === 'function' &&
+    this.editorConnection.isConnected() &&
+    this.editorConnection.sendWarning &&
+    this.isWarningTypeEnabled('runawaySignalLoop')
+  ) {
+    var componentName = '';
+    try {
+      componentName =
+        (output.owner && output.owner.nodeScope && output.owner.nodeScope.componentOwner &&
+          output.owner.nodeScope.componentOwner.name) || '';
+    } catch (e) {
+      componentName = '';
+    }
+    try {
+      this.editorConnection.sendWarning(componentName, h.nodeId, RUNAWAY_WARNING_KEY, {
+        showGlobally: true,
+        message: detail
+      });
+      h.warned = true;
+      h.componentName = componentName;
+    } catch (e) {
+      /* best-effort */
+    }
+  }
+};
+
+/** Read-only view of signal rates, for tools and tests. `hottest` is null until a window closes. */
+NodeContext.prototype.getSignalRateState = function () {
+  var hottest = null;
+  var ids = Object.keys(this._signalHistory);
+  for (var i = 0; i < ids.length; i++) {
+    var h = this._signalHistory[ids[i]];
+    if (!h || h.perSecond === undefined) continue;
+    if (hottest === null || h.perSecond > hottest.perSecond) {
+      hottest = {
+        nodeId: h.nodeId,
+        port: h.port,
+        type: h.type,
+        perSecond: h.perSecond,
+        sustainedSeconds: h.sustainedSeconds,
+        total: h.count
+      };
+    }
+  }
+  return { hottest: hottest, threshold: RUNAWAY_SIGNALS_PER_SECOND };
 };
 
 NodeContext.prototype.clearDebugInspectors = function () {

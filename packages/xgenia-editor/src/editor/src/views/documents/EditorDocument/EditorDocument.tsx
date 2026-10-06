@@ -20,6 +20,7 @@ import { MenuDialogWidth } from '@xgenia-core-ui/components/popups/MenuDialog';
 import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
 import { Frame } from '../../common/Frame';
 import { PreviewSurface } from '../../VisualCanvas/PreviewSurface';
+import { clampSize } from '../../VisualCanvas/frameSnap';
 import { EditorTopbar } from '../../EditorTopbar';
 import { HelpCenter } from '../../HelpCenter';
 import { NodeGraphEditor } from '../../nodegrapheditor';
@@ -335,15 +336,35 @@ function EditorDocument() {
     canvasView?.setZoomFactor(zoomFactor);
   }, [zoomFactor, canvasView, throttledIpcSend]);
 
+  // Resizing the frame in our own renderer costs no IPC, so it is deliberately NOT
+  // behind the emergency guard below: the guard exists to stop us flooding the viewer
+  // process, and letting it freeze the preview's own geometry meant that once the
+  // breaker had tripped the frame stopped following its resize handles altogether.
+  useEffect(() => {
+    canvasView?.setViewportSize(viewportSize);
+  }, [viewportSize, canvasView]);
+
+  // The viewer only needs the size a drag SETTLES on, so trail it.
+  //
+  // This used to fire on every size change, which is why the drag handles had to
+  // rate-limit themselves to one size per 120ms: throttledIpcSend counts each throttled
+  // call as blocked, and 100 blocked events permanently disable viewer IPC, so a 60fps
+  // drag would have burned the budget in seconds and taken navigation, zoom and inspect
+  // mode down with it. Debouncing here spends ONE event on a drag instead of one per
+  // frame, which both protects that budget better than the old cadence did and frees the
+  // handles to track the cursor at full frame rate.
   useEffect(() => {
     // EMERGENCY: Skip if IPC disabled
     if (ipcThrottleRef.current.totalBlockedEvents > ipcThrottleRef.current.PERMANENT_DISABLE_THRESHOLD) {
       return;
     }
 
-    canvasView?.setViewportSize(viewportSize);
-    throttledIpcSend('viewer-set-viewport-size', viewportSize);
-  }, [viewportSize, canvasView, throttledIpcSend]);
+    const timer = setTimeout(() => {
+      throttledIpcSend('viewer-set-viewport-size', viewportSize);
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [viewportSize, throttledIpcSend]);
 
   useEffect(() => {
     const eventGroup = {};
@@ -567,7 +588,16 @@ function EditorDocument() {
     }
 
     if (settings.viewportSize) {
-      setViewportSize(settings.viewportSize);
+      // A size saved by an older build can sit outside the drag bounds, and the first
+      // handle drag would then jump it to the bound. Null axes mean "Fit viewport".
+      const saved = settings.viewportSize;
+      if (typeof saved.width === 'number' && typeof saved.height === 'number') {
+        const { width, height } = clampSize(saved.width, saved.height);
+        const changed = width !== saved.width || height !== saved.height;
+        setViewportSize({ ...saved, width, height, deviceName: changed ? 'Custom' : saved.deviceName });
+      } else {
+        setViewportSize(saved);
+      }
     }
 
     if (settings.frameDividerSize) {

@@ -145,26 +145,91 @@ app.commandLine.appendSwitch('--preserve-symlinks-main');
 // So: an A/B the user can run in one command, rather than another guess in CSS.
 //   XGENIA_GPU_MODE=raster    CPU rasterisation, GPU compositing. Try this FIRST.
 //   XGENIA_GPU_MODE=angle-gl  OpenGL instead of Metal in ANGLE.
+//   XGENIA_GPU_MODE=mac-safe  no CALayer reuse, no delegated compositing (2026-09-08, see below).
+//   XGENIA_GPU_MODE=cpu-composite  CPU compositing, GPU still does WebGL/canvas. The half of
+//                             `software` that is actually usable (2026-09-21, see below).
 //   XGENIA_GPU_MODE=software  no GPU compositing at all. Slow, and the strongest signal:
 //                             if it still flashes here, the compositor is NOT the cause.
+//   XGENIA_GPU_MODE=default   Chromium's own defaults, i.e. what an unset value used to mean.
 // Unset (the default) changes nothing.
-const gpuMode = process.env.XGENIA_GPU_MODE;
+//
+// (2026-09-21) `mac-safe` was briefly made the macOS DEFAULT and then reverted the same day.
+// The reasoning for defaulting it was that its 09-08 verdict ("masks half the load") had been
+// measured while the editor still mounted its whole UI twice. That is true but it is an
+// argument, not evidence: the user ran mac-safe on 09-08 and reported the window still
+// flashed. Do not re-default it without a measurement that shows the flash count falling.
+// What IS measured (2026-09-21) is that the flash tracks frame production, and the editor
+// produced frames non-stop for two reasons that had nothing to do with these flags: the chat
+// input's border animated a paint property every frame, and the preview's pixi ticker
+// re-rendered a pixel-identical image ~119 times a second while its own dirty-tracker had
+// nothing pending. Cut frame production first; reach for GPU flags after.
+// (2026-09-22) `cpu-composite` is the DEFAULT ON macOS. Unlike the 09-21 attempt to default
+// `mac-safe`, this one is defaulted on a measured result rather than an argument. The bisect,
+// run on an M5 / macOS 26 with the user watching the window each time:
+//   normal (ANGLE Metal)  flashes | angle-gl  flashes | mac-safe  flashes
+//   software (GPU compositing off + hardware accel off)  NO flash
+//   cpu-composite (GPU compositing off ONLY)             NO flash
+// Four configurations flash and every one of them has GPU compositing on; the two clean ones
+// are exactly the two with it off. `cpu-composite` is the half of `software` that stays
+// usable: WebGL and canvas keep the GPU, so the preview still ticks at 119fps.
+// macOS only — the flash has never been reported on Windows or Linux, and those platforms
+// should not pay for CPU compositing. Opt out with XGENIA_GPU_MODE=default.
+// REMOVE THIS DEFAULT when Electron is bumped: it is a workaround for Chromium 126 (mid-2024)
+// compositing onto macOS 26 on an M5, and the upgrade is the real fix.
+const gpuMode = process.env.XGENIA_GPU_MODE || (process.platform === 'darwin' ? 'cpu-composite' : '');
 if (gpuMode) {
-  console.log(`[Main Process] XGENIA_GPU_MODE=${gpuMode}`);
+  console.log(
+    `[Main Process] XGENIA_GPU_MODE=${gpuMode}${process.env.XGENIA_GPU_MODE ? '' : ' (macOS default)'}`
+  );
   if (gpuMode === 'raster') {
     app.commandLine.appendSwitch('disable-gpu-rasterization');
   } else if (gpuMode === 'angle-gl') {
     app.commandLine.appendSwitch('use-angle', 'gl');
+  } else if (gpuMode === 'mac-safe') {
+    // (2026-09-08) The flash, finally filmed with aligned frames: the ENTIRE window content
+    // presents BLACK for 1-2 frames — not the page background, empty — while the rail, which
+    // is its own composited layer, stays drawn. On macOS Chromium hands each composited layer
+    // to CoreAnimation as its own CALayer/IOSurface and reuses them across frames
+    // (CALayerTreeOptimization) and, in this version, delegates compositing of those layers
+    // to the system (DelegatedCompositing). An empty surface presented for the big content
+    // layer is exactly what those two paths can produce and what Windows, which has neither,
+    // never shows. This turns both off so the GPU process composites the window itself.
+    app.commandLine.appendSwitch(
+      'disable-features',
+      'CALayerTreeOptimization,DelegatedCompositing,RasterDelegatedCompositing'
+    );
+  } else if (gpuMode === 'cpu-composite') {
+    // (2026-09-21) Splits `software` in half. Measured that evening, on this machine:
+    //   normal (ANGLE Metal)            — flashes
+    //   angle-gl (OpenGL, not Metal)    — flashes
+    //   mac-safe (no CALayer reuse, no delegated compositing) — flashes
+    //   software (GPU compositing OFF *and* hardware accel off) — NO flash
+    // Every flashing configuration has GPU compositing on; the only clean one has it off.
+    // But `software` flips two switches at once, and the second one (disableHardwareAccel)
+    // costs WebGL — swiftshader only, so the game preview cannot render, which makes it
+    // unusable as a shipped setting. This turns off ONLY the compositor: the window is
+    // composited by the CPU, while WebGL and canvas keep the GPU. If the flash stops here,
+    // this is the shippable fix and `software` never needs to be the answer.
+    app.commandLine.appendSwitch('disable-gpu-compositing');
   } else if (gpuMode === 'software') {
     app.commandLine.appendSwitch('disable-gpu-compositing');
     app.disableHardwareAcceleration();
-  } else {
-    console.warn(`[Main Process] Unknown XGENIA_GPU_MODE "${gpuMode}" — expected raster, angle-gl or software. Ignoring.`);
+  } else if (gpuMode !== 'default') {
+    console.warn(
+      `[Main Process] Unknown XGENIA_GPU_MODE "${gpuMode}" — expected raster, angle-gl, mac-safe, software or default. Ignoring.`
+    );
   }
 }
 
-// Enable Remote Debugging Protocol (CDP) for Playwright/MCP external agents
-app.commandLine.appendSwitch('remote-debugging-port', '9223');
+// Remote Debugging Protocol (CDP) for Playwright/MCP external agents. It lets any local
+// process drive the fully privileged editor, so a release keeps it closed unless asked for:
+// dev builds, XGENIA_ENABLE_CDP=1, or --xgenia-cdp on the command line (the XGENIA MCP server
+// launches the app with that flag). An explicit --remote-debugging-port is left to Chromium.
+const cdpRequested =
+  !app.isPackaged || process.env.XGENIA_ENABLE_CDP === '1' || (process.argv || []).includes('--xgenia-cdp');
+if (cdpRequested && !app.commandLine.hasSwitch('remote-debugging-port')) {
+  app.commandLine.appendSwitch('remote-debugging-port', '9223');
+}
 
 var args = process.argv || [];
 
@@ -904,6 +969,76 @@ function launchApp() {
         return { action: 'deny' }; //deny a new electron window
       });
 
+      // A file dropped anywhere the page does not handle makes Chromium navigate
+      // to that file:// URL — which throws away the whole editor, unsaved work
+      // included. Nothing in this app ever navigates the main frame away from
+      // its own document, so refuse it outright and let the drop be a no-op.
+      win.webContents.on('will-navigate', (event, url) => {
+        const current = win.webContents.getURL();
+        if (url === current) return;
+        const sameDocument = current && url.split('#')[0] === current.split('#')[0];
+        if (sameDocument) return;
+
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+          // A real link the user clicked: honour it, just not in here.
+          event.preventDefault();
+          shell.openExternal(url);
+          return;
+        }
+
+        console.log('[Main Process] Blocked main-frame navigation to', url);
+        event.preventDefault();
+      });
+
+      // Right-click Cut/Copy/Paste.
+      //
+      // Electron ships no default context menu, so until this existed a
+      // right-click anywhere in the app — the chat input included — produced
+      // nothing at all, and paste was reachable only from the menu bar or
+      // Cmd/Ctrl+V. The event fires on the top-level webContents for every
+      // frame, so this covers the AI panel's iframe too; the `role` items act
+      // on whichever frame holds focus.
+      win.webContents.on('context-menu', (_event, params) => {
+        const flags = params.editFlags || {};
+        const items = [];
+
+        if (params.isEditable) {
+          items.push(
+            { role: 'undo', enabled: !!flags.canUndo },
+            { role: 'redo', enabled: !!flags.canRedo },
+            { type: 'separator' },
+            { role: 'cut', enabled: !!flags.canCut },
+            { role: 'copy', enabled: !!flags.canCopy },
+            { role: 'paste', enabled: !!flags.canPaste },
+            { role: 'pasteAndMatchStyle', enabled: !!flags.canPaste },
+            { type: 'separator' },
+            { role: 'selectAll', enabled: !!flags.canSelectAll }
+          );
+        } else if (params.selectionText && params.selectionText.trim()) {
+          items.push({ role: 'copy', enabled: !!flags.canCopy });
+        }
+
+        if (params.linkURL) {
+          if (items.length > 0) items.push({ type: 'separator' });
+          items.push({
+            label: 'Copy Link Address',
+            click: () => electron.clipboard.writeText(params.linkURL)
+          });
+          items.push({
+            label: 'Open Link in Browser',
+            click: () => shell.openExternal(params.linkURL)
+          });
+        }
+
+        if (params.mediaType === 'image' && params.srcURL) {
+          if (items.length > 0) items.push({ type: 'separator' });
+          items.push({ label: 'Copy Image', click: () => win.webContents.copyImageAt(params.x, params.y) });
+        }
+
+        if (items.length === 0) return;
+        Menu.buildFromTemplate(items).popup({ window: win });
+      });
+
       win.webContents.on('did-finish-load', () => {
         // No longer clearing cache or reloading to avoid infinite reload loop
         console.log('[Main Process] Page loaded successfully');
@@ -1076,8 +1211,17 @@ function launchApp() {
           viewerWindow.send('viewer-set-zoom-factor', eventArgs.zoomFactor);
         }
 
-        if (eventArgs.route) {
+        // `if (route)` is not enough: the string "undefined" is truthy, and forwarding
+        // it mounted the preview at /undefined. (2026-09-10)
+        if (
+          eventArgs.route &&
+          eventArgs.route !== 'undefined' &&
+          eventArgs.route !== 'null' &&
+          eventArgs.route !== '/undefined'
+        ) {
           viewerWindow.send('viewer-set-route', eventArgs.route);
+        } else if (eventArgs.route) {
+          console.warn('[main] refusing to forward a stringified-empty route:', eventArgs.route);
         }
 
         if (eventArgs.viewportSize) {
@@ -1303,9 +1447,11 @@ function launchApp() {
             { label: 'Undo', accelerator: 'CmdOrCtrl+Z', selector: 'undo:' },
             { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', selector: 'redo:' },
             { type: 'separator' },
-            { label: 'Cut', accelerator: 'CmdOrCtrl+X', selector: 'cut:' },
-            { label: 'Copy', accelerator: 'CmdOrCtrl+C', selector: 'copy:' },
-            { label: 'Paste', accelerator: 'CmdOrCtrl+V', selector: 'paste:' },
+            // `role` rather than `selector`: the selector form is a macOS-only
+            // ObjC message, so on Windows and Linux these entries were dead.
+            { label: 'Cut', accelerator: 'CmdOrCtrl+X', role: 'cut' },
+            { label: 'Copy', accelerator: 'CmdOrCtrl+C', role: 'copy' },
+            { label: 'Paste', accelerator: 'CmdOrCtrl+V', role: 'paste' },
             { label: 'Select All', accelerator: 'CmdOrCtrl+A', selector: 'selectAll:' }
           ]
         },
@@ -1636,6 +1782,22 @@ function launchApp() {
         }
       });
 
+      // Specific handler for 'viewer-capture-design' — the preview resized to its declared design
+      // canvas (e.g. 1920x1080), not whatever size the pane happens to be. Embedded preview only:
+      // a floating viewer window has its own size the user chose, and resizing it to a design box
+      // would move their window out from under them for no reason they asked for.
+      ipcMain.on('viewer-capture-design', (e, ...args) => {
+        if (win && win.webContents && !win.webContents.isDestroyed()) {
+          win.webContents.send('embedded-viewer-capture-design-request', ...args);
+        }
+      });
+
+      ipcMain.on('viewer-capture-design-reply', (e, payload) => {
+        if (win && win.webContents && !win.webContents.isDestroyed()) {
+          win.webContents.send('viewer-capture-design-reply', payload);
+        }
+      });
+
       // Specific handler for 'viewer-get-full-html'
       ipcMain.on('viewer-get-full-html', (e, ...args) => {
         console.log('[Main Process] 📄 Received viewer-get-full-html on ipcMain from renderer');
@@ -1683,6 +1845,10 @@ function launchApp() {
       // (crash 2026-08-27, OOM abort) Passive per-process memory curve to
       // <userData>/memory-log.jsonl — main-process side, survives renderer death.
       MemoryTelemetry.start();
+
+      // (2026-10-03) Before the window: which engine (preview, export runtime, RGS compiler) this
+      // run uses — the signed live engine CI published, or the app's own. See src/live-engine.
+      require('./src/live-engine').setupLiveEngine({ app, ipcMain: require('electron').ipcMain });
 
       console.log('[Main Process] About to call createWindow()...');
       createWindow();

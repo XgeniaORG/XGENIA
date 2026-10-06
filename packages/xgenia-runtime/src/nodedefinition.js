@@ -169,7 +169,9 @@ function defineNode(opts) {
       set(script) {
         NodeScript.applyNodeScript(this, script, {
           baseline: nodeBaseline,
-          defaultSource: nodeSource
+          defaultSource: nodeSource,
+          //what the node's source file imports, callable by name from the script
+          scope: opts.scriptScope
         });
       }
     };
@@ -181,6 +183,13 @@ function defineNode(opts) {
     if (!opts.prototypeExtensions.revertNodeScript) {
       opts.prototypeExtensions.revertNodeScript = function () {
         return NodeScript.revertNodeScript(this);
+      };
+    }
+
+    //the names a script for this node can call without importing them
+    if (!opts.prototypeExtensions.scriptScopeNames) {
+      opts.prototypeExtensions.scriptScopeNames = function () {
+        return NodeScript.scriptScopeNames(opts.scriptScope);
       };
     }
   }
