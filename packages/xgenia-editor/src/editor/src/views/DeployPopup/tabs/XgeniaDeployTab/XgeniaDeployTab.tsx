@@ -55,7 +55,7 @@ import {
   checkDomainAvailability,
   collectProjectFiles,
   deployToVercel,
-  uploadToGitHub
+  uploadFilesToVercel
 } from '@xgenia-utils/publish/webDeploy';
 
 import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
@@ -319,8 +319,10 @@ export function XgeniaDeployTab() {
     return () => { EventDispatcher.instance.off(onSelected); };
   }, []);
 
-  // Team info — falls back to XGENIA team when user has no personal Vercel account
-  const teamInfo = XGENIA_VERCEL_TEAM;
+  // The Vercel team the deploy token can use (VercelSDKWrapper.team): the shared
+  // token's own team when it cannot see XGENIA_VERCEL_TEAM (2026-10-05: 403 on
+  // every call). XGENIA_VERCEL_TEAM until the token has been asked.
+  const [teamInfo, setTeamInfo] = useState(XGENIA_VERCEL_TEAM);
 
   // Persistent device identifier to scope deployments to current local device only (fallback when no account)
   const [deviceId] = useState<string>(() => getDeviceId());
@@ -334,6 +336,13 @@ export function XgeniaDeployTab() {
   const vercel = vercelToken ? new VercelSDKWrapper({
     bearerToken: vercelToken,
   }) : null;
+
+  useEffect(() => {
+    if (!vercelToken) return;
+    let live = true;
+    new VercelSDKWrapper({ bearerToken: vercelToken }).team().then((team) => { if (live) setTeamInfo(team); });
+    return () => { live = false; };
+  }, [vercelToken]);
 
   /**
    * Are the deploy credentials actually here?
@@ -900,16 +909,13 @@ export function XgeniaDeployTab() {
           throw new Error('No files were generated during deployment');
         }
 
-        // GitHub upload — hide the bottom-right toast so no GitHub-related
-        // notification shows. Compile and Vercel messages stay intact.
-        ToastLayer.hideActivity(activityId);
-        const timestamp = Date.now();
-        const repositoryName = `${domainName.trim()}-${timestamp}`;
-        const { repoOwner, repoName: actualRepoName } = await uploadToGitHub(githubToken, files, repositoryName, isPrivate);
+        // Upload the build straight to Vercel (uploadFilesToVercel) — no GitHub
+        // repository any more (2026-10-05: the shared GitHub token had gone bad).
+        const fileRefs = await uploadFilesToVercel(vercel, files, (step) => ToastLayer.showActivity(step, activityId));
 
         // Step 4: Deploy to Vercel and setup domain
         ToastLayer.showActivity('Step 4/4: Deploying to Vercel...', activityId);
-        const { deploymentId, deploymentUrl, aliasUrl } = await deployToVercel(vercel, repoOwner, actualRepoName, domainName.trim());
+        const { deploymentId, deploymentUrl, aliasUrl } = await deployToVercel(vercel, { files: fileRefs }, domainName.trim());
         PublishState.succeed(aliasUrl);
 
         ToastLayer.hideActivity(activityId);

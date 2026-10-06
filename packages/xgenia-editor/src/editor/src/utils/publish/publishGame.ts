@@ -36,7 +36,7 @@ import {
 import { ConnectionStore } from '@xgenia-services/ConnectionStore';
 
 import { DOMAIN_NAME_REQUIRED, getFullDomain } from './deployDomain';
-import { collectProjectFiles, deployToVercel, uploadToGitHub, VercelSDKWrapper } from './webDeploy';
+import { collectProjectFiles, deployToVercel, uploadFilesToVercel, VercelSDKWrapper } from './webDeploy';
 
 // ─── Preconditions ────────────────────────────────────────────────────────────
 
@@ -84,21 +84,19 @@ export async function loadDeployCredentials(): Promise<DeployCredentials> {
  *
  * Without the Vercel token every Vercel call throws "Cannot read properties of
  * null (reading 'projects')" at the user, naming nothing they can act on.
- * Publishing fails just as opaquely on the GitHub side, as GENERIC_DEPLOY_ERROR
- * ("Project compilation error") thrown out of uploadToGitHub, which is not a
- * compilation error and never was.
- *
- * Both really mean one thing: the shared tokens did not load. Say that, with
- * the reason loadSharedDeployTokens gave.
+ * Only the Vercel token matters since publishing uploads the build to Vercel
+ * directly (uploadFilesToVercel); the GitHub step and its "Project compilation
+ * error" are gone. A missing token means the shared tokens did not load: say
+ * that, with the reason loadSharedDeployTokens gave.
  *
  * @returns an error message, or '' when the credentials are present.
  */
 export function deployCredentialError(state: DeployCredentials & { tokensLoaded: boolean }): string {
   if (!state.tokensLoaded) return 'Still loading deploy credentials — try again in a moment.';
-  if (state.vercelToken && state.githubToken) return '';
+  // Only Vercel: publishing uploads the build to Vercel directly (uploadFilesToVercel).
+  if (state.vercelToken) return '';
   if (state.tokenError) return state.tokenError;
-  const missing = [!state.vercelToken && 'Vercel', !state.githubToken && 'GitHub'].filter(Boolean).join(' and ');
-  return `No ${missing} deploy token is available, so this cannot run.`;
+  return 'No Vercel deploy token is available, so this cannot run.';
 }
 
 // ─── Helpers moved with the routine ───────────────────────────────────────────
@@ -204,8 +202,8 @@ export interface PublishGameLive {
   /** The hostname that was asked for, e.g. "my-game.vercel.app". */
   domain: string;
   deploymentId: string;
-  /** "owner/repo" the build was pushed to. */
-  githubRepo: string;
+  /** Always null since publishing uploads straight to Vercel (kept for the Deployed Games record). */
+  githubRepo: string | null;
   wiring: PublishWiring;
 }
 
@@ -235,7 +233,7 @@ export interface PublishGameResult {
   liveUrl: string;
   domain: string;
   deploymentId: string;
-  githubRepo: string;
+  githubRepo: string | null;
   /** XGENIA RGS → Deployed Games. A failure here is NOT a failed publish — the site is live. */
   registered: { ok: boolean; publishNumber?: number; message?: string };
   wiring: PublishWiring;
@@ -382,20 +380,14 @@ export async function publishGameToWeb(opts: PublishGameOptions): Promise<Publis
       const files = await collectProjectFiles(tempDir);
       if (files.length === 0) throw new Error('No files were generated during deployment');
 
-      // GitHub upload — the progress line deliberately says nothing about GitHub.
+      // Straight to Vercel (uploadFilesToVercel): no GitHub repository any more.
       progress('Preparing project for deployment...');
-      const repositoryName = `${domainName}-${Date.now()}`;
-      const { repoOwner, repoName: actualRepoName } = await uploadToGitHub(
-        tokens.github,
-        files,
-        repositoryName,
-        opts.isPrivate !== false
-      );
+      const fileRefs = await uploadFilesToVercel(vercel, files, progress);
 
       progress('Deploying to Vercel...');
-      const { deploymentId, aliasUrl } = await deployToVercel(vercel, repoOwner, actualRepoName, domainName);
+      const { deploymentId, aliasUrl } = await deployToVercel(vercel, { files: fileRefs }, domainName);
 
-      const githubRepo = `${repoOwner}/${actualRepoName}`;
+      const githubRepo: string | null = null;
       const domain = getFullDomain(domainName);
       const wiring: PublishWiring = { swapped, repointed, untriggered, undeployed };
       await opts.onLive?.({ liveUrl: aliasUrl, domain, deploymentId, githubRepo, wiring });
@@ -411,7 +403,7 @@ export async function publishGameToWeb(opts: PublishGameOptions): Promise<Publis
         domain,
         liveUrl: aliasUrl,
         vercelDeploymentId: deploymentId,
-        githubRepo,
+        githubRepo: githubRepo ?? undefined,
         game: { id: game.id, slug: game.slug, name: game.name },
         telemetry: toServerTelemetry(opts.telemetry),
         projectJson: deployedProjectJson(copy, sourceName),

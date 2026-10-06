@@ -162,8 +162,42 @@ class CachedVideo extends React.PureComponent<CachedVideoProps> {
       onCanPlay: onCanPlay
     };
 
+    // (2026-10-05, leprechaun-cluster on Safari) A transparent WebM (VP9 with an
+    // alpha channel) is what the asset pipeline makes for animated characters;
+    // Chrome plays it, Safari and every iOS browser (all WebKit) do not show its
+    // alpha — the character played as a grey box, or not at all. WebKit's
+    // transparent format is HEVC with alpha. When the source is a .webm, offer the
+    // .mov of the same name first on WebKit; a missing .mov falls through to the
+    // .webm (the <source> list), so a project without one behaves as before.
+    const hevcSibling = src && appleWebKit() ? hevcAlphaSiblingOf(src) : null;
+    if (hevcSibling) {
+      const { src: _webm, ...withoutSrc } = videoProps;
+      return (
+        <video {...withoutSrc} key={src}>
+          <source src={hevcSibling} type='video/mp4; codecs="hvc1"' />
+          <source src={src} type="video/webm" />
+        </video>
+      );
+    }
+
     return <video {...videoProps} />;
   }
+}
+
+/** Safari, or any browser on iOS/iPadOS (all of them are WebKit there). */
+function appleWebKit(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  if (/iPhone|iPad|iPod/.test(ua)) return true;
+  // iPadOS reports a Mac user agent; touch points tell it apart.
+  if (/Macintosh/.test(ua) && (navigator as any).maxTouchPoints > 1) return true;
+  return /Safari\//.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Firefox|FxiOS/.test(ua);
+}
+
+/** ".../idle.webm#t=0.01" → ".../idle.mov#t=0.01"; null for anything that is not a .webm URL. */
+export function hevcAlphaSiblingOf(src: string): string | null {
+  const m = /^(.*?)\.webm((?:[?#].*)?)$/i.exec(src);
+  return m && !src.startsWith('data:') ? `${m[1]}.mov${m[2]}` : null;
 }
 
 export class Video extends React.Component<VideoProps> {
