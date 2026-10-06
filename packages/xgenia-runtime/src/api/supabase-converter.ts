@@ -1366,8 +1366,14 @@ ${originalComponentStructure}
     // Generate function definitions (same code generators as cloud)
     const functionDefinitions = extraPrelude + gamePrelude + featurePrelude + this.generateFunctionDefinitions(sortedFunctionNodes);
 
-    // Generate invocations with RGS-specific wiring
-    const functionInvocations = this.generateRgsFunctionInvocations(sortedFunctionNodes);
+    // Generate invocations with RGS-specific wiring. (2026-10-05) A maths driven by Component Inputs
+    // signals runs as a request engine — one trigger per request, the editor's signal semantics,
+    // what the editor would still hold carried in state.__engine (see generateRgsRequestEngine).
+    // Everything else (compiled cloud components, a maths with no trigger wired) keeps the
+    // straight-through invocations.
+    const engineTriggers = this.engineTriggers();
+    const engine = engineTriggers ? this.generateRgsRequestEngine(sortedFunctionNodes, engineTriggers) : null;
+    const functionInvocations = engine ? engine.code : this.generateRgsFunctionInvocations(sortedFunctionNodes);
 
     // Extract config data from node parameters + Variable2 defaults
     const configData = this.extractMathsConfig(sortedFunctionNodes);
@@ -1402,13 +1408,13 @@ ${originalComponentStructure}
 
     // Per-node `this` for scripts that keep state on it (generateJavaScriptFunctionDefinition) —
     // fresh every round, shared by every run of that node within the round (a loop's passes).
-    const loopPrelude = this._loopBlocks.length === 0
+    const loopPrelude = this._loopBlocks.length === 0 || engine
       ? ''
       : [
           '// --- Wired loops: an output a run does not write keeps its last value, as in the editor ---',
           'function __keepOutputs(prev, next) { var out = {}, k; for (k in prev) out[k] = prev[k]; if (next) { for (k in next) { if (next[k] !== undefined) out[k] = next[k]; } } return out; }',
         ].join('\n');
-    const jsThisPrelude = this._jsUsesThis.size === 0
+    const jsThisPrelude = this._jsUsesThis.size === 0 || engine
       ? ''
       : [
           '// --- Per-node state for scripts that use `this` (one object per node, per round) ---',
@@ -1470,6 +1476,7 @@ ${originalComponentStructure}
       '  state: { ...ctx.state, round: ctx.round'
         + (statefulVars.size > 0 ? ', __vars: _vars' : '')
         + ((this._nodeStateIds?.size ?? 0) > 0 ? ', __nodes: _nodeState' : '')
+        + (engine ? `, __engine: ${engine.stateExpr}` : '')
         + ' }',
       '};',
     ].join('\n');
@@ -1663,7 +1670,10 @@ ${originalComponentStructure}
 
           if (
             (this.mathNodeConverter && this.mathNodeConverter.isMathNode(sourceNodeType)) ||
-            (this.slotGameNodeConverter && this.slotGameNodeConverter.isSlotGameNode(sourceNodeType))
+            (this.slotGameNodeConverter && this.slotGameNodeConverter.isSlotGameNode(sourceNodeType)) ||
+            // (2026-10-05) A stateManager's function returns its outputs by port name (output0…);
+            // its ports' display names ("Output capital") are labels, not keys.
+            sourceNodeType === 'stateManager'
           ) {
             sourceValue = this.safePropertyAccess(outputVariableMap.get(resolvedFromId)!, fromProp);
           } else {
@@ -1737,32 +1747,19 @@ ${originalComponentStructure}
             );
             sourceValue = 'undefined';
           } else {
-            sourceValue = this.safePropertyAccess('config', inputName);
+            // (2026-10-05, SECURITY) This used to be `config.<inputName>` — a key in the CALLER'S
+            // request body. Every wire that lands here comes from a node of this maths: a cycle's
+            // back edge (SpinCalc.capital ← GameState.output0 sorts GameState after SpinCalc), or
+            // a Variable2 with no value and no writer. Neither is a request field, and reading one
+            // off the payload let a client set a maths internal by sending a field of that name
+            // (`capital: 1e9`). The input now reads `undefined`, so the node's own default applies.
+            // Triggered maths (Component Inputs signals) never get here: their back edges read the
+            // previous request's value from state — see generateRgsRequestEngine().
+            sourceValue = 'undefined';
           }
         }
 
-        // A provably-fair draw's SERVER seed may not come from the request.
-        //
-        // Three of the branches above resolve to `config.<something>` — an
-        // unwired port, a Component Inputs port, and an aggregator request
-        // field — and all three are the caller's POST body. Feeding that into
-        // Calculate Roll would let a player pick the seed the outcome is hashed
-        // from, which is the whole of advisory XRGS-2026-0826-RNG. Checked here,
-        // after the chain, so a new payload-sourced branch cannot slip past it.
-        //
-        // `undefined` rather than an error: the node's own fallback then draws a
-        // fresh seed from the round's entropy, so a graph wired this way still
-        // compiles and still plays — it just plays honestly.
-        if (
-          RgsExtraNodeConverter.isServerSeedInput(node.typename, inputName) &&
-          /^config\b/.test(sourceValue)
-        ) {
-          console.warn(
-            `[RGS] "${node.typename}" server seed was wired to the request payload (${sourceValue}); ` +
-              'using server entropy instead — a player must not choose the server seed.'
-          );
-          sourceValue = 'undefined';
-        }
+        sourceValue = this.guardServerSeed(node, inputName, sourceValue);
 
         inputMappings.set(inputName, sourceValue);
         if (!incomingFor.has(node.id)) incomingFor.set(node.id, []);
@@ -1789,80 +1786,11 @@ ${originalComponentStructure}
         return;
       }
 
-      // Add node parameters as fallbacks
-      Object.entries(node.parameters).forEach(([paramName, paramValue]) => {
-        if (paramName === 'params' || paramName === 'functionScript' || paramName === 'code') return;
-        // isMath is a deployment-routing flag (Compile feature), not a data input.
-        if (paramName === 'isMath') return;
-        // Skip internal port metadata that should never be passed as inputs
-        if (paramName.startsWith('intype-') || paramName.startsWith('outtype-') ||
-            paramName.startsWith('Inputs.') || paramName.startsWith('Outputs.') ||
-            paramName === 'scriptInputs' || paramName === 'scriptOutputs') return;
-        if (!inputMappings.has(paramName)) {
-          if (typeof paramValue === 'string') {
-            inputMappings.set(paramName, JSON.stringify(paramValue));
-          } else if (typeof paramValue === 'number' || typeof paramValue === 'boolean') {
-            inputMappings.set(paramName, String(paramValue));
-          } else {
-            inputMappings.set(paramName, JSON.stringify(paramValue));
-          }
-        }
-      });
+      this.finishInputMappings(node, inputMappings);
 
-      // (2026-10-04, certification) Cascade The Reels / Directional Cascade, Weighted Reels, Symbol Value
-      // Grid, Pick Bonus and Hold And Win Grid take one value per random outcome and refuse a short Seeds
-      // array, and games built before that left these ISAACs at size 1 (or one per reel). The ISAAC node
-      // itself yields at least SEEDS_MIN_BY_CONSUMER[type] values when its array feeds one of their
-      // Seeds (private xgenia-pro-nodes isaac-rng-array.js _effectiveSize — see the table there); the
-      // compiled maths must draw the same, or the editor and the RGS play different games.
-      if (/(^|\/)ISAAC Random Number Array Generator$/.test(String(node.typename))) {
-        let min = 0;
-        for (const c of this.connections) {
-          if (c.fromId !== node.id || c.fromProperty !== 'array' || !/^seeds$/i.test(String(c.toProperty))) continue;
-          const type = String(this.nodes.get(c.toId)?.typename ?? '').replace(/^.*\//, '');
-          const need = Object.prototype.hasOwnProperty.call(SEEDS_MIN_BY_CONSUMER, type) ? SEEDS_MIN_BY_CONSUMER[type] : 0;
-          if (need > min) min = need;
-        }
-        const sizeWired = this.connections.some((c) => c.toId === node.id && c.toProperty === 'size');
-        if (min > 0 && !sizeWired) {
-          const current = Number(inputMappings.get('size'));
-          if (!(Number.isFinite(current) && current >= min)) inputMappings.set('size', String(min));
-        }
-      }
-
-      // Inject RGS RNG for slot game nodes (and the Slot Features nodes, whose
-      // betAmount is likewise the round's stake).
-      if (
-        (this.slotGameNodeConverter && this.slotGameNodeConverter.isSlotGameNode(node.typename)) ||
-        (this.slotFeatureNodeConverter && this.slotFeatureNodeConverter.isSlotFeatureNode(node.typename))
-      ) {
-        inputMappings.set('_rgsRandom', 'rgsRandom');
-        inputMappings.set('_rgsRandomInt', 'rgsRandomInt');
-        inputMappings.set('betAmount', 'bet');
-      }
-
-      // The live jackpot pools for the one node that reads them (RGS Jackpot
-      // Pools). ctx.jackpots carries display fields only — see XRGS
-      // _shared/script-sandbox.ts JackpotView — and is absent on Simulate, in
-      // which case the node sees no pools rather than a client-supplied list.
-      if (this.slotFeatureNodeConverter && this.slotFeatureNodeConverter.needsJackpots(node.typename)) {
-        inputMappings.set('_jackpots', '((typeof ctx !== "undefined" && ctx && Array.isArray(ctx.jackpots)) ? ctx.jackpots : [])');
-      }
-
-      // Hand a state-carrying node whatever it returned last round. The `state`
-      // key is set LAST so it wins over a same-named graph wire or parameter —
-      // this channel is the server's, not the graph's.
       const usesNodeState = this._nodeStateIds?.has(node.id) === true;
-      if (usesNodeState) {
-        inputMappings.set('state', `(_nodeState[${JSON.stringify(node.id)}] || {})`);
-      }
 
-      const inputObject = Array.from(inputMappings.entries())
-        .map(([name, value]) => {
-          const needsQuotes = /[^a-zA-Z0-9_]/.test(name);
-          return needsQuotes ? `"${name}": ${value}` : `${name}: ${value}`;
-        })
-        .join(', ');
+      const inputObject = this.inputObjectLiteral(inputMappings);
 
       const outputVar = `${functionName}Result`;
       const nodeLabel = node.label || functionName;
@@ -2076,6 +2004,711 @@ ${originalComponentStructure}
     return invocationCode;
   }
 
+  // ==========================================================================
+  // REQUEST ENGINE (2026-10-05) — a maths component driven by Component Inputs signals
+  // ==========================================================================
+  //
+  // WHY. A published game's Aggregator calls the maths once per trigger: `{ BetAmount, isDo: true,
+  // isSpin: false, … }` — exactly one `is<X>` true — and rgs-fn hands the script `ctx.state`, the
+  // state the previous request returned. The straight-through script ran EVERY node on EVERY request
+  // (no signal gating for Component Inputs), read `config.Do` where the payload says `isDo`, lost one
+  // of two wires into the same input, never fired a native node's Done, kept no stateManager value,
+  // and read a loop's back edge off the request payload. A real game (bench-g3 LeprechaunClusterMaths)
+  // charged a bet of 100 on its init call, dealt its bonus on every spin and reset the capital each
+  // round: a different game from the one the editor previews.
+  //
+  // WHAT. The script now runs the editor's own semantics per request: the fired Component Inputs
+  // signal starts an event queue; a node runs when a signal reaches one of its signal inputs (a
+  // native node fires Done when it has run, Condition fires ontrue/onfalse, a script fires the
+  // Outputs.X() it called); a node with no trigger wired (a script with `run` unwired, a Condition
+  // without `eval`) runs when a value it reads is delivered. Inputs are read from their source's
+  // CURRENT output when the node runs — the value the editor's input holds, since a source's output
+  // only changes when it is delivered — and an input wired from several sources reads the one that
+  // delivered last. Loops need nothing special: the queue is the editor's event loop.
+  //
+  // STATE (choice (b)): what the editor still holds from an earlier request is carried in
+  // `state.__engine` and comes back as ctx.state on the next one — every node output a later request
+  // can read (the paytable and strips the init request computed, a stateManager's values, a back
+  // edge), each stateManager's slots, each script's `this`, the last-delivered source of every
+  // multi-source input. Recomputing "deterministic" setup chains instead was rejected: the strips are
+  // drawn from the round's RNG, so they cannot be recomputed, only kept. What is provably re-delivered
+  // before it is read (a native node's output read only by the node that same node's Done triggers —
+  // TRNG.value → ISAAC.seed, ISAAC.array → Weighted Reels.Seeds) is not kept, which leaves the state
+  // a few KB. Variables keep their existing `__vars` store.
+
+  /** Ports of a Component Inputs / Outputs node, in order, from any of the shapes a node arrives in. */
+  private gatewayPortList(node: Node | undefined): Array<{ name: string; type: string }> {
+    if (!node) return [];
+    const raw = [
+      ...((((node as any).parameters || {}).ports as any[]) || []),
+      ...(((node as any).ports as any[]) || []),
+      ...(((node as any).dynamicports as any[]) || []),
+    ];
+    const seen = new Set<string>();
+    const out: Array<{ name: string; type: string }> = [];
+    for (const p of raw) {
+      if (!p || typeof p.name !== 'string' || seen.has(p.name)) continue;
+      seen.add(p.name);
+      const t = p.type && typeof p.type === 'object' ? p.type.name : p.type;
+      out.push({ name: p.name, type: String(t || '').toLowerCase() });
+    }
+    return out;
+  }
+
+  private isVariable2(n: Node | undefined): boolean {
+    return !!n && (n.typename === 'Variable2' || n.typename === '/#__cloud__/Variable2');
+  }
+
+  private isSetVariable(n: Node | undefined): boolean {
+    return !!n && (n.typename === 'Set Variable' || n.typename === '/#__cloud__/Set Variable');
+  }
+
+  /** Signal names a script fires (`Outputs.X()`), in the order the script first calls them. */
+  private jsSignalNames(node: Node): string[] {
+    const script = String((node.parameters as any)?.functionScript || '');
+    const names: string[] = [];
+    const re = /Outputs\.(\w+)\(\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(script)) !== null) if (!names.includes(m[1])) names.push(m[1]);
+    return names;
+  }
+
+  /**
+   * Whether `port` on a node is a SIGNAL input — the editor's trigger, not a value. A port typed on
+   * the node decides; otherwise the node type's own trigger inputs (they carry no port list in a
+   * saved project), then the conventional trigger names.
+   */
+  private isSignalInputPort(nodeId: string, port: string): boolean {
+    const node = this.nodes.get(nodeId);
+    if (!node) return false;
+    const declared = this.portTypeOf(node, port);
+    if (declared === 'signal') return true;
+    const t = String(node.typename || '');
+    if (t === 'JavaScriptFunction') return port === 'run';
+    if (t === 'stateManager') return port === 'update' || port === 'reset';
+    if (this.isSetVariable(node)) return port === 'do';
+    if (this.isVariable2(node)) return port === 'fetch';
+    if (t === 'Component Outputs' || t === 'Component Inputs') return false;
+    if (this.signalPassthroughNodeConverter.isSignalPassthroughNode(t)) return port === 'input';
+    if (t === 'Condition') return port === 'eval';
+    if (t === 'Expression') return port === 'run';
+    if (declared && declared !== '*') return false;
+    const spec = SlotFeatureNodeRegistry.getSpec(t);
+    if (spec && (spec.signalInputs || []).includes(port)) return true;
+    if (t === 'Weighted Reels' && port === 'freeSpinTrigger') return true;
+    return /^(Do|do|run|eval|update|trigger|reset|Reset|step|start|refresh|show)$/.test(port);
+  }
+
+  /** Whether `port` is a SIGNAL output of its node (fires; carries no value). */
+  private isSignalSourcePort(nodeId: string, port: string): boolean {
+    const node = this.nodes.get(nodeId);
+    if (!node) return false;
+    const t = String(node.typename || '');
+    if (t === 'Component Inputs') {
+      const p = this.gatewayPortList(node).find((x) => x.name === port);
+      return !!p && p.type === 'signal';
+    }
+    if (t === 'JavaScriptFunction') {
+      if (!port.startsWith('out-')) return false;
+      const name = port.slice(4);
+      return this.jsSignalNames(node).includes(name) || (node.parameters as any)?.[`outtype-${name}`] === 'signal';
+    }
+    const declared = this.portTypeOf(node, port);
+    if (declared === 'signal') return true;
+    if (t === 'stateManager') return port === 'updated' || port === 'Reset Done';
+    if (this.isSetVariable(node)) return port === 'done';
+    if (this.isVariable2(node)) return port === 'changed' || port === 'fetched';
+    if (this.signalPassthroughNodeConverter.isSignalPassthroughNode(t)) return port === 'output';
+    if (t === 'Condition') return port === 'ontrue' || port === 'onfalse';
+    if (t === 'Expression') return port === 'isTrueEv' || port === 'isFalseEv';
+    if (declared && declared !== '*') return false;
+    return /^(Done|done|Success|success|Failure|failure)$/.test(port);
+  }
+
+  /** A wire that carries a signal: into a signal input, or out of a signal output into an untyped port. */
+  private isSignalConnection(c: Connection): boolean {
+    const tgt = this.nodes.get(c.toId);
+    if (!tgt) return false;
+    if (tgt.typename === 'Component Outputs') {
+      const p = this.gatewayPortList(tgt).find((x) => x.name === c.toProperty);
+      if (p && p.type === 'signal') return true;
+      if (p && p.type && p.type !== '*') return false;
+      return this.isSignalSourcePort(c.fromId, c.fromProperty);
+    }
+    if (this.isSignalInputPort(c.toId, c.toProperty)) return true;
+    // A native node keeps no port list in a saved project, so an input name the tables above do not
+    // know is judged by what feeds it: a Done into it is a trigger.
+    const typed = this.portTypeOf(tgt, c.toProperty);
+    return !typed && tgt.typename !== 'JavaScriptFunction' && this.isSignalSourcePort(c.fromId, c.fromProperty);
+  }
+
+  /**
+   * The Component Inputs triggers of a maths driven by them, in port order — a port typed signal, or
+   * one wired into a signal input. Null for a component the request engine does not apply to (a
+   * compiled cloud component, or a maths with no trigger wired), which keeps its straight-through
+   * script.
+   */
+  private engineTriggers(): { ci: Node; triggers: string[] } | null {
+    if (this.component.graph.roots.some((n) => n.typename === 'xgenia.cloud.request')) return null;
+    const ci = this.component.graph.roots.find((n) => n.typename === 'Component Inputs');
+    if (!ci) return null;
+    const out = this.connections.filter((c) => c.fromId === ci.id);
+    const names = [...this.gatewayPortList(ci).map((p) => p.name), ...out.map((c) => c.fromProperty)];
+    const triggers: string[] = [];
+    let wiredTrigger = false;
+    for (const name of names) {
+      if (triggers.includes(name)) continue;
+      const wires = out.filter((c) => c.fromProperty === name);
+      const fires = wires.some((c) => this.isSignalConnection(c));
+      if (fires || this.isSignalSourcePort(ci.id, name)) triggers.push(name);
+      if (fires) wiredTrigger = true;
+    }
+    return wiredTrigger ? { ci, triggers } : null;
+  }
+
+  /** A stateManager's slots, aliases and seeds — the editor node's own reading of its parameters. */
+  private stateManagerSpec(node: Node): { n: number; aliases: string[]; init: Record<string, unknown>; slots: Array<{ alias: string; seed: unknown }> } {
+    const p: any = node.parameters || {};
+    // nodes/std-library/stateManager.js: numInputs' setter stores max(0, floor(v || 0)); every
+    // reader then takes `numInputs || 3`, so an unset or zero count is 3.
+    const n = Math.max(0, Math.floor(Number(p.numInputs) || 0)) || 3;
+    let init: any = p.initialValues;
+    if (typeof init === 'string') { try { init = JSON.parse(init); } catch { init = null; } }
+    if (!init || typeof init !== 'object' || Array.isArray(init)) init = {};
+    const aliases: string[] = [];
+    const slots: Array<{ alias: string; seed: unknown }> = [];
+    for (let i = 0; i < n; i++) {
+      const alias = String(p[`alias${i}`] || '');
+      aliases.push(alias);
+      const a = alias.trim();
+      const seed = init[`input${i}`] !== undefined ? init[`input${i}`] : (a && init[a] !== undefined ? init[a] : undefined);
+      slots.push({ alias, seed });
+    }
+    return { n, aliases, init, slots };
+  }
+
+  /** The key a node's generated function returns an output port under. */
+  private resultKeyFor(nodeId: string, port: string): string {
+    const node = this.nodes.get(nodeId);
+    if (!node) return port;
+    if (node.typename === 'JavaScriptFunction') {
+      const dp = this.findPort(nodeId, port);
+      const name = dp ? this.portScriptName(dp) : port.replace(/^out-/, '');
+      return this.sanitizeParameterName(name);
+    }
+    if (node.typename === 'stateManager') return port;
+    if (
+      (this.mathNodeConverter && this.mathNodeConverter.isMathNode(node.typename)) ||
+      (this.slotGameNodeConverter && this.slotGameNodeConverter.isSlotGameNode(node.typename))
+    ) return port;
+    const dp = this.findPort(nodeId, port);
+    return dp && (dp.displayName || dp.name) ? this.sanitizeParameterName(this.portScriptName(dp)) : port;
+  }
+
+  /**
+   * The request engine: node invocations, Component Outputs and the state to keep, for a maths
+   * driven by Component Inputs signals. See the section header above for the semantics.
+   */
+  private generateRgsRequestEngine(nodes: Node[], trig: { ci: Node; triggers: string[] }): { code: string; stateExpr: string } {
+    const J = (v: unknown) => JSON.stringify(v);
+    const engineIds = new Set(nodes.map((n) => n.id));
+    const ciId = trig.ci.id;
+    const coNode = this.component.graph.roots.find((n) => n.typename === 'Component Outputs');
+    const kindOf = (n: Node): 'js' | 'sm' | 'setvar' | 'native' =>
+      n.typename === 'JavaScriptFunction' ? 'js' : n.typename === 'stateManager' ? 'sm' : this.isSetVariable(n) ? 'setvar' : 'native';
+
+    // ── wires ──
+    const sigConns = this.connections.filter((c) => this.isSignalConnection(c));
+    const sigSet = new Set(sigConns);
+    const dataInto = (id: string) => this.connections.filter((c) => c.toId === id && !sigSet.has(c));
+    const sigInto = (id: string) => sigConns.filter((c) => c.toId === id);
+
+    // Nodes the editor runs when a value they read arrives (no trigger wired): scripts with `run`
+    // unwired, and the std-library logic that evaluates on input change. Every other node waits
+    // for its signal — a slot node with no Do wired never computes in the editor either.
+    const CHANGE_DRIVEN = new Set([
+      'JavaScriptFunction', 'Condition', 'Expression', 'If', 'Inverter', 'Boolean To String', 'Date To String',
+      'String To Number', 'Number To String', 'Array To String', 'String To Array', 'Object To String',
+      'String To Object', 'JSON Parse', 'JSON Stringify', 'Boolean', 'String', 'Number', 'Switch', 'Color', 'Static Data',
+    ]);
+    const changeDriven = (n: Node) => kindOf(n) !== 'sm' && kindOf(n) !== 'setvar' && sigInto(n.id).length === 0 && CHANGE_DRIVEN.has(n.typename);
+
+    // Variable2 nodes per stateful variable name — a write delivers on each of them.
+    const varNodesByName = new Map<string, Node[]>();
+    for (const n of this.component.graph.roots) {
+      const vn = (n.parameters as any)?.name;
+      if (this.isVariable2(n) && vn && this._statefulVars?.has(vn)) {
+        if (!varNodesByName.has(vn)) varNodesByName.set(vn, []);
+        varNodesByName.get(vn)!.push(n);
+      }
+    }
+
+    // ── how a wire reads its source ──
+    const warned = new Set<Connection>();
+    // `source` is the node whose run produces the value (through Variable2 read-throughs), for the
+    // delivery tables and the keep-or-not analysis.
+    const sourceOf = (c: Connection): { expr: string; source: string | null; deliverKey: string | null } => {
+      const src = this.nodes.get(c.fromId);
+      if (!src) return { expr: 'undefined', source: null, deliverKey: null };
+      if (this.isVariable2(src)) {
+        const vn = (src.parameters as any)?.name;
+        if (vn && this._statefulVars?.has(vn)) return { expr: `_vars[${J(vn)}]`, source: null, deliverKey: `${src.id}|value` };
+        const r = this.resolveThroughVariables(c.fromId, c.fromProperty, (id) => engineIds.has(id));
+        if (engineIds.has(r.fromId)) {
+          return { expr: `__erd(${J(r.fromId)}, ${J(this.resultKeyFor(r.fromId, r.fromProperty))})`, source: r.fromId, deliverKey: `${r.fromId}|${r.fromProperty}` };
+        }
+        const rs = this.nodes.get(r.fromId);
+        if (rs && rs.typename === 'Component Inputs') return { expr: this.ciReadExpr(r.fromProperty), source: null, deliverKey: `${rs.id}|${r.fromProperty}` };
+        if ((src.parameters as any)?.value !== undefined) return { expr: J((src.parameters as any).value), source: null, deliverKey: null };
+        return { expr: 'undefined', source: null, deliverKey: null };
+      }
+      if (src.typename === 'Component Inputs') return { expr: this.ciReadExpr(c.fromProperty), source: null, deliverKey: `${src.id}|${c.fromProperty}` };
+      if (engineIds.has(src.id)) {
+        return { expr: `__erd(${J(src.id)}, ${J(this.resultKeyFor(src.id, c.fromProperty))})`, source: src.id, deliverKey: `${src.id}|${c.fromProperty}` };
+      }
+      // A node no generator compiles (reported, and refused at deploy), or one that produces no value
+      // here. Never the request payload — see the SECURITY note in generateRgsFunctionInvocations.
+      if (!this.isCompilableNodeType(src.typename) && !warned.has(c)) {
+        warned.add(c);
+        const tgt = this.nodes.get(c.toId);
+        this.recordUnsupportedNode(src, { node: (tgt && (tgt.label || tgt.typename)) || c.toId, port: c.toProperty });
+        console.warn(`[RGS] "${src.typename}" has no server-side implementation; "${(tgt && (tgt.label || tgt.typename)) || c.toId}".${c.toProperty} will be undefined, not read from the request payload.`);
+      }
+      return { expr: 'undefined', source: null, deliverKey: null };
+    };
+
+    // ── delivery tables: multi-source inputs and change-driven wake-ups ──
+    const MS: Record<string, Array<[string, number]>> = {};
+    const WK: Record<string, string[]> = {};
+    const addMs = (dk: string | null, inKey: string, k: number) => { if (!dk) return; (MS[dk] = MS[dk] || []).push([inKey, k]); };
+    const addWk = (dk: string | null, id: string) => { if (!dk) return; const w = (WK[dk] = WK[dk] || []); if (!w.includes(id)) w.push(id); };
+    // Per (node, input): the data wires into it, in connection order.
+    const inputsOf = (id: string) => {
+      const by = new Map<string, Connection[]>();
+      for (const c of dataInto(id)) { if (!by.has(c.toProperty)) by.set(c.toProperty, []); by.get(c.toProperty)!.push(c); }
+      return by;
+    };
+    // The expression a node reads one input through.
+    const readExpr = (node: Node, port: string, conns: Connection[]): string => {
+      if (conns.length === 1) return sourceOf(conns[0]).expr;
+      const key = J(`${node.id}|${port}`);
+      let e = 'undefined';
+      for (let k = conns.length - 1; k >= 0; k--) e = `(__elp[${key}] === ${k} ? ${sourceOf(conns[k]).expr} : ${e})`;
+      return e;
+    };
+
+    // Outputs to keep across requests (the analysis in the section header).
+    const keep = new Map<string, Set<string>>();
+    const keepKey = (id: string, key: string) => { if (!keep.has(id)) keep.set(id, new Set()); keep.get(id)!.add(key); };
+
+    for (const n of nodes) {
+      const ins = inputsOf(n.id);
+      for (const [port, conns] of ins) {
+        conns.forEach((c, k) => {
+          const s = sourceOf(c);
+          if (conns.length > 1) addMs(s.deliverKey, `${n.id}|${port}`, k);
+          if (changeDriven(n)) addWk(s.deliverKey, n.id);
+          if (!s.source) return;
+          const src = this.nodes.get(s.source)!;
+          const kind = kindOf(src);
+          if (kind === 'sm' || kind === 'setvar') return;
+          const triggers = sigInto(n.id);
+          const fresh = kind === 'native' && conns.length === 1 && triggers.length > 0 && triggers.every((t) => t.fromId === src.id);
+          if (!fresh) keepKey(src.id, this.resultKeyFor(src.id, s.deliverKey!.slice(src.id.length + 1)));
+        });
+      }
+    }
+
+    // Signal routing: source "id|port" → [[target id, target port]] (Component Outputs only record).
+    const SIG: Record<string, Array<[string, string]>> = {};
+    for (const c of sigConns) {
+      const k = `${c.fromId}|${c.fromProperty}`;
+      if (!SIG[k]) SIG[k] = [];
+      if (engineIds.has(c.toId)) SIG[k].push([c.toId, c.toProperty]);
+    }
+
+    // ── one case per node ──
+    const cases: string[] = [];
+    const deliverWired = (id: string, port: string, cond: string) =>
+      (MS[`${id}|${port}`] || WK[`${id}|${port}`]) ? `if (${cond}) __edeliver(${J(id)}, ${J(port)});` : '';
+    const outPortsOf = (id: string) => Array.from(new Set(this.connections.filter((c) => c.fromId === id && !sigSet.has(c)).map((c) => c.fromProperty)));
+    const sigPortsOf = (id: string) => Array.from(new Set(sigConns.filter((c) => c.fromId === id).map((c) => c.fromProperty)));
+    const smSpecs = new Map<string, ReturnType<CloudFunctionConverter['stateManagerSpec']>>();
+
+    for (const node of nodes) {
+      const id = node.id;
+      const kind = kindOf(node);
+      const label = (node.label || this.getFunctionName(node)).replace(/["\\\n]/g, ' ');
+      const ins = inputsOf(id);
+      const body: string[] = [];
+
+      if (kind === 'sm') {
+        const sm = this.stateManagerSpec(node);
+        smSpecs.set(id, sm);
+        const args = `${J(id)}, ${sm.n}, ${J(sm.aliases)}, ${J(sm.init)}`;
+        body.push(`var __s = __esmGet(${args});`);
+        body.push(`if (__ep === "reset") { for (var __i = 0; __i < ${sm.n}; __i++) __s.o["input" + __i] = null; __s.so = null; __esmSeed(__s, ${sm.n}, ${J(sm.aliases)}, ${J(sm.init)}); }`);
+        const reads: string[] = [];
+        for (let i = 0; i < sm.n; i++) {
+          const conns = ins.get(`input${i}`) || [];
+          const pv = (node.parameters as any)?.[`input${i}`];
+          let e = conns.length ? readExpr(node, `input${i}`, conns) : (pv !== undefined ? this.parameterLiteral(pv) : '');
+          if (conns.length && pv !== undefined) e = `__edv(${e}, ${this.parameterLiteral(pv)})`;
+          if (e) reads.push(`__v = ${e}; if (__v !== undefined) __s.i[${J(`input${i}`)}] = __v;`);
+        }
+        body.push(`else { var __v; ${reads.join(' ')} __esmCommit(__s, ${sm.n}, ${J(sm.aliases)}); }`);
+        body.push(`__eo[${J(id)}] = __esmOuts(__s, ${sm.n}); __eran[${J(id)}] = ++__eseq;`);
+        for (const p of outPortsOf(id)) body.push(deliverWired(id, p, 'true'));
+        for (const s of sigPortsOf(id)) {
+          if (s === 'updated') body.push(`if (__ep !== "reset") __eemit(${J(id)}, "updated");`);
+          else if (s === 'Reset Done') body.push(`if (__ep === "reset") __eemit(${J(id)}, "Reset Done");`);
+        }
+      } else if (kind === 'setvar') {
+        const varName = (node.parameters as any).name;
+        const setWith = (node.parameters as any).setWith;
+        const conns = ins.get('value') || [];
+        let e = conns.length ? readExpr(node, 'value', conns) : 'undefined';
+        if (setWith === 'emptyString') e = '""';
+        else if (setWith === 'boolean') e = `!!(${e})`;
+        body.push(`_vars[${J(varName)}] = ${e}; __eran[${J(id)}] = ++__eseq;`);
+        // The variable's model fires `change` on every Variable2 of that name: each delivers its
+        // value and fires `changed` (forceChange — even when the value is the same).
+        for (const v of varNodesByName.get(varName) || []) {
+          body.push(`__eran[${J(v.id)}] = ++__eseq;`);
+          body.push(deliverWired(v.id, 'value', 'true'));
+          if (SIG[`${v.id}|changed`]) body.push(`__eemit(${J(v.id)}, "changed");`);
+        }
+        if (SIG[`${id}|done`]) body.push(`__eemit(${J(id)}, "done");`);
+      } else {
+        // JS and native nodes: build the input object the straight-through script builds, with
+        // the engine's readers.
+        const isJs = kind === 'js';
+        const inputMappings = new Map<string, string>();
+        for (const [port, conns] of ins) {
+          const inputName = isJs && port.startsWith('in-') ? port.substring(3) : port;
+          let e = readExpr(node, port, conns);
+          const pv = (node.parameters as any)?.[port];
+          if (!isJs && pv !== undefined && port !== 'functionScript') e = `__edv(${e}, ${this.parameterLiteral(pv)})`;
+          inputMappings.set(inputName, this.guardServerSeed(node, inputName, e));
+        }
+        if (!isJs) {
+          // A signal input reads as "did this run come through it" — the editor runs one handler
+          // per signal arrival. Condition always evaluates when it runs (eval wired or not).
+          for (const c of sigInto(id)) inputMappings.set(c.toProperty, `(__ep === ${J(c.toProperty)})`);
+          if (node.typename === 'Condition') inputMappings.set('eval', 'true');
+        }
+        this.finishInputMappings(node, inputMappings);
+        const fn = this.getFunctionName(node);
+        const callee = this._jsUsesThis.has(id) ? `${fn}.call(__ethis(${J(id)}), ` : `${fn}(`;
+        body.push(`var __r;`);
+        body.push(`try { __r = ${callee}{ ${this.inputObjectLiteral(inputMappings)} }); }`);
+        body.push(`catch (_e) { throw new Error(${J(`[${label}] `)} + _e.message); }`);
+        if (this._nodeStateIds?.has(id)) body.push(`if (__r && __r.updatedState) { _nodeState[${J(id)}] = __r.updatedState; }`);
+        if (isJs) {
+          // A script sends an output only when its value CHANGED (simplejavascript.js's outputs
+          // proxy); an output it does not write keeps its value.
+          const signals = this.jsSignalNames(node);
+          const dataOuts = this.getOutputPortNames(node).filter((o) => !signals.includes(o));
+          body.push(`var __p0 = __eo[${J(id)}] || {}; var __n = __ekeep(__p0, null);`);
+          for (const o of dataOuts) {
+            const port = `out-${o}`;
+            const portName = (node.dynamicports || []).find((p) => p.plug === 'output' && this.sanitizeParameterName(this.portScriptName(p)) === o)?.name || port;
+            const d = deliverWired(id, portName, `__r[${J(o)}] !== __p0[${J(o)}]`);
+            body.push(`if (__r && __r[${J(o)}] !== undefined) { __n[${J(o)}] = __r[${J(o)}]; ${d} }`);
+          }
+          body.push(`__eo[${J(id)}] = __n; __eran[${J(id)}] = ++__eseq;`);
+          for (const s of signals) {
+            if (SIG[`${id}|out-${s}`]) body.push(`if (__r && __r[${J(s)}] === true) __eemit(${J(id)}, ${J(`out-${s}`)});`);
+          }
+        } else {
+          body.push(`__eo[${J(id)}] = __ekeep(__eo[${J(id)}], __r); __eran[${J(id)}] = ++__eseq;`);
+          for (const p of outPortsOf(id)) {
+            const k = this.resultKeyFor(id, p);
+            body.push(deliverWired(id, p, `__r && __r[${J(k)}] !== undefined`));
+          }
+          for (const s of sigPortsOf(id)) body.push(`if (${this.nativeSignalFires(node, s)}) __eemit(${J(id)}, ${J(s)});`);
+        }
+      }
+      cases.push(`case ${J(id)}: { /* [${label}] */\n        ${body.filter(Boolean).join('\n        ')}\n        return;\n      }`);
+    }
+
+    // ── what is kept for the next request ──
+    const keepLines: string[] = [];
+    for (const node of nodes) {
+      const kind = kindOf(node);
+      if (kind === 'sm' || kind === 'setvar') continue;
+      const keys = Array.from(keep.get(node.id) || []);
+      // A script's primitive outputs are kept too: the editor compares a new value with the last
+      // one before sending it, across requests as well.
+      if (keys.length || kind === 'js') keepLines.push(`__epick(__eout, ${J(node.id)}, ${J(keys)}, ${kind === 'js'});`);
+    }
+
+    // ── Component Outputs ──
+    const coLines: string[] = [];
+    if (coNode) {
+      const byPort = new Map<string, Connection[]>();
+      for (const c of this.connections.filter((x) => x.toId === coNode.id)) {
+        if (!byPort.has(c.toProperty)) byPort.set(c.toProperty, []);
+        byPort.get(c.toProperty)!.push(c);
+      }
+      for (const [port, conns] of byPort) {
+        const P = J(port);
+        if (conns.every((c) => sigSet.has(c))) {
+          // A signal output: true when it fired this request, false otherwise — never absent.
+          coLines.push(`_componentOutputs[${P}] = (${conns.map((c) => `__esent[${J(`${c.fromId}|${c.fromProperty}`)}] === true`).join(' || ')});`);
+          continue;
+        }
+        // A value: present when its source produced it this request (the Aggregator pushes only
+        // the fields a response carries; rgs-fn reads a mapped win key's presence as "a play").
+        const srcs = conns.filter((c) => !sigSet.has(c)).map((c) => {
+          const s = sourceOf(c);
+          const src = this.nodes.get(c.fromId);
+          let ran: string;
+          if (src && src.typename === 'Component Inputs') ran = `(${this.ciReadExpr(c.fromProperty)} !== undefined ? 1 : 0)`;
+          else if (src && this.isVariable2(src)) ran = s.source ? `(__eran[${J(s.source)}] || 0)` : `(__eran[${J(src.id)}] || 0)`;
+          else ran = s.source ? `(__eran[${J(s.source)}] || 0)` : '0';
+          return { ran, expr: s.expr };
+        });
+        if (srcs.length === 1) {
+          coLines.push(`if (${srcs[0].ran}) { __v = ${srcs[0].expr}; if (__v !== undefined) _componentOutputs[${P}] = __v; }`);
+        } else {
+          const parts = srcs.map((s) => `__t = ${s.ran}; if (__t && __t > __b) { __b = __t; __v = ${s.expr}; }`);
+          coLines.push(`__b = 0; __v = undefined; ${parts.join(' ')} if (__b && __v !== undefined) _componentOutputs[${P}] = __v;`);
+        }
+      }
+    }
+
+    // ── Component Inputs data delivered at the start of a request (multi-source / change-driven readers) ──
+    const ciDataLines: string[] = [];
+    const ciKeep: string[] = [];
+    for (const c of this.connections.filter((x) => x.fromId === ciId && !sigSet.has(x))) {
+      const dk = `${ciId}|${c.fromProperty}`;
+      if (!(MS[dk] || WK[dk]) || ciKeep.includes(c.fromProperty)) continue;
+      ciKeep.push(c.fromProperty);
+      const v = this.ciReadExpr(c.fromProperty);
+      ciDataLines.push(`if (${v} !== undefined && (typeof ${v} === "object" || ${v} !== __eci[${J(c.fromProperty)}])) __edeliver(${J(ciId)}, ${J(c.fromProperty)});`);
+    }
+    // What the editor runs once, when the component loads: a script with `run` unwired (its
+    // functionScript setter schedules a run — simplejavascript.js), and a change-driven node with
+    // nothing wired into it (it computes from its parameters). Here: on the session's first request
+    // that fires (`state.__engine.init`), and what they produce is kept like any other output.
+    const constants = nodes
+      .filter((n) => changeDriven(n) && (n.typename === 'JavaScriptFunction' || this.connections.every((c) => c.toId !== n.id)))
+      .map((n) => n.id);
+
+    const smHydrate = Array.from(smSpecs.entries()).map(([id, sm]) =>
+      `__eo[${J(id)}] = __esmOuts(__esmGet(${J(id)}, ${sm.n}, ${J(sm.aliases)}, ${J(sm.init)}), ${sm.n});`);
+    // A stateManager sends its seeded outputs when it loads (applyInitialValues → flagOutputDirty),
+    // which reaches a change-driven reader (a script with `run` unwired runs on it) and makes the seed
+    // the last-delivered source of a multi-source input.
+    const seedDeliveries: string[] = [];
+    for (const [id, sm] of smSpecs) {
+      sm.slots.forEach((slot, i) => {
+        const port = `output${i}`;
+        if (slot.seed !== undefined && (MS[`${id}|${port}`] || WK[`${id}|${port}`])) seedDeliveries.push(`__edeliver(${J(id)}, ${J(port)});`);
+      });
+    }
+
+    const LIMIT = 20000;
+    const code = [
+      '// --- Request engine (2026-10-05): the editor\'s signal semantics, one trigger per request ---',
+      'var __E = (ctx.state && typeof ctx.state === "object" && ctx.state.__engine && typeof ctx.state.__engine === "object") ? ctx.state.__engine : {};',
+      'var __eo = {}, __elp = {}, __esmN = {}, __eth = {}, __eran = {}, __esent = {}, __eq = [], __en = 0, __eseq = 0;',
+      'var __eoP = (__E.o && typeof __E.o === "object") ? __E.o : {};',
+      'for (var __ek in __eoP) { if (__eoP[__ek] && typeof __eoP[__ek] === "object") __eo[__ek] = Object.assign({}, __eoP[__ek]); }',
+      'if (__E.lp && typeof __E.lp === "object") __elp = Object.assign({}, __E.lp);',
+      'var __esmP = (__E.sm && typeof __E.sm === "object") ? __E.sm : {};',
+      'var __ethP = (__E.t && typeof __E.t === "object") ? __E.t : {};',
+      'var __eci = (__E.ci && typeof __E.ci === "object") ? __E.ci : {};',
+      `var __eSIG = ${J(SIG)};`,
+      `var __eMS = ${J(MS)};`,
+      `var __eWK = ${J(WK)};`,
+      'function __erd(id, k) { var o = __eo[id]; return o ? o[k] : undefined; }',
+      'function __edv(v, d) { return v === undefined ? d : v; }',
+      'function __ekeep(prev, next) { var out = {}, k; if (prev) { for (k in prev) out[k] = prev[k]; } if (next) { for (k in next) { if (next[k] !== undefined) out[k] = next[k]; } } return out; }',
+      'function __ethis(id) { if (!__eth[id]) __eth[id] = (__ethP[id] && typeof __ethP[id] === "object") ? Object.assign({}, __ethP[id]) : {}; return __eth[id]; }',
+      'function __eemit(id, port) { var k = id + "|" + port; __esent[k] = true; var t = __eSIG[k]; if (t) { for (var i = 0; i < t.length; i++) __eq.push(t[i]); } }',
+      'function __edeliver(id, port) { var k = id + "|" + port, i; var m = __eMS[k]; if (m) { for (i = 0; i < m.length; i++) __elp[m[i][0]] = m[i][1]; } var w = __eWK[k]; if (w) { for (i = 0; i < w.length; i++) __eq.push([w[i], ""]); } }',
+      // stateManager (runtime nodes/std-library/stateManager.js): slots inputN, seeds from initialValues
+      // by slot or alias where the output has no value, update copies every input across.
+      'function __esmSeed(s, n, al, init) { if (!init || typeof init !== "object") return; for (var i = 0; i < n; i++) { var key = "input" + i, a = String(al[i] || "").trim(), seed; if (init[key] !== undefined) seed = init[key]; else if (a && init[a] !== undefined) seed = init[a]; else continue; if (s.o[key] !== undefined && s.o[key] !== null) continue; s.o[key] = seed; if (s.i[key] === undefined) s.i[key] = seed; } }',
+      'function __esmGet(id, n, al, init) { if (__esmN[id]) return __esmN[id]; var p = __esmP[id], s; if (p && typeof p === "object") s = { i: Object.assign({}, p.i || {}), o: Object.assign({}, p.o || {}), so: p.so || null }; else { s = { i: {}, o: {}, so: null }; __esmSeed(s, n, al, init); } __esmN[id] = s; return s; }',
+      'function __esmCommit(s, n, al) { var so = {}; for (var i = 0; i < n; i++) { var key = "input" + i; s.o[key] = s.i[key]; var a = String(al[i] || "").trim() !== "" ? al[i] : key; if (s.i[key] !== undefined) so[a] = s.i[key]; } s.so = so; }',
+      'function __esmOuts(s, n) { var o = { stateObject: s.so || null }; for (var i = 0; i < n; i++) o["output" + i] = s.o["input" + i]; return o; }',
+      'function __epick(out, id, keys, prim) { var o = __eo[id]; if (!o) return; var r = {}, any = false, k, i, v; for (i = 0; i < keys.length; i++) { k = keys[i]; if (o[k] !== undefined) { r[k] = o[k]; any = true; } } if (prim) { for (k in o) { v = o[k]; if (r[k] === undefined && (v === null || typeof v === "number" || typeof v === "string" || typeof v === "boolean")) { r[k] = v; any = true; } } } if (any) out[id] = r; }',
+      ...smHydrate,
+      'function __erun(__eid, __ep) {',
+      '  switch (__eid) {',
+      '      ' + cases.join('\n      '),
+      '  }',
+      '}',
+      `function __edrain() { while (__eq.length) { if (++__en > ${LIMIT}) throw new Error(${J(`[request] did not settle after ${LIMIT} node runs — a signal loop that never ends`)}); var __e = __eq.shift(); __erun(__e[0], __e[1]); } }`,
+      // Which triggers this request fires. The Aggregator sends `is<X>` for every trigger, exactly
+      // one true; a bare `<X>: true` is accepted for callers from before the Aggregator.
+      `var __etrig = ${J(trig.triggers)}, __efire = [], __enamed = false;`,
+      'for (var __ti = 0; __ti < __etrig.length; __ti++) { var __ta = config["is" + __etrig[__ti]], __tb = config[__etrig[__ti]]; if (typeof __ta === "boolean" || typeof __tb === "boolean") __enamed = true; if (__ta === true || __tb === true) __efire.push(__etrig[__ti]); }',
+      // A caller that names no trigger at all AND is not a live request (no ctx.action: the XRGS stress
+      // and simulation harnesses, which send data fields only) plays every trigger in port order —
+      // the straight-through script's behaviour, which those harnesses measure. A live rgs-fn request
+      // always carries ctx.action, so one that fires nothing runs nothing.
+      'if (!__enamed && typeof ctx.action === "undefined") __efire = __etrig.slice();',
+      'if (__efire.length > 0) {',
+      ...(constants.length || seedDeliveries.length
+        ? ['  if (!__E.init) {', ...constants.map((id) => `    __eq.push([${J(id)}, ""]);`), ...seedDeliveries.map((l) => '    ' + l), '  }']
+        : []),
+      ...ciDataLines.map((l) => '  ' + l),
+      '  __edrain();',
+      `  for (var __fi = 0; __fi < __efire.length; __fi++) { __eemit(${J(ciId)}, __efire[__fi]); __edrain(); }`,
+      '}',
+      'var _lastNodeResult = {};',
+      'var _componentOutputs = {}, __v, __t, __b;',
+      ...coLines,
+      // What the next request starts from.
+      'var __eout = {};',
+      ...keepLines,
+      'var __ethOut = Object.assign({}, __ethP, __eth), __esmOut = Object.assign({}, __esmP, __esmN), __eciOut = Object.assign({}, __eci);',
+      // A Component Inputs value is "delivered" only on a request that fires; one that fires nothing
+      // keeps the last delivered values, so the change still reaches its readers next time.
+      ...ciKeep.map((p) => {
+        const v = this.ciReadExpr(p);
+        return `if (__efire.length > 0) { if (${v} === null || typeof ${v} === "number" || typeof ${v} === "string" || typeof ${v} === "boolean") __eciOut[${J(p)}] = ${v}; else delete __eciOut[${J(p)}]; }`;
+      }),
+      'var __engineState = { init: !!(__E.init || __efire.length > 0), o: __eout, lp: __elp, sm: __esmOut, t: __ethOut, ci: __eciOut };',
+    ].join('\n    ');
+    return { code, stateExpr: '__engineState' };
+  }
+
+  /** A Component Inputs data port's value on this request: the stake for the bet port, else the payload field. */
+  private ciReadExpr(port: string): string {
+    return /^betamount$/i.test(port) ? 'bet' : this.safePropertyAccess('config', port);
+  }
+
+  /**
+   * When a native node's signal output fires, given the node ran and returned `__r`. Done / Success
+   * fire on every run (a refusal throws instead); a Relay passes its signal on; Condition and
+   * Expression branch on their result; any other signal fires when the generated function returns
+   * it as true (the Slot Features functions return their signals that way).
+   */
+  private nativeSignalFires(node: Node, port: string): string {
+    const t = String(node.typename || '');
+    if (this.signalPassthroughNodeConverter.isSignalPassthroughNode(t) && port === 'output') return 'true';
+    if (t === 'Expression' && port === 'isTrueEv') return '!!(__r && __r.result)';
+    if (t === 'Expression' && port === 'isFalseEv') return '!(__r && __r.result)';
+    if (/^(Done|done|Success|success)$/.test(port)) return 'true';
+    if (/^(Failure|failure)$/.test(port)) return '(__r && __r.failure === true)';
+    return `(__r && __r[${JSON.stringify(port)}] === true)`;
+  }
+
+  /**
+   * A provably-fair draw's SERVER seed may not come from the request.
+   *
+   * Several wire resolutions resolve to `config.<something>` — a Component Inputs port and an
+   * aggregator request field — and both are the caller's POST body. Feeding that into Calculate
+   * Roll would let a player pick the seed the outcome is hashed from, which is the whole of
+   * advisory XRGS-2026-0826-RNG. Checked after the chain, so a new payload-sourced branch cannot
+   * slip past it.
+   *
+   * `undefined` rather than an error: the node's own fallback then draws a fresh seed from the
+   * round's entropy, so a graph wired this way still compiles and still plays — it just plays
+   * honestly. (2026-10-05: lifted out of generateRgsFunctionInvocations so the request engine
+   * applies the same guard.)
+   */
+  private guardServerSeed(node: Node, inputName: string, sourceValue: string): string {
+    if (RgsExtraNodeConverter.isServerSeedInput(node.typename, inputName) && /^config\b/.test(sourceValue)) {
+      console.warn(
+        `[RGS] "${node.typename}" server seed was wired to the request payload (${sourceValue}); ` +
+          'using server entropy instead — a player must not choose the server seed.'
+      );
+      return 'undefined';
+    }
+    return sourceValue;
+  }
+
+  /**
+   * Everything a node's input object gets after its wires: side-panel parameters for unwired
+   * ports, the ISAAC minimum size, the round's RNG and stake for slot nodes, the jackpot pools,
+   * and a state-carrying node's previous state. (2026-10-05) Shared by the straight-through
+   * invocations and the request engine, so the two cannot drift; the order of the keys is the
+   * order it always was.
+   */
+  private finishInputMappings(node: Node, inputMappings: Map<string, string>): void {
+    // Add node parameters as fallbacks
+    Object.entries(node.parameters).forEach(([paramName, paramValue]) => {
+      if (paramName === 'params' || paramName === 'functionScript' || paramName === 'code') return;
+      // isMath is a deployment-routing flag (Compile feature), not a data input.
+      if (paramName === 'isMath') return;
+      // Skip internal port metadata that should never be passed as inputs
+      if (paramName.startsWith('intype-') || paramName.startsWith('outtype-') ||
+          paramName.startsWith('Inputs.') || paramName.startsWith('Outputs.') ||
+          paramName === 'scriptInputs' || paramName === 'scriptOutputs') return;
+      if (!inputMappings.has(paramName)) inputMappings.set(paramName, this.parameterLiteral(paramValue));
+    });
+
+    // (2026-10-04, certification) Cascade The Reels / Directional Cascade, Weighted Reels, Symbol Value
+    // Grid, Pick Bonus and Hold And Win Grid take one value per random outcome and refuse a short Seeds
+    // array, and games built before that left these ISAACs at size 1 (or one per reel). The ISAAC node
+    // itself yields at least SEEDS_MIN_BY_CONSUMER[type] values when its array feeds one of their
+    // Seeds (private xgenia-pro-nodes isaac-rng-array.js _effectiveSize — see the table there); the
+    // compiled maths must draw the same, or the editor and the RGS play different games.
+    if (/(^|\/)ISAAC Random Number Array Generator$/.test(String(node.typename))) {
+      let min = 0;
+      for (const c of this.connections) {
+        if (c.fromId !== node.id || c.fromProperty !== 'array' || !/^seeds$/i.test(String(c.toProperty))) continue;
+        const type = String(this.nodes.get(c.toId)?.typename ?? '').replace(/^.*\//, '');
+        const need = Object.prototype.hasOwnProperty.call(SEEDS_MIN_BY_CONSUMER, type) ? SEEDS_MIN_BY_CONSUMER[type] : 0;
+        if (need > min) min = need;
+      }
+      const sizeWired = this.connections.some((c) => c.toId === node.id && c.toProperty === 'size');
+      if (min > 0 && !sizeWired) {
+        const current = Number(inputMappings.get('size'));
+        if (!(Number.isFinite(current) && current >= min)) inputMappings.set('size', String(min));
+      }
+    }
+
+    // Inject RGS RNG for slot game nodes (and the Slot Features nodes, whose
+    // betAmount is likewise the round's stake).
+    if (
+      (this.slotGameNodeConverter && this.slotGameNodeConverter.isSlotGameNode(node.typename)) ||
+      (this.slotFeatureNodeConverter && this.slotFeatureNodeConverter.isSlotFeatureNode(node.typename))
+    ) {
+      inputMappings.set('_rgsRandom', 'rgsRandom');
+      inputMappings.set('_rgsRandomInt', 'rgsRandomInt');
+      inputMappings.set('betAmount', 'bet');
+    }
+
+    // The live jackpot pools for the one node that reads them (RGS Jackpot
+    // Pools). ctx.jackpots carries display fields only — see XRGS
+    // _shared/script-sandbox.ts JackpotView — and is absent on Simulate, in
+    // which case the node sees no pools rather than a client-supplied list.
+    if (this.slotFeatureNodeConverter && this.slotFeatureNodeConverter.needsJackpots(node.typename)) {
+      inputMappings.set('_jackpots', '((typeof ctx !== "undefined" && ctx && Array.isArray(ctx.jackpots)) ? ctx.jackpots : [])');
+    }
+
+    // Hand a state-carrying node whatever it returned last round. The `state`
+    // key is set LAST so it wins over a same-named graph wire or parameter —
+    // this channel is the server's, not the graph's.
+    if (this._nodeStateIds?.has(node.id) === true) {
+      inputMappings.set('state', `(_nodeState[${JSON.stringify(node.id)}] || {})`);
+    }
+  }
+
+  /** A side-panel parameter as a JS literal. */
+  private parameterLiteral(paramValue: unknown): string {
+    if (typeof paramValue === 'number' || typeof paramValue === 'boolean') return String(paramValue);
+    const json = JSON.stringify(paramValue);
+    return json === undefined ? 'undefined' : json;
+  }
+
+  /** `{ a: x, "b-c": y }` body for an input map. */
+  private inputObjectLiteral(inputMappings: Map<string, string>): string {
+    return Array.from(inputMappings.entries())
+      .map(([name, value]) => {
+        const needsQuotes = /[^a-zA-Z0-9_]/.test(name);
+        return needsQuotes ? `${JSON.stringify(name)}: ${value}` : `${name}: ${value}`;
+      })
+      .join(', ');
+  }
+
   /**
    * Extract maths configuration from node parameters. Becomes ctx.config in the RGS sandbox.
    */
@@ -2239,16 +2872,19 @@ ${originalComponentStructure}
           const outputNames = rawOutputs.filter(o => o && o.name).map(o => this.sanitizeParameterName(o.name!));
           return `function ${funcName}(inputs) {\n  // Javascript2 signal flow node (passthrough in RGS)\n  return { ${outputNames.map(n => `${n}: true`).join(', ')} };\n}\n`;
         } else if (node.typename === 'stateManager') {
-          // StateManager nodes are state containers — convert to passthrough functions
+          // (2026-10-05) The editor node (runtime nodes/std-library/stateManager.js) has inputs
+          // input0..N-1 and outputs output0..N-1 — `aliasN` only names a pair for display and for
+          // the State Object. This used to forward `inputs.<alias>`, keys nothing is wired to, so
+          // every output read undefined; and it ignored initialValues, the seed a graph's capital
+          // starts from. In a triggered maths (Component Inputs signals) the request engine runs
+          // the node itself and keeps its values across requests (generateRgsRequestEngine); this
+          // straight-through form copies each input across, seeded where nothing drives it.
           const funcName = this.getFunctionName(node);
-          const numInputs = node.parameters.numInputs || 0;
-          const aliases: string[] = [];
-          for (let i = 0; i < numInputs; i++) {
-            const alias = node.parameters[`alias${i}`];
-            if (typeof alias === 'string' && alias) aliases.push(alias);
-            else aliases.push(`state${i}`);
-          }
-          return `function ${funcName}(inputs) {\n  // StateManager passthrough: forward all state inputs\n  return { ${aliases.map(a => `${this.sanitizeParameterName(a)}: inputs.${this.sanitizeParameterName(a)}`).join(', ')} };\n}\n`;
+          const sm = this.stateManagerSpec(node);
+          const lines = sm.slots.map((s, i) =>
+            `  out.output${i} = inputs.input${i} !== undefined ? inputs.input${i} : ${JSON.stringify(s.seed === undefined ? null : s.seed)};`
+          );
+          return `function ${funcName}(inputs) {\n  var out = {};\n${lines.join('\n')}\n  return out;\n}\n`;
         }
 
         // Stage-2: stateful Set Variable nodes emit inline `_vars` writes in the
@@ -2959,7 +3595,7 @@ ${originalComponentStructure}
             // Check if property name contains hyphens or other special characters that require quoting
             // JavaScript/TypeScript requires quoted property names when they contain hyphens or other non-alphanumeric characters (except _)
             const needsQuotes = /[^a-zA-Z0-9_]/.test(name);
-            return needsQuotes ? `"${name}": ${value}` : `${name}: ${value}`;
+            return needsQuotes ? `${JSON.stringify(name)}: ${value}` : `${name}: ${value}`;
           })
           .join(', ');
       } else {
@@ -3033,7 +3669,7 @@ ${originalComponentStructure}
 
             // Check if property name contains hyphens or other special characters that require quoting
             const needsQuotes = /[^a-zA-Z0-9_]/.test(inputName);
-            return needsQuotes ? `"${inputName}": ${sourceValue}` : `${inputName}: ${sourceValue}`;
+            return needsQuotes ? `${JSON.stringify(inputName)}: ${sourceValue}` : `${inputName}: ${sourceValue}`;
           })
           .filter((mapping) => mapping !== '') // Remove empty mappings
           .join(', ');
@@ -3123,7 +3759,7 @@ ${originalComponentStructure}
                 }
 
                 const needsQuotes = /[^a-zA-Z0-9_]/.test(inputName);
-                return needsQuotes ? `"${inputName}": ${sourceValue}` : `${inputName}: ${sourceValue}`;
+                return needsQuotes ? `${JSON.stringify(inputName)}: ${sourceValue}` : `${inputName}: ${sourceValue}`;
               })
               .filter((mapping) => mapping !== '')
               .join(', ');
@@ -3769,7 +4405,9 @@ ${originalComponentStructure}
   private safePropertyAccess(obj: string, prop: string): string {
     // A property name is safe for dot notation if it matches a JS identifier
     const isSafeIdentifier = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(prop);
-    return isSafeIdentifier ? `${obj}.${prop}` : `${obj}["${prop}"]`;
+    // (2026-10-05, security review) JSON.stringify, not hand-written quotes: a port name is the
+    // project author's text, and `foo"]; …` would otherwise close the string and run as code.
+    return isSafeIdentifier ? `${obj}.${prop}` : `${obj}[${JSON.stringify(prop)}]`;
   }
 
   /**

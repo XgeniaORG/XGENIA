@@ -188,9 +188,16 @@ export function sanitizeForSandbox(script: string): string {
 
     // 2. Replace crypto.getRandomValues blocks with RNG adapter
     //    Matches: if (typeof crypto !== 'undefined' && crypto.getRandomValues) { ... } else { ... }
+    //    (2026-10-05) The block's own target is kept and the draw is floored, as the editor's TRNG nodes
+    //    floor it: the TRNG Array block assigns `randomValue`, and rewriting it to `value = …` assigned
+    //    the node's `const value` array — every TRNG Array round threw.
     s = s.replace(
         /if\s*\(\s*typeof\s+crypto\s*!==?\s*['"]undefined['"]\s*&&\s*crypto\.getRandomValues\s*\)\s*\{[^}]*\}\s*else\s*\{[^}]*\}/g,
-        '{ value = rgsRandom() * 1000000000000; }'
+        (block) => {
+            const m = /(\w+)\s*=\s*(Math\.floor\(\s*)?normalizedRandom\s*\*\s*(\d+)/.exec(block);
+            if (!m) return '{ value = rgsRandom() * 1000000000000; }';
+            return m[2] ? `{ ${m[1]} = Math.floor(rgsRandom() * ${m[3]}); }` : `{ ${m[1]} = rgsRandom() * ${m[3]}; }`;
+        }
     );
     // Also catch standalone crypto.getRandomValues
     s = s.replace(/crypto\.getRandomValues\([^)]*\)/g, '/* replaced by rgsRandom */');
@@ -227,6 +234,10 @@ export function sanitizeForSandbox(script: string): string {
     s = s.replace(/isaac\.randomFloat\s*\(\s*0\s*,\s*(\d+)\s*\)/g, 'rgsRandom() * $1');
     //     Pattern: `isaac.random()` → `rgsRandom()`
     s = s.replace(/isaac\.random\s*\(\s*\)/g, 'rgsRandom()');
+    //     Pattern: `isaac.randomInt(0, 1000000000000)` → `Math.floor(rgsRandom() * 1000000000000)` — the
+    //     ISAAC nodes' integer draw in [0, N), exactly the editor's randomInt (2026-10-05). rgsRandomInt
+    //     below is inclusive of its max, which the editor's is not.
+    s = s.replace(/isaac\.randomInt\s*\(\s*0\s*,\s*(\d+)\s*\)/g, 'Math.floor(rgsRandom() * $1)');
     //     Pattern: `isaac.randomInt(min, max)` → `rgsRandomInt(min, max)`
     s = s.replace(/isaac\.randomInt\s*\(/g, 'rgsRandomInt(');
 
