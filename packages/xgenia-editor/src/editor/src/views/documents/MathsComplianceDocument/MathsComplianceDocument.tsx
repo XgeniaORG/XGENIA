@@ -66,19 +66,40 @@ export interface MathsComplianceDoc {
     function_name: string;
 }
 
+/**
+ * The deployed GAME the documents are about — a domain from Publish → deployed
+ * domains. `slug` is the Vercel project name the game was registered under on
+ * the platform when it was published, which is all the endpoint needs: it holds
+ * the whole uploaded source and builds the subject from it.
+ */
+export interface MathsComplianceDeployedGame {
+    slug: string;
+    name: string;
+    /** The host the game is live on, for the header chip. */
+    domain?: string;
+    url?: string;
+}
+
+// Two ways to open this view, one subject each:
+//   * from the Maths RGS panel's Deployed tab — `deploymentId` + `fn`, ONE
+//     component of a Server Version;
+//   * from Publish → deployed domains — `deployedGame`, the published frontend
+//     as a whole: its entire uploaded source and every maths component it calls.
+// Nothing is selected in the view itself, by design: whatever it was opened on
+// already decided the subject.
 interface MathsComplianceDocumentProps {
     /** Operator key. Required — documents are generated and stored on the platform. */
     apiKey?: string;
     /**
-     * The Server Version holding this component. It names the build being
-     * documented, scopes the call to a game you own, AND identifies the game —
-     * there is nothing to select in this view, by design: the row the three-dot
-     * menu was opened on already decided both.
+     * The Server Version holding the component. It names the build being
+     * documented, scopes the call to a game you own, AND identifies the game.
      */
     deploymentId?: string;
     version?: number;
     gameName?: string;
-    fn: MathsComplianceDoc;
+    fn?: MathsComplianceDoc;
+    /** The deployed game, when the subject is a whole published frontend. */
+    deployedGame?: MathsComplianceDeployedGame;
 }
 
 // ─── Local styles ───────────────────────────────────────────
@@ -285,8 +306,13 @@ function MathsComplianceDocument({
     deploymentId,
     version,
     gameName,
-    fn
+    fn,
+    deployedGame
 }: MathsComplianceDocumentProps) {
+    // What the documents are about, in the words the header and the hints use.
+    const subject = deployedGame
+        ? { key: `deployed-game:${deployedGame.slug}`, name: deployedGame.name, chip: deployedGame.domain || deployedGame.slug }
+        : { key: `component:${fn?.function_slug ?? ''}`, name: fn?.function_name ?? '', chip: fn?.function_slug ?? '' };
     const [state, setState] = useState<ComplianceCatalog | null>(null);
     const [loading, setLoading] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
@@ -313,7 +339,7 @@ function MathsComplianceDocument({
 
     // Nothing can be generated without these — documents are produced on the
     // platform, about a build the platform holds.
-    const notConnected = !apiKey || !deploymentId;
+    const notConnected = !apiKey || (deployedGame ? !deployedGame.slug : !deploymentId || !fn);
 
     /**
      * The game's whole document position, asked before anything is generated and
@@ -321,31 +347,37 @@ function MathsComplianceDocument({
      * disable anything: the endpoint re-checks every prerequisite itself, so an
      * unloaded page degrades to less helpful buttons rather than to wrong ones.
      */
+    const deployedGameSlug = deployedGame?.slug;
     const refresh = useCallback(async () => {
-        if (!apiKey || !deploymentId) return;
+        if (!apiKey || (!deployedGameSlug && !deploymentId)) return;
         setLoading(true);
         try {
-            setState(await fetchComplianceCatalog(apiKey, deploymentId));
+            setState(
+                await fetchComplianceCatalog(
+                    apiKey,
+                    deployedGameSlug ? { deployedGameSlug } : { deploymentId: deploymentId as string }
+                )
+            );
             setLoadError(null);
         } catch (e: any) {
             setLoadError(e?.message || 'Could not read the compliance catalogue from XGENIA RGS');
         } finally {
             setLoading(false);
         }
-    }, [apiKey, deploymentId]);
+    }, [apiKey, deploymentId, deployedGameSlug]);
 
     useEffect(() => {
         refresh();
     }, [refresh]);
 
-    // A document belongs to one component; if the view is reused for another,
+    // A document belongs to one subject; if the view is reused for another,
     // the open document and its Send button must not survive.
     useEffect(() => {
         setResult(null);
         setSentTo(null);
         setError(null);
         setNotice(null);
-    }, [fn.function_slug]);
+    }, [subject.key]);
 
     /** The catalogue, split into its groups, in catalogue order. */
     const groups = useMemo(() => {
@@ -382,8 +414,9 @@ function MathsComplianceDocument({
         try {
             const data = await generateComplianceDocument({
                 apiKey: apiKey as string,
-                deploymentId: deploymentId as string,
-                functionSlug: fn.function_slug,
+                ...(deployedGame
+                    ? { deployedGameSlug: deployedGame.slug }
+                    : { deploymentId: deploymentId as string, functionSlug: fn?.function_slug }),
                 documentType,
                 openrouterApiKey: openRouterKey
             });
@@ -395,6 +428,9 @@ function MathsComplianceDocument({
             const screening = ai?.performed
                 ? ` AI screening included (${ai.model}${ai.tier ? `, ${ai.tier} model` : ''}` +
                   `${ai.selection?.method ? `, ${ai.selection.method}` : ''}` +
+                  // Two calls, not one. The document says so; the notice should
+                  // not be the place that quietly drops it.
+                  `${(ai.phases?.length ?? 0) > 1 ? ', analysed then drafted' : ''}` +
                   `${ai.key_source === 'caller' ? ', your API key' : ''}).`
                 : ai?.requested && ai?.reason
                   ? ` Generated without AI screening: ${ai.reason}`
@@ -473,8 +509,11 @@ function MathsComplianceDocument({
     const history = state?.history ?? [];
 
     // "<game> · v3 · <component> · Compliance" — the Server Version is part of
-    // the identity, because that is the build being documented.
-    const titleParts = [gameName, version != null ? `v${version}` : null, fn.function_name, 'Compliance'].filter(Boolean);
+    // the identity, because that is the build being documented. For a deployed
+    // game: "<domain> · Deployed game · Compliance".
+    const titleParts = deployedGame
+        ? [deployedGame.name, 'Deployed game', 'Compliance']
+        : [gameName, version != null ? `v${version}` : null, fn?.function_name, 'Compliance'].filter(Boolean);
 
     return (
         <Container direction={ContainerDirection.Vertical} isFill>
@@ -483,14 +522,15 @@ function MathsComplianceDocument({
             <div style={DOCUMENT_BODY_STYLE}>
                 <div style={{ maxWidth: '920px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '15px', fontWeight: 600, color: '#f0f0f0' }}>{fn.function_name}</span>
-                        <code style={TYPE_CHIP_STYLE}>{fn.function_slug}</code>
+                        <span style={{ fontSize: '15px', fontWeight: 600, color: '#f0f0f0' }}>{subject.name}</span>
+                        <code style={TYPE_CHIP_STYLE}>{subject.chip}</code>
                         <span style={{ fontSize: '11px', color: '#7a7a8a' }}>
                             documents generated and stored on XGENIA RGS
                         </span>
                         {notConnected && (
                             <span style={{ fontSize: '11px', color: ERROR_COLOR }}>
-                                Not connected to XGENIA RGS — open this from the Deployed tab of the Maths RGS panel.
+                                Not connected to XGENIA RGS — connect in the Maths RGS panel, then open this again from
+                                {deployedGame ? ' Publish → deployed domains.' : ' the Deployed tab of the Maths RGS panel.'}
                             </span>
                         )}
                         <span style={{ marginLeft: 'auto' }}>
@@ -531,9 +571,21 @@ function MathsComplianceDocument({
                     <div style={SECTION_STYLE}>
                         <div style={SECTION_TITLE_STYLE}>Generate Report</div>
                         <div style={{ ...HINT_STYLE, marginBottom: '12px' }}>
-                            Every document below describes this one deployed build — {fn.function_name} in{' '}
-                            {version != null ? `v${version}` : 'this server version'} — identified by the SHA-256 of its
-                            source. Nothing to select: the component and the version are the row you opened this from.
+                            {deployedGame ? (
+                                <>
+                                    Every document below describes the entire uploaded source of this deployed game — its
+                                    project.json, identified by the SHA-256 of the stored source, together with every maths
+                                    component that source calls on XGENIA RGS. The AI screening analyses that whole codebase,
+                                    not one component. Nothing to select: the game is the domain you opened this from.
+                                </>
+                            ) : (
+                                <>
+                                    Every document below describes this one deployed build — {fn?.function_name} in{' '}
+                                    {version != null ? `v${version}` : 'this server version'} — identified by the SHA-256 of
+                                    its source. Nothing to select: the component and the version are the row you opened this
+                                    from.
+                                </>
+                            )}
                         </div>
 
                         {/* Said before anything is generated: a document can always
@@ -569,11 +621,14 @@ function MathsComplianceDocument({
                         {/* ─── AI screening: the policy, and the key that pays ───
                             The model is not a choice here. The platform picks the
                             strongest OpenRouter model the credential can afford —
-                            web-scouted per document type, costed against the live
+                            ranked per document type by the Artificial Analysis index
+                            OpenRouter republishes per model, costed against the live
                             catalogue and the key's remaining spend, tried
                             strongest-first — and falls back to a free model only
-                            when nothing paid is affordable. The document names the
-                            model that answered and tables every candidate considered.
+                            when nothing paid is affordable. The model that wins runs
+                            twice: analyse, then draft from that analysis. The
+                            document names the index, the model that answered and
+                            every candidate's score.
 
                             The key column is shown whenever the endpoint says it reads
                             the field: a credential typed into a box that quietly
@@ -583,7 +638,7 @@ function MathsComplianceDocument({
                                 <div style={{ flex: 1, minWidth: '280px', maxWidth: '460px' }}>
                                     <label style={FIELD_LABEL_STYLE}>AI screening on generation</label>
                                     <div style={HINT_STYLE}>
-                                        Picks the strongest OpenRouter model the credential can afford — web-scouted for this
+                                        Picks the strongest OpenRouter model the credential can afford — ranked for this
                                         document type and costed against the key&#39;s remaining spend — and falls back to a
                                         free model only when nothing paid is affordable
                                         {ai.pinned_model ? (
@@ -596,6 +651,25 @@ function MathsComplianceDocument({
                                         ) : null}
                                         . Last resort: <code style={TYPE_CHIP_STYLE}>{ai.floor_model ?? ai.model}</code>.
                                     </div>
+                                    {/* Conditional on the endpoint saying so: a
+                                        backend deployed before either of these
+                                        existed reports neither, and promising
+                                        behaviour the platform does not have is
+                                        the one thing this view must never do. */}
+                                    {ai.ranking === 'artificial-analysis-index' && (
+                                        <div style={{ ...HINT_STYLE, marginTop: '4px' }}>
+                                            &quot;Strongest&quot; is the Artificial Analysis index OpenRouter republishes per
+                                            model, read live at generation time — the Coding Index for documents whose analysis
+                                            reads the deployed source, the Intelligence Index for those that read records and
+                                            figures.
+                                        </div>
+                                    )}
+                                    {ai.screening === 'two-pass' && (
+                                        <div style={{ ...HINT_STYLE, marginTop: '4px' }}>
+                                            The chosen model then runs twice: once to analyse the material, once to draft the
+                                            screening from that analysis alone.
+                                        </div>
+                                    )}
                                 </div>
 
                                 {ai.caller_key_supported && (

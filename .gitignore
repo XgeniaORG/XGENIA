@@ -201,7 +201,9 @@ xgenia-debug-export-*.json
 # Atomance private projects (separate git repos)
 Atom_A/
 .agent
-.claude
+.claude/*
+!.claude/agents/
+!.claude/agents/**
 docs/superpowers/specs/2026-07-14-steam-inspired-slot-catalog-design.md
 .agents/skills/caveman/SKILL.md
 .agents/skills/caveman/README.md

@@ -9,6 +9,11 @@ on:
   #   - cron: '0 0 * * *' # Runs every day at midnight UTC
   workflow_dispatch: # Allows manual triggering
   workflow_call:
+    inputs:
+      release:
+        description: 'Pack the macOS update zip too (release.yml)'
+        type: boolean
+        default: false
 
 jobs:
   build-macos:
@@ -17,7 +22,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      max-parallel: 1
+      # max-parallel: 1
       matrix:
         arch: [arm64, x64]
 
@@ -25,12 +30,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Init private submodule (optional)
-        continue-on-error: true
+      - name: Init private submodule
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            git submodule update --init private
+            # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
+            git submodule update --init --remote private
+            echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
+          elif [ "$GITHUB_REPOSITORY" = "XgeniaORG/XGENIA" ]; then
+            # Without private/ the viewer aliases @xgenia/pro-nodes to dummy-pro-nodes.js:
+            # the app builds green and ships with no slot nodes.
+            echo "::error::PRIVATE_SUBMODULE_PAT is not set; refusing to build XGENIA without the private nodes"
+            exit 1
           else
             echo "Private submodule PAT not available, building with stubs"
           fi
@@ -85,6 +96,8 @@ jobs:
 
       - name: Packing DMG file
         run: npm run build:editor:pack
+        env:
+          XGENIA_RELEASE: ${{ inputs.release && '1' || '' }}
 
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4
@@ -105,12 +118,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Init private submodule (optional)
-        continue-on-error: true
+      - name: Init private submodule
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            git submodule update --init private
+            # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
+            git submodule update --init --remote private
+            echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
+          elif [ "$GITHUB_REPOSITORY" = "XgeniaORG/XGENIA" ]; then
+            # Without private/ the viewer aliases @xgenia/pro-nodes to dummy-pro-nodes.js:
+            # the app builds green and ships with no slot nodes.
+            echo "::error::PRIVATE_SUBMODULE_PAT is not set; refusing to build XGENIA without the private nodes"
+            exit 1
           else
             echo "Private submodule PAT not available, building with stubs"
           fi
@@ -143,6 +162,8 @@ jobs:
 
       - name: Packing AppImage and Deb File
         run: npm run build:editor:pack
+        env:
+          XGENIA_RELEASE: ${{ inputs.release && '1' || '' }}
 
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
@@ -159,13 +180,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Init private submodule (optional)
-        continue-on-error: true
+      - name: Init private submodule
         shell: bash
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            git submodule update --init private
+            # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
+            git submodule update --init --remote private
+            echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
+          elif [ "$GITHUB_REPOSITORY" = "XgeniaORG/XGENIA" ]; then
+            # Without private/ the viewer aliases @xgenia/pro-nodes to dummy-pro-nodes.js:
+            # the app builds green and ships with no slot nodes.
+            echo "::error::PRIVATE_SUBMODULE_PAT is not set; refusing to build XGENIA without the private nodes"
+            exit 1
           else
             echo "Private submodule PAT not available, building with stubs"
           fi
@@ -191,6 +218,8 @@ jobs:
 
       - name: Packing NSIS Installer
         run: npm run build:editor:pack
+        env:
+          XGENIA_RELEASE: ${{ inputs.release && '1' || '' }}
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
@@ -198,6 +227,53 @@ jobs:
           name: XGENIA-Windows-x64
           path: publish
           retention-days: 7
+
+  notify-teams:
+    name: Notify Teams
+    needs: [build-macos, build-linux, build-windows]
+    # Runs whatever happened upstream: a broken nightly is the case worth being
+    # told about, and the per-platform results below say which one broke.
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get version from package.json
+        id: package-version
+        run: |
+          VERSION=$(jq -r .version packages/xgenia-editor/package.json)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Read version: $VERSION"
+
+      # needs.build-macos.result collapses the whole arch matrix into a single
+      # value, so arm64 and x64 are read back individually from the run's job
+      # list. This also picks up any build job added later without editing here.
+      - name: Collect per-platform results
+        id: results
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo 'text<<CARD_EOF'
+            gh api --paginate \
+              "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs" \
+              --jq '.jobs[] | select(.name | startswith("Build ")) | "\(.name): \(.conclusion // .status)"'
+            echo "Commit: ${{ github.sha }}"
+            echo 'CARD_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Send Teams notification
+        uses: ./.github/actions/teams-notification
+        with:
+          webhook-url: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          msg-title: 'XGENIA Nightly V${{ steps.package-version.outputs.version }} (build #${{ github.run_number }})'
+          msg-text: ${{ steps.results.outputs.text }}
+          status: ${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && 'failure' || 'success' }}
+          workflow-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
   # Temporarily disabled: the nightly build only publishes artifacts for now.
   # Re-enable by uncommenting the `release` and `upload-to-dropbox` jobs below.

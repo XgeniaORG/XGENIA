@@ -1,0 +1,73 @@
+name: Release (draft)
+
+# Builds every platform with the macOS update zip included, merges the per-arch macOS update
+# manifests, and opens a DRAFT GitHub release tagged v<packages/xgenia-editor version>.
+# The auto-updater ignores drafts: check the assets, then press Publish. A version with a
+# pre-release part (3.1.0-beta.1) is marked as a pre-release, which only beta installs pick up.
+# Run it on main, after develop is squash-merged there: GitHub only offers a workflow_dispatch
+# workflow that exists on the default branch.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    uses: ./.github/workflows/nightly-builds.yml
+    with:
+      release: true
+    secrets: inherit
+
+  draft-release:
+    name: Draft GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./packages/xgenia-editor/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$VERSION"
+
+      - name: Refuse a version that already has a release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "::error::v$VERSION already has a release. Bump packages/xgenia-editor/package.json first."
+            exit 1
+          fi
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: XGENIA-*
+          path: release-assets
+
+      - name: Collect assets and merge the macOS update manifests
+        run: node scripts/release/collect-release-assets.mjs release-assets release-dist
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Lowercase v: electron-updater reads the channel (beta, alpha) from the tag with semver,
+          # and semver cannot parse the old "V2.1.0" style.
+          PRERELEASE=""
+          case "$VERSION" in *-*) PRERELEASE="--prerelease" ;; esac
+          gh release create "v$VERSION" release-dist/* \
+            --draft $PRERELEASE \
+            --target "$GITHUB_SHA" \
+            --title "XGENIA v$VERSION" \
+            --generate-notes

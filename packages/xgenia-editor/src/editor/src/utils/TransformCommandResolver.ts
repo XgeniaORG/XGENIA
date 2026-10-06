@@ -105,6 +105,27 @@ function toLayoutNode(target: any, nodeSnapshot: any) {
 
 function resolveGesture(target: any, nodeSnapshot: any) {
   const params = (nodeSnapshot && nodeSnapshot.parameters) || {};
+
+  // 3D lives outside CSS layout: there is no flow to fight, no unit to reconcile and no parent
+  // sizing to consult, so a three.* move is a direct write of the three position ports rather
+  // than a trip through the layout authority.
+  if (target.kind === 'three') {
+    // Each gizmo writes exactly the ports its handles represent, so one drag is one undo entry
+    // and the inspector agrees with the viewport afterwards.
+    const PORTS: Record<string, string[]> = {
+      move: ['posX', 'posY', 'posZ'],
+      rotate: ['rotX', 'rotY', 'rotZ'],
+      scale: ['scaleX', 'scaleY', 'scaleZ']
+    };
+    const ports = PORTS[target.gesture];
+    if (!ports) return { writes: [], blocked: 'unsupported-gesture' };
+    const writes: any[] = [];
+    for (const param of ports) {
+      if (Number.isFinite(target[param])) writes.push({ param, value: target[param] });
+    }
+    return { writes, rejections: [] };
+  }
+
   if (nodeSnapshot && nodeSnapshot.ancestorTransformed) {
     return { writes: [], blocked: 'transformed-ancestor' };
   }
@@ -210,6 +231,8 @@ function getCapabilities(kind: any, params: any, ancestorTransformed: any, paren
       caps.resizable = false;
       caps.resizeReason = 'rotated-target';
     }
+  } else if (kind === 'three') {
+    // 3D has no CSS flow to fight, so all three gestures are always available.
   } else if (kind === 'pixi') {
     const { value: rot } = parseUnitValue(params.rotation, '');
     if (rot !== 0) {

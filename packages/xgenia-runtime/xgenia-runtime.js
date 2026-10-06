@@ -367,6 +367,13 @@ xgeniaRuntime.prototype._setupEditorCommunication = function (args) {
   });
 
   this.editorConnection.on('connected', () => {
+    // (2026-09-17, export 1789661242337) A (re)connection is a NEW client to the editor.
+    // NodeLibraryImporter drops a client's node types when its socket closes, so after the
+    // preview's socket closed 1006 and reconnected, the unchanged-library dedupe below skipped
+    // the send and the editor kept only the cloud runtime's 97 types for the rest of the session
+    // — no Group, Text, Timer or pixi.* — and every node-type lookup (script reader, property
+    // panel, create checks) answered "not in library". The dedupe is per connection.
+    this.lastSentNodeLibrary = undefined;
     this.sendNodeLibrary();
   });
 };

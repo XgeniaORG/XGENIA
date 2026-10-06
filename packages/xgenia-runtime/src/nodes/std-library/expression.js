@@ -1,6 +1,11 @@
 'use strict';
 
 const difference = require('lodash.difference');
+// (2026-09-22, export 1790026115336) Called from the run-time catch below but never imported —
+// so a failing expression threw a SECOND error, `ReferenceError: logJavaScriptNodeError is not
+// defined`, from inside its own handler, and the editorConnection.sendWarning that follows was
+// never reached. The real error only ever reached the browser console.
+const { logJavaScriptNodeError } = require('../../utils');
 
 //const Model = require('./data/model');
 
@@ -270,28 +275,32 @@ function construct(constructor, args) {
 
 var compiledFunctionsCache = {};
 
+// Names that must NOT become input ports. Every identifier in the expression becomes a parameter
+// of the compiled Function, and an unwired parameter is `undefined` — so a name on this list is
+// left alone, and a name missing from it SHADOWS the real thing. (2026-09-22, export
+// 1790026115336) `Date.now()` compiled to `Function('Date', 'return (Date.now())')`, the node
+// grew a phantom `Date` input, and the engine reported `TypeError: Date.now is not a function`
+// — an impossible fact in JavaScript, which the AI then chased for an hour. `Math.random()` only
+// ever worked because 'Math' happened to be listed. The standard globals, the language keywords
+// and the literals are now all exempt; a port is something the author's expression names that
+// JavaScript itself does not already provide.
 var portsToIgnore = [
-  'min',
-  'max',
-  'cos',
-  'sin',
-  'tan',
-  'sqrt',
-  'pi',
-  'round',
-  'floor',
-  'ceil',
-  'abs',
-  'random',
-  'Math',
-  'window',
-  'document',
-  'undefined',
-  'Vars',
-  'true',
-  'false',
-  'null',
-  'Boolean'
+  // The preamble's Math aliases (functionPreamble below).
+  'min', 'max', 'cos', 'sin', 'tan', 'sqrt', 'pi', 'round', 'floor', 'ceil', 'abs', 'random',
+  // Host objects and the historical exemptions.
+  'Math', 'window', 'document', 'undefined', 'Vars', 'true', 'false', 'null', 'Boolean',
+  'globalThis', 'self', 'console', 'XGENIA',
+  // ECMAScript standard globals.
+  'Date', 'JSON', 'Number', 'String', 'Array', 'Object', 'RegExp', 'Symbol', 'BigInt', 'Map', 'Set',
+  'WeakMap', 'WeakSet', 'Promise', 'Error', 'TypeError', 'RangeError', 'Function', 'Reflect',
+  'Proxy', 'Intl', 'NaN', 'Infinity', 'parseInt', 'parseFloat', 'isNaN', 'isFinite',
+  'encodeURIComponent', 'decodeURIComponent', 'encodeURI', 'decodeURI',
+  // Reserved words — a reserved parameter name is a SyntaxError in the compiled Function, so none
+  // of these ever worked as a port. (Contextual names such as `of`, `let`, `async` are valid
+  // identifiers and are deliberately NOT listed: an author may have a port called that.)
+  'typeof', 'instanceof', 'in', 'new', 'void', 'delete', 'this',
+  'if', 'else', 'return', 'var', 'const', 'function', 'for', 'while', 'do', 'switch',
+  'case', 'break', 'continue', 'default', 'throw', 'try', 'catch', 'finally', 'class'
 ];
 
 function parsePorts(expression) {

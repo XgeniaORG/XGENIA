@@ -50,7 +50,7 @@ export interface DeployPopupProps {
 
 export function DeployPopup(props: DeployPopupProps) {
   return (
-    <DeployContextProvider>
+    <DeployContextProvider onClose={props.onClose}>
       <BaseDialog
         triggerRef={props.triggerRef}
         isVisible={props.isVisible}

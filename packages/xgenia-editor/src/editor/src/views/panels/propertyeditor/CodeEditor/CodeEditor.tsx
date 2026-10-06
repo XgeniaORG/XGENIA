@@ -14,6 +14,7 @@ import './Themes/xgenia-dark';
 import { EditorModel } from '@xgenia-utils/CodeEditor/model/editorModel';
 
 import { Icon, IconName, IconSize } from '@xgenia-core-ui/components/common/Icon';
+import { IconButton, IconButtonVariant } from '@xgenia-core-ui/components/inputs/IconButton';
 
 import { IVector2 } from '../../../nodegrapheditor';
 
@@ -23,10 +24,12 @@ export interface CodeEditorProps {
   initialSize?: IVector2;
 
   onSave: () => void;
+  /** Closes the editor popout. Closing also saves, through the popout's onClose. */
+  onClose?: () => void;
   outEditor?: (editor: monaco.editor.ICodeEditor) => void;
 }
 
-export function CodeEditor({ model, initialSize, onSave, outEditor }: CodeEditorProps) {
+export function CodeEditor({ model, initialSize, onSave, onClose, outEditor }: CodeEditorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -212,7 +215,19 @@ export function CodeEditor({ model, initialSize, onSave, outEditor }: CodeEditor
         gridTemplateRows: '24px auto 24px'
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: '#3b3b3b' }}></div>
+      <div
+        style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', backgroundColor: '#3b3b3b' }}
+      >
+        {onClose && (
+          <IconButton
+            icon={IconName.Close}
+            size={IconSize.Small}
+            variant={IconButtonVariant.Transparent}
+            testId="code-editor-close"
+            onClick={() => onClose()}
+          />
+        )}
+      </div>
       <div ref={editorRef} style={{ overflow: 'hidden' }}></div>
       <div style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: '#3b3b3b' }}>
         <div style={{ display: 'flex', paddingLeft: gutterSize, alignItems: 'center' }}>

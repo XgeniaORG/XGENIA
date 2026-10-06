@@ -13,6 +13,8 @@
 //   list-component-commits     — the history, without the snapshot bodies
 //   download-component-commit  — one commit's snapshots, in full
 
+import type { MathsDeployResult } from './deployMathsComponents';
+import type { MathsComponentStatus, MathsStatus } from './mathsComponentStatus';
 import { XRGS_URL, rgsHeaders } from './rgsClient';
 
 /** How a component changed in a commit — the same three words git uses. */
@@ -51,6 +53,47 @@ export interface CommitFileInput {
   change_kind: CommitChangeKind;
   script?: string;
   project_json?: Record<string, any>;
+}
+
+/**
+ * The files one Deploy press records.
+ *
+ * One per component it deployed, carrying exactly what was sent (the result's
+ * script and authored graph) and marked added or modified as the comparison the
+ * deploy ran from said. Then one per deletion, carrying the component's
+ * last-known state, read from what was already fetched off the platform. That is
+ * what makes a removal recoverable — after the delete, this commit is the only
+ * place the component's graph still exists.
+ *
+ * Shared by the Maths RGS panel's Deploy and the AI's (deployChangedMathsComponents,
+ * which never deletes and so passes none), so a commit means the same thing
+ * whichever of them made it.
+ */
+export function commitFilesForDeploy(
+  results: MathsDeployResult[],
+  status: MathsStatus,
+  deletions: MathsComponentStatus[] = []
+): CommitFileInput[] {
+  const kindBySlug = new Map(status.changed.map((c) => [c.slug, c.kind]));
+  const files: CommitFileInput[] = results.map((r) => ({
+    function_slug: r.slug,
+    function_name: r.functionName,
+    change_kind: kindBySlug.get(r.slug) === 'added' ? 'added' : 'modified',
+    script: r.script,
+    project_json: r.projectJson
+  }));
+
+  deletions.forEach((entry) => {
+    const live = status.deployedBySlug.get(entry.slug);
+    files.push({
+      function_slug: entry.slug,
+      function_name: live?.functionName || entry.displayName,
+      change_kind: 'deleted',
+      ...(live?.component ? { project_json: { components: [live.component] } } : {})
+    });
+  });
+
+  return files;
 }
 
 /**

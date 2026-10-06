@@ -35,7 +35,7 @@ import { guid } from '@xgenia-utils/utils';
 import { cloneRootsWithIdMap, inlineAll } from '../compile/flattenLogic';
 import { toFunctionSlug } from './functionSlug';
 import { generateFunctionArtifact, FunctionArtifact } from './generateFunctionArtifact';
-import { createEdgeDeployment, deployEdgeFunction } from './deployEdgeFunction';
+import { createEdgeDeployment, deployEdgeFunction, listEdgeDeployments } from './deployEdgeFunction';
 import { XRGS_URL, rgsHeaders } from './rgsClient';
 
 /** Sheet every Math Component lives under. */
@@ -600,19 +600,11 @@ export async function mathsEndpointsForGame(
   gameId: string,
   project: any
 ): Promise<Record<string, MathsEndpoint>> {
-  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
-    method: 'POST',
-    headers: rgsHeaders(apiKey),
-    body: JSON.stringify({ action: 'list-edge-deployments', game_id: gameId })
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error((data && data.error) || `Could not read deployed components (HTTP ${res.status})`);
-  }
+  const deployments = await listEdgeDeployments(apiKey, gameId);
 
   // Newest active row per slug, by created_at.
   const liveBySlug = new Map<string, { url: string; createdAt: string }>();
-  for (const deployment of data.deployments || []) {
+  for (const deployment of deployments) {
     for (const fn of deployment.functions || []) {
       if (fn.status !== 'active' || !fn.function_url) continue;
       const current = liveBySlug.get(fn.function_slug);
@@ -739,30 +731,15 @@ export function mathsComponentContract(definition: any): {
   return {
     dataInputs: inputs.filter((p: any) => !isSignalPort(p)).map((p: any) => p.name),
     triggers: inputs.filter(isSignalPort).map((p: any) => p.name),
-    // A Component Outputs signal port ("Done") has no value in the response —
-    // rgs-fn returns the data object only — so it is not an out-<field>. It is
-    // answered by the Aggregator's own success/failure signals instead.
+    // A Component Outputs signal port ("Done", "BonusTriggered") comes back as a
+    // boolean in the response — true when it fired this request — and the
+    // Aggregator fires its out-<port> signal for it (signalOutputs). Listed apart
+    // so the node knows which outputs are signals rather than values.
     outputs: outputs.filter((p: any) => !isSignalPort(p)).map((p: any) => p.name),
     outputSignals: outputs.filter(isSignalPort).map((p: any) => p.name)
   };
 }
 
-/**
- * Which of the Aggregator's two built-in signal outputs stands in for a
- * component signal output the response cannot carry.
- *
- * The component's own "Done"/"Success" pulse fires when its logic finishes; once
- * that logic is an HTTPS call, the moment the caller can actually observe is the
- * response arriving, which is the Aggregator's `success`. A port the author named
- * for failure is the one case where `failure` is the closer match — that is the
- * Aggregator's "the call did not come back" pulse, so anything wired to it still
- * runs on the error path rather than never running at all.
- */
-const FAILURE_SIGNAL_NAME = /^(failure|failed|fail|error|on\s*error|reject)/i;
-
-function aggregatorSignalFor(portName: string): 'success' | 'failure' {
-  return FAILURE_SIGNAL_NAME.test(String(portName).trim()) ? 'failure' : 'success';
-}
 
 /**
  * The parameters that make an Aggregator node call one deployed Math Component.
@@ -781,13 +758,17 @@ export function mathsAggregatorParameters(args: {
   dataInputs: string[];
   triggers: string[];
   outputs: string[];
+  /** The component's signal outputs: declared as outputs too, and fired as signals. */
+  signalOutputs?: string[];
   targetComponent: string;
 }): Record<string, string> {
+  const signalOutputs = args.signalOutputs || [];
   return {
     url: args.url,
     dataInputs: args.dataInputs.join(', '),
     triggers: args.triggers.join(', '),
-    outputs: args.outputs.join(', '),
+    outputs: [...args.outputs, ...signalOutputs].join(', '),
+    signalOutputs: signalOutputs.join(', '),
     targetComponent: args.targetComponent
   };
 }
@@ -885,6 +866,7 @@ export function swapDeployedMathsInstances(
           dataInputs: usedData,
           triggers: usedTriggers,
           outputs: usedOutputs,
+          signalOutputs: usedSignals,
           targetComponent: instance.typename
         }),
         ports: [],
@@ -909,6 +891,13 @@ export function swapDeployedMathsInstances(
             plug: 'output',
             type: { name: '*', allowConnectionsOnly: true },
             group: 'Outputs'
+          })),
+          ...usedSignals.map((f) => ({
+            name: 'out-' + f,
+            displayName: f,
+            plug: 'output',
+            type: 'signal',
+            group: 'Outputs'
           }))
         ],
         children: []
@@ -932,29 +921,18 @@ export function swapDeployedMathsInstances(
           toProperty: port
         });
       });
-      // Several component signal outputs collapse onto the same two Aggregator
-      // signals, so two of them wired to one target would otherwise become two
-      // connections firing the same input twice per call.
-      const signalEdges = new Set<string>();
-
+      // (2026-10-05) A signal output keeps its own port and fires only when the
+      // response says it fired. It used to be collapsed onto the Aggregator's
+      // `success`, so every signal fired on every 2xx from any trigger: a game's
+      // BonusTriggered opened the bonus popup on the page's first (init) call.
       outgoing.forEach((c: any) => {
-        if (usedOutputs.includes(c.fromProperty)) {
+        if (usedOutputs.includes(c.fromProperty) || usedSignals.includes(c.fromProperty)) {
           graph.addConnection({
             fromId: aggId,
             fromProperty: 'out-' + c.fromProperty,
             toId: c.toId,
             toProperty: c.toProperty
           });
-          return;
-        }
-        // A signal output has no response field to arrive on; the Aggregator's
-        // own success/failure pulse is what the caller can observe instead.
-        if (usedSignals.includes(c.fromProperty)) {
-          const fromProperty = aggregatorSignalFor(c.fromProperty);
-          const edge = `${fromProperty}>${c.toId}.${c.toProperty}`;
-          if (signalEdges.has(edge)) return;
-          signalEdges.add(edge);
-          graph.addConnection({ fromId: aggId, fromProperty, toId: c.toId, toProperty: c.toProperty });
         }
       });
 

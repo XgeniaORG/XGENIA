@@ -337,14 +337,23 @@ export class IframeViewer implements PreviewHost {
     // frame's visual box. The rect is CSS pixels; Electron scales for the display.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const remote = require('@electron/remote');
+    const wc = remote.getCurrentWebContents();
     const r = this.element.getBoundingClientRect();
+    // (2026-09-16, run 8/9 thumbnails) capturePage()'s rect is in DEVICE-INDEPENDENT pixels of the
+    // unzoomed view; getBoundingClientRect() is CSS px, and this editor runs at a zoom factor, so
+    // CSS px = DIP / zoom. Measured live at zoom 0.8 on a 2x display (devicePixelRatio 1.6): a
+    // 100x100 rect came back 200x200, i.e. DIP x display scale. Passing CSS px unscaled captured a
+    // box 25% too large starting 25% too far right/down — every thumbnail carried a strip of the
+    // node-graph canvas below the preview and the inspector to its right.
+    let zoom = 1;
+    try { zoom = wc.getZoomFactor() || 1; } catch { /* no zoom API — treat as 1 */ }
     const rect = {
-      x: Math.max(0, Math.round(r.x)),
-      y: Math.max(0, Math.round(r.y)),
-      width: Math.max(1, Math.round(r.width)),
-      height: Math.max(1, Math.round(r.height))
+      x: Math.max(0, Math.round(r.x * zoom)),
+      y: Math.max(0, Math.round(r.y * zoom)),
+      width: Math.max(1, Math.round(r.width * zoom)),
+      height: Math.max(1, Math.round(r.height * zoom))
     };
-    return remote.getCurrentWebContents().capturePage(rect);
+    return wc.capturePage(rect);
   }
 
   openDevTools(): void {

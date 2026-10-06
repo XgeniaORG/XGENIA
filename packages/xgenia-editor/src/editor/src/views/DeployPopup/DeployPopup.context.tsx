@@ -13,15 +13,23 @@ interface IDeployContext {
 
   hasActivity: ActivityQueue['hasActivity'];
   runActivity: ActivityQueue['runActivity'];
+
+  /**
+   * Close the Publish popup. For actions that leave it for the editor's main
+   * area — Compliance on a deployed domain opens a document there, and a popup
+   * left open over it would hide what was just opened.
+   */
+  closePopup: () => void;
 }
 
 const DeployContext = createContext<IDeployContext>({
   updateQueue: null,
   hasActivity: null,
-  runActivity: null
+  runActivity: null,
+  closePopup: null
 });
 
-export function DeployContextProvider({ children }: TSFixme) {
+export function DeployContextProvider({ children, onClose }: { children: React.ReactNode; onClose?: () => void }) {
   const { hasActivity, runActivity } = useActivityQueue({});
 
   return (
@@ -29,7 +37,8 @@ export function DeployContextProvider({ children }: TSFixme) {
       value={{
         updateQueue: null,
         hasActivity,
-        runActivity
+        runActivity,
+        closePopup: () => onClose?.()
       }}
     >
       {children}

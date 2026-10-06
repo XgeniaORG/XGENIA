@@ -11,6 +11,7 @@
     "private/*"
   ],
   "scripts": {
+    "sync:private": "git -C private fetch origin main && git -C private merge --ff-only origin/main",
     "graph": "npx nx graph",
     "ci:prepare:editor": "ts-node ./scripts/ci-editor-prepare.ts",
     "ci:build:viewer": "lerna exec --scope @xgenia/xgenia-viewer-react -- npm run build",

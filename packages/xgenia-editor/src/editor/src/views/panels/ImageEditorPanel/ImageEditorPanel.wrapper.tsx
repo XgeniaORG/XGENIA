@@ -9,39 +9,57 @@
  */
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { editorBridge } from '../ChatPanelBridge/EditorBridge';
-import { PluginLoader } from '../ChatPanelBridge/PluginLoader';
+import { PluginLoader, isVerdict, type EntitlementsResponse } from '../ChatPanelBridge/PluginLoader';
 
 const PLUGIN_ID = 'ai-image-editor';
 
+/**
+ * `not-entitled` is reserved for a VERDICT (the server said no); `unavailable` is "we could
+ * not check" — no answer in time, or no session to ask with. See ChatPanelIframe for the
+ * 2026-09-15 incident that made the distinction necessary.
+ */
+type PanelStatus = 'loading' | 'connected' | 'not-entitled' | 'unavailable' | 'error';
+
 export function ImageEditorPanel() {
     const iframeRef = useRef<HTMLIFrameElement>(null);
-    const [status, setStatus] = useState<'loading' | 'connected' | 'not-entitled' | 'error'>('loading');
+    const [status, setStatus] = useState<PanelStatus>('loading');
     const [pluginUrl, setPluginUrl] = useState<string | null>(null);
+    // The URL currently mounted (or mounting), readable from callbacks without a stale closure.
+    const pluginUrlRef = useRef<string | null>(null);
     const [errorMsg, setErrorMsg] = useState('');
     const [tier, setTier] = useState('');
+
+    // Same three outcomes as ChatPanelIframe.applyEntitlements: mount the URL (once), keep a
+    // working panel up through a non-answer, and let only a verdict take it down.
+    const applyEntitlements = useCallback((e: EntitlementsResponse) => {
+        setTier(e.tier);
+        const url = e.plugins.find((p) => p.id === PLUGIN_ID)?.url ?? null;
+        if (url) {
+            if (pluginUrlRef.current === url) return;
+            pluginUrlRef.current = url;
+            setPluginUrl(url);
+            setStatus('loading');
+            return;
+        }
+        if (!isVerdict(e)) {
+            if (!pluginUrlRef.current) setStatus('unavailable');
+            return;
+        }
+        pluginUrlRef.current = null;
+        setPluginUrl(null);
+        setStatus('not-entitled');
+    }, []);
 
     // Fetch plugin URL from entitlements
     useEffect(() => {
         let cancelled = false;
+        const loader = PluginLoader.instance;
 
         const loadEntitlements = async () => {
             try {
-                const loader = PluginLoader.instance;
                 const entitlements = await loader.getEntitledPlugins();
-
                 if (cancelled) return;
-
-                setTier(entitlements.tier);
-
-                const url = loader.getPluginUrl(PLUGIN_ID);
-                if (url) {
-                    setPluginUrl((prevUrl) => {
-                        if (prevUrl !== url) setStatus('loading');
-                        return url;
-                    });
-                } else {
-                    setStatus('not-entitled');
-                }
+                applyEntitlements(entitlements);
             } catch (err: any) {
                 if (cancelled) return;
                 setStatus('error');
@@ -51,22 +69,13 @@ export function ImageEditorPanel() {
 
         loadEntitlements();
 
-        const unsub = PluginLoader.instance.onChange((e) => {
-            if (!e) return;
-            setTier(e.tier);
-            const url = e.plugins.find(p => p.id === PLUGIN_ID)?.url;
-            if (url) {
-                setPluginUrl((prevUrl) => {
-                    if (prevUrl !== url) setStatus('loading');
-                    return url;
-                });
-            } else {
-                setStatus('not-entitled');
-            }
+        const unsub = loader.onChange((e) => {
+            if (!e || cancelled) return;
+            applyEntitlements(e);
         });
 
         return () => { cancelled = true; unsub(); };
-    }, []);
+    }, [applyEntitlements]);
 
     const handleIframeLoad = useCallback(() => {
         if (iframeRef.current) {
@@ -80,21 +89,15 @@ export function ImageEditorPanel() {
         setErrorMsg(`Could not load Image Editor plugin from ${pluginUrl}`);
     }, [pluginUrl]);
 
+    // A fresh check, whatever the last answer was.
     const handleRetry = useCallback(() => {
         setStatus('loading');
         setErrorMsg('');
-        PluginLoader.instance.refresh().then((e) => {
-            const url = e.plugins.find(p => p.id === PLUGIN_ID)?.url;
-            if (url) {
-                setPluginUrl((prevUrl) => {
-                    if (prevUrl !== url) setStatus('loading');
-                    return url;
-                });
-            } else {
-                setStatus('not-entitled');
-            }
+        PluginLoader.instance.refresh().then(applyEntitlements).catch((err: any) => {
+            setStatus('error');
+            setErrorMsg(err?.message || 'Failed to check plugin access');
         });
-    }, []);
+    }, [applyEntitlements]);
 
     // Connection status polling
     useEffect(() => {
@@ -119,6 +122,31 @@ export function ImageEditorPanel() {
                     <p style={{ color: '#999', fontSize: '12px', textAlign: 'center', lineHeight: 1.5 }}>
                         The AI Image Editor requires a Pro subscription.
                     </p>
+                    <p style={{ color: '#666', fontSize: '11px', textAlign: 'center' }}>
+                        Current plan: <span style={{ color: '#67DE92' }}>{tier || 'free'}</span>
+                    </p>
+                    <button onClick={handleRetry} style={retryButtonStyle}>
+                        Check again
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    if (status === 'unavailable') {
+        return (
+            <div style={shellStyle}>
+                <div style={messageStyle}>
+                    <span style={{ fontSize: '32px' }}>🎨</span>
+                    <h3 style={{ margin: '12px 0 4px', fontSize: '14px', fontWeight: 600 }}>
+                        Couldn&apos;t check your plan
+                    </h3>
+                    <p style={{ color: '#999', fontSize: '12px', textAlign: 'center', lineHeight: 1.5, maxWidth: '300px' }}>
+                        The editor could not reach XGENIA&apos;s licensing server in time. The Image Editor stays locked until a check succeeds; it retries by itself when you sign in again or the connection returns.
+                    </p>
+                    <button onClick={handleRetry} style={retryButtonStyle}>
+                        Try again
+                    </button>
                 </div>
             </div>
         );

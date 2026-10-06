@@ -20,6 +20,14 @@ function DebugInspector() {
   EventDispatcher.instance.on(['viewer-refreshed', 'viewer-closed'], () => this.reset());
 }
 
+// (2026-09-17, run 13) A running game pulses its connections continuously, and every pulse
+// notification made the node graph repaint EVERY node and wire. rAF runs at the display rate
+// (121/s on a ProMotion Mac), so a 100 ms game tick loop cost the editor process 76-88% CPU and
+// swung its memory between 0.3 and 1.2 GB (peaks near 2.9 GB); with the pulse repaint
+// suppressed the same game ran at 34% CPU and 0.2-0.4 GB. The pulse animation is time-based
+// (offset/opacity come from performance.now()), so 30 repaints a second look the same.
+const PULSE_REPAINT_INTERVAL_MS = 33;
+
 function generateIdFromConnection(con) {
   return con.fromId + con.fromProperty + con.toId + con.toProperty;
 }
@@ -52,7 +60,11 @@ DebugInspector.prototype.onAnimationFrame = function () {
     this.playPulseAnimation = false;
   }
 
-  EventDispatcher.instance.notifyListeners('DebugInspectorConnectionPulseChanged');
+  // Always notify on the frame that ends the animation, so the last fade-out is painted.
+  if (!this.playPulseAnimation || now - (this.lastPulseNotifyAt || 0) >= PULSE_REPAINT_INTERVAL_MS) {
+    this.lastPulseNotifyAt = now;
+    EventDispatcher.instance.notifyListeners('DebugInspectorConnectionPulseChanged');
+  }
 
   if (this.playPulseAnimation) {
     window.requestAnimationFrame(this.onAnimationFrame.bind(this));

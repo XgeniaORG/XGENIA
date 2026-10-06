@@ -148,3 +148,54 @@ describe('connect against a definitely-empty port', () => {
     expect(Date.now() - start).toBeLessThan(5000);
   });
 });
+
+import { connectFailureCodeFromProbe, describeProbe, probeRawCdp } from './connection.js';
+
+describe('connectFailureCodeFromProbe', () => {
+  it('is not-running when nothing owns the port, whatever the probe says', () => {
+    expect(connectFailureCodeFromProbe(false, null)).toBe('not-running');
+    expect(connectFailureCodeFromProbe(false, { httpOk: true, targets: [], editorPageResponsive: true })).toBe('not-running');
+  });
+  it('is connect-stalled when the editor page answered raw CDP — Playwright, not the renderer, is what failed', () => {
+    expect(
+      connectFailureCodeFromProbe(true, {
+        httpOk: true,
+        targets: [{ type: 'page', url: 'http://localhost:8080/src/editor/index.html', responsive: true, evaluateMs: 11 }],
+        editorPageResponsive: true
+      })
+    ).toBe('connect-stalled');
+  });
+  it('is editor-unresponsive when the port is owned but the editor page did not answer, or could not be probed', () => {
+    expect(connectFailureCodeFromProbe(true, { httpOk: true, targets: [], editorPageResponsive: false })).toBe('editor-unresponsive');
+    expect(connectFailureCodeFromProbe(true, { httpOk: false, targets: [], editorPageResponsive: null })).toBe('editor-unresponsive');
+    expect(connectFailureCodeFromProbe(true, null)).toBe('editor-unresponsive');
+  });
+});
+
+describe('describeProbe', () => {
+  it('names every target and says which answered', () => {
+    const text = describeProbe({
+      httpOk: true,
+      targets: [
+        { type: 'page', url: 'http://localhost:8080/src/editor/index.html', responsive: true, evaluateMs: 11 },
+        { type: 'page', url: 'file:///x/cloudruntime/index.html' }
+      ],
+      editorPageResponsive: true
+    });
+    expect(text).toContain('2 target(s)');
+    expect(text).toContain('[answered in 11ms]');
+    expect(text).toContain('cloudruntime');
+  });
+  it('reports an HTTP failure as such', () => {
+    expect(describeProbe({ httpOk: false, targets: [], editorPageResponsive: null, error: 'ECONNREFUSED' })).toContain('ECONNREFUSED');
+  });
+});
+
+describe('probeRawCdp', () => {
+  it('reports httpOk:false, not a throw, when nothing answers on the port', async () => {
+    const probe = await probeRawCdp(1, 500);
+    expect(probe.httpOk).toBe(false);
+    expect(probe.editorPageResponsive).toBeNull();
+    expect(probe.targets).toEqual([]);
+  });
+});

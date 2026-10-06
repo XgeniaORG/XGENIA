@@ -4,6 +4,7 @@ import { ProjectModel } from '@xgenia-models/projectmodel';
 import { createHash } from '@xgenia-utils/exporter/hash/xxhash64';
 
 import { HtmlProcessor } from './processors/html-processor';
+import { resolveExternalPath, engineFileProblemFor } from '@xgenia-utils/liveEngine';
 
 type DeployIndexItem = {
   url: string;
@@ -30,7 +31,7 @@ export function getExternalFolderPath() {
  * @returns
  */
 export async function loadDeployIndex(filePath: string): Promise<DeployIndex> {
-  const indexPath = filesystem.join(getExternalFolderPath(), filePath);
+  const indexPath = resolveExternalPath(filePath);
   const index: DeployIndex = await filesystem.readJson(indexPath);
 
   return withRuntimeChunks(index, filePath);
@@ -60,10 +61,7 @@ export async function loadDeployIndex(filePath: string): Promise<DeployIndex> {
  */
 async function withRuntimeChunks(index: DeployIndex, indexFilePath: string): Promise<DeployIndex> {
   try {
-    const runtimeDir = filesystem.join(
-      getExternalFolderPath(),
-      indexFilePath.replace(/[\\\/][^\\\/]*$/, '')
-    );
+    const runtimeDir = resolveExternalPath(indexFilePath.replace(/[\\\/][^\\\/]*$/, ''));
 
     const listed = new Set(index.map((f: any) => String(f.url)));
     const files = await filesystem.listDirectoryFiles(runtimeDir);
@@ -73,6 +71,8 @@ async function withRuntimeChunks(index: DeployIndex, indexFilePath: string): Pro
       // source maps are opt-in per entry rather than shipped for every chunk.
       if (!/^xgenia\.\d+\.js$/.test(file.name)) continue;
       if (listed.has(file.name)) continue;
+      // A live engine ships only the files its signed manifest lists.
+      if (engineFileProblemFor(filesystem.join(indexFilePath.replace(/[\\\/][^\\\/]*$/, ''), file.name))) continue;
 
       console.log(`[deploy] Including runtime chunk missing from index.json: ${file.name}`);
       index.push({ url: file.name } as any);
@@ -126,7 +126,7 @@ async function _writeFileToFolder({
   flatAssetMap,
   suppressConsole
 }: WriteFileToFolderArgs) {
-  const fullPath = filesystem.join(getExternalFolderPath(), runtimeType, url);
+  const fullPath = resolveExternalPath(filesystem.join(runtimeType, url));
 
   if (!filesystem.exists(fullPath)) {
     // TODO: Save this warning somewhere, usually, this is not an issue though.
@@ -134,6 +134,10 @@ async function _writeFileToFolder({
     // files which it expects to copy over.
     return;
   }
+  // (2026-10-04) An exported game must carry the signed engine: a live engine file changed on disk
+  // since it was verified, or not in its manifest, stops the export instead of shipping.
+  const engineProblem = engineFileProblemFor(filesystem.join(runtimeType, url));
+  if (engineProblem) throw new Error(`[deploy] refusing to export: ${engineProblem}. Restart XGENIA to re-verify the engine.`);
 
   let content = await filesystem.readFile(fullPath);
   let filename = targetFilename || url;

@@ -14,7 +14,32 @@ export interface VideoProps extends XGENIA.ReactProps {
   videoWidth?: (value: number) => void;
   videoHeight?: (value: number) => void;
   onVideoElementCreated?: (video) => void;
+
+  // Playback outputs, driven by the element's media events (see attachMediaListeners).
+  onPlay?: () => void;
+  onPause?: () => void;
+  onEnded?: () => void;
+  onTimeUpdate?: (seconds: number) => void;
+  duration?: (seconds: number) => void;
+  isPlaying?: (playing: boolean) => void;
 }
+
+// Playback Position updates at most this often. `timeupdate` fires every
+// 15–250 ms depending on the browser; pause, end and seek still report the exact
+// position straight away.
+const TIME_UPDATE_MIN_INTERVAL_MS = 250;
+
+const MEDIA_EVENTS = [
+  'play',
+  'playing',
+  'pause',
+  'ended',
+  'timeupdate',
+  'seeked',
+  'loadedmetadata',
+  'durationchange',
+  'emptied'
+] as const;
 
 export interface CachedVideoProps {
   className?: string;
@@ -137,14 +162,52 @@ class CachedVideo extends React.PureComponent<CachedVideoProps> {
       onCanPlay: onCanPlay
     };
 
+    // (2026-10-05, leprechaun-cluster on Safari) A transparent WebM (VP9 with an
+    // alpha channel) is what the asset pipeline makes for animated characters;
+    // Chrome plays it, Safari and every iOS browser (all WebKit) do not show its
+    // alpha — the character played as a grey box, or not at all. WebKit's
+    // transparent format is HEVC with alpha. When the source is a .webm, offer the
+    // .mov of the same name first on WebKit; a missing .mov falls through to the
+    // .webm (the <source> list), so a project without one behaves as before.
+    const hevcSibling = src && appleWebKit() ? hevcAlphaSiblingOf(src) : null;
+    if (hevcSibling) {
+      const { src: _webm, ...withoutSrc } = videoProps;
+      return (
+        <video {...withoutSrc} key={src}>
+          <source src={hevcSibling} type='video/mp4; codecs="hvc1"' />
+          <source src={src} type="video/webm" />
+        </video>
+      );
+    }
+
     return <video {...videoProps} />;
   }
+}
+
+/** Safari, or any browser on iOS/iPadOS (all of them are WebKit there). */
+function appleWebKit(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  if (/iPhone|iPad|iPod/.test(ua)) return true;
+  // iPadOS reports a Mac user agent; touch points tell it apart.
+  if (/Macintosh/.test(ua) && (navigator as any).maxTouchPoints > 1) return true;
+  return /Safari\//.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Firefox|FxiOS/.test(ua);
+}
+
+/** ".../idle.webm#t=0.01" → ".../idle.mov#t=0.01"; null for anything that is not a .webm URL. */
+export function hevcAlphaSiblingOf(src: string): string | null {
+  const m = /^(.*?)\.webm((?:[?#].*)?)$/i.exec(src);
+  return m && !src.startsWith('data:') ? `${m[1]}.mov${m[2]}` : null;
 }
 
 export class Video extends React.Component<VideoProps> {
   wantToPlay: boolean;
   canPlay: boolean;
   video!: HTMLVideoElement | HTMLImageElement;
+
+  private mediaElement: HTMLVideoElement | null = null;
+  private lastTimeUpdateAt = -Infinity;
+  private lastIsPlaying: boolean | undefined = undefined;
 
   constructor(props: VideoProps) {
     super(props);
@@ -155,6 +218,93 @@ export class Video extends React.Component<VideoProps> {
 
   componentWillUnmount() {
     this.canPlay = false;
+    this.detachMediaListeners();
+  }
+
+  // Called with the element on every render (the ref callback is recreated each
+  // time), so subscribe only when the element actually changes. An animated
+  // WebP renders as <img>, which has no media events — nothing to subscribe.
+  setVideoElement(video: HTMLVideoElement | HTMLImageElement) {
+    this.video = video;
+    const media = video instanceof HTMLVideoElement ? video : null;
+    if (media === this.mediaElement) return;
+    this.detachMediaListeners();
+    if (media) this.attachMediaListeners(media);
+  }
+
+  private attachMediaListeners(media: HTMLVideoElement) {
+    this.mediaElement = media;
+    this.lastTimeUpdateAt = -Infinity;
+    this.lastIsPlaying = undefined;
+    for (const type of MEDIA_EVENTS) media.addEventListener(type, this.handleMediaEvent);
+  }
+
+  private detachMediaListeners() {
+    const media = this.mediaElement;
+    if (!media) return;
+    for (const type of MEDIA_EVENTS) media.removeEventListener(type, this.handleMediaEvent);
+    this.mediaElement = null;
+  }
+
+  private handleMediaEvent = (event: Event) => {
+    const media = this.mediaElement;
+    if (!media || event.target !== media) return;
+
+    switch (event.type) {
+      case 'play':
+        this.reportIsPlaying(media);
+        this.props.onPlay && this.props.onPlay();
+        break;
+      case 'playing':
+      case 'emptied':
+        this.reportIsPlaying(media);
+        break;
+      case 'pause':
+        this.reportCurrentTime(media, true);
+        this.reportIsPlaying(media);
+        // Reaching the end pauses the element first; that is On Ended, not On Pause.
+        if (!media.ended) this.props.onPause && this.props.onPause();
+        break;
+      case 'ended':
+        // Browsers don't fire `ended` while `loop` is on (the element seeks back
+        // to the start instead); guard anyway so a loop never reports an end.
+        if (media.loop) return;
+        this.reportCurrentTime(media, true);
+        this.reportIsPlaying(media);
+        this.props.onEnded && this.props.onEnded();
+        break;
+      case 'timeupdate':
+        this.reportCurrentTime(media, false);
+        break;
+      case 'seeked':
+        this.reportCurrentTime(media, true);
+        break;
+      case 'loadedmetadata':
+      case 'durationchange':
+        this.reportDuration(media);
+        break;
+    }
+  };
+
+  private reportCurrentTime(media: HTMLVideoElement, force: boolean) {
+    if (!this.props.onTimeUpdate) return;
+    const now = Date.now();
+    if (!force && now - this.lastTimeUpdateAt < TIME_UPDATE_MIN_INTERVAL_MS) return;
+    this.lastTimeUpdateAt = now;
+    this.props.onTimeUpdate(media.currentTime);
+  }
+
+  private reportDuration(media: HTMLVideoElement) {
+    // NaN before metadata, Infinity for a live stream: report 0 for "not known".
+    const duration = Number.isFinite(media.duration) ? media.duration : 0;
+    this.props.duration && this.props.duration(duration);
+  }
+
+  private reportIsPlaying(media: HTMLVideoElement) {
+    const playing = !media.paused && !media.ended;
+    if (playing === this.lastIsPlaying) return;
+    this.lastIsPlaying = playing;
+    this.props.isPlaying && this.props.isPlaying(playing);
   }
 
   setSourceObject(src) {
@@ -226,7 +376,7 @@ export class Video extends React.Component<VideoProps> {
         className={props.className}
         style={style}
         innerRef={(video) => {
-          this.video = video;
+          this.setVideoElement(video);
           if (this.props.onVideoElementCreated && video) {
             this.props.onVideoElementCreated(video);
           }

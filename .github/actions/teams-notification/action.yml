@@ -24,9 +24,13 @@ runs:
     - name: Build Adaptive Card payload
       id: build_payload
       shell: bash
-      run: |
-        bash "${{ github.action_path }}/send_teams.sh" \
-        "${{ inputs.msg-title }}" \
-        "${{ inputs.msg-text }}" \
-        "${{ inputs.workflow-url }}" \
-        "${{ inputs.webhook-url }}"
+      # Passed as environment rather than interpolated into the command line:
+      # these carry commit messages and job names, and a quote in one of them
+      # would otherwise break out of the shell word.
+      env:
+        MSG_TITLE: ${{ inputs.msg-title }}
+        MSG_TEXT: ${{ inputs.msg-text }}
+        WORKFLOW_URL: ${{ inputs.workflow-url }}
+        WEBHOOK_URL: ${{ inputs.webhook-url }}
+        STATUS: ${{ inputs.status }}
+      run: bash "${{ github.action_path }}/send_teams.sh"

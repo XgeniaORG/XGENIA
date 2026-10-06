@@ -43,6 +43,40 @@ function parseRangeHeader(range, length) {
 
 function startServer(app, projectGetSettings, projectGetInfo, projectGetComponentBundleExport) {
   const appPath = app.getAppPath();
+  // (2026-10-03) Viewer files come from the engine this run uses (src/live-engine/select.js):
+  // a verified live engine when one was chosen, the app's own otherwise.
+  const viewerDir = () => (process.env.XGENIA_ENGINE_ROOT || appPath + '/src/external') + '/viewer/';
+  // A live engine's files were hash-checked at startup (size + mtime recorded). A file not in its
+  // manifest, or changed since, is not the signed engine and is not served. The app's own engine
+  // is not checked.
+  const viewerFileProblem = (rel) => {
+    const info = global.xgeniaLiveEngine;
+    if (!info || info.source !== 'live' || !info.files) return null;
+    const key = 'viewer/' + String(rel).replace(/^\/+/, '');
+    const listed = info.files[key];
+    if (!listed) return `${key} is not part of engine ${info.version}`;
+    try {
+      const st = fs.statSync(viewerDir() + key.slice('viewer/'.length));
+      if (st.size === listed.size && st.mtimeMs === listed.mtimeMs) return null;
+    } catch {
+      return `${key} is missing from engine ${info.version}`;
+    }
+    return `${key} changed on disk since engine ${info.version} was verified`;
+  };
+  // The live engine's health check starts at the first request for the preview page or bundle.
+  const previewRequested = () => {
+    if (typeof app.emit === 'function') app.emit('xgenia:preview-requested');
+  };
+  const serveViewerIndex = (response) => {
+    previewRequested();
+    const problem = viewerFileProblem('index.html');
+    if (problem) {
+      console.warn('[WebServer] not serving the preview page: ' + problem);
+      serve404(response);
+      return;
+    }
+    serveIndexFile(viewerDir() + 'index.html', response);
+  };
   console.log(`[web-server.js] appPath: ${appPath}`);
 
   //accept any certificate from localhost (e.g. self signed)
@@ -134,7 +168,13 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
 
       // Serve the tools project exactly like a normal XGENIA project
       // but with the component specified in the URL fragment
-      const indexHtmlPath = appPath + '/src/external/viewer/index.html';
+      const indexHtmlPath = viewerDir() + 'index.html';
+      const indexProblem = viewerFileProblem('index.html');
+      if (indexProblem) {
+        console.warn('[WebServer - handleToolsRequest] not serving the tools page: ' + indexProblem);
+        serve404(response);
+        return;
+      }
 
       console.log(`[WebServer - handleToolsRequest] Serving tools project index file: ${indexHtmlPath}`);
       fs.readFile(indexHtmlPath, 'utf8', function (err, data) {
@@ -582,7 +622,24 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
 
   function handleRequest(request, response) {
     var parsedUrl = URL.parse(request.url, true);
-    let requestPath = decodeURI(parsedUrl.pathname);
+    let requestPath;
+    try {
+      requestPath = decodeURI(parsedUrl.pathname);
+    } catch (e) {
+      response.writeHead(400);
+      response.end('Bad request');
+      return;
+    }
+
+    // Every route below builds a filesystem path by concatenating the URL path onto a base
+    // directory, and serveFile decodes it once more. The server also listens on the LAN, so a
+    // ".." segment (plain or percent-encoded, even twice) would read files outside the app and
+    // project. No legitimate request contains one.
+    if (hasTraversal(parsedUrl.pathname)) {
+      response.writeHead(403);
+      response.end('Forbidden');
+      return;
+    }
 
     // console.log('Web server request:', requestPath); // Commented out to avoid EPIPE error
 
@@ -599,7 +656,7 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
 
     // Explicitly handle the root path first
     if (requestPath === '/') {
-      serveIndexFile(appPath + '/src/external/viewer/index.html', response);
+      serveViewerIndex(response);
       return;
     }
 
@@ -860,7 +917,7 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
     //previous versions of XGENIA will request /external/viewer/index.html or /external/viewer/index.htmlnull
     //new version can also do this if old requests are cached by electron
     if (requestPath === '/external/viewer/index.html' || requestPath.endsWith('viewer/index.htmlnull')) {
-      serveIndexFile(appPath + '/src/external/viewer/index.html', response);
+      serveViewerIndex(response);
       return;
     }
 
@@ -896,9 +953,8 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
       requestPath.includes('/xgenia_modules/') === false &&
       (requestPath.endsWith('index.html') || requestPath.includes('.') === false)
     ) {
-      // Revert path calculation to point to the build output directory within the editor's structure
-      const indexHtmlPath = appPath + '/src/external/viewer/index.html';
-      serveIndexFile(indexHtmlPath, response);
+      // The preview page, from the engine this run uses.
+      serveViewerIndex(response);
       return;
     }
 
@@ -933,8 +989,13 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
 
     //by this point it must be a static file in either the viewer folder or the project
     //check if it's a viewer file
-    const viewerFilePath = appPath + '/src/external/viewer/' + requestPath;
-    if (fs.existsSync(viewerFilePath)) {
+    const viewerFilePath = viewerDir() + requestPath;
+    const viewerProblem = fs.existsSync(viewerFilePath) ? viewerFileProblem(requestPath) : null;
+    if (viewerProblem && !/is not part of engine/.test(viewerProblem)) {
+      console.warn('[WebServer] not serving ' + requestPath + ': ' + viewerProblem);
+      serve404(response);
+    } else if (fs.existsSync(viewerFilePath) && !viewerProblem) {
+      if (requestPath.replace(/^\/+/, '') === 'xgenia.viewer.js') previewRequested();
       serveFile(viewerFilePath, request, response);
     } else {
       // Check if file exists in project directory
@@ -1171,6 +1232,23 @@ function failResponse(response, err) {
   } else {
     response.destroy();
   }
+}
+
+function hasTraversal(rawPath) {
+  let p = String(rawPath || '');
+  // Decode until stable so %2e%2e and %252e%252e are both caught.
+  for (let i = 0; i < 4; i++) {
+    let next;
+    try {
+      next = decodeURIComponent(p);
+    } catch (e) {
+      return true;
+    }
+    if (next === p) break;
+    p = next;
+  }
+  if (p.includes('\0')) return true;
+  return p.split(/[\\/]/).some((segment) => segment === '..');
 }
 
 function serveFile(filePath, request, response) {

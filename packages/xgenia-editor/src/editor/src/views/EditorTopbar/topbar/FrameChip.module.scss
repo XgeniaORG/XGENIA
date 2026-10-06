@@ -101,3 +101,13 @@
   gap: 8px;
   padding: 4px 10px 6px;
 }
+
+// The Devices / Machines switch. Same segment as Zoom above it, but two-up and full
+// width — it selects what the list below IS, so it should read as a header for it.
+.SurfaceSeg {
+  margin-bottom: 6px;
+
+  > button {
+    flex: 1;
+  }
+}

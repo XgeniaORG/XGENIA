@@ -68,8 +68,17 @@
                 return protocol + '127.0.0.1:' + port;
             }
 
+            // A route can arrive as the STRING "undefined" (or "null") when something
+            // upstream concatenated an absent value. Those are truthy, so a bare
+            // `if (!route)` let them through and the preview mounted at /undefined,
+            // 404-ing every relative asset. Treat them as absent. (2026-09-10)
+            function isAbsentRoute(route) {
+                return !route || route === 'undefined' || route === 'null' ||
+                       route === '/undefined' || route === '/null';
+            }
+
             function stripTimestamp(route) {
-                if (!route) return '/';
+                if (isAbsentRoute(route)) return '/';
                 try {
                     var u = new URL(route, getPreviewBase());
                     u.searchParams.delete('t');
@@ -83,6 +92,9 @@
             function navigateTo(route) {
                 try {
                     const base = getPreviewBase();
+                    if (isAbsentRoute(route)) {
+                        console.warn('[viewer-frame] ignoring empty/undefined route, falling back to /', route);
+                    }
                     const r = stripTimestamp(route) || '/';
                     wv.src = base + r;
                 } catch (e) {}

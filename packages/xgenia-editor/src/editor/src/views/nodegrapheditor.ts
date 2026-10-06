@@ -445,12 +445,10 @@ export class NodeGraphEditor extends View {
       this.roots.push(node);
     }
 
+    // createFromModel -> connect() registers the connection in this.connections
     this.connections = [];
     for (const i in model.connections) {
-      const connection = NodeGraphEditorConnection.createFromModel(model.connections[i], this);
-      if (connection) {
-        this.connections.push(connection);
-      }
+      NodeGraphEditorConnection.createFromModel(model.connections[i], this);
     }
 
     // Listen to when a node is attached in the model and
@@ -575,10 +573,8 @@ export class NodeGraphEditor extends View {
     model.on(
       'connectionAdded',
       function (args) {
-        const connection = NodeGraphEditorConnection.createFromModel(args.model, _this, _this.canvas.ctx);
-        if (connection) {
-          _this.connections.push(connection);
-        }
+        // createFromModel -> connect() registers the connection in _this.connections
+        NodeGraphEditorConnection.createFromModel(args.model, _this, _this.canvas.ctx);
 
         _this.relayout();
         _this.repaint();
@@ -3335,6 +3331,12 @@ export class NodeGraphEditor extends View {
 
     for (const conn of this.connections) {
       if (conn && conn.model) {
+        // A disconnected connection has lost its node references; drop it
+        if (!conn.fromNode || !conn.toNode) {
+          orphanedCount++;
+          continue;
+        }
+
         // Try to resolve the nodes
         const fromNode = this.findNodeWithId(conn.model.fromId);
         const toNode = this.findNodeWithId(conn.model.toId);

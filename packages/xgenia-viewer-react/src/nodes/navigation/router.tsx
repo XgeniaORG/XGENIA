@@ -332,7 +332,7 @@ const RouterNode: RouterNodeDefinition = {
       }
     },
     pages: {
-      type: { name: 'themped overpages', allowEditOnly: true },
+      type: { name: 'pages', allowEditOnly: true },
       displayName: 'Pages',
       group: 'Pages',
       set: function (this: RouterNodeContext, value: any) {

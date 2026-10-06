@@ -9,6 +9,7 @@ import { Label, LabelSize } from '@xgenia-core-ui/components/typography/Label';
 import { Slot, UnsafeStyleProps } from '@xgenia-core-ui/types/global';
 
 import css from './BaseDialog.module.scss';
+import { placeDialog, PlacementDirection } from './dialogPlacement';
 
 export enum DialogRenderDirection {
   Vertical,
@@ -92,6 +93,7 @@ export function CoreBaseDialog({
   }, [isVisible]);
 
   const dialogRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [dialogPosition, setDialogPosition] = useState({
     x: 0,
     y: 0,
@@ -100,11 +102,12 @@ export function CoreBaseDialog({
     animationStartOffsetX: 0,
     animationStartOffsetY: 0,
     width: 'auto',
-    speed: 250
+    speed: 250,
+    maxHeight: null as number | null
   });
 
   const windowSize = useWindowSize();
-  const lastScroll = useDocumentScrollTimestamp(isVisible);
+  const lastScroll = useDocumentScrollTimestamp(isVisible, 0, rootRef);
 
   const arrowCompensationOffset = variant === BaseDialogVariant.Select ? 0 : 12;
   const edgeOffset = 10;
@@ -114,120 +117,33 @@ export function CoreBaseDialog({
     if (!triggerRef?.current || !dialogRef?.current) return;
 
     const triggerRect = triggerRef.current.getBoundingClientRect();
+    // dialogRef points at the MEASURING copy, which is never capped — so this is the
+    // dialog's natural height, which is what the placement needs in order to decide
+    // whether a cap is required at all.
     const dialogRect = dialogRef.current.getBoundingClientRect();
 
-    let dialogX;
-    let dialogY;
-    let arrowX;
-    let arrowY;
-    let animationStartOffsetX = 0;
-    let animationStartOffsetY = 0;
-    let width = 'auto';
-    const speed = Math.max(150, dialogRect.height);
+    const directions: Record<DialogRenderDirection, PlacementDirection> = {
+      [DialogRenderDirection.Vertical]: 'above',
+      [DialogRenderDirection.Above]: 'above',
+      [DialogRenderDirection.Below]: 'below',
+      [DialogRenderDirection.Horizontal]: 'horizontal'
+    };
 
-    if (variant === BaseDialogVariant.Select) width = triggerRect.width + 'px';
-
-    function checkAboveFirst() {
-      // default position to trigger is x:centered y:above
-      dialogX = triggerRect.left + triggerRect.width / 2 - dialogRect.width / 2;
-      dialogY = triggerRect.top - (dialogRect.height + arrowCompensationOffset);
-      arrowY = dialogRect.height;
-      arrowX = dialogRect.width / 2;
-      animationStartOffsetY = -10;
-
-      // if x:centered renders the dialog outside of viewport
-      // we tack it to the side of the viewport it clips
-      if (dialogX < 0) {
-        dialogX = edgeOffset;
-        arrowX = triggerRect.width / 2 + triggerRect.left - edgeOffset;
-      } else if (dialogX + dialogRect.width > windowSize.width) {
-        dialogX = windowSize.width - dialogRect.width - edgeOffset;
-        arrowX = dialogRect.width - (windowSize.width - triggerRect.right) - triggerRect.width / 2 + edgeOffset;
-      }
-
-      // if y:above is outside the viewport we do y:below
-      if (dialogY - dialogRect.height - arrowCompensationOffset < 0) {
-        dialogY = triggerRect.bottom + arrowCompensationOffset;
-        arrowY = 0;
-        animationStartOffsetY = 10;
-      }
-    }
-
-    function checkBelowFirst() {
-      // default position to trigger is x:centered y:below
-      dialogX = triggerRect.left + triggerRect.width / 2 - dialogRect.width / 2;
-      dialogY = triggerRect.bottom + arrowCompensationOffset;
-      arrowY = 0;
-      arrowX = dialogRect.width / 2;
-      animationStartOffsetY = 10;
-
-      // if x:centered renders the dialog outside of viewport
-      // we tack it to the side of the viewport it clips
-      if (dialogX < 0) {
-        dialogX = edgeOffset;
-        arrowX = triggerRect.width / 2 + triggerRect.left - edgeOffset;
-      } else if (dialogX + dialogRect.width > windowSize.width) {
-        dialogX = windowSize.width - dialogRect.width - edgeOffset;
-        arrowX = dialogRect.width - (windowSize.width - triggerRect.right) - triggerRect.width / 2 + edgeOffset;
-      }
-
-      // if y:below is outside the viewport we do y:above
-      if (dialogY + dialogRect.height > windowSize.height) {
-        dialogY = triggerRect.top - dialogRect.height - arrowCompensationOffset;
-        arrowY = dialogRect.height;
-        animationStartOffsetY = -10;
-      }
-    }
-
-    function checkRightFirst() {
-      // default position to trigger is y:centered x:right
-      dialogX = triggerRect.right + arrowCompensationOffset;
-      dialogY = triggerRect.top + triggerRect.height / 2 - dialogRect.height / 2;
-      arrowX = 0;
-      arrowY = dialogRect.height / 2;
-      animationStartOffsetX = 10;
-
-      // if x:right is clipping outside viewport, render as x:left
-      if (dialogX + dialogRect.width > windowSize.width) {
-        dialogX = triggerRect.left - dialogRect.width - arrowCompensationOffset;
-        arrowX = dialogRect.width;
-        animationStartOffsetX = -10;
-      }
-
-      // if y:center clips outside viewport tack it to bottom or top
-      if (dialogY + dialogRect.height > windowSize.height) {
-        dialogY = windowSize.height - dialogRect.height;
-        arrowY = dialogRect.height - (windowSize.height - triggerRect.top) + triggerRect.height / 2;
-      } else if (dialogY < 0) {
-        dialogY = 10;
-        arrowY = triggerRect.top + triggerRect.height / 2;
-      }
-    }
-
-    switch (renderDirection) {
-      case DialogRenderDirection.Vertical:
-      case DialogRenderDirection.Above:
-        checkAboveFirst();
-        break;
-      case DialogRenderDirection.Below:
-        checkBelowFirst();
-        break;
-      case DialogRenderDirection.Horizontal:
-        checkRightFirst();
-        break;
-    }
+    const placement = placeDialog({
+      trigger: triggerRect,
+      dialog: { width: dialogRect.width, height: dialogRect.height },
+      viewport: { width: windowSize.width, height: windowSize.height },
+      direction: directions[renderDirection],
+      gap: arrowCompensationOffset,
+      edge: edgeOffset
+    });
 
     setDialogPosition({
-      x: dialogX,
-      y: dialogY,
-      arrowX,
-      arrowY,
-      animationStartOffsetX,
-      animationStartOffsetY,
-      width,
-      speed
+      ...placement,
+      width: variant === BaseDialogVariant.Select ? triggerRect.width + 'px' : 'auto',
+      speed: Math.max(150, dialogRect.height)
     });
-  }, [isVisible, windowSize, lastScroll, triggerRef?.current, dialogRef?.current]);
+  }, [isVisible, windowSize, lastScroll, renderDirection, variant, triggerRef?.current, dialogRef?.current]);
 
   const backgroundColor = useMemo(() => {
     switch (background) {
@@ -267,6 +183,7 @@ export function CoreBaseDialog({
 
   return (
     <div
+      ref={rootRef}
       className={classNames(
         css['Root'],
         hasBackdrop && css['has-backdrop'],
@@ -284,7 +201,8 @@ export function CoreBaseDialog({
           '--animationStartOffsetY': `${dialogPosition.animationStartOffsetY}px`,
           '--background': backgroundColor,
           '--backgroundContrast': backgroundContrastColor,
-          '--width': dialogPosition.width
+          '--width': dialogPosition.width,
+          '--maxHeight': dialogPosition.maxHeight === null ? 'none' : `${Math.floor(dialogPosition.maxHeight)}px`
         } as CSSProperties
       }
     >
@@ -313,7 +231,7 @@ export function CoreBaseDialog({
 
         {variant === BaseDialogVariant.Select ? (
           <Collapsible isCollapsed={!isSelectOpen} transitionMs={dialogPosition.speed}>
-            <div className={css['ChildContainer']}>
+            <div className={classNames(css['ChildContainer'], css['is-scrollable'])}>
               {title && (
                 <div className={css['Title']}>
                   <Label size={LabelSize.Medium}>{title}</Label>
@@ -323,7 +241,7 @@ export function CoreBaseDialog({
             </div>
           </Collapsible>
         ) : (
-          <div className={css['ChildContainer']}>
+          <div className={classNames(css['ChildContainer'], css['is-scrollable'])}>
             {title && (
               <div className={css['Title']}>
                 <Label size={LabelSize.Medium}>{title}</Label>

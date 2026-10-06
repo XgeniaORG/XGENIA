@@ -1,3 +1,4 @@
 [submodule "private"]
 	path = private
 	url = https://github.com/XgeniaORG/XFORGE_Private.git
+	branch = main

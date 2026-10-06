@@ -634,9 +634,20 @@ module.exports = {
           }
         ];
 
+        // (2026-09-23, export 1790196874427) List entries are `{ id, label }`, but an entry written as
+        // `{ name }` made a port literally named "undefined" (and an `outtype-undefined` type picker).
+        // Take whichever name the entry has; an entry with none is not a port.
+        const _entryName = (p) => {
+          const n = p && (p.label ?? p.name ?? p.id);
+          return typeof n === 'string' && n.trim() !== '' ? n : undefined;
+        };
+
         // Outputs
         if (node.parameters['scriptOutputs'] !== undefined && node.parameters['scriptOutputs'].length > 0) {
-          node.parameters['scriptOutputs'].forEach((p) => {
+          node.parameters['scriptOutputs'].forEach((entry) => {
+            const label = _entryName(entry);
+            if (label === undefined) return;
+            const p = { id: entry.id, label };
             // Type for output
             ports.push({
               name: 'outtype-' + p.label,
@@ -664,7 +675,10 @@ module.exports = {
 
         // Inputs
         if (node.parameters['scriptInputs'] !== undefined && node.parameters['scriptInputs'].length > 0) {
-          node.parameters['scriptInputs'].forEach((p) => {
+          node.parameters['scriptInputs'].forEach((entry) => {
+            const label = _entryName(entry);
+            if (label === undefined) return;
+            const p = { id: entry.id, label };
             // Type for input
             ports.push({
               name: 'intype-' + p.label,

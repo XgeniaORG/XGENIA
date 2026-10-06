@@ -12,6 +12,7 @@
 import React, { useRef, useState } from 'react';
 
 import { Icon } from './LobbyIcons';
+import { useMenuLayer } from './useMenuLayer';
 import css from './LobbyBar.module.scss';
 
 export interface LobbyUser {
@@ -61,6 +62,10 @@ export function LobbyBar({
   const barRef = useRef<HTMLDivElement>(null);
 
   const close = () => setMenu(null);
+  // Only one of the two menus is ever mounted, so they share the ref. The layer closes it on the
+  // next click anywhere — including on a card, which used to open the game underneath — and
+  // hands the layer over if a card menu opens instead. See useMenuLayer.ts.
+  const menuRef = useMenuLayer<HTMLDivElement>(menu !== null, close);
 
   return (
     <div className={css.Root} ref={barRef}>
@@ -129,10 +134,8 @@ export function LobbyBar({
         </button>
       </div>
 
-      {menu && <div className={css.Scrim} onClick={close} />}
-
       {menu === 'help' && (
-        <div className={`${css.Menu} ${css.HelpMenu}`} role="menu">
+        <div className={`${css.Menu} ${css.HelpMenu}`} role="menu" ref={menuRef}>
           {HELP_LINKS.map((link) => (
             <button
               key={link.url}
@@ -153,7 +156,7 @@ export function LobbyBar({
       )}
 
       {menu === 'account' && (
-        <div className={`${css.Menu} ${css.AccountMenu}`} role="menu">
+        <div className={`${css.Menu} ${css.AccountMenu}`} role="menu" ref={menuRef}>
           {user ? (
             <>
               <div className={css.MenuHead}>

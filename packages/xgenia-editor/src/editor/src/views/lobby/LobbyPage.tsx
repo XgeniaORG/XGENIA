@@ -183,7 +183,13 @@ export function LobbyPage({ onProjectLoaded }: LobbyPageProps) {
     // component boundary — the hero shrinks here, the pill appears in the bar — and a scroll
     // timeline cannot drive an element in a different subtree. Passive, and it only ever flips
     // one boolean, so it never lays out on the scroll thread.
-    const onScroll = () => setHeroFolded(el.scrollTop > 150);
+    //
+    // Two thresholds, not one: a single threshold at the top of a long list means ordinary scroll
+    // jitter around that pixel — trackpad momentum, a wheel tick that overshoots — flips
+    // `heroFolded` back and forth, restarting the fold's transform/opacity transition mid-scroll.
+    // The gap between fold-at-150 and unfold-at-80 is dead zone the scroll position has to cross
+    // twice before it flips again.
+    const onScroll = () => setHeroFolded((was) => (was ? el.scrollTop > 80 : el.scrollTop > 150));
 
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
@@ -232,11 +238,9 @@ export function LobbyPage({ onProjectLoaded }: LobbyPageProps) {
         description: choice.description
       });
 
-      if (!project) return;
-      onProjectLoaded(project);
-      // The editor route mounts on the next tick; the sidebar model is global, so the switch
-      // takes effect as soon as the rail renders.
-      if (choice.description?.trim()) ops.openChatPanel();
+      // The chat is opened by EditorPage once it has registered the sidebar items — there is
+      // no chat item to switch to from here.
+      if (project) onProjectLoaded(project);
     },
     [onProjectLoaded]
   );

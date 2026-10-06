@@ -12,7 +12,8 @@
   -webkit-backdrop-filter: var(--lobby-card-blur);
   backdrop-filter: var(--lobby-card-blur);
   box-shadow: var(--lobby-card-shadow);
-  // Not `hidden`: the hover strip, the card menu and the glow all live outside the box.
+  // Not `hidden`: the hover strip and the glow both live outside the box. The ⋯ menu used to as
+  // well, until it moved out to <body> — see `.Menu` below.
   overflow: visible;
   cursor: pointer;
   outline: none;
@@ -303,19 +304,15 @@
   outline: none;
 }
 
-// A transparent full-window layer so the next click anywhere closes the menu, without a
-// document-level listener that would have to be added and removed by hand.
-.MenuScrim {
-  position: fixed;
-  inset: 0;
-  z-index: 8;
-}
-
+// The menu is rendered into <body>, not into the card — see the placement effect in GameCard.tsx
+// for why. `left` and `top` arrive from there as inline styles; everything the card used to give
+// it by inheritance (the type, above all) has to be stated here instead.
 .Menu {
-  position: absolute;
-  right: 8px;
-  top: 36px;
-  z-index: 9;
+  position: fixed;
+  left: 0;
+  top: 0;
+  // Over the lobby's own layers, which stop at the Omnibox and the new-game sheet at 20.
+  z-index: 100;
   width: 210px;
   padding: 6px;
   border-radius: 10px;
@@ -325,6 +322,7 @@
   backdrop-filter: var(--glass-pop-blur);
   box-shadow: var(--glass-pop-shadow);
   font-size: 12px;
+  font-family: var(--font-family-regular, inherit);
 
   button {
     width: 100%;
@@ -383,9 +381,9 @@
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid var(--glass-ctrl-border);
-  background: var(--glass-pop-bg);
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
+  // Solid, not glass: `.Root` is a backdrop root (see `.Menu`), so a nested blur here has
+  // nothing to blur and the card's name and tagline read straight through a 78% fill.
+  background: var(--theme-color-bg-2);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
   font-size: 11.5px;
 
@@ -482,6 +480,24 @@
 
 .List:hover .Actions {
   opacity: 1;
+}
+
+// A row is only ~63px tall, so the tile's two-line confirm (text on its own line, buttons
+// beneath) grew past the top of the row and over the section header. On its side it is one
+// line, centred in the row: text takes the slack, buttons sit at the right edge.
+.List .Confirm {
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+  flex-wrap: nowrap;
+}
+
+.List .ConfirmText {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 // Motion is a nicety; legibility is not. Everything above is decoration on a page that reads

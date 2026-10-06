@@ -7,21 +7,46 @@ export type CommandId =
 
 export type TopbarMatch =
   | { kind: 'route'; path: string; title: string }
-  | { kind: 'command'; id: 'preset'; group: 'Mobile' | 'Tablet' | 'Desktop'; label: string }
+  | { kind: 'command'; id: 'preset'; group: PresetGroup; label: string }
   | { kind: 'command'; id: 'size'; width: number; height: number; label: string }
   | { kind: 'command'; id: 'zoom'; factor: number; label: string }
   | { kind: 'command'; id: 'split'; direction: 'vertical' | 'horizontal'; label: string }
   | { kind: 'command'; id: 'fit' | 'detach' | 'devtools' | 'import' | 'publish' | 'refresh'; label: string }
   | { kind: 'none' };
 
+/** Groups the bar can jump to by name. A machine group resolves to the first preset in
+ *  its family — the shape everything else in that family is a variation of. */
+export type PresetGroup = 'Slot' | 'Table' | 'Betting' | 'Bingo' | 'Arcade' | 'Mobile' | 'Tablet' | 'Desktop';
+
 const MIN_SIDE = 320;
 const MAX_W = 3840;
-const MAX_H = 2160;
+// 3840 both ways: a slot cabinet screen is a 4K panel stood on its end (2160x3840).
+const MAX_H = 3840;
 
-const PRESET_WORDS: Record<string, 'Mobile' | 'Tablet' | 'Desktop'> = {
+/** The industry words deliberately kept OUT of the preset labels live here instead:
+ *  type `etg` or `ssbt` and you land on the right shape without the UI ever printing
+ *  the jargon at someone who does not know it. */
+const PRESET_WORDS: Record<string, PresetGroup> = {
+  slot: 'Slot', cabinet: 'Slot', reels: 'Slot', egm: 'Slot', agm: 'Slot',
+  table: 'Table', roulette: 'Table', etg: 'Table', blackjack: 'Table',
+  betting: 'Betting', sportsbook: 'Betting', ssbt: 'Betting', kiosk: 'Betting', terminal: 'Betting',
+  bingo: 'Bingo', lottery: 'Bingo', vlt: 'Bingo',
+  arcade: 'Arcade',
   phone: 'Mobile', mobile: 'Mobile', iphone: 'Mobile',
   tablet: 'Tablet', ipad: 'Tablet',
   desktop: 'Desktop', pc: 'Desktop'
+};
+
+/** Plain-word name for a group, for the label a match carries into the suggestion list. */
+const PRESET_NOUNS: Record<PresetGroup, string> = {
+  Slot: 'Slot cabinet',
+  Table: 'Roulette terminal',
+  Betting: 'Betting terminal',
+  Bingo: 'Bingo unit',
+  Arcade: 'Arcade upright',
+  Mobile: 'Phone',
+  Tablet: 'Tablet',
+  Desktop: 'Desktop'
 };
 
 const PLAIN: Record<string, TopbarMatch> = deepFreeze({
@@ -46,6 +71,13 @@ const ALL_COMMANDS: readonly TopbarMatch[] = ([
   { kind: 'command', id: 'preset', group: 'Mobile', label: 'Phone preview' },
   { kind: 'command', id: 'fit', label: 'Fit to window' },
   { kind: 'command', id: 'detach', label: 'Detach preview' },
+  // After 'detach': the first three entries are what an empty bar suggests, and that
+  // default trio is pinned by a test.
+  { kind: 'command', id: 'preset', group: 'Slot', label: 'Slot cabinet preview' },
+  { kind: 'command', id: 'preset', group: 'Table', label: 'Roulette terminal preview' },
+  { kind: 'command', id: 'preset', group: 'Betting', label: 'Betting terminal preview' },
+  { kind: 'command', id: 'preset', group: 'Bingo', label: 'Bingo unit preview' },
+  { kind: 'command', id: 'preset', group: 'Arcade', label: 'Arcade upright preview' },
   { kind: 'command', id: 'preset', group: 'Tablet', label: 'Tablet preview' },
   { kind: 'command', id: 'preset', group: 'Desktop', label: 'Desktop preview' },
   { kind: 'command', id: 'split', direction: 'vertical', label: 'Split vertically' },
@@ -61,7 +93,7 @@ function parseCommand(raw: string): TopbarMatch {
   const t = raw.toLowerCase();
   if (PRESET_WORDS[t]) {
     const group = PRESET_WORDS[t];
-    return { kind: 'command', id: 'preset', group, label: `${group === 'Mobile' ? 'Phone' : group} preview` };
+    return { kind: 'command', id: 'preset', group, label: `${PRESET_NOUNS[group]} preview` };
   }
   if (PLAIN[t]) return PLAIN[t];
 

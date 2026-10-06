@@ -161,3 +161,137 @@ export function unwrapValueUnit(val: any, portType: string, info?: PortUnitInfo)
 
   return val;
 }
+
+/**
+ * Keys in the node's stored parameter map that are NOT serialized into
+ * `parameters` by the stored-key pass. `nodeLabel` is the editor's label
+ * storage and is already surfaced as the top-level `nodeLabel` field.
+ */
+const STORED_KEY_SKIP = new Set(['nodeLabel']);
+
+function isJSFunctionType(typeName: string): boolean {
+  const t = (typeName || '').toLowerCase();
+  return t === 'javascriptfunction' || t === 'javascript2';
+}
+
+/**
+ * Serialize a node's parameters for the ChatPanel bridge (graph.getNodes,
+ * graph.getRoots, node.findById/findByLabel, project.getComponentsWithGraph, …).
+ *
+ * WHY (debug export 1790277377788): the editor's NodeGraphNode has no
+ * getParameters(), so values were only collected by walking the node's PORT
+ * list. A port-backed value whose port was missing from that list (port cache
+ * built before the type resolved, dynamic ports not registered yet, library
+ * not loaded) vanished from the payload — Variable2 / Set Variable nodes came
+ * back with no `name` although node.parameters.name was set, and
+ * verify_logic_correctness reported them as unreachable. proxy.node.getParameter
+ * read the stored value directly and got it.
+ *
+ * The result is now the UNION of the port walk and every key the node actually
+ * stores in `node.parameters`. Every value is read through node.getParameter,
+ * the same read the node.getParameter endpoint returns. The deny rules are the
+ * same for both passes: output/signal ports, the functionScript bloat
+ * pseudo-port, the size backstop. Unit normalisation (unwrapValueUnit) runs
+ * wherever the port is known; a stored key with no known port is returned
+ * exactly as getParameter returns it.
+ *
+ * `resolveTypePorts` supplies the NodeLibrary type's ports when the live node
+ * reports none; injected so this stays a pure, testable function.
+ */
+export function serializeNodeParameters(
+  node: any,
+  resolveTypePorts?: (typeName: string) => any[] | undefined,
+): Record<string, any> {
+  const params: Record<string, any> = {};
+  if (!node) return params;
+  const read = (key: string): any => {
+    try {
+      return typeof node.getParameter === 'function' ? node.getParameter(key) : node.parameters?.[key];
+    } catch {
+      return undefined;
+    }
+  };
+
+  try {
+    if (typeof node.getParameters === 'function') {
+      const paramList = node.getParameters();
+      for (const p of paramList) params[p.name] = p.value;
+    }
+  } catch { /* not available on this node */ }
+
+  const typeName: string = node.type?.name || node.typename || '';
+  const isJSFunction = isJSFunctionType(typeName);
+
+  // JavaScript function nodes keep their script in params that are not ports.
+  const lower = typeName.toLowerCase();
+  if (isJSFunction || lower === 'xgenia.javascript') {
+    for (const key of ['functionScript', 'scriptInputs', 'scriptOutputs']) {
+      if (params[key] !== undefined && params[key] !== null) continue;
+      const val = read(key);
+      if (val !== undefined && val !== null) params[key] = val;
+    }
+  }
+
+  let rawPorts: any[] = [];
+  try {
+    if (typeof node.getPorts === 'function') rawPorts = node.getPorts() || [];
+  } catch { /* getPorts() not available */ }
+  if (!rawPorts.length) rawPorts = Array.isArray(node.ports) ? node.ports : [];
+  if (!rawPorts.length && typeName && resolveTypePorts) {
+    try {
+      const typePorts = resolveTypePorts(typeName);
+      if (Array.isArray(typePorts)) rawPorts = typePorts;
+    } catch { /* NodeLibrary not available */ }
+  }
+
+  // Index input ports by name; remember names that are outputs/signals only.
+  const inputPorts = new Map<string, any>();
+  const excluded = new Set<string>();
+  for (const p of rawPorts) {
+    if (!p?.name) continue;
+    const portTypeName = (p.type?.name || p.type || '').toString().toLowerCase();
+    if (p.plug === 'output' || portTypeName === 'signal') {
+      if (!inputPorts.has(p.name)) excluded.add(p.name);
+      continue;
+    }
+    if (!inputPorts.has(p.name)) inputPorts.set(p.name, p);
+    excluded.delete(p.name);
+  }
+
+  const normalise = (key: string, v: any): any => {
+    const port = inputPorts.get(key);
+    if (!port) return v;
+    const portTypeName = (port.type?.name || port.type || '').toString().toLowerCase();
+    return unwrapValueUnit(v, portTypeName, portUnitInfo(port));
+  };
+
+  // Pass 1: every declared input port.
+  for (const name of inputPorts.keys()) {
+    if (params[name] !== undefined && params[name] !== null) continue;
+    if (isBloatPort(name, isJSFunction)) continue;
+    const v = read(name);
+    if (v !== undefined && v !== null && !isTooLargeToSerialize(v)) params[name] = v;
+  }
+
+  // Pass 2: every stored key, whether or not its port is in the list.
+  let storedKeys: string[] = [];
+  try {
+    const stored = node.parameters;
+    if (stored && typeof stored === 'object') storedKeys = Object.keys(stored);
+  } catch { /* parameters getter threw */ }
+  for (const key of storedKeys) {
+    if (STORED_KEY_SKIP.has(key) || excluded.has(key)) continue;
+    if (params[key] !== undefined && params[key] !== null) continue;
+    if (isBloatPort(key, isJSFunction)) continue;
+    const v = read(key);
+    if (v !== undefined && v !== null && !isTooLargeToSerialize(v)) params[key] = v;
+  }
+
+  // Unit normalisation for every value whose port is known (including values
+  // that arrived via getParameters()).
+  for (const key of Object.keys(params)) {
+    if (params[key] !== undefined && params[key] !== null) params[key] = normalise(key, params[key]);
+  }
+
+  return params;
+}

@@ -121,7 +121,7 @@ export class NodeGraphEditorConnection {
     this.toNode.connections.push(this);
     this.toNode.sortConnections();
 
-    this.owner.connections.push(this);
+    if (this.owner.connections.indexOf(this) === -1) this.owner.connections.push(this);
   }
 
   disconnect() {
@@ -202,6 +202,9 @@ export class NodeGraphEditorConnection {
     if (evt.button !== 0) return; //only interact with left mouse button
 
     const _this = this;
+    // A disconnected connection keeps its last curve; don't let it be hovered
+    if (!this.fromNode || !this.toNode) return;
+
     if (type === 'move') {
       if (this.ctx) {
         this.ctx.lineWidth = 10;

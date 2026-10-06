@@ -1,10 +1,10 @@
-name: Nightly Multi-Platform Build (Internal)
+name: Nightly Multi-Platform Build
 
 on:
   # push:
-       # branches: ['develop']
+  # branches: ['develop']
   # pull_request:
-  #   branches: ['release/v1.0.0']
+  #   branches: ['']
   # schedule:
   #   - cron: '0 0 * * *' # Runs every day at midnight UTC
   workflow_dispatch: # Allows manual triggering
@@ -17,6 +17,7 @@ jobs:
 
     strategy:
       fail-fast: false
+      # max-parallel: 1
       matrix:
         arch: [arm64, x64]
 
@@ -24,12 +25,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Init private submodule (optional)
-        continue-on-error: true
+      - name: Init private submodule
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            git submodule update --init private
+            # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
+            git submodule update --init --remote private
+            echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
+          elif [ "$GITHUB_REPOSITORY" = "XgeniaORG/XGENIA" ]; then
+            # Without private/ the viewer aliases @xgenia/pro-nodes to dummy-pro-nodes.js:
+            # the app builds green and ships with no slot nodes.
+            echo "::error::PRIVATE_SUBMODULE_PAT is not set; refusing to build XGENIA without the private nodes"
+            exit 1
           else
             echo "Private submodule PAT not available, building with stubs"
           fi
@@ -44,50 +51,34 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      # The signing keychain is built here rather than by electron-builder.
-      # Its own path (app-builder-lib/out/codeSign/macCodeSign.js) creates the
-      # temp keychain with a random password and then calls
-      # `security set-key-partition-list -k <certificate password>` on it, so
-      # the unlock is guaranteed to fail; the arm64 runner images turn that into
-      # a hard error instead of a warning. Setting CSC_LINK is what selects that
-      # path, so it must stay unset — with only CSC_KEYCHAIN set,
-      # electron-builder signs with the keychain it is handed.
-      - name: Import Apple signing certificate
+      - name: Import Code-Signing Certificate
         env:
           CSC_CONTENT: ${{ secrets.MACOS_CERTIFICATE_P12 }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
         run: |
-          set -eu
-          KEYCHAIN="$RUNNER_TEMP/xgenia-signing.keychain-db"
-          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
-          CERT="$RUNNER_TEMP/certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
 
-          printf '%s' "$CSC_CONTENT" | base64 --decode > "$CERT"
+          echo "$CSC_CONTENT" | base64 --decode > "$CERT_PATH"
 
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security import "$CERT" -k "$KEYCHAIN" -P "$CSC_KEY_PASSWORD" -f pkcs12 \
-            -T /usr/bin/codesign -T /usr/bin/productbuild
-          # Same password as create-keychain, which is the whole point.
-          security set-key-partition-list -S apple-tool:,apple:,codesign: \
-            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          # Keep the login keychain searchable so the Apple intermediate certs resolve.
-          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
-          rm -f "$CERT"
+          # Fresh keychain, no auto-lock, so codesign/notarytool never hit a
+          # relocked keychain mid-build (the cause of the SecKeychainUnlock error).
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          echo "--- codesigning identities in the signing keychain"
-          security find-identity -v -p codesigning "$KEYCHAIN"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" |
-            sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)
-          if [ -z "$IDENTITY" ]; then
-            echo "No 'Developer ID Application' identity in MACOS_CERTIFICATE_P12" >&2
-            exit 1
-          fi
-          echo "Signing as: $IDENTITY"
-          echo "CSC_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
-          echo "CSC_NAME=$IDENTITY" >> "$GITHUB_ENV"
+          # Put the new keychain ahead of the existing search list rather than
+          # replacing it, so electron-builder's CSC_IDENTITY_AUTO_DISCOVERY can
+          # still find the identity.
+          EXISTING_KEYCHAINS=$(security list-keychains -d user | sed 's/[",]//g')
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $EXISTING_KEYCHAINS
+
+          rm -f "$CERT_PATH"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
       - name: Build macOS ${{ matrix.arch }}
         env:
@@ -108,6 +99,10 @@ jobs:
           path: publish
           retention-days: 7
 
+      - name: Remove code-signing keychain
+        if: always()
+        run: security delete-keychain "$KEYCHAIN_PATH" || true
+
   build-linux:
     name: Build Linux (x64)
     runs-on: ubuntu-latest
@@ -116,12 +111,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Init private submodule (optional)
-        continue-on-error: true
+      - name: Init private submodule
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            git submodule update --init private
+            # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
+            git submodule update --init --remote private
+            echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
+          elif [ "$GITHUB_REPOSITORY" = "XgeniaORG/XGENIA" ]; then
+            # Without private/ the viewer aliases @xgenia/pro-nodes to dummy-pro-nodes.js:
+            # the app builds green and ships with no slot nodes.
+            echo "::error::PRIVATE_SUBMODULE_PAT is not set; refusing to build XGENIA without the private nodes"
+            exit 1
           else
             echo "Private submodule PAT not available, building with stubs"
           fi
@@ -170,13 +171,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Init private submodule (optional)
-        continue-on-error: true
+      - name: Init private submodule
         shell: bash
         run: |
           if [ -n "$PRIVATE_PAT" ]; then
             git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
-            git submodule update --init private
+            # Build from the latest private main, not the pinned commit (.gitmodules branch = main).
+            git submodule update --init --remote private
+            echo "private at $(git -C private rev-parse --short HEAD) (latest main)"
+          elif [ "$GITHUB_REPOSITORY" = "XgeniaORG/XGENIA" ]; then
+            # Without private/ the viewer aliases @xgenia/pro-nodes to dummy-pro-nodes.js:
+            # the app builds green and ships with no slot nodes.
+            echo "::error::PRIVATE_SUBMODULE_PAT is not set; refusing to build XGENIA without the private nodes"
+            exit 1
           else
             echo "Private submodule PAT not available, building with stubs"
           fi
@@ -209,3 +216,50 @@ jobs:
           name: XGENIA-Windows-x64
           path: publish
           retention-days: 7
+
+  notify-teams:
+    name: Notify Teams
+    needs: [build-macos, build-linux, build-windows]
+    # Runs whatever happened upstream: a broken nightly is the case worth being
+    # told about, and the per-platform results below say which one broke.
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get version from package.json
+        id: package-version
+        run: |
+          VERSION=$(jq -r .version packages/xgenia-editor/package.json)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Read version: $VERSION"
+
+      # needs.build-macos.result collapses the whole arch matrix into a single
+      # value, so arm64 and x64 are read back individually from the run's job
+      # list. This also picks up any build job added later without editing here.
+      - name: Collect per-platform results
+        id: results
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo 'text<<CARD_EOF'
+            gh api --paginate \
+              "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs" \
+              --jq '.jobs[] | select(.name | startswith("Build ")) | "\(.name): \(.conclusion // .status)"'
+            echo "Commit: ${{ github.sha }}"
+            echo 'CARD_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Send Teams notification
+        uses: ./.github/actions/teams-notification
+        with:
+          webhook-url: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          msg-title: 'XGENIA Internal Nightly V${{ steps.package-version.outputs.version }} (build #${{ github.run_number }})'
+          msg-text: ${{ steps.results.outputs.text }}
+          status: ${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && 'failure' || 'success' }}
+          workflow-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
