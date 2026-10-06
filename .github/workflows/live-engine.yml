@@ -117,6 +117,22 @@ jobs:
           name: engine-files
           path: ${{ runner.temp }}/engine/files
 
+      # The smoke compiles users' maths fixtures, which live in the private repo
+      # (#159). This job never checked it out, so every run since failed at Smoke
+      # with ENOENT. Same commit the build tested.
+      - name: Private (smoke fixtures)
+        env:
+          PRIVATE_PAT: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
+          PRIVATE_SHA: ${{ needs.build.outputs.private_sha }}
+        run: |
+          test -n "$PRIVATE_PAT" || { echo "PRIVATE_SUBMODULE_PAT is missing"; exit 1; }
+          git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
+          git submodule update --init private
+          git -C private fetch --depth 1 origin "$PRIVATE_SHA"
+          git -C private checkout -q "$PRIVATE_SHA"
+          git config --global --unset-all url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf
+          test -f private/test-fixtures/rgs-maths/round-player-parrot.json
+
       - name: Pack and sign
         env:
           ENGINE_SIGNING_KEY: ${{ secrets.ENGINE_SIGNING_KEY }}
