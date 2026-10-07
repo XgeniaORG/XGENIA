@@ -3519,7 +3519,7 @@ export class EditorBridge {
         });
 
         // --- Viewer commands (screenshots, HTML) ---
-        h('viewer.captureScreenshot', ([fullPage]: [boolean]) => {
+        h('viewer.captureScreenshot', ([fullPage, encoding]: [boolean, { format?: 'png' | 'jpeg'; quality?: number }?]) => {
             return new Promise((resolve) => {
                 try {
                     const { ipcRenderer } = require('electron');
@@ -3527,7 +3527,10 @@ export class EditorBridge {
                     const replyChannel = fullPage ? 'viewer-capture-fullpage-reply' : 'viewer-capture-thumb-reply';
                     const timeoutMs = fullPage ? 30000 : 10000;
 
-                    ipcRenderer.send(requestChannel);
+                    // (2026-10-07) A motion frame may ask for JPEG (captureEncoding.ts); the main process
+                    // forwards the argument to the preview view as it is. No argument = the old PNG.
+                    if (encoding && typeof encoding === 'object') ipcRenderer.send(requestChannel, { format: encoding.format, quality: encoding.quality });
+                    else ipcRenderer.send(requestChannel);
 
                     const timeout = setTimeout(() => {
                         ipcRenderer.removeListener(replyChannel, handler);
