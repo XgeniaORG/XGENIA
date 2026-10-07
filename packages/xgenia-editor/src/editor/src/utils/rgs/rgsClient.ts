@@ -289,6 +289,9 @@ export function saveRgsSettings(settings: RgsSettings | string): void {
 
 export function clearRgsSettings(): void {
   localStorage.removeItem(RGS_SETTINGS_KEY);
+  // The active game is stored under the same key, so disconnecting clears the
+  // selection too — say so, or a listener keeps showing the old game.
+  EventDispatcher.instance.emit('rgs.gameSelected', null);
 }
 
 export function isRgsConnected(): boolean {
@@ -297,9 +300,14 @@ export function isRgsConnected(): boolean {
 
 /**
  * The game selected in the Maths RGS panel. This is the single source of truth
- * shared by the panel and the Deploy flow: the panel writes it (via __xrgs.
- * setActiveGame → mergeRgsSettings) into `xgenia_rgs_settings.activeGame`, and
- * the Deploy popup reads it here to pre-select the backend target game.
+ * shared by the panel and the Deploy flow: the panel (via __xrgs.setActiveGame)
+ * and the AI (via the EditorBridge's xrgs.setActiveGame) both write it through
+ * setActiveGame below into `xgenia_rgs_settings.activeGame`, and the Deploy
+ * popup reads it here to show the backend target game.
+ *
+ * Every write MUST go through setActiveGame: it is what emits `rgs.gameSelected`.
+ * The Publish popup is always mounted, so a write that skips the event leaves it
+ * showing the previous game until it happens to re-render.
  *
  * NOTE: this replaced the old, separate `xgenia_selected_game` key
  * (getSelectedGame/setSelectedGame below), which the panel never actually wrote —

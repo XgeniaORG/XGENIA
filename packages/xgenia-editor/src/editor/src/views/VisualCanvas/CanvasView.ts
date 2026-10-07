@@ -297,6 +297,14 @@ export class CanvasView extends View {
     this.webview = webview;
     this.webviewSetupComplete = true;
 
+    // Size the frame now that there is one. setViewportSize(), setZoomFactor() and
+    // resize() are driven by EditorDocument's effects, and on a remount — Exit from
+    // the Simulate, Compliance or diff document — they usually all run BEFORE this
+    // point: render() defers the React root by a tick and createRoot renders async.
+    // With no webview yet, updateViewportSize() returns early, so the iframe kept its
+    // default 300x150 box until something happened to resize the panel.
+    this.updateViewportSize();
+
     // Expose webview to AI tools via NodeGraphContextTmp
     try {
       const { NodeGraphContextTmp } = require('@xgenia-contexts/NodeGraphContext/NodeGraphContext');

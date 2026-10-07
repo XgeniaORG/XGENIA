@@ -1,5 +1,5 @@
 import { useModernModel } from '@xgenia-hooks/useModel';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useReducer } from 'react';
 import { filesystem } from '@xgenia/platform';
 import * as os from 'os';
 
@@ -178,9 +178,13 @@ export function XgeniaDeployTab() {
   // Offering a dropdown could only let the two disagree — publishing "to game B"
   // while every endpoint baked into the build belongs to game A.
   //
-  // Re-read when the popup opens and whenever the panel changes it, so a game
-  // selected without closing this popup is picked up.
-  const [rgsGame, setRgsGame] = useState(() => getActiveGame());
+  // Read at render, like rgsConnected below — never held in state. The popup is
+  // alwaysMounted, so a copy taken at mount kept showing the first game ever
+  // selected after the panel had switched to another one. Opening the popup
+  // re-renders this tab; while it is open, `rgs.gameSelected` (effect below)
+  // forces the re-render.
+  const [, rerenderOnGameSelected] = useReducer((n: number) => n + 1, 0);
+  const rgsGame = getActiveGame();
   const rgsSelected = environmentId === RGS_ENVIRONMENT_VALUE;
   const rgsConnected = isRgsConnected();
   const [domainName, setDomainName] = useState('');
@@ -305,18 +309,16 @@ export function XgeniaDeployTab() {
     return () => unsub();
   }, []);
 
-  // Follow the Maths RGS panel's game selection. The panel emits `rgs.gameSelected`
-  // (see rgsClient.setActiveGame), so a game chosen while this popup is open is
-  // reflected here rather than leaving a stale name on screen.
+  // Follow the Maths RGS panel's game selection. Every write of it emits
+  // `rgs.gameSelected` (see rgsClient.setActiveGame), so a game chosen while this
+  // popup is open is reflected here rather than leaving a stale name on screen.
   //
   // No games list is fetched any more: without a picker there is nothing to
   // populate, and the selection already carries the id, slug and name that
   // publishing needs.
   useEffect(() => {
-    setRgsGame(getActiveGame());
-    const onSelected = () => setRgsGame(getActiveGame());
-    EventDispatcher.instance.on('rgs.gameSelected', onSelected, onSelected);
-    return () => { EventDispatcher.instance.off(onSelected); };
+    EventDispatcher.instance.on('rgs.gameSelected', rerenderOnGameSelected, rerenderOnGameSelected);
+    return () => { EventDispatcher.instance.off(rerenderOnGameSelected); };
   }, []);
 
   // The Vercel team the deploy token can use (VercelSDKWrapper.team): the shared
