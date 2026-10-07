@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { filesystem } from '@xgenia/platform';
 
 import { ProjectModel } from '../../../models/projectmodel';
-import { atomicWriteText, createSerializedWriter, salvageJsonObject, type SalvageResult } from './assetMetaStore';
+import { atomicWriteText, createSerializedWriter, salvageJsonObject, type SalvageResult, cacheBelongsTo } from './assetMetaStore';
 import type { AssetRole } from './assetRoles';
 
 // Per-asset tags & favorites, stored in ONE project file (<project>/.xgenia-assets.json),
@@ -180,6 +180,12 @@ export async function loadAssetMeta(): Promise<void> {
 async function persist(): Promise<void> {
   const p = metaPath();
   if (!p) return;
+  // Never write a cache read from another project into this project's file (cacheBelongsTo).
+  if (!cacheBelongsTo(loadedRoot, projectRoot())) {
+    console.warn('[assetMeta] not saved: the metadata in memory belongs to another project; loading this one');
+    void loadAssetMeta();
+    return;
+  }
   return writer.schedule({ path: p, text: JSON.stringify(cache, null, 2) });
 }
 
@@ -232,7 +238,11 @@ export function getAssetUid(path: string): string | undefined {
  * because committing against an unloaded (empty) cache would clobber the on-disk file.
  */
 export function getOrAssignUid(path: string): string {
-  if (loadedRoot === undefined) return '';
+  // Not loaded, or loaded for another project: no uid from (or into) the wrong project's records.
+  if (!cacheBelongsTo(loadedRoot, projectRoot())) {
+    void loadAssetMeta();
+    return '';
+  }
   const existing = cache[path]?.uid;
   if (existing) return existing;
   const taken = new Set(Object.values(cache).map((e) => e.uid).filter(Boolean) as string[]);
