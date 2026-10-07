@@ -485,6 +485,7 @@ function generateNodeLibrary(nodeRegister) {
           name: 'Animation',
           items: [
             'net.xgenia.animationtarget',
+            'net.xgenia.timeline',
             // 'net.xgenia.gsapAnimator'
           ]
         },

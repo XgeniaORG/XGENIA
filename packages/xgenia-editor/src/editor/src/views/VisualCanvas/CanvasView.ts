@@ -3,6 +3,7 @@ import React from 'react';
 import { createRoot, Root } from 'react-dom/client';
 
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
+import { EditorSceneVisibility } from '../../models/editorSceneVisibility';
 import View from '../../../../shared/view';
 import { InlineElementChat } from './InlineElementChat';
 import type { PreviewHost } from './IframeViewer';
@@ -214,6 +215,23 @@ export class CanvasView extends View {
   constructor({ onNavigationStateChanged }) {
     super();
 
+    EventDispatcher.instance.on(EditorSceneVisibility.EVENT, () => this.pushSceneVisibility(), this._sceneVisibilityGroup);
+    // Editor panels (Timeline, slot tools) run code in the live preview through this one
+    // channel instead of each reaching for the CanvasView: { code, callback?(result, error) }.
+    EventDispatcher.instance.on(
+      'preview-eval',
+      (args: { code: string; callback?: (result: any, error?: any) => void }) => {
+        if (!args || typeof args.code !== 'string') return;
+        // More than one CanvasView can be alive (the editor keeps a spare without a frame);
+        // only the one with a live preview answers, or the spare's "no preview" wins the race.
+        if (!this.webview || !this.webview.isConnected) return;
+        Promise.resolve()
+          .then(() => this.webview.executeJavaScript(args.code))
+          .then((r) => args.callback?.(r), (e) => args.callback?.(undefined, e));
+      },
+      this._sceneVisibilityGroup
+    );
+
     this.zoomFactor = 1;
     this.viewportWidth = null;
     this.viewportHeight = null;
@@ -367,6 +385,12 @@ export class CanvasView extends View {
     webview.addEventListener('dom-ready', () => {
       console.log('[CanvasView] Webview DOM ready');
       this.webviewDomReady = true;
+      // Every load is a fresh frame with the inspector off. Without re-applying it, a refresh,
+      // a route change, or a project open that beat the mode effect left the toolbar saying
+      // Edit over a preview that ignored clicks.
+      if (this.inspectMode) this.callInspectorAPI(true);
+      else this.pushSceneVisibility();
+      this.pushFrameScale();
 
       // NO IPC message handling here - that's handled by editorapi.js
       // This keeps the architecture clean and avoids conflicts
@@ -421,19 +445,31 @@ export class CanvasView extends View {
             component: message.component
           });
         }
+      } else if (event.channel === 'inspector-chat-focus') {
+        // "Ask AI" on a viewport selection: the references are on their way to the chat; bring
+        // the chat panel forward so the user types what to do with them.
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const { SidebarModel } = require('@xgenia-models/sidebar');
+          const items = SidebarModel.instance.getItems() || [];
+          const chat = items.find((i: any) => i.id === 'ChatPanel' || i.id === 'chat-panel');
+          if (chat && SidebarModel.instance.getCurrent()?.id !== chat.id) SidebarModel.instance.switch(chat.id);
+        } catch (e) {
+          console.warn('[CanvasView] could not open the chat panel', e);
+        }
+      } else if (event.channel === 'editor-pan-viewport') {
+        if (!this.inspectMode || !message || !this.webview) return;
+        const container = this.webview.parentElement as HTMLElement | null;
+        if (!container) return;
+        // dx/dy are frame px; the pointer stays on the same frame point while the frame moves
+        // under it, so the frame px delta of the next event is measured against the moved frame.
+        const s = this.currentScale();
+        container.scrollLeft -= message.dx * s;
+        container.scrollTop -= message.dy * s;
       } else if (event.channel === 'editor-zoom-viewport') {
         // Canvas zoom — only in edit mode (inspect mode)
         if (!this.inspectMode) return; // Ignore zoom in preview mode
-        if (message) {
-          if (message.reset) {
-            this.zoomFactor = 1;
-          } else if (message.delta) {
-            this.zoomFactor = Math.min(5, Math.max(0.1, this.zoomFactor + message.delta));
-          }
-          // Use Chromium's native zoom — clean scaling with working scrollbars
-          this.tryWebviewCall(() => (this.webview as any).setZoomFactor(this.zoomFactor));
-          this.props.zoom = this.zoomFactor;
-        }
+        if (message) this.applyCanvasZoomGesture(message);
       }
     });
 
@@ -443,7 +479,9 @@ export class CanvasView extends View {
       }
 
       const protocol = process.env.ssl ? 'https://' : 'http://';
-      const port = process.env.NOODLPORT || 8574;
+      // XGENIAPORT, like the web server and every other preview URL here; the old NOODLPORT
+      // name meant a moved server port never reached the preview, which kept loading :8574.
+      const port = process.env.XGENIAPORT || 8574;
       const urlPrefix = protocol + 'localhost:' + port;
 
       const route = event.url.startsWith(urlPrefix) ? event.url.substring(urlPrefix.length) : event.url;
@@ -509,7 +547,7 @@ export class CanvasView extends View {
     // separate webContents and must keep the canvas zoom the user set in the
     // topbar, so re-assert it whenever the interface zoom changes.
     this.onIpc('ui-zoom-changed', () => {
-      this.tryWebviewCall(() => (this.webview as any).setZoomFactor(this.zoomFactor || 1));
+      this.tryWebviewCall(() => (this.webview as any).setZoomFactor(1));
     });
 
     // HTML capture listener
@@ -1338,6 +1376,7 @@ export class CanvasView extends View {
     console.log('[CanvasView] Disposing CanvasView');
 
     this._disposed = true;
+    EventDispatcher.instance.off(this._sceneVisibilityGroup);
     for (const [channel, fn] of this._ipcListeners) {
       try { ipcRenderer.removeListener(channel, fn); } catch { /* already gone */ }
     }
@@ -1406,7 +1445,9 @@ export class CanvasView extends View {
   }
 
   setZoomFactor(zoomFactor: number) {
+    // A zoom picked in the top bar is exact: it replaces any wheel/⌘± zoom.
     this.zoomFactor = zoomFactor;
+    this.canvasZoom = 1;
     this.updateViewportSize();
   }
 
@@ -1466,33 +1507,152 @@ export class CanvasView extends View {
       const scaleX = availableWidth / width;
       const scaleY = availableHeight / height;
       const fitScale = Math.min(1, Math.min(scaleX, scaleY));
+      // Fit, times the top bar's zoom (0 = Fit), times the Edit-mode canvas zoom (wheel, ⌘±, F).
+      const base = fitScale * (this.zoomFactor > 0 ? this.zoomFactor : 1);
+      const scale = base * this.canvasZoom;
+      this.lastBaseScale = base;
 
       // Set webview to the ACTUAL device dimensions
       // The content will render at true device resolution
       this.webview.style.width = width + 'px';
       this.webview.style.height = height + 'px';
 
-      // Use CSS transform to scale down visually to fit container
+      // Use CSS transform to scale visually; the game keeps its own size and layout.
       this.webview.style.transformOrigin = 'top left';
-      this.webview.style.transform = `scale(${fitScale})`;
+      this.webview.style.transform = `scale(${scale})`;
 
       // Adjust the container to prevent overflow issues
       // The scaled size is what actually takes up space
-      this.webview.style.marginRight = `-${width - (width * fitScale)}px`;
-      this.webview.style.marginBottom = `-${height - (height * fitScale)}px`;
+      this.setFrameMargins(width, height, scale, availableWidth, availableHeight);
 
-      this.props.zoom = fitScale;
+      this.props.zoom = scale;
+      this.renderReact();
+    } else if (this.canvasZoom !== 1 && this.zoomedFill) {
+      // No device, but zoomed in Edit mode: keep the game at the size it had when zooming
+      // started and magnify the frame, so the layout does not re-flow under the zoom.
+      const { width, height } = this.zoomedFill;
+      const scale = this.canvasZoom;
+      this.lastBaseScale = 1;
+      this.webview.style.width = width + 'px';
+      this.webview.style.height = height + 'px';
+      this.webview.style.transformOrigin = 'top left';
+      this.webview.style.transform = `scale(${scale})`;
+      const container = this.webview.parentElement as HTMLElement;
+      this.setFrameMargins(width, height, scale, container.clientWidth, container.clientHeight);
+      this.props.zoom = scale;
       this.renderReact();
     } else {
       // No device — webview fills the container, no transform scaling
+      this.zoomedFill = null;
+      this.lastBaseScale = 1;
       this.webview.style.width = '100%';
       this.webview.style.height = '100%';
       this.webview.style.transform = 'none';
       this.webview.style.transformOrigin = 'top left';
-      this.webview.style.marginRight = '0';
-      this.webview.style.marginBottom = '0';
-      this.props.zoom = this.zoomFactor || 1;
+      this.webview.style.margin = '0';
+      this.props.zoom = 1;
       this.renderReact();
+    }
+    this.pushFrameScale();
+  }
+
+  /**
+   * The transformed frame keeps its untransformed layout box, so the margins make up the
+   * difference. While zoomed in Edit mode, half a panel of room is added on every side, so
+   * zoom-to-cursor and F can bring any point of the game, edges included, to the middle.
+   */
+  private setFrameMargins(width: number, height: number, scale: number, roomW: number, roomH: number) {
+    const padX = this.canvasZoom !== 1 ? Math.round(roomW / 2) : 0;
+    const padY = this.canvasZoom !== 1 ? Math.round(roomH / 2) : 0;
+    this.webview.style.marginLeft = `${padX}px`;
+    this.webview.style.marginTop = `${padY}px`;
+    this.webview.style.marginRight = `${width * scale - width + padX}px`;
+    this.webview.style.marginBottom = `${height * scale - height + padY}px`;
+  }
+
+  /** Tell the preview how big it is on screen, so its selection chrome can stay screen-sized. */
+  private pushFrameScale() {
+    const scale = typeof this.props.zoom === 'number' && this.props.zoom > 0 ? this.props.zoom : 1;
+    this.tryWebviewCall(() => {
+      this.webview
+        .executeJavaScript(
+          `window.XgeniaEditorHighlightAPI && window.XgeniaEditorHighlightAPI.setFrameScale && window.XgeniaEditorHighlightAPI.setFrameScale(${scale})`
+        )
+        .catch(() => undefined);
+    });
+  }
+
+  // --- Edit-mode canvas zoom ---
+  // Scales the preview FRAME, like Figma or Unity's Scene view. It used to set CSS zoom inside
+  // the game, which a letterboxed (uiScale) game answers by re-fitting its canvas — on a slot,
+  // zoom did nothing visible — and which made every pointer coordinate in the preview carry a
+  // zoom factor. Now the game is untouched and the browser maps the pointer through the frame.
+  private canvasZoom = 1;
+  private lastBaseScale = 1;
+  private zoomedFill: { width: number; height: number } | null = null;
+
+  private currentScale() {
+    return this.lastBaseScale * this.canvasZoom;
+  }
+
+  /** message: { reset } | { delta, clientX?, clientY? } | { frame: {left, top, width, height} } (frame px). */
+  private applyCanvasZoomGesture(message: any) {
+    if (!this.webview) return;
+    const container = this.webview.parentElement as HTMLElement | null;
+    if (!container) return;
+    const s0 = this.currentScale();
+
+    // Remember the fill size before the first zoom away from 1.
+    if (this.viewportWidth === null && !this.zoomedFill) {
+      const r = this.webview.getBoundingClientRect();
+      this.zoomedFill = { width: Math.round(r.width / (s0 || 1)), height: Math.round(r.height / (s0 || 1)) };
+    }
+
+    if (message.reset) {
+      this.canvasZoom = 1;
+      this.updateViewportSize();
+      container.scrollLeft = 0;
+      container.scrollTop = 0;
+      return;
+    }
+
+    if (message.frame) {
+      const f = message.frame;
+      const style = getComputedStyle(container);
+      const availW = container.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
+      const availH = container.clientHeight - (parseFloat(style.paddingTop) || 0) - (parseFloat(style.paddingBottom) || 0);
+      if (!(f.width > 0 && f.height > 0 && availW > 0 && availH > 0)) return;
+      const target = Math.min(8, Math.max(0.1, 0.8 * Math.min(availW / f.width, availH / f.height)));
+      this.canvasZoom = target / (this.lastBaseScale || 1);
+      this.updateViewportSize();
+      const s1 = this.currentScale();
+      const fr = this.webview.getBoundingClientRect();
+      const cr = container.getBoundingClientRect();
+      const ox = fr.left - cr.left + container.scrollLeft;
+      const oy = fr.top - cr.top + container.scrollTop;
+      container.scrollLeft = ox + (f.left + f.width / 2) * s1 - container.clientWidth / 2;
+      container.scrollTop = oy + (f.top + f.height / 2) * s1 - container.clientHeight / 2;
+      return;
+    }
+
+    if (message.delta) {
+      // Multiplicative, so each step feels the same at any zoom.
+      const factor = 1 + Math.max(-0.5, Math.min(0.5, message.delta * 2));
+      const next = Math.min(8, Math.max(0.1, s0 * factor));
+      this.canvasZoom = next / (this.lastBaseScale || 1);
+      // Keep the point under the cursor (or the view centre, for ⌘±) where it is.
+      const fr0 = this.webview.getBoundingClientRect();
+      const cr = container.getBoundingClientRect();
+      const fx = typeof message.clientX === 'number' ? message.clientX : (cr.left + container.clientWidth / 2 - fr0.left) / (s0 || 1);
+      const fy = typeof message.clientY === 'number' ? message.clientY : (cr.top + container.clientHeight / 2 - fr0.top) / (s0 || 1);
+      const px = fr0.left + fx * s0;
+      const py = fr0.top + fy * s0;
+      this.updateViewportSize();
+      // Measure after the resize: a frame smaller than the panel is centred, so its corner moves.
+      const s1 = this.currentScale();
+      const fr1 = this.webview.getBoundingClientRect();
+      container.scrollLeft += fr1.left + fx * s1 - px;
+      container.scrollTop += fr1.top + fy * s1 - py;
     }
   }
 
@@ -1501,10 +1661,9 @@ export class CanvasView extends View {
     this.inspectMode = enabled;
 
     // When switching to preview mode, reset zoom to 100%
-    if (!enabled && this.zoomFactor !== 1) {
-      this.zoomFactor = 1;
-      this.tryWebviewCall(() => (this.webview as any).setZoomFactor(1));
-      this.props.zoom = 1;
+    if (!enabled && this.canvasZoom !== 1) {
+      this.canvasZoom = 1;
+      this.updateViewportSize();
     }
 
     this.callInspectorAPI(enabled);
@@ -1575,7 +1734,26 @@ export class CanvasView extends View {
     }
   }
 
+  private _sceneVisibilityGroup = {};
+
+  /** Hierarchy eye/lock state → the preview, which applies it in Edit mode only. */
+  private pushSceneVisibility() {
+    const value = JSON.stringify(EditorSceneVisibility.get());
+    this.tryWebviewCall(() => {
+      this.webview.executeJavaScript(`
+        (function() {
+          try {
+            if (typeof XgeniaEditorInspectorAPI !== 'undefined' && XgeniaEditorInspectorAPI.setEditorVisibility) {
+              XgeniaEditorInspectorAPI.setEditorVisibility(${value});
+            }
+          } catch (e) { /* preview not ready */ }
+        })();
+      `);
+    });
+  }
+
   private callInspectorAPI(enabled: boolean) {
+    this.pushSceneVisibility();
     this.tryWebviewCall(() => {
       // Check if APIs are available before calling them
       this.webview.executeJavaScript(`
@@ -1607,14 +1785,15 @@ export class CanvasView extends View {
     });
   }
 
-  setNodeSelected(nodeId: string) {
+  setNodeSelected(nodeId: string | null) {
     this.selectedNodeId = nodeId;
     this.tryWebviewCall(() => {
+      // JSON-encoded: quoted, a null id used to arrive as the string 'null'.
       this.webview.executeJavaScript(`
         (function() {
           try {
             if (typeof XgeniaEditorHighlightAPI !== 'undefined' && XgeniaEditorHighlightAPI.selectNode) {
-              XgeniaEditorHighlightAPI.selectNode('${nodeId}');
+              XgeniaEditorHighlightAPI.selectNode(${JSON.stringify(nodeId ?? null)});
             } else {
               console.warn('[CanvasView] XgeniaEditorHighlightAPI not available');
             }

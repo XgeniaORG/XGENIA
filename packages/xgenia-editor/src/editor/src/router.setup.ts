@@ -60,6 +60,8 @@ import { ImageEditorPanel } from './views/panels/ImageEditorPanel';
 import { ProjectStylesPanel } from './views/panels/ProjectStylesPanel/ProjectStylesPanel';
 import { MathsPanel, MathsPanel_ID } from './views/panels/MathsPanel';
 import { AssetPanel } from './views/panels/AssetPanel';
+import { GlassHierarchy, HierarchyPanel, HierarchyPanel_ID } from './views/panels/HierarchyPanel';
+import { GlassHistory, HistoryPanel, HistoryPanel_ID } from './views/panels/HistoryPanel';
 
 
 
@@ -118,6 +120,25 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
       }
     },
     panel: ComponentsPanel
+  });
+
+  // Unity-style tree of the active component's nodes: selection mirrors the graph, eye/lock
+  // drive EditorSceneVisibility, drag to reparent. Sits right under Components.
+  SidebarModel.instance.register({
+    id: HierarchyPanel_ID,
+    name: 'Hierarchy',
+    order: 21,
+    icon: GlassHierarchy,
+    panel: HierarchyPanel
+  });
+
+  // The undo queue as a clickable list (jump back or forward to any step).
+  SidebarModel.instance.register({
+    id: HistoryPanel_ID,
+    name: 'History',
+    order: 90,
+    icon: GlassHistory,
+    panel: HistoryPanel
   });
 
   SidebarModel.instance.register({

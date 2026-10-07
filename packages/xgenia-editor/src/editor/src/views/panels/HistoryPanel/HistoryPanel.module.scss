@@ -1,0 +1,160 @@
+// The History panel. Same row grammar as the Hierarchy panel; tokens from colors.css / glass.css.
+
+.List {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+}
+
+.Spacer {
+  position: relative;
+  width: 100%;
+}
+
+.Empty {
+  padding: 16px;
+  color: var(--theme-color-fg-default-shy);
+  font: 400 12px/1.4 var(--font-family-regular, inherit);
+}
+
+.Row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 12px;
+  box-sizing: border-box;
+  color: var(--theme-color-fg-default);
+  font: 400 12px/1 var(--font-family-regular, inherit);
+  cursor: pointer;
+  user-select: none;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  // The current position: the last change applied.
+  &.isCurrent {
+    background: var(--theme-color-secondary);
+    color: var(--theme-color-on-secondary);
+    cursor: default;
+
+    &:hover {
+      background: var(--theme-color-secondary-highlight);
+    }
+
+    .Marker {
+      background: currentColor;
+      border-color: currentColor;
+    }
+  }
+
+  // Undone, still redo-able.
+  &.isUndone {
+    .Label,
+    .Marker {
+      opacity: 0.4;
+    }
+
+    .Label {
+      font-style: italic;
+    }
+  }
+
+  &.isStart .Label {
+    color: var(--theme-color-fg-default-shy);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 10.5px;
+  }
+
+  &.isStart.isCurrent .Label {
+    color: inherit;
+  }
+}
+
+.Marker {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--theme-color-fg-default-shy);
+  box-sizing: border-box;
+}
+
+.Label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// Branches and checkpoints sit under the list.
+.Footer {
+  flex: none;
+  max-height: 45%;
+  overflow-y: auto;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 6px 0 8px;
+}
+
+.SectionTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px 4px;
+  color: var(--theme-color-fg-default-shy);
+  font: 600 10.5px/1 var(--font-family-regular, inherit);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.FooterRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  color: var(--theme-color-fg-default);
+  font: 400 12px/1.3 var(--font-family-regular, inherit);
+  cursor: pointer;
+  user-select: none;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+}
+
+.Meta {
+  flex: none;
+  color: var(--theme-color-fg-default-shy);
+  font-size: 11px;
+}
+
+.Button {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--theme-color-fg-default);
+  font: 500 11px/1 var(--font-family-regular, inherit);
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--theme-color-secondary);
+    color: var(--theme-color-on-secondary);
+  }
+}
+
+.Shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}

@@ -1435,6 +1435,20 @@ function launchApp() {
       }
     });
 
+    function sendEditMenuCommand(focused, command) {
+      const target = focused || BrowserWindow.getFocusedWindow() || win;
+      if (target && target.webContents && !target.webContents.isDestroyed()) {
+        target.webContents.send('editor-menu-command', { command });
+      }
+    }
+
+    // The renderer hands text-field undo/redo back: only the webContents can run the native
+    // editing command in whichever frame has focus.
+    ipcMain.on('editor-native-edit', (e, command) => {
+      if (command === 'undo') e.sender.undo();
+      else if (command === 'redo') e.sender.redo();
+    });
+
     function setupMenu() {
       var template = [
         {
@@ -1444,8 +1458,11 @@ function launchApp() {
         {
           label: 'Edit',
           submenu: [
-            { label: 'Undo', accelerator: 'CmdOrCtrl+Z', selector: 'undo:' },
-            { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', selector: 'redo:' },
+            // The editor decides what Undo means (keyboardhandler.ts listenForMenuCommands): its
+            // own history, or the native text undo when a text field has focus. The `undo:`
+            // selector this replaced only ever ran the text undo, and only on macOS.
+            { label: 'Undo', accelerator: 'CmdOrCtrl+Z', click: (_item, focused) => sendEditMenuCommand(focused, 'undo') },
+            { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', click: (_item, focused) => sendEditMenuCommand(focused, 'redo') },
             { type: 'separator' },
             // `role` rather than `selector`: the selector form is a macOS-only
             // ObjC message, so on Windows and Linux these entries were dead.

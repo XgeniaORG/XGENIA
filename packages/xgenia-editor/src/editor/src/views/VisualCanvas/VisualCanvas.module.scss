@@ -23,8 +23,10 @@
 
 .WebviewContainer {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  // `safe`: a frame zoomed past the panel starts at the scroll origin instead of overflowing
+  // off the left and top, where no scrollbar can reach it.
+  align-items: safe center;
+  justify-content: safe center;
   align-self: stretch;
   flex-grow: 1;
   overflow: auto;

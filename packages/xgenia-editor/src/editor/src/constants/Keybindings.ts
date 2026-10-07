@@ -8,7 +8,8 @@ export namespace Keybindings {
   export const CLOUD_SERVICE_OPEN_DASHBOARD_BROWSER = new Keybinding(KeyMod.CtrlCmd, KeyCode.KEY_P);
 
   export const REFRESH_PREVIEW = new Keybinding(KeyMod.CtrlCmd, KeyCode.KEY_R);
-  export const OPEN_DEVTOOLS = new Keybinding(KeyMod.CtrlCmd, KeyCode.KEY_D);
+  export const OPEN_DEVTOOLS = new Keybinding(KeyMod.CtrlCmd, KeyMod.Shift, KeyCode.KEY_I);
+  export const DUPLICATE = new Keybinding(KeyMod.CtrlCmd, KeyCode.KEY_D);
   export const OPEN_CLOUD_DEVTOOLS = new Keybinding(KeyMod.CtrlCmd, KeyMod.Shift, KeyCode.KEY_R);
   export const TOGGLE_PREVIEW_MODE = new Keybinding(KeyMod.CtrlCmd, KeyCode.KEY_T);
 

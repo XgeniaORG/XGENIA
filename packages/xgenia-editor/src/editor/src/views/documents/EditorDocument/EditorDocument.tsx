@@ -26,6 +26,7 @@ import { HelpCenter } from '../../HelpCenter';
 import { NodeGraphEditor } from '../../nodegrapheditor';
 import { NodeGraphEditorNode } from '../../nodegrapheditor/NodeGraphEditorNode';
 import { showContextMenuInPopup } from '../../ShowContextMenuInPopup';
+import { TimelineDockHost, useTimelineDockBindings } from '../../TimelineDock';
 import { useCanvasView } from './hooks/UseCanvasView';
 import { useCaptureThumbnails } from './hooks/UseCaptureThumbnails';
 import { useImportNodeset } from './hooks/UseImportNodeset';
@@ -192,6 +193,7 @@ function EditorDocument() {
   }, [zoomFactor, viewportSize]);
 
   useSetupNodeGraph(nodeGraph);
+  useTimelineDockBindings();
 
   //track which nodes is currently selected. A hack that relies on the side panel to tell us.
   useEffect(() => {
@@ -205,12 +207,10 @@ function EditorDocument() {
     );
 
     SidebarModel.instance.on(
-      SidebarModelEvent.activeChanged,
-      (activeId) => {
-        const isNodePanel = activeId === 'PropertyEditor' || activeId === 'PortEditor';
-        if (isNodePanel === false) {
-          setSelectedNodeId(null);
-        }
+      SidebarModelEvent.rightPanelChanged,
+      (panelId) => {
+        // The inspector closed; switching the left rail no longer ends a selection.
+        if (panelId === null) setSelectedNodeId(null);
       },
       eventGroup
     );
@@ -434,6 +434,15 @@ function EditorDocument() {
           nodeGraph.setHighlightedNode(null, null);
           nodeGraph.repaint();
         }
+      },
+      eventGroup
+    );
+
+    EventDispatcher.instance.on(
+      'viewportSelectNodes',
+      (args) => {
+        const nodes = (args?.nodeIds || []).map((id) => nodeGraph.findNodeWithId(id)).filter(Boolean);
+        if (nodes.length) nodeGraph.selectNodes(nodes);
       },
       eventGroup
     );
@@ -706,9 +715,12 @@ function ViewComponent({
     <PreviewSurface canvasViewInstance={canvasViewInstance} onResize={(bounds) => canvasViewInstance.resize(bounds)} />
   );
 
-  // Node graph pane: plain Frame
+  // Node graph pane: the Frame, with the Timeline dock on the edge facing the preview
+  // (above the graph when the preview is on top, under it otherwise).
   const nodeGraphPane = (
-    <Frame instance={nodeGraphEditorInstance} onResize={(bounds) => nodeGraphEditorInstance.resize(bounds)} />
+    <TimelineDockHost position={horizontal ? 'top' : 'bottom'}>
+      <Frame isAbsolute instance={nodeGraphEditorInstance} onResize={(bounds) => nodeGraphEditorInstance.resize(bounds)} />
+    </TimelineDockHost>
   );
 
   if (documentLayout === 'detachedPreview') {
@@ -749,6 +761,11 @@ function createKeyboardCommands(nodeGraph: NodeGraphEditor) {
   const cut: KeyboardCommand = {
     handler: () => nodeGraph.cut(),
     keybinding: KeyMod.CtrlCmd | KeyCode.KEY_X
+  };
+
+  const duplicate: KeyboardCommand = {
+    handler: () => nodeGraph.duplicate(),
+    keybinding: KeyMod.CtrlCmd | KeyCode.KEY_D
   };
 
   const undo: KeyboardCommand = {
@@ -797,7 +814,7 @@ function createKeyboardCommands(nodeGraph: NodeGraphEditor) {
     keybinding: KeyMod.CtrlCmd | KeyCode.US_SLASH
   };
 
-  return [copy, paste, cut, undo, redo, navBack, navForward, deleteWithBackspace, deleteWithDel, createComment];
+  return [copy, paste, cut, duplicate, undo, redo, navBack, navForward, deleteWithBackspace, deleteWithDel, createComment];
 }
 
 export class EditorDocumentProvider implements IDocumentProvider {

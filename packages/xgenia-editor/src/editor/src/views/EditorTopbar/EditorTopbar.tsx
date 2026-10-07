@@ -29,6 +29,8 @@ import { DeployPopup } from '../DeployPopup/DeployPopup';
 import { TitleBar } from '../documents/EditorDocument/titlebar';
 import { NodeGraphEditor } from '../nodegrapheditor';
 import { TopbarPanelClose, TopbarPanelOpen } from '../SidePanel/SidebarIcons';
+import { TimelineToggle } from '../TimelineDock/TimelineToggle';
+import { PreviewTimeControls } from './topbar/PreviewTimeControls';
 import css from './EditorTopbar.module.scss';
 import { returnWarningItems } from './EditorTopbar.returnWarningItems';
 import { FigmaImportDialog } from './FigmaImportDialog';
@@ -323,6 +325,8 @@ export function EditorTopbar({
           onPreviewSizeChanged={onPreviewSizeChanged}
           setZoomFactor={setZoomFactor}
         />
+        <TimelineToggle />
+        <PreviewTimeControls />
         <ModeSegment previewMode={previewMode} onChange={onPreviewModeChanged} />
         <OverflowMenu
           documentLayout={documentLayout}

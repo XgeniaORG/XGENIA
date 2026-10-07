@@ -40,6 +40,8 @@ import { ProjectModel } from '../models/projectmodel';
 import { WarningsModel } from '../models/warningsmodel';
 import DebugInspector from '../utils/debuginspector';
 import { rectanglesOverlap, guid, generateUniqueNodeLabel } from '../utils/utils';
+import { duplicateOffsetWrites } from '../utils/duplicatePlacement';
+import { parentLayoutOf } from '../../../../../../private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/utils/layout-intent-resolver';
 import { ViewerConnection } from '../ViewerConnection';
 import CommentLayer from './commentlayer';
 import { ConnectionPopup } from './ConnectionPopup';
@@ -345,12 +347,14 @@ export class NodeGraphEditor extends View {
     this.warningIcon.src = '../assets/icons/core-ui-temp/warning_triangle.svg';
     this.warningIcon.onload = () => this.repaint();
 
+    // The node inspector is the right-hand panel now, not a tab of the left rail: switching the
+    // rail (to the chat, the hierarchy, history…) keeps the selection, as in Unity or Figma, and
+    // closing the inspector ends it. Deselecting on every rail switch cleared the preview's
+    // selection while the inspector still showed the node.
     SidebarModel.instance.on(
-      SidebarModelEvent.activeChanged,
-      (activeId) => {
-        const isNodePanel = activeId === 'PropertyEditor' || activeId === 'PortEditor';
-        if (isNodePanel === false) {
-          //deselect nodes when switching away from property editor or port editor
+      SidebarModelEvent.rightPanelChanged,
+      (panelId) => {
+        if (panelId === null) {
           this.deselect({ disableHidePanels: true });
           this.repaint();
         }
@@ -928,6 +932,64 @@ export class NodeGraphEditor extends View {
 
   copy() {
     this.copySelected();
+  }
+
+  /**
+   * Cmd+D. A copy of each selected node next to its original: same parent, the slot after it.
+   * Copy + paste gives a visual node no parent, so the copy renders nowhere until it is dragged
+   * into place; this is the Unity/Figma duplicate. Connections inside the selection come along,
+   * labels are made unique, and a freely placed copy is offset so it is visibly a second one.
+   * One undo entry.
+   */
+  duplicate() {
+    if (this.readOnly) return false;
+
+    const models = this.selector.nodes.map((n) => n.model).filter((m) => m.canBeCopied());
+    if (models.length === 0) return;
+
+    const originals = this.model.getNodeSetWithNodes(models);
+    const copies = originals.clone();
+
+    const existingLabels = new Set<string>();
+    this.model.forEachNode((n) => { if (n.label) existingLabels.add(n.label); });
+    for (const root of copies.nodes) {
+      root.forEach((node) => {
+        node.label = generateUniqueNodeLabel(node.label, existingLabels);
+        existingLabels.add(node.label);
+      });
+    }
+
+    const undo = new UndoActionGroup({ label: 'duplicate' });
+    copies.nodes.forEach((copy, i) => {
+      const original = originals.nodes[i];
+      const parent = original.parent;
+      for (const w of duplicateOffsetWrites(copy.parameters, copy.typename, parent ? parentLayoutOf(original) : undefined)) {
+        copy.parameters[w.param] = w.value;
+      }
+      copy.x = original.x + 30;
+      copy.y = original.y + 30;
+      if (parent) {
+        parent.insertChild(copy, parent.children.indexOf(original) + 1, { undo, label: 'duplicate' });
+      } else {
+        this.model.addRoot(copy, { undo, label: 'duplicate' });
+      }
+    });
+    for (const c of copies.connections) {
+      this.model.addConnection(c, { undo });
+    }
+    UndoQueue.instance.push(undo);
+
+    // nodeAdded selects each node a tick later, one at a time; select the whole set after it.
+    setTimeout(() => {
+      const nodes = copies.nodes.map((m) => this.findNodeWithId(m.id)).filter(Boolean);
+      this.clearSelection();
+      this.selector.select(nodes);
+      this.layout();
+      this.updateNodeToolbar();
+      this.repaint();
+    }, 5);
+
+    ToastLayer.showInteraction(copies.nodes.length > 1 ? `Duplicated ${copies.nodes.length} nodes` : 'Duplicated');
   }
 
   cut() {
@@ -1586,6 +1648,18 @@ export class NodeGraphEditor extends View {
 
   getActiveComponent(): ComponentModel {
     return this.activeComponent;
+  }
+
+  /** Select exactly these nodes (the viewport's multi-selection). */
+  selectNodes(nodes: NodeGraphEditorNode[]) {
+    this.clearSelection();
+    if (nodes.length === 1) {
+      this.selectNode(nodes[0]);
+      return;
+    }
+    this.selector.select(nodes);
+    this.updateNodeToolbar();
+    this.repaint();
   }
 
   selectNode(node: NodeGraphEditorNode) {

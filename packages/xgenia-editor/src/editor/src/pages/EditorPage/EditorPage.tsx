@@ -18,6 +18,7 @@ import { SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
 import { GitStatus } from '@xgenia-models/gitstatus';
 import { RailPresence } from '@xgenia-models/railpresence';
 import { UndoQueue } from '@xgenia-models/undo-queue-model';
+import { ProjectCheckpoints } from '@xgenia-models/projectCheckpoints';
 import { exportProjectComponents } from '@xgenia-utils/exportProjectComponets';
 import FileSystem from '@xgenia-utils/filesystem';
 import { KeyCode, KeyMod } from '@xgenia-utils/keyboard/KeyCode';
@@ -163,6 +164,8 @@ export function EditorPage({ route }: EditorPageProps) {
         setIsLoading(false);
         void GitStatus.refresh();
         ipcRenderer.send('project-opened', ProjectModel.instance.name);
+        // History that outlives the session: automatic checkpoints as changes accumulate.
+        ProjectCheckpoints.startAuto();
 
         // Initialize the ToolsModel and listen for tool updates
         console.log('[EditorPage] Initializing ToolsModel integration.');
@@ -217,6 +220,7 @@ export function EditorPage({ route }: EditorPageProps) {
             ParseDashboardServer.instance.stop();
             CloudService.instance.reset();
             SidebarModel.instance.reset();
+            ProjectCheckpoints.stopAuto();
             UndoQueue.instance.clear();
             GitStatus.reset();
             RailPresence.reset();
@@ -264,8 +268,9 @@ export function EditorPage({ route }: EditorPageProps) {
             keybinding: KeyMod.CtrlCmd | KeyCode.KEY_F
         },
         {
+            // Cmd+D is Duplicate (Unity, Figma); the preview's devtools moved to Cmd+Shift+I.
             handler: () => EventDispatcher.instance.emit('viewer-open-devtools'),
-            keybinding: KeyMod.CtrlCmd | KeyCode.KEY_D
+            keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_I
         },
         {
             handler: () => ipcRenderer.send('cloud-runtime-open-devtools'),

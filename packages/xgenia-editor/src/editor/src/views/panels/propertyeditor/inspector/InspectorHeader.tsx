@@ -5,6 +5,7 @@ import { useKeyboardCommands } from '@xgenia-hooks/useKeyboardCommands';
 import { Keybindings } from '@xgenia-constants/Keybindings';
 import { NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 import { UndoActionGroup, UndoQueue } from '@xgenia-models/undo-queue-model';
+import { ComponentOverride } from '@xgenia-utils/componentOverrides';
 import getDocsEndpoint from '@xgenia-utils/getDocsEndpoint';
 import { tracker } from '@xgenia-utils/tracker';
 
@@ -12,6 +13,7 @@ import { GlassPopover } from '../../../EditorTopbar/topbar/GlassPopover';
 import { ToastLayer } from '../../../ToastLayer/ToastLayer';
 import { ModelProxy } from '../models/modelProxy';
 import { NodeGraphNodeDelete, NodeGraphNodeRename } from '../nodeActions';
+import { OverridesControl } from './OverridesMenu';
 
 import css from './Inspector.module.scss';
 
@@ -20,6 +22,11 @@ export interface InspectorHeaderProps {
   model: ModelProxy;
   /** Port names the node carries an explicit value for. Drives "Reset all". */
   changedNames: string[];
+  /**
+   * Inputs a component instance overrides. Non-empty only for a component instance;
+   * drives the "Overrides" control (Apply all to component / Revert all).
+   */
+  overrides?: ComponentOverride[];
   /** Structural refresh after a bulk reset. */
   onChanged: () => void;
 }
@@ -32,7 +39,7 @@ export interface InspectorHeaderProps {
  * horizontal room is the scarce thing. They live behind the overflow now; rename is
  * still a double-click on the name, which is how it was already usually reached.
  */
-export function InspectorHeader({ node, model, changedNames, onChanged }: InspectorHeaderProps) {
+export function InspectorHeader({ node, model, changedNames, overrides = [], onChanged }: InspectorHeaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const overflowRef = useRef<HTMLButtonElement>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -148,6 +155,10 @@ export function InspectorHeader({ node, model, changedNames, onChanged }: Inspec
           </span>
         )}
       </div>
+
+      {overrides.length > 0 && (
+        <OverridesControl key={node.id} node={node} overrides={overrides} onChanged={onChanged} />
+      )}
 
       <button
         ref={overflowRef}
