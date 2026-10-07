@@ -30,3 +30,28 @@ export function afterNextPaint(
     raf(() => raf(finish));
   });
 }
+
+/**
+ * Re-read a value each tick until `done` says it has settled, or the time runs out.
+ *
+ * (2026-10-07, 3.0.2, Untitled-7) The design capture resized the preview and the guest's viewport
+ * answered 1440x810 at once — but the game's canvas redraws on its own resize handler a little later,
+ * and one capture in eleven still showed the old small canvas in the corner of a transparent frame,
+ * with the editor behind it. The capture now waits for the canvas itself (CanvasView).
+ */
+export async function waitUntilSettled<T>(
+  read: () => Promise<T>,
+  done: (value: T) => boolean,
+  options: { timeoutMs?: number; tick?: () => Promise<void>; now?: () => number } = {}
+): Promise<{ settled: boolean; value: T }> {
+  const now = options.now || (() => Date.now());
+  const tick = options.tick || (() => new Promise<void>((r) => requestAnimationFrame(() => r())));
+  const deadline = now() + (options.timeoutMs ?? 1000);
+  let value = await read();
+  while (!done(value)) {
+    if (now() >= deadline) return { settled: false, value };
+    await tick();
+    value = await read();
+  }
+  return { settled: true, value };
+}
