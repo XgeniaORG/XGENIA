@@ -1,6 +1,7 @@
 const { dialog, ipcMain } = require('electron');
 const log = require('electron-log/main');
 const { autoUpdater } = require('electron-updater');
+const { updateFitsThisMachine } = require('./update-arch');
 
 function setupAutoUpdate(window) {
   if (process.env.autoUpdate === 'no') return;
@@ -40,13 +41,23 @@ function setupAutoUpdate(window) {
 
   autoUpdater.on('update-available', (event) => {
     logger.info('Update available: ' + event.version);
-    dialog
-      .showMessageBox({
-        type: 'info',
-        title: 'Update available',
-        message: 'A new update is available. Do you want to update now?',
-        buttons: ['Update', 'No']
-      })
+    if (!updateFitsThisMachine(event && event.files)) {
+      logger.warn(
+        `Update ${event.version} has no ${process.arch} build in its feed (${(event.files || []).map((f) => f && f.url).join(', ')}) — not offered.`
+      );
+      return;
+    }
+    // A sheet on the editor window, not an app-modal box: with no parent, macOS runs the alert in a
+    // modal loop and the main process does nothing until it is answered — the live-engine check
+    // and everything else at startup waited behind it (2026-10-07).
+    const parent = window && !window.isDestroyed() ? window : undefined;
+    const box = {
+      type: 'info',
+      title: 'Update available',
+      message: 'A new update is available. Do you want to update now?',
+      buttons: ['Update', 'No']
+    };
+    (parent ? dialog.showMessageBox(parent, box) : dialog.showMessageBox(box))
       .then((res) => {
         if (res.response === 0) {
           isDownloading = true;
