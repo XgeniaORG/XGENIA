@@ -93,11 +93,24 @@ export function projectFromDirectory(projectdir: string, callback: (project?: Pr
       console.error('[projectFromDirectory] Failed to read project.json content.');
       bugtracker.track('ProjectModel.fromDirectory readJSONFromDirectory failed', {
         dir: projectdir,
-        dirContent: FileSystem.instance.readDirectorySync(projectdir)
+        dirContent: listingForReport(projectdir)
       });
       callback(); // Failed to read project
     }
   });
+}
+
+/**
+ * What is in `projectdir`, for the failure report above. Never throws: `projectdir` can be a file
+ * or a folder that has gone, and a throw here skipped the callback, so whoever was waiting on it
+ * waited forever — a file dropped on the lobby left "Opening project" up for good.
+ */
+function listingForReport(projectdir: string) {
+  try {
+    return FileSystem.instance.readDirectorySync(projectdir);
+  } catch (e: any) {
+    return `unreadable: ${e?.code || e?.message || e}`;
+  }
 }
 
 // Extracts a zip into a directory and returns the project in a callback
