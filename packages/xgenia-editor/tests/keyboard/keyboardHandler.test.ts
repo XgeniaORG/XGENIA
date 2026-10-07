@@ -118,3 +118,25 @@ test('the Edit-menu accelerator of the same press does not undo twice', async ()
     handler.deregisterCommands([cmd]);
   }
 });
+
+test('a menu zoom goes to the first view that claims it, else to the UI', async () => {
+  const { mod } = await load();
+  const handler = mod.default.instance;
+  assert.equal(handler.claimMenuZoom('zoomIn'), false); // nobody claims: the UI zooms
+
+  const seen: string[] = [];
+  let previewFocused = false;
+  const release = handler.addMenuZoomClaimant((command) => {
+    if (!previewFocused) return false;
+    seen.push(command);
+    return true;
+  });
+  assert.equal(handler.claimMenuZoom('zoomIn'), false);
+  previewFocused = true;
+  assert.equal(handler.claimMenuZoom('zoomOut'), true);
+  assert.equal(handler.claimMenuZoom('zoomReset'), true);
+  assert.deepEqual(seen, ['zoomOut', 'zoomReset']);
+
+  release();
+  assert.equal(handler.claimMenuZoom('zoomIn'), false); // a disposed view stops claiming
+});

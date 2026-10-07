@@ -3,7 +3,9 @@ import React from 'react';
 import { createRoot, Root } from 'react-dom/client';
 
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
+import KeyboardHandler, { type MenuZoomCommand } from '@xgenia-utils/keyboardhandler';
 import { EditorSceneVisibility } from '../../models/editorSceneVisibility';
+import { UndoQueue } from '../../models/undo-queue-model';
 import View from '../../../../shared/view';
 import { InlineElementChat } from './InlineElementChat';
 import type { PreviewHost } from './IframeViewer';
@@ -216,6 +218,12 @@ export class CanvasView extends View {
     super();
 
     EventDispatcher.instance.on(EditorSceneVisibility.EVENT, () => this.pushSceneVisibility(), this._sceneVisibilityGroup);
+    this.releaseMenuZoom = KeyboardHandler.instance.addMenuZoomClaimant((command) => this.claimMenuZoom(command));
+    // Undo and redo change the selected node behind the preview's back (its anchor, whether it
+    // may move): let the preview re-read what the selection can do.
+    for (const event of ['undoHistoryChanged', 'undo', 'redo']) {
+      UndoQueue.instance.on(event, () => this.scheduleCapsRefresh(), this._sceneVisibilityGroup);
+    }
     // Editor panels (Timeline, slot tools) run code in the live preview through this one
     // channel instead of each reaching for the CanvasView: { code, callback?(result, error) }.
     EventDispatcher.instance.on(
@@ -469,6 +477,7 @@ export class CanvasView extends View {
       } else if (event.channel === 'editor-zoom-viewport') {
         // Canvas zoom — only in edit mode (inspect mode)
         if (!this.inspectMode) return; // Ignore zoom in preview mode
+        if (message && message.fromKey) this.lastKeyZoomAt = Date.now();
         if (message) this.applyCanvasZoomGesture(message);
       }
     });
@@ -1377,6 +1386,10 @@ export class CanvasView extends View {
 
     this._disposed = true;
     EventDispatcher.instance.off(this._sceneVisibilityGroup);
+    UndoQueue.instance.off(this._sceneVisibilityGroup);
+    if (this.capsRefreshTimer) clearTimeout(this.capsRefreshTimer);
+    this.releaseMenuZoom?.();
+    this.releaseMenuZoom = null;
     for (const [channel, fn] of this._ipcListeners) {
       try { ipcRenderer.removeListener(channel, fn); } catch { /* already gone */ }
     }
@@ -1593,6 +1606,47 @@ export class CanvasView extends View {
 
   private currentScale() {
     return this.lastBaseScale * this.canvasZoom;
+  }
+
+  private capsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private scheduleCapsRefresh() {
+    if (this.capsRefreshTimer) clearTimeout(this.capsRefreshTimer);
+    this.capsRefreshTimer = setTimeout(() => {
+      this.capsRefreshTimer = null;
+      if (!this.inspectMode) return;
+      this.tryWebviewCall(() => {
+        this.webview
+          .executeJavaScript('window.XgeniaEditorHighlightAPI && window.XgeniaEditorHighlightAPI.refreshCaps && window.XgeniaEditorHighlightAPI.refreshCaps()')
+          .catch(() => undefined);
+      });
+    }, 120);
+  }
+
+  /** Edit mode only: zoom and scroll the frame to the preview's selection (or the whole game). */
+  frameSelection() {
+    if (!this.inspectMode) return;
+    this.tryWebviewCall(() => {
+      this.webview
+        .executeJavaScript('window.XgeniaEditorHighlightAPI && window.XgeniaEditorHighlightAPI.frameSelection && window.XgeniaEditorHighlightAPI.frameSelection()')
+        .catch(() => undefined);
+    });
+  }
+
+  private releaseMenuZoom: (() => void) | null = null;
+  private lastKeyZoomAt = 0;
+
+  /**
+   * View > Zoom In / Out / Actual Size while the preview has focus in Edit mode zoom the canvas,
+   * not the editor UI. The menu accelerator swallows the key on macOS, so this is the path that
+   * actually runs; where the preview's own keydown arrives too, it already zoomed this press.
+   */
+  private claimMenuZoom(command: MenuZoomCommand): boolean {
+    if (!this.inspectMode || !this.webview || !this.webview.isConnected) return false;
+    if (document.activeElement !== this.webview.element) return false;
+    if (Date.now() - this.lastKeyZoomAt < 400) return true;
+    this.applyCanvasZoomGesture(command === 'zoomReset' ? { reset: true } : { delta: command === 'zoomIn' ? 0.1 : -0.1 });
+    return true;
   }
 
   /** message: { reset } | { delta, clientX?, clientY? } | { frame: {left, top, width, height} } (frame px). */

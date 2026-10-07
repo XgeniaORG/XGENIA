@@ -1079,17 +1079,44 @@ function _placeSingleBar(rect) {
   }
 }
 
+function _markCurrentAnchor() {
+  if (!_anchorPop) return;
+  const a = (_selectedCaps && _selectedCaps.align) || { x: 'left', y: 'top' };
+  for (const c of _anchorPop.querySelectorAll('[data-anchor]')) {
+    c.classList.toggle('xg-current', c.getAttribute('data-anchor') === a.x + ' ' + a.y);
+  }
+}
+
 function _toggleAnchorPop() {
   if (!_anchorPop) return;
   const on = !_anchorPop.classList.contains('xg-on');
   _anchorPop.classList.toggle('xg-on', on);
   if (on) {
-    const a = (_selectedCaps && _selectedCaps.align) || { x: 'left', y: 'top' };
-    for (const c of _anchorPop.querySelectorAll('[data-anchor]')) {
-      c.classList.toggle('xg-current', c.getAttribute('data-anchor') === a.x + ' ' + a.y);
-    }
+    _markCurrentAnchor();
+    _refreshSelectedCaps(); // an undo since the selection was made may have moved the anchor
     _placeSingleBar(_selectionRect());
   }
+}
+
+/**
+ * Re-read what the selected node can do, keeping the current answer until the new one lands.
+ * Undo/redo change the node behind the selection's back (its anchor, its position mode); the
+ * host calls this when the history changes.
+ */
+function _refreshSelectedCaps() {
+  const nodeId = _selectedNodeId;
+  if (!nodeId || !_selectedElement) return;
+  makeEditorAPIRequest('viewportCapabilities', {
+    nodeId: nodeId,
+    kind: 'dom',
+    ancestorTransformed: _hasTransformedAncestor(_selectedElement)
+  }, (caps) => {
+    if (_selectedNodeId !== nodeId || !caps || caps.error) return;
+    _selectedCaps = caps;
+    _applyGizmoCaps();
+    if (_anchorPop && _anchorPop.classList.contains('xg-on')) _markCurrentAnchor();
+  });
+  for (const m of _extras) _fetchCaps(m);
 }
 
 function _applyAnchor(spec) {
@@ -2325,6 +2352,12 @@ function _setBarsHidden(hidden) {
 }
 
 function _globalMouseMove(e) {
+  // A release this frame never saw (let go outside the window, focus switched mid-drag) must
+  // not leave the gesture glued to the pointer: the first move with no button down ends it.
+  if (e.buttons === 0 && (_isDragging || _isResizing || _isRotating || _marquee || _reorder || (_panning && !_spaceHeld))) {
+    _globalMouseUp(e);
+    return;
+  }
   if ((_isDragging && _dragActive) || _isResizing || _isRotating || (_reorder && _reorder.active)) _setBarsHidden(true);
   if (_reorder) { _onReorder(e); return; }
   if (_panning) { _onPan(e); return; }
@@ -2989,20 +3022,23 @@ document.addEventListener('keydown', (e) => {
 
   if (!_inspectorEnabled) return; // Preview mode — the game owns every other key
 
+  // Canvas zoom keys. On macOS these are View-menu accelerators and never arrive here (the
+  // menu routes them to CanvasView.claimMenuZoom); where they do arrive, fromKey lets the
+  // menu's copy of the same press be dropped. '+' is Shift+= on most layouts.
+  if (mod && !e.altKey && (key === '=' || key === '+')) {
+    e.preventDefault();
+    ipcRenderer.sendToHost('editor-zoom-viewport', { delta: 0.1, fromKey: true });
+    return;
+  }
   if (mod && !e.altKey && !e.shiftKey) {
     if (key === '0') {
       e.preventDefault();
-      ipcRenderer.sendToHost('editor-zoom-viewport', { reset: true });
-      return;
-    }
-    if (key === '=' || key === '+') {
-      e.preventDefault();
-      ipcRenderer.sendToHost('editor-zoom-viewport', { delta: 0.1 });
+      ipcRenderer.sendToHost('editor-zoom-viewport', { reset: true, fromKey: true });
       return;
     }
     if (key === '-') {
       e.preventDefault();
-      ipcRenderer.sendToHost('editor-zoom-viewport', { delta: -0.1 });
+      ipcRenderer.sendToHost('editor-zoom-viewport', { delta: -0.1, fromKey: true });
       return;
     }
     if (lower === 'c' || lower === 'v' || lower === 'x' || lower === 'd') {
@@ -3053,10 +3089,8 @@ document.addEventListener('keydown', (e) => {
   }
 
   if (!mod && !e.altKey && lower === 'f') {
-    // Frame the selection (or the whole game): the editor zooms and scrolls the frame to it.
     e.preventDefault();
-    const r = _selectedElement ? _selectionRect() : document.documentElement.getBoundingClientRect();
-    ipcRenderer.sendToHost('editor-zoom-viewport', { frame: { left: r.left, top: r.top, width: r.width, height: r.height } });
+    _frameSelection();
     return;
   }
 
@@ -3087,6 +3121,12 @@ document.addEventListener('keydown', (e) => {
     }
   }
 });
+
+/** Frame the selection (or the whole game): the editor zooms and scrolls the frame to it. */
+function _frameSelection() {
+  const r = _selectedElement ? _selectionRect() : document.documentElement.getBoundingClientRect();
+  ipcRenderer.sendToHost('editor-zoom-viewport', { frame: { left: r.left, top: r.top, width: r.width, height: r.height } });
+}
 
 // --- Shortcut sheet (press ?) ---
 // The gestures that have no button — Alt-click, Cmd-drag, Space — written down where the
@@ -3167,6 +3207,15 @@ function _nudgeSelection(key, big) {
 }
 
 // Read-only snapshot of the edit overlay's state, for tests driving it over CDP.
+// What a press at page point (x, y) would start — for tests and for debugging a gizmo.
+window.__XgeniaEditHitTest = (x, y) => ({
+  rotate: _isOnRotateHandle(x, y),
+  axis: _axisArrowAtPoint(x, y),
+  handle: _selectedCaps && _selectedCaps.resizable ? _handleAtPoint(x, y) : null,
+  rect: _selectedElement ? (({ left, top, width, height }) => ({ left, top, width, height }))(_selectedElement.getBoundingClientRect()) : null,
+  k: _uiK
+});
+
 window.__XgeniaEditDebug = () => ({
   enabled: _inspectorEnabled,
   selected: _selectedNodeId,
@@ -3806,6 +3855,9 @@ let _pendingSelectId = null; // editor-selected node not rendered yet
 
 // Expose Highlight API
 window.XgeniaEditorHighlightAPI = {
+  /** The project's history changed (undo, redo, an edit elsewhere): re-read the selection's caps. */
+  refreshCaps: () => _refreshSelectedCaps(),
+  frameSelection: () => _frameSelection(),
   /** The editor's scale of this frame on screen; chrome divides it out (see _uiK). */
   setFrameScale: (scale) => {
     const s = Number(scale);
@@ -3827,7 +3879,9 @@ window.XgeniaEditorHighlightAPI = {
     // The editor echoes a selection made here — with one id, or none while several nodes are
     // selected. Neither should collapse a multi-selection.
     const ownEcho = _now() < _ignoreEditorSelectionUntil;
-    if (_isMulti() && (ownEcho || !nodeId || _members().some((m) => m.nodeId === nodeId))) return;
+    // Outside that echo window the editor means it: picking one of the members in the
+    // selection list collapses to it, and a deselect (inspector closed) clears the group.
+    if (_isMulti() && ownEcho) return;
 
     if (!nodeId) {
       if (ownEcho) return;
@@ -3836,8 +3890,12 @@ window.XgeniaEditorHighlightAPI = {
       return;
     }
 
-    // Selection made here comes back from the editor; it is already showing.
-    if (nodeId === _selectedNodeId && _selectedElement && _selectedElement.isConnected) return;
+    // Selection made here comes back from the editor; it is already showing. Picked from the
+    // editor's selection list while a group is selected, it collapses the group to this one.
+    if (nodeId === _selectedNodeId && _selectedElement && _selectedElement.isConnected) {
+      if (_isMulti()) { _clearExtras(); _refreshSelectionChrome(); }
+      return;
+    }
 
     // Find the DOM element for this node
     const element = document.querySelector(`[data-xgenia-node-id="${nodeId}"]`);

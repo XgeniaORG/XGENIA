@@ -143,6 +143,9 @@ function EditorDocument() {
   }, []);
 
   const [selectedNodeId, setSelectedNodeId] = useState(null); //The ID of the selected node, as highlighted by the viewer
+  // Bumped on every selection, so re-picking the same node (from the multi-selection list)
+  // still reaches the preview.
+  const [selectionTick, setSelectionTick] = useState(0);
 
   const [hasLoadedEditorSettings, setHasLoadedEditorSettings] = useState(false);
 
@@ -174,8 +177,14 @@ function EditorDocument() {
         });
       },
       keybinding: KeyMod.CtrlCmd | KeyCode.KEY_T
+    },
+    {
+      // F frames the selection in the preview from anywhere in the editor — the Hierarchy, the
+      // graph — as in Unity, not only while the preview itself has focus.
+      handler: () => canvasView?.frameSelection(),
+      keybinding: KeyCode.KEY_F
     }
-  ]);
+  ], [canvasView]);
 
   useImportNodeset(nodeGraph);
 
@@ -202,6 +211,7 @@ function EditorDocument() {
       SidebarModelEvent.nodeSelected,
       (nodeId) => {
         setSelectedNodeId(nodeId);
+        setSelectionTick((t) => t + 1);
       },
       eventGroup
     );
@@ -287,7 +297,7 @@ function EditorDocument() {
 
       return () => clearTimeout(timeoutId);
     }
-  }, [selectedNodeId, canvasView, previewMode]);
+  }, [selectedNodeId, selectionTick, canvasView, previewMode]);
 
   const onRouteChanged = useCallback(
     (route) => {

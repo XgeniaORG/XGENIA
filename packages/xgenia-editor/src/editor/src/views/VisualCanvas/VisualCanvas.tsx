@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { app } from '@electron/remote';
 import { useThrottle } from '@xgenia-hooks/useThrottleState';
-import React, { useEffect, useRef, useState, useCallback, CSSProperties } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 // Import app from remote for renderer process
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 
@@ -71,7 +71,6 @@ export function VisualCanvas({
   const containerBounds = useThrottle(useTrackBounds(containerRef), 100);
 
   const [crashed, setCrashed] = useState(false);
-  const [style, setStyle] = useState<CSSProperties>({});
   const [showViewportSize, setShowViewportSize] = useState(false);
 
 
@@ -136,29 +135,6 @@ export function VisualCanvas({
       onWebView(hostRef.current);
     }
   }
-
-  useEffect(() => {
-    if (!webviewBounds || !containerBounds) {
-      return;
-    }
-
-    // Don't apply dynamic styles if bounds are invalid (happens during webview recreation)
-    if (webviewBounds.width <= 0 || webviewBounds.height <= 0 ||
-      containerBounds.width <= 0 || containerBounds.height <= 0) {
-      setStyle({});
-      return;
-    }
-
-    if (webviewBounds.width > containerBounds.width && webviewBounds.height > containerBounds.height) {
-      setStyle({});
-    } else if (webviewBounds.width > containerBounds.width) {
-      setStyle({ flexDirection: 'row', alignItems: 'center' });
-    } else if (webviewBounds.height > containerBounds.height) {
-      setStyle({ flexDirection: 'column', alignItems: 'center' });
-    } else {
-      setStyle({ alignItems: 'center', justifyContent: 'center' });
-    }
-  }, [webviewBounds, containerBounds]);
 
   useEffect(() => {
     if (!webviewBounds) {
@@ -259,7 +235,11 @@ export function VisualCanvas({
           webviewBounds.width
         )}x${Math.floor(webviewBounds.height)}px - ${Math.floor(zoom * 100)}%`}</div>
       )}
-      <div className={css.WebviewContainer} style={style} ref={containerRef}>
+      {/* Centred by the stylesheet's `safe center`, which falls back to the start edge once the
+          frame (zoomed, or a large device) is bigger than the panel. The inline alignment that
+          used to be switched here from throttled bounds lagged a frame behind and, centring an
+          overflowing frame, pushed its left and top out of scroll reach. */}
+      <div className={css.WebviewContainer} ref={containerRef}>
         {/* An in-process <iframe>, deliberately NOT a <webview>.
             A <webview> is a separate renderer whose compositor surface the GPU process
             stitches into ours every frame; on macOS 26 that stitch occasionally presents

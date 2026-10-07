@@ -57,6 +57,9 @@ export function deepActiveElement(doc: Document = document): Element | null {
  */
 const SAME_PRESS_MS = 400;
 
+/** View > Zoom In / Zoom Out / Actual Size, as the menu reports them. */
+export type MenuZoomCommand = 'zoomIn' | 'zoomOut' | 'zoomReset';
+
 export interface KeyboardCommand {
   handler: () => void;
   keybinding: number; //e.g. KeyMod.CtrlCmd | KeyCode.KEY_V
@@ -164,8 +167,14 @@ export default class KeyboardHandler {
       return; // not in Electron (tests)
     }
     if (!ipc || typeof ipc.on !== 'function') return;
-    ipc.on('editor-menu-command', (_event: unknown, args: { command: 'undo' | 'redo' }) => {
+    ipc.on('editor-menu-command', (_event: unknown, args: { command: 'undo' | 'redo' | MenuZoomCommand }) => {
       const command = args && args.command;
+      // ⌘+ / ⌘− / ⌘0 are menu accelerators, so the key never reaches the page: the preview
+      // canvas claims them while it has focus in Edit mode, and otherwise they zoom the UI.
+      if (command === 'zoomIn' || command === 'zoomOut' || command === 'zoomReset') {
+        if (!this.claimMenuZoom(command)) ipc.send('editor-ui-zoom', command);
+        return;
+      }
       if (command !== 'undo' && command !== 'redo') return;
       if (isTypingTarget(deepActiveElement())) {
         ipc.send('editor-native-edit', command);
@@ -174,6 +183,24 @@ export default class KeyboardHandler {
       const code = command === 'redo' ? KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_Z : KeyMod.CtrlCmd | KeyCode.KEY_Z;
       if (!this.runCommand(code, 'down', 'menu')) ipc.send('editor-native-edit', command);
     });
+  }
+
+  private menuZoomClaimants = new Set<(command: MenuZoomCommand) => boolean>();
+
+  /** Register a view that may take a menu zoom for itself; returns the unregister function. */
+  addMenuZoomClaimant(claim: (command: MenuZoomCommand) => boolean): () => void {
+    this.menuZoomClaimants.add(claim);
+    return () => {
+      this.menuZoomClaimants.delete(claim);
+    };
+  }
+
+  /** True when some view took the zoom; false means it is the editor UI's. */
+  claimMenuZoom(command: MenuZoomCommand): boolean {
+    for (const claim of this.menuZoomClaimants) {
+      if (claim(command)) return true;
+    }
+    return false;
   }
 
   dispose() {

@@ -1442,6 +1442,26 @@ function launchApp() {
       }
     }
 
+    // View > Zoom: in the editor window the renderer decides — the preview canvas while it has
+    // focus in Edit mode, otherwise the UI zoom (it answers with 'editor-ui-zoom'). Elsewhere
+    // (floating windows) it is always the UI zoom.
+    function applyUiZoomCommand(command) {
+      if (command === 'zoomIn') stepUiZoom(1);
+      else if (command === 'zoomOut') stepUiZoom(-1);
+      else if (command === 'zoomReset') applyUiZoom(1);
+    }
+
+    function routeZoomCommand(focused, command) {
+      const target = focused || BrowserWindow.getFocusedWindow() || win;
+      if (target && target === win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+        win.webContents.send('editor-menu-command', { command });
+        return;
+      }
+      applyUiZoomCommand(command);
+    }
+
+    ipcMain.on('editor-ui-zoom', (_e, command) => applyUiZoomCommand(command));
+
     // The renderer hands text-field undo/redo back: only the webContents can run the native
     // editing command in whichever frame has focus.
     ipcMain.on('editor-native-edit', (e, command) => {
@@ -1483,7 +1503,7 @@ function launchApp() {
             {
               label: 'Zoom In',
               accelerator: 'CmdOrCtrl+Plus',
-              click: () => stepUiZoom(1)
+              click: (_item, focused) => routeZoomCommand(focused, 'zoomIn')
             },
             {
               // Same command on the unshifted key, which is what people
@@ -1493,17 +1513,17 @@ function launchApp() {
               accelerator: 'CmdOrCtrl+=',
               visible: false,
               acceleratorWorksWhenHidden: true,
-              click: () => stepUiZoom(1)
+              click: (_item, focused) => routeZoomCommand(focused, 'zoomIn')
             },
             {
               label: 'Zoom Out',
               accelerator: 'CmdOrCtrl+-',
-              click: () => stepUiZoom(-1)
+              click: (_item, focused) => routeZoomCommand(focused, 'zoomOut')
             },
             {
               label: 'Actual Size',
               accelerator: 'CmdOrCtrl+0',
-              click: () => applyUiZoom(1)
+              click: (_item, focused) => routeZoomCommand(focused, 'zoomReset')
             }
           ]
         }

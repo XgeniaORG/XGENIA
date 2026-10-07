@@ -12,6 +12,8 @@ import { BasicNodeType } from '@xgenia-models/nodelibrary/BasicNodeType';
 import { RuntimeType } from '@xgenia-models/nodelibrary/NodeLibraryData';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
+
+import { MULTI_SELECTION_PANEL_ID, MultiSelectionPanel } from './RightPropertyPanel/MultiSelectionPanel';
 import { UndoQueue, UndoActionGroup } from '@xgenia-models/undo-queue-model';
 import { EditorSettings } from '@xgenia-utils/editorsettings';
 import { canExtractToComponent, extractToComponent } from '@xgenia-utils/ExtractToComponent';
@@ -1652,12 +1654,26 @@ export class NodeGraphEditor extends View {
 
   /** Select exactly these nodes (the viewport's multi-selection). */
   selectNodes(nodes: NodeGraphEditorNode[]) {
-    this.clearSelection();
     if (nodes.length === 1) {
+      this.clearSelection();
       this.selectNode(nodes[0]);
       return;
     }
+    // Keep the right-hand panel open (as a selection list): closing it widened the preview and
+    // re-flowed the game the moment a second element was Shift-clicked.
+    this.clearSelection({ disableHidePanels: true });
     this.selector.select(nodes);
+    SidebarModel.instance.showRightPanel(MULTI_SELECTION_PANEL_ID, () =>
+      React.createElement(MultiSelectionPanel, {
+        nodes: nodes.map((n) => n.model),
+        onPick: (model) => {
+          const node = this.findNodeWithId(model.id);
+          if (!node) return;
+          this.clearSelection({ disableHidePanels: true });
+          this.selectNode(node);
+        }
+      })
+    );
     this.updateNodeToolbar();
     this.repaint();
   }
