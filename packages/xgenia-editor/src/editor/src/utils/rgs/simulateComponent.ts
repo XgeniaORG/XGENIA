@@ -71,6 +71,14 @@ export interface ComponentSimulationStats {
    * was then measured against a feature the runner had to break out of.
    */
   featureCapHits: number;
+  /**
+   * Rounds whose win was a fraction of a minor unit (or negative) and was floored,
+   * as the live round pays it. Non-zero means the game shows wins, or keeps a
+   * balance, that disagree with what the platform pays. 0 from an older platform.
+   */
+  winsFloored: number;
+  /** Rounds whose win was cut to bet × the game's max_win_multiplier, as live play cuts it. */
+  winsCapped: number;
   /** Round-loop time on the platform, summed across chunks — excludes network. */
   elapsedMs: number;
   roundsPerSecond: number;
@@ -237,6 +245,8 @@ function toResult(
       avgBonusWin: s.avg_bonus_win ?? 0,
       bonusRoundsPlayed: s.bonus_rounds_played ?? 0,
       featureCapHits: s.feature_cap_hits ?? 0,
+      winsFloored: s.wins_floored ?? 0,
+      winsCapped: s.wins_capped ?? 0,
       elapsedMs: s.elapsed_ms ?? 0,
       roundsPerSecond: s.rounds_per_second ?? 0,
       portTotals: s.port_totals ?? {}
