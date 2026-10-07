@@ -71,6 +71,7 @@ import {
     getRgsSettings,
     saveRgsSettings,
     clearRgsSettings,
+    setActiveGame,
     createOperator,
     fetchOperatorInfo,
     formatOperatorFunds,
@@ -250,7 +251,9 @@ function mergeRgsSettings(patch: Record<string, any>): void {
     // ─── Persisted test config (shared with the AI via the bridge) ───
     /** The game ("project") to test maths against: { id, slug, name, status } or null. */
     getActiveGame: () => getRgsExtra().activeGame || null,
-    setActiveGame: (game: any) => { mergeRgsSettings({ activeGame: game || null }); return true; },
+    // Through rgsClient, not mergeRgsSettings: it also emits `rgs.gameSelected`,
+    // which is how the always-mounted Publish popup learns the game changed.
+    setActiveGame: (game: any) => { setActiveGame(game || null); return true; },
     /** Test settings: { declaredRtp, volatility, maxWin, numSpins }. */
     getTestSettings: () => getRgsExtra().testSettings || null,
     setTestSettings: (s: any) => {
@@ -1702,9 +1705,9 @@ export function MathsPanel() {
                                                 const id = e.target.value || null;
                                                 setSelectedGame(id);
                                                 // Persist the chosen "project" so the AI tests the same game.
-                                                // Write through __xrgs → mergeRgsSettings (the xgenia_rgs_settings
+                                                // Write through __xrgs → rgsClient.setActiveGame (the xgenia_rgs_settings
                                                 // key this panel reads back via getRgsExtra), keeping the chosen
-                                                // game consistent between the panel and the AI.
+                                                // game consistent between the panel, the AI and the Publish popup.
                                                 const g = id && games ? games.find((x: any) => x.id === id) : null;
                                                 (window as any).__xrgs?.setActiveGame?.(
                                                     g ? { id: g.id, slug: g.slug, name: g.name, status: g.status } : null

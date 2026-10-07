@@ -62,7 +62,7 @@ export const SupabaseEmailLogin: React.FC<SupabaseEmailLoginProps> = ({ onLoginS
     };
 
     const handleForgotPassword = () => {
-        window.open('https://primora.xgenia.ai/auth', '_blank');
+        window.open('https://primora.xgenia.com/auth', '_blank');
     };
 
     return (
@@ -108,7 +108,7 @@ export const SupabaseEmailLogin: React.FC<SupabaseEmailLoginProps> = ({ onLoginS
                     </button>
                 </form>
                 <div style={styles.linksRow}>
-                    <a href="https://primora.xgenia.ai" target="_blank" rel="noreferrer" style={styles.link}>Sign up</a>
+                    <a href="https://primora.xgenia.com" target="_blank" rel="noreferrer" style={styles.link}>Sign up</a>
                     <span style={{opacity:0.5}}>•</span>
                     <button onClick={handleForgotPassword} disabled={loading} style={styles.linkButton}>Forgot password?</button>
                 </div>

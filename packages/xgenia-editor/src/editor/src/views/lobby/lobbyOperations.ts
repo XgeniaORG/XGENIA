@@ -12,6 +12,7 @@
  * of a hidden field.
  */
 
+import fs from 'fs';
 import { filesystem, platform } from '@xgenia/platform';
 
 import { CloudServiceMetadata, ProjectModel } from '@xgenia-models/projectmodel';
@@ -23,6 +24,7 @@ import { templateRegistry } from '../../utils/forge';
 import type { TemplateItem } from '../../utils/forge/template/template';
 import { tracker } from '../../utils/tracker';
 import { ToastLayer } from '../ToastLayer/ToastLayer';
+import { judgeDrop, type DroppedKind } from '../../models/lobby/lobbyDrop';
 import { setPendingSeed } from '../../models/lobby/lobbySeed';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { ChatPanelIframe_ID } from '../panels/ChatPanelBridge/ChatPanelIframe';
@@ -72,13 +74,59 @@ export async function openProject(entry: ProjectItem): Promise<ProjectModel> {
  * Returns null when the picker was dismissed, which is not a failure and must not toast.
  */
 export async function openProjectFromFolder(): Promise<ProjectModel | null> {
-  const direntry = await filesystem.openDialog({ allowCreateDirectory: false });
+  let direntry: string | undefined;
+
+  try {
+    direntry = await filesystem.openDialog({ allowCreateDirectory: false });
+  } catch {
+    return null; // Electron's picker rejects when it is cancelled
+  }
+
   if (!direntry) return null;
 
   return openProjectAtPath(direntry);
 }
 
-/** Open a project folder by path. Used by the picker and by a drop onto the window. */
+/**
+ * Open the game among what was dropped on the window, or say why there is none.
+ *
+ * The check comes first, so "Opening project" only ever goes up for a folder that holds a
+ * project.json — see models/lobby/lobbyDrop.ts. Several games dropped at once open the first one
+ * that loads, as the drop always has.
+ */
+export async function openDroppedGame(paths: string[]): Promise<ProjectModel | null> {
+  const { games, reason } = judgeDrop(paths, droppedKind);
+
+  if (!games.length) {
+    ToastLayer.showError(
+      reason === 'no-project'
+        ? "That folder has no project.json in it, so it isn't a game."
+        : "Only a folder can be added. Drop the game's folder, the one with project.json in it.",
+      5000
+    );
+    return null;
+  }
+
+  for (const p of games) {
+    const project = await openProjectAtPath(p);
+    if (project) return project;
+  }
+
+  return null;
+}
+
+/** `stat` rather than `lstat`, so a linked folder counts as the folder it points at. */
+function droppedKind(p: string): DroppedKind {
+  try {
+    if (!fs.statSync(p).isDirectory()) return 'other';
+  } catch {
+    return 'other';
+  }
+
+  return filesystem.exists(filesystem.join(p, 'project.json')) ? 'game' : 'folder';
+}
+
+/** Open a project folder by path. Used by the picker and, once checked, by a drop onto the window. */
 export async function openProjectAtPath(direntry: string): Promise<ProjectModel | null> {
   const activityId = 'opening-project';
   ToastLayer.showActivity('Opening project', activityId);
