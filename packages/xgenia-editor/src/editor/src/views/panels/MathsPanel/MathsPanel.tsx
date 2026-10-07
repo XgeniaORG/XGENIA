@@ -80,7 +80,8 @@ import {
     RgsSettings,
     OperatorMode,
     GameMode,
-    OperatorInfo
+    OperatorInfo,
+    setActiveGame as rgsSetActiveGame
 } from '@xgenia-utils/rgs/rgsClient';
 
 // ─── Shared RGS test config (game + settings) ───────────────
@@ -250,7 +251,10 @@ function mergeRgsSettings(patch: Record<string, any>): void {
     // ─── Persisted test config (shared with the AI via the bridge) ───
     /** The game ("project") to test maths against: { id, slug, name, status } or null. */
     getActiveGame: () => getRgsExtra().activeGame || null,
-    setActiveGame: (game: any) => { mergeRgsSettings({ activeGame: game || null }); return true; },
+    // (2026-10-07, tester report) Through rgsClient.setActiveGame: same key, and it emits
+    // `rgs.gameSelected`, which the Deploy popup's "Backend: <game>" line follows. Writing the key
+    // directly left that line on the previous game until the project was reopened.
+    setActiveGame: (game: any) => { rgsSetActiveGame(game || null); return true; },
     /** Test settings: { declaredRtp, volatility, maxWin, numSpins }. */
     getTestSettings: () => getRgsExtra().testSettings || null,
     setTestSettings: (s: any) => {
@@ -401,6 +405,14 @@ export function MathsPanel() {
     const [games, setGames] = useState<any[] | null>(null);
     // Restore the previously-set game ("project") so it survives reloads and is shared with the AI.
     const [selectedGame, setSelectedGame] = useState<string | null>(() => getRgsExtra().activeGame?.id || null);
+    // Follow a game chosen elsewhere (the AI's rgs set_game goes through rgsClient.setActiveGame and
+    // emits `rgs.gameSelected`): the dropdown shows it instead of the game picked before. Display
+    // only — it writes nothing back, so it cannot loop with this panel's own selection.
+    useEffect(() => {
+        const group = {};
+        EventDispatcher.instance.on('rgs.gameSelected', (game: any) => setSelectedGame(game?.id || null), group);
+        return () => { EventDispatcher.instance.off(group); };
+    }, []);
     const [uploading, setUploading] = useState(false);
     const [uploadStatus, setUploadStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
     const [generatingKey, setGeneratingKey] = useState(false);

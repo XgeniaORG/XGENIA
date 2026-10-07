@@ -21,6 +21,8 @@ import { backdropFor, sampleTint } from '../../models/lobby/lobbyTint';
 import { resolveThumbSrc } from '../../utils/thumbnails/thumbnail-store';
 import { supabase, signOut as supabaseSignOut } from '../../supabaseInit';
 import { getUserProfile } from '../../utils/userUtils';
+import { filesystem } from '@xgenia/platform';
+import { gameFoldersIn, NOT_A_GAME_FOLDER } from './dropTargets';
 import { ToastLayer } from '../ToastLayer/ToastLayer';
 import { LobbyBar, type LobbyUser } from './LobbyBar';
 import { LobbyGrid } from './LobbyGrid';
@@ -395,11 +397,16 @@ export function LobbyPage({ onProjectLoaded }: LobbyPageProps) {
       e.preventDefault();
       setDragging(false);
 
-      const paths = Array.from(e.dataTransfer?.files || [])
+      const dropped = Array.from(e.dataTransfer?.files || [])
         .map((f) => (f as any).path as string)
         .filter(Boolean);
 
-      if (!paths.length) return;
+      // Only game folders can be opened; a drop with none in it says so (dropTargets.ts).
+      const paths = gameFoldersIn(dropped, (p) => filesystem.exists(p), (...parts) => filesystem.join(...parts));
+      if (!paths.length) {
+        if (dropped.length) ToastLayer.showError(NOT_A_GAME_FOLDER, 5000);
+        return;
+      }
 
       for (const p of paths) {
         const project = await ops.openProjectAtPath(p);
@@ -594,7 +601,7 @@ function planFor(fallbackName: string, email: string, profile: any): LobbyUser {
     name,
     email,
     plan: status === 'premium' ? 'Premium' : status.charAt(0).toUpperCase() + status.slice(1),
-    planUrl: paid ? 'https://primora.xgenia.ai/user-panel' : 'https://xgenia.ai/pricing',
+    planUrl: paid ? 'https://primora.xgenia.com/user-panel' : 'https://xgenia.ai/pricing',
     planLabel: paid ? 'Account settings' : 'Upgrade'
   };
 }

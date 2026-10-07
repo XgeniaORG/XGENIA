@@ -91,10 +91,16 @@ export function projectFromDirectory(projectdir: string, callback: (project?: Pr
       }
     } else {
       console.error('[projectFromDirectory] Failed to read project.json content.');
-      bugtracker.track('ProjectModel.fromDirectory readJSONFromDirectory failed', {
-        dir: projectdir,
-        dirContent: FileSystem.instance.readDirectorySync(projectdir)
-      });
+      // (2026-10-07) The path can be a FILE (a drop onto the projects page): readDirectorySync then
+      // throws inside this promise callback, the callback below never ran, and "Opening project"
+      // waited forever. The listing is for the bug report only; the answer must always come back.
+      let dirContent: unknown;
+      try {
+        dirContent = FileSystem.instance.readDirectorySync(projectdir);
+      } catch (e) {
+        dirContent = `not a readable folder: ${(e as Error)?.message || e}`;
+      }
+      bugtracker.track('ProjectModel.fromDirectory readJSONFromDirectory failed', { dir: projectdir, dirContent });
       callback(); // Failed to read project
     }
   });

@@ -46,6 +46,7 @@ import {
     setProjectGlobalStylePrompt,
 } from '../ProjectStylesPanel/ProjectStylesPanel';
 import { PluginLoader } from './PluginLoader';
+import { setActiveGame as rgsSetActiveGame } from '@xgenia-utils/rgs/rgsClient';
 import {
     checkPublishName,
     publishJob,
@@ -3045,7 +3046,9 @@ export class EditorBridge {
             return s.apiKey ? { apiKey: s.apiKey, url: s.rgsUrl || XRGS_DEFAULT_URL } : null;
         });
         h('xrgs.getActiveGame', () => readRgs().activeGame ?? null);
-        h('xrgs.setActiveGame', ([game]: [any]) => { writeRgs({ activeGame: game ?? null }); return true; });
+        // Through rgsClient.setActiveGame so the Deploy popup hears the change (`rgs.gameSelected`) —
+        // the AI's rgs set_game switched games without it (2026-10-07, tester report).
+        h('xrgs.setActiveGame', ([game]: [any]) => { rgsSetActiveGame(game ?? null); return true; });
         h('xrgs.getTestSettings', () => readRgs().testSettings ?? null);
         h('xrgs.setTestSettings', ([s]: [any]) => {
             const next = { ...(readRgs().testSettings || {}), ...(s || {}) };
