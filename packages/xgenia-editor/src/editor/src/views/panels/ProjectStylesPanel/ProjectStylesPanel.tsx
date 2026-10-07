@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 
 import { ProjectModel } from '@xgenia-models/projectmodel';
+import { metaBelongsElsewhere } from './metaOwner';
 import { BasePanel } from '@xgenia-core-ui/components/sidebar/BasePanel';
 import { Section } from '@xgenia-core-ui/components/sidebar/Section';
 import { Box } from '@xgenia-core-ui/components/layout/Box';
@@ -60,14 +61,18 @@ function writeMeta(meta: ProjectStylesMeta) {
 
 // --- Module-level state (mirrors ProjectModel, cached for sync reads) ---
 let _meta: ProjectStylesMeta = readMeta();
-let _metaInitialized = !!ProjectModel.instance;
+// The project _meta was read from. (2026-10-07) The cache was read once per editor session, so a project
+// opened after another one inherited its style: the genie slot "Nice" carried the previous project's
+// "amphora, olive wreath" prompt into every image, and the next write saved it into Nice's own file.
+let _metaOwner: unknown = ProjectModel.instance;
 const _listeners: Array<() => void> = [];
 
-// Ensure _meta is fresh from ProjectModel (handles late initialization)
+// Ensure _meta is the OPEN project's (late initialization, and every project switch)
 function ensureFreshMeta(): ProjectStylesMeta {
-    if (!_metaInitialized && ProjectModel.instance) {
+    const current = ProjectModel.instance;
+    if (metaBelongsElsewhere(_metaOwner, current)) {
         _meta = readMeta();
-        _metaInitialized = true;
+        _metaOwner = current;
     }
     return _meta;
 }
@@ -275,12 +280,14 @@ export function getProjectPalettes(): string[][] { return ensureFreshMeta().pale
 export async function ensureStyleCacheWarmed(): Promise<void> { /* state is live in-process */ }
 
 export function addProjectPalette(palette: string[]) {
+    ensureFreshMeta();
     _meta = { ..._meta, palettes: [palette, ...(_meta.palettes || [])] };
     writeMeta(_meta);
     notify();
 }
 
 export function removeProjectPalette(index: number) {
+    ensureFreshMeta();
     const next = [...(_meta.palettes || [])];
     next.splice(index, 1);
     _meta = { ..._meta, palettes: next };
@@ -373,6 +380,7 @@ export function ProjectStylesPanel() {
     // Re-read from ProjectModel on each mount (project may have changed)
     const [meta, setMetaState] = useState<ProjectStylesMeta>(() => {
         _meta = readMeta();
+        _metaOwner = ProjectModel.instance;
         return _meta;
     });
     const [isCreatingPalette, setIsCreatingPalette] = useState(false);
