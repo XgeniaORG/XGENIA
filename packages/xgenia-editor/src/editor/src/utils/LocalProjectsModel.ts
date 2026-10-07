@@ -9,6 +9,7 @@ import { filesystem, platform } from '@xgenia/platform';
 
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import { templateRegistry } from '@xgenia-utils/forge';
+import { keepInCopy, templateSource } from './projectTemplateSource';
 
 import Model from '../../../shared/model';
 import { projectFromDirectory, unzipIntoDirectory } from '../models/projectmodel.editor';
@@ -471,18 +472,25 @@ export class LocalProjectsModel extends Model {
     const projectTemplate = options?.projectTemplate;
 
     if (projectTemplate) {
-      const templatePath = await templateRegistry.download({ templateUrl: projectTemplate });
+      // A Duplicate or Remix passes the game's own folder: copy it directly. A template URL is
+      // downloaded and unzipped. Either failing must still answer the caller, or its "Duplicating
+      // game" / "Creating new game" toast never goes away (see projectTemplateSource.ts).
+      try {
+        const source = templateSource(projectTemplate, (p) => filesystem.exists(p));
+        const templatePath =
+          source.kind === 'folder' ? source.path : await templateRegistry.download({ templateUrl: source.url });
 
-      // Copy unzipped project template
-      if (process.env.WEB_MODE) {
-        await filesystem.copyFolder(templatePath, dirEntry);
-      } else {
-        FileSystem.instance.copyRecursiveSync(templatePath, dirEntry, {
-          filter(src) {
-            //ignore all files in .git/
-            return !src.includes(path.sep + '.git' + path.sep);
-          }
-        });
+        if (process.env.WEB_MODE) {
+          await filesystem.copyFolder(templatePath, dirEntry);
+        } else {
+          FileSystem.instance.copyRecursiveSync(templatePath, dirEntry, {
+            filter: (src) => keepInCopy(src, path.sep)
+          });
+        }
+      } catch (e) {
+        console.error('[LocalProjectsModel] Could not copy the project template', projectTemplate, e);
+        fn();
+        return;
       }
 
       // Project extracted successfully, load it
