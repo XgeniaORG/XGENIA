@@ -12,6 +12,10 @@ on:
 jobs:
   build:
     uses: ./.github/workflows/nightly-builds.yml
+    # A called workflow's jobs can't have more than this; notify-teams reads the run's job list.
+    permissions:
+      contents: read
+      actions: read
     with:
       release: true
     secrets: inherit

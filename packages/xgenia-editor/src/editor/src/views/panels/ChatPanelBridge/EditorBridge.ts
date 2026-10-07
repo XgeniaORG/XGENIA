@@ -53,6 +53,7 @@ import {
     startPublish,
     type PublishStartSpec,
 } from '@xgenia-utils/publish/publishCommands';
+import { setActiveGame } from '@xgenia-utils/rgs/rgsClient';
 
 interface PluginCommand {
     id: string;
@@ -267,15 +268,24 @@ export class EditorBridge {
         UndoQueue.instance?.push?.(group);
     }
 
-    /**
-     * Command ids already dispatched, per source window, shared across every instance in this
-     * document. A WeakMap so a closed/reloaded plugin iframe's entry is collected with it.
-     */
-    private static _handledIdsBySource = new WeakMap<Window, Set<string>>();
+    // (2026-10-05, Spin Cycle) The registry lives on the WINDOW, not on the class. HMR re-evaluates this
+    // module and makes a NEW class with fresh statics, so the one-bridge guard below never saw the bridge
+    // before it and the duplicate-id guard started from an empty set: each hot update of this file left one
+    // more live listener, and every AI command ran once per listener — one scaffold call built six screens
+    // and six reel grids. Kept on window, every evaluation of this module shares one registry.
+    private static get _registry(): { active: EditorBridge | null; handledIdsBySource: WeakMap<Window, Set<string>>; constructed: number } {
+        const w = window as any;
+        if (!w.__xgeniaEditorBridgeRegistry) w.__xgeniaEditorBridgeRegistry = { active: null, handledIdsBySource: new WeakMap<Window, Set<string>>(), constructed: 0 };
+        return w.__xgeniaEditorBridgeRegistry;
+    }
+    /** Command ids already dispatched, per source window (a WeakMap: a closed iframe's entry goes with it). */
+    private static get _handledIdsBySource(): WeakMap<Window, Set<string>> { return EditorBridge._registry.handledIdsBySource; }
     /** The instance currently holding the window `message` listener. */
-    private static _active: EditorBridge | null = null;
+    private static get _active(): EditorBridge | null { return EditorBridge._registry.active; }
+    private static set _active(v: EditorBridge | null) { EditorBridge._registry.active = v; }
     /** How many bridges this document has constructed — >1 is the bug. */
-    private static _instancesConstructed = 0;
+    private static get _instancesConstructed(): number { return EditorBridge._registry.constructed; }
+    private static set _instancesConstructed(v: number) { EditorBridge._registry.constructed = v; }
     private readonly _instanceId: number;
 
     constructor() {
@@ -3045,7 +3055,9 @@ export class EditorBridge {
             return s.apiKey ? { apiKey: s.apiKey, url: s.rgsUrl || XRGS_DEFAULT_URL } : null;
         });
         h('xrgs.getActiveGame', () => readRgs().activeGame ?? null);
-        h('xrgs.setActiveGame', ([game]: [any]) => { writeRgs({ activeGame: game ?? null }); return true; });
+        // Through rgsClient, not writeRgs: it also emits `rgs.gameSelected`, so the
+        // Publish popup follows a game the AI picks instead of showing the old one.
+        h('xrgs.setActiveGame', ([game]: [any]) => { setActiveGame(game ?? null); return true; });
         h('xrgs.getTestSettings', () => readRgs().testSettings ?? null);
         h('xrgs.setTestSettings', ([s]: [any]) => {
             const next = { ...(readRgs().testSettings || {}), ...(s || {}) };

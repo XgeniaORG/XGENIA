@@ -18,6 +18,7 @@ import { filesystem, platform } from '@xgenia/platform';
 
 import { createEditorCompilation } from '@xgenia-utils/compilation/compilation.editor';
 import { duplicateCurrentProject, saveProject } from '@xgenia-utils/compile/duplicateProject';
+import { dropUnusedMathsComponents } from './mathsStaysOnRgs';
 import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import {
   mathsEndpointsForGame,
@@ -348,6 +349,10 @@ export async function publishGameToWeb(opts: PublishGameOptions): Promise<Publis
           `player's browser. Deploy ${undeployed.length === 1 ? 'it' : 'them'} from Maths RGS → Math Components.`
       );
     }
+
+    // The maths stays on the RGS: a Math Component nothing in the copy uses any more (its instances are
+    // Aggregators now) is not built into the public site — it was, as xgenia_bundles/<id>.json.
+    dropUnusedMathsComponents(copy);
 
     // 3. Stamp the game onto the copy, so the deployed frontend knows which RGS
     //    game it IS. Aggregator calls get this for free — their function URL

@@ -35,6 +35,7 @@
  */
 
 import { ipcRenderer } from 'electron';
+import { afterNextPaint } from './paintWait';
 
 type Listener = (event: any) => void;
 
@@ -335,6 +336,12 @@ export class IframeViewer implements PreviewHost {
   async capturePage(): Promise<Electron.NativeImage> {
     // The frame is painted by THIS webContents, so capture our own page clipped to the
     // frame's visual box. The rect is CSS pixels; Electron scales for the display.
+    //
+    // (2026-10-07) capturePage() copies the frame the window last PRESENTED. Callers change the
+    // DOM right before capturing (the design capture resizes this element; withOccludersHidden
+    // hides panels), so wait until that change is painted — otherwise the image is the frame
+    // from before it (paintWait.ts).
+    await afterNextPaint();
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const remote = require('@electron/remote');
     const wc = remote.getCurrentWebContents();

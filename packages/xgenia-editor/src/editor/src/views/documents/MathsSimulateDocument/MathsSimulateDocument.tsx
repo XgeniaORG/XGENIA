@@ -591,6 +591,25 @@ function MathsSimulateDocument({
                                 </div>
                             )}
 
+                            {/* The platform pays whole minor units. A win of 10.5 is paid 10, so a
+                                game that shows the 10.5, or keeps its own balance with it, drifts
+                                from what the player is actually paid. */}
+                            {simResult.stats.winsFloored > 0 && (
+                                <div style={{ fontSize: '11px', color: '#F5A623', marginBottom: '10px', lineHeight: 1.5 }}>
+                                    {simResult.stats.winsFloored.toLocaleString()} win
+                                    {simResult.stats.winsFloored === 1 ? ' was' : 's were'} not a whole number of
+                                    minor units and {simResult.stats.winsFloored === 1 ? 'was' : 'were'} rounded down, as live play pays them —
+                                    the RTP above is what is paid, and the game's own win or balance display can show more.
+                                </div>
+                            )}
+                            {simResult.stats.winsCapped > 0 && (
+                                <div style={{ fontSize: '11px', color: '#F5A623', marginBottom: '10px', lineHeight: 1.5 }}>
+                                    {simResult.stats.winsCapped.toLocaleString()} win
+                                    {simResult.stats.winsCapped === 1 ? ' was' : 's were'} over the game's max win and
+                                    {simResult.stats.winsCapped === 1 ? ' was' : ' were'} paid at the cap, as live play pays them.
+                                </div>
+                            )}
+
                             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                                 <div style={STAT_TILE_STYLE}>
                                     <div style={{ fontSize: '11px', color: '#8a8a9a' }}>Average RTP</div>

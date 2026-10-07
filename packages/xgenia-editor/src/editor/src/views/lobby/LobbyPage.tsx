@@ -30,6 +30,7 @@ import { NewGameSheet, type NewGameChoice } from './NewGameSheet';
 import { Omnibox } from './Omnibox';
 import { SelectionBar } from './SelectionBar';
 import { Icon } from './LobbyIcons';
+import { useDropToAdd } from './useDropToAdd';
 import { useLobbyProjects } from './useLobbyProjects';
 import * as ops from './lobbyOperations';
 import type { TemplateItem } from '../../utils/forge/template/template';
@@ -65,7 +66,6 @@ export function LobbyPage({ onProjectLoaded }: LobbyPageProps) {
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [user, setUser] = useState<LobbyUser | null>(null);
-  const [dragging, setDragging] = useState(false);
   const [tint, setTint] = useState<string>('');
   const [heroFolded, setHeroFolded] = useState(false);
 
@@ -390,27 +390,15 @@ export function LobbyPage({ onProjectLoaded }: LobbyPageProps) {
 
   // ─── drop to add ──────────────────────────────────────────────────────────
 
-  const onDrop = useCallback(
-    async (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragging(false);
-
-      const paths = Array.from(e.dataTransfer?.files || [])
-        .map((f) => (f as any).path as string)
-        .filter(Boolean);
-
-      if (!paths.length) return;
-
-      for (const p of paths) {
-        const project = await ops.openProjectAtPath(p);
-        if (project) {
-          onProjectLoaded(project);
-          return;
-        }
-      }
+  const addDropped = useCallback(
+    async (paths: string[]) => {
+      const project = await ops.openDroppedGame(paths);
+      if (project) onProjectLoaded(project);
     },
     [onProjectLoaded]
   );
+
+  const drop = useDropToAdd(addDropped);
 
   const allSelectedPinned = selectedIds.length > 0 && selectedIds.every((id) => pins.includes(id));
 
@@ -418,15 +406,7 @@ export function LobbyPage({ onProjectLoaded }: LobbyPageProps) {
     <div
       className={css.Root}
       style={tint ? ({ '--lobby-tint': tint } as React.CSSProperties) : undefined}
-      onDragOver={(e) => {
-        e.preventDefault();
-        if (!dragging) setDragging(true);
-      }}
-      onDragLeave={(e) => {
-        // Only when the pointer actually leaves the page, not on every child boundary crossing.
-        if (e.currentTarget === e.target) setDragging(false);
-      }}
-      onDrop={onDrop}
+      {...drop.handlers}
     >
       <div className={css.Ground} aria-hidden="true" />
 
@@ -557,7 +537,7 @@ export function LobbyPage({ onProjectLoaded }: LobbyPageProps) {
         />
       )}
 
-      {dragging && (
+      {drop.over && (
         <div className={css.DropZone}>
           <span className={css.DropIcon}>
             <Icon name="folder" size={24} />
@@ -594,7 +574,7 @@ function planFor(fallbackName: string, email: string, profile: any): LobbyUser {
     name,
     email,
     plan: status === 'premium' ? 'Premium' : status.charAt(0).toUpperCase() + status.slice(1),
-    planUrl: paid ? 'https://primora.xgenia.ai/user-panel' : 'https://xgenia.ai/pricing',
+    planUrl: paid ? 'https://primora.xgenia.com/user-panel' : 'https://xgenia.com/pricing',
     planLabel: paid ? 'Account settings' : 'Upgrade'
   };
 }
