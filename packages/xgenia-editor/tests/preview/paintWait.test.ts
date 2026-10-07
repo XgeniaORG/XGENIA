@@ -61,3 +61,22 @@ test('a canvas that never changes does not hold the capture past the limit', asy
   assert.equal(r.settled, false);
   assert.ok(t >= 50 && t <= 80);
 });
+
+import { letterboxesSettled } from '../../src/editor/src/views/VisualCanvas/paintWait';
+
+const lbDoc = (scale: number, outerW: number, outerH: number) => ({
+  querySelectorAll: () => [{
+    style: { width: '1920px', height: '1080px', transform: `scale(${scale})` },
+    parentElement: { clientWidth: outerW, clientHeight: outerH },
+  }],
+});
+
+test('a letterbox still carrying the pane scale after the resize is not settled', () => {
+  // The preview is 1440x810 now; the canvas still says 383/1920.
+  assert.equal(letterboxesSettled(lbDoc(383 / 1920, 1440, 810)), false);
+});
+
+test('a letterbox at the scale its window calls for is settled, and a page with none has nothing to wait for', () => {
+  assert.equal(letterboxesSettled(lbDoc(0.75, 1440, 810)), true);
+  assert.equal(letterboxesSettled({ querySelectorAll: () => [] }), true);
+});

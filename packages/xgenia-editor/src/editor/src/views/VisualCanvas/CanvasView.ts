@@ -8,7 +8,7 @@ import { InlineElementChat } from './InlineElementChat';
 import type { PreviewHost } from './IframeViewer';
 import { VisualCanvas } from './VisualCanvas';
 import { measureSurfaceProof, browserSurfaceProofEnv, sampleOccluders } from './surfaceProof';
-import { waitUntilSettled } from './paintWait';
+import { waitUntilSettled, letterboxesSettled } from './paintWait';
 
 /**
  * Chatter from the running preview, off by default.
@@ -907,6 +907,18 @@ export class CanvasView extends View {
             },
             (c: { w: number; h: number }) =>
               !!c && (Math.abs(c.w - before.w) > 2 || Math.abs(c.h - before.h) > 2 || c.w >= width - 2 || c.h >= height - 2),
+            { timeoutMs: 1000 }
+          );
+        }
+        // And for every letterboxed Group to re-scale for the new window: it measures with a
+        // ResizeObserver and re-renders after the resize (letterboxesSettled in paintWait.ts).
+        {
+          const LETTERBOX_SETTLED_JS = `(${letterboxesSettled.toString()})(document)`;
+          await waitUntilSettled(
+            async () => {
+              try { return await this.webview!.executeJavaScript(LETTERBOX_SETTLED_JS); } catch { return true; }
+            },
+            (ok: boolean) => ok === true,
             { timeoutMs: 1000 }
           );
         }
