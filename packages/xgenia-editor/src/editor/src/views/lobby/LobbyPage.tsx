@@ -594,7 +594,7 @@ function planFor(fallbackName: string, email: string, profile: any): LobbyUser {
     name,
     email,
     plan: status === 'premium' ? 'Premium' : status.charAt(0).toUpperCase() + status.slice(1),
-    planUrl: paid ? 'https://primora.xgenia.ai/user-panel' : 'https://xgenia.ai/pricing',
+    planUrl: paid ? 'https://primora.xgenia.com/user-panel' : 'https://xgenia.com/pricing',
     planLabel: paid ? 'Account settings' : 'Upgrade'
   };
 }
