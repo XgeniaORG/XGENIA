@@ -1,4 +1,5 @@
 import { ipcRenderer } from 'electron';
+import { captureEncoding } from './captureEncoding';
 import React from 'react';
 import { createRoot, Root } from 'react-dom/client';
 
@@ -551,6 +552,8 @@ export class CanvasView extends View {
     // Keep only the screenshot capture listener - this is specific to webview functionality
     this.onIpc('embedded-viewer-capture-request', async (...args) => {
       console.log('[CanvasView] 📸 Received embedded-viewer-capture-request from main process, args:', args);
+      // args[0] is the IPC event; args[1] the requester's encoding options (captureEncoding.ts).
+      const encoding = captureEncoding(args[1]);
 
       {
         const stale = this.staleFrameReason();
@@ -577,7 +580,7 @@ export class CanvasView extends View {
           const result = await this.captureThumbnail();
 
           if (result && result.toDataURL) {
-            const dataURL = result.toDataURL();
+            const dataURL = encoding.mime ? result.toDataURL(encoding.mime, encoding.quality) : result.toDataURL();
             console.log('[CanvasView] Successfully captured thumbnail, sending reply');
             this._activeCapture = null; // terminal: success
             ipcRenderer.send('viewer-capture-thumb-reply', dataURL);
