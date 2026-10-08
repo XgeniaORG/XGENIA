@@ -2432,6 +2432,12 @@ function _isInsideSelection(x, y) {
   return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 }
 
+/** False for a node the pointer never lands on: Visible off (visibility: hidden) or click-through. */
+function _isHittable(el) {
+  const cs = el && getComputedStyle(el);
+  return !!cs && cs.visibility !== 'hidden' && cs.pointerEvents !== 'none';
+}
+
 // Brief "why nothing moved" feedback on a blocked gesture, reusing the label badge.
 function _flashBlocked(reason) {
   if (!_labelBadge || !_selectedElement) return;
@@ -3505,6 +3511,26 @@ window.XgeniaEditorInspectorAPI = {
         // Inside a bridge canvas a press picks or drags a sprite; the selected DOM node there
         // is the Stage, which still moves by its arrows and handles above.
         if (_bridgeOwns(e.target)) return;
+        const pressSelection = () => {
+          const caps = _effectiveCaps();
+          if (caps && caps.movable) {
+            _startDrag(e);
+            _dragAxis = null;
+          } else if (caps && caps.moveReason === 'in-flow' && !_isMulti()) {
+            _startReorder(e);
+          } else if (caps && caps.moveReason) {
+            _flashBlocked(caps.moveReason);
+          }
+        };
+        const plain = !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+        // A selected node the pointer cannot land on (Visible off, or click-through) is picked
+        // from the Hierarchy or the graph, so inside its box a press drags it. It used to pick
+        // the visible node beneath instead and move that (2026-10-08). A click without a drag
+        // still selects what is under the pointer.
+        if (plain && _isInsideSelection(p.x, p.y) && _members().some((m) => !_isHittable(m.el))) {
+          pressSelection();
+          return;
+        }
         // Box select: Cmd/Ctrl-drag anywhere, or a drag that starts on no node at all. (A game
         // fills its screen with a background node, so the modifier is the usual way in.)
         const onNode = !!_pickNodeAt(e.clientX, e.clientY);
@@ -3523,17 +3549,7 @@ window.XgeniaEditorInspectorAPI = {
           _pickAndPress(hit, e);
           return;
         }
-        if (onSelection) {
-          const caps = _effectiveCaps();
-          if (caps && caps.movable) {
-            _startDrag(e);
-            _dragAxis = null;
-          } else if (caps && caps.moveReason === 'in-flow' && !_isMulti()) {
-            _startReorder(e);
-          } else if (caps && caps.moveReason) {
-            _flashBlocked(caps.moveReason);
-          }
-        }
+        if (onSelection) pressSelection();
         // Otherwise fall through: clickHandler does selection/deselection.
       };
 
