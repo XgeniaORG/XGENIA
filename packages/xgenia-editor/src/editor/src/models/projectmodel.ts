@@ -1426,6 +1426,12 @@ EventDispatcher.instance.on(
   null
 );
 
+/** ⌘S: save now rather than after the next change's 1 s wait. A save already running is followed up. */
+export function saveProjectNow() {
+  clearTimeout(saveTimeout);
+  saveProject();
+}
+
 function saveProject() {
   if (!ProjectModel.instance) return;
 

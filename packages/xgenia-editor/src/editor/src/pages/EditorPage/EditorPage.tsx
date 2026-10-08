@@ -11,7 +11,7 @@ import { App } from '@xgenia-models/app';
 import { AppRegistry } from '@xgenia-models/app_registry';
 import { CloudService } from '@xgenia-models/CloudServices';
 import { NodeLibraryImporter } from '@xgenia-models/nodelibrary/NodeLibraryImporter';
-import { ProjectModel } from '@xgenia-models/projectmodel';
+import { ProjectModel, saveProjectNow } from '@xgenia-models/projectmodel';
 import { projectFromDirectory, unzipIntoDirectory } from '@xgenia-models/projectmodel.editor';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
@@ -272,7 +272,7 @@ export function EditorPage({ route }: EditorPageProps) {
         {
             // Cmd+D is Duplicate (Unity, Figma); the preview's devtools moved to Cmd+Shift+I.
             handler: () => EventDispatcher.instance.emit('viewer-open-devtools'),
-            keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_I,
+            keybinding: Keybindings.OPEN_DEVTOOLS.hash,
             title: 'Preview developer tools',
             group: 'Developer'
         },
@@ -284,7 +284,7 @@ export function EditorPage({ route }: EditorPageProps) {
         },
         {
             handler: () => EventDispatcher.instance.emit('viewer-refresh'),
-            keybinding: KeyMod.CtrlCmd | KeyCode.KEY_R,
+            keybinding: Keybindings.REFRESH_PREVIEW.hash,
             title: 'Refresh the preview',
             group: 'Preview'
         },
@@ -341,6 +341,28 @@ export function EditorPage({ route }: EditorPageProps) {
             },
             keybinding: KeyMod.CtrlCmd | KeyCode.KEY_K,
             title: 'Command palette (tools)',
+            group: 'Editor'
+        },
+        {
+            // XGENIA saves a second after every change; ⌘S saves now and says so.
+            handler: () => {
+                const group = {};
+                const done = () => EventDispatcher.instance.off(group);
+                EventDispatcher.instance.on('ProjectModel.projectSavedToDisk', () => {
+                    done();
+                    ToastLayer.showSuccess('Saved');
+                }, group);
+                setTimeout(done, 10000);
+                saveProjectNow();
+            },
+            keybinding: KeyMod.CtrlCmd | KeyCode.KEY_S,
+            title: 'Save now (XGENIA also saves as you work)',
+            group: 'Editor'
+        },
+        {
+            handler: () => App.instance.exitProject(),
+            keybinding: KeyMod.CtrlCmd | KeyCode.KEY_W,
+            title: 'Close the project',
             group: 'Editor'
         },
         {

@@ -1636,6 +1636,8 @@ function _menuSection(text) {
   return d;
 }
 
+const _IS_MAC = /Mac/.test(navigator.platform);
+
 function _menuSep() {
   const d = document.createElement('div');
   d.className = 'xg-cm-sep';
@@ -1672,8 +1674,8 @@ function _openContextMenu(nodeIds, x, y) {
     menu.appendChild(_menuSection(top.label));
     menu.appendChild(_menuRow('Add to chat', '@' + top.label, () => _referenceNodeInChat(top)));
     menu.appendChild(_menuRow('Select', typeShort(top.type), () => _selectNodeFromMenu(top)));
-    menu.appendChild(_menuRow('Bring to front', '', () => _arrange(top.id, true)));
-    menu.appendChild(_menuRow('Send to back', '', () => _arrange(top.id, false)));
+    menu.appendChild(_menuRow('Bring to front', _IS_MAC ? '⇧⌘]' : 'Ctrl+Shift+]', () => _arrange(top.id, true)));
+    menu.appendChild(_menuRow('Send to back', _IS_MAC ? '⇧⌘[' : 'Ctrl+Shift+[', () => _arrange(top.id, false)));
 
     if (infos.length > 1) {
       menu.appendChild(_menuSep());
@@ -2992,7 +2994,7 @@ function _forwardKey(e, override) {
   e.preventDefault();
   e.stopPropagation();
   const k = Object.assign({
-    key: e.key, metaKey: e.metaKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey
+    key: e.key, code: e.code, metaKey: e.metaKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey
   }, override || {});
   makeEditorAPIRequest('viewportKey', k, () => { });
 }
@@ -3002,7 +3004,7 @@ function _forwardKey(e, override) {
 // bind still reaches the game and the menu.
 function _passEditorShortcut(e) {
   makeEditorAPIRequest('viewportKey', {
-    key: e.key, metaKey: e.metaKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey
+    key: e.key, code: e.code, metaKey: e.metaKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey
   }, () => { });
 }
 
@@ -3103,6 +3105,16 @@ document.addEventListener('keydown', (e) => {
     const primary = siblings.findIndex((x) => x.nodeId === _selectedNodeId);
     if (primary > 0) siblings.unshift(siblings.splice(primary, 1)[0]);
     if (siblings.length > 1) _selectMany(siblings);
+    return;
+  }
+
+  // ⇧⌘] / ⇧⌘[: bring to front / send to back, as in the node menu. (⌘] / ⌘[ are the graph's
+  // back/forward.) By the physical key: ⇧ turns ']' into '}'.
+  if (mod && e.shiftKey && !e.altKey && (e.code === 'BracketRight' || e.code === 'BracketLeft') && _selectedNodeId) {
+    e.preventDefault();
+    e.stopPropagation();
+    const toFront = e.code === 'BracketRight';
+    for (const m of _members()) _arrange(m.nodeId, toFront);
     return;
   }
 

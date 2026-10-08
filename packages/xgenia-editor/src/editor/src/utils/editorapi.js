@@ -29,6 +29,7 @@ class EditorAPI {
     const handled = !!evt && KeyboardHandler.default.instance.executeCommandMatchingKeyEvent(
       {
         key: evt.key,
+        code: evt.code,
         metaKey: !!evt.metaKey,
         ctrlKey: !!evt.ctrlKey,
         shiftKey: !!evt.shiftKey,

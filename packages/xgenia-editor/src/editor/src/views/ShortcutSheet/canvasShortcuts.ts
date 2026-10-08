@@ -28,6 +28,8 @@ export const CANVAS_SHORTCUTS: CanvasShortcut[] = [
   { group: GROUP, action: 'Copy · paste · cut', mac: '⌘C · ⌘V · ⌘X', other: 'Ctrl+C · Ctrl+V · Ctrl+X' },
   { group: GROUP, action: 'Delete', mac: '⌫', other: 'Delete' },
   { group: GROUP, action: 'Select the siblings', accelerator: 'CmdOrCtrl+A' },
+  { group: GROUP, action: 'Bring to front', accelerator: 'Shift+CmdOrCtrl+]' },
+  { group: GROUP, action: 'Send to back', accelerator: 'Shift+CmdOrCtrl+[' },
   { group: GROUP, action: 'Pan the zoomed preview', mac: 'Space-drag', other: 'Space-drag' },
   { group: GROUP, action: 'Zoom toward the pointer', mac: '⌘-scroll', other: 'Ctrl-scroll' },
   { group: GROUP, action: 'Frame the selection (or the whole game), from anywhere', mac: 'F', other: 'F' },

@@ -1,19 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { platform, PlatformOS } from '@xgenia/platform';
 
-import { KeyCodeUtils } from '@xgenia-utils/keyboard/KeyCodeMapper';
 import KeyboardHandler from '@xgenia-utils/keyboardhandler';
 
 import { CANVAS_SHORTCUTS } from './canvasShortcuts';
-import {
-  commandRows,
-  filterRows,
-  formatAccelerator,
-  groupRows,
-  keybindingAccelerator,
-  menuRows,
-  ShortcutRow
-} from './shortcutRows';
+import { IS_MAC, keybindingLabel } from './shortcutLabel';
+import { commandRows, filterRows, formatAccelerator, groupRows, menuRows, ShortcutRow } from './shortcutRows';
 import css from './ShortcutSheet.module.scss';
 
 function applicationMenuItems() {
@@ -36,7 +27,7 @@ function liveRows(isMac: boolean): ShortcutRow[] {
   }));
   const fromMenu = menuRows(applicationMenuItems(), isMac);
   const commands = KeyboardHandler.instance.listTitledCommands().map((c) => ({
-    keys: formatAccelerator(keybindingAccelerator(c.keybinding, KeyCodeUtils.toString(c.keybinding & 0xff)), isMac),
+    keys: keybindingLabel(c.keybinding),
     title: c.title,
     group: c.group
   }));
@@ -48,7 +39,7 @@ export interface ShortcutSheetProps {
 }
 
 export function ShortcutSheet({ onClose }: ShortcutSheetProps) {
-  const isMac = platform.os === PlatformOS.MacOS;
+  const isMac = IS_MAC;
   const rows = useMemo(() => liveRows(isMac), [isMac]);
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);

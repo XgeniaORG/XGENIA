@@ -223,7 +223,12 @@ export function EditorTopbar({
         title: 'Preview size: desktop',
         group: 'Preview'
       },
-      { keybinding: Keybindings.PREVIEW_FIT.hash, handler: () => runTopbarCommand({ kind: 'command', id: 'fit', label: '' }) },
+      {
+        keybinding: Keybindings.PREVIEW_FIT.hash,
+        handler: () => runTopbarCommand({ kind: 'command', id: 'fit', label: '' }),
+        title: 'Fit the preview to the window',
+        group: 'Preview'
+      },
       {
         keybinding: Keybindings.DETACH_PREVIEW.hash,
         handler: () => runTopbarCommand({ kind: 'command', id: 'detach', label: '' }),

@@ -83,6 +83,20 @@ function getKeyMod(evt: KeyboardEvent): KeyMod {
   return modKey;
 }
 
+/**
+ * The key part of a binding. On a Mac ⌥ and ⇧ change the character (⌥1 is '¡', ⇧0 is ')'), so
+ * ⌥⌘1 and ⇧⌘0 never matched by event.key; for those, and for any character the map does not
+ * know (KeyCode.Unknown), the physical key (event.code) names it.
+ */
+function keyCodeOf(event: Pick<KeyboardEvent, 'key' | 'altKey'> & { code?: string }): number {
+  const byKey = KeyCodeUtils.fromString(event.key);
+  if ((!byKey || event.altKey) && event.code) {
+    const m = /^(?:Digit|Key)([0-9A-Z])$/.exec(event.code);
+    if (m) return KeyCodeUtils.fromString(m[1]);
+  }
+  return byKey;
+}
+
 type KeyEventHandler = (event: KeyboardEvent) => void;
 type MouseEventHandler = (event: MouseEvent) => void;
 
@@ -103,7 +117,7 @@ export default class KeyboardHandler {
         return;
       }
 
-      const code = getKeyMod(event) + KeyCodeUtils.fromString(event.key);
+      const code = getKeyMod(event) + keyCodeOf(event);
 
       const activeEl = document.activeElement;
       const isInputFocused = isTypingTarget(activeEl);
@@ -229,11 +243,11 @@ export default class KeyboardHandler {
    * click there), or the Edit menu. Returns whether a command ran.
    */
   executeCommandMatchingKeyEvent(
-    event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>,
+    event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'> & { code?: string },
     type: 'down' | 'up',
     source: 'keyboard' | 'viewport' | 'menu' = 'keyboard'
   ): boolean {
-    const code = getKeyMod(event as KeyboardEvent) + KeyCodeUtils.fromString(event.key);
+    const code = getKeyMod(event as KeyboardEvent) + keyCodeOf(event);
     return this.runCommand(code, type, source);
   }
 
@@ -258,7 +272,10 @@ export default class KeyboardHandler {
       return null;
     }
 
-    return matchingCommands.reduce((prev, curr) => (prev.weight < curr.weight ? prev : curr));
+    // The higher weight wins (a panel's own ⌘F over the page's, a lesson's ⇧⌘R over devtools); on a
+    // tie, the later registration. Comparing with an unset weight was always false, so registration
+    // order alone used to decide.
+    return matchingCommands.reduce((prev, curr) => ((curr.weight ?? 0) >= (prev.weight ?? 0) ? curr : prev));
   }
 
   /** The titled commands registered right now, for Help > Keyboard Shortcuts. */

@@ -11,6 +11,7 @@
 
 import React, { useRef, useState } from 'react';
 
+import { acceleratorLabel } from '../ShortcutSheet/shortcutLabel';
 import { Icon } from './LobbyIcons';
 import { useMenuLayer } from './useMenuLayer';
 import css from './LobbyBar.module.scss';
@@ -88,7 +89,7 @@ export function LobbyBar({
         <button type="button" className={css.Search} onClick={onOpenOmnibox}>
           <Icon name="search" />
           <span className={css.SearchLabel}>Search, or describe a game to build</span>
-          <kbd>⌘K</kbd>
+          <kbd>{acceleratorLabel('CmdOrCtrl+K')}</kbd>
         </button>
 
         {/* Appears as the hero folds away on scroll, so the game you were last in stays one

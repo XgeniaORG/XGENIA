@@ -1,10 +1,13 @@
-import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import Module from 'node:module';
+import { test, mock } from 'node:test';
 
 // Menu items reach the page over ipcRenderer ('editor-menu-command'); give the handler a fake one.
 const ipcHandlers: Record<string, (...args: any[]) => void> = {};
-const fakeIpc = { on: (channel: string, fn: (...args: any[]) => void) => (ipcHandlers[channel] = fn), send: () => undefined };
+const fakeIpc = {
+  on: (channel: string, fn: (...args: any[]) => void) => (ipcHandlers[channel] = fn),
+  send: () => undefined
+};
 const realLoad = (Module as any)._load;
 (Module as any)._load = function (request: string, ...rest: unknown[]) {
   return request === 'electron' ? { ipcRenderer: fakeIpc } : realLoad.call(this, request, ...rest);
@@ -26,7 +29,7 @@ function el(tagName: string, attrs: Record<string, string> = {}, extra: Record<s
   return { tagName, getAttribute: (n: string) => (n in attrs ? attrs[n] : null), isContentEditable: false, ...extra };
 }
 
-function press(key: string, mods: Partial<KeyboardEvent> = {}) {
+function press(key: string, mods: Partial<KeyboardEvent> & { code?: string } = {}) {
   const e = { key, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, repeat: false, ...mods };
   for (const fn of listeners.keydown || []) fn(e);
 }
@@ -172,5 +175,56 @@ test('View > Toggle Edit / Preview (⌘T) runs the toggle from anywhere, once pe
   } finally {
     clock.mock.restore();
     handler.deregisterCommands([cmd]);
+  }
+});
+
+test('⌥ and ⇧ digits match by the physical key: ⌥⌘1 (¡ on a Mac) and ⇧⌘0 ())', async () => {
+  const { mod, KeyMod, KeyCode } = await load();
+  const handler = mod.default.instance as any;
+  const seen: string[] = [];
+  const cmds = [
+    { handler: () => seen.push('rail 1'), keybinding: KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KEY_1 },
+    { handler: () => seen.push('fit'), keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_0 }
+  ];
+  handler.registerCommands(cmds);
+  try {
+    press('¡', { metaKey: true, altKey: true, code: 'Digit1' });
+    press(')', { metaKey: true, shiftKey: true, code: 'Digit0' });
+    // A Windows Alt+1 reports '1' itself; still the same binding.
+    press('1', { ctrlKey: true, altKey: true, code: 'Digit1' });
+    assert.deepEqual(seen, ['rail 1', 'fit', 'rail 1']);
+    // Forwarded from the preview, with its code.
+    assert.equal(
+      handler.executeCommandMatchingKeyEvent(
+        { key: '¡', code: 'Digit1', metaKey: true, ctrlKey: false, shiftKey: false, altKey: true },
+        'down',
+        'viewport'
+      ),
+      true
+    );
+  } finally {
+    handler.deregisterCommands(cmds);
+  }
+});
+
+test('the higher weight wins a shared key; on a tie the later registration does', async () => {
+  const { mod, KeyMod, KeyCode } = await load();
+  const handler = mod.default.instance as any;
+  const seen: string[] = [];
+  const code = KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_R;
+  const devtools = { handler: () => seen.push('devtools'), keybinding: code };
+  const lesson = { handler: () => seen.push('lesson'), keybinding: code, weight: 1 };
+  handler.registerCommands([lesson, devtools]); // the weighted one first: order must not decide
+  try {
+    press('r', { metaKey: true, shiftKey: true });
+    handler.deregisterCommands([lesson]);
+    press('r', { metaKey: true, shiftKey: true });
+    const later = { handler: () => seen.push('later'), keybinding: code };
+    handler.registerCommands([later]);
+    press('r', { metaKey: true, shiftKey: true });
+    handler.deregisterCommands([later]);
+    assert.deepEqual(seen, ['lesson', 'devtools', 'later']);
+  } finally {
+    handler.deregisterCommands([devtools, lesson]);
   }
 });
