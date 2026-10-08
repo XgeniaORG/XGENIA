@@ -5,6 +5,7 @@ import { filesystem } from '@xgenia/platform';
 import { ProjectModel } from '../../../models/projectmodel';
 import { atomicWriteText, createSerializedWriter, salvageJsonObject, type SalvageResult } from './assetMetaStore';
 import type { AssetRole } from './assetRoles';
+import type { AssetPlacement, AssetSpriteSettings } from './assetPlacement';
 
 // Per-asset tags & favorites, stored in ONE project file (<project>/.xgenia-assets.json),
 // keyed by the project-relative asset path ('assets/...'). The file lives OUTSIDE the
@@ -31,7 +32,9 @@ export interface AssetLineage {
   rootPath: string;
   box: { x: number; y: number; width: number; height: number };
   boxInRoot: { x: number; y: number; width: number; height: number };
-  canvasInRoot: { x: number; y: number; width: number; height: number };
+  /** null when the splitter could not measure this layer's own canvas; `canvasNote` says why. */
+  canvasInRoot: { x: number; y: number; width: number; height: number } | null;
+  canvasNote?: string;
   depth: number;
   layerName?: string | null;
   zIndex?: number | null;
@@ -62,6 +65,10 @@ export interface AssetMetaEntry {
   live?: boolean;
   /** Where this piece was cut from, when it was. */
   lineage?: AssetLineage;
+  /** Where a person put this asset on the target screen, 0..1. Beats split geometry. */
+  placement?: AssetPlacement;
+  /** Sprite import settings: pivot and nine-slice borders, applied when it is dropped. */
+  sprite?: AssetSpriteSettings;
 }
 
 type MetaMap = Record<string, AssetMetaEntry>;
@@ -207,6 +214,8 @@ function commit(path: string, entry: AssetMetaEntry): Promise<void> {
     !entry.role &&
     !entry.version &&
     !entry.lineage &&
+    !entry.placement &&
+    !(entry.sprite && (entry.sprite.pivot || entry.sprite.slice)) &&
     entry.live === undefined;
   if (isEmpty) delete cache[path];
   else cache[path] = entry;
@@ -333,12 +342,49 @@ export function migrateAssetMeta(oldPath: string, newPath: string): void {
   }
 }
 
+/** A duplicate is a NEW asset: it gets its own uid on the next scan. Copying the uid made two files
+ *  claim one id, and buildUidToPathMap then pointed every `uid://` ref at whichever came last. */
 export function copyAssetMeta(srcPath: string, newPath: string): void {
   const src = cache[srcPath];
   if (!src) return;
-  cache[newPath] = { ...src, tags: [...(src.tags || [])] };
+  const { uid: _uid, ...rest } = src;
+  cache[newPath] = { ...rest, tags: [...(src.tags || [])] };
   notify();
   persist();
+}
+
+/**
+ * The record of a file moved into `.trash` goes with it — prompt, split geometry and role stay
+ * readable as history — but the uid does not: a uid on a trash key would keep `uid://` refs
+ * silently resolving to a deleted file in the editor while an export (which never ships .trash)
+ * breaks.
+ */
+export async function retireAssetMeta(path: string, trashPath: string): Promise<void> {
+  await loadAssetMeta();
+  const row = cache[path];
+  if (!row) return;
+  const { uid: _uid, ...rest } = row;
+  delete cache[path];
+  cache[trashPath] = { ...rest, live: false };
+  notify();
+  await persist();
+}
+
+/** Put a row back exactly as it was (null removes it). The inverse every undo step writes. */
+export async function replaceAssetMeta(path: string, row: AssetMetaEntry | null): Promise<void> {
+  await loadAssetMeta();
+  if (row) {
+    await commit(path, JSON.parse(JSON.stringify(row)));
+  } else if (cache[path]) {
+    delete cache[path];
+    notify();
+    await persist();
+  }
+}
+
+/** A deep copy of a row as it is now, or null when there is none. */
+export function snapshotAssetMeta(path: string): AssetMetaEntry | null {
+  return cache[path] ? JSON.parse(JSON.stringify(cache[path])) : null;
 }
 
 export function removeAssetMeta(path: string): void {

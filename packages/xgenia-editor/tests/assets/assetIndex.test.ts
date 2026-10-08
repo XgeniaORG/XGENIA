@@ -136,3 +136,127 @@ test('index reports what needs persisting, and nothing when already correct', ()
   assert.equal(clean.pendingWrites.size, 0);
   assert.equal(clean.needsUid.size, 0);
 });
+
+const splitLayout = (over: Partial<any> = {}) => ({
+  sourcePath: 'assets/keyart/hero.png',
+  rootPath: 'assets/keyart/hero.png',
+  box: { x: 0.1, y: 0.8, width: 0.05, height: 0.07 },
+  boxInRoot: { x: 0.1, y: 0.8, width: 0.05, height: 0.07 },
+  canvasInRoot: null,
+  zIndex: 2,
+  layerName: 'Spin button',
+  depth: 1,
+  ...over
+});
+
+test('a null canvasInRoot on a split piece does not break the scan', () => {
+  const idx = buildIndex({
+    ...base(),
+    filePaths: ['assets/misc/gem.png'],
+    meta: { 'assets/misc/gem.png': { ai: { layout: splitLayout({ layerName: 'Gem' }) } } }
+  });
+  assert.equal(idx.assets.length, 1);
+  assert.equal(idx.assets[0].role, 'sprite');
+});
+
+test('a newer ai.layout beats a stale top-level lineage copy', () => {
+  const stale = splitLayout({ boxInRoot: { x: 0.5, y: 0.5, width: 0.1, height: 0.1 } });
+  const fresh = splitLayout();
+  const idx = buildIndex({
+    ...base(),
+    meta: { 'assets/symbols/cherry.png': { lineage: stale, ai: { layout: fresh } } }
+  });
+  const cherry = idx.byPath.get('assets/symbols/cherry.png')!;
+  assert.deepEqual(cherry.lineage!.boxInRoot, fresh.boxInRoot);
+  assert.deepEqual(cherry.placement!.rect, fresh.boxInRoot);
+});
+
+test('the scanner no longer writes a lineage copy (two copies of one record drift apart)', () => {
+  const idx = buildIndex({
+    ...base(),
+    meta: { 'assets/symbols/cherry.png': { role: 'sprite', roleInferred: true, uid: 'x', ai: { layout: splitLayout() } } }
+  });
+  assert.ok(!idx.pendingWrites.has('assets/symbols/cherry.png'));
+});
+
+test('an authored placement and sprite settings reach the index', () => {
+  const idx = buildIndex({
+    ...base(),
+    meta: {
+      'assets/symbols/cherry.png': {
+        placement: { x: 0.2, y: 0.2, width: 0.1, height: 0.1 },
+        sprite: { pivot: { x: 0.5, y: 1 } },
+        ai: { layout: splitLayout() }
+      }
+    }
+  });
+  const cherry = idx.byPath.get('assets/symbols/cherry.png')!;
+  assert.equal(cherry.placement!.source, 'authored');
+  assert.deepEqual(cherry.sprite, { pivot: { x: 0.5, y: 1 } });
+});
+
+test('placement lost on re-save is offered back from the newest version that had one', () => {
+  const idx = buildIndex({
+    ...base(),
+    trashNames: [
+      'assets_symbols_cherry.2026-09-06T10-00-00-000Z.png',
+      'assets_symbols_cherry.2026-09-07T10-00-00-000Z.png'
+    ],
+    meta: {
+      '.trash/assets_symbols_cherry.2026-09-06T10-00-00-000Z.png': {
+        ai: { layout: splitLayout({ boxInRoot: { x: 0.3, y: 0.3, width: 0.1, height: 0.1 } }) }
+      },
+      '.trash/assets_symbols_cherry.2026-09-07T10-00-00-000Z.png': { ai: { layout: splitLayout() } }
+    }
+  });
+  const cherry = idx.byPath.get('assets/symbols/cherry.png')!;
+  assert.equal(cherry.placement, null);
+  assert.equal(cherry.previousPlacement!.versionPath, '.trash/assets_symbols_cherry.2026-09-07T10-00-00-000Z.png');
+  assert.deepEqual(cherry.previousPlacement!.layout.boxInRoot, splitLayout().boxInRoot);
+});
+
+test('no recovery is offered when the live asset still has its placement', () => {
+  const idx = buildIndex({
+    ...base(),
+    trashNames: ['assets_symbols_cherry.2026-09-07T10-00-00-000Z.png'],
+    meta: {
+      'assets/symbols/cherry.png': { ai: { layout: splitLayout() } },
+      '.trash/assets_symbols_cherry.2026-09-07T10-00-00-000Z.png': { ai: { layout: splitLayout() } }
+    }
+  });
+  assert.equal(idx.byPath.get('assets/symbols/cherry.png')!.previousPlacement, null);
+});
+
+test('a source image lists the pieces cut from it', () => {
+  const idx = buildIndex({
+    ...base(),
+    meta: { 'assets/symbols/cherry.png': { ai: { layout: splitLayout() } } }
+  });
+  assert.deepEqual(idx.byPath.get('assets/keyart/hero.png')!.pieces, ['assets/symbols/cherry.png']);
+  assert.deepEqual(idx.byPath.get('assets/symbols/cherry.png')!.pieces, []);
+});
+
+test('file stats are carried when supplied and absent otherwise', () => {
+  const idx = buildIndex({
+    ...base(),
+    stats: new Map([['assets/keyart/hero.png', { size: 2048, mtime: 1789000000000 }]])
+  });
+  assert.equal(idx.byPath.get('assets/keyart/hero.png')!.size, 2048);
+  assert.equal(idx.byPath.get('assets/keyart/hero.png')!.mtime, 1789000000000);
+  assert.equal(idx.byPath.get('assets/symbols/cherry.png')!.size, undefined);
+});
+
+test('each version carries what its own record says: split geometry and AI provenance', () => {
+  const idx = buildIndex({
+    ...base(),
+    trashNames: ['assets_symbols_cherry.2026-09-06T10-00-00-000Z.png'],
+    meta: {
+      '.trash/assets_symbols_cherry.2026-09-06T10-00-00-000Z.png': {
+        ai: { source: 'layer-split', model: 'bytedance/seedream/v5/pro/layerize', layout: splitLayout() }
+      }
+    }
+  });
+  const v = idx.byPath.get('assets/symbols/cherry.png')!.versions[0];
+  assert.deepEqual(v.layout!.boxInRoot, splitLayout().boxInRoot);
+  assert.equal(v.ai!.source, 'layer-split');
+});

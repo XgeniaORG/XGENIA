@@ -14,7 +14,7 @@ const src = readFileSync(
 // the interface without being added to commit() silently deletes data on the next write.
 test('commit() considers every standalone AssetMetaEntry field', () => {
   const commitBody = src.slice(src.indexOf('function commit('), src.indexOf('function genUid('));
-  for (const field of ['tags', 'favorite', 'ai', 'uid', 'role', 'version', 'lineage', 'live']) {
+  for (const field of ['tags', 'favorite', 'ai', 'uid', 'role', 'version', 'lineage', 'placement', 'sprite', 'live']) {
     assert.ok(
       commitBody.includes(`entry.${field}`),
       `commit() must check entry.${field} or it will discard it`
