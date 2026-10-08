@@ -1524,6 +1524,18 @@ function launchApp() {
               label: 'Actual Size',
               accelerator: 'CmdOrCtrl+0',
               click: (_item, focused) => routeZoomCommand(focused, 'zoomReset')
+            },
+            { type: 'separator' },
+            {
+              // A menu accelerator, so it works wherever focus is. As a page-only shortcut it
+              // died as soon as a click put focus in the preview or the chat panel.
+              label: 'Toggle Edit / Preview',
+              accelerator: 'CmdOrCtrl+T',
+              click: () => {
+                if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+                  win.webContents.send('editor-menu-command', { command: 'togglePreviewMode' });
+                }
+              }
             }
           ]
         }
@@ -1590,6 +1602,16 @@ function launchApp() {
       template.push({
         label: 'Help',
         submenu: [
+          {
+            // No accelerator: ⌘/ adds a node-graph comment, and ⌘? is macOS's Help search.
+            // The sheet also opens with ? anywhere outside a text field.
+            label: 'Keyboard Shortcuts',
+            click: () => {
+              if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+                win.webContents.send('editor-menu-command', { command: 'showShortcuts' });
+              }
+            }
+          },
           {
             label: 'XGENIA Documentation',
             click: () => {

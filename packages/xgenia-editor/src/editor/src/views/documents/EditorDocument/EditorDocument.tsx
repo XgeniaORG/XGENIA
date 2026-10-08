@@ -775,7 +775,9 @@ function createKeyboardCommands(nodeGraph: NodeGraphEditor) {
 
   const duplicate: KeyboardCommand = {
     handler: () => nodeGraph.duplicate(),
-    keybinding: KeyMod.CtrlCmd | KeyCode.KEY_D
+    keybinding: KeyMod.CtrlCmd | KeyCode.KEY_D,
+    title: 'Duplicate the selected nodes',
+    group: 'Node graph'
   };
 
   const undo: KeyboardCommand = {
@@ -790,17 +792,23 @@ function createKeyboardCommands(nodeGraph: NodeGraphEditor) {
 
   const navBack: KeyboardCommand = {
     handler: () => nodeGraph.navigationHistory.goBack(),
-    keybinding: KeyMod.CtrlCmd | KeyCode.US_OPEN_SQUARE_BRACKET
+    keybinding: KeyMod.CtrlCmd | KeyCode.US_OPEN_SQUARE_BRACKET,
+    title: 'Back to the previous component',
+    group: 'Node graph'
   };
 
   const navForward: KeyboardCommand = {
     handler: () => nodeGraph.navigationHistory.goForward(),
-    keybinding: KeyMod.CtrlCmd | KeyCode.US_CLOSE_SQUARE_BRACKET
+    keybinding: KeyMod.CtrlCmd | KeyCode.US_CLOSE_SQUARE_BRACKET,
+    title: 'Forward to the next component',
+    group: 'Node graph'
   };
 
   const deleteWithBackspace: KeyboardCommand = {
     handler: () => nodeGraph.delete(),
-    keybinding: KeyCode.Backspace
+    keybinding: KeyCode.Backspace,
+    title: 'Delete the selection',
+    group: 'Node graph'
   };
 
   const deleteWithDel: KeyboardCommand = {
@@ -821,7 +829,9 @@ function createKeyboardCommands(nodeGraph: NodeGraphEditor) {
         },
         { undo: true, label: 'add comment', focusComment: true }
       ),
-    keybinding: KeyMod.CtrlCmd | KeyCode.US_SLASH
+    keybinding: KeyMod.CtrlCmd | KeyCode.US_SLASH,
+    title: 'Add a comment at the pointer',
+    group: 'Node graph'
   };
 
   return [copy, paste, cut, duplicate, undo, redo, navBack, navForward, deleteWithBackspace, deleteWithDel, createComment];

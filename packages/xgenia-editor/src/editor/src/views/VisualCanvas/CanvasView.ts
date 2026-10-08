@@ -7,6 +7,7 @@ import KeyboardHandler, { type MenuZoomCommand } from '@xgenia-utils/keyboardhan
 import { EditorSceneVisibility } from '../../models/editorSceneVisibility';
 import { UndoQueue } from '../../models/undo-queue-model';
 import View from '../../../../shared/view';
+import { toggleShortcutSheet } from '../ShortcutSheet';
 import { InlineElementChat } from './InlineElementChat';
 import type { PreviewHost } from './IframeViewer';
 import { VisualCanvas } from './VisualCanvas';
@@ -479,6 +480,8 @@ export class CanvasView extends View {
         if (!this.inspectMode) return; // Ignore zoom in preview mode
         if (message && message.fromKey) this.lastKeyZoomAt = Date.now();
         if (message) this.applyCanvasZoomGesture(message);
+      } else if (event.channel === 'editor-show-shortcuts') {
+        toggleShortcutSheet(); // ? pressed with focus in the preview
       }
     });
 

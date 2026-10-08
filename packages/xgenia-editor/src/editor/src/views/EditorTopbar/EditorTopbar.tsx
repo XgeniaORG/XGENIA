@@ -199,29 +199,44 @@ export function EditorTopbar({
 
   useKeyboardCommands(
     () => [
-      { keybinding: Keybindings.FOCUS_TOPBAR.hash, handler: () => pillFocusRef.current?.() },
+      {
+        keybinding: Keybindings.FOCUS_TOPBAR.hash,
+        handler: () => pillFocusRef.current?.(),
+        title: 'Go to a page or command (top bar)',
+        group: 'Editor'
+      },
       {
         keybinding: Keybindings.PREVIEW_PRESET_PHONE.hash,
-        handler: () => runTopbarCommand({ kind: 'command', id: 'preset', group: 'Mobile', label: '' })
+        handler: () => runTopbarCommand({ kind: 'command', id: 'preset', group: 'Mobile', label: '' }),
+        title: 'Preview size: mobile',
+        group: 'Preview'
       },
       {
         keybinding: Keybindings.PREVIEW_PRESET_TABLET.hash,
-        handler: () => runTopbarCommand({ kind: 'command', id: 'preset', group: 'Tablet', label: '' })
+        handler: () => runTopbarCommand({ kind: 'command', id: 'preset', group: 'Tablet', label: '' }),
+        title: 'Preview size: tablet',
+        group: 'Preview'
       },
       {
         keybinding: Keybindings.PREVIEW_PRESET_DESKTOP.hash,
-        handler: () => runTopbarCommand({ kind: 'command', id: 'preset', group: 'Desktop', label: '' })
+        handler: () => runTopbarCommand({ kind: 'command', id: 'preset', group: 'Desktop', label: '' }),
+        title: 'Preview size: desktop',
+        group: 'Preview'
       },
       { keybinding: Keybindings.PREVIEW_FIT.hash, handler: () => runTopbarCommand({ kind: 'command', id: 'fit', label: '' }) },
       {
         keybinding: Keybindings.DETACH_PREVIEW.hash,
-        handler: () => runTopbarCommand({ kind: 'command', id: 'detach', label: '' })
+        handler: () => runTopbarCommand({ kind: 'command', id: 'detach', label: '' }),
+        title: 'Detach the preview into its own window',
+        group: 'Preview'
       },
       {
         keybinding: Keybindings.PUBLISH.hash,
         handler: () => {
           if (!deployIsDisabled) setIsDeployVisible(true);
-        }
+        },
+        title: 'Publish',
+        group: 'Editor'
       }
     ],
     [runTopbarCommand, deployIsDisabled]

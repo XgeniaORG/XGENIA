@@ -60,11 +60,19 @@ const SAME_PRESS_MS = 400;
 /** View > Zoom In / Zoom Out / Actual Size, as the menu reports them. */
 export type MenuZoomCommand = 'zoomIn' | 'zoomOut' | 'zoomReset';
 
+/** Menu items that run the editor command bound to their own accelerator. */
+const MENU_KEY_COMMANDS: Record<string, number> = {
+  togglePreviewMode: KeyMod.CtrlCmd | KeyCode.KEY_T
+};
+
 export interface KeyboardCommand {
   handler: () => void;
   keybinding: number; //e.g. KeyMod.CtrlCmd | KeyCode.KEY_V
   weight?: number;
   type?: 'up' | 'down'; //default is down
+  /** Listed in Help > Keyboard Shortcuts, under `group`, while the command is registered. */
+  title?: string;
+  group?: string;
 }
 
 function getKeyMod(evt: KeyboardEvent): KeyMod {
@@ -167,8 +175,12 @@ export default class KeyboardHandler {
       return; // not in Electron (tests)
     }
     if (!ipc || typeof ipc.on !== 'function') return;
-    ipc.on('editor-menu-command', (_event: unknown, args: { command: 'undo' | 'redo' | MenuZoomCommand }) => {
+    ipc.on('editor-menu-command', (_event: unknown, args: { command: string }) => {
       const command = args && args.command;
+      if (command && Object.prototype.hasOwnProperty.call(MENU_KEY_COMMANDS, command)) {
+        this.runCommand(MENU_KEY_COMMANDS[command], 'down', 'menu');
+        return;
+      }
       // ⌘+ / ⌘− / ⌘0 are menu accelerators, so the key never reaches the page: the preview
       // canvas claims them while it has focus in Edit mode, and otherwise they zoom the UI.
       if (command === 'zoomIn' || command === 'zoomOut' || command === 'zoomReset') {
@@ -247,6 +259,13 @@ export default class KeyboardHandler {
     }
 
     return matchingCommands.reduce((prev, curr) => (prev.weight < curr.weight ? prev : curr));
+  }
+
+  /** The titled commands registered right now, for Help > Keyboard Shortcuts. */
+  listTitledCommands(): { keybinding: number; title: string; group: string }[] {
+    return this.commands
+      .filter((c) => c.title && (c.type || 'down') === 'down')
+      .map((c) => ({ keybinding: c.keybinding, title: c.title, group: c.group || 'Editor' }));
   }
 
   registerCommands(commands: KeyboardCommand[]) {

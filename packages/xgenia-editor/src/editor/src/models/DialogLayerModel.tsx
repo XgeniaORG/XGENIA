@@ -59,6 +59,18 @@ export class DialogLayerModel extends Model<DialogLayerModelEvent, DialogLayerMo
     return false;
   }
 
+  public isOpen(id: string): boolean {
+    return !!this._dialogs[id];
+  }
+
+  /** Show any dialog; one with the same id is replaced. */
+  public show(id: string, slot: () => JSX.Element) {
+    this._order = this._order.filter((x) => x !== id);
+    this._order.push(id);
+    this._dialogs[id] = { id, slot };
+    this.notifyListeners(DialogLayerModelEvent.DialogsChanged);
+  }
+
   public showConfirm(props: ConfirmDialogProps & DialogLayerOptions) {
     const { onConfirm, onAbort } = props;
     const id = props.id ?? guid();

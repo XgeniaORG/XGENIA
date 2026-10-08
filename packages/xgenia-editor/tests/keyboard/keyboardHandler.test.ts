@@ -1,5 +1,14 @@
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import Module from 'node:module';
+
+// Menu items reach the page over ipcRenderer ('editor-menu-command'); give the handler a fake one.
+const ipcHandlers: Record<string, (...args: any[]) => void> = {};
+const fakeIpc = { on: (channel: string, fn: (...args: any[]) => void) => (ipcHandlers[channel] = fn), send: () => undefined };
+const realLoad = (Module as any)._load;
+(Module as any)._load = function (request: string, ...rest: unknown[]) {
+  return request === 'electron' ? { ipcRenderer: fakeIpc } : realLoad.call(this, request, ...rest);
+};
 
 // KeyboardHandler builds its singleton at import time and listens on `document`; give it one.
 type Listener = (e: any) => void;
@@ -139,4 +148,29 @@ test('a menu zoom goes to the first view that claims it, else to the UI', async 
 
   release();
   assert.equal(handler.claimMenuZoom('zoomIn'), false); // a disposed view stops claiming
+});
+
+test('View > Toggle Edit / Preview (⌘T) runs the toggle from anywhere, once per press', async () => {
+  const { mod, KeyMod, KeyCode } = await load();
+  const handler = mod.default.instance as any;
+  const menu = (command: string) => ipcHandlers['editor-menu-command']({}, { command });
+  let toggles = 0;
+  const cmd = { handler: () => toggles++, keybinding: KeyMod.CtrlCmd | KeyCode.KEY_T };
+  handler.registerCommands([cmd]);
+  let now = 1_000_000;
+  const clock = mock.method(Date, 'now', () => now);
+  try {
+    // Focus in the editor (Windows/Linux): the page's keydown and the menu accelerator of one press.
+    press('t', { metaKey: true });
+    menu('togglePreviewMode');
+    assert.equal(toggles, 1);
+
+    // Focus in the preview or the chat panel: the page never sees the key, only the menu fires.
+    now += 1000;
+    menu('togglePreviewMode');
+    assert.equal(toggles, 2);
+  } finally {
+    clock.mock.restore();
+    handler.deregisterCommands([cmd]);
+  }
 });

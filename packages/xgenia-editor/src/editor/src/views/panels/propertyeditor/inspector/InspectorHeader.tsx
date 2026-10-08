@@ -109,12 +109,19 @@ export function InspectorHeader({ node, model, changedNames, overrides = [], onC
   }
 
   useKeyboardCommands(() => [
-    { handler: () => openDocs(), keybinding: Keybindings.PROPERTY_PANEL_OPEN_DOCS.hash },
+    {
+      handler: () => openDocs(),
+      keybinding: Keybindings.PROPERTY_PANEL_OPEN_DOCS.hash,
+      title: 'Open the node docs',
+      group: 'Inspector'
+    },
     {
       handler: () => {
         if (!isEditing) beginRename();
       },
-      keybinding: Keybindings.PROPERTY_PANEL_EDIT_LABEL.hash
+      keybinding: Keybindings.PROPERTY_PANEL_EDIT_LABEL.hash,
+      title: 'Rename the node',
+      group: 'Inspector'
     }
   ]);
 

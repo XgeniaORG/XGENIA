@@ -265,20 +265,28 @@ export function EditorPage({ route }: EditorPageProps) {
     useKeyboardCommands(() => [
         {
             handler: () => SidebarModel.instance.switch('search'),
-            keybinding: KeyMod.CtrlCmd | KeyCode.KEY_F
+            keybinding: KeyMod.CtrlCmd | KeyCode.KEY_F,
+            title: 'Search the project',
+            group: 'Editor'
         },
         {
             // Cmd+D is Duplicate (Unity, Figma); the preview's devtools moved to Cmd+Shift+I.
             handler: () => EventDispatcher.instance.emit('viewer-open-devtools'),
-            keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_I
+            keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_I,
+            title: 'Preview developer tools',
+            group: 'Developer'
         },
         {
             handler: () => ipcRenderer.send('cloud-runtime-open-devtools'),
-            keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_R
+            keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_R,
+            title: 'Cloud runtime developer tools',
+            group: 'Developer'
         },
         {
             handler: () => EventDispatcher.instance.emit('viewer-refresh'),
-            keybinding: KeyMod.CtrlCmd | KeyCode.KEY_R
+            keybinding: KeyMod.CtrlCmd | KeyCode.KEY_R,
+            title: 'Refresh the preview',
+            group: 'Preview'
         },
         {
             handler: () => {
@@ -287,11 +295,15 @@ export function EditorPage({ route }: EditorPageProps) {
                 ipcRenderer.send('cloud-runtime-refresh');
                 ToastLayer.showInteraction('Refresh Node Library and viewers');
             },
-            keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_X
+            keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_X,
+            title: 'Reload the node library and previews',
+            group: 'Developer'
         },
         {
             handler: () => exportProjectComponents(),
-            keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_E
+            keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_E,
+            title: 'Export project components',
+            group: 'Developer'
         },
         {
             handler: async () => {
@@ -328,14 +340,20 @@ export function EditorPage({ route }: EditorPageProps) {
                 }, 0);
             },
             keybinding: KeyMod.CtrlCmd | KeyCode.KEY_K,
+            title: 'Command palette (tools)',
+            group: 'Editor'
         },
         {
             handler: () => SidebarModel.instance.toggleCard(),
-            keybinding: Keybindings.TOGGLE_LEFT_PANEL.hash
+            keybinding: Keybindings.TOGGLE_LEFT_PANEL.hash,
+            title: 'Show / hide the left panel',
+            group: 'Editor'
         },
         ...Keybindings.RAIL_ITEMS.map((kb, i) => ({
             handler: () => EventDispatcher.instance.emit('rail-shortcut', i),
-            keybinding: kb.hash
+            keybinding: kb.hash,
+            title: `Open rail item ${i + 1}`,
+            group: 'Editor'
         })),
     ], [xgeniaToolsList]); // Keep dependency to ensure handler has access to latest xgeniaToolsList if needed for other logic (though we fetch directly now)
 

@@ -408,7 +408,6 @@ function _injectSelectionStyles() {
       white-space: nowrap;
     }
     .xg-cm-row:hover, .xg-cm-row.xg-cm-active { background: rgba(10, 132, 255, 0.85); color: #fff; }
-    .xg-sheet .xg-cm-row:hover { background: none; color: inherit; }
     .xg-cm-row:hover .xg-cm-meta, .xg-cm-row.xg-cm-active .xg-cm-meta { color: rgba(255,255,255,0.8); }
     .xg-cm-label { overflow: hidden; text-overflow: ellipsis; flex: 1; }
     .xg-cm-meta { font-size: 10px; color: rgba(255,255,255,0.45); }
@@ -2998,6 +2997,15 @@ function _forwardKey(e, override) {
   makeEditorAPIRequest('viewportKey', k, () => { });
 }
 
+// Any other ⌘/Ctrl shortcut is the editor's (⌘K, ⌘B, ⌘L, ⌘R, ⌘1-3, ⌘↩, ⌘[ ...); without this
+// it died as soon as a click put focus in here. Not preventDefault'd: a key the editor does not
+// bind still reaches the game and the menu.
+function _passEditorShortcut(e) {
+  makeEditorAPIRequest('viewportKey', {
+    key: e.key, metaKey: e.metaKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey
+  }, () => { });
+}
+
 function _hasViewportSelection() {
   return !!_selectedNodeId || !!_bridgeSelectedNodeId();
 }
@@ -3026,7 +3034,11 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 
-  if (!_inspectorEnabled) return; // Preview mode — the game owns every other key
+  if (!_inspectorEnabled) {
+    // Preview mode — the game owns every other key, and its clipboard keys.
+    if (mod && ['a', 'c', 'v', 'x'].indexOf(lower) === -1) _passEditorShortcut(e);
+    return;
+  }
 
   // Canvas zoom keys. On macOS these are View-menu accelerators and never arrive here (the
   // menu routes them to CanvasView.claimMenuZoom); where they do arrive, fromKey lets the
@@ -3101,14 +3113,9 @@ document.addEventListener('keydown', (e) => {
   }
 
   if (key === '?' && !mod) {
+    // Help > Keyboard Shortcuts, the editor's one list (these canvas keys are in it).
     e.preventDefault();
-    _toggleShortcutSheet();
-    return;
-  }
-
-  if (key === 'Escape' && _shortcutSheet) {
-    e.preventDefault();
-    _toggleShortcutSheet();
+    ipcRenderer.sendToHost('editor-show-shortcuts');
     return;
   }
 
@@ -3125,56 +3132,16 @@ document.addEventListener('keydown', (e) => {
       e.preventDefault();
       e.stopPropagation();
     }
+    return;
   }
+
+  if (mod) _passEditorShortcut(e);
 });
 
 /** Frame the selection (or the whole game): the editor zooms and scrolls the frame to it. */
 function _frameSelection() {
   const r = _selectedElement ? _selectionRect() : document.documentElement.getBoundingClientRect();
   ipcRenderer.sendToHost('editor-zoom-viewport', { frame: { left: r.left, top: r.top, width: r.width, height: r.height } });
-}
-
-// --- Shortcut sheet (press ?) ---
-// The gestures that have no button — Alt-click, Cmd-drag, Space — written down where the
-// user is looking. Any key or click closes it.
-let _shortcutSheet = null;
-const _SHORTCUTS = [
-  ['Click', 'Select the topmost node'],
-  ['Alt-click', 'Select the node underneath (repeat to go deeper)'],
-  ['Shift-click', 'Add to / remove from the selection'],
-  ['⌘-drag', 'Box select'],
-  ['Drag', 'Move · drag a layout child to reorder it'],
-  ['⇧ while dragging', 'Lock to one axis · keep aspect · snap 15°'],
-  ['⌘ while dragging', 'Place freely (no smart guides)'],
-  ['← ↑ → ↓', 'Nudge 1 px · with ⇧ 10 px'],
-  ['⌘D', 'Duplicate'],
-  ['⌘C · ⌘V · ⌘X · ⌫', 'Copy · paste · cut · delete'],
-  ['⌘A', 'Select the siblings'],
-  ['⌘Z · ⇧⌘Z', 'Undo · redo'],
-  ['Space-drag', 'Pan the zoomed preview'],
-  ['⌘+ · ⌘− · ⌘0 · ⌘-scroll', 'Zoom in · out · reset · toward the pointer'],
-  ['F', 'Frame the selection (or the whole game)'],
-  ['Esc', 'Deselect']
-];
-
-function _toggleShortcutSheet() {
-  if (_shortcutSheet) {
-    _shortcutSheet.remove();
-    _shortcutSheet = null;
-    return;
-  }
-  _injectSelectionStyles();
-  const el = document.createElement('div');
-  el.className = 'xg-context-menu xg-sheet';
-  const maxH = (window.innerHeight / _docZoom() - 24 * _uiK) / _uiK;
-  Object.assign(el.style, { left: '50%', top: '50%', transformOrigin: '50% 50%', transform: 'translate(-50%, -50%) scale(var(--xg-k, 1))', maxWidth: '420px', minWidth: '360px', maxHeight: Math.max(160, maxH) + 'px', overflowY: 'auto', padding: '10px 6px' });
-  el.innerHTML = '<div class="xg-cm-section">Edit mode shortcuts</div>' + _SHORTCUTS.map(([k, v]) =>
-    '<div class="xg-cm-row" style="cursor:default"><span class="xg-cm-meta" style="min-width:120px;color:rgba(255,255,255,0.9);font-size:11px">' + k +
-    '</span><span class="xg-cm-label" style="white-space:normal">' + v + '</span></div>').join('');
-  document.body.appendChild(el);
-  _shortcutSheet = el;
-  const close = () => { if (_shortcutSheet === el) _toggleShortcutSheet(); document.removeEventListener('mousedown', close, true); };
-  setTimeout(() => document.addEventListener('mousedown', close, true), 0);
 }
 
 // Arrow keys nudge the selection 1px, Shift 10px, in the element's own pixels. A run of
