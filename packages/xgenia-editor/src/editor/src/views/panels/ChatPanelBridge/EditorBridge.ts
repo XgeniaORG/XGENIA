@@ -45,7 +45,7 @@ import {
     setProjectBaseStyle,
     setProjectGlobalStylePrompt,
 } from '../ProjectStylesPanel/ProjectStylesPanel';
-import { PluginLoader } from './PluginLoader';
+import { PluginLoader, pluginOrigin, webPanelPlugins } from './PluginLoader';
 import {
     checkPublishName,
     publishJob,
@@ -637,6 +637,62 @@ export class EditorBridge {
         } catch { return false; }
     }
 
+    /**
+     * Handshake from a generic web-panel plugin (WebPluginPanel).
+     *
+     * Unlike the two built-in plugins, the origin is never taken from the message. The plugin's
+     * `plugin` id must be in the current entitlements as a web panel, and BOTH the message's
+     * origin and the src of the iframe that sent it must match the origin of the URL the server
+     * gave for that id. Anything else is ignored without a reply. The ack goes to that exact
+     * origin — never '*', and with no '*' fallback.
+     *
+     * Deliberately does NOT touch `pluginOrigin`, `connected` or the legacy `iframe`: those
+     * belong to the chat panel, and rewriting them here would send the chat's events to the
+     * wrong origin (where postMessage silently drops them). Command replies need nothing extra:
+     * executeCommand already answers each command at its own event.origin.
+     */
+    private handleWebPluginHandshake(pluginId: string, event: MessageEvent) {
+        let plugin: { id: string; url: string } | undefined;
+        try {
+            plugin = webPanelPlugins(PluginLoader.instance.getCurrent()).find((p) => p.id === pluginId);
+        } catch { plugin = undefined; }
+        if (!plugin) {
+            console.warn(`[EditorBridge] Ignoring a handshake from '${pluginId}': not an entitled web panel.`);
+            return;
+        }
+        const expected = pluginOrigin(plugin.url);
+        const frame = this.frameForSource(event.source as Window | null);
+        const frameOrigin = frame ? pluginOrigin(frame.src) : null;
+        if (!expected || event.origin !== expected || frameOrigin !== expected) {
+            console.warn(`[EditorBridge] Ignoring a handshake from '${pluginId}': origin ${event.origin} does not match its plugin URL.`);
+            return;
+        }
+        let entitled = false;
+        let tier = 'unknown';
+        try {
+            entitled = PluginLoader.instance.isEntitled(plugin.id);
+            tier = PluginLoader.instance.getTier();
+        } catch (e) {
+            console.warn('[EditorBridge] Could not read entitlement for handshake-ack:', e);
+        }
+        try {
+            (event.source as WindowProxy).postMessage({ type: 'handshake-ack', entitled, tier }, expected);
+        } catch (err) {
+            console.warn(`[EditorBridge] Could not send handshake-ack to '${plugin.id}':`, err);
+        }
+    }
+
+    /** The iframe element (in this document) whose window is `src`, if any. */
+    private frameForSource(src: Window | null): HTMLIFrameElement | null {
+        if (!src) return null;
+        try {
+            const frames = Array.from(document.querySelectorAll('iframe')) as HTMLIFrameElement[];
+            return frames.find((f) => {
+                try { return f.contentWindow === src; } catch { return false; }
+            }) ?? null;
+        } catch { return null; }
+    }
+
     private handleMessage = (event: MessageEvent) => {
         const msg = event.data;
         if (!msg || typeof msg !== 'object') return;
@@ -648,6 +704,14 @@ export class EditorBridge {
                 this._warnedUntrustedSource = true;
                 console.warn('[EditorBridge] Ignoring a message from a window this document does not own:', event.origin);
             }
+            return;
+        }
+
+        // Handshake from a generic web-panel plugin (any entitled plugin the server marked
+        // `kind: 'web-panel'`). The two built-in plugin names below keep their own path.
+        if (msg.type === 'handshake' && typeof msg.plugin === 'string'
+            && msg.plugin !== 'xgenia-ai' && msg.plugin !== 'xgenia-image-editor') {
+            this.handleWebPluginHandshake(msg.plugin, event);
             return;
         }
 

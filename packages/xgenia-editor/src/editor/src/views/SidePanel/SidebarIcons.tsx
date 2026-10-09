@@ -37,6 +37,8 @@ import PinOffIcon from '@hugeicons/core-free-icons/PinOffIcon';
 import Edit02Icon from '@hugeicons/core-free-icons/Edit02Icon';
 // @ts-ignore
 import FolderOpenIcon from '@hugeicons/core-free-icons/FolderOpenIcon';
+// @ts-ignore
+import PuzzleIcon from '@hugeicons/core-free-icons/PuzzleIcon';
 
 interface IconProps {
     size?: number;
@@ -78,6 +80,8 @@ export const SideMore = GlassMore;
 /** Gear — the merged Project/Editor Settings panel, reached from the project menu. */
 export const SideSettings = makeIcon(Settings01Icon, 'SideSettings');
 export const SideAddNode = makeIcon(Add01Icon, 'SideAddNode');
+/** Generic rail icon for a server-provided web plugin panel (WebPluginPanel). */
+export const SideWebPlugin = makeIcon(PuzzleIcon, 'SideWebPlugin');
 export const SideLogout = makeIcon(Logout01Icon, 'SideLogout');
 export const TopbarImport = makeIcon(Download04Icon, 'TopbarImport');
 export const TopbarPanelOpen = makeIcon(PanelLeftOpenIcon, 'TopbarPanelOpen');

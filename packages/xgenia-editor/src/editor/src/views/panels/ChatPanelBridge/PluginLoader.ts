@@ -53,10 +53,107 @@ import { supabase } from '../../../supabaseInit';
 
 export interface PluginEntitlement {
     id: string;
+    /** Display name. Optional on the wire: a web panel without one is labelled with its id. */
     name: string;
     description?: string;
     url: string;
     version: string;
+    /**
+     * What the editor should do with this plugin beyond the dedicated panels it already has.
+     * `'web-panel'` = give it its own sidebar entry that shows `url` in an iframe
+     * (see WebPluginPanel). Absent = the editor does nothing with it, which is every plugin
+     * the server sent before this field existed.
+     */
+    kind?: string;
+    /** Optional rail icon key for a web panel (see webPluginIcon). Unknown keys get the generic icon. */
+    icon?: string;
+}
+
+/** `kind` value that asks the editor for a generic sidebar panel. */
+export const WEB_PANEL_KIND = 'web-panel';
+
+/**
+ * Plugins that already have a dedicated panel in the editor. They never get a generic web
+ * panel, whatever `kind` the server sends, and their handshake path is unchanged.
+ */
+export const DEDICATED_PANEL_PLUGIN_IDS: ReadonlySet<string> = new Set(['ai-chat', 'ai-image-editor']);
+
+const PLUGIN_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
+
+function isLoopbackHost(hostname: string): boolean {
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+}
+
+/**
+ * The origin a plugin URL will load from, or null when the editor must not load it:
+ * https anywhere, plain http only on this machine (a dev server). This is the origin the
+ * bridge compares a web plugin's handshake against and replies to.
+ */
+export function pluginOrigin(url: unknown): string | null {
+    if (typeof url !== 'string' || !url) return null;
+    let parsed: URL;
+    try { parsed = new URL(url); } catch { return null; }
+    if (parsed.protocol === 'https:') return parsed.origin;
+    if (parsed.protocol === 'http:' && isLoopbackHost(parsed.hostname)) return parsed.origin;
+    return null;
+}
+
+/**
+ * The entitled plugins that should get a generic sidebar web panel: marked
+ * `kind: 'web-panel'`, not one of the dedicated plugins, a sane id, a loadable URL.
+ * First entry wins on a duplicate id.
+ */
+export function webPanelPlugins(e: EntitlementsResponse | null | undefined): PluginEntitlement[] {
+    if (!e || !Array.isArray(e.plugins)) return [];
+    const seen = new Set<string>();
+    const out: PluginEntitlement[] = [];
+    for (const p of e.plugins) {
+        if (!p || typeof p !== 'object') continue;
+        if (p.kind !== WEB_PANEL_KIND) continue;
+        if (typeof p.id !== 'string' || !PLUGIN_ID_RE.test(p.id)) continue;
+        if (DEDICATED_PANEL_PLUGIN_IDS.has(p.id) || seen.has(p.id)) continue;
+        if (!pluginOrigin(p.url)) continue;
+        seen.add(p.id);
+        out.push(p);
+    }
+    return out;
+}
+
+/**
+ * Dev-only local override for a web panel: `XGENIA_LOCAL_PLUGIN_<ID>=http://localhost:<port>`
+ * in the environment that starts the dev editor, where <ID> is the plugin id upper-cased with
+ * every non-alphanumeric character turned into `_`. Only loopback URLs are honoured. The plugin
+ * must still be entitled — this swaps its URL, it never adds a plugin.
+ */
+export function localPluginOverride(pluginId: string, env: Record<string, string | undefined> | null | undefined): string | null {
+    if (!env || typeof pluginId !== 'string') return null;
+    const key = 'XGENIA_LOCAL_PLUGIN_' + pluginId.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+    const value = env[key];
+    if (typeof value !== 'string' || !value) return null;
+    try {
+        const parsed = new URL(value);
+        if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && isLoopbackHost(parsed.hostname)) {
+            return value;
+        }
+    } catch { /* not a URL */ }
+    console.warn(`[PluginLoader] Ignoring ${key}: only a localhost URL is accepted.`);
+    return null;
+}
+
+/**
+ * The real Node process environment of the dev editor. NOT the lexical `process`: inside this
+ * webpack bundle that is the browser polyfill, whose env holds only DefinePlugin keys. The
+ * renderer runs with nodeIntegration, so the real Node process is on window.
+ */
+function readNodeEnv(): Record<string, string | undefined> {
+    try {
+        const w: any = globalThis as any;
+        return (w.process && w.process.env)
+            || (typeof w.require === 'function' ? w.require('process').env : null)
+            || {};
+    } catch {
+        return {};
+    }
 }
 
 /** Where an answer came from. Absent on cache entries written before 2026-09-15. */
@@ -273,17 +370,8 @@ export class PluginLoader {
         // the dev editor. AI test runs need to exercise panel fixes before they can be deployed
         // (and while a deploy path is down); the default stays Vercel so ordinary dev never
         // drifts. A dev build only — isDevEnvironment() is false in every packaged install.
-        let localAiChatOptIn = false;
-        try {
-            // NOT the lexical `process`: inside this webpack bundle that is the browser polyfill,
-            // whose env holds only DefinePlugin keys. The renderer runs with nodeIntegration, so the
-            // real Node process — with the environment the dev editor was started in — is on window.
-            const w: any = globalThis as any;
-            const nodeEnv: any = (w.process && w.process.env)
-                || (typeof w.require === 'function' ? w.require('process').env : null)
-                || {};
-            localAiChatOptIn = nodeEnv.XGENIA_LOCAL_AI_CHAT === '1';
-        } catch { /* no Node process in this context — stay on Vercel */ }
+        // readNodeEnv() reads the real Node process (see there); no Node process = stay on Vercel.
+        const localAiChatOptIn = readNodeEnv().XGENIA_LOCAL_AI_CHAT === '1';
         // The dev launcher starts the panel's Vite server in parallel with the editor, so on a cold
         // start the first probe can land before :3010 is listening. An explicit opt-in means "use the
         // local panel", so wait for it (bounded) rather than silently falling back to Vercel.
@@ -414,6 +502,19 @@ export class PluginLoader {
         if (!this.entitlements) return null;
         const plugin = this.entitlements.plugins.find(p => p.id === pluginId);
         return plugin?.url || null;
+    }
+
+    /** The entitlement entry for a plugin id, from the current verdict. */
+    getPlugin(pluginId: string): PluginEntitlement | null {
+        return this.entitlements?.plugins.find(p => p.id === pluginId) ?? null;
+    }
+
+    /**
+     * The answer currently held in memory (a verdict, a stored fallback or the dev defaults),
+     * without asking the network. Null before the first answer and after sign-out.
+     */
+    getCurrent(): EntitlementsResponse | null {
+        return this.entitlements;
     }
 
     /** Check if the user is entitled to a specific plugin */
@@ -672,6 +773,12 @@ export class PluginLoader {
         }
         if (response.tier === 'free' || !response.tier) {
             response.tier = 'dev';
+        }
+        // Generic web panels: an explicit per-plugin localhost override, never a probe.
+        const env = readNodeEnv();
+        for (const p of webPanelPlugins(response)) {
+            const local = localPluginOverride(p.id, env);
+            if (local) p.url = local;
         }
     }
 
