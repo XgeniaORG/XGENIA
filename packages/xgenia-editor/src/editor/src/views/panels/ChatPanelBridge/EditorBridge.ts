@@ -14,6 +14,7 @@
 // setProjectBaseStyle / setProjectGlobalStylePrompt from the ProjectStylesPanel import — both are
 // still called below, which is why tsc reported them as undefined names.
 import ThumbnailCache from '@xgenia-utils/thumbnailcache';
+import { collapseConsoleLogs, consoleOutputHeader } from './collapseConsoleLogs';
 import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import { serializeNodeParameters } from './serialize-param-guard';
 import { mergeAssetMeta, loadAssetMeta, migrateAssetMeta, flushAssetMeta, type AssetMetaEntry } from '../AssetPanel/assetMeta';
@@ -3873,12 +3874,18 @@ export class EditorBridge {
                         const parts: string[] = [];
                         if (logs.length > 0) {
                             const MAX_LOGS = 20, MAX_LEN = 240, MAX_TOTAL = 2400;
-                            parts.push(`Console output (${logs.length}${logs.length > MAX_LOGS ? `, first ${MAX_LOGS} shown` : ''}):`);
+                            // (2026-10-09, export 1791536143029) COLLAPSE REPEATS BEFORE CAPPING.
+                            // The cap takes the FIRST 20 lines, and a node that logs every frame
+                            // fills them — see collapseConsoleLogs for the probe this cost.
+                            const collapsed = collapseConsoleLogs(logs);
+                            const shown = Math.min(collapsed.length, MAX_LOGS);
+                            parts.push(consoleOutputHeader(logs.length, collapsed.length, MAX_LOGS));
                             let used = 0;
-                            for (const entry of logs.slice(0, MAX_LOGS)) {
+                            for (const entry of collapsed.slice(0, shown)) {
                                 const prefix = entry.level === 'log' ? '' : `[${entry.level.toUpperCase()}] `;
-                                const text = String(entry.message);
-                                const line = `  ${prefix}${text.length > MAX_LEN ? text.slice(0, MAX_LEN) + '…' : text}`;
+                                const text = entry.message;
+                                const body = text.length > MAX_LEN ? text.slice(0, MAX_LEN) + '…' : text;
+                                const line = `  ${prefix}${body}${entry.repeats > 1 ? ` (×${entry.repeats})` : ''}`;
                                 if (used + line.length > MAX_TOTAL) { parts.push('  … (console output capped)'); break; }
                                 used += line.length;
                                 parts.push(line);
