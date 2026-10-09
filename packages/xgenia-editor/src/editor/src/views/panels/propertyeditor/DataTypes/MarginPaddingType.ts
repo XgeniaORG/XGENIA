@@ -1,6 +1,15 @@
 import MarginPaddingView from '../marginpaddingview';
 import { TypeView } from '../TypeView';
 
+/**
+ * setParameter treats a present `oldValue` key as the real pre-change value, even when it is
+ * undefined. Typed edits arrive without one, so always passing the key made their Undo delete
+ * the parameter instead of restoring it.
+ */
+function oldValueArg(opts: any) {
+  return opts && 'oldValue' in opts ? { oldValue: opts.oldValue } : {};
+}
+
 export class MarginPaddingType extends TypeView {
   defaults: TSFixme;
   values: TSFixme;
@@ -59,7 +68,7 @@ export class MarginPaddingType extends TypeView {
               const undoArgs = {
                 undo: true,
                 label: 'padding changed (direct)'.trim(),
-                oldValue: opts ? opts.oldValue : undefined
+                ...oldValueArg(opts)
               };
               this.parent.model.setParameter(paramName, structured, opts && opts.drag ? undefined : undoArgs);
 
@@ -79,7 +88,7 @@ export class MarginPaddingType extends TypeView {
             const undoArgs = {
               undo: true,
               label: 'margin changed (direct)'.trim(),
-              oldValue: opts ? opts.oldValue : undefined
+              ...oldValueArg(opts)
             };
             this.parent.model.setParameter(paramName, structured, opts && opts.drag ? undefined : undoArgs);
 
@@ -92,7 +101,7 @@ export class MarginPaddingType extends TypeView {
           const undoArgs = {
             undo: true,
             label: 'margin or padding changed',
-            oldValue: opts ? opts.oldValue : undefined
+            ...oldValueArg(opts)
           };
           
           this.parent.model.setParameter(this.ports[comp].name, value, opts && opts.drag ? undefined : undoArgs);

@@ -14,6 +14,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import { EditorSettings } from '@xgenia-utils/editorsettings';
+import KeyboardHandler, { isTypingTarget } from '@xgenia-utils/keyboardhandler';
 
 import { arrangeLobby, type GroupId, type SortKey } from '../../models/lobby/lobbyGrouping';
 import { normalisePins, pinAll, prunePins, togglePin, unpinAll } from '../../models/lobby/lobbyPins';
@@ -57,6 +58,30 @@ export function LobbyPage({ onProjectLoaded }: LobbyPageProps) {
   const [pins, setPins] = useState<string[]>(() => normalisePins(EditorSettings.instance.get(SETTINGS.pins)));
   const [sort, setSort] = useState<SortKey>(() => EditorSettings.instance.get(SETTINGS.sort) || 'recent');
   const [density, setDensity] = useState<Density>(() => EditorSettings.instance.get(SETTINGS.density) || 'm');
+  const lastKeyDensityAt = useRef(0);
+
+  const stepDensity = useCallback((direction: 1 | -1) => {
+    setDensity((current) => {
+      const order: Density[] = ['s', 'm', 'l'];
+      const next = order[Math.min(order.length - 1, Math.max(0, order.indexOf(current) + direction))];
+      EditorSettings.instance.set(SETTINGS.density, next);
+      return next;
+    });
+  }, []);
+
+  // ⌘+ / ⌘− are also View > Zoom accelerators. On a Mac the menu takes the key before this page
+  // sees it, so the cards never resized and the whole UI zoomed instead. The lobby claims the
+  // menu's zoom unless a field has focus; a press this page already handled (Windows) is dropped.
+  useEffect(
+    () =>
+      KeyboardHandler.instance.addMenuZoomClaimant((command) => {
+        if (command === 'zoomReset' || isTypingTarget(document.activeElement)) return false;
+        if (Date.now() - lastKeyDensityAt.current < 400) return true;
+        stepDensity(command === 'zoomIn' ? 1 : -1);
+        return true;
+      }),
+    [stepDensity]
+  );
   const [list, setList] = useState<boolean>(() => !!EditorSettings.instance.get(SETTINGS.list));
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -330,11 +355,8 @@ export function LobbyPage({ onProjectLoaded }: LobbyPageProps) {
 
       if (meta && (e.key === '=' || e.key === '+' || e.key === '-')) {
         e.preventDefault();
-        const order: Density[] = ['s', 'm', 'l'];
-        const at = order.indexOf(density);
-        const next = order[Math.min(order.length - 1, Math.max(0, at + (e.key === '-' ? -1 : 1)))];
-        setDensity(next);
-        EditorSettings.instance.set(SETTINGS.density, next);
+        lastKeyDensityAt.current = Date.now();
+        stepDensity(e.key === '-' ? -1 : 1);
         return;
       }
 
@@ -386,7 +408,7 @@ export function LobbyPage({ onProjectLoaded }: LobbyPageProps) {
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [flat, focusedId, pins, density, omniboxOpen, sheet, selected.size, open, openFolder, clearSelection, writePins]);
+  }, [flat, focusedId, pins, stepDensity, omniboxOpen, sheet, selected.size, open, openFolder, clearSelection, writePins]);
 
   // ─── drop to add ──────────────────────────────────────────────────────────
 

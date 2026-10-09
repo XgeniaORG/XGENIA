@@ -9,8 +9,10 @@ import classNames from 'classnames';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AiBrowserManager, AiBrowserState } from '@xgenia-ai/ChatPanel/AiBrowserManager';
+import { Keybindings } from '@xgenia-constants/Keybindings';
 
 import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
+import { keybindingLabel } from '../../ShortcutSheet/shortcutLabel';
 import { GlassPopover } from './GlassPopover';
 import { Hi } from './icons';
 import { PageMenu } from './PageMenu';
@@ -319,7 +321,7 @@ export function StatusPill({
     default:
       body = (
         <>
-          <span className={css.Seg} onClick={beginTyping} title="Pages and commands (⌘L)">
+          <span className={css.Seg} onClick={beginTyping} title={`Pages and commands (${keybindingLabel(Keybindings.FOCUS_TOPBAR.hash)})`}>
             <span className={css.Muted}>
               <Hi icon="home" size={14} />
             </span>

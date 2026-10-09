@@ -371,12 +371,14 @@ export class EditorBridge {
             'chat-add-node-reference',
             (data: any) => {
                 if (!data || !data.nodeId) return;
+                // One queue slot per node: "Ask AI" on a multi-selection sends several, and
+                // a panel still mounting must receive all of them, not just the last.
                 this.pushEvent('nodeReferenced', {
                     nodeId: data.nodeId,
                     nodeLabel: data.nodeLabel || 'Element',
                     nodeType: data.nodeType,
                     component: data.component
-                });
+                }, 'nodeReferenced:' + data.nodeId);
             },
             this
         );

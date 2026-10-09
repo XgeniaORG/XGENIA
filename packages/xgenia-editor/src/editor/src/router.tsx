@@ -18,6 +18,7 @@ import { AppRouteOptions, AppRouter } from './pages/AppRouter';
 import { EditorPage } from './pages/EditorPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { DialogLayerContainer } from './views/DialogLayer';
+import { installShortcutSheet } from './views/ShortcutSheet';
 import { ToastLayerContainer } from './views/ToastLayer';
 
 //
@@ -57,6 +58,7 @@ function createDialogLayer() {
   // Create a root for dialogLayer and render the DialogLayerContainer.
   const dialogRoot = createRoot(dialogLayer);
   dialogRoot.render(React.createElement(DialogLayerContainer));
+  installShortcutSheet();
 
   if (import.meta.webpackHot) {
     import.meta.webpackHot.accept('./views/DialogLayer', () => {

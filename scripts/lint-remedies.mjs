@@ -19,9 +19,9 @@
  *   2. A self-referential bare mention inside a tool's OWN advice text: "pass componentPath"
  *      or "retry with nodeId", with no call wrapper. Because this prose is emitted from
  *      inside that tool's own handler, it is implicitly advice to retry THAT SAME tool, so
- *      the named identifier is checked against that tool's own schema. This is what catches
- *      `get_node_script`'s `componentPath` (get-node-script.ts:449) — the schema has no such
- *      field, and the sentence never wraps itself in `get_node_script({...})`.
+ *      the named identifier is checked against that tool's own schema. This is what caught
+ *      `get_node_script`'s `componentPath` remedy (handler at get-node-script.ts:651) while the
+ *      schema had no such field, and the sentence never wraps itself in `get_node_script({...})`.
  *
  * FAIL CLOSED: anything this script cannot parse (unbalanced braces in a call site, a
  * handler-map entry whose tool definition or schema cannot be located) is reported under

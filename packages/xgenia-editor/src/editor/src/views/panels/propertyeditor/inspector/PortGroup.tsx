@@ -2,6 +2,7 @@ import classNames from 'classnames';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { NodeGraphNode } from '@xgenia-models/nodegraphmodel';
+import { ComponentOverride } from '@xgenia-utils/componentOverrides';
 
 import { DescribedGroup } from './model/portRowMeta';
 import { PortRow } from './PortRow';
@@ -20,9 +21,21 @@ export interface PortGroupProps {
    * than one header wrapping the entire node.
    */
   hideHeader?: boolean;
+  /** A component instance's overridden inputs, by port name. Empty for any other node. */
+  overrideByName?: ReadonlyMap<string, ComponentOverride>;
+  /** Structural refresh, after an override is applied or reverted from a row. */
+  onChanged?: () => void;
 }
 
-export function PortGroup({ group, node, isCollapsed, onToggle, hideHeader }: PortGroupProps) {
+export function PortGroup({
+  group,
+  node,
+  isCollapsed,
+  onToggle,
+  hideHeader,
+  overrideByName,
+  onChanged
+}: PortGroupProps) {
   const changedCount = group.rows.reduce((total, row) => total + (row.isDefault ? 0 : 1), 0);
   const isToggleable = onToggle !== undefined;
 
@@ -85,7 +98,7 @@ export function PortGroup({ group, node, isCollapsed, onToggle, hideHeader }: Po
       >
         <div className={classNames(css.GroupBody, isAnimating && css['is-animating'])}>
           {group.rows.map((row) => (
-            <PortRow key={row.key} row={row} node={node} />
+            <PortRow key={row.key} row={row} node={node} overrideByName={overrideByName} onChanged={onChanged} />
           ))}
         </div>
       </div>

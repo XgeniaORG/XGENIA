@@ -18,6 +18,7 @@ import type { ProjectItem } from '@xgenia-utils/LocalProjectsModel';
 import { looksLikeCreateIntent, rankMatches, type LobbyItem } from '../../models/lobby/lobbyGrouping';
 import { resolveThumbSrc } from '../../utils/thumbnails/thumbnail-store';
 import { timeSince } from '../../utils/utils';
+import { acceleratorLabel } from '../ShortcutSheet/shortcutLabel';
 import { Icon } from './LobbyIcons';
 import css from './Omnibox.module.scss';
 
@@ -98,6 +99,13 @@ export function Omnibox({ items, entriesById, onClose, onOpen, onCreate, onOpenF
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       setCursor((c) => (c + (e.key === 'ArrowDown' ? 1 : rows.length - 1)) % Math.max(rows.length, 1));
+      return;
+    }
+
+    // The Open folder row's own key. The lobby's ⌘O steps aside while this field has focus.
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'o') {
+      e.preventDefault();
+      onOpenFolder();
       return;
     }
 
@@ -193,7 +201,7 @@ export function Omnibox({ items, entriesById, onClose, onOpen, onCreate, onOpenF
                       <b>Build a new game: “{query.trim()}”</b>
                       <small>Opens the New game sheet with this as the description</small>
                     </span>
-                    <kbd>⌘↵</kbd>
+                    <kbd>{acceleratorLabel('CmdOrCtrl+Enter')}</kbd>
                   </button>
                 </>
               );
@@ -217,7 +225,7 @@ export function Omnibox({ items, entriesById, onClose, onOpen, onCreate, onOpenF
                   <span className={css.Text}>
                     <b>Open folder…</b>
                   </span>
-                  <kbd>⌘O</kbd>
+                  <kbd>{acceleratorLabel('CmdOrCtrl+O')}</kbd>
                 </button>
               </>
             );

@@ -8,7 +8,8 @@ export namespace Keybindings {
   export const CLOUD_SERVICE_OPEN_DASHBOARD_BROWSER = new Keybinding(KeyMod.CtrlCmd, KeyCode.KEY_P);
 
   export const REFRESH_PREVIEW = new Keybinding(KeyMod.CtrlCmd, KeyCode.KEY_R);
-  export const OPEN_DEVTOOLS = new Keybinding(KeyMod.CtrlCmd, KeyCode.KEY_D);
+  export const OPEN_DEVTOOLS = new Keybinding(KeyMod.CtrlCmd, KeyMod.Shift, KeyCode.KEY_I);
+  export const DUPLICATE = new Keybinding(KeyMod.CtrlCmd, KeyCode.KEY_D);
   export const OPEN_CLOUD_DEVTOOLS = new Keybinding(KeyMod.CtrlCmd, KeyMod.Shift, KeyCode.KEY_R);
   export const TOGGLE_PREVIEW_MODE = new Keybinding(KeyMod.CtrlCmd, KeyCode.KEY_T);
 
@@ -18,7 +19,8 @@ export namespace Keybindings {
   export const PREVIEW_PRESET_PHONE = new Keybinding(KeyMod.CtrlCmd, KeyCode.KEY_1);
   export const PREVIEW_PRESET_TABLET = new Keybinding(KeyMod.CtrlCmd, KeyCode.KEY_2);
   export const PREVIEW_PRESET_DESKTOP = new Keybinding(KeyMod.CtrlCmd, KeyCode.KEY_3);
-  export const PREVIEW_FIT = new Keybinding(KeyMod.CtrlCmd, KeyCode.KEY_0);
+  /** ⇧⌘0: plain ⌘0 is View > Actual Size, a menu accelerator that took the key first. */
+  export const PREVIEW_FIT = new Keybinding(KeyMod.CtrlCmd, KeyMod.Shift, KeyCode.KEY_0);
   export const DETACH_PREVIEW = new Keybinding(KeyMod.CtrlCmd, KeyMod.Shift, KeyCode.KEY_D);
   export const PUBLISH = new Keybinding(KeyMod.CtrlCmd, KeyCode.Enter);
 

@@ -170,6 +170,20 @@ export function GameCard({
     if (focused && !renaming && !confirming) rootRef.current?.focus({ preventScroll: true });
   }, [focused, renaming, confirming]);
 
+  // F2 renames the focused card, as its menu says.
+  useEffect(() => {
+    if (!focused || renaming || confirming) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F2' || e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return;
+      e.preventDefault();
+      setRenaming(true);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [focused, renaming, confirming]);
+
   const commitRename = useCallback(
     (value: string) => {
       setRenaming(false);

@@ -1,0 +1,230 @@
+import assert from 'node:assert/strict';
+import Module from 'node:module';
+import { test, mock } from 'node:test';
+
+// Menu items reach the page over ipcRenderer ('editor-menu-command'); give the handler a fake one.
+const ipcHandlers: Record<string, (...args: any[]) => void> = {};
+const fakeIpc = {
+  on: (channel: string, fn: (...args: any[]) => void) => (ipcHandlers[channel] = fn),
+  send: () => undefined
+};
+const realLoad = (Module as any)._load;
+(Module as any)._load = function (request: string, ...rest: unknown[]) {
+  return request === 'electron' ? { ipcRenderer: fakeIpc } : realLoad.call(this, request, ...rest);
+};
+
+// KeyboardHandler builds its singleton at import time and listens on `document`; give it one.
+type Listener = (e: any) => void;
+const listeners: Record<string, Listener[]> = {};
+const body = el('BODY');
+const fakeDocument: any = {
+  body,
+  activeElement: body,
+  addEventListener: (type: string, fn: Listener) => (listeners[type] ||= []).push(fn),
+  removeEventListener: () => undefined
+};
+(globalThis as any).document = fakeDocument;
+
+function el(tagName: string, attrs: Record<string, string> = {}, extra: Record<string, unknown> = {}) {
+  return { tagName, getAttribute: (n: string) => (n in attrs ? attrs[n] : null), isContentEditable: false, ...extra };
+}
+
+function press(key: string, mods: Partial<KeyboardEvent> & { code?: string } = {}) {
+  const e = { key, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, repeat: false, ...mods };
+  for (const fn of listeners.keydown || []) fn(e);
+}
+
+const load = async () => {
+  const mod = await import('../../src/editor/src/utils/keyboardhandler');
+  const { KeyMod, KeyCode } = await import('../../src/editor/src/utils/keyboard/KeyCode');
+  return { mod, KeyMod, KeyCode };
+};
+
+test('only text editing counts as typing', async () => {
+  const { mod } = await load();
+  const { isTypingTarget } = mod;
+  assert.equal(isTypingTarget(el('INPUT') as any), true);
+  assert.equal(isTypingTarget(el('INPUT', {}, { type: 'number' }) as any), true);
+  assert.equal(isTypingTarget(el('TEXTAREA') as any), true);
+  assert.equal(isTypingTarget(el('DIV', {}, { isContentEditable: true }) as any), true);
+  assert.equal(isTypingTarget(el('DIV', { role: 'textbox' }) as any), true);
+  // The ones that used to swallow Cmd+Z: a focused button (the Edit/Preview toggle) and the
+  // preview frame.
+  assert.equal(isTypingTarget(el('BUTTON') as any), false);
+  assert.equal(isTypingTarget(el('IFRAME') as any), false);
+  assert.equal(isTypingTarget(el('INPUT', {}, { type: 'checkbox' }) as any), false);
+  assert.equal(isTypingTarget(null), false);
+});
+
+test('Cmd+Z runs undo while a button has focus, but not while typing', async () => {
+  const { mod, KeyMod, KeyCode } = await load();
+  const handler = mod.default.instance;
+  let undos = 0;
+  const cmd = { handler: () => undos++, keybinding: KeyMod.CtrlCmd | KeyCode.KEY_Z };
+  handler.registerCommands([cmd]);
+  try {
+    fakeDocument.activeElement = el('BUTTON');
+    press('z', { metaKey: true });
+    assert.equal(undos, 1);
+
+    fakeDocument.activeElement = el('INPUT');
+    press('z', { metaKey: true });
+    assert.equal(undos, 1);
+  } finally {
+    fakeDocument.activeElement = body;
+    handler.deregisterCommands([cmd]);
+  }
+});
+
+test('Enter on a focused button activates the button, not an editor command', async () => {
+  const { mod, KeyCode } = await load();
+  const handler = mod.default.instance;
+  let ran = 0;
+  const cmd = { handler: () => ran++, keybinding: KeyCode.Enter };
+  handler.registerCommands([cmd]);
+  try {
+    fakeDocument.activeElement = el('BUTTON');
+    press('Enter');
+    assert.equal(ran, 0);
+    fakeDocument.activeElement = body;
+    press('Enter');
+    assert.equal(ran, 1);
+  } finally {
+    fakeDocument.activeElement = body;
+    handler.deregisterCommands([cmd]);
+  }
+});
+
+test('a key forwarded from the preview runs the command and says so', async () => {
+  const { mod, KeyMod, KeyCode } = await load();
+  const handler = mod.default.instance;
+  let redos = 0;
+  const cmd = { handler: () => redos++, keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_Z };
+  handler.registerCommands([cmd]);
+  try {
+    const evt = { key: 'z', metaKey: true, ctrlKey: false, shiftKey: true, altKey: false };
+    assert.equal(handler.executeCommandMatchingKeyEvent(evt, 'down', 'viewport'), true);
+    assert.equal(redos, 1);
+    assert.equal(handler.executeCommandMatchingKeyEvent({ ...evt, key: 'q' }, 'down', 'viewport'), false);
+  } finally {
+    handler.deregisterCommands([cmd]);
+  }
+});
+
+test('the Edit-menu accelerator of the same press does not undo twice', async () => {
+  const { mod, KeyMod, KeyCode } = await load();
+  const handler = mod.default.instance as any;
+  let undos = 0;
+  const code = KeyMod.CtrlCmd | KeyCode.KEY_Z;
+  const cmd = { handler: () => undos++, keybinding: code };
+  handler.registerCommands([cmd]);
+  try {
+    press('z', { metaKey: true }); // the page's keydown
+    handler.runCommand(code, 'down', 'menu'); // Electron's menu accelerator for the same press
+    assert.equal(undos, 1);
+
+    // Two real presses from the keyboard are two undos.
+    press('z', { metaKey: true });
+    assert.equal(undos, 2);
+  } finally {
+    handler.deregisterCommands([cmd]);
+  }
+});
+
+test('a menu zoom goes to the first view that claims it, else to the UI', async () => {
+  const { mod } = await load();
+  const handler = mod.default.instance;
+  assert.equal(handler.claimMenuZoom('zoomIn'), false); // nobody claims: the UI zooms
+
+  const seen: string[] = [];
+  let previewFocused = false;
+  const release = handler.addMenuZoomClaimant((command) => {
+    if (!previewFocused) return false;
+    seen.push(command);
+    return true;
+  });
+  assert.equal(handler.claimMenuZoom('zoomIn'), false);
+  previewFocused = true;
+  assert.equal(handler.claimMenuZoom('zoomOut'), true);
+  assert.equal(handler.claimMenuZoom('zoomReset'), true);
+  assert.deepEqual(seen, ['zoomOut', 'zoomReset']);
+
+  release();
+  assert.equal(handler.claimMenuZoom('zoomIn'), false); // a disposed view stops claiming
+});
+
+test('View > Toggle Edit / Preview (⌘T) runs the toggle from anywhere, once per press', async () => {
+  const { mod, KeyMod, KeyCode } = await load();
+  const handler = mod.default.instance as any;
+  const menu = (command: string) => ipcHandlers['editor-menu-command']({}, { command });
+  let toggles = 0;
+  const cmd = { handler: () => toggles++, keybinding: KeyMod.CtrlCmd | KeyCode.KEY_T };
+  handler.registerCommands([cmd]);
+  let now = 1_000_000;
+  const clock = mock.method(Date, 'now', () => now);
+  try {
+    // Focus in the editor (Windows/Linux): the page's keydown and the menu accelerator of one press.
+    press('t', { metaKey: true });
+    menu('togglePreviewMode');
+    assert.equal(toggles, 1);
+
+    // Focus in the preview or the chat panel: the page never sees the key, only the menu fires.
+    now += 1000;
+    menu('togglePreviewMode');
+    assert.equal(toggles, 2);
+  } finally {
+    clock.mock.restore();
+    handler.deregisterCommands([cmd]);
+  }
+});
+
+test('⌥ and ⇧ digits match by the physical key: ⌥⌘1 (¡ on a Mac) and ⇧⌘0 ())', async () => {
+  const { mod, KeyMod, KeyCode } = await load();
+  const handler = mod.default.instance as any;
+  const seen: string[] = [];
+  const cmds = [
+    { handler: () => seen.push('rail 1'), keybinding: KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KEY_1 },
+    { handler: () => seen.push('fit'), keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_0 }
+  ];
+  handler.registerCommands(cmds);
+  try {
+    press('¡', { metaKey: true, altKey: true, code: 'Digit1' });
+    press(')', { metaKey: true, shiftKey: true, code: 'Digit0' });
+    // A Windows Alt+1 reports '1' itself; still the same binding.
+    press('1', { ctrlKey: true, altKey: true, code: 'Digit1' });
+    assert.deepEqual(seen, ['rail 1', 'fit', 'rail 1']);
+    // Forwarded from the preview, with its code.
+    assert.equal(
+      handler.executeCommandMatchingKeyEvent(
+        { key: '¡', code: 'Digit1', metaKey: true, ctrlKey: false, shiftKey: false, altKey: true },
+        'down',
+        'viewport'
+      ),
+      true
+    );
+  } finally {
+    handler.deregisterCommands(cmds);
+  }
+});
+
+test('the higher weight wins a shared key; on a tie the later registration does', async () => {
+  const { mod, KeyMod, KeyCode } = await load();
+  const handler = mod.default.instance as any;
+  const seen: string[] = [];
+  const code = KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_R;
+  const devtools = { handler: () => seen.push('devtools'), keybinding: code };
+  const lesson = { handler: () => seen.push('lesson'), keybinding: code, weight: 1 };
+  handler.registerCommands([lesson, devtools]); // the weighted one first: order must not decide
+  try {
+    press('r', { metaKey: true, shiftKey: true });
+    handler.deregisterCommands([lesson]);
+    press('r', { metaKey: true, shiftKey: true });
+    const later = { handler: () => seen.push('later'), keybinding: code };
+    handler.registerCommands([later]);
+    press('r', { metaKey: true, shiftKey: true });
+    handler.deregisterCommands([later]);
+    assert.deepEqual(seen, ['lesson', 'devtools', 'later']);
+  } finally {
+    handler.deregisterCommands([devtools, lesson]);
+  }
+});

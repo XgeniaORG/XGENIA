@@ -1435,6 +1435,40 @@ function launchApp() {
       }
     });
 
+    function sendEditMenuCommand(focused, command) {
+      const target = focused || BrowserWindow.getFocusedWindow() || win;
+      if (target && target.webContents && !target.webContents.isDestroyed()) {
+        target.webContents.send('editor-menu-command', { command });
+      }
+    }
+
+    // View > Zoom: in the editor window the renderer decides — the preview canvas while it has
+    // focus in Edit mode, otherwise the UI zoom (it answers with 'editor-ui-zoom'). Elsewhere
+    // (floating windows) it is always the UI zoom.
+    function applyUiZoomCommand(command) {
+      if (command === 'zoomIn') stepUiZoom(1);
+      else if (command === 'zoomOut') stepUiZoom(-1);
+      else if (command === 'zoomReset') applyUiZoom(1);
+    }
+
+    function routeZoomCommand(focused, command) {
+      const target = focused || BrowserWindow.getFocusedWindow() || win;
+      if (target && target === win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+        win.webContents.send('editor-menu-command', { command });
+        return;
+      }
+      applyUiZoomCommand(command);
+    }
+
+    ipcMain.on('editor-ui-zoom', (_e, command) => applyUiZoomCommand(command));
+
+    // The renderer hands text-field undo/redo back: only the webContents can run the native
+    // editing command in whichever frame has focus.
+    ipcMain.on('editor-native-edit', (e, command) => {
+      if (command === 'undo') e.sender.undo();
+      else if (command === 'redo') e.sender.redo();
+    });
+
     function setupMenu() {
       var template = [
         {
@@ -1444,8 +1478,11 @@ function launchApp() {
         {
           label: 'Edit',
           submenu: [
-            { label: 'Undo', accelerator: 'CmdOrCtrl+Z', selector: 'undo:' },
-            { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', selector: 'redo:' },
+            // The editor decides what Undo means (keyboardhandler.ts listenForMenuCommands): its
+            // own history, or the native text undo when a text field has focus. The `undo:`
+            // selector this replaced only ever ran the text undo, and only on macOS.
+            { label: 'Undo', accelerator: 'CmdOrCtrl+Z', click: (_item, focused) => sendEditMenuCommand(focused, 'undo') },
+            { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', click: (_item, focused) => sendEditMenuCommand(focused, 'redo') },
             { type: 'separator' },
             // `role` rather than `selector`: the selector form is a macOS-only
             // ObjC message, so on Windows and Linux these entries were dead.
@@ -1466,7 +1503,7 @@ function launchApp() {
             {
               label: 'Zoom In',
               accelerator: 'CmdOrCtrl+Plus',
-              click: () => stepUiZoom(1)
+              click: (_item, focused) => routeZoomCommand(focused, 'zoomIn')
             },
             {
               // Same command on the unshifted key, which is what people
@@ -1476,17 +1513,29 @@ function launchApp() {
               accelerator: 'CmdOrCtrl+=',
               visible: false,
               acceleratorWorksWhenHidden: true,
-              click: () => stepUiZoom(1)
+              click: (_item, focused) => routeZoomCommand(focused, 'zoomIn')
             },
             {
               label: 'Zoom Out',
               accelerator: 'CmdOrCtrl+-',
-              click: () => stepUiZoom(-1)
+              click: (_item, focused) => routeZoomCommand(focused, 'zoomOut')
             },
             {
               label: 'Actual Size',
               accelerator: 'CmdOrCtrl+0',
-              click: () => applyUiZoom(1)
+              click: (_item, focused) => routeZoomCommand(focused, 'zoomReset')
+            },
+            { type: 'separator' },
+            {
+              // A menu accelerator, so it works wherever focus is. As a page-only shortcut it
+              // died as soon as a click put focus in the preview or the chat panel.
+              label: 'Toggle Edit / Preview',
+              accelerator: 'CmdOrCtrl+T',
+              click: () => {
+                if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+                  win.webContents.send('editor-menu-command', { command: 'togglePreviewMode' });
+                }
+              }
             }
           ]
         }
@@ -1553,6 +1602,16 @@ function launchApp() {
       template.push({
         label: 'Help',
         submenu: [
+          {
+            // No accelerator: ⌘/ adds a node-graph comment, and ⌘? is macOS's Help search.
+            // The sheet also opens with ? anywhere outside a text field.
+            label: 'Keyboard Shortcuts',
+            click: () => {
+              if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+                win.webContents.send('editor-menu-command', { command: 'showShortcuts' });
+              }
+            }
+          },
           {
             label: 'XGENIA Documentation',
             click: () => {

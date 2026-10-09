@@ -11,13 +11,14 @@ import { App } from '@xgenia-models/app';
 import { AppRegistry } from '@xgenia-models/app_registry';
 import { CloudService } from '@xgenia-models/CloudServices';
 import { NodeLibraryImporter } from '@xgenia-models/nodelibrary/NodeLibraryImporter';
-import { ProjectModel } from '@xgenia-models/projectmodel';
+import { ProjectModel, saveProjectNow } from '@xgenia-models/projectmodel';
 import { projectFromDirectory, unzipIntoDirectory } from '@xgenia-models/projectmodel.editor';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
 import { GitStatus } from '@xgenia-models/gitstatus';
 import { RailPresence } from '@xgenia-models/railpresence';
 import { UndoQueue } from '@xgenia-models/undo-queue-model';
+import { ProjectCheckpoints } from '@xgenia-models/projectCheckpoints';
 import { exportProjectComponents } from '@xgenia-utils/exportProjectComponets';
 import FileSystem from '@xgenia-utils/filesystem';
 import { KeyCode, KeyMod } from '@xgenia-utils/keyboard/KeyCode';
@@ -163,6 +164,8 @@ export function EditorPage({ route }: EditorPageProps) {
         setIsLoading(false);
         void GitStatus.refresh();
         ipcRenderer.send('project-opened', ProjectModel.instance.name);
+        // History that outlives the session: automatic checkpoints as changes accumulate.
+        ProjectCheckpoints.startAuto();
 
         // Initialize the ToolsModel and listen for tool updates
         console.log('[EditorPage] Initializing ToolsModel integration.');
@@ -217,6 +220,7 @@ export function EditorPage({ route }: EditorPageProps) {
             ParseDashboardServer.instance.stop();
             CloudService.instance.reset();
             SidebarModel.instance.reset();
+            ProjectCheckpoints.stopAuto();
             UndoQueue.instance.clear();
             GitStatus.reset();
             RailPresence.reset();
@@ -261,19 +265,28 @@ export function EditorPage({ route }: EditorPageProps) {
     useKeyboardCommands(() => [
         {
             handler: () => SidebarModel.instance.switch('search'),
-            keybinding: KeyMod.CtrlCmd | KeyCode.KEY_F
+            keybinding: KeyMod.CtrlCmd | KeyCode.KEY_F,
+            title: 'Search the project',
+            group: 'Editor'
         },
         {
+            // Cmd+D is Duplicate (Unity, Figma); the preview's devtools moved to Cmd+Shift+I.
             handler: () => EventDispatcher.instance.emit('viewer-open-devtools'),
-            keybinding: KeyMod.CtrlCmd | KeyCode.KEY_D
+            keybinding: Keybindings.OPEN_DEVTOOLS.hash,
+            title: 'Preview developer tools',
+            group: 'Developer'
         },
         {
             handler: () => ipcRenderer.send('cloud-runtime-open-devtools'),
-            keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_R
+            keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_R,
+            title: 'Cloud runtime developer tools',
+            group: 'Developer'
         },
         {
             handler: () => EventDispatcher.instance.emit('viewer-refresh'),
-            keybinding: KeyMod.CtrlCmd | KeyCode.KEY_R
+            keybinding: Keybindings.REFRESH_PREVIEW.hash,
+            title: 'Refresh the preview',
+            group: 'Preview'
         },
         {
             handler: () => {
@@ -282,11 +295,15 @@ export function EditorPage({ route }: EditorPageProps) {
                 ipcRenderer.send('cloud-runtime-refresh');
                 ToastLayer.showInteraction('Refresh Node Library and viewers');
             },
-            keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_X
+            keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_X,
+            title: 'Reload the node library and previews',
+            group: 'Developer'
         },
         {
             handler: () => exportProjectComponents(),
-            keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_E
+            keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_E,
+            title: 'Export project components',
+            group: 'Developer'
         },
         {
             handler: async () => {
@@ -323,14 +340,42 @@ export function EditorPage({ route }: EditorPageProps) {
                 }, 0);
             },
             keybinding: KeyMod.CtrlCmd | KeyCode.KEY_K,
+            title: 'Command palette (tools)',
+            group: 'Editor'
+        },
+        {
+            // XGENIA saves a second after every change; ⌘S saves now and says so.
+            handler: () => {
+                const group = {};
+                const done = () => EventDispatcher.instance.off(group);
+                EventDispatcher.instance.on('ProjectModel.projectSavedToDisk', () => {
+                    done();
+                    ToastLayer.showSuccess('Saved');
+                }, group);
+                setTimeout(done, 10000);
+                saveProjectNow();
+            },
+            keybinding: KeyMod.CtrlCmd | KeyCode.KEY_S,
+            title: 'Save now (XGENIA also saves as you work)',
+            group: 'Editor'
+        },
+        {
+            handler: () => App.instance.exitProject(),
+            keybinding: KeyMod.CtrlCmd | KeyCode.KEY_W,
+            title: 'Close the project',
+            group: 'Editor'
         },
         {
             handler: () => SidebarModel.instance.toggleCard(),
-            keybinding: Keybindings.TOGGLE_LEFT_PANEL.hash
+            keybinding: Keybindings.TOGGLE_LEFT_PANEL.hash,
+            title: 'Show / hide the left panel',
+            group: 'Editor'
         },
         ...Keybindings.RAIL_ITEMS.map((kb, i) => ({
             handler: () => EventDispatcher.instance.emit('rail-shortcut', i),
-            keybinding: kb.hash
+            keybinding: kb.hash,
+            title: `Open rail item ${i + 1}`,
+            group: 'Editor'
         })),
     ], [xgeniaToolsList]); // Keep dependency to ensure handler has access to latest xgeniaToolsList if needed for other logic (though we fetch directly now)
 
