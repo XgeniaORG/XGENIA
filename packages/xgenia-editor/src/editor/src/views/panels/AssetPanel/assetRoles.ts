@@ -60,7 +60,8 @@ export interface RoleInferenceLineage {
   depth: number;
   layerName: string | null;
   boxInRoot: LayoutBox;
-  canvasInRoot: LayoutBox;
+  /** null when the splitter could not measure the layer's canvas. */
+  canvasInRoot: LayoutBox | null;
 }
 
 export interface RoleInferenceInput {
@@ -87,13 +88,21 @@ const FOLDER_ROLES: Array<[RegExp, BuiltInRole]> = [
   [/^fonts?$/, 'font']
 ];
 
-// Words in a split layer's own name that name a role directly.
+// Words in a split layer's own name that name a role directly. Order matters: a name describes the
+// OUTER thing last-to-first ("coin counter plate", "gem icon"), so the container and icon words are
+// checked before the sprite nouns that often appear inside them; "title" alone is a logo only when
+// nothing names a bar or panel.
 const LAYER_NAME_ROLES: Array<[RegExp, BuiltInRole]> = [
-  [/\b(ui|hud|panel|button|frame|bar)\b/i, 'ui'],
+  [/\b(background|backdrop|sky|floor)\b/i, 'background'],
+  [/\b(logo|wordmark)\b/i, 'logo'],
   [/\b(icon)\b/i, 'icon'],
-  [/\b(logo|title|wordmark)\b/i, 'logo'],
-  [/\b(background|backdrop|sky|floor)\b/i, 'background']
+  [/\b(ui|hud|panel|button|frame|bar|plate)\b/i, 'ui'],
+  [/\b(symbol|character|card|token|gem|coin|chip)\b/i, 'sprite'],
+  [/\b(title)\b/i, 'logo']
 ];
+
+/** Where the AI's split tool saves a piece when no slot matched. A folder a program picked, not a person. */
+const SPLIT_DEFAULT_FOLDER = 'assets/ui';
 
 /** A piece covering at least this share of its root canvas reads as a background plate. */
 const BACKGROUND_COVERAGE = 0.8;
@@ -109,6 +118,15 @@ const BACKGROUND_COVERAGE = 0.8;
 export function inferRole(input: RoleInferenceInput): { role: AssetRole; inferred: true } {
   const done = (role: AssetRole) => ({ role, inferred: true as const });
 
+  // 0. A split piece in the splitter's default folder: a program picked that folder, so the piece's
+  //    own evidence — a role its layer name names, or background-sized coverage — decides first.
+  const folder = input.path.split('/').slice(0, -1).join('/');
+  if (folder === SPLIT_DEFAULT_FOLDER && input.lineage && input.lineage.depth >= 1) {
+    const named = layerNameRole(input.lineage.layerName);
+    if (named) return done(named);
+    if (coversRoot(input.lineage)) return done('background');
+  }
+
   // 1. Folder segments, deepest first. The filename itself is excluded.
   const segments = input.path.split('/').slice(0, -1).filter((s) => s && s !== 'assets');
   for (let i = segments.length - 1; i >= 0; i--) {
@@ -123,19 +141,8 @@ export function inferRole(input: RoleInferenceInput): { role: AssetRole; inferre
   }
 
   // 2. Lineage: what the split said, then how much of the root canvas it covers.
-  const lineage = input.lineage;
-  if (lineage && lineage.depth >= 1) {
-    if (lineage.layerName) {
-      for (const [pattern, role] of LAYER_NAME_ROLES) {
-        if (pattern.test(lineage.layerName)) return done(role);
-      }
-    }
-    const canvasArea = lineage.canvasInRoot.width * lineage.canvasInRoot.height;
-    const boxArea = lineage.boxInRoot.width * lineage.boxInRoot.height;
-    // A zero-area canvas means the endpoint gave us nothing usable. Do not divide by it,
-    // and do not read "0 coverage" as a meaningful small piece.
-    if (canvasArea > 0 && boxArea / canvasArea >= BACKGROUND_COVERAGE) return done('background');
-    return done('sprite');
+  if (input.lineage && input.lineage.depth >= 1) {
+    return done(layerNameRole(input.lineage.layerName) ?? (coversRoot(input.lineage) ? 'background' : 'sprite'));
   }
 
   // 3. Extension class alone.
@@ -144,4 +151,26 @@ export function inferRole(input: RoleInferenceInput): { role: AssetRole; inferre
   if (input.kind === 'font') return done('font');
 
   return done('other');
+}
+
+/** The role a split layer's own name names, if any. */
+function layerNameRole(layerName: string | null | undefined): BuiltInRole | null {
+  if (!layerName) return null;
+  for (const [pattern, role] of LAYER_NAME_ROLES) if (pattern.test(layerName)) return role;
+  return null;
+}
+
+/**
+ * Does the piece cover most of its ROOT art? boxInRoot is fractions of the root (area 1), except in
+ * records written before the fractions rule, which carried pixels against canvasInRoot. canvasInRoot
+ * is null whenever the splitter could not measure the layer; reading `.width` off it threw and took
+ * the whole index scan down (2026-09-17). A zero-area canvas is "unknown", never "tiny".
+ */
+function coversRoot(lineage: RoleInferenceLineage): boolean {
+  const box = lineage.boxInRoot;
+  if (!box) return false;
+  const fractions = box.x + box.width <= 1.002 && box.y + box.height <= 1.002;
+  const canvas = lineage.canvasInRoot;
+  const canvasArea = fractions ? 1 : canvas ? canvas.width * canvas.height : 0;
+  return canvasArea > 0 && (box.width * box.height) / canvasArea >= BACKGROUND_COVERAGE;
 }

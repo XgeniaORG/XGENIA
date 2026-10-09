@@ -9,6 +9,7 @@
 import { classifyAssetType } from './asset-classification';
 import { inferRole, BUILT_IN_ROLES, type AssetRole } from './assetRoles';
 import { deriveTrashVersions, splitVersionSibling } from './assetVersions';
+import { resolvePlacement, type AssetSpriteSettings, type ResolvedPlacement } from './assetPlacement';
 import type { AssetLineage, AssetMetaEntry } from './assetMeta';
 
 /** A previous version of a live asset. */
@@ -20,6 +21,10 @@ export interface IndexedVersion {
   source: 'trash' | 'file';
   /** ms epoch, 0 when unknown (a `.vN` sibling carries no timestamp in its name). */
   timestamp: number;
+  /** The split rectangle this version's own record carries, if any. */
+  layout?: AssetLineage;
+  /** What made this version, from its own record. */
+  ai?: AssetMetaEntry['ai'];
 }
 
 export interface IndexedAsset {
@@ -39,6 +44,20 @@ export interface IndexedAsset {
   versions: IndexedVersion[];
   /** True when some node-graph parameter references this asset by path or by uid. */
   used: boolean;
+  /** Where it goes on the target screen: authored, else from the split. null when unknown. */
+  placement: ResolvedPlacement | null;
+  /**
+   * A placement the live file lost but an earlier version still carries. Offered, never applied:
+   * the new pixels may be a different cut. (Re-saves used to move the whole record into .trash.)
+   */
+  previousPlacement: { versionPath: string; layout: AssetLineage } | null;
+  sprite?: AssetSpriteSettings;
+  /** Live assets cut out of this one. */
+  pieces: string[];
+  /** Bytes, when the scan could stat the file. */
+  size?: number;
+  /** ms epoch of the last write, when the scan could stat the file. */
+  mtime?: number;
 }
 
 export interface AssetIndex {
@@ -61,6 +80,8 @@ export interface BuildIndexInput {
   referencedPaths: Set<string>;
   /** uids found in `uid://` node-graph parameters. */
   referencedUids: Set<string>;
+  /** Optional per-path file stats. */
+  stats?: Map<string, { size: number; mtime: number }>;
 }
 
 export function buildIndex(input: BuildIndexInput): AssetIndex {
@@ -96,10 +117,12 @@ export function buildIndex(input: BuildIndexInput): AssetIndex {
     const extension = (name.includes('.') ? name.split('.').pop() || '' : '').toLowerCase();
     const kind = classifyAssetType(extension);
 
-    // ai.layout is where the splitter has always written lineage. Promote it, without
-    // overwriting a top-level lineage someone authored.
+    // ai.layout is the splitter's record and is rewritten on every split and every edit. The
+    // top-level `lineage` was only ever a snapshot COPY of it made by this scanner, so it goes
+    // stale the moment a piece is re-cut. The live record wins; a copy is read only when it is
+    // all there is. A person's own position lives in `placement`, not here.
     const lineage: AssetLineage | undefined =
-      stored.lineage || ((stored.ai as { layout?: AssetLineage } | undefined)?.layout ?? undefined);
+      (stored.ai as { layout?: AssetLineage } | undefined)?.layout ?? stored.lineage ?? undefined;
 
     // An authored role is final. A role still flagged inferred is re-derived, so an asset
     // indexed before its lineage was known picks up the better answer later.
@@ -132,9 +155,28 @@ export function buildIndex(input: BuildIndexInput): AssetIndex {
         timestamp: v.timestamp
       })),
       ...(siblingVersions.get(path) || [])
-    ].sort((a, b) => a.n - b.n || a.timestamp - b.timestamp);
+    ]
+      .sort((a, b) => a.n - b.n || a.timestamp - b.timestamp)
+      .map((v): IndexedVersion => {
+        const row = meta[v.path];
+        const layout = (row?.ai as { layout?: AssetLineage } | undefined)?.layout ?? row?.lineage;
+        return { ...v, ...(layout ? { layout } : {}), ...(row?.ai ? { ai: row.ai } : {}) };
+      });
 
     const used = referencedPaths.has(path) || (!!stored.uid && referencedUids.has(stored.uid));
+    const placement = resolvePlacement({ placement: stored.placement, lineage });
+
+    let previousPlacement: IndexedAsset['previousPlacement'] = null;
+    if (!placement) {
+      for (let i = versions.length - 1; i >= 0; i--) {
+        const layout = versions[i].layout;
+        if (layout && resolvePlacement({ lineage: layout })) {
+          previousPlacement = { versionPath: versions[i].path, layout };
+          break;
+        }
+      }
+    }
+    const stat = input.stats?.get(path);
 
     const asset: IndexedAsset = {
       path,
@@ -149,7 +191,12 @@ export function buildIndex(input: BuildIndexInput): AssetIndex {
       ai: stored.ai,
       lineage,
       versions,
-      used
+      used,
+      placement,
+      previousPlacement,
+      ...(stored.sprite ? { sprite: stored.sprite } : {}),
+      pieces: [],
+      ...(stat ? { size: stat.size, mtime: stat.mtime } : {})
     };
     assets.push(asset);
     byPath.set(path, asset);
@@ -161,9 +208,13 @@ export function buildIndex(input: BuildIndexInput): AssetIndex {
       patch.role = role;
       patch.roleInferred = roleInferred;
     }
-    if (lineage && !stored.lineage) patch.lineage = lineage;
     if (Object.keys(patch).length > 0) pendingWrites.set(path, patch);
     if (!stored.uid) needsUid.add(path);
+  }
+
+  for (const asset of assets) {
+    const source = asset.lineage?.sourcePath;
+    if (source && source !== asset.path) byPath.get(source)?.pieces.push(asset.path);
   }
 
   return { assets, byPath, pendingWrites, needsUid };

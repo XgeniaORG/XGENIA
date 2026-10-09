@@ -34,13 +34,13 @@ function trashTimestamp(): string {
  * Move an asset (file or folder) to <project>/.trash with a timestamped, collision-free
  * name. Recoverable, mirrors the AI tool. `relPath` must be project-relative ('assets/...').
  */
-export async function deleteToTrash(relPath: string): Promise<void> {
+export async function deleteToTrash(relPath: string): Promise<string | null> {
   if (!filesystem) throw new Error('Filesystem unavailable');
   const root = projectRoot();
 
   const abs = filesystem.join(root, relPath);
   assertUnderAssets(root, abs);
-  if (!filesystem.exists(abs)) return; // already gone — treat as success
+  if (!filesystem.exists(abs)) return null; // already gone — treat as success
 
   const trashDir = filesystem.join(root, '.trash');
   if (!filesystem.exists(trashDir)) {
@@ -61,6 +61,7 @@ export async function deleteToTrash(relPath: string): Promise<void> {
   }
 
   await filesystem.renameFile(abs, target);
+  return `.trash/${target.split(/[\\/]/).pop()}`;
 }
 
 /** Sanitize a user-entered name: no path separators, no traversal, trimmed. */
@@ -72,11 +73,13 @@ function sanitizeName(name: string): string {
  * Rename a file or folder in place. `relPath` is project-relative ('assets/...').
  * Throws on empty/duplicate names; refuses to escape assets/.
  */
-export async function renameAsset(relPath: string, newName: string): Promise<string> {
+export async function renameAsset(relPath: string, newName: string, opts?: { exact?: boolean }): Promise<string> {
   if (!filesystem) throw new Error('Filesystem unavailable');
   const root = projectRoot();
 
-  const clean = sanitizeName(newName);
+  // `exact` is for putting a file back under the name it really had (undo): that name came off the
+  // disk, so only path separators are refused — `..` inside a name is not traversal without one.
+  const clean = opts?.exact ? (/[/\\]/.test(newName) ? '' : newName) : sanitizeName(newName);
   if (!clean) throw new Error('Name cannot be empty');
 
   const abs = filesystem.join(root, relPath);
@@ -225,10 +228,161 @@ export async function importFiles(files: FileList | File[], destRel: string = 'a
   return written;
 }
 
+/** Open a project file in the OS default app (Preview for images). A browser tab is the wrong tool. */
+export function openInDefaultApp(relPath: string): void {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  void require('@electron/remote').shell.openPath(filesystem.join(projectRoot(), relPath));
+}
+
 /** Reveal a file/folder in the OS file manager. Electron-only (caller must gate). */
 export function revealInOS(relPath: string): void {
   if (!filesystem) throw new Error('Filesystem unavailable');
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const shell = require('@electron/remote').shell;
   shell.showItemInFolder(filesystem.join(projectRoot(), relPath));
+}
+
+/** Copy files from absolute OS paths into `destRel` (same collision rule as importFiles). */
+export async function importPaths(absPaths: string[], destRel: string = 'assets'): Promise<string[]> {
+  const files = absPaths.map((p) => ({ name: p.split(/[\\/]/).pop() || 'file', path: p }) as unknown as File);
+  return importFiles(files, destRel);
+}
+
+/** Native multi-file picker. Electron-only; resolves to [] when cancelled. */
+export async function pickFilesToImport(): Promise<string[]> {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { dialog, getCurrentWindow } = require('@electron/remote');
+  const res = await dialog.showOpenDialog(getCurrentWindow(), {
+    title: 'Import assets',
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'Assets', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif', 'mp3', 'wav', 'ogg', 'm4a', 'mp4', 'webm', 'mov', 'ttf', 'otf', 'woff', 'woff2', 'json', 'atlas'] },
+      { name: 'All files', extensions: ['*'] }
+    ]
+  });
+  return res?.canceled ? [] : res?.filePaths || [];
+}
+
+/**
+ * Make an earlier version live again, without losing the current one.
+ *
+ * The current bytes are COPIED into `.trash` under the same `<folder_slug>_<name>.<stamp><ext>`
+ * shape the AI's save uses, so they show up as the newest version and can be restored in turn.
+ * Then the version's bytes are copied over the live path. The live path never changes, so every
+ * graph reference — raw path or uid:// — shows the restored art. Metadata stays with the live path.
+ */
+export async function restoreVersion(liveRel: string, versionRel: string): Promise<string> {
+  if (!filesystem) throw new Error('Filesystem unavailable');
+  const root = projectRoot();
+
+  const liveAbs = filesystem.join(root, liveRel);
+  assertUnderAssets(root, liveAbs);
+  const cleanVersion = versionRel.replace(/\.\./g, '').replace(/^\/+/, '');
+  if (!cleanVersion.startsWith('.trash/') && !cleanVersion.startsWith('assets/')) {
+    throw new Error('A version must live in .trash or assets/');
+  }
+  const versionAbs = filesystem.join(root, cleanVersion);
+  if (!filesystem.exists(versionAbs)) throw new Error('That version is no longer on disk');
+
+  const backupRel = await backupLiveToTrash(liveRel);
+  await filesystem.copyFile(versionAbs, liveAbs);
+  return backupRel;
+}
+
+/**
+ * COPY the live bytes into `.trash` under the `<folder_slug>_<name>.<stamp><ext>` name the version
+ * scanner reads, so the current art becomes the newest earlier version. Returns '' when there is no
+ * live file. The live path and its metadata are untouched.
+ */
+export async function backupLiveToTrash(liveRel: string): Promise<string> {
+  if (!filesystem) throw new Error('Filesystem unavailable');
+  const root = projectRoot();
+  const liveAbs = filesystem.join(root, liveRel);
+  assertUnderAssets(root, liveAbs);
+  if (!filesystem.exists(liveAbs)) return '';
+  const trashDir = filesystem.join(root, '.trash');
+  if (!filesystem.exists(trashDir)) await filesystem.makeDirectory(trashDir);
+  const parts = liveRel.split('/');
+  const [stem, ext] = splitExt(parts.pop() || 'asset');
+  const slug = parts.join('_');
+  let name = `${slug}_${stem}.${trashTimestamp()}${ext}`;
+  while (filesystem.exists(filesystem.join(trashDir, name))) {
+    // Same-millisecond collision. Wait for the stamp to move rather than invent a suffix the
+    // version scanner's name pattern would not recognise.
+    await new Promise((r) => setTimeout(r, 2));
+    name = `${slug}_${stem}.${trashTimestamp()}${ext}`;
+  }
+  await filesystem.copyFile(liveAbs, filesystem.join(trashDir, name));
+  return `.trash/${name}`;
+}
+
+/**
+ * Downscale an image in place so its longest side is `maxSide` — Unity's Max Size, applied to the
+ * file. The previous bytes are kept as a version first; the path, uid, placement and every graph
+ * reference stay as they are (placement is fractions of the screen, so it is unaffected).
+ * Always writes PNG bytes, so it refuses anything but .png rather than mislabel a JPEG.
+ */
+export async function downscaleImage(relPath: string, url: string, maxSide: number): Promise<{ width: number; height: number; scale: number; backup: string } | null> {
+  if (!/\.png$/i.test(relPath)) throw new Error('Only PNG files can be downscaled in place');
+  const { planDownscale } = await import('./assetImagePlan');
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    // The project web server sends Access-Control-Allow-Origin: *, so the canvas is not tainted.
+    el.crossOrigin = 'anonymous';
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error('Could not load the image'));
+    el.src = url;
+  });
+  const plan = planDownscale(img.naturalWidth, img.naturalHeight, maxSide);
+  if (!plan) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = plan.width;
+  canvas.height = plan.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('No 2D canvas available');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, plan.width, plan.height);
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) throw new Error('Could not encode the PNG');
+  // Encode fully BEFORE backing up, so a failure here leaves no duplicate "version" behind.
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const root = projectRoot();
+  const abs = filesystem.join(root, relPath);
+  assertUnderAssets(root, abs);
+  const backup = await backupLiveToTrash(relPath);
+  await filesystem.writeFile(abs, bytes as any);
+  return { width: plan.width, height: plan.height, scale: plan.scale, backup };
+}
+
+/** Move a file out of `.trash` back to a live path. Refuses to overwrite. */
+export async function restoreFromTrash(trashRel: string, liveRel: string): Promise<void> {
+  const root = projectRoot();
+  const from = filesystem.join(root, trashRel);
+  const to = filesystem.join(root, liveRel);
+  if (!trashRel.startsWith('.trash/')) throw new Error('Not a .trash path');
+  assertUnderAssets(root, to);
+  if (!filesystem.exists(from)) throw new Error(`${trashRel} is no longer in .trash`);
+  if (filesystem.exists(to)) throw new Error(`${liveRel} already exists`);
+  const dir = filesystem.dirname(to);
+  if (!filesystem.exists(dir)) await filesystem.makeDirectory(dir);
+  await filesystem.renameFile(from, to);
+}
+
+/** Remove a folder only if it is empty (undo of "New folder"). */
+export async function removeEmptyFolder(relPath: string): Promise<void> {
+  const root = projectRoot();
+  const abs = filesystem.join(root, relPath);
+  assertUnderAssets(root, abs);
+  if (!filesystem.exists(abs)) return;
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  await require('fs').promises.rmdir(abs); // throws ENOTEMPTY rather than deleting anything
+}
+
+/** Make a folder if it is not there (redo of "New folder" must never create "New Folder 1"). */
+export async function ensureFolder(relPath: string): Promise<void> {
+  const root = projectRoot();
+  const abs = filesystem.join(root, relPath);
+  assertUnderAssets(root, abs);
+  if (!filesystem.exists(abs)) await filesystem.makeDirectory(abs);
 }

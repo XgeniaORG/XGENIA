@@ -60,6 +60,9 @@ export interface AssetReference {
   component: string;
   node: string;
   paramKey: string;
+  /** The live models, so a reference can be navigated to. */
+  componentModel?: any;
+  nodeModel?: any;
 }
 
 function nodeLabel(node: any): string {
@@ -98,7 +101,13 @@ export function getAssetReferences(rel: string): AssetReference[] {
         const val = params[key];
         if (typeof val !== 'string') continue;
         if (val === rel || val.startsWith(prefix) || (uidRef && val === uidRef)) {
-          out.push({ component: (comp as any)?.name || 'Component', node: nodeLabel(node), paramKey: key });
+          out.push({
+            component: (comp as any)?.name || 'Component',
+            node: nodeLabel(node),
+            paramKey: key,
+            componentModel: comp,
+            nodeModel: node
+          });
         }
       }
     });
