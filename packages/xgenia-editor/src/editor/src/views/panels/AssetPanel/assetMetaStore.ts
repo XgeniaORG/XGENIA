@@ -137,3 +137,15 @@ export async function atomicWriteText(fs: AtomicTextFs, path: string, text: stri
     throw e;
   }
 }
+
+/**
+ * Whether a metadata cache read for `loadedRoot` may be written to, or read as, `currentRoot`'s.
+ *
+ * (2026-10-07) A project opened after another one wrote the first project's whole cache into its own
+ * .xgenia-assets.json: getOrAssignUid() committed against the cache still holding the old project
+ * (loaded, so not `undefined`), and persist() wrote it to the NEW project's path. The genie slot "Nice"
+ * then carried the Aphrodite project's symbols, sounds and videos in its records.
+ */
+export function cacheBelongsTo(loadedRoot: string | null | undefined, currentRoot: string | null): boolean {
+  return loadedRoot !== undefined && loadedRoot === currentRoot;
+}
