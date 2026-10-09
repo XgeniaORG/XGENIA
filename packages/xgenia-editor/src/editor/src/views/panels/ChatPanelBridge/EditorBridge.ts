@@ -671,24 +671,30 @@ export class EditorBridge {
         } catch { return null; }
     }
 
+    /** The plugin id of the web-panel frame that sent this message, or null for any other source. */
+    private webPanelIdOf(event: MessageEvent): string | null {
+        const frame = this.frameForSource(event.source as Window | null);
+        return frame ? frame.getAttribute(WEB_PLUGIN_FRAME_ATTR) : null;
+    }
+
     /**
-     * May this command run? Only web-panel frames (WebPluginPanel's iframe, marked with
-     * WEB_PLUGIN_FRAME_ATTR) are gated; every other source keeps the rule it always had.
+     * May this command / event be handled? Only web-panel frames (WebPluginPanel's iframe, marked
+     * with WEB_PLUGIN_FRAME_ATTR) are gated; every other source keeps the rule it always had.
      *
-     * A web panel's command runs only when its frame completed an accepted handshake for the id
-     * it was given AND the command comes from the origin of that plugin's URL right now. So a
+     * A web panel's message is handled only when its frame completed an accepted handshake for the
+     * id it was given AND the message comes from the origin of that plugin's URL right now. So a
      * frame whose handshake was refused, a frame that navigated itself to another origin, and a
-     * plugin no longer entitled cannot reach the command surface (fs, graph, git).
+     * plugin no longer entitled cannot reach the command surface (fs, graph, git) or the event bus.
      */
-    private webPanelCommandAllowed(event: MessageEvent): boolean {
+    private webPanelMessageAllowed(event: MessageEvent, kind: 'command' | 'event'): boolean {
         const frame = this.frameForSource(event.source as Window | null);
         const pluginId = frame?.getAttribute(WEB_PLUGIN_FRAME_ATTR);
         if (!frame || pluginId === null || pluginId === undefined) return true;
         const accepted = EditorBridge._webPluginHandshakes.get(frame) === pluginId;
         const expected = this.webPanelOrigin(pluginId);
         if (accepted && expected && event.origin === expected) return true;
-        this.warnWebPluginOnce(`command:${pluginId}`,
-            `[EditorBridge] Dropping commands from web plugin '${pluginId}': `
+        this.warnWebPluginOnce(`${kind}:${pluginId}`,
+            `[EditorBridge] Dropping ${kind}s from web plugin '${pluginId}': `
             + (!accepted ? 'no accepted handshake.' : `origin ${event.origin} does not match its plugin URL.`));
         return false;
     }
@@ -763,6 +769,14 @@ export class EditorBridge {
 
         // Handshake from plugin (AI chat or Image Editor)
         if (msg.type === 'handshake' && (msg.plugin === 'xgenia-ai' || msg.plugin === 'xgenia-image-editor')) {
+            // A web-panel frame may not claim a built-in plugin's name: this branch rewrites the
+            // chat's pluginOrigin and connection state and acks with the chat's entitlement.
+            const webPanelId = this.webPanelIdOf(event);
+            if (webPanelId !== null) {
+                this.warnWebPluginOnce(`legacy-handshake:${webPanelId}`,
+                    `[EditorBridge] Ignoring a '${msg.plugin}' handshake from web plugin '${webPanelId}'.`);
+                return;
+            }
             console.log(`[EditorBridge] Plugin handshake received from '${msg.plugin}':`, msg.version);
             this.connected = true;
             this.pluginOrigin = event.origin || '*';
@@ -808,7 +822,7 @@ export class EditorBridge {
         // Command from plugin
         if (msg.type === 'command' && msg.id && msg.command) {
             // A web-panel frame must have an accepted handshake and its plugin's origin.
-            if (!this.webPanelCommandAllowed(event)) return;
+            if (!this.webPanelMessageAllowed(event, 'command')) return;
             // EXACTLY-ONCE. A command id must never execute twice.
             //
             // (2026-09-12, export 1789204750104) Every node the AI created that session was
@@ -872,6 +886,7 @@ export class EditorBridge {
 
         // Event from plugin
         if (msg.type === 'event' && msg.event) {
+            if (!this.webPanelMessageAllowed(event, 'event')) return;
             this.dispatchEvent(msg.event, msg.data);
             return;
         }

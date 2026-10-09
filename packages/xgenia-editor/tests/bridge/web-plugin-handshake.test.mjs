@@ -175,3 +175,35 @@ test('the two built-in plugins keep their handshake (ack at their own origin)', 
   assert.equal(image.length, 1);
   assert.equal(image[0].message.entitled, false); // not in this account's entitlements
 });
+
+test('a web-panel frame cannot use the built-in plugins\' handshake', async () => {
+  const { w, frame, handshake } = await setup();
+  const bridge = w.EB.editorBridge;
+  const before = { origin: bridge.pluginOrigin, connected: bridge.isConnected() };
+  for (const name of ['xgenia-ai', 'xgenia-image-editor']) {
+    // Even from an accepted web-panel frame at its own origin.
+    const fr = frame(PANEL_URL, 'example-panel');
+    await handshake(fr, 'example-panel', PANEL_ORIGIN);
+    const acks = await handshake(fr, name, PANEL_ORIGIN);
+    assert.equal(acks.length, 1, 'only the web-panel ack, none for the built-in name');
+  }
+  assert.equal(bridge.pluginOrigin, before.origin);
+  assert.equal(bridge.isConnected(), before.connected);
+});
+
+test('events from a web-panel frame are dropped unless its handshake was accepted', async () => {
+  const { w, frame, handshake } = await setup();
+  const got = [];
+  w.EB.editorBridge.on('example-event', (d) => got.push(d));
+  const send = async (fr, origin, data) => {
+    w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'event', event: 'example-event', data }, origin, source: fr.f.contentWindow }));
+    await new Promise((r) => setTimeout(r, 20));
+  };
+  const fr = frame(PANEL_URL, 'example-panel');
+  await send(fr, PANEL_ORIGIN, 'before-handshake');
+  await handshake(fr, 'example-panel', PANEL_ORIGIN);
+  await send(fr, PANEL_ORIGIN, 'accepted');
+  await send(fr, 'https://evil.example.com', 'wrong-origin');
+  await send(frame(CHAT_URL), CHAT_URL, 'unmarked');
+  assert.deepEqual(got, ['accepted', 'unmarked']);
+});
