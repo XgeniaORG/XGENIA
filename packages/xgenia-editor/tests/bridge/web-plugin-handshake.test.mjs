@@ -85,10 +85,14 @@ async function setup() {
   const verdict = await w.EB.PluginLoader.instance.getEntitledPlugins();
   assert.equal(verdict.source, 'server');
 
-  /** An iframe in the document loaded from `src`, whose outgoing replies the test records. */
-  function frame(src) {
+  /**
+   * An iframe in the document loaded from `src`, whose outgoing replies the test records.
+   * `webPlugin` marks it the way WebPluginPanel marks its frame (data-xgenia-web-plugin).
+   */
+  function frame(src, webPlugin) {
     const f = w.document.createElement('iframe');
     f.setAttribute('src', src);
+    if (webPlugin) f.setAttribute('data-xgenia-web-plugin', webPlugin);
     w.document.body.appendChild(f);
     const replies = [];
     f.contentWindow.postMessage = (message, targetOrigin) => replies.push({ message, targetOrigin });
@@ -99,12 +103,20 @@ async function setup() {
     await new Promise((r) => setTimeout(r, 50));
     return fr.replies.filter((r) => r.message && r.message.type === 'handshake-ack');
   }
-  return { w, frame, handshake };
+  let n = 0;
+  /** Send one command from `fr` at `origin`; resolves with the number of replies to it. */
+  async function command(fr, origin) {
+    const id = `cmd_${++n}_test`;
+    w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'command', id, command: 'project.getId', args: [] }, origin, source: fr.f.contentWindow }));
+    await new Promise((r) => setTimeout(r, 100));
+    return fr.replies.filter((r) => r.message && r.message.id === id).length;
+  }
+  return { w, frame, handshake, command };
 }
 
 test('an entitled web plugin at its own origin gets an ack, entitled, sent to that origin only', async () => {
   const { frame, handshake } = await setup();
-  const fr = frame(PANEL_URL);
+  const fr = frame(PANEL_URL, 'example-panel');
   const acks = await handshake(fr, 'example-panel', PANEL_ORIGIN);
   assert.equal(acks.length, 1);
   assert.deepEqual({ ...acks[0].message }, { type: 'handshake-ack', entitled: true, tier: 'pro' });
@@ -113,9 +125,38 @@ test('an entitled web plugin at its own origin gets an ack, entitled, sent to th
 
 test('the same plugin id from a wrong origin is ignored', async () => {
   const { frame, handshake } = await setup();
-  assert.equal((await handshake(frame(PANEL_URL), 'example-panel', 'https://evil.example.com')).length, 0);
+  assert.equal((await handshake(frame(PANEL_URL, 'example-panel'), 'example-panel', 'https://evil.example.com')).length, 0);
   // Right message origin, but the iframe that sent it was not loaded from the plugin URL.
-  assert.equal((await handshake(frame('https://evil.example.com/'), 'example-panel', PANEL_ORIGIN)).length, 0);
+  assert.equal((await handshake(frame('https://evil.example.com/', 'example-panel'), 'example-panel', PANEL_ORIGIN)).length, 0);
+});
+
+test('a handshake is refused from a frame not given that plugin id', async () => {
+  const { frame, handshake } = await setup();
+  assert.equal((await handshake(frame(PANEL_URL), 'example-panel', PANEL_ORIGIN)).length, 0);
+  assert.equal((await handshake(frame(PANEL_URL, 'other-panel'), 'example-panel', PANEL_ORIGIN)).length, 0);
+});
+
+test('commands from a web-panel frame whose handshake was refused are dropped', async () => {
+  const { frame, handshake, command } = await setup();
+  const fr = frame(PANEL_URL, 'example-panel');
+  assert.equal(await command(fr, PANEL_ORIGIN), 0, 'no handshake yet');
+  await handshake(fr, 'example-panel', 'https://evil.example.com');
+  assert.equal(await command(fr, 'https://evil.example.com'), 0);
+  assert.equal(await command(fr, PANEL_ORIGIN), 0, 'still no accepted handshake');
+});
+
+test('commands from an accepted web-panel frame run, until its origin changes', async () => {
+  const { frame, handshake, command } = await setup();
+  const fr = frame(PANEL_URL, 'example-panel');
+  assert.equal((await handshake(fr, 'example-panel', PANEL_ORIGIN)).length, 1);
+  assert.equal(await command(fr, PANEL_ORIGIN), 1);
+  // The frame navigated itself to another origin: same element, different sender.
+  assert.equal(await command(fr, 'https://evil.example.com'), 0);
+});
+
+test('commands from frames that are not web panels behave as before (no handshake needed)', async () => {
+  const { frame, command } = await setup();
+  assert.equal(await command(frame(CHAT_URL), CHAT_URL), 1);
 });
 
 test('plugins that are not entitled web panels get no ack', async () => {

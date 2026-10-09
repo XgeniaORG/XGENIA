@@ -85,16 +85,25 @@ function isLoopbackHost(hostname: string): boolean {
 }
 
 /**
+ * The attribute WebPluginPanel puts on its iframe, holding the plugin id that frame was given.
+ * EditorBridge gates handshakes and commands from such a frame on it.
+ */
+export const WEB_PLUGIN_FRAME_ATTR = 'data-xgenia-web-plugin';
+
+/**
  * The origin a plugin URL will load from, or null when the editor must not load it:
- * https anywhere, plain http only on this machine (a dev server). This is the origin the
- * bridge compares a web plugin's handshake against and replies to.
+ * https, or — in a dev build only (PluginLoader.isDevEnvironment) — plain http on this machine
+ * (a local dev server). A packaged build never loads a web plugin over plain http. This is the
+ * origin the bridge compares a web plugin's handshake and commands against and replies to.
  */
 export function pluginOrigin(url: unknown): string | null {
     if (typeof url !== 'string' || !url) return null;
     let parsed: URL;
     try { parsed = new URL(url); } catch { return null; }
     if (parsed.protocol === 'https:') return parsed.origin;
-    if (parsed.protocol === 'http:' && isLoopbackHost(parsed.hostname)) return parsed.origin;
+    if (parsed.protocol === 'http:' && isLoopbackHost(parsed.hostname) && PluginLoader.isDevEnvironment()) {
+        return parsed.origin;
+    }
     return null;
 }
 

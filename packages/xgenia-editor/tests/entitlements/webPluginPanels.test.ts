@@ -70,14 +70,37 @@ test('unloadable URLs and odd ids are refused', () => {
     { ...PANEL, id: 'd', url: undefined },
   ];
   assert.deepEqual(webPanelPlugins(verdict(bad)), []);
-  assert.equal(webPanelPlugins(verdict([{ ...PANEL, url: 'http://localhost:5173' }])).length, 1);
+  withDevBuild(true, () => assert.equal(webPanelPlugins(verdict([{ ...PANEL, url: 'http://localhost:5173' }])).length, 1));
+  withDevBuild(false, () => assert.equal(webPanelPlugins(verdict([{ ...PANEL, url: 'http://localhost:5173' }])).length, 0));
 });
 
-test('pluginOrigin is the URL origin, https or loopback http only', () => {
-  assert.equal(pluginOrigin('https://panel.example.com/app?x=1'), 'https://panel.example.com');
-  assert.equal(pluginOrigin('http://localhost:5173/'), 'http://localhost:5173');
-  assert.equal(pluginOrigin('http://panel.example.com'), null);
-  assert.equal(pluginOrigin('file:///etc/passwd'), null);
+/** Run `fn` as a dev build (devMode=yes, as dev-main.js sets) or as a packaged one. */
+function withDevBuild(dev: boolean, fn: () => void) {
+  const saved = { devMode: process.env.devMode, NODE_ENV: process.env.NODE_ENV };
+  if (dev) process.env.devMode = 'yes'; else delete process.env.devMode;
+  if (!dev && saved.NODE_ENV === 'development') delete process.env.NODE_ENV;
+  try { fn(); } finally {
+    if (saved.devMode === undefined) delete process.env.devMode; else process.env.devMode = saved.devMode;
+    if (saved.NODE_ENV === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = saved.NODE_ENV;
+  }
+}
+
+test('pluginOrigin in a packaged build: https only', () => {
+  withDevBuild(false, () => {
+    assert.equal(pluginOrigin('https://panel.example.com/app?x=1'), 'https://panel.example.com');
+    assert.equal(pluginOrigin('http://localhost:5173/'), null);
+    assert.equal(pluginOrigin('http://127.0.0.1:5173/'), null);
+    assert.equal(pluginOrigin('http://panel.example.com'), null);
+    assert.equal(pluginOrigin('file:///etc/passwd'), null);
+  });
+});
+
+test('pluginOrigin in a dev build: https, or plain http on this machine', () => {
+  withDevBuild(true, () => {
+    assert.equal(pluginOrigin('https://panel.example.com/app'), 'https://panel.example.com');
+    assert.equal(pluginOrigin('http://localhost:5173/'), 'http://localhost:5173');
+    assert.equal(pluginOrigin('http://panel.example.com'), null);
+  });
 });
 
 test('an unverified answer changes nothing; a later verdict removes a lost entitlement', () => {

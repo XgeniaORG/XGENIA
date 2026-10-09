@@ -12,7 +12,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { PluginLoader, isVerdict, webPanelPlugins, type EntitlementsResponse } from '../ChatPanelBridge/PluginLoader';
+import { PluginLoader, isVerdict, webPanelPlugins, WEB_PLUGIN_FRAME_ATTR, type EntitlementsResponse } from '../ChatPanelBridge/PluginLoader';
 
 /**
  * `not-entitled` is reserved for a VERDICT (the server said no); `unavailable` is "we could
@@ -75,7 +75,8 @@ export function WebPluginPanel({ pluginId }: WebPluginPanelProps) {
 
     const handleIframeLoad = useCallback(() => {
         // No editorBridge.setIframe() here: that rebinds the bridge's primary (chat) iframe.
-        // A web panel needs no registration — the bridge answers each command at its own origin.
+        // The frame's WEB_PLUGIN_FRAME_ATTR is what the bridge keys this plugin's handshake and
+        // commands on.
         setStatus('connected');
     }, []);
 
@@ -167,6 +168,7 @@ export function WebPluginPanel({ pluginId }: WebPluginPanelProps) {
                 <iframe
                     src={pluginUrl}
                     title={title}
+                    {...{ [WEB_PLUGIN_FRAME_ATTR]: pluginId }}
                     onLoad={handleIframeLoad}
                     onError={handleIframeError}
                     style={{
