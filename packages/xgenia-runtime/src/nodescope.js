@@ -18,6 +18,12 @@ function verifyData(data, requiredKeys) {
 }
 
 NodeScope.prototype.addConnection = function (connectionData) {
+  // Any structural change lifts a dependency-livelock quarantine so the fix gets a fresh
+  // chance. Loops can span components, so this clears all of them, not just this scope's;
+  // a loop that is still there re-quarantines within three frames.
+  if (this.context && typeof this.context.clearLivelockQuarantine === 'function') {
+    this.context.clearLivelockQuarantine();
+  }
   try {
     verifyData(connectionData, ['sourceId', 'sourcePort', 'targetId', 'targetPort']);
   } catch (e) {
@@ -1142,6 +1148,12 @@ NodeScope.prototype.getAllNodesWithVariantRecursive = function (variant) {
 };
 
 NodeScope.prototype.onNodeModelRemoved = function (nodeModel) {
+  // Any structural change lifts a dependency-livelock quarantine so the fix gets a fresh
+  // chance. Loops can span components, so this clears all of them, not just this scope's;
+  // a loop that is still there re-quarantines within three frames.
+  if (this.context && typeof this.context.clearLivelockQuarantine === 'function') {
+    this.context.clearLivelockQuarantine();
+  }
   if (!nodeModel || !nodeModel.id) {
     console.error("Cannot remove node model: invalid model or missing ID");
     return;
@@ -1184,6 +1196,12 @@ NodeScope.prototype.onNodeModelRemoved = function (nodeModel) {
 };
 
 NodeScope.prototype.removeConnection = function (connectionModel) {
+  // Any structural change lifts a dependency-livelock quarantine so the fix gets a fresh
+  // chance. Loops can span components, so this clears all of them, not just this scope's;
+  // a loop that is still there re-quarantines within three frames.
+  if (this.context && typeof this.context.clearLivelockQuarantine === 'function') {
+    this.context.clearLivelockQuarantine();
+  }
   if (!connectionModel || !connectionModel.targetId || !connectionModel.targetPort || 
       !connectionModel.sourceId || !connectionModel.sourcePort) {
     console.error("Cannot remove connection: invalid connection model or missing required properties");
