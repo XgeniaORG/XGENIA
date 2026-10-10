@@ -45,7 +45,7 @@ import {
     setProjectBaseStyle,
     setProjectGlobalStylePrompt,
 } from '../ProjectStylesPanel/ProjectStylesPanel';
-import { PluginLoader } from './PluginLoader';
+import { PluginLoader, pluginOrigin, webPanelPlugins, WEB_PLUGIN_FRAME_ATTR } from './PluginLoader';
 import {
     checkPublishName,
     publishJob,
@@ -273,10 +273,20 @@ export class EditorBridge {
     // before it and the duplicate-id guard started from an empty set: each hot update of this file left one
     // more live listener, and every AI command ran once per listener — one scaffold call built six screens
     // and six reel grids. Kept on window, every evaluation of this module shares one registry.
-    private static get _registry(): { active: EditorBridge | null; handledIdsBySource: WeakMap<Window, Set<string>>; constructed: number } {
+    private static get _registry(): { active: EditorBridge | null; handledIdsBySource: WeakMap<Window, Set<string>>; constructed: number; webPluginHandshakes?: WeakMap<HTMLIFrameElement, string> } {
         const w = window as any;
         if (!w.__xgeniaEditorBridgeRegistry) w.__xgeniaEditorBridgeRegistry = { active: null, handledIdsBySource: new WeakMap<Window, Set<string>>(), constructed: 0 };
         return w.__xgeniaEditorBridgeRegistry;
+    }
+    /**
+     * Web-panel frames whose handshake was accepted, and the plugin id it was accepted for. On the
+     * window registry like the others, so a hot update does not make a live panel re-handshake.
+     * Created lazily: a registry made by an older evaluation of this module may not have it.
+     */
+    private static get _webPluginHandshakes(): WeakMap<HTMLIFrameElement, string> {
+        const r = EditorBridge._registry;
+        if (!r.webPluginHandshakes) r.webPluginHandshakes = new WeakMap<HTMLIFrameElement, string>();
+        return r.webPluginHandshakes;
     }
     /** Command ids already dispatched, per source window (a WeakMap: a closed iframe's entry goes with it). */
     private static get _handledIdsBySource(): WeakMap<Window, Set<string>> { return EditorBridge._registry.handledIdsBySource; }
@@ -630,11 +640,109 @@ export class EditorBridge {
             const src = event.source as Window | null;
             if (!src) return false;
             if (src === window) return true;   // same-document postMessage (our own plumbing)
-            const frames = Array.from(document.querySelectorAll('iframe')) as HTMLIFrameElement[];
-            return frames.some((f) => {
-                try { return f.contentWindow === src; } catch { return false; }
-            });
+            return this.frameForSource(src) !== null;
         } catch { return false; }
+    }
+
+    /** The iframe element (in this document) whose window is `src`, if any. */
+    private frameForSource(src: Window | null): HTMLIFrameElement | null {
+        if (!src) return null;
+        try {
+            const frames = Array.from(document.querySelectorAll('iframe')) as HTMLIFrameElement[];
+            return frames.find((f) => {
+                try { return f.contentWindow === src; } catch { return false; }
+            }) ?? null;
+        } catch { return null; }
+    }
+
+    /** Ids already warned about, so a misbehaving plugin logs once rather than per message. */
+    private _warnedWebPlugin = new Set<string>();
+    private warnWebPluginOnce(key: string, message: string) {
+        if (this._warnedWebPlugin.has(key)) return;
+        this._warnedWebPlugin.add(key);
+        console.warn(message);
+    }
+
+    /** The entitled web-panel plugin with this id and the origin its URL loads from, if any. */
+    private webPanelOrigin(pluginId: string): string | null {
+        try {
+            const plugin = webPanelPlugins(PluginLoader.instance.getCurrent()).find((p) => p.id === pluginId);
+            return plugin ? pluginOrigin(plugin.url) : null;
+        } catch { return null; }
+    }
+
+    /** The plugin id of the web-panel frame that sent this message, or null for any other source. */
+    private webPanelIdOf(event: MessageEvent): string | null {
+        const frame = this.frameForSource(event.source as Window | null);
+        return frame ? frame.getAttribute(WEB_PLUGIN_FRAME_ATTR) : null;
+    }
+
+    /**
+     * May this command / event be handled? Only web-panel frames (WebPluginPanel's iframe, marked
+     * with WEB_PLUGIN_FRAME_ATTR) are gated; every other source keeps the rule it always had.
+     *
+     * A web panel's message is handled only when its frame completed an accepted handshake for the
+     * id it was given AND the message comes from the origin of that plugin's URL right now. So a
+     * frame whose handshake was refused, a frame that navigated itself to another origin, and a
+     * plugin no longer entitled cannot reach the command surface (fs, graph, git) or the event bus.
+     */
+    private webPanelMessageAllowed(event: MessageEvent, kind: 'command' | 'event'): boolean {
+        const frame = this.frameForSource(event.source as Window | null);
+        const pluginId = frame?.getAttribute(WEB_PLUGIN_FRAME_ATTR);
+        if (!frame || pluginId === null || pluginId === undefined) return true;
+        const accepted = EditorBridge._webPluginHandshakes.get(frame) === pluginId;
+        const expected = this.webPanelOrigin(pluginId);
+        if (accepted && expected && event.origin === expected) return true;
+        this.warnWebPluginOnce(`${kind}:${pluginId}`,
+            `[EditorBridge] Dropping ${kind}s from web plugin '${pluginId}': `
+            + (!accepted ? 'no accepted handshake.' : `origin ${event.origin} does not match its plugin URL.`));
+        return false;
+    }
+
+    /**
+     * Handshake from a generic web-panel plugin (WebPluginPanel).
+     *
+     * Unlike the two built-in plugins, the origin is never taken from the message. The plugin's
+     * `plugin` id must be in the current entitlements as a web panel, and BOTH the message's
+     * origin and the src of the iframe that sent it must match the origin of the URL the server
+     * gave for that id. Anything else is ignored without a reply. The ack goes to that exact
+     * origin — never '*', and with no '*' fallback.
+     *
+     * Deliberately does NOT touch `pluginOrigin`, `connected` or the legacy `iframe`: those
+     * belong to the chat panel, and rewriting them here would send the chat's events to the
+     * wrong origin (where postMessage silently drops them). Command replies need nothing extra:
+     * executeCommand already answers each command at its own event.origin.
+     */
+    private handleWebPluginHandshake(pluginId: string, event: MessageEvent) {
+        const frame = this.frameForSource(event.source as Window | null);
+        // A refused handshake also withdraws an earlier acceptance for this frame.
+        if (frame) EditorBridge._webPluginHandshakes.delete(frame);
+        const expected = this.webPanelOrigin(pluginId);
+        if (!expected) {
+            this.warnWebPluginOnce(`handshake:${pluginId}`, `[EditorBridge] Ignoring a handshake from '${pluginId}': not an entitled web panel.`);
+            return;
+        }
+        // The frame must be the one WebPluginPanel mounted for THIS id, loaded from its URL.
+        const frameOrigin = frame ? pluginOrigin(frame.src) : null;
+        if (!frame || frame.getAttribute(WEB_PLUGIN_FRAME_ATTR) !== pluginId
+            || event.origin !== expected || frameOrigin !== expected) {
+            this.warnWebPluginOnce(`handshake:${pluginId}`, `[EditorBridge] Ignoring a handshake from '${pluginId}': origin ${event.origin} or its frame does not match its plugin URL.`);
+            return;
+        }
+        let entitled = false;
+        let tier = 'unknown';
+        try {
+            entitled = PluginLoader.instance.isEntitled(pluginId);
+            tier = PluginLoader.instance.getTier();
+        } catch (e) {
+            console.warn('[EditorBridge] Could not read entitlement for handshake-ack:', e);
+        }
+        EditorBridge._webPluginHandshakes.set(frame, pluginId);
+        try {
+            (event.source as WindowProxy).postMessage({ type: 'handshake-ack', entitled, tier }, expected);
+        } catch (err) {
+            console.warn(`[EditorBridge] Could not send handshake-ack to '${pluginId}':`, err);
+        }
     }
 
     private handleMessage = (event: MessageEvent) => {
@@ -651,8 +759,24 @@ export class EditorBridge {
             return;
         }
 
+        // Handshake from a generic web-panel plugin (any entitled plugin the server marked
+        // `kind: 'web-panel'`). The two built-in plugin names below keep their own path.
+        if (msg.type === 'handshake' && typeof msg.plugin === 'string'
+            && msg.plugin !== 'xgenia-ai' && msg.plugin !== 'xgenia-image-editor') {
+            this.handleWebPluginHandshake(msg.plugin, event);
+            return;
+        }
+
         // Handshake from plugin (AI chat or Image Editor)
         if (msg.type === 'handshake' && (msg.plugin === 'xgenia-ai' || msg.plugin === 'xgenia-image-editor')) {
+            // A web-panel frame may not claim a built-in plugin's name: this branch rewrites the
+            // chat's pluginOrigin and connection state and acks with the chat's entitlement.
+            const webPanelId = this.webPanelIdOf(event);
+            if (webPanelId !== null) {
+                this.warnWebPluginOnce(`legacy-handshake:${webPanelId}`,
+                    `[EditorBridge] Ignoring a '${msg.plugin}' handshake from web plugin '${webPanelId}'.`);
+                return;
+            }
             console.log(`[EditorBridge] Plugin handshake received from '${msg.plugin}':`, msg.version);
             this.connected = true;
             this.pluginOrigin = event.origin || '*';
@@ -697,6 +821,8 @@ export class EditorBridge {
 
         // Command from plugin
         if (msg.type === 'command' && msg.id && msg.command) {
+            // A web-panel frame must have an accepted handshake and its plugin's origin.
+            if (!this.webPanelMessageAllowed(event, 'command')) return;
             // EXACTLY-ONCE. A command id must never execute twice.
             //
             // (2026-09-12, export 1789204750104) Every node the AI created that session was
@@ -760,6 +886,7 @@ export class EditorBridge {
 
         // Event from plugin
         if (msg.type === 'event' && msg.event) {
+            if (!this.webPanelMessageAllowed(event, 'event')) return;
             this.dispatchEvent(msg.event, msg.data);
             return;
         }

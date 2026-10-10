@@ -35,6 +35,7 @@ import { CommandPalette } from '../../views/CommandPalette/CommandPalette';
 
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import { installSidePanel, installDocuments } from '../../router.setup';
+import { uninstallWebPluginPanels } from '../../views/panels/WebPluginPanel';
 import { ViewerConnection } from '../../ViewerConnection';
 import { Frame } from '../../views/common/Frame';
 import ImportPopup from '../../views/importpopup';
@@ -219,6 +220,7 @@ export function EditorPage({ route }: EditorPageProps) {
             }
             ParseDashboardServer.instance.stop();
             CloudService.instance.reset();
+            uninstallWebPluginPanels();
             SidebarModel.instance.reset();
             ProjectCheckpoints.stopAuto();
             UndoQueue.instance.clear();

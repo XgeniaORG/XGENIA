@@ -556,6 +556,7 @@ function generateNodeLibrary(nodeRegister) {
             'pixi.CollisionDetector',
             'pixi.ParticleEmitter',
             'pixi.Spine',
+            'pixi.Puppet',
             'pixi.ReelCell',
             'pixi.ReelColumn',
             'pixi.CellOverlay',
