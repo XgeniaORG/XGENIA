@@ -58449,6 +58449,430 @@
           "setCollection": []
         }
       }
+    },
+    "pixi.Puppet": {
+      "name": "pixi.Puppet",
+      "file": "PixiPuppet.js",
+      "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiPuppet.js",
+      "category": "Pixi|Animation",
+      "docs": null,
+      "lineCount": 813,
+      "byteSize": 30380,
+      "inputFormatHints": {
+        "source": {
+          "displayName": "Package URL",
+          "type": "string",
+          "group": "Puppet"
+        },
+        "seed": {
+          "displayName": "Seed",
+          "type": "number",
+          "group": "Puppet"
+        },
+        "edgeMode": {
+          "displayName": "Edge Mode",
+          "type": "enum",
+          "enums": [
+            "rig",
+            "alpha",
+            "sdf"
+          ],
+          "group": "Puppet"
+        },
+        "reload": {
+          "displayName": "Reload",
+          "type": "signal",
+          "group": "Puppet",
+          "notSettableAsParameter": true
+        },
+        "clip": {
+          "displayName": "Clip",
+          "type": "string",
+          "group": "Animation"
+        },
+        "loop": {
+          "displayName": "Loop",
+          "type": "enum",
+          "enums": [
+            "clip",
+            "loop",
+            "once"
+          ],
+          "group": "Animation"
+        },
+        "fade": {
+          "displayName": "Fade (s)",
+          "type": "number",
+          "group": "Animation"
+        },
+        "speed": {
+          "displayName": "Speed",
+          "type": "number",
+          "group": "Animation"
+        },
+        "play": {
+          "displayName": "Play",
+          "type": "signal",
+          "group": "Animation",
+          "notSettableAsParameter": true
+        },
+        "stop": {
+          "displayName": "Stop",
+          "type": "signal",
+          "group": "Animation",
+          "notSettableAsParameter": true
+        },
+        "lookAt": {
+          "displayName": "Look At",
+          "type": "boolean",
+          "group": "Look At"
+        },
+        "lookX": {
+          "displayName": "Look X",
+          "type": "number",
+          "group": "Look At"
+        },
+        "lookY": {
+          "displayName": "Look Y",
+          "type": "number",
+          "group": "Look At"
+        },
+        "paramName": {
+          "displayName": "Param Name",
+          "type": "string",
+          "group": "Parameters"
+        },
+        "paramValue": {
+          "displayName": "Param Value",
+          "type": "number",
+          "group": "Parameters"
+        },
+        "setParam": {
+          "displayName": "Set Param",
+          "type": "signal",
+          "group": "Parameters",
+          "notSettableAsParameter": true
+        },
+        "releaseParam": {
+          "displayName": "Release Param",
+          "type": "signal",
+          "group": "Parameters",
+          "notSettableAsParameter": true
+        },
+        "market": {
+          "displayName": "Market",
+          "type": "enum",
+          "enums": [
+            "default",
+            "uk",
+            "gli19"
+          ],
+          "group": "Behaviour"
+        },
+        "state": {
+          "displayName": "State",
+          "type": "string",
+          "group": "Behaviour"
+        },
+        "triggerState": {
+          "displayName": "Trigger State",
+          "type": "signal",
+          "group": "Behaviour",
+          "notSettableAsParameter": true
+        },
+        "stake": {
+          "displayName": "Stake",
+          "type": "number",
+          "group": "Round Events"
+        },
+        "win": {
+          "displayName": "Win",
+          "type": "number",
+          "group": "Round Events"
+        },
+        "tier": {
+          "displayName": "Tier",
+          "type": "string",
+          "group": "Round Events"
+        },
+        "feature": {
+          "displayName": "Feature",
+          "type": "string",
+          "group": "Round Events"
+        },
+        "featureConfirmed": {
+          "displayName": "Feature Confirmed",
+          "type": "boolean",
+          "group": "Round Events"
+        },
+        "roundStart": {
+          "displayName": "Round Start",
+          "type": "signal",
+          "group": "Round Events",
+          "notSettableAsParameter": true
+        },
+        "roundResult": {
+          "displayName": "Round Result",
+          "type": "signal",
+          "group": "Round Events",
+          "notSettableAsParameter": true
+        },
+        "roundSettled": {
+          "displayName": "Round Settled",
+          "type": "signal",
+          "group": "Round Events",
+          "notSettableAsParameter": true
+        },
+        "featureEnter": {
+          "displayName": "Feature Enter",
+          "type": "signal",
+          "group": "Round Events",
+          "notSettableAsParameter": true
+        },
+        "featureExit": {
+          "displayName": "Feature Exit",
+          "type": "signal",
+          "group": "Round Events",
+          "notSettableAsParameter": true
+        },
+        "tap": {
+          "displayName": "Tap",
+          "type": "signal",
+          "group": "Round Events",
+          "notSettableAsParameter": true
+        },
+        "x": {
+          "displayName": "X",
+          "type": "number",
+          "group": "Position"
+        },
+        "y": {
+          "displayName": "Y",
+          "type": "number",
+          "group": "Position"
+        },
+        "rotation": {
+          "displayName": "Rotation (rad)",
+          "type": "number",
+          "group": "Transform"
+        },
+        "scaleX": {
+          "displayName": "Scale X",
+          "type": "number",
+          "group": "Transform"
+        },
+        "scaleY": {
+          "displayName": "Scale Y",
+          "type": "number",
+          "group": "Transform"
+        },
+        "alpha": {
+          "displayName": "Alpha",
+          "type": "number",
+          "group": "Appearance"
+        },
+        "visible": {
+          "displayName": "Visible",
+          "type": "boolean",
+          "group": "Appearance"
+        },
+        "zIndex": {
+          "displayName": "Z-Index",
+          "type": "number",
+          "group": "Advanced"
+        },
+        "functionScript": {
+          "displayName": "Script",
+          "type": "string",
+          "notConnectable": true,
+          "group": "General"
+        },
+        "cssClassName": {
+          "displayName": "CSS Class",
+          "type": "string",
+          "group": "Advanced HTML"
+        },
+        "styleCss": {
+          "displayName": "CSS Style",
+          "type": "string",
+          "group": "Advanced HTML"
+        },
+        "variant": {
+          "displayName": "Variant",
+          "type": "string",
+          "notSettableAsParameter": true,
+          "group": "General"
+        },
+        "mounted": {
+          "displayName": "Mounted",
+          "type": "boolean",
+          "group": "General"
+        }
+      },
+      "outputFormatHints": {
+        "nodeReference": {
+          "displayName": "Node Reference",
+          "type": "node",
+          "group": "General"
+        },
+        "ready": {
+          "displayName": "Ready",
+          "type": "signal",
+          "group": "Events"
+        },
+        "event": {
+          "displayName": "Event",
+          "type": "signal",
+          "group": "Events"
+        },
+        "eventId": {
+          "displayName": "Event ID",
+          "type": "string",
+          "group": "Events"
+        },
+        "eventType": {
+          "displayName": "Event Type",
+          "type": "string",
+          "group": "Events"
+        },
+        "clipFinished": {
+          "displayName": "Clip Finished",
+          "type": "signal",
+          "group": "Events"
+        },
+        "finishedClip": {
+          "displayName": "Finished Clip",
+          "type": "string",
+          "group": "Events"
+        },
+        "isReady": {
+          "displayName": "Is Ready",
+          "type": "boolean",
+          "group": "Status"
+        },
+        "loading": {
+          "displayName": "Loading",
+          "type": "boolean",
+          "group": "Status"
+        },
+        "error": {
+          "displayName": "Error",
+          "type": "string",
+          "group": "Status"
+        },
+        "clips": {
+          "displayName": "Clips",
+          "type": "array",
+          "group": "Info"
+        },
+        "params": {
+          "displayName": "Params",
+          "type": "array",
+          "group": "Info"
+        },
+        "behaviourState": {
+          "displayName": "State",
+          "type": "string",
+          "group": "Behaviour"
+        },
+        "blocked": {
+          "displayName": "Blocked",
+          "type": "string",
+          "group": "Behaviour"
+        },
+        "childIndex": {
+          "displayName": "Child Index",
+          "type": "number"
+        },
+        "this": {
+          "displayName": "This",
+          "type": "reference"
+        },
+        "screenPositionX": {
+          "displayName": "Screen Position X",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "screenPositionY": {
+          "displayName": "Screen Position Y",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "boundingWidth": {
+          "displayName": "Width",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "boundingHeight": {
+          "displayName": "Height",
+          "type": "number",
+          "group": "Bounding Box"
+        },
+        "didMount": {
+          "displayName": "Did Mount",
+          "type": "signal",
+          "group": "Mounted"
+        },
+        "willUnmount": {
+          "displayName": "Will Unmount",
+          "type": "signal",
+          "group": "Mounted"
+        }
+      },
+      "shortDesc": "Plays a rigged 2D character package (.xgc.json): clips, look-at, parameters and clip events.",
+      "portsSource": "registry",
+      "portsComplete": true,
+      "closureRisk": {
+        "byFunction": {
+          "getReactComponent": [],
+          "initialize": [],
+          "set": [
+            "finite",
+            "MARKETS"
+          ],
+          "valueChangedToTrue": [],
+          "getPuppet": [],
+          "getBehaviour": [],
+          "registerPixiContainerRef": [],
+          "_dispose": [],
+          "_hostAlive": [],
+          "_reload": [
+            "errorText"
+          ],
+          "_mount": [],
+          "_teardown": [],
+          "_viewDestroyedByAncestor": [],
+          "_releaseListeners": [],
+          "_attachTicker": [],
+          "_detachTicker": [],
+          "_tick": [],
+          "_step": [
+            "errorText"
+          ],
+          "_applyLookAt": [
+            "errorText"
+          ],
+          "_playClip": [],
+          "_applyParam": [],
+          "_sendParam": [],
+          "_buildBehaviour": [
+            "errorText"
+          ],
+          "_ensureBehaviour": [],
+          "_runBehaviour": [],
+          "_roundEvent": [],
+          "_triggerState": [],
+          "_setBehaviourState": [],
+          "_setBlocked": [],
+          "_onPuppetEvent": [],
+          "_onClipFinished": [],
+          "_applyTransform": [],
+          "_setReady": [],
+          "_setLoading": [],
+          "_setError": [],
+          "_clearError": []
+        }
+      }
     }
   },
   "byCategory": {
