@@ -95,7 +95,14 @@ export function _collectDependencyGraph(root: ComponentModel, allComponents: Com
       //follow component instances and for each nodes
       let dep;
       if (n.type instanceof ComponentModel) {
-        dep = n.type;
+        // Follow THIS project's component of that name, not n.type itself. A node's type resolves
+        // through the node library, which holds the OPEN project's components, so in a project that
+        // is not the open one — publish builds a copy — n.type is the open project's component and
+        // the walk wandered into the original's graphs. (2026-10-10, GremlinGold) Publish had
+        // swapped the copy's Math Component instance for an Aggregator and dropped the component;
+        // the walk still found it in the original, and the build crashed on the missing component:
+        // "Cannot read properties of undefined (reading 'name')" in exportComponent.
+        dep = allComponents.find((c) => c.name === n.type.name);
         console.log('[bundler] Found component instance dependency:', dep.name);
       } else if (n.type.name === 'For Each' && n.parameters.template && n.parameters.templateType !== 'dynamic') {
         forEachCount++;
