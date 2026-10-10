@@ -679,6 +679,27 @@ export class SupabaseAPIClient {
 // XGENIA TO SUPABASE CONVERTER
 // ============================================================================
 
+/**
+ * (2026-10-11) The keys the RGS reads off a round's state — XRGS _shared/maths-round.ts:
+ *   in_feature              the next round continues a feature already paid for: it is FREE and plays at
+ *                           the stake that opened it (a component's free spins were charged in full)
+ *   awaiting_choice         { options, default?, name?, port?, request? } — the next round is the
+ *                           player's answer (a pick, a gamble): refused unless it is one of the options,
+ *                           and written by the SERVER onto `port` with `request`'s fields
+ *   feature_rounds_remaining  shown to the player
+ * A graph keeps its persisted variables under state.__vars, where the RGS never looks, so a graph had no
+ * way to say "this is a free spin". A persisted variable (Variable2 + a wired Set Variable) NAMED one of
+ * these is lifted to the top level of the returned state on every round — a falsy value clears it.
+ * Graphs without such a variable compile exactly as before.
+ */
+export const RGS_PLATFORM_STATE_KEYS = ['in_feature', 'awaiting_choice', 'feature_rounds_remaining'] as const;
+
+function liftedPlatformState(statefulVars: Map<string, unknown>): string {
+  return RGS_PLATFORM_STATE_KEYS.filter((k) => statefulVars.has(k))
+    .map((k) => `, ${k}: (_vars[${JSON.stringify(k)}] || undefined)`)
+    .join('');
+}
+
 export class CloudFunctionConverter {
   private readonly component: Component;
   private readonly nodes: Map<string, Node>;
@@ -1475,6 +1496,7 @@ ${originalComponentStructure}
       '  data: _dataOut,',
       '  state: { ...ctx.state, round: ctx.round'
         + (statefulVars.size > 0 ? ', __vars: _vars' : '')
+        + liftedPlatformState(statefulVars)
         + ((this._nodeStateIds?.size ?? 0) > 0 ? ', __nodes: _nodeState' : '')
         + (engine ? `, __engine: ${engine.stateExpr}` : '')
         + ' }',
