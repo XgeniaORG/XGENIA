@@ -47,6 +47,17 @@
  *      account re-checks; signing out clears everything.
  *   6. Cache entries written by earlier builds carry no `source` and may hold
  *      the persisted no-session guess. They are discarded, never served.
+ *
+ * ─── web-panel URLs may carry a ticket ───────────────────────────────────────────
+ * A web-panel plugin's URL may carry a short-lived signed ticket in the volatile query
+ * parameter `t` (TICKET_PARAM), which the plugin host exchanges for its own session on first
+ * load. Two consequences for the editor:
+ *   • A ticket only lives ~10 minutes, so OPENING a web panel on an answer older than
+ *     TICKET_REFRESH_MS asks the server again first (getEntitledPlugins({ maxAgeMs })). If that
+ *     fails, the URL already held is used.
+ *   • URLs are compared WITHOUT the ticket (stableUrl) when deciding whether an open panel's
+ *     iframe must reload, so a background refresh that only changes the ticket never reloads
+ *     a running plugin (and never throws away unsaved work). Origins are unaffected by it.
  */
 
 import { supabase } from '../../../supabaseInit';
@@ -67,6 +78,24 @@ export interface PluginEntitlement {
     kind?: string;
     /** Optional rail icon key for a web panel (see webPluginIcon). Unknown keys get the generic icon. */
     icon?: string;
+}
+
+/** The volatile query parameter that carries a web-panel plugin's short-lived ticket. */
+export const TICKET_PARAM = 't';
+
+/** Opening a web panel on an answer older than this asks the server for a fresh URL first. */
+export const TICKET_REFRESH_MS = 9 * 60 * 1000;
+
+/** A plugin URL with the ticket parameter removed: origin, path, other params and hash kept. */
+export function stableUrl(url: string): string {
+    try {
+        const parsed = new URL(url);
+        if (!parsed.searchParams.has(TICKET_PARAM)) return parsed.toString();
+        parsed.searchParams.delete(TICKET_PARAM);
+        return parsed.toString();
+    } catch {
+        return url;
+    }
 }
 
 /** `kind` value that asks the editor for a generic sidebar panel. */
@@ -352,15 +381,17 @@ export class PluginLoader {
      *   - Probes localhost:3002. If reachable → loads local image editor (HMR).
      *   - If localhost:3002 is NOT reachable → falls back to Vercel (no blank screen).
      */
-    async getEntitledPlugins(): Promise<EntitlementsResponse> {
+    async getEntitledPlugins(options: { maxAgeMs?: number } = {}): Promise<EntitlementsResponse> {
         const isDev = PluginLoader.isDevEnvironment();
         this.watchAuth();
 
         // In dev mode skip the in-memory cache so we re-probe localhost on
         // every call (the local server may have started since the last check).
         // Only verdicts ever live in `this.entitlements`, so "fresh" here can never describe
-        // a "could not check" answer.
-        if (!isDev && this.entitlements && this.isCacheFresh(this.entitlements)) {
+        // a "could not check" answer. `maxAgeMs` lets a caller demand a younger answer than the
+        // usual hour (a web panel opening on a URL whose ticket may have expired).
+        const maxAgeMs = Math.min(options.maxAgeMs ?? CACHE_TTL, CACHE_TTL);
+        if (!isDev && this.entitlements && this.isCacheFresh(this.entitlements, maxAgeMs)) {
             return this.entitlements;
         }
 
@@ -699,9 +730,9 @@ export class PluginLoader {
         }
     }
 
-    private isCacheFresh(cache: EntitlementsResponse): boolean {
+    private isCacheFresh(cache: EntitlementsResponse, maxAgeMs = CACHE_TTL): boolean {
         if (!cache.cachedAt) return false;
-        return (this.now() - cache.cachedAt) < CACHE_TTL;
+        return (this.now() - cache.cachedAt) < maxAgeMs;
     }
 
     /** Only a verdict straight from the server is written down. */

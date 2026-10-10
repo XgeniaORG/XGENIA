@@ -9,10 +9,18 @@
  * Same frame, sandbox and states as ImageEditorPanel. The plugin talks to the editor over
  * postMessage through EditorBridge, whose handshake accepts a web panel only from the origin
  * of the URL PluginLoader gave for its id.
+ *
+ * The URL may carry a short-lived ticket (see PluginLoader, TICKET_PARAM): opening the panel on
+ * an old answer refreshes it first, and a later answer that only changes the ticket does not
+ * reload the frame. A plugin host that rejects the ticket can tell the panel by posting
+ * `{ type: 'plugin-load-error', status }` to its parent; the panel then shows its error state,
+ * whose Retry fetches a fresh URL. (The editor cannot read the HTTP status of a cross-origin
+ * frame itself.)
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { PluginLoader, isVerdict, webPanelPlugins, WEB_PLUGIN_FRAME_ATTR, type EntitlementsResponse } from '../ChatPanelBridge/PluginLoader';
+import { PluginLoader, isVerdict, pluginOrigin, webPanelPlugins, WEB_PLUGIN_FRAME_ATTR, type EntitlementsResponse } from '../ChatPanelBridge/PluginLoader';
+import { entitlementsForPanelOpen, nextFrameUrl } from './webPluginFrame';
 
 /**
  * `not-entitled` is reserved for a VERDICT (the server said no); `unavailable` is "we could
@@ -25,6 +33,7 @@ export interface WebPluginPanelProps {
 }
 
 export function WebPluginPanel({ pluginId }: WebPluginPanelProps) {
+    const iframeRef = useRef<HTMLIFrameElement>(null);
     const [status, setStatus] = useState<PanelStatus>('loading');
     const [pluginUrl, setPluginUrl] = useState<string | null>(null);
     const pluginUrlRef = useRef<string | null>(null);
@@ -37,9 +46,11 @@ export function WebPluginPanel({ pluginId }: WebPluginPanelProps) {
         const plugin = webPanelPlugins(e).find((p) => p.id === pluginId);
         if (plugin) {
             setTitle(plugin.name || plugin.id);
-            if (pluginUrlRef.current === plugin.url) return;
-            pluginUrlRef.current = plugin.url;
-            setPluginUrl(plugin.url);
+            // A new ticket alone keeps the mounted URL: no reload, no lost work.
+            const next = nextFrameUrl(pluginUrlRef.current, plugin.url);
+            if (pluginUrlRef.current === next) return;
+            pluginUrlRef.current = next;
+            setPluginUrl(next);
             setStatus('loading');
             return;
         }
@@ -56,7 +67,9 @@ export function WebPluginPanel({ pluginId }: WebPluginPanelProps) {
         let cancelled = false;
         const loader = PluginLoader.instance;
 
-        loader.getEntitledPlugins().then(
+        // Opening the panel: an answer old enough for its ticket to have expired is refreshed
+        // first (the loading state shows meanwhile); on failure the URL already held is used.
+        entitlementsForPanelOpen(loader).then(
             (e) => { if (!cancelled) applyEntitlements(e); },
             (err: any) => {
                 if (cancelled) return;
@@ -73,6 +86,24 @@ export function WebPluginPanel({ pluginId }: WebPluginPanelProps) {
         return () => { cancelled = true; unsub(); };
     }, [applyEntitlements]);
 
+    // The plugin host reports a rejected ticket (or any load failure it can see) by message.
+    useEffect(() => {
+        if (!pluginUrl) return;
+        const expected = pluginOrigin(pluginUrl);
+        const onMessage = (event: MessageEvent) => {
+            const msg = event.data;
+            if (!msg || typeof msg !== 'object' || msg.type !== 'plugin-load-error') return;
+            if (!iframeRef.current || event.source !== iframeRef.current.contentWindow) return;
+            if (!expected || event.origin !== expected) return;
+            setStatus('error');
+            setErrorMsg(msg.status === 403
+                ? `${title} refused access (403). Retry to get a fresh link.`
+                : `Could not load ${title}${typeof msg.status === 'number' ? ` (${msg.status})` : ''}.`);
+        };
+        window.addEventListener('message', onMessage);
+        return () => window.removeEventListener('message', onMessage);
+    }, [pluginUrl, title]);
+
     const handleIframeLoad = useCallback(() => {
         // No editorBridge.setIframe() here: that rebinds the bridge's primary (chat) iframe.
         // The frame's WEB_PLUGIN_FRAME_ATTR is what the bridge keys this plugin's handshake and
@@ -88,6 +119,10 @@ export function WebPluginPanel({ pluginId }: WebPluginPanelProps) {
     const handleRetry = useCallback(() => {
         setStatus('loading');
         setErrorMsg('');
+        // Mount whatever comes back, even a URL equal to the one that failed (loading state
+        // meanwhile, rather than reloading the old URL first).
+        pluginUrlRef.current = null;
+        setPluginUrl(null);
         PluginLoader.instance.refresh().then(applyEntitlements).catch((err: any) => {
             setStatus('error');
             setErrorMsg(err?.message || 'Failed to check plugin access');
@@ -166,6 +201,7 @@ export function WebPluginPanel({ pluginId }: WebPluginPanelProps) {
             )}
             {pluginUrl && (
                 <iframe
+                    ref={iframeRef}
                     src={pluginUrl}
                     title={title}
                     {...{ [WEB_PLUGIN_FRAME_ATTR]: pluginId }}
