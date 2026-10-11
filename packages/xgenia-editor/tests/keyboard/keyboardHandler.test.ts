@@ -228,3 +228,20 @@ test('the higher weight wins a shared key; on a tie the later registration does'
     handler.deregisterCommands([devtools, lesson]);
   }
 });
+
+test('a toolbar button runs the command bound to its key, once per click', async () => {
+  const { mod, KeyMod, KeyCode } = await load();
+  const handler = mod.default.instance as any;
+  let undos = 0;
+  const code = KeyMod.CtrlCmd | KeyCode.KEY_Z;
+  const cmd = { handler: () => undos++, keybinding: code };
+  handler.registerCommands([cmd]);
+  try {
+    assert.equal(handler.run(code), true);
+    assert.equal(handler.run(code), true); // two clicks are two undos, not a menu echo
+    assert.equal(undos, 2);
+    assert.equal(handler.run(KeyMod.CtrlCmd | KeyCode.KEY_Q), false); // nothing bound
+  } finally {
+    handler.deregisterCommands([cmd]);
+  }
+});

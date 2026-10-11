@@ -17,7 +17,10 @@ import { PublishSnapshot } from '@xgenia-models/publishStore';
 import { PublishState, wirePublishState } from '@xgenia-models/publishstate';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
+import { UndoQueue } from '@xgenia-models/undo-queue-model';
 import { WarningsModel } from '@xgenia-models/warningsmodel';
+import { KeyCode, KeyMod } from '@xgenia-utils/keyboard/KeyCode';
+import KeyboardHandler from '@xgenia-utils/keyboardhandler';
 
 import { IconName, IconSize } from '@xgenia-core-ui/components/common/Icon';
 import { IconButton, IconButtonVariant } from '@xgenia-core-ui/components/inputs/IconButton';
@@ -28,7 +31,8 @@ import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import { DeployPopup } from '../DeployPopup/DeployPopup';
 import { TitleBar } from '../documents/EditorDocument/titlebar';
 import { NodeGraphEditor } from '../nodegrapheditor';
-import { TopbarPanelClose, TopbarPanelOpen } from '../SidePanel/SidebarIcons';
+import { keybindingLabel } from '../ShortcutSheet/shortcutLabel';
+import { TopbarPanelClose, TopbarPanelOpen, TopbarRedo, TopbarUndo } from '../SidePanel/SidebarIcons';
 import { TimelineToggle } from '../TimelineDock/TimelineToggle';
 import { PreviewTimeControls } from './topbar/PreviewTimeControls';
 import css from './EditorTopbar.module.scss';
@@ -313,6 +317,7 @@ export function EditorTopbar({
             isDisabled={!navigationState.canGoForward}
           />
         </Tooltip>
+        <UndoRedoButtons />
         <Tooltip content="Refresh preview" fineType={Keybindings.REFRESH_PREVIEW.label}>
           <IconButton
             icon={IconName.Refresh}
@@ -379,5 +384,57 @@ export function EditorTopbar({
         width={MenuDialogWidth.Large}
       />
     </div>
+  );
+}
+
+const UNDO = KeyMod.CtrlCmd | KeyCode.KEY_Z;
+const REDO = KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_Z;
+
+/**
+ * Undo / Redo, named after the step they would take. They run the same command as ⌘Z / ⇧⌘Z, so
+ * the graph's selection handling comes along, and grey out when the history has nothing that way.
+ */
+function UndoRedoButtons() {
+  const read = () => {
+    const history = UndoQueue.instance.getHistory();
+    const at = UndoQueue.instance.getHistoryLocation();
+    return { undo: at > 0 ? history[at - 1].label : null, redo: at < history.length ? history[at].label : null };
+  };
+  const [state, setState] = useState(read);
+
+  useEffect(() => {
+    const group = {};
+    const update = () => setState(read());
+    for (const event of ['undoHistoryChanged', 'undo', 'redo']) UndoQueue.instance.on(event, update, group);
+    update();
+    return () => {
+      UndoQueue.instance.off(group);
+    };
+  }, []);
+
+  const name = (verb: string, label: string | null) =>
+    label ? `${verb} ${label}` : `Nothing to ${verb.toLowerCase()}`;
+
+  return (
+    <>
+      <Tooltip content={name('Undo', state.undo)} fineType={keybindingLabel(UNDO)}>
+        <IconButton
+          icon={TopbarUndo}
+          variant={IconButtonVariant.Transparent}
+          size={IconSize.Small}
+          onClick={() => KeyboardHandler.instance.run(UNDO)}
+          isDisabled={state.undo === null}
+        />
+      </Tooltip>
+      <Tooltip content={name('Redo', state.redo)} fineType={keybindingLabel(REDO)}>
+        <IconButton
+          icon={TopbarRedo}
+          variant={IconButtonVariant.Transparent}
+          size={IconSize.Small}
+          onClick={() => KeyboardHandler.instance.run(REDO)}
+          isDisabled={state.redo === null}
+        />
+      </Tooltip>
+    </>
   );
 }

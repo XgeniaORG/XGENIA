@@ -32,6 +32,10 @@ import PanelLeftCloseIcon from '@hugeicons/core-free-icons/PanelLeftCloseIcon';
 // @ts-ignore
 import PinIcon from '@hugeicons/core-free-icons/PinIcon';
 // @ts-ignore
+import Redo02Icon from '@hugeicons/core-free-icons/Redo02Icon';
+// @ts-ignore
+import Undo02Icon from '@hugeicons/core-free-icons/Undo02Icon';
+// @ts-ignore
 import PinOffIcon from '@hugeicons/core-free-icons/PinOffIcon';
 // @ts-ignore
 import Edit02Icon from '@hugeicons/core-free-icons/Edit02Icon';
@@ -87,6 +91,8 @@ export const TopbarImport = makeIcon(Download04Icon, 'TopbarImport');
 export const TopbarPanelOpen = makeIcon(PanelLeftOpenIcon, 'TopbarPanelOpen');
 export const TopbarPanelClose = makeIcon(PanelLeftCloseIcon, 'TopbarPanelClose');
 export const TopbarPinned = makeIcon(PinIcon, 'TopbarPinned');
+export const TopbarUndo = makeIcon(Undo02Icon, 'TopbarUndo');
+export const TopbarRedo = makeIcon(Redo02Icon, 'TopbarRedo');
 export const TopbarUnpinned = makeIcon(PinOffIcon, 'TopbarUnpinned');
 /** Rail identity chip's project menu. */
 export const SideRenameIcon = makeIcon(Edit02Icon, 'SideRenameIcon');

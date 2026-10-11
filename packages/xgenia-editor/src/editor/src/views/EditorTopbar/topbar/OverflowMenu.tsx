@@ -8,6 +8,7 @@ import { MenuDialog, MenuDialogWidth } from '@xgenia-core-ui/components/popups/M
 import { Tooltip } from '@xgenia-core-ui/components/popups/Tooltip';
 
 import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
+import { toggleShortcutSheet } from '../../ShortcutSheet';
 
 export type OverflowLayout = 'vertical' | 'horizontal' | 'detachedPreview';
 
@@ -87,6 +88,13 @@ export function OverflowMenu({ documentLayout, setDocumentLayout, onImport, anch
             label: 'Import design (HTML / Figma)…',
             icon: IconName.ImportDown,
             onClick: onImport
+          },
+          'divider',
+          {
+            label: 'Keyboard shortcuts',
+            icon: IconName.Question,
+            endSlot: '?',
+            onClick: () => toggleShortcutSheet()
           }
         ]}
       />
