@@ -694,10 +694,20 @@ export class SupabaseAPIClient {
  */
 export const RGS_PLATFORM_STATE_KEYS = ['in_feature', 'awaiting_choice', 'feature_rounds_remaining'] as const;
 
-function liftedPlatformState(statefulVars: Map<string, unknown>): string {
-  return RGS_PLATFORM_STATE_KEYS.filter((k) => statefulVars.has(k))
+function liftedPlatformState(statefulVars: Map<string, unknown>, freeSpinCounts: string[] = []): string {
+  const lifted = RGS_PLATFORM_STATE_KEYS.filter((k) => statefulVars.has(k))
     .map((k) => `, ${k}: (_vars[${JSON.stringify(k)}] || undefined)`)
     .join('');
+  // (2026-10-11) A maths built on the library's Calculate Free Spins States says it is in a feature
+  // without being told to: the free spins it has left after this round ARE the next round's
+  // in_feature. Bugfree Test 01 played its "free" spins charged on the RGS — the maths refunded the
+  // bet into its own capital, which the RGS never pays — and certified with 0 feature rounds. A
+  // persisted in_feature / feature_rounds_remaining variable, when the graph has one, still wins.
+  if (freeSpinCounts.length === 0) return lifted;
+  const left = freeSpinCounts.length === 1 ? freeSpinCounts[0] : `Math.max(${freeSpinCounts.join(', ')})`;
+  return lifted
+    + (statefulVars.has('in_feature') ? '' : `, in_feature: (${left} > 0 ? "free_spins" : undefined)`)
+    + (statefulVars.has('feature_rounds_remaining') ? '' : `, feature_rounds_remaining: (${left} || undefined)`);
 }
 
 export class CloudFunctionConverter {
@@ -1496,7 +1506,7 @@ ${originalComponentStructure}
       '  data: _dataOut,',
       '  state: { ...ctx.state, round: ctx.round'
         + (statefulVars.size > 0 ? ', __vars: _vars' : '')
-        + liftedPlatformState(statefulVars)
+        + liftedPlatformState(statefulVars, engine?.freeSpinCounts ?? [])
         + ((this._nodeStateIds?.size ?? 0) > 0 ? ', __nodes: _nodeState' : '')
         + (engine ? `, __engine: ${engine.stateExpr}` : '')
         + ' }',
@@ -2231,7 +2241,7 @@ ${originalComponentStructure}
    * The request engine: node invocations, Component Outputs and the state to keep, for a maths
    * driven by Component Inputs signals. See the section header above for the semantics.
    */
-  private generateRgsRequestEngine(nodes: Node[], trig: { ci: Node; triggers: string[] }): { code: string; stateExpr: string } {
+  private generateRgsRequestEngine(nodes: Node[], trig: { ci: Node; triggers: string[] }): { code: string; stateExpr: string; freeSpinCounts: string[] } {
     const J = (v: unknown) => JSON.stringify(v);
     const engineIds = new Set(nodes.map((n) => n.id));
     const ciId = trig.ci.id;
@@ -2351,6 +2361,15 @@ ${originalComponentStructure}
         });
       }
       for (const p of carriedPorts(n, ins)) keepKey(n.id, this.resultKeyFor(n.id, p));
+    }
+    // The free spins left after each round, kept for the round state the RGS reads (liftedPlatformState):
+    // `__eout[id][key]` at the script's return.
+    const freeSpinCounts: string[] = [];
+    for (const n of nodes) {
+      if (n.typename !== 'Calculate Free Spins States') continue;
+      const key = this.resultKeyFor(n.id, 'currentFreeSpins');
+      keepKey(n.id, key);
+      freeSpinCounts.push(`(__eout[${J(n.id)}] ? Number(__eout[${J(n.id)}][${J(key)}]) || 0 : 0)`);
     }
 
     // Signal routing: source "id|port" → [[target id, target port]] (Component Outputs only record).
@@ -2610,7 +2629,7 @@ ${originalComponentStructure}
       }),
       'var __engineState = { init: !!(__E.init || __efire.length > 0), o: __eout, lp: __elp, sm: __esmOut, t: __ethOut, ci: __eciOut };',
     ].join('\n    ');
-    return { code, stateExpr: '__engineState' };
+    return { code, stateExpr: '__engineState', freeSpinCounts };
   }
 
   /** A Component Inputs data port's value on this request: the stake for the bet port, else the payload field. */

@@ -111,7 +111,15 @@ async function main() {
   const left = [r1, r2, r3].map((r: AnyRec) => r.data.left);
   if (JSON.stringify(left) !== JSON.stringify([8, 7, 6])) fail(`free spins did not carry between requests: ${JSON.stringify(left)} (want [8,7,6])`);
 
-  console.log('graph feature state reaches the RGS: in_feature, awaiting_choice and feature_rounds_remaining are lifted and cleared; free spins carry');
+  // 5. ...and the library's free spins tell the RGS they are free: in_feature while spins remain
+  //    (so /rgs-fn plays them free, at the opening stake), cleared after the last one.
+  const lj = (st: AnyRec) => JSON.parse(JSON.stringify(st));
+  if (lj(r1.state).in_feature !== 'free_spins' || lj(r1.state).feature_rounds_remaining !== 8) fail(`no in_feature after the award: ${JSON.stringify({ f: lj(r1.state).in_feature, n: lj(r1.state).feature_rounds_remaining })}`);
+  let st: AnyRec = r3.state;
+  for (let i = 0; i < 6; i++) st = call(blank, st).state;
+  if (lj(st).in_feature !== undefined) fail(`in_feature outlived the free spins: ${JSON.stringify(lj(st).in_feature)}`);
+
+  console.log('graph feature state reaches the RGS: in_feature, awaiting_choice and feature_rounds_remaining are lifted and cleared; free spins carry and mark the feature');
 }
 
 main().catch((e) => fail(e instanceof Error ? e.stack || e.message : String(e)));
