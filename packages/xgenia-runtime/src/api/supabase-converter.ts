@@ -2551,7 +2551,10 @@ ${originalComponentStructure}
       // and simulation harnesses, which send data fields only) plays every trigger in port order —
       // the straight-through script's behaviour, which those harnesses measure. A live rgs-fn request
       // always carries ctx.action, so one that fires nothing runs nothing.
-      'if (!__enamed && typeof ctx.action === "undefined") __efire = __etrig.slice();',
+      // An init/reset trigger plays there once per session (until `state.__engine.init`), as in the
+      // editor, where the game sends it when it loads and Spin after that; played on every request it
+      // would re-write what it set up (reel strips, a progressive) each spin. A caller can still name it.
+      `if (!__enamed && typeof ctx.action === "undefined") __efire = __E.init ? ${J(trig.triggers.filter((t) => !/init|reset/i.test(t)))} : __etrig.slice();`,
       'if (__efire.length > 0) {',
       ...(constants.length || seedDeliveries.length
         ? ['  if (!__E.init) {', ...constants.map((id) => `    __eq.push([${J(id)}, ""]);`), ...seedDeliveries.map((l) => '    ' + l), '  }']
