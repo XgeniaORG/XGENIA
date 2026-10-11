@@ -18,6 +18,7 @@
  * frame itself.)
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { PluginLoader, isVerdict, pluginOrigin, webPanelPlugins, WEB_PLUGIN_FRAME_ATTR, type EntitlementsResponse } from '../ChatPanelBridge/PluginLoader';
 import { entitlementsForPanelOpen, nextFrameUrl } from './webPluginFrame';
@@ -32,7 +33,16 @@ export interface WebPluginPanelProps {
     pluginId: string;
 }
 
-export function WebPluginPanel({ pluginId }: WebPluginPanelProps) {
+/**
+ * The panel is mounted inside LeftPanelCard, whose z-index makes it a stacking context: a `position: fixed`
+ * child there stays under every later sibling layer, so the node inspector (RightPropertyPanel) covered the
+ * plugin's right side. Rendering into document.body lets the full-window panel sit above the editor as intended.
+ */
+export function WebPluginPanel(props: WebPluginPanelProps) {
+    return createPortal(<WebPluginPanelContent {...props} />, document.body);
+}
+
+function WebPluginPanelContent({ pluginId }: WebPluginPanelProps) {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [status, setStatus] = useState<PanelStatus>('loading');
     const [pluginUrl, setPluginUrl] = useState<string | null>(null);
