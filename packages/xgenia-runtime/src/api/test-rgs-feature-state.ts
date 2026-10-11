@@ -77,7 +77,41 @@ async function main() {
   const s3 = play(plain, { isSpin: true, BetAmount: 100, in_fsLeft: 3 }, { in_feature: 'hand_set' });
   if (s3.in_feature !== 'hand_set') fail('a key set some other way must be left alone');
 
-  console.log('graph feature state reaches the RGS: in_feature, awaiting_choice and feature_rounds_remaining are lifted and cleared');
+  // 4. A free spins award carries to the next request with currentFreeSpins left unwired — as the
+  //    editor node carries it (calculate-free-spins-states.js). It was read fresh every request, so
+  //    the award was lost and every "free" spin charged.
+  const fsGraph: AnyRec = {
+    name: '/#__cloud__/FreeSpinsCarry',
+    graph: {
+      roots: [
+        { id: 'ci', typename: 'Component Inputs', type: 'Component Inputs', x: 0, y: 0, parameters: {},
+          ports: [{ name: 'Spin', plug: 'output', type: { name: 'signal' } }, { name: 'BetAmount', plug: 'output', type: { name: 'number' } }, { name: 'Grid', plug: 'output', type: { name: '*' } }],
+          dynamicports: [], children: [] },
+        { id: 'fs', typename: 'Calculate Free Spins States', type: 'Calculate Free Spins States', x: 200, y: 0,
+          parameters: { freeSpinsSymbol: 9, blockedReels: '', freeSpinsRewardFormula: 'x >= 3 ? 8 : 0' }, ports: [], dynamicports: [], children: [] },
+        { id: 'co', typename: 'Component Outputs', type: 'Component Outputs', x: 400, y: 0, parameters: {},
+          ports: [{ name: 'left', plug: 'input', type: { name: 'number' } }, { name: 'Done', plug: 'input', type: { name: 'signal' } }], dynamicports: [], children: [] },
+      ],
+      connections: [
+        { fromId: 'ci', fromProperty: 'Spin', toId: 'fs', toProperty: 'Do' },
+        { fromId: 'ci', fromProperty: 'Grid', toId: 'fs', toProperty: 'engineReels' },
+        { fromId: 'ci', fromProperty: 'BetAmount', toId: 'fs', toProperty: 'betAmount' },
+        { fromId: 'fs', fromProperty: 'currentFreeSpins', toId: 'co', toProperty: 'left' },
+        { fromId: 'fs', fromProperty: 'Done', toId: 'co', toProperty: 'Done' },
+      ],
+    },
+  };
+  const fsScript = new CloudFunctionConverter(fsGraph).generateRgsScript().script;
+  const scatter = [[1, 1, 1], [9, 1, 1], [9, 1, 1], [9, 1, 1], [1, 1, 1]]; // reels 1-3: "" blockedReels still means the default 0,4
+  const blank = [[1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1]];
+  const call = (grid: unknown, st: AnyRec) => sandbox.compileScript(fsScript)({ bet: 100, rng: Array(200).fill(0.5), state: st, config: { isSpin: true, BetAmount: 100, Grid: grid }, round: 1, action: 'SPIN' });
+  const r1 = call(scatter, {});
+  const r2 = call(blank, r1.state);
+  const r3 = call(blank, r2.state);
+  const left = [r1, r2, r3].map((r: AnyRec) => r.data.left);
+  if (JSON.stringify(left) !== JSON.stringify([8, 7, 6])) fail(`free spins did not carry between requests: ${JSON.stringify(left)} (want [8,7,6])`);
+
+  console.log('graph feature state reaches the RGS: in_feature, awaiting_choice and feature_rounds_remaining are lifted and cleared; free spins carry');
 }
 
 main().catch((e) => fail(e instanceof Error ? e.stack || e.message : String(e)));

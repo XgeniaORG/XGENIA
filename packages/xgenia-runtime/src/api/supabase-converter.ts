@@ -2255,6 +2255,17 @@ ${originalComponentStructure}
     ]);
     const changeDriven = (n: Node) => kindOf(n) !== 'sm' && kindOf(n) !== 'setvar' && sigInto(n.id).length === 0 && CHANGE_DRIVEN.has(n.typename);
 
+    // (2026-10-11) Nodes whose results are written back over the inputs they came from: in the editor
+    // an input of these that is NOT wired keeps counting from the node's own last result
+    // (calculate-free-spins-states.js). The compiled script read it fresh every request, so a free
+    // spins award was shown and lost on the RGS — the next spin started from 0 and was charged
+    // (Bugfree Test 01). An unwired carry input now reads the node's own previous output, kept across
+    // requests like any other output read later.
+    const SELF_CARRY: Record<string, string[]> = {
+      'Calculate Free Spins States': ['currentFreeSpins', 'totalFreeSpinsWon', 'capital', 'totalBets'],
+    };
+    const carriedPorts = (n: Node, wired: Map<string, unknown>) => (SELF_CARRY[n.typename] || []).filter((p) => !wired.has(p));
+
     // Variable2 nodes per stateful variable name — a write delivers on each of them.
     const varNodesByName = new Map<string, Node[]>();
     for (const n of this.component.graph.roots) {
@@ -2339,6 +2350,7 @@ ${originalComponentStructure}
           if (!fresh) keepKey(src.id, this.resultKeyFor(src.id, s.deliverKey!.slice(src.id.length + 1)));
         });
       }
+      for (const p of carriedPorts(n, ins)) keepKey(n.id, this.resultKeyFor(n.id, p));
     }
 
     // Signal routing: source "id|port" → [[target id, target port]] (Component Outputs only record).
@@ -2413,6 +2425,7 @@ ${originalComponentStructure}
           if (!isJs && pv !== undefined && port !== 'functionScript') e = `__edv(${e}, ${this.parameterLiteral(pv)})`;
           inputMappings.set(inputName, this.guardServerSeed(node, inputName, e));
         }
+        if (!isJs) for (const p of carriedPorts(node, ins)) inputMappings.set(p, `__erd(${J(id)}, ${J(this.resultKeyFor(id, p))})`);
         if (!isJs) {
           // A signal input reads as "did this run come through it" — the editor runs one handler
           // per signal arrival. Condition always evaluates when it runs (eval wired or not).
