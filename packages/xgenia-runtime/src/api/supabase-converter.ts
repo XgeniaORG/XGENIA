@@ -679,6 +679,37 @@ export class SupabaseAPIClient {
 // XGENIA TO SUPABASE CONVERTER
 // ============================================================================
 
+/**
+ * (2026-10-11) The keys the RGS reads off a round's state — XRGS _shared/maths-round.ts:
+ *   in_feature              the next round continues a feature already paid for: it is FREE and plays at
+ *                           the stake that opened it (a component's free spins were charged in full)
+ *   awaiting_choice         { options, default?, name?, port?, request? } — the next round is the
+ *                           player's answer (a pick, a gamble): refused unless it is one of the options,
+ *                           and written by the SERVER onto `port` with `request`'s fields
+ *   feature_rounds_remaining  shown to the player
+ * A graph keeps its persisted variables under state.__vars, where the RGS never looks, so a graph had no
+ * way to say "this is a free spin". A persisted variable (Variable2 + a wired Set Variable) NAMED one of
+ * these is lifted to the top level of the returned state on every round — a falsy value clears it.
+ * Graphs without such a variable compile exactly as before.
+ */
+export const RGS_PLATFORM_STATE_KEYS = ['in_feature', 'awaiting_choice', 'feature_rounds_remaining'] as const;
+
+function liftedPlatformState(statefulVars: Map<string, unknown>, freeSpinCounts: string[] = []): string {
+  const lifted = RGS_PLATFORM_STATE_KEYS.filter((k) => statefulVars.has(k))
+    .map((k) => `, ${k}: (_vars[${JSON.stringify(k)}] || undefined)`)
+    .join('');
+  // (2026-10-11) A maths built on the library's Calculate Free Spins States says it is in a feature
+  // without being told to: the free spins it has left after this round ARE the next round's
+  // in_feature. Bugfree Test 01 played its "free" spins charged on the RGS — the maths refunded the
+  // bet into its own capital, which the RGS never pays — and certified with 0 feature rounds. A
+  // persisted in_feature / feature_rounds_remaining variable, when the graph has one, still wins.
+  if (freeSpinCounts.length === 0) return lifted;
+  const left = freeSpinCounts.length === 1 ? freeSpinCounts[0] : `Math.max(${freeSpinCounts.join(', ')})`;
+  return lifted
+    + (statefulVars.has('in_feature') ? '' : `, in_feature: (${left} > 0 ? "free_spins" : undefined)`)
+    + (statefulVars.has('feature_rounds_remaining') ? '' : `, feature_rounds_remaining: (${left} || undefined)`);
+}
+
 export class CloudFunctionConverter {
   private readonly component: Component;
   private readonly nodes: Map<string, Node>;
@@ -1475,6 +1506,7 @@ ${originalComponentStructure}
       '  data: _dataOut,',
       '  state: { ...ctx.state, round: ctx.round'
         + (statefulVars.size > 0 ? ', __vars: _vars' : '')
+        + liftedPlatformState(statefulVars, engine?.freeSpinCounts ?? [])
         + ((this._nodeStateIds?.size ?? 0) > 0 ? ', __nodes: _nodeState' : '')
         + (engine ? `, __engine: ${engine.stateExpr}` : '')
         + ' }',
@@ -2209,7 +2241,7 @@ ${originalComponentStructure}
    * The request engine: node invocations, Component Outputs and the state to keep, for a maths
    * driven by Component Inputs signals. See the section header above for the semantics.
    */
-  private generateRgsRequestEngine(nodes: Node[], trig: { ci: Node; triggers: string[] }): { code: string; stateExpr: string } {
+  private generateRgsRequestEngine(nodes: Node[], trig: { ci: Node; triggers: string[] }): { code: string; stateExpr: string; freeSpinCounts: string[] } {
     const J = (v: unknown) => JSON.stringify(v);
     const engineIds = new Set(nodes.map((n) => n.id));
     const ciId = trig.ci.id;
@@ -2232,6 +2264,17 @@ ${originalComponentStructure}
       'String To Object', 'JSON Parse', 'JSON Stringify', 'Boolean', 'String', 'Number', 'Switch', 'Color', 'Static Data',
     ]);
     const changeDriven = (n: Node) => kindOf(n) !== 'sm' && kindOf(n) !== 'setvar' && sigInto(n.id).length === 0 && CHANGE_DRIVEN.has(n.typename);
+
+    // (2026-10-11) Nodes whose results are written back over the inputs they came from: in the editor
+    // an input of these that is NOT wired keeps counting from the node's own last result
+    // (calculate-free-spins-states.js). The compiled script read it fresh every request, so a free
+    // spins award was shown and lost on the RGS — the next spin started from 0 and was charged
+    // (Bugfree Test 01). An unwired carry input now reads the node's own previous output, kept across
+    // requests like any other output read later.
+    const SELF_CARRY: Record<string, string[]> = {
+      'Calculate Free Spins States': ['currentFreeSpins', 'totalFreeSpinsWon', 'capital', 'totalBets'],
+    };
+    const carriedPorts = (n: Node, wired: Map<string, unknown>) => (SELF_CARRY[n.typename] || []).filter((p) => !wired.has(p));
 
     // Variable2 nodes per stateful variable name — a write delivers on each of them.
     const varNodesByName = new Map<string, Node[]>();
@@ -2317,6 +2360,16 @@ ${originalComponentStructure}
           if (!fresh) keepKey(src.id, this.resultKeyFor(src.id, s.deliverKey!.slice(src.id.length + 1)));
         });
       }
+      for (const p of carriedPorts(n, ins)) keepKey(n.id, this.resultKeyFor(n.id, p));
+    }
+    // The free spins left after each round, kept for the round state the RGS reads (liftedPlatformState):
+    // `__eout[id][key]` at the script's return.
+    const freeSpinCounts: string[] = [];
+    for (const n of nodes) {
+      if (n.typename !== 'Calculate Free Spins States') continue;
+      const key = this.resultKeyFor(n.id, 'currentFreeSpins');
+      keepKey(n.id, key);
+      freeSpinCounts.push(`(__eout[${J(n.id)}] ? Number(__eout[${J(n.id)}][${J(key)}]) || 0 : 0)`);
     }
 
     // Signal routing: source "id|port" → [[target id, target port]] (Component Outputs only record).
@@ -2391,6 +2444,7 @@ ${originalComponentStructure}
           if (!isJs && pv !== undefined && port !== 'functionScript') e = `__edv(${e}, ${this.parameterLiteral(pv)})`;
           inputMappings.set(inputName, this.guardServerSeed(node, inputName, e));
         }
+        if (!isJs) for (const p of carriedPorts(node, ins)) inputMappings.set(p, `__erd(${J(id)}, ${J(this.resultKeyFor(id, p))})`);
         if (!isJs) {
           // A signal input reads as "did this run come through it" — the editor runs one handler
           // per signal arrival. Condition always evaluates when it runs (eval wired or not).
@@ -2578,7 +2632,7 @@ ${originalComponentStructure}
       }),
       'var __engineState = { init: !!(__E.init || __efire.length > 0), o: __eout, lp: __elp, sm: __esmOut, t: __ethOut, ci: __eciOut };',
     ].join('\n    ');
-    return { code, stateExpr: '__engineState' };
+    return { code, stateExpr: '__engineState', freeSpinCounts };
   }
 
   /** A Component Inputs data port's value on this request: the stake for the bet port, else the payload field. */
