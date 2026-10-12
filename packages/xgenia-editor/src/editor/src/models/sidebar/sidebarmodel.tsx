@@ -451,6 +451,25 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
   }
 
   /**
+   * Remove a registered panel (used for panels that come and go with the account's
+   * entitlements). If it is the active one, the card switches to home first (staying open or
+   * closed as it was) so the rail is never left pointing at a panel that no longer exists.
+   */
+  public unregister(id: string): void {
+    const index = this.items.findIndex((x) => x.id === id);
+    const experimentalIndex = this.experimentalItems.findIndex((x) => x.id === id);
+    if (index < 0 && experimentalIndex < 0) return;
+    if (activePanelId(this.layout) === id && this.layout.homeId !== id) {
+      const { homeId, open } = this.layout;
+      this.dispatch({ type: 'restore', homeId, activeId: homeId, open });
+    }
+    if (index >= 0) this.items.splice(index, 1);
+    if (experimentalIndex >= 0) this.experimentalItems.splice(experimentalIndex, 1);
+    delete this.panels[id];
+    this.notifyListeners(SidebarModelEvent.itemsChanged);
+  }
+
+  /**
    *
    * @param id The panel id.
    * @returns

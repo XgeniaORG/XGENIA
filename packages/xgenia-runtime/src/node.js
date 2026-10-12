@@ -1,5 +1,28 @@
 const OutputProperty = require('./outputproperty');
 
+// How many CONSECUTIVE frames a node may trip maxUpdateIterations before it is halted.
+//
+// The cap below bounds the spin per frame, not the number of frames. A node that trips it
+// used to be rescheduled every frame, indefinitely — which is fine for a glitch that settles,
+// and catastrophic for a genuine loop: with a couple of heavy script nodes in the cycle, 100
+// spins is a multi-second frame, and back-to-back multi-second frames are a renderer core at
+// 100% and an editor that stops answering. Observed live, with a maths component whose
+// meter accumulators fed back through variables. Three frames is long enough to be sure it
+// is not settling and short enough that the editor comes back within seconds.
+const CYCLIC_FRAMES_BEFORE_HALT = 3;
+
+// How many values one input port may hold queued before the node is halted.
+//
+// queueInput had no bound. In a pulled update cycle every spin appends to downstream queues
+// faster than they drain, and each drained entry runs a handler that appends more elsewhere,
+// so one outer iteration's cost grows with queue length and the frame never ends. Read off a
+// live freeze with the debugger: a Progressive Meter at iteration 0 draining 247,618 queued
+// 'add' values, a Set Variable with 4,092 queued 'do' signals, MeterPass's queue growing
+// 122 -> 453 in four seconds. maxUpdateIterations never became reachable. No legitimate graph
+// queues a thousand values on one port inside a single frame; the first-update coalescing
+// above shows the design expects one or two.
+const MAX_QUEUED_VALUES_PER_PORT = 1000;
+
 /**
  * Base class for all Nodes
  * @constructor
@@ -16,6 +39,9 @@ function Node(context, id) {
   this._inputConnections = {};
   this._outputList = [];
   this._isUpdating = false;
+  // Set by NodeContext when this node is part of a dependency livelock; while true the node
+  // is never re-queued or re-run. Lifted by any structural change or a parameter edit.
+  this._livelocked = false;
   this._inputValuesQueue = {};
   // Input names in the order their queues became non-empty. `update` drains queues in THIS
   // order. It used to iterate Object.keys(_inputValuesQueue), whose order is the order each
@@ -356,7 +382,7 @@ Node.prototype.isInputConnected = function (inputName) {
 };
 
 Node.prototype.update = function () {
-  if (this._isUpdating || this._dirty === false) {
+  if (this._isUpdating || this._dirty === false || this._livelocked) {
     return;
   }
 
@@ -364,13 +390,32 @@ Node.prototype.update = function () {
     this._updatedAtIteration = this.context.updateIteration;
     this._updateIteration = 0;
     if (this._cyclicLoop) this._cyclicLoop = false;
+    this._budgetTripped = false;
   }
+
+  // The frame budget is the bound the iteration cap cannot give: the cap counts outer
+  // iterations, but a single iteration draining a runaway queue can take minutes. Tripping
+  // here reuses the existing _cyclicLoop exits in both loops, so the frame ends, the browser
+  // gets control back, and the node is rescheduled — and it counts toward the same
+  // consecutive-frame streak as an iteration-cap trip, so a heavy one-off (a big project
+  // loading) is tolerated while a loop that stays over budget is halted after three frames.
+  const overBudget = () =>
+    typeof this.context.updateBudgetExceeded === 'function' && this.context.updateBudgetExceeded();
 
   this._isUpdating = true;
   const maxUpdateIterations = 100;
 
   try {
     while (this._dirty && !this._cyclicLoop) {
+      if (overBudget()) {
+        // Yield, do not stop: stay dirty so the reschedule below actually resumes this node
+        // next frame. Without it the break can land after `_dirty = false`, the node returns
+        // at once next frame, and the loop dies silently with values stranded in its queue.
+        this._cyclicLoop = true;
+        this._budgetTripped = true;
+        this._dirty = true;
+        break;
+      }
       this._updateDependencies();
 
       //all inputs are now updated, flag as not dirty
@@ -379,6 +424,12 @@ Node.prototype.update = function () {
       let hasMoreInputs = true;
 
       while (hasMoreInputs && !this._cyclicLoop) {
+        if (overBudget()) {
+          this._cyclicLoop = true;
+          this._budgetTripped = true;
+          this._dirty = true; // see the outer check: yield and resume, not stop
+          break;
+        }
         hasMoreInputs = false;
 
         // Drain one value per pending port, in ARRIVAL order. Take the list, then rebuild it
@@ -423,13 +474,42 @@ Node.prototype.update = function () {
   }
 
   if (this._cyclicLoop) {
-    //flag the node as dirty again to let it contiune next frame so we don't just stop it
-    //This will allow the browser a chance to render and run other code
-    this.context.scheduleNextFrame(() => {
-      this.context.nodeIsDirty(this);
-    });
+    // A tripped node's update() is re-entered many times in the same frame — once for every
+    // dirty entry queued while it was spinning — and each re-entry exits the while above at
+    // once and lands here. So this block must act ONCE per frame: otherwise the streak below
+    // resets itself on every re-entry (a streak that can never reach 2), and the reschedule
+    // is registered hundreds of times, so the next frame starts with hundreds of queued
+    // updates for the same node. That second effect predates the streak and is its own
+    // amplifier: a cyclic loop got heavier every frame it survived.
+    const iteration = this.context.updateIteration;
+    if (this._cyclicHandledAtIteration !== iteration) {
+      this._cyclicHandledAtIteration = iteration;
 
-    if (this.context.editorConnection && !this._cyclicWarningSent && this.context.isWarningTypeEnabled('cyclicLoops')) {
+      // Consecutive-frame bookkeeping: a trip in the frame right after the last trip extends
+      // the streak; anything else starts it over. updateIteration advances once per frame.
+      this._cyclicFrames = this._lastCyclicIteration === iteration - 1 ? (this._cyclicFrames || 0) + 1 : 1;
+      this._lastCyclicIteration = iteration;
+
+      if (this._cyclicFrames >= CYCLIC_FRAMES_BEFORE_HALT && typeof this.context.quarantineNode === 'function') {
+        // Not settling. Halt it and say so as an error, rather than spinning another frame.
+        this.context.quarantineNode(this, this._updateIteration, this._budgetTripped ? 'budget' : 'cyclic');
+      } else {
+        //flag the node as dirty again to let it contiune next frame so we don't just stop it
+        //This will allow the browser a chance to render and run other code
+        this.context.scheduleNextFrame(() => {
+          this.context.nodeIsDirty(this);
+        });
+      }
+    }
+
+    // A budget trip is not evidence of a cycle — a large graph can simply be slow once — so it
+    // does not earn the 'Cyclic loop detected' warning; the streak decides what it is.
+    if (
+      !this._budgetTripped &&
+      this.context.editorConnection &&
+      !this._cyclicWarningSent &&
+      this.context.isWarningTypeEnabled('cyclicLoops')
+    ) {
       this.context.editorConnection.sendWarning(this.nodeScope.componentOwner.name, this.id, 'cyclic-loop', {
         showGlobally: true,
         message: 'Cyclic loop detected'
@@ -460,6 +540,11 @@ Node.prototype._updateDependencies = function () {
 };
 
 Node.prototype.flagDirty = function () {
+  // Quarantined by the livelock guard: stay quiet until something changes. See
+  // NodeContext._checkForLivelock for why re-running here would just churn again.
+  if (this._livelocked) {
+    return;
+  }
   if (this._dirty) {
     return;
   }
@@ -541,6 +626,12 @@ Node.prototype._hasInputBeenSetFromAConnection = function (inputName) {
 };
 
 Node.prototype.queueInput = function (inputName, value) {
+  // A halted node accepts nothing: its queues were emptied when it was quarantined, and
+  // refilling them would only rebuild the backlog that got it halted. A parameter edit lifts
+  // the quarantine BEFORE it queues (see _onNodeModelParameterUpdated), so edits still land.
+  if (this._livelocked) {
+    return;
+  }
   if (!this._inputValuesQueue[inputName]) {
     this._inputValuesQueue[inputName] = [];
   }
@@ -578,6 +669,18 @@ Node.prototype.queueInput = function (inputName, value) {
     this._inputArrivalOrder.push(inputName);
   }
   this._inputValuesQueue[inputName].push(value);
+
+  if (
+    this._inputValuesQueue[inputName].length > MAX_QUEUED_VALUES_PER_PORT &&
+    this.context &&
+    typeof this.context.quarantineNode === 'function'
+  ) {
+    // Being fed far faster than it can run: halt it here, before the drain loop has to
+    // process a backlog that grows while it drains. quarantineNode empties the queues.
+    this.context.quarantineNode(this, this._inputValuesQueue[inputName].length, 'queue-overflow', inputName);
+    return;
+  }
+
   this.flagDirty();
 };
 
@@ -630,6 +733,12 @@ Node.prototype._onNodeDeleted = function () {
 };
 
 Node.prototype._onNodeModelParameterUpdated = function (event) {
+  // A parameter edit on a quarantined node is the user acting on the livelock warning, and
+  // queueInput below ends in flagDirty, which the quarantine would swallow — so lift it
+  // FIRST or the fix could never take effect.
+  if (this._livelocked && this.context && typeof this.context.clearLivelockQuarantine === 'function') {
+    this.context.clearLivelockQuarantine(this);
+  }
   this.registerInputIfNeeded(event.name);
 
   if (event.value !== undefined) {

@@ -57,6 +57,7 @@ import { SettingsPanel, SettingsPanel_ID } from './views/panels/SettingsPanel/Se
 import { VersionControlPanel_ID } from './views/panels/VersionControlPanel';
 import { VersionControlPanel } from './views/panels/VersionControlPanel/VersionControlPanel';
 import { ImageEditorPanel } from './views/panels/ImageEditorPanel';
+import { installWebPluginPanels } from './views/panels/WebPluginPanel';
 import { ProjectStylesPanel } from './views/panels/ProjectStylesPanel/ProjectStylesPanel';
 import { MathsPanel, MathsPanel_ID } from './views/panels/MathsPanel';
 import { AssetPanel } from './views/panels/AssetPanel';
@@ -320,6 +321,11 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     icon: SideAssets,
     panel: AssetPanel
   });
+
+  // Web plugins the server marks `kind: 'web-panel'` in plugin-entitlements: one entry each,
+  // added and removed as the account's entitlements change. Plugins without that marker,
+  // and the two above with dedicated panels, are never touched.
+  installWebPluginPanels();
 
   // TODO: Register MCP Server Browser panel via iframe bridge when available
 }

@@ -320,13 +320,16 @@ export async function duplicateGame(entry: ProjectItem): Promise<ProjectModel | 
   ToastLayer.showActivity('Duplicating game', activityId);
 
   try {
-    return await new Promise<ProjectModel | null>((resolve) => {
+    const project = await new Promise<ProjectModel | null>((resolve) => {
       LocalProjectsModel.instance.newProject((p: ProjectModel) => resolve(p || null), {
         name,
         path,
         projectTemplate: entry.retainedProjectDirectory
       });
     });
+    // newProject answers a failed copy with no project rather than throwing.
+    if (!project) ToastLayer.showError('Could not duplicate the game.');
+    return project;
   } catch {
     ToastLayer.showError('Could not duplicate the game.');
     return null;

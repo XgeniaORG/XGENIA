@@ -233,6 +233,29 @@ export async function copyProjectFilesToFlatFolderStake(
     return content;
   };
 
+  // A character rig (`*.xgc.json`) names its atlas pages relative to itself in `atlases[].file` and
+  // `atlases[].sdf`. Two characters both ship `atlas_0.png`, so once flattened one page is renamed; a rig left
+  // pointing at the old name loads the other character's page.
+  const rewriteXgcRig = (content: string, localPath: string): string => {
+    let rig: any;
+    try {
+      rig = JSON.parse(content);
+    } catch {
+      return content; // not JSON: leave it for the loader to report
+    }
+    if (!rig || !Array.isArray(rig.atlases)) return content;
+    const baseDir = dirnamePosix(localPath);
+    for (const atlas of rig.atlases) {
+      if (!atlas || typeof atlas !== 'object') continue;
+      for (const key of ['file', 'sdf']) {
+        if (typeof atlas[key] !== 'string') continue;
+        const mapped = mapRefPath(atlas[key], baseDir);
+        if (mapped) atlas[key] = mapped;
+      }
+    }
+    return JSON.stringify(rig);
+  };
+
   function getUniqueFlatName(fullPath: string, baseName: string): string {
     const sanitizedBase = sanitizeStakeFileName(baseName);
 
@@ -291,6 +314,7 @@ export async function copyProjectFilesToFlatFolderStake(
       if (isTextLike(f.name)) {
         let content = await filesystem.readFile(f.fullPath);
         content = rewriteTextContent(content, localPath);
+        if (f.name.toLowerCase().endsWith('.xgc.json')) content = rewriteXgcRig(content, localPath);
         await filesystem.writeFileOverride(targetPath, content);
       } else {
         await filesystem.copyFile(f.fullPath, targetPath);

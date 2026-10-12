@@ -87,8 +87,21 @@ export function deriveTrashVersions(
 
     let of: string | null = null;
     if (parsed.folderSlug && parsed.folderSlug !== 'assets') {
-      const candidate = `${parsed.folderSlug.replace(/_/g, '/')}/${parsed.base}.${parsed.ext}`;
-      if (byExactPath.has(candidate)) of = candidate;
+      // '_' both joins the folder slug AND can appear inside folder and file names, so try every way
+      // of reading the head as folders + name, and attribute only when exactly one is a live asset.
+      const head = `${parsed.folderSlug}_${parsed.base}`;
+      const matches = new Set<string>();
+      const walk = (rest: string, folders: string[]) => {
+        for (let i = rest.indexOf('_'); i !== -1; i = rest.indexOf('_', i + 1)) {
+          const folder = rest.slice(0, i);
+          const tail = rest.slice(i + 1);
+          const candidate = `${[...folders, folder].join('/')}/${tail}.${parsed.ext}`;
+          if (byExactPath.has(candidate)) matches.add(candidate);
+          walk(tail, [...folders, folder]);
+        }
+      };
+      walk(head, []);
+      if (matches.size === 1) of = [...matches][0];
     } else if (parsed.folderSlug === 'assets') {
       const candidate = `assets/${parsed.base}.${parsed.ext}`;
       if (byExactPath.has(candidate)) of = candidate;

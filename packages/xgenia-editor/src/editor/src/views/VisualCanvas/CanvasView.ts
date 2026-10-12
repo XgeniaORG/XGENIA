@@ -1,4 +1,5 @@
 import { ipcRenderer } from 'electron';
+import { captureEncoding } from './captureEncoding';
 import React from 'react';
 import { createRoot, Root } from 'react-dom/client';
 
@@ -12,6 +13,7 @@ import { InlineElementChat } from './InlineElementChat';
 import type { PreviewHost } from './IframeViewer';
 import { VisualCanvas } from './VisualCanvas';
 import { measureSurfaceProof, browserSurfaceProofEnv, sampleOccluders } from './surfaceProof';
+import { waitUntilSettled, letterboxesSettled } from './paintWait';
 
 /**
  * Chatter from the running preview, off by default.
@@ -600,6 +602,8 @@ export class CanvasView extends View {
     // Keep only the screenshot capture listener - this is specific to webview functionality
     this.onIpc('embedded-viewer-capture-request', async (...args) => {
       console.log('[CanvasView] 📸 Received embedded-viewer-capture-request from main process, args:', args);
+      // args[0] is the IPC event; args[1] the requester's encoding options (captureEncoding.ts).
+      const encoding = captureEncoding(args[1]);
 
       {
         const stale = this.staleFrameReason();
@@ -626,7 +630,7 @@ export class CanvasView extends View {
           const result = await this.captureThumbnail();
 
           if (result && result.toDataURL) {
-            const dataURL = result.toDataURL();
+            const dataURL = encoding.mime ? result.toDataURL(encoding.mime, encoding.quality) : result.toDataURL();
             console.log('[CanvasView] Successfully captured thumbnail, sending reply');
             this._activeCapture = null; // terminal: success
             ipcRenderer.send('viewer-capture-thumb-reply', dataURL);
@@ -919,6 +923,11 @@ export class CanvasView extends View {
         // No await between the `_activeCapture` check above and this line, so the check-and-set
         // is still atomic — and now every exit, thrown or returned, reaches the finally.
         this._activeCapture = 'design';
+        // The game's own canvas, before the resize: it redraws on the guest's resize handler, after
+        // the viewport already reports the new size (waitUntilSettled in paintWait.ts).
+        const CANVAS_SIZE_JS = '(() => { let w = 0, h = 0; for (const c of document.querySelectorAll("canvas")) { const r = c.getBoundingClientRect(); if (r.width * r.height > w * h) { w = r.width; h = r.height; } } return { w: Math.round(w), h: Math.round(h) }; })()';
+        let canvasBefore: { w: number; h: number } | null = null;
+        try { canvasBefore = await this.webview.executeJavaScript(CANVAS_SIZE_JS); } catch { /* no guest yet: nothing to wait for */ }
         applySize();
 
         // Wait for the guest to actually report the new viewport before capturing, or the image is
@@ -940,6 +949,31 @@ export class CanvasView extends View {
         if (Math.abs(seen.w - width) > 2 || Math.abs(seen.h - height) > 2) {
           reply({ success: false, message: `design capture: the preview did not reach ${width}x${height} (it reports ${seen.w}x${seen.h}) — the image would be the wrong surface, so none was taken` });
           return;
+        }
+        // Then for the game's canvas to follow: resized from what it was, or filling the new viewport.
+        // A guest with no canvas lays out with the viewport and has nothing to wait for.
+        if (canvasBefore && canvasBefore.w > 0) {
+          const before = canvasBefore;
+          await waitUntilSettled(
+            async () => {
+              try { return await this.webview!.executeJavaScript(CANVAS_SIZE_JS); } catch { return before; }
+            },
+            (c: { w: number; h: number }) =>
+              !!c && (Math.abs(c.w - before.w) > 2 || Math.abs(c.h - before.h) > 2 || c.w >= width - 2 || c.h >= height - 2),
+            { timeoutMs: 1000 }
+          );
+        }
+        // And for every letterboxed Group to re-scale for the new window: it measures with a
+        // ResizeObserver and re-renders after the resize (letterboxesSettled in paintWait.ts).
+        {
+          const LETTERBOX_SETTLED_JS = `(${letterboxesSettled.toString()})(document)`;
+          await waitUntilSettled(
+            async () => {
+              try { return await this.webview!.executeJavaScript(LETTERBOX_SETTLED_JS); } catch { return true; }
+            },
+            (ok: boolean) => ok === true,
+            { timeoutMs: 1000 }
+          );
         }
         // Re-assert once more immediately before the capture: the wait loop's own awaits are a
         // window a re-render could land in between the last size check and capturePage().

@@ -101,3 +101,20 @@ test('splitVersionSibling recognises a version file and rejects a plain one', ()
   assert.equal(splitVersionSibling('assets/ui/bar.png'), null);
   assert.equal(splitVersionSibling('assets/ui/bar.v0.png'), null);
 });
+
+// (2026-09-17 review) The slug joins folders with '_' and the name may contain '_' too, so
+// `assets_ui_spin_button.<stamp>.png` split at the LAST underscore looked for assets/ui/spin/button.png
+// and the backup of assets/ui/spin_button.png was silently never listed.
+test('underscores in the file or folder name still attribute the backup', () => {
+  const v = deriveTrashVersions(
+    ['assets_ui_spin_button.2026-09-06T10-11-12-345Z.png', 'assets_key_art_hero_2.2026-09-06T10-11-12-345Z.png'],
+    ['assets/ui/spin_button.png', 'assets/key_art/hero_2.png']
+  );
+  assert.equal(v.get('assets/ui/spin_button.png')?.length, 1);
+  assert.equal(v.get('assets/key_art/hero_2.png')?.length, 1);
+});
+
+test('an underscore split that fits two live assets is attributed to neither', () => {
+  const v = deriveTrashVersions(['assets_a_b_c.2026-09-06T10-11-12-345Z.png'], ['assets/a/b_c.png', 'assets/a_b/c.png']);
+  assert.equal(v.size, 0);
+});

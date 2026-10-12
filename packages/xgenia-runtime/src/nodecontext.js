@@ -5,12 +5,61 @@ var NodeRegister = require('./noderegister');
 var TimerScheduler = require('./timerscheduler');
 const Variants = require('./variants');
 
+// ---------------------------------------------------------------------------------------
+// Dependency-livelock guard (see updateDirtyNodes / _checkForLivelock).
+//
+// Node.update already catches a node that re-dirties ITSELF within one update — a direct
+// wire cycle A -> B -> A, where _updateDependencies pulls A back in synchronously, spins
+// the per-node counter to maxUpdateIterations and raises 'cyclic-loop'.
+//
+// It cannot see a loop that closes OUT OF BAND. A Set Variable and a Variable sharing a
+// name are joined by that name, not by a wire, so nothing pulls across it: the Variable's
+// 'change' callback flags its output, that queues the consumer, and the consumer runs in
+// the NEXT round. Every node runs once per round, ten rounds per frame, and the per-node
+// counter resets each frame, so it never reaches the cap. updateDirtyNodes then silently
+// truncates at ten rounds and the next frame does it all again. Every node "completes
+// successfully" while a renderer core sits at 100% and the editor stops answering. That
+// was observed live with eight such loops in one maths component.
+//
+// So this guard watches the shape the per-node guard cannot: a frame that never converges
+// (still dirty after MAX_ROUNDS_PER_FRAME), in which the same nodes ran more than once,
+// for LIVELOCK_FRAMES frames in a row. Those nodes are quarantined — no longer re-run —
+// which halts the loop, and each gets an error-level, globally shown warning so the top
+// bar says exactly which nodes are churning. Any structural or parameter change lifts the
+// quarantine so a real fix gets a fresh chance; a non-fix re-warns within three frames.
+//
+// Relation to the RUNAWAY SIGNAL LOOP guard (connectionSentSignal, key
+// 'runaway-signal-loop'): that one measures emission RATE on one output and deliberately
+// reports without halting, because a rate threshold is a judgement — a legitimate emitter
+// could sit near it. This one halts, and only on proof that the frame cannot finish: the
+// iteration cap or the frame budget tripped three frames running, or a thousand values
+// queued on one port. Report on suspicion, halt on proof. A single loop may earn both
+// warnings; they describe the same fault from two sides.
+// ---------------------------------------------------------------------------------------
+const MAX_ROUNDS_PER_FRAME = 10;
+const LIVELOCK_FRAMES = 3;
+const LIVELOCK_WARNING_KEY = 'dependency-livelock';
+// Mirrors node.js CYCLIC_FRAMES_BEFORE_HALT for the message text; the livelock test pins them equal.
+const CYCLIC_FRAMES_BEFORE_HALT_HINT = 3;
+// Wall-clock budget for one frame's synchronous update work. The iteration cap bounds spins,
+// not time; one spin draining a runaway queue can take minutes. Past this, Node.update exits
+// its loops (via _cyclicLoop) and updateDirtyNodes stops starting rounds, so the browser gets
+// control back within about this long no matter what shape the loop is. Overridable per
+// context (frameBudgetMs) — tests use a few milliseconds.
+const FRAME_BUDGET_MS = 2000;
+
 function NodeContext(args) {
   args = args || {};
   args.runningInEditor = args.hasOwnProperty('runningInEditor') ? args.runningInEditor : false;
 
   this._dirtyNodes = [];
   this.callbacksAfterUpdate = [];
+
+  // Livelock guard state. _churn maps node -> number of CONSECUTIVE non-converging frames in
+  // which it ran more than once; _livelockedNodes is the current quarantine.
+  this._saturatedFrames = 0;
+  this._churn = new Map();
+  this._livelockedNodes = new Set();
 
   this.graphModel = args.graphModel;
 
@@ -126,14 +175,22 @@ NodeContext.prototype.updateDirtyNodes = function () {
   this.updateIteration++;
 
   this.isUpdating = true;
+  this._frameStartedAt = Date.now();
 
-  while (loop && iterations < 10) {
+  // How many rounds each node was dirty in THIS frame. A converging graph touches each
+  // node about once; a node that keeps coming back is either fan-in settling or churn, and
+  // _checkForLivelock tells those apart by whether the frame converged at all.
+  var roundsDirty = new Map();
+
+  while (loop && iterations < MAX_ROUNDS_PER_FRAME) {
     var dirtyNodes = this._dirtyNodes;
     this._dirtyNodes = [];
     for (i = 0, len = dirtyNodes.length; i < len; ++i) {
+      var dirtyNode = dirtyNodes[i];
+      roundsDirty.set(dirtyNode, (roundsDirty.get(dirtyNode) || 0) + 1);
       try {
-        if (!dirtyNodes[i]._deleted) {
-          dirtyNodes[i].update();
+        if (!dirtyNode._deleted) {
+          dirtyNode.update();
         }
       } catch (e) {
         console.error(e, e.stack);
@@ -154,10 +211,206 @@ NodeContext.prototype.updateDirtyNodes = function () {
 
     loop = this.callbacksAfterUpdate.length > 0 || this._dirtyNodes.length > 0;
     iterations++;
+
+    // Over budget: leave the rest for the next frame rather than starting another round.
+    // `loop` stays true, so _checkForLivelock sees a frame that did not converge.
+    if (loop && this.updateBudgetExceeded()) break;
   }
 
   this.isUpdating = false;
+
+  this._checkForLivelock(loop, roundsDirty);
 };
+
+/** Has this frame's synchronous update work run past its wall-clock budget? */
+NodeContext.prototype.updateBudgetExceeded = function () {
+  if (!this._frameStartedAt) return false;
+  var budget = typeof this.frameBudgetMs === 'number' ? this.frameBudgetMs : FRAME_BUDGET_MS;
+  return Date.now() - this._frameStartedAt > budget;
+};
+
+/**
+ * Decide whether the frame that just ran is part of a livelock, and quarantine if so.
+ *
+ * `didNotConverge` is true when work was still pending after MAX_ROUNDS_PER_FRAME rounds.
+ * One such frame is normal for a large graph. LIVELOCK_FRAMES in a row, with the SAME
+ * nodes running more than once in each, is not — nothing legitimate needs to re-run the
+ * same node several times per frame, frame after frame, without ever settling.
+ */
+NodeContext.prototype._checkForLivelock = function (didNotConverge, roundsDirty) {
+  if (!didNotConverge) {
+    this._saturatedFrames = 0;
+    if (this._churn.size) this._churn.clear();
+    return;
+  }
+
+  this._saturatedFrames++;
+
+  // Carry a streak only for nodes that churned in this frame too; anyone who settled
+  // drops out, so a streak of N means N consecutive churning frames.
+  var next = new Map();
+  var prev = this._churn;
+  roundsDirty.forEach(function (count, node) {
+    if (count >= 2 && !node._deleted && !node._livelocked) {
+      next.set(node, (prev.get(node) || 0) + 1);
+    }
+  });
+  this._churn = next;
+
+  if (this._saturatedFrames < LIVELOCK_FRAMES) return;
+
+  var culprits = [];
+  this._churn.forEach(function (streak, node) {
+    if (streak >= LIVELOCK_FRAMES) culprits.push(node);
+  });
+
+  if (culprits.length === 0) {
+    // Frames are not converging but no node is repeating — a genuinely huge one-off update,
+    // or churn spread thinner than this can attribute. Say so once rather than guess.
+    if (this._saturatedFrames === LIVELOCK_FRAMES) {
+      console.warn(
+        '[xgenia] update did not converge for ' + LIVELOCK_FRAMES + ' consecutive frames, but no single node is repeating. ' +
+        'The graph may just be very large; if the editor is sluggish, look for an update loop.'
+      );
+    }
+    return;
+  }
+
+  culprits.forEach((node) => this.quarantineNode(node, roundsDirty.get(node) || 0, 'churn'));
+
+  // They must not be run again next frame just because they were already queued.
+  this._dirtyNodes = this._dirtyNodes.filter(function (n) {
+    return !n._livelocked;
+  });
+
+  this._saturatedFrames = 0;
+  this._churn.clear();
+};
+
+/**
+ * Stop a node from re-running and tell the editor why, as an error in the global bar.
+ *
+ * Two callers, two shapes of the same disease:
+ *   'cyclic' — Node.update tripped maxUpdateIterations CYCLIC_FRAMES_BEFORE_HALT frames in a
+ *              row: a loop that _updateDependencies pulls synchronously into one node's update
+ *              (the shape seen in every captured freeze stack).
+ *   'churn'  — _checkForLivelock saw the node re-run several times per frame for
+ *              LIVELOCK_FRAMES non-converging frames: a loop deferred across rounds that the
+ *              per-node counter can never reach.
+ *
+ * Halting the node IS the protection: its outputs freeze, whatever it fed stops being
+ * re-dirtied, and the loop is broken at that link. The warning names the node so a person can
+ * find the read-modify-write; the audit tooling names the exact cycle.
+ */
+NodeContext.prototype.quarantineNode = function (node, measure, reason, portName) {
+  if (!node || node._livelocked) return;
+  node._livelocked = true;
+  node._dirty = false;
+  this._livelockedNodes.add(node);
+
+  // Free the backlog. A flooded node was holding hundreds of thousands of queued values; a
+  // halted node must not keep them (memory) or drain them if it is later lifted (the loop).
+  var queues = node._inputValuesQueue || {};
+  Object.keys(queues).forEach(function (k) {
+    if (queues[k]) queues[k].length = 0;
+  });
+  node._inputArrivalOrder = [];
+  node._afterInputsHaveUpdatedCallbacks = [];
+
+  var componentName = componentNameOf(node);
+  var label = nodeLabelOf(node);
+  var budget = typeof this.frameBudgetMs === 'number' ? this.frameBudgetMs : FRAME_BUDGET_MS;
+  var how;
+  if (reason === 'cyclic') {
+    how = 'hit the update-iteration cap (' + measure + ' spins) for ' + CYCLIC_FRAMES_BEFORE_HALT_HINT + ' consecutive frames';
+  } else if (reason === 'budget') {
+    how = 'kept the update loop busy past the ' + budget + 'ms frame budget for ' + CYCLIC_FRAMES_BEFORE_HALT_HINT + ' consecutive frames';
+  } else if (reason === 'queue-overflow') {
+    how = 'had ' + measure + ' values queued on input "' + portName + '" within one frame — it is being fed far faster than it can run';
+  } else {
+    how = 're-ran ' + measure + ' times per frame for ' + LIVELOCK_FRAMES + ' consecutive frames without the graph settling';
+  }
+
+  console.error(
+    '[xgenia] dependency livelock: node "' + label + '" in ' + componentName + ' ' + how + '. ' +
+    'Execution of this node is halted to keep the editor responsive. Look for a read-modify-write that feeds back ' +
+    'into it — usually a Variable / Set Variable pair sharing a name, or a data-wire loop.'
+  );
+
+  if (
+    this.editorConnection &&
+    typeof this.editorConnection.sendWarning === 'function' &&
+    this.isWarningTypeEnabled('dependencyLivelock')
+  ) {
+    try {
+      this.editorConnection.sendWarning(componentName, node.id, LIVELOCK_WARNING_KEY, {
+        level: 'error',
+        showGlobally: true,
+        message:
+          'Update loop: "' + label + '" ' + how + ', so it has been halted to keep the editor responsive. ' +
+          'Look for a read-modify-write that feeds back into this node: usually a Variable and Set Variable sharing a name, ' +
+          'or a loop of data wires. Changing a connection or a parameter on this node lets it run again.'
+      });
+    } catch (e) {
+      // The report must never be what breaks the frame.
+    }
+  }
+};
+
+/**
+ * Lift the quarantine — for one node, or for all of them.
+ *
+ * Called on any structural change (connection added/removed, node removed) and on a
+ * parameter edit to a quarantined node: each is the user acting on the warning, so the
+ * node gets a fresh chance.
+ *
+ * Lifting does NOT replay the backlog. Quarantine emptied the node's queues and a halted node
+ * drops input, so a lifted node is simply idle until something triggers it again. That is
+ * deliberate: the backlog IS the pathology (hundreds of thousands of queued values in the
+ * observed case), and replaying it would re-freeze the editor instantly even if the user had
+ * just fixed the loop. When the loop is next exercised and is still broken, it re-quarantines
+ * within three frames and the warning comes straight back, which is the right outcome.
+ */
+NodeContext.prototype.clearLivelockQuarantine = function (onlyNode) {
+  var nodes = onlyNode ? [onlyNode] : Array.from(this._livelockedNodes);
+  if (nodes.length === 0) return;
+
+  nodes.forEach((node) => {
+    if (!node._livelocked) return;
+    node._livelocked = false;
+    node._cyclicFrames = 0;
+    node._lastCyclicIteration = undefined;
+    this._livelockedNodes.delete(node);
+
+    if (this.editorConnection && typeof this.editorConnection.clearWarning === 'function') {
+      try {
+        this.editorConnection.clearWarning(componentNameOf(node), node.id, LIVELOCK_WARNING_KEY);
+      } catch (e) {
+        /* reporting must not break the edit */
+      }
+    }
+
+    if (!node._deleted) node.flagDirty();
+  });
+
+  this._saturatedFrames = 0;
+  this._churn.clear();
+};
+
+/**
+ * The name a person sees on the canvas. `node.name` is the TYPE ('JavaScriptFunction',
+ * 'Set Variable'), which is what the first live warning said — pointing at nothing anyone
+ * could find among thirty script nodes. The user's label lives on the model's parameters.
+ */
+function nodeLabelOf(node) {
+  var params = (node && node.model && node.model.parameters) || {};
+  return params.label || params.nodeLabel || (node && node.name) || (node && node.id);
+}
+
+function componentNameOf(node) {
+  var owner = node && node.nodeScope && node.nodeScope.componentOwner;
+  return (owner && owner.name) || 'unknown';
+}
 
 NodeContext.prototype.update = function () {
   this.frameNumber++;
@@ -186,6 +439,10 @@ NodeContext.prototype.reset = function () {
   this.globalValues = {};
   this._dirtyNodes.length = 0;
   this.callbacksAfterUpdate.length = 0;
+  this._livelockedNodes.clear();
+  this._churn.clear();
+  this._saturatedFrames = 0;
+  this._frameStartedAt = 0;
 
   this.timerScheduler.runningTimers = [];
   this.timerScheduler.newTimers = [];
@@ -195,6 +452,10 @@ NodeContext.prototype.reset = function () {
 };
 
 NodeContext.prototype.nodeIsDirty = function (node) {
+  // A quarantined node is never re-queued, whatever path asked for it — this is the one
+  // choke point every scheduling route passes through (flagDirty, the cyclic-loop
+  // rescheduler, direct callers).
+  if (node && node._livelocked) return;
   this._dirtyNodes.push(node);
   this.scheduleUpdate();
 };
