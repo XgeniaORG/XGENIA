@@ -3,8 +3,8 @@
   "version": "2.7.0",
   "main": "src/index.ts",
   "description": "",
-  "author": "XGENIA <contact@xgenia.io>",
-  "homepage": "https://xgenia.io",
+  "author": "XGENIA <sales@xgenia.com>",
+  "homepage": "https://xgenia.com",
   "dependencies": {
     "copy-webpack-plugin": "12.0.2",
     "desktop-trampoline": "https://github.com/desktop/desktop-trampoline/archive/refs/tags/v0.9.8.tar.gz",

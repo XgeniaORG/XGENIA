@@ -3,7 +3,7 @@
 -- ⚠️ HISTORICAL DESIGN DOC — NOT THE LIVE SCHEMA. DO NOT APPLY. ⚠️
 --
 -- The live account backend (Supabase project pcrghrjikkcmelflwiys, shared with
--- the primora.xgenia.ai site) was rebuilt on 2026-08-04 and its `profiles`
+-- the primora.xgenia.com site) was rebuilt on 2026-08-04 and its `profiles`
 -- table no longer matches the definition below. Columns is_active,
 -- subscription_status, last_seen, full_name and avatar_url DO NOT EXIST on
 -- the live table — selecting them 400s.

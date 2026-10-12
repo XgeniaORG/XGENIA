@@ -1,7 +1,7 @@
 {
   "name": "@xgenia/cloud-runtime",
-  "author": "XGENIA <contact@xgenia.io>",
-  "homepage": "https://xgenia.io",
+  "author": "XGENIA <sales@xgenia.com>",
+  "homepage": "https://xgenia.com",
   "version": "1.0.0",
   "license": "MIT",
   "main": "dist/main.js",

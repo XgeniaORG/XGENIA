@@ -4,8 +4,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "description": "MCP (Model Context Protocol) service for XGENIA",
-  "author": "XGENIA <contact@xgenia.io>",
-  "homepage": "https://xgenia.io",
+  "author": "XGENIA <sales@xgenia.com>",
+  "homepage": "https://xgenia.com",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rimraf dist",

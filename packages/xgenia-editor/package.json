@@ -2,8 +2,8 @@
   "name": "xgenia-editor",
   "productName": "XGENIA",
   "description": "Node-Based App Builder for Scalability & Rapid Development, a fork of XGENIA",
-  "author": "XGENIA <contact@xgenia.ai>",
-  "homepage": "https://xgenia.ai",
+  "author": "XGENIA <sales@xgenia.com>",
+  "homepage": "https://xgenia.com",
   "version": "3.0.2-beta.1",
   "main": "src/main/main.bundle.js",
   "scripts": {
