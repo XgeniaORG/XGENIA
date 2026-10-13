@@ -12,7 +12,7 @@ import { toggleShortcutSheet } from '../ShortcutSheet';
 import { InlineElementChat } from './InlineElementChat';
 import type { PreviewHost } from './IframeViewer';
 import { VisualCanvas } from './VisualCanvas';
-import { measureSurfaceProof, browserSurfaceProofEnv, sampleOccluders } from './surfaceProof';
+import { measureInPlaceSurfaceProof, browserSurfaceProofEnv, sampleOccluders } from './surfaceProof';
 import { waitUntilSettled, letterboxesSettled } from './paintWait';
 
 /**
@@ -832,9 +832,16 @@ export class CanvasView extends View {
     // <webview>) would therefore clip to x=0 and capture whatever real editor UI sits at the
     // origin, not the resized preview — a capture that LOOKS like a correct 1920x1080 design
     // shot but is actually a screenshot of the wrong surface. So this listener keeps the host
-    // ON-SCREEN (position:fixed, top/left 0, top z-index) instead of shoving it into negative
-    // coordinates, and additionally verifies the CAPTURED pixel size against the requested size
-    // before calling it a success — see the comment above the size check below.
+    // ON-SCREEN.
+    //
+    // (2026-10-13) It used to keep it on screen by pinning it to the window origin at the full design
+    // size with the top z-index and the panels hidden — on a laptop a 1920x1080 box over a 1368x900
+    // window, the game re-laid out twice per capture, and the AI side then asked again at a reference
+    // size and at 75/50/35 % when that did not fit: up to five visible jumps per screenshot. The
+    // guest's viewport is what sets the layout, not where the box sits, so the capture is taken IN
+    // PLACE: as it is when the preview is already laid out at that size (device-viewport mode), or
+    // fitted into its own pane at that size for the frames it takes. measureInPlaceSurfaceProof()
+    // proves the box, and the pixels must match the scale that box predicts.
     this.onIpc('embedded-viewer-capture-design-request', async (_e: any, size: any) => {
       const reply = (payload: any) => ipcRenderer.send('viewer-capture-design-reply', payload);
       const width = Math.round(Number(size?.width));
@@ -881,201 +888,124 @@ export class CanvasView extends View {
       // Restore EXACTLY what was there, including "no inline value at all" — writing '' back over
       // a style the stylesheet owns would silently resize the user's preview.
       const saved = el.getAttribute('style');
-      const applySize = () => {
-        el.style.position = 'fixed';
-        el.style.top = '0px';
-        el.style.left = '0px';
+      let resized = false;
+      const guestSize = async (): Promise<{ w: number; h: number }> => {
+        try { return await this.webview!.executeJavaScript('({ w: window.innerWidth, h: window.innerHeight })'); } catch { return { w: 0, h: 0 }; }
+      };
+      const atSize = (s: { w: number; h: number }) => Math.abs(s.w - width) <= 2 && Math.abs(s.h - height) <= 2;
+      // Lay the guest out at the design size INSIDE its own pane, scaled to fit — the same thing
+      // device-viewport ("Fit") mode does in updateViewportSize(). It is never moved over the rest of
+      // the editor and no panel is hidden for it.
+      const fitInPane = () => {
+        const container = el.parentElement as HTMLElement | null;
+        let roomW = 0;
+        let roomH = 0;
+        if (container) {
+          const cs = getComputedStyle(container);
+          roomW = container.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+          roomH = container.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+        }
+        if (!(roomW > 0) || !(roomH > 0)) { roomW = window.innerWidth; roomH = window.innerHeight; }
+        const s = Math.min(1, roomW / width, roomH / height);
         el.style.width = `${width}px`;
         el.style.height = `${height}px`;
         el.style.maxWidth = 'none';
         el.style.maxHeight = 'none';
+        el.style.transformOrigin = 'top left';
+        el.style.transform = `scale(${s})`;
         el.style.margin = '0px';
-        // Above every other panel: capturePage() below reads OUR window's own compositor
-        // output clipped to this element's box, so anything else painted over that box would
-        // leak into the "design" screenshot.
-        el.style.zIndex = '2147483647';
-        // Device-viewport mode (see setDeviceMode below, ~:1289) leaves `transform:
-        // scale(fitScale)` on this SAME element (this.webview.style is this.element.style).
-        // A transformed element's getBoundingClientRect() reports its VISUAL box, not the
-        // box position:fixed/width/height above just set — so the rect handed to
-        // capturePage() would not be the element's real box, and this was never cleared
-        // here before. Clear it unconditionally; a fresh call restores it via
-        // setDeviceMode() on the next real resize.
-        el.style.transform = 'none';
+        // The scaled frame takes only its scaled room in the pane, as setFrameMargins() does.
+        el.style.marginRight = `${width * s - width}px`;
+        el.style.marginBottom = `${height * s - height}px`;
       };
-
-      // Proof, not assumption: capturePage() (IframeViewer.ts) clips OUR OWN window to
-      // `el.getBoundingClientRect()` taken at capture time, so "the image is the design surface"
-      // needs three things measured, not assumed from applySize() having run — no transform, the
-      // box at the window origin and inside the window, and NOTHING PAINTED OVER IT. The last one
-      // is a hit test, not a rect comparison: a stacking context that confines this element's
-      // z-index (the chat panel's .Card is z-index:10) leaves the rect exactly right while another
-      // element paints over it, so a rect match alone cannot see it. surfaceProof.ts has the full
-      // reasoning, including what the hit test cannot see.
-      //
-      // UNITS: getBoundingClientRect(), window.innerWidth/innerHeight and elementFromPoint() are all
-      // CSS px of THIS renderer's document — the space applySize() writes into — so none of these
-      // comparisons crosses the Electron zoom-factor boundary. That factor only scales the
-      // NativeImage buffer, checked separately below via scaleX/scaleY.
-      const measureProof = () => measureSurfaceProof(el, width, height, browserSurfaceProofEnv());
+      const frames = (n: number) => new Promise<void>((resolve) => {
+        const step = (left: number) => (left <= 0 ? resolve() : requestAnimationFrame(() => step(left - 1)));
+        step(n);
+      });
 
       try {
         // No await between the `_activeCapture` check above and this line, so the check-and-set
         // is still atomic — and now every exit, thrown or returned, reaches the finally.
         this._activeCapture = 'design';
-        // The game's own canvas, before the resize: it redraws on the guest's resize handler, after
-        // the viewport already reports the new size (waitUntilSettled in paintWait.ts).
-        const CANVAS_SIZE_JS = '(() => { let w = 0, h = 0; for (const c of document.querySelectorAll("canvas")) { const r = c.getBoundingClientRect(); if (r.width * r.height > w * h) { w = r.width; h = r.height; } } return { w: Math.round(w), h: Math.round(h) }; })()';
-        let canvasBefore: { w: number; h: number } | null = null;
-        try { canvasBefore = await this.webview.executeJavaScript(CANVAS_SIZE_JS); } catch { /* no guest yet: nothing to wait for */ }
-        applySize();
 
-        // Wait for the guest to actually report the new viewport before capturing, or the image is
-        // the OLD size scaled — which looks like a correct capture and is not.
-        const deadline = Date.now() + 3000;
-        let seen = { w: 0, h: 0 };
-        while (Date.now() < deadline) {
-          await new Promise((r) => requestAnimationFrame(() => r(null)));
-          // Defensive re-assert: VisualCanvas re-renders with a literal `style={{...}}` on this
-          // same iframe (see VisualCanvas.tsx), so an unrelated React re-render during this wait
-          // can silently overwrite the size/position we just set. Re-apply every tick rather than
-          // trust a single assignment to survive the whole wait.
-          if (el.style.width !== `${width}px` || el.style.position !== 'fixed') applySize();
-          try {
-            seen = await this.webview.executeJavaScript('({ w: window.innerWidth, h: window.innerHeight })');
-          } catch { /* the guest may be mid-navigation; keep waiting until the deadline */ }
-          if (Math.abs(seen.w - width) <= 2 && Math.abs(seen.h - height) <= 2) break;
+        // Already laid out at that size (device-viewport mode at the declared screen) and wholly on
+        // screen: capture it as it is. Nothing moves, nothing re-lays out.
+        let seen = await guestSize();
+        const asIs = atSize(seen) ? measureInPlaceSurfaceProof(el, width, height, browserSurfaceProofEnv()) : null;
+        if (!asIs || !asIs.ok) {
+          resized = true;
+          fitInPane();
+          // Wait for the guest to report the new viewport, or the image is the OLD layout scaled.
+          // VisualCanvas re-renders with a literal style on this iframe, so re-assert every tick.
+          const deadline = Date.now() + 3000;
+          while (Date.now() < deadline) {
+            await frames(1);
+            if (el.style.width !== `${width}px` || !String(el.style.transform).startsWith('scale(')) fitInPane();
+            seen = await guestSize();
+            if (atSize(seen)) break;
+          }
+          if (!atSize(seen)) {
+            reply({ success: false, message: `design capture: the preview did not reach ${width}x${height} (it reports ${seen.w}x${seen.h}) — the image would be the wrong surface, so none was taken` });
+            return;
+          }
+          // Let the game paint at its new size before the frame is taken.
+          await frames(2);
+          fitInPane();
         }
-        if (Math.abs(seen.w - width) > 2 || Math.abs(seen.h - height) > 2) {
-          reply({ success: false, message: `design capture: the preview did not reach ${width}x${height} (it reports ${seen.w}x${seen.h}) — the image would be the wrong surface, so none was taken` });
-          return;
-        }
-        // Then for the game's canvas to follow: resized from what it was, or filling the new viewport.
-        // A guest with no canvas lays out with the viewport and has nothing to wait for.
-        if (canvasBefore && canvasBefore.w > 0) {
-          const before = canvasBefore;
-          await waitUntilSettled(
-            async () => {
-              try { return await this.webview!.executeJavaScript(CANVAS_SIZE_JS); } catch { return before; }
-            },
-            (c: { w: number; h: number }) =>
-              !!c && (Math.abs(c.w - before.w) > 2 || Math.abs(c.h - before.h) > 2 || c.w >= width - 2 || c.h >= height - 2),
-            { timeoutMs: 1000 }
-          );
-        }
-        // And for every letterboxed Group to re-scale for the new window: it measures with a
-        // ResizeObserver and re-renders after the resize (letterboxesSettled in paintWait.ts).
-        {
-          const LETTERBOX_SETTLED_JS = `(${letterboxesSettled.toString()})(document)`;
-          await waitUntilSettled(
-            async () => {
-              try { return await this.webview!.executeJavaScript(LETTERBOX_SETTLED_JS); } catch { return true; }
-            },
-            (ok: boolean) => ok === true,
-            { timeoutMs: 1000 }
-          );
-        }
-        // Re-assert once more immediately before the capture: the wait loop's own awaits are a
-        // window a re-render could land in between the last size check and capturePage().
-        applySize();
 
-        // Measure the surface AFTER the last applySize() and BEFORE capturePage(), so this is
-        // the same box (modulo the JS-turn gap between here and IframeViewer's own
-        // getBoundingClientRect() call inside capturePage()) that ends up in the image.
-        // Measured with the occluders hidden as well: a panel that is not painted is not over it.
+        // Measured with the occluders hidden: a panel that is not painted is not over it.
         const { surfaceProof, nativeImage } = await this.withOccludersHidden(async () => ({
-          surfaceProof: measureProof(),
+          surfaceProof: measureInPlaceSurfaceProof(el, width, height, browserSurfaceProofEnv()),
           nativeImage: await this.webview!.capturePage(),
         }));
         if (!nativeImage || nativeImage.isEmpty()) {
           reply({ success: false, message: 'design capture: the captured image was empty' });
           return;
         }
-
-        // MEASURE what actually came back rather than trusting the request. capturePage() clips
-        // to this element's on-screen box; if the real editor window is smaller than the
-        // requested design size, or a display's scale factor inflates the buffer, the pixels we
-        // got differ from what was asked for and that difference must reach the caller, not be
-        // silently absorbed into a "success" that quietly reports the requested numbers back.
         const actual = nativeImage.getSize();
         if (!actual || !(actual.width > 0) || !(actual.height > 0)) {
           reply({ success: false, message: 'design capture: the captured image reported no size' });
           return;
         }
-
-        const scaleX = actual.width / width;
-        const scaleY = actual.height / height;
-        // A clean, roughly-equal integer (or half-integer) scale on both axes is a device pixel
-        // ratio, not a clipped/wrong capture — e.g. 3840x2160 for a requested 1920x1080 on a 2x
-        // display. Report the true pixel size in that case, not a silent lie back to 1920x1080.
-        const looksLikeUniformScale =
-          scaleX > 0.98 && scaleY > 0.98 &&
-          Math.abs(scaleX - scaleY) < 0.05 &&
-          Math.abs(scaleX - Math.round(scaleX * 2) / 2) < 0.05;
-
-        // A SCALE CAN BE LESS THAN ONE (2026-09-09, found on the live Olympus5x3 run).
-        // `looksLikeUniformScale` only ever anticipated scale-UP: it demands `scaleX > 0.98`,
-        // because the case in mind was a 2x display inflating the buffer. But this editor runs at
-        // an Electron ZOOM FACTOR, and at zoom 0.754 every capture comes back at 0.754x — a
-        // 1920x1080 request measured 1448x814, and a 384x216 request that fits the window several
-        // times over measured 290x162. THE SAME FACTOR AT BOTH SIZES, which is the signature of a
-        // resample and the one thing a clip cannot fake. Both were refused as "likely a crop", so
-        // on this machine no design capture could EVER succeed, at any size — and the panel's own
-        // two-size cross-check, which exists precisely to tell a uniform scale from a clip, never
-        // received a single pixel to judge.
-        //
-        // What makes accepting this safe is the check ~30 lines above: it has already confirmed the
-        // GUEST reports `window.innerWidth/innerHeight` equal to the requested size (±2), so the
-        // guest really did lay the screen out at the full design size. `webview.capturePage()`
-        // captures that guest's own contents, so what comes back is the whole composition
-        // resampled, not a corner of it. A capture that IS the wrong surface fails the guest-
-        // viewport check first, which is where that concern belongs.
-        //
-        // The axes must still agree: a genuine clip skews one axis against the other. An
-        // aspect-matched clip would survive this, and refusing it is not this listener's job —
-        // that is exactly what the caller's reference capture at a second size settles.
-        const axesAgree = Math.abs(scaleX - scaleY) < 0.02;
-        const looksLikeUniformDownScale = scaleX > 0.2 && scaleY > 0.2 && scaleX < 1 && axesAgree;
-        // (2026-09-16) IframeViewer.capturePage() now hands capturePage() a DIP rect (CSS x zoom),
-        // so a correct capture measures CSS x zoom x display scale = window.devicePixelRatio on
-        // each axis (1.6 at zoom 0.8 on a 2x display) — neither a half-integer nor sub-1.
+        // What the pixels must measure if the image is exactly that box: its on-screen CSS width ÷
+        // the design width, times this window's device pixels per CSS px (Electron zoom × display
+        // scale — window.devicePixelRatio). A crop, a stale frame of another size or the wrong
+        // surface cannot land on this prediction on both axes.
         const dpr = typeof window !== 'undefined' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
-        const matchesDevicePixels = Math.abs(scaleX - dpr) < 0.05 && Math.abs(scaleY - dpr) < 0.05;
-
-        if (!looksLikeUniformScale && !looksLikeUniformDownScale && !matchesDevicePixels
-            && (actual.width < width - 2 || actual.height < height - 2)) {
-          // Smaller than requested and not an even scale-up: the capture was clipped — almost
-          // certainly the real editor window is not big enough to show the full design size on
-          // screen. Returning this image would look like a correct 1920x1080 (etc.) capture while
-          // actually being a crop; fail instead.
+        const expectedScale = (surfaceProof.scale || 0) * dpr;
+        const kx = actual.width / width;
+        const ky = actual.height / height;
+        const near = (k: number) => expectedScale > 0 && Math.abs(k - expectedScale) / expectedScale <= 0.02;
+        if (!near(kx) || !near(ky)) {
           reply({
             success: false,
-            message: `design capture: asked for ${width}x${height} but only captured ${actual.width}x${actual.height} — the editor window is likely smaller than the requested design size, so the image would be a crop, not the full design; no image was returned`
+            surfaceProof,
+            message: `design capture: the image came back ${actual.width}x${actual.height}, but the preview box predicts `
+              + `x${expectedScale.toFixed(3)} of ${width}x${height} — it is not the box that was measured, so none was returned`,
           });
           return;
         }
-
-        const payload: any = { success: true, image: nativeImage.toDataURL(), width: actual.width, height: actual.height, surfaceProof };
-        if (actual.width !== width || actual.height !== height) {
-          // Name the direction. "a display scale factor" was written for the 2x case and reads as
-          // nonsense on a capture that came back SMALLER, where the cause is this window's zoom
-          // factor — and the caller decides what to do with the image partly on this sentence.
-          const factor = ((scaleX + scaleY) / 2).toFixed(3);
-          payload.message = scaleX < 1
-            ? `captured at ${actual.width}x${actual.height} (requested ${width}x${height}) — the guest reached the `
-              + `full ${width}x${height} viewport and the image is that whole surface resampled by x${factor}, this `
-              + `window's zoom factor, not a crop; width/height above are the true pixel dimensions of the image`
-            : `captured at ${actual.width}x${actual.height} (requested ${width}x${height}) — likely a display scale `
-              + `factor (x${factor}); width/height above are the true pixel dimensions of the image`;
-        }
-        reply(payload);
+        reply({
+          success: true,
+          image: nativeImage.toDataURL(),
+          width: actual.width,
+          height: actual.height,
+          surfaceProof,
+          inPlace: true,
+          expectedScale,
+          message: `captured in place: the game laid out at ${width}x${height}`
+            + (resized ? ' (fitted into its own pane for this capture, then put back)' : ' (the preview was already at that size — nothing was moved or resized)')
+            + ` and the image is that whole surface at x${((kx + ky) / 2).toFixed(3)}; width/height above are the true pixel dimensions of the image`,
+        });
       } catch (e: any) {
         reply({ success: false, message: `design capture failed: ${e?.message || e}` });
       } finally {
         // Release the lock FIRST: if restoring the style throws, the surface must not stay
         // locked behind it.
         this._activeCapture = null;
-        if (saved === null) el.removeAttribute('style'); else el.setAttribute('style', saved);
+        if (resized) {
+          if (saved === null) el.removeAttribute('style'); else el.setAttribute('style', saved);
+        }
       }
     });
 
