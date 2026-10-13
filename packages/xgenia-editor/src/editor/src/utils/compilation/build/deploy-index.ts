@@ -109,6 +109,8 @@ type WriteFileToFolderArgs = {
   flatAssetMap?: Record<string, string>;
   /** Stake deploy only: no-op every console method in the exported page. */
   suppressConsole?: boolean;
+  /** false = no "Made with XGENIA" credit (the Stake embed: operators review every link in the game). */
+  credit?: boolean;
 };
 
 async function _writeFileToFolder({
@@ -124,7 +126,8 @@ async function _writeFileToFolder({
   runtimeType,
   targetFilename,
   flatAssetMap,
-  suppressConsole
+  suppressConsole,
+  credit
 }: WriteFileToFolderArgs) {
   const fullPath = resolveExternalPath(filesystem.join(runtimeType, url));
 
@@ -160,7 +163,8 @@ async function _writeFileToFolder({
       baseUrl,
       envVariables,
       flatAssetMap,
-      suppressConsole
+      suppressConsole,
+      credit
     });
   }
 
@@ -405,7 +409,9 @@ export async function copyDeployFilesToStakeFolder({
         targetFilename: indexHtmlTarget,
         flatAssetMap,
         // Stake embeds the game in their page; it should not write to their console.
-        suppressConsole: true
+        suppressConsole: true,
+        // …and carries no third-party link: operators review every link inside a real-money game.
+        credit: false
       });
     }
   }

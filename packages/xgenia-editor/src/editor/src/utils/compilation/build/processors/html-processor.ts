@@ -1,6 +1,7 @@
 import { ProjectModel } from '@xgenia-models/projectmodel';
 
 import ProjectModules from '../../../../../../shared/utils/projectmodules';
+import { XGENIA_GENERATOR_META, injectXgeniaCredit, wantsXgeniaCredit } from './xgenia-credit';
 
 export interface HtmlProcessorParameters {
   /**
@@ -44,6 +45,14 @@ export interface HtmlProcessorParameters {
    * Default: false — every other target keeps its console.
    */
   suppressConsole?: boolean;
+
+  /**
+   * The "Made with XGENIA" credit and generator meta (xgenia-credit.ts). On unless false here (the
+   * Stake embed turns it off) or the project setting `hideXgeniaCredit` is true.
+   *
+   * Default: undefined (on)
+   */
+  credit?: boolean;
 }
 
 export class HtmlProcessor {
@@ -133,6 +142,9 @@ export class HtmlProcessor {
       headCode += parameters.headCode;
     }
 
+    const credit = wantsXgeniaCredit(parameters.credit, settings);
+    if (credit) headCode = XGENIA_GENERATOR_META + '\n' + headCode;
+
     // './' is what the browser already does with a relative URL, so a <base> for it buys
     // nothing — and this tag carries `target="_blank"`, which would silently make every link
     // in the exported app open in a new tab.
@@ -194,6 +206,8 @@ export class HtmlProcessor {
 </script>`;
 
     injected = injected.replace('<%index_js%>', indexCode);
+
+    if (credit) injected = injectXgeniaCredit(injected);
 
     return injected;
   }

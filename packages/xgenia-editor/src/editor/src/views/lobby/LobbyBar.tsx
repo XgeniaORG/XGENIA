@@ -42,9 +42,9 @@ export interface LobbyBarProps {
 const HELP_LINKS: Array<{ label: string; url: string }> = [
   { label: 'Documentation', url: 'https://docsapp.xgenia.com' },
   { label: 'Community', url: 'https://discord.com/invite/n4P5zkpvFE' },
-  { label: "What's New", url: 'https://xgenia.com/news' },
+  { label: "What's New", url: 'https://xgenia.com/news?utm_source=app&utm_medium=editor&utm_campaign=lobby' },
   { label: 'Release Notes', url: 'https://github.com/XgeniaORG/XGENIA/releases' },
-  { label: 'Help', url: 'https://xgenia.com/faq' }
+  { label: 'Help', url: 'https://xgenia.com/faq?utm_source=app&utm_medium=editor&utm_campaign=lobby' }
 ];
 
 export function LobbyBar({

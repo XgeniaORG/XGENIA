@@ -104,7 +104,7 @@ Based on Noodl Editor, Copyright (C) 2024 Future Platforms AB
 ## AI Features
 
 The open source version includes the core editor functionality. 
-AI-powered features are available through [XGENIA Pro](https://xgenia.ai).
+AI-powered features are available through [XGENIA Pro](https://xgenia.com).
 
 ## Getting Started
 
@@ -122,7 +122,7 @@ Contributions are welcome! Please read our contributing guidelines before submit
 
 ## Links
 
-- [XGENIA Website](https://xgenia.ai)
+- [XGENIA Website](https://xgenia.com)
 - [Documentation](https://docsapp.xgenia.com)
 - [Original Noodl](https://github.com/noodlapp/noodl)
 EOF
