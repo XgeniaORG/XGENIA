@@ -1,4 +1,4 @@
-name: Nightly Multi-Platform Build
+name: Nightly Multi-Platform Internal Build
 
 on:
   # push:
