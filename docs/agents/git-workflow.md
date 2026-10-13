@@ -35,7 +35,7 @@ work on a single branch:
    ```bash
    git checkout develop
    git pull origin develop
-   git checkout -b feature/<short-description>
+   git checkout -b side/<short-description>
    ```
 2. Keep committing and pushing to **that** branch for everything that belongs
    to this piece of work — follow-up fixes, review feedback, the tidy-up
@@ -56,11 +56,11 @@ when a PR exists for it. Open the PR with the GitHub CLI as the closing step of
 the work on that branch:
 
 ```bash
-git push -u origin feature/<short-description>
+git push -u origin side/<short-description>
 
 gh pr create \
   --base develop \
-  --head feature/<short-description> \
+  --head side/<short-description> \
   --title "<what the change does>" \
   --body "<summary, and anything the reviewer needs to know>"
 ```
