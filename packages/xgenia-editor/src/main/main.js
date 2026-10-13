@@ -1096,6 +1096,12 @@ function launchApp() {
         }
       });
 
+      // CI launch smoke test (.github/workflows/nightly-builds.yml): exits once the editor
+      // has rendered, or fails the build if it never does.
+      if (process.env.XGENIA_SMOKE_TEST === '1') {
+        require('./src/smoke-test').watchSmokeTest(app, win);
+      }
+
       // Enhanced debugging for window visibility
       console.log('[Main Process] Attempting to show window...');
       console.log('[Main Process] Window bounds:', win.getBounds());

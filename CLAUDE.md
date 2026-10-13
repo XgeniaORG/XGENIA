@@ -74,3 +74,9 @@ One thing still holds when you touch the submodule: bumping the submodule
 pointer is a change **in this repo**, so that commit goes on its own branch
 and through a PR against `develop` like any other. The "ask first" rule above
 applies to this repo only.
+
+You rarely need to bump it by hand: the private pointer bot
+(`.github/workflows/private-pointer.yml`) moves it to the latest private `main`
+through a PR that merges itself once the checks pass, and that merge becomes a
+nightly pre-release (`.github/workflows/nightly.yml`). Only that bot may merge
+without an approval; see `docs/agents/git-workflow.md`.

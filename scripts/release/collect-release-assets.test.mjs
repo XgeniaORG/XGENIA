@@ -31,6 +31,20 @@ sha512: exe==
 releaseDate: '2026-10-05T10:00:00.000Z'
 `;
 
+// One manifest for both Linux targets: AppImageUpdater and DebUpdater each pick their own file.
+const linuxManifest = `version: 3.0.1
+files:
+  - url: XGENIA-3.0.1.AppImage
+    sha512: appimage==
+    size: 555
+  - url: xgenia-editor_3.0.1_amd64.deb
+    sha512: deb==
+    size: 666
+path: XGENIA-3.0.1.AppImage
+sha512: appimage==
+releaseDate: '2026-10-05T10:00:00.000Z'
+`;
+
 function artifacts({ dropArm64Zip = false, arm64Version = '3.0.1' } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-assets-'));
   const put = (rel, text = 'x') => {
@@ -48,7 +62,9 @@ function artifacts({ dropArm64Zip = false, arm64Version = '3.0.1' } = {}) {
   put('XGENIA-Windows-x64/latest.yml', winManifest);
   put('XGENIA-Windows-x64/XGENIA-Setup-3.0.1.exe');
   put('XGENIA-Windows-x64/XGENIA-Setup-3.0.1.exe.blockmap');
+  put('XGENIA-Linux-x64/latest-linux.yml', linuxManifest);
   put('XGENIA-Linux-x64/xgenia-editor_3.0.1_amd64.deb');
+  put('XGENIA-Linux-x64/XGENIA-3.0.1.AppImage');
   return { root, out: path.join(root, '..', path.basename(root) + '-out') };
 }
 
@@ -79,8 +95,10 @@ test('collects every installer, blockmap and manifest into one folder', () => {
     'XGENIA-3.0.1-mac-x64.dmg.blockmap',
     'XGENIA-3.0.1-mac-x64.zip',
     'XGENIA-3.0.1-mac-x64.zip.blockmap',
+    'XGENIA-3.0.1.AppImage',
     'XGENIA-Setup-3.0.1.exe',
     'XGENIA-Setup-3.0.1.exe.blockmap',
+    'latest-linux.yml',
     'latest-mac.yml',
     'latest.yml',
     'xgenia-editor_3.0.1_amd64.deb'

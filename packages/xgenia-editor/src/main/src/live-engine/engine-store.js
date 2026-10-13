@@ -7,7 +7,7 @@ const { sha256, verifyManifest, isSafePath } = require('./manifest');
 
 // accepted: { [channel]: { version, issuedAt } } — the replay floor, one per channel.
 // previous: always an engine that proved itself (its preview came up), or null (the app's own).
-const EMPTY = { active: null, previous: null, pending: null, trial: null, trialTimedOut: null, accepted: {}, bad: [], cleanExit: true, needsAppUpdate: null, lastStart: null, lastCheck: null };
+const EMPTY = { active: null, previous: null, pending: null, trial: null, trialTimedOut: null, accepted: {}, bad: [], cleanExit: true, needsAppUpdate: null, lastStart: null, lastCheck: null, appVersion: null };
 
 class EngineStore {
   constructor(baseDir) {

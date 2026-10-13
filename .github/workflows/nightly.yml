@@ -1,0 +1,121 @@
+name: Nightly
+
+# Turns develop into a versioned pre-release that installs on the Beta update channel update to
+# (opt-in, Settings → Editor → Updates; Stable installs never see pre-releases). release.yml does the
+# build, the checks on the assets and the publish; this workflow decides whether to run and which
+# version to stamp.
+#
+# Every push to develop triggers it, including the private pointer bumps merged by
+# private-pointer.yml (which throttles those, so a busy day on private/ does not mean a build per
+# commit). The concurrency group keeps one build running and at most one waiting: GitHub drops an
+# older waiting run when a newer one queues, so a burst of pushes collapses into the newest.
+#
+# Version: packages/xgenia-editor/package.json plus a stamp, never committed.
+#   3.0.1-beta.9 -> 3.0.1-beta.9.nightly.202610070215  (above beta.9, below beta.10 and 3.0.1)
+#   3.1.0        -> 3.1.1-beta.0.nightly.202610070215  (still a pre-release, so Stable never takes it)
+#
+# TEST-BRANCH: while workflow/update stands in for develop, CHANNEL is "test" and builds are
+# 3.0.1-test.nightly.<stamp>. electron-updater skips a pre-release whose label is not alpha/beta
+# unless the install itself is on that label, so beta testers (3.0.1-beta.9) never take a test build
+# and Stable installs never see pre-releases. Install one test build by hand, set Settings → Updates
+# to Beta, and it follows the later test builds. Set CHANNEL back to "beta" before merging.
+on:
+  push:
+    branches: [workflow/update] # TEST-BRANCH: develop
+  workflow_dispatch:
+
+env:
+  CHANNEL: test # TEST-BRANCH: beta
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+# Called workflows can only narrow these: release.yml writes the release, and nightly-builds.yml's
+# Teams job reads the run's job list.
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Plan
+        id: plan
+        run: |
+          # A re-run, or a push that changed nothing since the last nightly: nothing to ship.
+          if git ls-remote --tags origin 'v*.nightly.*' | awk '{print $1}' | grep -qx "$GITHUB_SHA"; then
+            echo "A nightly already exists for $GITHUB_SHA"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BASE=$(jq -r .version packages/xgenia-editor/package.json)
+          STAMP=$(date -u +%Y%m%d%H%M)
+          if [ "$CHANNEL" != "beta" ]; then
+            # A label of its own (e.g. test): only installs on that label take it.
+            VERSION="${BASE%%-*}-$CHANNEL.nightly.$STAMP"
+          else
+            case "$BASE" in
+              *-*) VERSION="$BASE.nightly.$STAMP" ;;
+              *)
+                IFS=. read -r MAJOR MINOR PATCH <<< "$BASE"
+                VERSION="$MAJOR.$MINOR.$((PATCH + 1))-beta.0.nightly.$STAMP"
+                ;;
+            esac
+          fi
+          echo "Nightly v$VERSION from $GITHUB_SHA (private at $(git ls-tree HEAD private | awk '{print $3}'))"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=true" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+      nightly: true
+    secrets: inherit
+
+  # Any failure, from a build to the final public check, reaches the team. nightly-builds.yml reports
+  # the per-platform builds; this also covers collecting, signing, verifying and publishing.
+  notify-failure:
+    needs: [plan, release]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+      - uses: ./.github/actions/teams-notification
+        with:
+          webhook-url: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          msg-title: 'XGENIA nightly failed — nothing was published'
+          msg-text: |
+            Version: v${{ needs.plan.outputs.version }}
+            Commit: ${{ github.sha }}
+            A release that failed after it was created is left as a draft for inspection.
+          status: failure
+          workflow-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  # Keep the newest nightlies only; stable and beta releases are never touched.
+  prune:
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      KEEP: ${{ vars.NIGHTLY_KEEP || '10' }}
+    steps:
+      - name: Delete old nightly releases
+        run: |
+          gh release list -R "$GITHUB_REPOSITORY" --limit 200 --json tagName,createdAt \
+            --jq "[.[] | select(.tagName | test(\"\\\\.nightly\\\\.\"))] | sort_by(.createdAt) | reverse | .[$KEEP:] | .[].tagName" |
+          while read -r TAG; do
+            echo "Deleting $TAG"
+            gh release delete "$TAG" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          done
