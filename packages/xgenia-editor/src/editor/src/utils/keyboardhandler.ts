@@ -251,6 +251,11 @@ export default class KeyboardHandler {
     return this.runCommand(code, type, source);
   }
 
+  /** Run the command bound to `keybinding`, as a toolbar button does. Returns whether one ran. */
+  run(keybinding: number): boolean {
+    return this.runCommand(keybinding, 'down', 'button');
+  }
+
   private runCommand(code: number, type: 'up' | 'down', source: string): boolean {
     const command = this.findCommand(code, type);
     if (!command) return false;

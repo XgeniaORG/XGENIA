@@ -454,11 +454,10 @@ function _injectSelectionStyles() {
     }
     .xg-rotate-handle {
       position: absolute;
-      left: 50%;
-      top: calc(-31px * var(--xg-k, 1) - 7px);
+      right: calc(-18px * var(--xg-k, 1) - 7px);
+      top: calc(-18px * var(--xg-k, 1) - 7px);
       width: 14px;
       height: 14px;
-      margin-left: -7px;
       border-radius: 50%;
       background: rgba(255, 255, 255, 0.62);
       border: 0.5px solid rgba(255, 255, 255, 0.95);
@@ -470,6 +469,10 @@ function _injectSelectionStyles() {
       transition: transform 0.12s ease-out, box-shadow 0.12s ease-out;
       transform: scale(var(--xg-k, 1));
       display: none;
+    }
+    .xg-rot-below .xg-rotate-handle {
+      top: auto;
+      bottom: calc(-18px * var(--xg-k, 1) - 7px);
     }
     .xg-rotate-handle.xg-hot {
       transform: scale(calc(1.25 * var(--xg-k, 1)));
@@ -543,6 +546,18 @@ function _injectSelectionStyles() {
       border-radius: 3px;
       padding: 0 4px;
     }
+    .xg-bar-name {
+      max-width: 180px;
+      padding: 0 6px 0 8px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font: 500 11px/26px -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      color: rgba(255, 255, 255, 0.78);
+      cursor: default;
+    }
+    .xg-bar-name:empty, .xg-bar-name:empty + .xg-align-sep { display: none; }
+    .xg-bar-name.xg-warn { color: #ffd60a; }
     .xg-align-bar {
       position: fixed;
       z-index: 1000002;
@@ -759,8 +774,11 @@ function _showSelection(element, nodeId, nodeLabel) {
 
   _primaryLabel = nodeLabel || nodeId || 'Element';
   _labelBadge.textContent = _primaryLabel;
-  _labelBadge.style.display = 'block';
-  _sizeBadge.style.display = 'block';
+  // The name sits in the selection bar and the size shows only during a gesture: a badge above,
+  // a badge below and a bar on top used to stack over the game (2026-10-12).
+  _labelBadge.style.display = 'none';
+  _sizeBadge.style.display = 'none';
+  _setBarName(_primaryLabel);
   _placeBadges(rect);
 
   // Show selection border
@@ -931,6 +949,7 @@ function _refreshSelectionChrome() {
   const multi = _isMulti();
   _selectionOverlay.classList.toggle('xg-group', multi);
   if (_labelBadge) _labelBadge.textContent = multi ? (_extras.length + 1) + ' selected' : _primaryLabel;
+  _setBarName(multi ? (_extras.length + 1) + ' selected' : _primaryLabel);
   if (!multi) {
     for (const o of _memberOutlines) if (o.parentNode) o.parentNode.removeChild(o);
     _memberOutlines = [];
@@ -1019,11 +1038,43 @@ function _barButton(act, title, icon, text) {
   return b;
 }
 
+function _addBarName(bar) {
+  const name = document.createElement('div');
+  name.className = 'xg-bar-name';
+  bar.appendChild(name);
+  const sep = document.createElement('div');
+  sep.className = 'xg-align-sep';
+  bar.appendChild(sep);
+  name.textContent = _barNameText;
+  name.classList.toggle('xg-warn', _barNameWarn);
+}
+
+let _barNameText = '';
+let _barNameWarn = false;
+/** The selection's name (or a blocked-gesture message) at the head of whichever bar is up. */
+function _setBarName(text, warn) {
+  _barNameText = text || '';
+  _barNameWarn = !!warn;
+  for (const bar of [_singleBar, _alignBar]) {
+    const el = bar && bar.querySelector('.xg-bar-name');
+    if (!el) continue;
+    el.textContent = _barNameText;
+    el.title = _barNameText;
+    el.classList.toggle('xg-warn', _barNameWarn);
+  }
+  if (_selectedElement) {
+    const r = _selectionRect();
+    _placeSingleBar(r);
+    _placeAlignBar(r);
+  }
+}
+
 function _ensureSingleBar() {
   if (_singleBar) return _singleBar;
   _injectSelectionStyles();
   const bar = document.createElement('div');
   bar.className = 'xg-align-bar xg-sel-bar';
+  _addBarName(bar);
   bar.appendChild(_barButton('anchor', 'Anchor preset (keeps position)', _SINGLE_ICONS.anchor));
   const sep = document.createElement('div');
   sep.className = 'xg-align-sep';
@@ -1069,9 +1120,24 @@ function _hideSingleBar() {
   if (_anchorPop) _anchorPop.classList.remove('xg-on');
 }
 
+/**
+ * Where a selection bar goes: centred above the frame, clear of it and of the rotate handle; below
+ * the frame when there is no room above; over the frame's top only when neither fits.
+ */
+function _barTop(bar, rect) {
+  const h = bar.offsetHeight * _uiK;
+  const gap = 30 * _uiK; // the rotate handle sits 18 px off the top-right corner
+  const above = rect.top - gap - h;
+  if (above >= 4 * _uiK) return above;
+  const below = rect.bottom + 12 * _uiK;
+  const vh = window.innerHeight / _docZoom();
+  if (below + h <= vh - 4 * _uiK) return below;
+  return Math.max(4 * _uiK, rect.top + 4 * _uiK);
+}
+
 function _placeSingleBar(rect) {
   if (!_singleBar || !_singleBar.classList.contains('xg-on')) return;
-  _placeCentredChrome(_singleBar, rect.left + rect.width / 2, Math.max(4 * _uiK, rect.top - 74 * _uiK));
+  _placeCentredChrome(_singleBar, rect.left + rect.width / 2, _barTop(_singleBar, rect));
   if (_anchorPop && _anchorPop.classList.contains('xg-on')) {
     const b = _singleBar.getBoundingClientRect();
     _placeCentredChrome(_anchorPop, b.left + 18 * _uiK, Math.max(4 * _uiK, b.top - 96 * _uiK));
@@ -1272,6 +1338,7 @@ function _ensureAlignBar() {
   _injectSelectionStyles();
   const bar = document.createElement('div');
   bar.className = 'xg-align-bar';
+  _addBarName(bar);
   const groups = [['left', 'hcenter', 'right'], ['top', 'vmiddle', 'bottom'], ['hdist', 'vdist']];
   groups.forEach((g, gi) => {
     if (gi) {
@@ -1314,7 +1381,7 @@ function _hideAlignBar() {
 
 function _placeAlignBar(rect) {
   if (!_alignBar || !_alignBar.classList.contains('xg-on')) return;
-  _placeCentredChrome(_alignBar, rect.left + rect.width / 2, Math.max(4 * _uiK, rect.top - 74 * _uiK));
+  _placeCentredChrome(_alignBar, rect.left + rect.width / 2, _barTop(_alignBar, rect));
 }
 
 /**
@@ -1380,6 +1447,8 @@ function _updateSelectionPosition(rect) {
   // them too); the edges still resize.
   _selectionOverlay.classList.toggle('xg-narrow', rect.width < 48 * _uiK);
   _selectionOverlay.classList.toggle('xg-short', rect.height < 48 * _uiK);
+  // No room above the frame: the rotate handle goes to the bottom-right corner instead.
+  _selectionOverlay.classList.toggle('xg-rot-below', rect.top < 30 * _uiK);
 }
 
 function _hideSelection() {
@@ -1407,11 +1476,13 @@ function _applyGizmoCaps() {
   const caps = _effectiveCaps();
   const show = (el, on) => { el.style.display = on ? 'block' : 'none'; };
   for (const h of _gizmo.handles) show(h, !!(caps && caps.resizable));
-  show(_gizmo.stem, !!(caps && caps.rotatable));
+  // No move arrows or stem: on a short node they ran through its own text. Drag the node itself
+  // (⇧ locks an axis); the pivot shows only while rotating.
+  show(_gizmo.stem, false);
   show(_gizmo.rotate, !!(caps && caps.rotatable));
-  show(_gizmo.axisX, !!(caps && caps.movable));
-  show(_gizmo.axisY, !!(caps && caps.movable));
-  show(_gizmo.pivot, !!(caps && (caps.rotatable || caps.movable)));
+  show(_gizmo.axisX, false);
+  show(_gizmo.axisY, false);
+  show(_gizmo.pivot, _isRotating);
   _positionPivot();
   _updateSingleBar();
 }
@@ -2336,7 +2407,6 @@ function _endResize(e) {
   } else {
     _clearLivePreview();
   }
-  if (_labelBadge && _selectedElement) _labelBadge.style.display = 'block';
   // Overlay stays at new size — preview will re-render when parameters update
 }
 
@@ -2347,9 +2417,11 @@ let _barsHidden = false;
 function _setBarsHidden(hidden) {
   if (_barsHidden === hidden) return;
   _barsHidden = hidden;
-  for (const el of [_singleBar, _alignBar, _anchorPop]) {
+  for (const el of [_singleBar, _alignBar, _anchorPop, _gizmo && _gizmo.rotate]) {
     if (el) el.style.visibility = hidden ? 'hidden' : '';
   }
+  // The size / Δ / degree readout is for the gesture; at rest it covered whatever lay below.
+  if (_sizeBadge) _sizeBadge.style.display = hidden && _selectedElement ? 'block' : 'none';
 }
 
 function _globalMouseMove(e) {
@@ -2439,9 +2511,9 @@ function _isHittable(el) {
   return !!cs && cs.visibility !== 'hidden' && cs.pointerEvents !== 'none';
 }
 
-// Brief "why nothing moved" feedback on a blocked gesture, reusing the label badge.
+// Brief "why nothing moved" feedback on a blocked gesture, in the selection bar's name slot.
 function _flashBlocked(reason) {
-  if (!_labelBadge || !_selectedElement) return;
+  if (!_selectedElement) return;
   const messages = {
     'in-flow': 'Managed by layout — drag to reorder',
     'not-reorderable': 'Cannot reorder this node',
@@ -2452,11 +2524,9 @@ function _flashBlocked(reason) {
     'size-mode-gated': 'Size is content-driven on this node',
     'editor-link': 'Editor link unavailable'
   };
-  const prev = _labelBadge.textContent;
-  _labelBadge.textContent = messages[reason] || 'Cannot edit this element';
-  _labelBadge.style.display = 'block';
+  _setBarName(messages[reason] || 'Cannot edit this element', true);
   setTimeout(() => {
-    if (_labelBadge) _labelBadge.textContent = prev;
+    _setBarName(_isMulti() ? (_extras.length + 1) + ' selected' : _primaryLabel);
     // Overlay may be stale after a blocked drag — resnap it to the element.
     if (_selectedElement) _updateSelectionPosition(_selectedElement.getBoundingClientRect());
   }, 1500);
@@ -2537,7 +2607,6 @@ function _settleAfterCommit(opts) {
     _selectionOverlay.style.transform = '';
     const rect = _selectedElement.getBoundingClientRect();
     _updateSelectionPosition(rect);
-    if (_labelBadge) _labelBadge.style.display = 'block';
     _placeBadges(rect);
     _positionPivot();
     makeEditorAPIRequest('viewportCapabilities', {
@@ -2655,12 +2724,14 @@ function _isOnRotateHandle(x, y) {
   const caps = _effectiveCaps();
   if (!_selectedElement || !(caps && caps.rotatable)) return false;
   const r = _selectedElement.getBoundingClientRect();
-  const hx = r.left + r.width / 2;
-  const hy = r.top - _screenPx(31); // lollipop circle centre (CSS: 31 screen px above the frame)
+  const hx = r.right + _screenPx(18); // circle centre: 18 screen px out from the top-right corner
+  const below = _selectionOverlay && _selectionOverlay.classList.contains('xg-rot-below');
+  const hy = below ? r.bottom + _screenPx(18) : r.top - _screenPx(18);
   return Math.hypot(x - hx, y - hy) <= _screenPx(10);
 }
 
 function _axisArrowAtPoint(x, y) {
+  if (_gizmo && _gizmo.axisX.style.display === 'none') return null; // arrows are off
   const caps = _effectiveCaps();
   if (!_selectedElement || !(caps && caps.movable)) return null;
   const { cx, cy } = _selectionCenter();
@@ -2698,6 +2769,7 @@ let _rotatePivot = null; // screen-space pivot; the element's transform-origin
 function _startRotate(e) {
   if (!_selectedElement) return;
   _isRotating = true;
+  if (_gizmo) _gizmo.pivot.style.display = 'block';
   _rotateDeltaDeg = 0;
   _gestureScale = _scalesOf(_selectedElement);
   _originalRect = _selectedElement.getBoundingClientRect();
@@ -2737,11 +2809,11 @@ function _onRotate(e) {
 function _endRotate(e) {
   if (!_isRotating) return;
   _isRotating = false;
+  if (_gizmo) _gizmo.pivot.style.display = 'none';
   document.body.style.cursor = 'crosshair';
   const deltaDeg = Math.round(_rotateDeltaDeg * 10) / 10;
   _selectionOverlay.style.transform = '';
   _selectionOverlay.style.transformOrigin = '';
-  if (_labelBadge) _labelBadge.style.display = 'block';
   if (Math.abs(deltaDeg) >= 0.5) {
     _suppressClickUntil = _now() + 400;
     _sendDomGesture('rotate', { deltaDeg: deltaDeg });
@@ -3267,11 +3339,7 @@ window.XgeniaEditorInspectorAPI = {
           } else if (_isInsideSelection(p.x, p.y) && !_bridgeOwns(e.target)) {
             document.body.style.cursor = (caps && caps.movable) ? 'move' : 'crosshair';
             _setHotZone(null);
-            if (caps && caps.movable) {
-              _showActionTip('move', p.x, p.y);
-            } else {
-              _hideActionTip();
-            }
+            _hideActionTip(); // the move cursor says it; a tip here covered the node's content
           } else {
             document.body.style.cursor = 'crosshair';
             _setHotZone(null);
