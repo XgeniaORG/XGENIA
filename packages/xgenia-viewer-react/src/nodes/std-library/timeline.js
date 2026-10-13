@@ -11,7 +11,7 @@
 var TimelineEval = require('./timeline-eval');
 
 var REGISTRY_KEY = '__XGENIA_TIMELINES';
-// The timer is one long scheduler timer that runs while playing; time is measured, not taken from t.
+// The ticker is one long timer that runs while playing; time is measured, not taken from t.
 var TICKER_DURATION_MS = 1e9;
 
 function now() {
@@ -137,14 +137,14 @@ var TimelineNode = {
     // nodeId|param -> {nodeId, param}: every input this timeline has written, to restore.
     internal.touched = {};
 
-    internal.timer = this.context.timerScheduler.createTimer({
+    internal.ticker = this.context.timerScheduler.createTimer({
       duration: TICKER_DURATION_MS,
       onRunning: function () {
         self._tick();
       },
       onFinish: function () {
         // ~11 days of continuous play: keep going.
-        if (internal.playing) internal.timer.start();
+        if (internal.playing) internal.ticker.start();
       }
     });
 
@@ -177,7 +177,7 @@ var TimelineNode = {
 
     this.addDeleteListener(function () {
       internal.playing = false;
-      internal.timer.stop();
+      internal.ticker.stop();
       self._restoreBase();
       unregisterTimeline(self.id, internal.editorApi);
     });
@@ -390,16 +390,16 @@ var TimelineNode = {
       this._setPlaying(true);
       this._apply(internal.time);
       this._flagTime();
-      internal.timer.start();
+      internal.ticker.start();
     },
     _pause: function () {
       var internal = this._internal;
-      internal.timer.stop();
+      internal.ticker.stop();
       this._setPlaying(false);
     },
     _stop: function () {
       var internal = this._internal;
-      internal.timer.stop();
+      internal.ticker.stop();
       internal.scrubbing = false;
       internal.time = 0;
       this._setPlaying(false);
@@ -439,7 +439,7 @@ var TimelineNode = {
       this._flagTime();
 
       if (finished) {
-        internal.timer.stop();
+        internal.ticker.stop();
         this._setPlaying(false);
         this.sendSignalOnOutput('finished');
       }
@@ -461,7 +461,7 @@ var TimelineNode = {
     _endScrub: function () {
       var internal = this._internal;
       internal.scrubbing = false;
-      internal.timer.stop();
+      internal.ticker.stop();
       internal.time = 0;
       this._setPlaying(false);
       this._restoreBase();

@@ -20,7 +20,7 @@
  *      or "retry with nodeId", with no call wrapper. Because this prose is emitted from
  *      inside that tool's own handler, it is implicitly advice to retry THAT SAME tool, so
  *      the named identifier is checked against that tool's own schema. This is what caught
- *      `get_node_script`'s `componentPath` remedy (handler at get-node-script.ts:741) while the
+ *      `get_node_script`'s `componentPath` remedy (handler at get-node-script.ts:651) while the
  *      schema had no such field, and the sentence never wraps itself in `get_node_script({...})`.
  *
  * FAIL CLOSED: anything this script cannot parse (unbalanced braces in a call site, a
