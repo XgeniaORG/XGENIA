@@ -22,17 +22,24 @@ pointer updates, config tweaks):
    ```bash
    git checkout develop
    git pull origin develop
-   git checkout -b feature/<short-description>
+   git checkout -b side/<short-description>
    ```
-4. **One branch per session, not one per change.** Accumulate all the work
-   for this piece of work on that single branch — follow-ups, fixes, review
-   feedback included. Don't spin up a dozen branches in one session; only
-   branch again for genuinely separate work.
+4. **One side branch per agent, not a feature branch per change.** Name it
+   `side/<short-description>` and put everything the session does on it:
+   follow-ups, fixes, review feedback. Don't open a new branch per feature;
+   the repo must not fill up with feature branches nobody merges. Only open a
+   second side branch for genuinely separate work, after the first is merged.
+   Never leave work sitting on a branch: a side branch exists to be merged
+   into `develop` the same day (squash, after approval) and is deleted on
+   merge (the repo deletes merged branches automatically).
+   Keep your own checkout on the latest `develop` too (`git pull` plus
+   `git -C private checkout -B main origin/main` and `npm install`), never
+   on an old branch: an old checkout runs an old editor.
 5. **When you're done on the branch, open a PR** — a branch isn't finished
    until a PR exists for it. Push it and use the GitHub CLI, base always
    `develop`, never `main`:
    ```bash
-   git push -u origin feature/<short-description>
+   git push -u origin side/<short-description>
    gh pr create --base develop --title "<what it does>" --body "<summary>"
    ```
    More work on the same change after the PR is open goes on the same branch;
