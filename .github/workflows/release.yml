@@ -169,15 +169,33 @@ jobs:
     needs: [plan, draft-release]
     runs-on: ubuntu-latest
     steps:
+      # Without the key, actions/checkout quietly falls back to the GITHUB_TOKEN over https, which
+      # develop's ruleset always rejects. Not set up yet: skip with a warning; releases still work,
+      # since the next nightly skips versions already taken, only package.json lags behind.
+      - name: Deploy key set up?
+        id: key
+        env:
+          HAS_DEPLOY_KEY: ${{ secrets.BOT_DEPLOY_KEY != '' }}
+        run: |
+          if [ "$HAS_DEPLOY_KEY" = "true" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::BOT_DEPLOY_KEY is not set, so develop's version was not moved on (update-plan.md → Setup checklist 1-3)."
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.key.outputs.ok == 'true'
         with:
           ref: develop
           ssh-key: ${{ secrets.BOT_DEPLOY_KEY }}
 
       - name: Commit the next version to develop
+        if: steps.key.outputs.ok == 'true'
         env:
           RELEASED: ${{ needs.plan.outputs.version }}
         run: |
+          # Only the deploy key gets past develop's ruleset; a push over https is the GITHUB_TOKEN's.
+          git remote get-url --push origin | grep -q '^git@github.com:' || { echo "::error::origin is not the deploy key's ssh remote"; exit 1; }
           NEXT=$(node scripts/release/next-version.mjs bump "$RELEASED")
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -196,5 +214,5 @@ jobs:
             echo "Push rejected (try $i); retrying on the newest develop"
             sleep 5
           done
-          echo "::error::could not push the version bump to develop"
+          echo "::error::develop rejected the version bump. Its ruleset needs \"Deploy keys\" in the bypass list (update-plan.md → Setup checklist 3)."
           exit 1
