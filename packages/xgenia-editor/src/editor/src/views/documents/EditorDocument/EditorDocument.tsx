@@ -22,6 +22,7 @@ import { Frame } from '../../common/Frame';
 import { PreviewSurface } from '../../VisualCanvas/PreviewSurface';
 import { clampSize } from '../../VisualCanvas/frameSnap';
 import { EditorTopbar } from '../../EditorTopbar';
+import { DocsChat } from '../../DocsChat/DocsChat';
 import { HelpCenter } from '../../HelpCenter';
 import { NodeGraphEditor } from '../../nodegrapheditor';
 import { NodeGraphEditorNode } from '../../nodegrapheditor/NodeGraphEditorNode';
@@ -703,6 +704,7 @@ function EditorDocument() {
       </div>
 
       <HelpCenter />
+      <DocsChat />
 
     </Container>
   );

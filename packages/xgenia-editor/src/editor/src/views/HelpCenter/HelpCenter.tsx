@@ -16,6 +16,8 @@ import { Title, TitleSize } from '@xgenia-core-ui/components/typography/Title';
 
 import css from './HelpCenter.module.scss';
 import getDocsEndpoint from '@xgenia-utils/getDocsEndpoint';
+import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
+import { OPEN_DOCS_CHAT_EVENT } from '../DocsChat/DocsChat';
 
 
 export function HelpCenter() {
@@ -51,6 +53,11 @@ export function HelpCenter() {
         isVisible={isDialogVisible}
         onClose={() => setIsDialogVisible(false)}
         items={[
+          {
+            label: 'Ask the docs (AI)',
+            icon: IconName.Chat,
+            onClick: () => EventDispatcher.instance.emit(OPEN_DOCS_CHAT_EVENT)
+          },
           {
             label: 'Quick search docs',
             icon: IconName.Search,
