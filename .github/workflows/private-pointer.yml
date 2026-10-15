@@ -29,13 +29,6 @@ on:
   schedule:
     - cron: '17 * * * *'
   workflow_dispatch:
-  # TEST-BRANCH: remove before merging. repository_dispatch, schedule and workflow_dispatch only run
-  # from the default branch, so while this lives on workflow/update a push is the only way to start
-  # it. Every push to private main pushes an empty commit to ci/private-push (private repo:
-  # notify-xgenia-test.yml); a push to workflow/update also checks. Either way it checks private main
-  # and bumps if it moved.
-  push:
-    branches: [workflow/update, ci/private-push]
 
 concurrency:
   group: private-pointer
@@ -46,12 +39,14 @@ permissions:
 
 jobs:
   bump:
+    # Skips (no failure, no Teams alert) until the bot's GitHub App is set up — see Setup above.
+    if: vars.POINTER_BOT_APP_ID != ''
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
       BRANCH: bot/private-pointer
       # The branch whose pointer the bot keeps current and whose pushes become nightlies.
-      BASE: workflow/update # TEST-BRANCH: develop
+      BASE: develop
       PRIVATE_REPO: XgeniaORG/XFORGE_Private
     steps:
       - name: App token
@@ -71,8 +66,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           PRIVATE_PAT: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
-          # TEST-BRANCH: '4'. While testing, every private commit is a rebuild: no throttle.
-          MIN_HOURS: ${{ vars.PRIVATE_POINTER_MIN_HOURS || '0' }}
+          MIN_HOURS: ${{ vars.PRIVATE_POINTER_MIN_HOURS || '4' }}
           MANUAL: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: |
           test -n "$PRIVATE_PAT" || { echo "::error::PRIVATE_SUBMODULE_PAT is missing"; exit 1; }

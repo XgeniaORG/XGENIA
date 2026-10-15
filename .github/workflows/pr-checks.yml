@@ -5,7 +5,7 @@ name: PR checks
 # required check on develop.
 on:
   pull_request:
-    branches: [develop, workflow/update] # TEST-BRANCH: [develop]
+    branches: [develop]
 
 concurrency:
   group: pr-checks-${{ github.event.pull_request.number }}
@@ -29,7 +29,7 @@ jobs:
       - name: No test-branch settings into develop
         if: github.base_ref == 'develop'
         run: |
-          if grep -rn 'TEST-BRANCH' .github/; then
+          if grep -rn --exclude=pr-checks.yml 'TEST-BRANCH' .github/; then
             echo "::error::undo the TEST-BRANCH settings above before merging into develop"
             exit 1
           fi
