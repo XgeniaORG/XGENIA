@@ -139,6 +139,16 @@ rules above: its own branch, PR against `develop`, approval, squash-merge.
 "It's only a pointer bump" is not an exemption — it is precisely the case
 this document exists for.
 
+The one exception is the **private pointer bot** (`.github/workflows/private-pointer.yml`,
+2026-10-06). It is a GitHub App that opens `bot/private-pointer` PRs moving the
+pointer to the latest private `main`, waits for the required checks, and
+squash-merges them without a human approval: the App is a bypass actor on
+`develop` for the review rule. The checks are its gate, and it refuses to merge
+a PR that changes anything other than `private`. The exception is for that bot
+only. An agent or a person bumping the pointer by hand still follows the full
+branch, PR, approval and squash-merge flow, and should usually not need to: the
+bot moves it within a few hours of a push to private `main`.
+
 ## Relationship to "ask before touching production"
 
 This document governs *which branches* a change is allowed to land on in the

@@ -16,6 +16,8 @@ export enum TitleBarVariant {
 export enum TitleBarState {
   Default = 'default',
   UpdateAvailable = 'version-available',
+  /** An update is downloading in the background; shows `updateProgress`. */
+  UpdateDownloading = 'version-downloading',
   Updated = 'version-updated'
 }
 
@@ -25,6 +27,8 @@ export interface TitleBarProps {
 
   state?: TitleBarState;
   variant?: TitleBarVariant;
+  /** 0–100, shown while `state` is UpdateDownloading. */
+  updateProgress?: number;
 
   onNewVersionAvailableClicked?: () => void;
   onNewUpdateAvailableClicked?: () => void;
@@ -52,6 +56,7 @@ export function TitleBar({
   version,
   state = TitleBarState.Default,
   variant = TitleBarVariant.Default,
+  updateProgress,
   onNewVersionAvailableClicked,
   onNewUpdateAvailableClicked,
   hasWindowControls,
@@ -85,9 +90,15 @@ export function TitleBar({
             />
           )}
 
+          {state === TitleBarState.UpdateDownloading && (
+            <div className={classNames(css['UpdateStatus'])}>
+              {`Downloading update${Number.isFinite(updateProgress) ? ` ${updateProgress}%` : '…'}`}
+            </div>
+          )}
+
           {state === TitleBarState.Updated && (
             <TextButton
-              label="New update downloaded"
+              label="Restart to update"
               onClick={onNewUpdateAvailableClicked}
               size={TextButtonSize.Small}
               variant={FeedbackType.Notice}
