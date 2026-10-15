@@ -61,7 +61,7 @@ jobs:
       - name: Engine tests
         run: |
           npm test -w @xgenia/runtime -- --ci
-          node --test 'packages/xgenia-editor/tests/live-engine/*.test.cjs' 'packages/xgenia-editor/tests/auto-update/*.test.cjs' 'packages/xgenia-editor/tests/updater/*.test.cjs'
+          node --test 'packages/xgenia-editor/tests/live-engine/*.test.cjs' 'packages/xgenia-editor/tests/auto-update/*.test.cjs' 'packages/xgenia-editor/tests/updater/*.test.cjs' 'packages/xgenia-editor/tests/main/*.test.cjs'
           node --test scripts/live-engine/pack.test.mjs scripts/live-engine/workflow.test.mjs scripts/live-engine/minify-viewer.test.mjs
           node --test scripts/release/*.test.mjs
           npx tsx packages/xgenia-runtime/src/api/test-compiler-bundle-parity.ts

@@ -85,8 +85,10 @@ export class PlatformElectron implements IPlatform {
   }
 
   async copyToClipboard(value: string): Promise<void> {
-    clipboard.writeText(value);
-    return Promise.resolve();
+    // Electron 44 removed `clipboard` from renderer processes, so it is undefined there and the
+    // W3C API does the job; in the main process Electron's own clipboard still works.
+    if (clipboard) await clipboard.writeText(value);
+    else await navigator.clipboard.writeText(value);
   }
 
   /**

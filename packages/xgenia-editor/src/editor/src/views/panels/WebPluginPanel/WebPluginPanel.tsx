@@ -22,6 +22,7 @@ import { createPortal } from 'react-dom';
 
 import { PluginLoader, isVerdict, pluginOrigin, webPanelPlugins, WEB_PLUGIN_FRAME_ATTR, type EntitlementsResponse } from '../ChatPanelBridge/PluginLoader';
 import { entitlementsForPanelOpen, nextFrameUrl } from './webPluginFrame';
+import { usePanelActive } from '../useIsActivePanel';
 
 /**
  * `not-entitled` is reserved for a VERDICT (the server said no); `unavailable` is "we could
@@ -37,9 +38,19 @@ export interface WebPluginPanelProps {
  * The panel is mounted inside LeftPanelCard, whose z-index makes it a stacking context: a `position: fixed`
  * child there stays under every later sibling layer, so the node inspector (RightPropertyPanel) covered the
  * plugin's right side. Rendering into document.body lets the full-window panel sit above the editor as intended.
+ *
+ * The portal also escapes the host's `display: none`, which is how PanelHost hides a panel the user switched
+ * away from (or closed) while keeping it mounted, so the panel stayed over the editor for good. It hides itself
+ * when the host says it is off screen; the iframe stays mounted, so switching back keeps the plugin's state.
  */
 export function WebPluginPanel(props: WebPluginPanelProps) {
-    return createPortal(<WebPluginPanelContent {...props} />, document.body);
+    const isActive = usePanelActive();
+    return createPortal(
+        <div style={{ display: isActive ? 'contents' : 'none' }}>
+            <WebPluginPanelContent {...props} />
+        </div>,
+        document.body
+    );
 }
 
 function WebPluginPanelContent({ pluginId }: WebPluginPanelProps) {

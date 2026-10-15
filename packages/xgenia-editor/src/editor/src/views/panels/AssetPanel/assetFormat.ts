@@ -1,3 +1,5 @@
+import { writeClipboardText } from '@xgenia-utils/systemClipboard';
+
 // Small display helpers shared by the library and the inspector.
 
 export function formatBytes(n?: number): string {
@@ -27,12 +29,5 @@ export function formatShortDate(ts?: number): string {
 }
 
 export function copyText(text: string): void {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    require('@electron/remote').clipboard.writeText(text);
-    return;
-  } catch {
-    /* not in Electron */
-  }
-  void navigator.clipboard?.writeText(text);
+  void writeClipboardText(text).catch((e) => console.warn('[assetFormat] copy failed', e));
 }

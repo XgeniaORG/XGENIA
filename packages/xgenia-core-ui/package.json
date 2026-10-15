@@ -24,8 +24,7 @@
     "dugite": "2.7.1",
     "lerna": "8.2.0",
     "mkdirp": "0.5.6",
-    "passport": "0.7.0",
-    "websocket-stream": "5.3.0"
+    "passport": "0.7.0"
   },
   "peerDependencies": {
     "@xgenia/platform": "file:../xgenia-platform",

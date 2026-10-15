@@ -1,5 +1,5 @@
 import debug from 'debug';
-import { clipboard, ipcRenderer } from 'electron';
+import { ipcRenderer } from 'electron';
 import _ from 'underscore';
 import React from 'react';
 import { createRoot, Root } from 'react-dom/client';
@@ -20,6 +20,7 @@ import { canExtractToComponent, extractToComponent } from '@xgenia-utils/Extract
 import { KeyCode } from '@xgenia-utils/keyboard/KeyCode';
 import KeyboardHandler, { KeyboardCommand } from '@xgenia-utils/keyboardhandler';
 import { Model } from '@xgenia-utils/model';
+import { readClipboardText, writeClipboardText } from '@xgenia-utils/systemClipboard';
 import { getComponentModelRuntimeType } from '@xgenia-utils/NodeGraph';
 
 import { IconName } from '@xgenia-core-ui/components/common/Icon';
@@ -894,7 +895,9 @@ export class NodeGraphEditor extends View {
     if (nodes.length > 0 || nodeset.comments.length > 0) {
       this.clipboard = nodeset.clone();
       this.clipboard.strip();
-      clipboard.writeText(JSON.stringify(this.clipboard.toJSON()));
+      void writeClipboardText(JSON.stringify(this.clipboard.toJSON())).catch((e) =>
+        console.warn('[nodegrapheditor] system clipboard write failed', e)
+      );
     } else {
       this.clipboard = undefined;
     }
@@ -1009,9 +1012,9 @@ export class NodeGraphEditor extends View {
     ToastLayer.showInteraction('Cut');
   }
 
-  getNodeSetFromClipboard() {
+  async getNodeSetFromClipboard() {
     try {
-      const text = clipboard.readText();
+      const text = await readClipboardText();
       if (!text) return;
 
       var json = JSON.parse(text);
@@ -1133,8 +1136,8 @@ export class NodeGraphEditor extends View {
     return ns;
   }
 
-  paste() {
-    const ns = this.getNodeSetFromClipboard() || this.clipboard;
+  async paste() {
+    const ns = (await this.getNodeSetFromClipboard()) || this.clipboard;
     if (!ns) return;
 
     this.insertNodeSet({

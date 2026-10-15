@@ -1,16 +1,18 @@
 const Store = require('electron-store');
 const { ipcMain, safeStorage } = require('electron');
 
-function execute(method, args) {
+// The async safeStorage methods: the sync ones are deprecated in Electron 45 and removed in 46.
+// They use the same OS key stores, so strings encrypted by older builds still decrypt.
+async function execute(method, args) {
   switch (method) {
     case 'decryptString':
-      return safeStorage.decryptString(Buffer.from(args[0], 'latin1'));
+      return (await safeStorage.decryptStringAsync(Buffer.from(args[0], 'latin1'))).result;
 
     case 'encryptString':
-      return safeStorage.encryptString(args[0]).toString('latin1');
+      return (await safeStorage.encryptStringAsync(args[0])).toString('latin1');
 
     case 'isEncryptionAvailable':
-      return safeStorage.isEncryptionAvailable();
+      return safeStorage.isAsyncEncryptionAvailable();
   }
 }
 
@@ -18,13 +20,15 @@ module.exports = {
   setup(mainWindow) {
     Store.initRenderer();
 
-    ipcMain.on('storage-api', (_, { token, method, args }) => {
+    ipcMain.on('storage-api', async (_, { token, method, args }) => {
+      let data;
       try {
-        const data = execute(method, args);
-        mainWindow.webContents.send('storage-api', { token, data });
+        data = await execute(method, args);
       } catch (error) {
+        // Still answer, or the renderer's promise waits forever.
         console.error('[Storage]', error);
       }
+      if (!mainWindow.isDestroyed()) mainWindow.webContents.send('storage-api', { token, data });
     });
   }
 };

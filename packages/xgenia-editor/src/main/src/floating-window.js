@@ -118,14 +118,10 @@ FloatingWindow.prototype.open = function ({ x, y, width, height, minWidth, minHe
   require('@electron/remote/main').enable(this.window.webContents);
 
   // Add error handling for preload script issues
-  this.window.webContents.on('console-message', (event, level, message, line, sourceId) => {
+  this.window.webContents.on('console-message', ({ message }) => {
     if (message.includes('[Preload]')) {
       console.log(`[FloatingWindow] Preload log: ${message}`);
     }
-  });
-
-  this.window.webContents.on('crashed', (event, killed) => {
-    console.error('[FloatingWindow] WebContents crashed. Killed:', killed);
   });
 
   this.window.webContents.on('unresponsive', () => {

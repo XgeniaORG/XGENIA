@@ -20,6 +20,8 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 
+import { getPathForFile } from '@xgenia-utils/filePath';
+
 /** Outlasts the leave → over pair of a move between two elements; too short to be seen. */
 const LEAVE_GRACE_MS = 100;
 
@@ -90,7 +92,7 @@ export function useDropToAdd(onDropPaths: (paths: string[]) => void): DropToAdd 
 
         // Read now: the DataTransfer is emptied once this handler returns.
         const paths = Array.from(e.dataTransfer.files)
-          .map((f) => (f as File & { path?: string }).path || '')
+          .map((f) => getPathForFile(f))
           .filter(Boolean);
 
         onDropPaths(paths);

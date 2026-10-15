@@ -2,7 +2,7 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const nodePath = require('path');
-const URL = require('url');
+const { parseRequestUrl } = require('./request-url');
 const path = require('path');
 
 const { contentTypeForUrl } = require('./content-type');
@@ -622,7 +622,7 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
   }
 
   function handleRequest(request, response) {
-    var parsedUrl = URL.parse(request.url, true);
+    var parsedUrl = parseRequestUrl(request.url);
     let requestPath;
     try {
       requestPath = decodeURI(parsedUrl.pathname);

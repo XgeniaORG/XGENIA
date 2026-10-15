@@ -345,24 +345,6 @@ export class CanvasView extends View {
 
     webview.addEventListener('did-start-loading', () => {
       console.log('[CanvasView] Webview started loading');
-
-      // Enable @electron/remote for this webview as soon as it starts loading
-      // Note: This is optional and may not work in newer Electron versions
-      try {
-        const electron = require('electron');
-        if (electron?.remote && electron?.webContents) {
-          const remoteMain = electron.remote.require('@electron/remote/main');
-          const webviewContents = electron.webContents.fromId(webview.getWebContentsId());
-          if (webviewContents && remoteMain?.enable) {
-            remoteMain.enable(webviewContents);
-            console.log('[CanvasView] Enabled @electron/remote for webview');
-          }
-        }
-        // Silently skip if remote isn't available - it's not required for core functionality
-      } catch (error: any) {
-        // @electron/remote is optional - webview works fine without it
-        console.log('[CanvasView] @electron/remote not available (this is OK)');
-      }
     });
 
     webview.addEventListener('did-stop-loading', () => {

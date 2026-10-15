@@ -2,7 +2,7 @@ const electron = require('electron');
 const { BrowserWindow, ipcMain } = electron;
 const http = require('http');
 const https = require('https');
-const URL = require('url');
+const { parseRequestUrl } = require('./request-url');
 
 var port = process.env.XGENIA_CLOUD_FUNCTIONS_PORT || 8577;
 
@@ -114,11 +114,17 @@ function startCloudFunctionServer(app, cloudServicesGetActive, mainWindow) {
 
   ipcMain.on('xgenia-cf-fetch', function (event, args) {
     const token = args.token;
-    const url = URL.parse(args.url, true);
+    let url;
+    try {
+      url = new URL(args.url);
+    } catch (error) {
+      sandbox.webContents.send('xgenia-cf-fetch-response', { token, error });
+      return;
+    }
 
     const _options = {
-      hostname: url.hostname,
-      port: url.port,
+      hostname: url.hostname.replace(/^\[|\]$/g, ''), // WHATWG keeps IPv6 brackets; http.request wants none
+      port: url.port || undefined,
       path: url.pathname,
       method: args.method || 'GET',
       headers: args.headers
@@ -175,7 +181,7 @@ function startCloudFunctionServer(app, cloudServicesGetActive, mainWindow) {
       response.writeHead(204, headers);
       response.end();
     } else if (request.method === 'POST') {
-      var parsedUrl = URL.parse(request.url, true);
+      var parsedUrl = parseRequestUrl(request.url);
 
       let path = decodeURI(parsedUrl.pathname);
 
