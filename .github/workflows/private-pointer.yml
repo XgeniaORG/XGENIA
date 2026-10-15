@@ -1,27 +1,31 @@
 name: Private pointer
 
-# Keeps develop's private/ pointer on the latest private main, through a PR that merges itself once
-# its checks pass. That merge is a push to develop, which starts nightly.yml: a change on private
-# reaches beta installs as a versioned nightly with no one touching this repo.
+# Keeps the private/ pointer on the latest private main, without a person and without a GitHub App:
+#   1. decide: is private main ahead of the pointer, and is a bump due (throttle)?
+#   2. checks: the PR checks (pr-checks.yml, called as a reusable workflow) against the branch with
+#      private/ at the new commit;
+#   3. push:   only if they pass, a commit that changes nothing but the private gitlink, pushed straight
+#      to the branch over a deploy key.
+# That push starts nightly.yml: pushes made over a deploy key start workflows, pushes made with the
+# built-in GITHUB_TOKEN do not. On develop, a ruleset lists deploy keys as a bypass actor, so this
+# push needs no PR or approval; the checks in step 2 are the gate.
 #
 # Triggers:
 #   - private-main-push, sent by the private repo on every push to main
 #     (XFORGE_Private/.github/workflows/notify-live-engine.yml);
 #   - an hourly schedule, which picks up whatever the throttle held back and covers a lost dispatch;
 #   - manual runs, which skip the throttle.
-# repository_dispatch and schedule only ever run the copy of this file on the default branch (main),
-# so this starts working once it has been released to main.
+# repository_dispatch and schedule only ever run the copy of this file on the default branch (main).
 #
-# Pushes to private are uneven: one a day, or twenty. The throttle merges at most one bump per
+# Pushes to private are uneven: one a day, or twenty. The throttle pushes at most one bump per
 # PRIVATE_POINTER_MIN_HOURS (repo variable, default 4), so a quiet day ships its one commit within the
 # hour and a busy day becomes a few nightlies, not twenty. Runs queue rather than cancel each other
 # (one running, the newest waiting), so a bump always gets to finish.
 #
-# Setup (once, by an org admin):
-#   - a GitHub App installed on this repo with Contents and Pull requests read/write;
-#     vars.POINTER_BOT_APP_ID and secrets.POINTER_BOT_PRIVATE_KEY. Its pushes and merges start other
-#     workflows (nightly.yml, pr-checks.yml); GITHUB_TOKEN's would not.
-#   - develop's ruleset: the App as a bypass actor, and "PR checks / Engine tests" as a required check.
+# Setup (repo admin, no org settings needed):
+#   - a deploy key with write access (Settings → Deploy keys); its private half is the secret
+#     BOT_DEPLOY_KEY;
+#   - develop protected by a ruleset (Settings → Rules) with "Deploy keys" in its bypass list;
 #   - secrets.PRIVATE_SUBMODULE_PAT, already used by the build workflows, to read private main.
 on:
   repository_dispatch:
@@ -37,38 +41,41 @@ concurrency:
 permissions:
   contents: read
 
-jobs:
-  bump:
-    # Skips (no failure, no Teams alert) until the bot's GitHub App is set up — see Setup above.
-    if: vars.POINTER_BOT_APP_ID != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    env:
-      BRANCH: bot/private-pointer
-      # The branch whose pointer the bot keeps current and whose pushes become nightlies.
-      BASE: develop
-      PRIVATE_REPO: XgeniaORG/XFORGE_Private
-    steps:
-      - name: App token
-        id: app
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ vars.POINTER_BOT_APP_ID }}
-          private-key: ${{ secrets.POINTER_BOT_PRIVATE_KEY }}
+env:
+  # The branch whose pointer the bot keeps current and whose pushes become nightlies.
+  BASE: develop
+  PRIVATE_REPO: XgeniaORG/XFORGE_Private
 
+jobs:
+  decide:
+    runs-on: ubuntu-latest
+    outputs:
+      bump: ${{ steps.decide.outputs.bump }}
+      base: ${{ steps.decide.outputs.base }}
+      latest: ${{ steps.decide.outputs.latest }}
+      pinned: ${{ steps.decide.outputs.pinned }}
+      count: ${{ steps.decide.outputs.count }}
+    steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.BASE }}
-          token: ${{ steps.app.outputs.token }}
 
       - name: Decide
         id: decide
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PRIVATE_PAT: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
           MIN_HOURS: ${{ vars.PRIVATE_POINTER_MIN_HOURS || '4' }}
           MANUAL: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+          HAS_DEPLOY_KEY: ${{ secrets.BOT_DEPLOY_KEY != '' }}
         run: |
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          # Not set up yet (see Setup above): skip quietly rather than fail and alert the team hourly.
+          if [ "$HAS_DEPLOY_KEY" != "true" ]; then
+            echo "::notice::BOT_DEPLOY_KEY is not set; the private pointer bot is off."
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           test -n "$PRIVATE_PAT" || { echo "::error::PRIVATE_SUBMODULE_PAT is missing"; exit 1; }
           LATEST=$(git ls-remote "https://x-access-token:${PRIVATE_PAT}@github.com/${PRIVATE_REPO}.git" refs/heads/main | cut -f1)
           PINNED=$(git ls-tree HEAD private | awk '{print $3}')
@@ -79,11 +86,13 @@ jobs:
             echo "bump=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          LAST_MERGE=$(gh pr list --base "$BASE" --head "$BRANCH" --state merged --limit 1 --json mergedAt --jq '.[0].mergedAt // empty')
-          if [ -z "$MANUAL" ] && [ -n "$LAST_MERGE" ]; then
-            AGE=$(( $(date -u +%s) - $(date -u -d "$LAST_MERGE" +%s) ))
+          # When the bot last bumped this branch: its commits all start with the same message.
+          LAST_BUMP=$(gh api "repos/$GITHUB_REPOSITORY/commits?sha=$BASE&per_page=100" \
+            --jq '[.[] | select(.commit.message | startswith("Move private pointer to"))][0].commit.committer.date // empty')
+          if [ -z "$MANUAL" ] && [ -n "$LAST_BUMP" ]; then
+            AGE=$(( $(date -u +%s) - $(date -u -d "$LAST_BUMP" +%s) ))
             if [ "$AGE" -lt $(( MIN_HOURS * 3600 )) ]; then
-              echo "Last bump merged ${AGE}s ago (< ${MIN_HOURS}h); the hourly run picks this up later."
+              echo "Last bump ${AGE}s ago (< ${MIN_HOURS}h); the hourly run picks this up later."
               echo "bump=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
@@ -97,84 +106,72 @@ jobs:
             echo "count=$COUNT"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Push the bump branch
-        id: push
-        if: steps.decide.outputs.bump == 'true'
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-          LATEST: ${{ steps.decide.outputs.latest }}
-          APP_SLUG: ${{ steps.app.outputs.app-slug }}
-        run: |
-          # An open bump PR already pointing here: leave it, so its running checks are not restarted.
-          OPEN_AT=$(gh api "repos/$GITHUB_REPOSITORY/contents/private?ref=$BRANCH" --jq .sha 2>/dev/null || true)
-          if [ "$OPEN_AT" = "$LATEST" ] && [ -n "$(gh pr list --base "$BASE" --head "$BRANCH" --state open --json number --jq '.[0].number // empty')" ]; then
-            echo "The open bump PR already points at ${LATEST:0:8}."
-            exit 0
-          fi
-          git config user.name "${APP_SLUG}[bot]"
-          git config user.email "${APP_SLUG}[bot]@users.noreply.github.com"
-          git checkout -B "$BRANCH"
-          # Only the gitlink changes; private/ itself is never checked out here.
-          git update-index --cacheinfo "160000,${LATEST},private"
-          git commit -m "Move private pointer to ${LATEST:0:8}"
-          git push --force origin "$BRANCH"
+  # The same checks a PR into the branch gets, with private/ at the commit about to be pinned.
+  checks:
+    needs: decide
+    if: needs.decide.outputs.bump == 'true'
+    uses: ./.github/workflows/pr-checks.yml
+    with:
+      ref: ${{ needs.decide.outputs.base }}
+      private-sha: ${{ needs.decide.outputs.latest }}
+    secrets: inherit
 
-      - name: Open or update the PR
-        id: pr
-        if: steps.decide.outputs.bump == 'true'
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-          LATEST: ${{ steps.decide.outputs.latest }}
-          PINNED: ${{ steps.decide.outputs.pinned }}
-          COUNT: ${{ steps.decide.outputs.count }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          BODY=$(printf '%s\n' \
-            "Moves \`private/\` from \`${PINNED:0:8}\` to \`${LATEST:0:8}\` (${COUNT} commits on private main)." \
-            "" \
-            "Opened by [Private pointer](${RUN_URL}). It merges itself once the required checks pass;" \
-            "the merge starts a nightly build that beta installs update to." \
-            "" \
-            "Nothing else changes in this PR. If a check fails it stays open, and the next private push updates it.")
-          PR=$(gh pr list --base "$BASE" --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
-          if [ -z "$PR" ]; then
-            gh pr create --base "$BASE" --head "$BRANCH" --title "Move private pointer to ${LATEST:0:8}" --body "$BODY"
-            PR=$(gh pr list --base "$BASE" --head "$BRANCH" --state open --json number --jq '.[0].number')
-          else
-            gh pr edit "$PR" --title "Move private pointer to ${LATEST:0:8}" --body "$BODY"
-          fi
-          echo "number=$PR" >> "$GITHUB_OUTPUT"
+  push:
+    needs: [decide, checks]
+    runs-on: ubuntu-latest
+    steps:
+      # Over the deploy key: that is what lets this push start nightly.yml, and get past develop's
+      # ruleset. This job installs nothing, so the key is never next to third-party code.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.decide.outputs.base }}
+          ssh-key: ${{ secrets.BOT_DEPLOY_KEY }}
 
-      - name: Wait for checks, then merge
-        if: steps.decide.outputs.bump == 'true'
+      - name: Push the pointer bump
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-          PR: ${{ steps.pr.outputs.number }}
+          LATEST: ${{ needs.decide.outputs.latest }}
+          PINNED: ${{ needs.decide.outputs.pinned }}
+          COUNT: ${{ needs.decide.outputs.count }}
         run: |
-          # The PR's checks take a moment to register after a push.
-          for i in $(seq 1 20); do
-            gh pr checks "$PR" 2>&1 | grep -q 'no checks reported' || break
-            sleep 15
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The branch may have moved while the checks ran: put the bump on its newest commit, and
+          # try again if someone pushes in between. Only the gitlink changes; private/ is never
+          # checked out here.
+          for i in 1 2 3; do
+            git fetch --quiet origin "$BASE"
+            git reset --quiet --hard "origin/$BASE"
+            if [ "$(git ls-tree HEAD private | awk '{print $3}')" = "$LATEST" ]; then
+              echo "$BASE already points at ${LATEST:0:8}."
+              exit 0
+            fi
+            git update-index --cacheinfo "160000,${LATEST},private"
+            git commit --quiet -m "Move private pointer to ${LATEST:0:8}" \
+              -m "From ${PINNED:0:8}, ${COUNT} commits on private main. Pushed by the private pointer bot after the PR checks passed: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            CHANGED=$(git diff --name-only HEAD~1 HEAD)
+            test "$CHANGED" = "private" || { echo "::error::the bump would change more than private/: $CHANGED"; exit 1; }
+            git push origin "HEAD:$BASE" && exit 0
+            echo "Push rejected (try $i); retrying on the newest $BASE"
+            sleep 5
           done
-          if ! gh pr checks "$PR" --watch --interval 30; then
-            echo "::error::checks failed on #$PR; leaving it open"
-            exit 1
-          fi
-          # --admin: the App is a bypass actor on develop for the review rule only; the checks above
-          # are the gate. Only a pointer change ever gets here.
-          CHANGED=$(gh pr diff "$PR" --name-only)
-          test "$CHANGED" = "private" || { echo "::error::#$PR changes more than private/: $CHANGED"; exit 1; }
-          gh pr merge "$PR" --squash --admin --delete-branch
+          echo "::error::could not push the bump to $BASE"
+          exit 1
 
-      - name: Tell the team
-        if: failure()
-        uses: ./.github/actions/teams-notification
+  notify-failure:
+    needs: [decide, checks, push]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+      - uses: ./.github/actions/teams-notification
         with:
           webhook-url: ${{ secrets.TEAMS_WEBHOOK_URL }}
           msg-title: 'Private pointer bump failed'
           msg-text: |
-            ${{ env.BASE }} still points private/ at ${{ steps.decide.outputs.pinned || 'the previous commit' }}.
-            PR: ${{ steps.pr.outputs.number && format('#{0}', steps.pr.outputs.number) || 'not opened' }}
+            ${{ env.BASE }} still points private/ at ${{ needs.decide.outputs.pinned || 'the previous commit' }}.
+            Failed at: ${{ needs.checks.result == 'failure' && 'the checks' || needs.push.result == 'failure' && 'the push' || 'deciding' }}
             The next push to private main, or the hourly run, tries again.
           status: failure
           workflow-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

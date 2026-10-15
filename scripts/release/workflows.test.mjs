@@ -25,18 +25,50 @@ test('builds ship the pinned private commit, not the latest private main', () =>
   }
 });
 
-test('the pointer bot holds its key only in a job that installs nothing, and merges pointer-only PRs', () => {
-  const wf = load('private-pointer.yml');
-  const holders = Object.entries(wf.jobs).filter(([, j]) => JSON.stringify(j).includes('POINTER_BOT_PRIVATE_KEY'));
-  assert.equal(holders.length, 1);
-  for (const [name, job] of holders) {
-    assert.ok(!/npm (install|ci)|npx /.test(JSON.stringify(job.steps)), `${name} installs dependencies and holds the bot key`);
+test('the bots are workflows: no GitHub App, no personal token', () => {
+  for (const name of fs.readdirSync(DIR).filter((n) => /\.ya?ml$/.test(n))) {
+    const text = fs.readFileSync(path.join(DIR, name), 'utf8');
+    assert.ok(!/create-github-app-token|POINTER_BOT_APP_ID|POINTER_BOT_PRIVATE_KEY/.test(text), `${name} uses a GitHub App`);
   }
-  const merge = steps(wf).find((s) => /gh pr merge/.test(s.run || ''));
-  assert.ok(merge, 'no merge step');
-  assert.match(merge.run, /test "\$CHANGED" = "private"/, 'merge is not limited to a pointer-only diff');
-  assert.match(merge.run, /gh pr checks "\$PR" --watch/, 'merge does not wait for the checks');
-  assert.equal(wf.concurrency['cancel-in-progress'], false, 'a newer run would cancel a bump mid-merge');
+});
+
+test('the deploy key only reaches jobs that install nothing', () => {
+  for (const name of ['private-pointer.yml', 'release.yml']) {
+    const holders = Object.entries(load(name).jobs).filter(([, j]) => JSON.stringify(j).includes('BOT_DEPLOY_KEY'));
+    assert.ok(holders.length >= 1, `${name}: no job uses the deploy key`);
+    for (const [job, j] of holders) {
+      assert.ok(!/npm (install|ci)|npx /.test(JSON.stringify(j.steps)), `${name} ${job} installs dependencies and holds the deploy key`);
+    }
+  }
+});
+
+test('the pointer bot pushes a pointer-only commit to develop, only after the PR checks pass', () => {
+  const wf = load('private-pointer.yml');
+  assert.equal(wf.env.BASE, 'develop');
+  assert.ok(!wf.on.push, 'a push trigger is a leftover from testing on another branch');
+  const push = wf.jobs.push;
+  assert.deepEqual(push.needs, ['decide', 'checks'], 'the push must wait for the checks');
+  assert.equal(wf.jobs.checks.uses, './.github/workflows/pr-checks.yml');
+  assert.equal(wf.jobs.checks.with['private-sha'], '${{ needs.decide.outputs.latest }}', 'the checks must test the commit being pinned');
+  const run = push.steps.map((s) => s.run || '').join('\n');
+  assert.match(run, /update-index --cacheinfo "160000,\$\{LATEST\},private"/);
+  assert.match(run, /test "\$CHANGED" = "private"/, 'the push is not limited to a pointer-only change');
+  assert.ok(!/git add/.test(run), 'the bump must not stage anything but the gitlink');
+  assert.equal(wf.concurrency['cancel-in-progress'], false, 'a newer run would cancel a bump mid-push');
+  assert.match(fs.readFileSync(path.join(DIR, 'private-pointer.yml'), 'utf8'), /MIN_HOURS: \$\{\{ vars\.PRIVATE_POINTER_MIN_HOURS \|\| '4' \}\}/);
+});
+
+test('every release moves develop\'s version on, without starting another nightly', () => {
+  const wf = load('release.yml');
+  const bump = wf.jobs['bump-version'];
+  assert.deepEqual(bump.needs, ['plan', 'draft-release'], 'the bump must wait until the release exists');
+  const run = bump.steps.map((s) => s.run || '').join('\n');
+  assert.match(run, /next-version\.mjs bump "\$RELEASED"/);
+  assert.match(run, /next-version\.mjs set packages\/xgenia-editor\/package\.json/);
+  assert.match(run, /\[skip ci\]/, 'the bump commit would start a nightly of its own');
+  assert.match(run, /test "\$CHANGED" = "packages\/xgenia-editor\/package\.json"/);
+  assert.equal(wf.jobs.build.with.version, '${{ needs.plan.outputs.version }}', 'every platform must build the planned version');
+  assert.match(load('nightly.yml').jobs.plan.steps.map((s) => s.run || '').join('\n'), /next-version\.mjs nightly/);
 });
 
 test('releases are signed, and the update key only reaches a job that installs nothing', () => {
@@ -80,8 +112,9 @@ test('builds are checked before they are uploaded', () => {
 test('failures reach the team', () => {
   const nightly = load('nightly.yml');
   assert.equal(nightly.jobs['notify-failure'].if, 'failure()');
-  const bump = load('private-pointer.yml').jobs.bump.steps;
-  assert.ok(bump.some((s) => s.if === 'failure()' && /teams-notification/.test(s.uses || '')));
+  const bot = load('private-pointer.yml').jobs['notify-failure'];
+  assert.equal(bot.if, 'failure()');
+  assert.ok(bot.steps.some((s) => /teams-notification/.test(s.uses || '')));
 });
 
 test('nightly publishes through release.yml as a pre-release, one build at a time', () => {

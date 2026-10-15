@@ -35,6 +35,13 @@ pointer updates, config tweaks):
    Keep your own checkout on the latest `develop` too (`git pull` plus
    `git -C private checkout -B main origin/main` and `npm install`), never
    on an old branch: an old checkout runs an old editor.
+   **Clear out old or unwanted local branches** as well: a local branch
+   whose PR has been merged, or one that is stale and no longer wanted,
+   gets deleted with `git branch -D <branch-name>` so the checkout doesn't
+   accumulate dead branches. If the user runs Claude in auto mode, delete
+   them without asking; otherwise, list the branches you want to delete
+   and ask first. Never delete `develop` or `main`, and never delete a
+   branch that still has unpushed or unmerged work the user wants kept.
 5. **When you're done on the branch, open a PR** — a branch isn't finished
    until a PR exists for it. Push it and use the GitHub CLI, base always
    `develop`, never `main`:
@@ -83,7 +90,13 @@ and through a PR against `develop` like any other. The "ask first" rule above
 applies to this repo only.
 
 You rarely need to bump it by hand: the private pointer bot
-(`.github/workflows/private-pointer.yml`) moves it to the latest private `main`
-through a PR that merges itself once the checks pass, and that merge becomes a
-nightly pre-release (`.github/workflows/nightly.yml`). Only that bot may merge
-without an approval; see `docs/agents/git-workflow.md`.
+(`.github/workflows/private-pointer.yml`, a workflow, not an App or a person)
+runs the PR checks against the latest private `main` and, if they pass, pushes
+the pointer bump to `develop` itself over a deploy key; that push becomes a
+nightly pre-release (`.github/workflows/nightly.yml`).
+
+Don't bump `packages/xgenia-editor/package.json`'s version by hand either: every
+nightly and every release moves it on by itself (`scripts/release/next-version.mjs`).
+
+Only those two workflow pushes (pointer bump, version bump) land on `develop`
+without a PR; see `docs/agents/git-workflow.md`.

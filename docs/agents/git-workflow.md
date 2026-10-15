@@ -97,6 +97,31 @@ Rules for the PR:
 `main` only moves at a public release, when `develop` is squash-merged into it.
 Never push to `main` directly, and never merge into it outside of a release.
 
+## Clearing out old local branches
+
+The remote deletes a side branch when its PR is merged, but the local copy
+stays behind. Left alone, a checkout fills up with dead `side/…`, `feature/…`
+and `fix/…` branches that nobody will ever return to, and an old branch is
+easy to resume by mistake. So local branches are cleaned up, not collected:
+
+- A local branch is **unwanted** when its PR has been squash-merged (its
+  remote is gone — `git fetch --prune` then `git branch -vv` shows it as
+  `[gone]`), or when it is stale work that has been abandoned.
+- Delete an unwanted branch with:
+  ```bash
+  git branch -D <branch-name>
+  ```
+  `-D` is needed rather than `-d` because a squash-merged branch is never
+  seen as "merged" by git, even though all of its work is in `develop`.
+- **Auto mode vs. ask first.** If the user runs Claude in auto mode, delete
+  old or unwanted local branches without asking — it is routine housekeeping.
+  If not, list the branches you intend to delete, with why each is unwanted,
+  and ask before running the command: `-D` is destructive and discards any
+  commits that only exist on that branch.
+- Never delete `develop` or `main`, and never delete a branch that still
+  carries unpushed or unmerged work the user wants kept. When in doubt
+  whether a branch is finished, ask, regardless of mode.
+
 ## Quick self-check before any git command
 
 - About to `git commit` while `HEAD` is `develop` or `main`? Stop — create a
@@ -110,6 +135,9 @@ Never push to `main` directly, and never merge into it outside of a release.
   already on.
 - Finished the work on a branch? Push it and open the PR — do not leave the
   branch sitting there.
+- Local branches whose PR is merged, or that are stale and unwanted? Delete
+  them with `git branch -D` — straight away in auto mode, after asking
+  otherwise. Never `develop` or `main`.
 
 ## The `private/` submodule
 
@@ -139,13 +167,21 @@ rules above: its own branch, PR against `develop`, approval, squash-merge.
 "It's only a pointer bump" is not an exemption — it is precisely the case
 this document exists for.
 
-The one exception is the **private pointer bot** (`.github/workflows/private-pointer.yml`,
-2026-10-06). It is a GitHub App that opens `bot/private-pointer` PRs moving the
-pointer to the latest private `main`, waits for the required checks, and
-squash-merges them without a human approval: the App is a bypass actor on
-`develop` for the review rule. The checks are its gate, and it refuses to merge
-a PR that changes anything other than `private`. The exception is for that bot
-only. An agent or a person bumping the pointer by hand still follows the full
+The exceptions are two workflow pushes, made over the repository's deploy key
+(`BOT_DEPLOY_KEY`). `develop`'s ruleset lists deploy keys as a bypass actor, so
+they need no PR. Neither is a GitHub App or a person's token.
+
+- **The private pointer bot** (`.github/workflows/private-pointer.yml`). It runs
+  the PR checks (`pr-checks.yml`) with `private/` at the latest private `main`,
+  and only if they pass, pushes a commit that changes nothing but the `private`
+  gitlink. The checks are its gate.
+- **The version bump** (the `bump-version` job in `.github/workflows/release.yml`).
+  After every nightly or release it moves `packages/xgenia-editor/package.json`
+  on by one (`3.0.2-beta.1` → `3.0.2-beta.2`, `3.0.2` → `3.0.3`), in a commit that
+  changes nothing else and carries `[skip ci]`. So don't bump that version by
+  hand.
+
+The exception is for those two only. An agent or a person bumping the pointer by hand still follows the full
 branch, PR, approval and squash-merge flow, and should usually not need to: the
 bot moves it within a few hours of a push to private `main`.
 

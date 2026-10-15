@@ -13,6 +13,8 @@ export interface AutoUpdateState {
   enabled: boolean;
   checking: boolean;
   lastCheck: { at: string; result: 'up-to-date' | 'available' | 'error'; message?: string } | null;
+  /** An update that failed while downloading or installing; shown to the user once. */
+  failure: { at: string; version: string | null; message: string } | null;
 }
 
 export const AUTO_UPDATE_IDLE: AutoUpdateState = {
@@ -22,7 +24,8 @@ export const AUTO_UPDATE_IDLE: AutoUpdateState = {
   channel: 'stable',
   enabled: false,
   checking: false,
-  lastCheck: null
+  lastCheck: null,
+  failure: null
 };
 
 /** The updater's live state. Stays at AUTO_UPDATE_IDLE (enabled: false) where the updater is not running. */

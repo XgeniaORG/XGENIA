@@ -23,6 +23,8 @@ export interface BaseWindowProps {
 // Per renderer, not per BaseWindow: switching pages remounts this component, and the "ready"
 // dialog should open once per downloaded version, not on every page.
 let promptedUpdateVersion: string | null = null;
+// Same for a failed update: told once per failure.
+let shownUpdateFailure: string | null = null;
 
 export function BaseWindow({
     title = ProjectModel.instance?.name || 'XGENIA',
@@ -60,6 +62,25 @@ export function BaseWindow({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [update.status, update.version]);
 
+    // An update that failed while downloading or installing (on macOS: Squirrel could not stage it)
+    // is told to the user, not only logged. The next check tries again.
+    const [FailureDialog, showFailureDialog] = useConfirmationDialog(
+        {
+            title: 'Update failed',
+            message: `XGENIA ${update.failure?.version ?? ''} could not be installed: ${update.failure?.message ?? ''}. XGENIA will try again later, or use Settings → Editor → Updates → Check for updates.`,
+            confirmButtonLabel: 'OK',
+            isCancelButtonHidden: true
+        },
+        true
+    );
+    useEffect(() => {
+        if (update.failure && shownUpdateFailure !== update.failure.at) {
+            shownUpdateFailure = update.failure.at;
+            showFailureDialog().catch(() => {});
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [update.failure?.at]);
+
     const titleBarState =
         update.status === 'ready'
             ? TitleBarState.Updated
@@ -72,6 +93,7 @@ export function BaseWindow({
             {/* Wrap the ENTIRE content in a Fragment */}
             <Fragment>
                 {UpdateDialog()}
+                {FailureDialog()}
 
                 <VStack UNSAFE_style={{ height: '100%' }}>
                     <TitleBar
