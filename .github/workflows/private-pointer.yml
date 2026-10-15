@@ -133,6 +133,8 @@ jobs:
           PINNED: ${{ needs.decide.outputs.pinned }}
           COUNT: ${{ needs.decide.outputs.count }}
         run: |
+          # Only the deploy key gets past develop's ruleset; a push over https is the GITHUB_TOKEN's.
+          git remote get-url --push origin | grep -q '^git@github.com:' || { echo "::error::origin is not the deploy key's ssh remote"; exit 1; }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # The branch may have moved while the checks ran: put the bump on its newest commit, and
@@ -154,7 +156,7 @@ jobs:
             echo "Push rejected (try $i); retrying on the newest $BASE"
             sleep 5
           done
-          echo "::error::could not push the bump to $BASE"
+          echo "::error::$BASE rejected the pointer bump. Its ruleset needs \"Deploy keys\" in the bypass list (update-plan.md → Setup checklist 3)."
           exit 1
 
   notify-failure:
