@@ -41,6 +41,8 @@ const DEFAULT_CHANNEL = 'stable';
  *   enabled:   this install can update itself
  *   checking:  a check is running
  *   lastCheck: { at, result: 'up-to-date' | 'available' | 'error', message? } or null
+ *   failure:   { at, version, message } when an update failed while downloading or installing
+ *              (BaseWindow shows it once); null otherwise. A failed background check is not one.
  */
 let state = {
   status: 'idle',
@@ -49,7 +51,8 @@ let state = {
   channel: DEFAULT_CHANNEL,
   enabled: false,
   checking: false,
-  lastCheck: null
+  lastCheck: null,
+  failure: null
 };
 
 function setState(next) {
@@ -160,6 +163,24 @@ function setupAutoUpdate(window) {
   setTimeout(checkForUpdates, FIRST_CHECK_DELAY_MS);
   setInterval(checkForUpdates, CHECK_INTERVAL_MS).unref();
 
+  let downloaded = null;
+  // An update that was downloading or being installed failed: the user is told (BaseWindow shows
+  // `failure` once), not left looking at "Downloading 100%". Back to idle, so the next check retries.
+  const failInstall = (err) => {
+    const message = String((err && err.message) || err || 'unknown error');
+    const at = new Date().toISOString();
+    log.error(`Update ${state.version || ''} failed: ${message}`);
+    setProgress(-1);
+    downloaded = null;
+    setState({
+      status: 'idle',
+      version: null,
+      percent: 0,
+      failure: { at, version: state.version, message },
+      lastCheck: { at, result: 'error', message: 'The update could not be installed.' }
+    });
+  };
+
   autoUpdater.on('update-not-available', () => {
     setState({ lastCheck: { at: new Date().toISOString(), result: 'up-to-date' } });
   });
@@ -183,12 +204,11 @@ function setupAutoUpdate(window) {
       status: 'downloading',
       version: info.version,
       percent: 0,
+      failure: null,
       lastCheck: { at: new Date().toISOString(), result: 'available' }
     });
     autoUpdater.downloadUpdate().catch((err) => {
-      log.error('Update download failed: ' + err.message);
-      setProgress(-1);
-      setState({ status: 'idle', version: null, percent: 0 });
+      if (state.status === 'downloading') failInstall(err);
     });
   });
 
@@ -200,11 +220,13 @@ function setupAutoUpdate(window) {
     }
   });
 
-  // Background work: a failed check or download is logged and retried at the next interval.
+  // A failed background check is logged and retried at the next interval; a failure while an update
+  // is downloading or being installed (on macOS that includes Squirrel's own errors, which
+  // electron-updater passes on here) is shown to the user.
   autoUpdater.on('error', (err) => {
+    if (state.status === 'downloading') return failInstall(err);
     setProgress(-1);
     log.error('Auto-updater error: ' + (err?.message || err));
-    if (state.status === 'downloading') setState({ status: 'idle', version: null, percent: 0 });
   });
 
   // On macOS electron-updater's 'update-downloaded' only means ITS download finished: Squirrel.Mac then fetches
@@ -213,7 +235,6 @@ function setupAutoUpdate(window) {
   // (2026-10-08). So on macOS the update is ready once Squirrel's own 'update-downloaded' has arrived too.
   const waitsForSquirrel = process.platform === 'darwin' && !!squirrelMac && typeof squirrelMac.on === 'function';
   let squirrelReady = false;
-  let downloaded = null;
   const markReady = () => {
     if (!downloaded || (waitsForSquirrel && !squirrelReady)) return;
     log.info('Update ready to install: ' + downloaded);
@@ -221,7 +242,11 @@ function setupAutoUpdate(window) {
   };
   if (waitsForSquirrel) {
     squirrelMac.on('update-downloaded', () => { squirrelReady = true; markReady(); });
-    squirrelMac.on('error', (err) => log.error('Squirrel.Mac: ' + (err?.message || err)));
+    // Staging can fail (a bad signature, a full disk): tell the user rather than wait forever.
+    squirrelMac.on('error', (err) => {
+      if (state.status === 'downloading') failInstall(err);
+      else log.error('Squirrel.Mac: ' + (err?.message || err));
+    });
   }
 
   autoUpdater.on('update-downloaded', (info) => {

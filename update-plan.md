@@ -1,6 +1,6 @@
 # Update plan: private changes reach users as nightly app builds
 
-Status: in progress on `workflow/update` · 2026-10-06
+Status: on `develop` since #225 (2026-10-15). This revision: the workflow-only pointer bot (no GitHub App), automatic version numbering, and fixes found after the merge.
 
 ## Decision
 
@@ -8,12 +8,13 @@ Ship everything, including the closed-source `private/` code, as normal app buil
 
 ```
 push to private main
-  └─► private-pointer.yml   (bot PR on develop moving the private/ pointer,
-        │                    merged by the bot once "PR checks" pass; throttled)
+  └─► private-pointer.yml   (workflow: runs the PR checks with the new private/,
+        │                    then pushes the pointer bump over a deploy key; throttled)
         ▼
 push to develop
-  └─► nightly.yml           (version 3.0.1-beta.9.nightly.<stamp>, never committed)
-        └─► release.yml     (build all platforms, check the assets, publish a GitHub pre-release)
+  └─► nightly.yml           (publishes the version in package.json, e.g. 3.0.2-beta.1)
+        └─► release.yml     (build all platforms, check the assets, publish a GitHub pre-release,
+                             then commit package.json's next version to develop: 3.0.2-beta.2)
               ▼
 beta installs: electron-updater finds it, downloads it in the background, installs on restart
 stable installs: unaffected, they only take stable releases
@@ -31,36 +32,34 @@ flowchart TD
     end
 
     %% ── Pointer bot ──
-    subgraph BOT["private-pointer.yml · GitHub App bot"]
+    subgraph BOT["private-pointer.yml · a workflow, no App, no PR"]
         B0(["Triggers: dispatch · hourly schedule · manual"])
         B1{"develop pointer ==<br/>private main?"}
-        B2{"Last bump merged<br/>less than 4h ago?"}
-        B3["Push bot/private-pointer<br/>(only the gitlink changes)"]
-        B4["Open or update the PR<br/>into develop"]
-        B5{"PR checks pass?<br/>Diff is only private/?"}
-        B6["Squash-merge with --admin<br/>(App bypasses the review rule)"]
+        B2{"Last bump less<br/>than 4h ago?"}
+        B5{"PR checks pass<br/>with the new private/?"}
+        B6["Commit changing only the private gitlink,<br/>pushed to develop over the deploy key<br/>(ruleset lets deploy keys bypass)"]
         BX1(["Stop: up to date"])
         BX2(["Stop: throttled,<br/>the hourly run retries"])
-        BX3(["PR stays open, run fails;<br/>the next push updates it"])
+        BX3(["Nothing pushed, Teams alert;<br/>the next push or hourly run retries"])
         B0 --> B1
         B1 -- yes --> BX1
         B1 -- no --> B2
         B2 -- yes --> BX2
-        B2 -- no --> B3 --> B4 --> B5
+        B2 -- no --> B5
         B5 -- no --> BX3
         B5 -- yes --> B6
     end
 
     %% ── PR checks ──
-    subgraph CHK["pr-checks.yml"]
-        C1["Pinned private/ · runtime tests · live-engine tests<br/>workflow tests · compiler parity · viewer build"]
+    subgraph CHK["pr-checks.yml · on every PR, and called by the bot"]
+        C1["private/ at the commit under test · runtime tests · live-engine tests<br/>workflow tests · compiler parity · viewer build"]
     end
 
     %% ── Nightly ──
     subgraph NIGHT["nightly.yml · one build at a time, a burst collapses into the newest"]
-        N0(["Push to develop<br/>(bot merge or human PR merge)"])
+        N0(["Push to develop<br/>(bot's pointer push or a human PR merge)"])
         N1{"Nightly tag already<br/>on this commit?"}
-        N2["Stamp version<br/>3.0.1-beta.9.nightly.YYYYMMDDHHMM<br/>(never committed)"]
+        N2["Version from package.json<br/>3.0.2-beta.1 → v3.0.2-beta.1<br/>3.0.3 → v3.0.3-beta.1 · taken ones skipped"]
         NX(["Stop"])
         N0 --> N1
         N1 -- yes --> NX
@@ -75,10 +74,12 @@ flowchart TD
         R4["collect-release-assets.mjs<br/>merge latest-mac.yml, check every file"]
         RS["sign-update-manifests.mjs<br/>ed25519 .sig next to every latest*.yml"]
         RD["Draft release, read back and verified:<br/>signed manifests, every file at the right size"]
-        R5["Published as pre-release v3.0.1-beta.9.nightly.*<br/>then checked again from the public URLs"]
+        R5["Published as pre-release v3.0.2-beta.1<br/>then checked again from the public URLs"]
+        RV["develop's package.json → 3.0.2-beta.2<br/>pushed over the deploy key, [skip ci]"]
         R6["Prune: keep the newest 10 nightlies"]
         RF(["Any failure: nothing published,<br/>Teams alert; a late failure stays a draft"])
-        R1 & R2 & R3 --> R4 --> RS --> RD --> R5 --> R6
+        R1 & R2 & R3 --> R4 --> RS --> RD --> R5 --> RV
+        R5 --> R6
         R1 & R3 & R4 & RS & RD & R5 -. fails .-> RF
     end
 
@@ -92,7 +93,9 @@ flowchart TD
         AVX(["Refused: logged,<br/>nothing downloaded"])
         A4["Download in the background<br/>title bar: Downloading update 42%"]
         A5{"In-app dialog: Update ready<br/>Restart now?"}
-        A6["Quit and install"]
+        A6["Quit and install<br/>(macOS: only once Squirrel has staged it)"]
+        AF(["Failed while downloading or staging:<br/>in-app 'Update failed', retried later"])
+        A4 -. fails .-> AF
         A7["Title bar keeps 'Restart to update';<br/>installs on next quit"]
         A8["First start of the new version:<br/>live engine dropped, built-in engine runs"]
         A0 --> A1
@@ -105,8 +108,8 @@ flowchart TD
     end
 
     P2 --> B0
-    B4 -. "PR event" .-> C1
-    C1 -. "status" .-> B5
+    B2 -. "calls (workflow_call)" .-> C1
+    C1 -. "result" .-> B5
     B6 --> N0
     N2 --> R1 & R2 & R3
     R5 --> A0
@@ -164,27 +167,29 @@ The same flow VS Code, Slack and Discord use, with no native dialogs:
 - **Signed manifests, checked before download.** CI signs every `latest*.yml` with Ed25519 (`scripts/release/sign-update-manifests.mjs`, secret `UPDATE_SIGNING_KEY`). The app fetches the manifest and its `.sig` from the release itself and checks two things: our key signed it, and every file electron-updater is about to download has the signed sha512 (`update-manifest.js`). electron-updater then checks the downloaded file against that sha512. No valid signature means no download.
 - Downloads in the background. The title bar shows **"Downloading update 42%"**.
 - When it's on disk, an **in-app dialog** (the app's own `ConfirmationDialog`) offers "Restart now" or "Later". After "Later", the title bar keeps a **"Restart to update"** button, and the update installs on quit (`autoInstallOnAppQuit`). State reaches every window over IPC (`auto-update:state`, `auto-update:get-state`, `auto-update:install`).
-- Failures are logged and retried at the next check, never shown as error boxes.
+- A failed background check is logged and retried at the next check. An update that fails **while downloading or installing** is shown in-app: an "Update failed" message from the editor (`BaseWindow.tsx`), and the result in Settings → Updates. This includes macOS failing to stage it (Squirrel.Mac). The app goes back to idle, so the next check retries, instead of sitting at "Downloading 100%".
+- **macOS:** "ready" means Squirrel.Mac has staged the update, not just that electron-updater's download finished (#200). Restarting before that would drop the update. Feeds without a build for this Mac's architecture aren't offered (`update-arch.js`).
 - **Update channel, chosen in Settings → Editor → Updates, Stable by default.** This is the approach Slack ("Release channel" under Preferences → Advanced) and Obsidian ("Receive early access versions") use. The alternative is a separate side-by-side app (VS Code Insiders, Discord Canary/PTB, Figma Beta), which costs a second app ID and release stream; worth it only once there are many outside beta testers.
   - **Stable:** stable releases only.
   - **Beta (nightly builds):** opt-in. Gets nightlies and betas as well as stable releases. Switching to it checks straight away.
   - **Back to Stable:** never a downgrade, so the app keeps the running build until a newer stable release is out, and a project saved by a nightly is never opened by an older build. A nightly already downloaded is dropped, not installed on quit.
   - The choice is stored by the main process in `<userData>/update-settings.json`, because the updater needs it before any window loads. The section also shows the version, a "Check for updates" button with the result, and "Restart to update" once an update is ready.
-  - **Existing beta testers** (on `3.0.1-beta.9`, without this code) keep following betas until their first update to a build with this code. After that they're on Stable until they opt in again.
+  - **Installs from before this code** (`3.0.1`, `3.0.2`) know nothing of the setting. A stable install never takes a nightly. Its first update with this code is the next stable release, and after that its users can opt in to Beta.
 - **Linux:** builds ship a `.deb` and an AppImage, both listed in one signed `latest-linux.yml`. The AppImage replaces itself; the `.deb` installs through electron-updater's `DebUpdater` (`pkexec dpkg -i`, so it asks for the admin password once). Other Linux installs don't check.
 
 This is our own version of electron-builder's new built-in feature (Ed25519-signed `latest*.yml`, in `electron-builder@27.0.0-alpha.9`), done without moving to an alpha. When that release is stable, we can switch to it and delete `update-manifest.js`. Its manifest format is different, so that switch needs one release that both formats accept.
 
 ---
 
-## What this branch changes
+## What changed
 
 | File | Change |
 |---|---|
-| `.github/workflows/private-pointer.yml` | **New.** The bot, triggered by the private repo's dispatch, an hourly schedule and manual runs. It reads private `main` and opens or updates the `bot/private-pointer` PR, then waits for checks and merges with `--admin`, only if the diff is just `private`. Throttle: at most one merge per `PRIVATE_POINTER_MIN_HOURS` (default 4). Runs queue rather than cancel, so a bump always finishes. Private commit messages never go into the public PR, only a count. |
-| `.github/workflows/pr-checks.yml` | **New.** Runs on every PR into `develop`, with the pinned private commit: runtime tests, live-engine tests, release and workflow tests, compiler parity, and a viewer build (which catches a pro-node change that breaks the bundle). This is the bot's gate. |
-| `.github/workflows/nightly.yml` | **New.** On every push to `develop`: stamps a nightly version, calls `release.yml`, and keeps the newest `NIGHTLY_KEEP` (default 10) nightlies. One build runs at a time, and a burst of pushes collapses into the newest. |
-| `.github/workflows/release.yml` | Can now be called by another workflow (`version`, `nightly`). A nightly is published as a pre-release; a manual run is still a draft. |
+| `.github/workflows/private-pointer.yml` | **New.** The bot. It's a plain workflow, with no GitHub App or personal token, triggered by the private repo's dispatch, an hourly schedule and manual runs. It reads private `main`, runs `pr-checks.yml` with `private/` at that commit, and only if they pass, pushes a commit that changes nothing but the gitlink, over a deploy key. Pushes over a deploy key start other workflows (pushes with `GITHUB_TOKEN` don't), and a ruleset can let deploy keys bypass `develop`'s PR rule. If the branch moved meanwhile, it re-applies the bump on the newest commit. Throttle: at most one bump per `PRIVATE_POINTER_MIN_HOURS` (default 4). Runs queue rather than cancel. The commit message gives only a count, never private commit messages. |
+| `.github/workflows/pr-checks.yml` | **New.** Runs on every PR into `develop`, with the pinned private commit: runtime tests, live-engine tests, release and workflow tests, compiler parity, and a viewer build (which catches a pro-node change that breaks the bundle). The bot also calls it as a reusable workflow, with the private commit it's about to pin. That's the bot's gate. |
+| `.github/workflows/nightly.yml` | **New.** On every push to `develop`: picks the version from `package.json` (see "Version numbering"), calls `release.yml`, and keeps the newest `NIGHTLY_KEEP` (default 10) nightlies, found by their "XGENIA Nightly" title. One build runs at a time, and a burst of pushes collapses into the newest. |
+| `.github/workflows/release.yml` | Can be called by another workflow (`version`, `nightly`). A nightly is published as a pre-release. A manual run releases the stable version as a draft. Either way, a `bump-version` job then moves `develop`'s `package.json` on by one, over the deploy key, with `[skip ci]`. |
+| `scripts/release/next-version.mjs` | **New.** Version numbering: the nightly version, the stable version, the next version, and a write that never lowers it. Dependency-free; checked against the `semver` package electron-updater uses. |
 | `.github/workflows/nightly-builds.yml` | New `version` input, set in the checkout only. Builds the pinned private commit, not `--remote`. |
 | `.github/workflows/nightly-builds-internal.yml` | Builds the pinned private commit. |
 | `.github/workflows/live-engine.yml` | Manual only. No push or dispatch triggers. |
@@ -202,81 +207,67 @@ This is our own version of electron-builder's new built-in feature (Ed25519-sign
 | `packages/xgenia-editor/tests/auto-update/smoke-test.test.cjs`, `scripts/release/verify-release.test.mjs` | **New.** Cover pass, blank window, renderer crash, failed load and timeout; and a missing manifest or signature, a foreign key, a missing or truncated file. |
 | `packages/xgenia-editor/tests/auto-update/channel.test.cjs` | **New.** Stable by default; Beta allows pre-releases, is saved and checks at once; no downgrades; a nightly downloaded before leaving Beta is not installed; an update failing the signature check is never downloaded. |
 | `packages/xgenia-editor/tests/auto-update/update-manifest.test.cjs`, `scripts/release/sign-update-manifests.test.mjs` | **New.** Covers a tampered manifest, a wrong key, a swapped file hash, a stale version, and a signing key the app doesn't trust. |
+| `packages/xgenia-editor/tests/updater/update-restart.test.cjs` | #200's tests, rewritten for the in-app flow: macOS waits for Squirrel; Windows is ready after the download; no native dialog; a staging failure is shown to the user; a failed background check is not. Now run by the PR checks too. |
 | `packages/xgenia-editor/src/main/src/live-engine/select.js` | Drops downloaded engines when the app version changes. Without this, an engine downloaded earlier would shadow the newer engine inside the nightly. |
-| `scripts/release/workflows.test.mjs` | **New.** No inputs pasted into shell scripts; builds use the pinned pointer; the bot key sits in a job with no `npm install`; the bot merges pointer-only PRs after checks; nightlies publish as pre-releases. |
-| `CLAUDE.md`, `docs/agents/git-workflow.md`, `docs/agents/live-engine.md` | Document the bot as the only exception to the approval rule, and the new flow. |
+| `scripts/release/workflows.test.mjs` | **New.** No inputs pasted into shell scripts; builds use the pinned pointer; the deploy key sits in a job with no `npm install`, which waits for the checks and pushes a pointer-only commit; nightlies publish as pre-releases. |
+| `CLAUDE.md`, `docs/agents/git-workflow.md`, `docs/agents/live-engine.md` | Document the two workflow pushes (pointer bump, version bump) as the only things that land on `develop` without a PR, and the new flow. |
 
-### Why nightly versions look like `3.0.1-beta.9.nightly.202610070215`
+### Version numbering
 
-Checked with the `semver` package electron-updater uses:
-- It sorts above `3.0.1-beta.9` (installed testers update to it) and below `3.0.1-beta.10` and `3.0.1`, so manual releases still win.
-- Its channel (`prerelease[0]`) is `beta`, so beta installs pick it up without changing any setting.
-- From a stable base (`3.1.0`), nightlies become `3.1.1-beta.0.nightly.<stamp>`, still a pre-release, so stable installs never see them.
+`packages/xgenia-editor/package.json` holds the version the **next** release carries, and every release moves it on by one. Nobody bumps it by hand (`scripts/release/next-version.mjs`):
+
+| `package.json` | Nightly publishes | `package.json` after |
+|---|---|---|
+| `3.0.2-beta.1` | `v3.0.2-beta.1` | `3.0.2-beta.2` |
+| `3.0.2-beta.2` | `v3.0.2-beta.2` | `3.0.2-beta.3` |
+| `3.0.3` (stable, not yet released) | `v3.0.3-beta.1`. Never a stable version, which would reach Stable installs. | `3.0.3-beta.2` |
+| `3.0.2` (already released) | `v3.0.3-beta.1`. A `3.0.2` beta would sort below `3.0.2`. | `3.0.3-beta.2` |
+
+| `package.json` | Manual `release.yml` (stable) releases | `package.json` after |
+|---|---|---|
+| `3.0.3-beta.5` | `v3.0.3` (draft, you press Publish) | `3.0.4` |
+| `3.0.3` | `v3.0.3` | `3.0.4` |
+
+**The rules:**
+- **Bumping:** a stable version moves to the next patch. A pre-release has its last number increased.
+- **Taken versions:** a version that already has a release, drafts included, is skipped forward. This covers two runs racing.
+- **Never lowered:** if someone sets `package.json` higher by hand (for example `3.1.0-beta.1` for a minor release), the bump leaves it alone, and the next nightly carries it.
+- **No loop:** the bump commit carries `[skip ci]`, so it doesn't start another nightly.
+- **Ordering:** checked against the `semver` package electron-updater uses. Each nightly sorts above the last, and a stable release outranks its betas.
+- **Channel:** a nightly's label (`beta`) is what the Beta channel follows.
 
 ### How it handles uneven private activity
 
 | Day | What happens |
 |---|---|
-| One private commit | The dispatch arrives, the last bump is older than 4 h, so the bump PR opens and merges after checks. The nightly starts right away. Users have it in about 1–1.5 h. |
+| One private commit | The dispatch arrives and the last bump is older than 4 h, so the bot runs the checks and pushes the bump. The nightly starts right away. Users have it in about 1–1.5 h. |
 | Twenty private commits | The first bumps immediately. The rest are held by the throttle, and the hourly run bumps to the newest after 4 h. That is a few nightlies a day, not twenty, and runner time and update prompts stay bounded. |
 | A dispatch is lost | The hourly schedule notices that the pointer is behind. |
-| A check fails | The PR stays open and the run fails, so it's visible in Actions. The next private push updates the same PR and tries again. |
+| A check fails | Nothing is pushed. The run fails and Teams is told. The next private push, or the hourly run, tries again. |
 
 ---
 
-## Testing on `workflow/update` before merging
+## Setup checklist (once; a repo admin can do all of it, no org settings)
 
-Until this is merged, `workflow/update` stands in for `develop`. Every change for that is marked `TEST-BRANCH` (`grep -rn TEST-BRANCH .github/`).
-
-| File | While testing | Before merging |
-|---|---|---|
-| `nightly.yml` | Push trigger on `workflow/update` | `develop` |
-| `nightly.yml` | `CHANNEL: test`: builds are `3.0.1-test.nightly.<stamp>` | `beta` |
-| `pr-checks.yml` | Runs on PRs into `workflow/update` | `develop` |
-| `private-pointer.yml` | `BASE: workflow/update`: checks out, opens PRs into, and merges into this branch | `develop` |
-| `private-pointer.yml` | Extra `push: [workflow/update, ci/private-push]` trigger | Remove it |
-| `private-pointer.yml` | `MIN_HOURS` default `0`: every private commit is a rebuild | `4` |
-| private repo `notify-xgenia-test.yml` | On **every** push to private `main`, force-pushes an empty "private main is at `<sha>`" commit, on top of `workflow/update`, to `ci/private-push`. That push starts the bot. | Delete the file and the `ci/private-push` branch |
-
-Rebuild on every private commit: private push → relay → bot PR into `workflow/update` → PR checks → merge → test nightly. Each step queues one run behind the one in progress, so a burst of private pushes ends up building only the newest commit, not each one. `notify-live-engine.yml` keeps its path filter, because its dispatch still starts live-engine builds on `main`.
-
-**Why these changes:**
-- **The extra push trigger:** GitHub runs `repository_dispatch`, `schedule` and manually started workflows only from the default branch, and a new workflow can't be started by hand until its file is there. A push to this branch is the only way to start the bot from here.
-- **Why `test` and not `beta`:** test nightlies are real public pre-releases on this repo. electron-updater skips a pre-release whose label isn't `alpha` or `beta` unless the install is on that label itself. I replayed its choice logic: current testers on `3.0.1-beta.9` skip `test` builds, and Stable installs never see pre-releases.
-
-**How to test:**
-1. **Bot:** push to private `main`, then push anything to `workflow/update`. The bot opens `bot/private-pointer` → `workflow/update`, PR checks run, and it merges.
-2. **Nightly:** that merge, or any push to `workflow/update`, builds `3.0.1-test.nightly.<stamp>`. Watch it run through the smoke test, the macOS check, signing, draft verification, publishing and the public check.
-3. **Updates in the app:**
-   - Install that build by hand from its release page.
-   - Set Settings → Editor → Updates to **Beta**.
-   - Push again, wait for the next test nightly, then click "Check for updates". It should download, show the title-bar progress, and offer "Restart now".
-4. **Back to Stable:** switch the same install to Stable. It should stay on its version and never take a test build.
-5. **Pull a release:** `gh release edit <tag> --draft=true -R XgeniaORG/XGENIA`. The workflow can only be started by hand once it's on `main`. The tester install should no longer see that release.
-6. **Failure alerts:** break something on purpose (for example, remove `UPDATE_SIGNING_KEY` for one run) and check that nothing is published and Teams gets the alert.
-
-**Needed for these runs:** the GitHub App (`POINTER_BOT_APP_ID`, `POINTER_BOT_PRIVATE_KEY`), `UPDATE_SIGNING_KEY`, plus the existing Apple, `PRIVATE_SUBMODULE_PAT` and `TEAMS_WEBHOOK_URL` secrets. `workflow/update` has no branch protection, so the bot merges there without the ruleset bypass. That bypass is only needed on `develop`.
-
-**Cleanup after testing:** delete the test releases and their tags:
-```bash
-gh release list -R XgeniaORG/XGENIA --limit 100 --json tagName --jq '.[].tagName | select(test("-test\\."))' |
-  xargs -r -n1 gh release delete -R XgeniaORG/XGENIA --yes --cleanup-tag
-```
-
-## Setup checklist (once, needs an org admin)
-
-1. **Create a GitHub App** (e.g. `xgenia-pointer-bot`) and install it on `XgeniaORG/XGENIA` only, with permissions **Contents: read & write** and **Pull requests: read & write**.
-   - Repo variable `POINTER_BOT_APP_ID`.
-   - Repo secret `POINTER_BOT_PRIVATE_KEY` (the App's private key).
-2. **Ruleset on `develop`:**
-   - Add the App as a bypass actor.
-   - Add **`PR checks / Engine tests`** as a required status check.
-   - Keep "require approval" for everyone else.
-3. **Update signing key:** add the repo secret **`UPDATE_SIGNING_KEY`**, the private half of the key whose public half is in `update-public-key.js`. Then delete the local `.pem`. Without the secret, `release.yml` stops before publishing: a release with no signatures would install nowhere. To rotate the key, run `node scripts/release/update-keygen.mjs <out.pem>`, set the new secret, and ship one release signed with the old key that carries the new public key.
-4. **Optional repo variables:** `PRIVATE_POINTER_MIN_HOURS` (default 4) and `NIGHTLY_KEEP` (default 10).
-5. **Release to `main` once.** GitHub runs `repository_dispatch` and `schedule` only from the default branch's copy of a workflow, so the bot starts after the next `develop` → `main` release. `nightly.yml` starts as soon as this branch is merged into `develop`.
-6. **Private repo:** `notify-live-engine.yml` only fires for `xgenia-pro-nodes/**` and `xgenia-agent-nodes/**`. The editor also bundles `xgenia-ai` and `xgenia-image-editor`, so drop the `paths:` filter and rename the file `notify-xgenia.yml`. The event name `private-main-push` stays. Until then, the hourly schedule catches the other changes.
-7. **First nightly:** bump `packages/xgenia-editor/package.json` if needed. Beta testers on `3.0.1-beta.9` get `3.0.1-beta.9.nightly.*` once, and from then on they're on Stable unless they switch to Beta in Settings → Editor → Updates. Tell them to do that.
+1. **Deploy key** (one key for both workflow pushes: the pointer bump and the version bump). Generate a key pair with no passphrase:
+   ```bash
+   ssh-keygen -t ed25519 -N "" -C "xgenia release bot" -f xgenia-bot
+   ```
+2. **Add both halves:**
+   - Settings → Deploy keys → Add: paste `xgenia-bot.pub`, tick **Allow write access**.
+   - Settings → Secrets and variables → Actions → New secret **`BOT_DEPLOY_KEY`**: paste the whole of `xgenia-bot`, the private half. Upload it with `gh secret set BOT_DEPLOY_KEY < xgenia-bot`, so the line breaks survive.
+   - Delete both files afterwards.
+   - The org can switch deploy keys off for all repos. If the Deploy keys page says so, ask an org owner.
+   - **Until this secret exists:** the pointer bot skips quietly (a notice in the run, no alert), and after each nightly the version bump fails and alerts Teams. So set it before the first nightly.
+3. **Ruleset on `develop`** (Settings → Rules → Rulesets):
+   - Require a pull request with approval, and **`PR checks / Engine tests`** as a required status check.
+   - Bypass list: **Deploy keys**.
+   - If `develop` is protected by a classic branch protection rule, move that protection into this ruleset. Classic rules can't let deploy keys bypass, and both would apply. Without the bypass, both workflow pushes are rejected.
+4. **Update signing key:** add the repo secret **`UPDATE_SIGNING_KEY`**, the private half of the key whose public half is in `update-public-key.js`. Then delete the local `.pem`. Without the secret, `release.yml` stops before publishing: a release with no signatures would install nowhere. To rotate the key, run `node scripts/release/update-keygen.mjs <out.pem>`, set the new secret, and ship one release signed with the old key that carries the new public key.
+5. **Optional repo variables:** `PRIVATE_POINTER_MIN_HOURS` (default 4) and `NIGHTLY_KEEP` (default 10).
+6. **Release to `main` once.** GitHub runs `repository_dispatch`, `schedule` and manually started workflows only from the default branch's copy, so the pointer bot and "Pull a release" start after the next `develop` → `main` release. `nightly.yml` and the version bump already run from `develop`.
+7. **Private repo:** `notify-live-engine.yml` only fires for `xgenia-pro-nodes/**` and `xgenia-agent-nodes/**`. The editor also bundles `xgenia-ai` and `xgenia-image-editor`, so drop the `paths:` filter and rename the file `notify-xgenia.yml`. The event name `private-main-push` stays. Until then, the hourly schedule catches the other changes.
+8. **Versions:** nothing to do. `package.json` is at `3.0.2-beta.1`, so the next nightly publishes `v3.0.2-beta.1`, and `develop` moves to `3.0.2-beta.2` (see "Version numbering"). To start a minor release, set it by hand once (for example `3.1.0-beta.1`). It counts on from there.
 
 ---
 
