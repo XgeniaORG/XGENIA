@@ -109,6 +109,10 @@ const { handleProjectMerge } = require('./src/merge-driver');
 //running in a separate browser window (file:// cross origin warning)
 app.commandLine.appendSwitch('disable-site-isolation-trials');
 
+// Remote panels (AI chat, plugins) get their own process; see src/frame-isolation.js.
+const frameIsolation = require('./src/frame-isolation');
+app.commandLine.appendSwitch('isolate-origins', frameIsolation.isolateOriginsValue(app.getPath('userData')));
+
 // Add more robust GPU and network flags to prevent crashes
 app.commandLine.appendSwitch('disable-gpu-process-crash-limit');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
@@ -941,6 +945,12 @@ function launchApp() {
       }
 
       require('@electron/remote/main').enable(win.webContents);
+
+      win.webContents.on('did-frame-navigate', (_event, url, _code, _status, isMainFrame) => {
+        if (!isMainFrame && frameIsolation.rememberFrameOrigin(app.getPath('userData'), url)) {
+          console.warn('[FrameIsolation] New embedded origin, isolated from the next launch:', new URL(url).origin);
+        }
+      });
 
       // Register main-process memory profiling IPC once window is ready
       try {
