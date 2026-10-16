@@ -117,3 +117,37 @@ test('a symlink that stays inside the project still serves', async () => {
   assert.equal(r.status, 200);
   assert.equal(r.body, 'inside');
 });
+
+// The preview relay (WebSocket on the same port).
+const WebSocket = require('ws');
+function openWs(origin) {
+  return new Promise((resolve) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, origin === undefined ? {} : { headers: { Origin: origin } });
+    ws.once('open', () => resolve({ ws, ok: true }));
+    ws.once('error', () => resolve({ ws, ok: false }));
+    ws.once('unexpected-response', () => resolve({ ws, ok: false }));
+  });
+}
+
+for (const origin of ['https://example.com', 'null', 'http://example.com:' + 8574]) {
+  test(`the relay refuses a page from ${origin}`, async () => {
+    const { ws, ok } = await openWs(origin);
+    assert.equal(ok, false);
+    ws.terminate();
+  });
+}
+
+test('the relay accepts our own pages, and an unregistered socket reaches nobody', async () => {
+  const viewer = await openWs(`http://localhost:${port}`);
+  assert.equal(viewer.ok, true);
+  viewer.ws.send(JSON.stringify({ cmd: 'register', type: 'viewer', clientId: 'v1' }));
+  const got = [];
+  viewer.ws.on('message', (m) => got.push(String(m)));
+  const stranger = await openWs(undefined);
+  assert.equal(stranger.ok, true);
+  stranger.ws.send(JSON.stringify({ cmd: 'refresh' }));
+  await new Promise((r) => setTimeout(r, 300));
+  assert.deepEqual(got.filter((m) => m.includes('refresh')), []);
+  viewer.ws.close();
+  stranger.ws.close();
+});
