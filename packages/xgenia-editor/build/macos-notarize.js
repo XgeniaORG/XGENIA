@@ -2,7 +2,9 @@ const fs = require('fs');
 const path = require('path');
 
 module.exports = async function (params) {
-  if (process.platform !== 'darwin') {
+  // The platform being built, not the machine building it: a Mac cross-building Windows or Linux
+  // has nothing to notarize.
+  if ((params && params.electronPlatformName) !== 'darwin' || process.platform !== 'darwin') {
     return;
   }
 
