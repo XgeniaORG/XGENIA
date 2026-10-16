@@ -1095,14 +1095,18 @@ function launchApp() {
         console.error('[Main Process] WebContents became unresponsive');
       });
 
-      win.webContents.on('console-message', ({ message }) => {
+      win.webContents.on('console-message', ({ level, message, sourceId, lineNumber }) => {
         if (message.includes('[Preload]')) {
           console.log(`[Main Process] Preload log: ${message}`);
         }
 
-        // Detect hot reload related errors
-        if (message.includes('module hot update') || message.includes('Cannot read properties of undefined')) {
+        if (message.includes('module hot update')) {
           console.warn('[Main Process] Hot reload related error detected:', message);
+        } else if (level === 'error') {
+          // Every renderer error, with where it came from: this used to keep only messages that
+          // contained "Cannot read properties of undefined", labelled as hot-reload trouble, and
+          // without the file and line that make one findable.
+          console.error(`[Renderer error] ${String(message).slice(0, 2000)} (${sourceId || '?'}:${lineNumber ?? '?'})`);
         }
       });
 
