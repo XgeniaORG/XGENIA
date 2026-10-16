@@ -58,11 +58,12 @@ test('the pointer bot pushes a pointer-only commit to develop, only after the PR
   assert.match(fs.readFileSync(path.join(DIR, 'private-pointer.yml'), 'utf8'), /MIN_HOURS: \$\{\{ vars\.PRIVATE_POINTER_MIN_HOURS \|\| '0' \}\}/, 'every private commit is bumped by default');
 });
 
-test('nightlies come from private commits and a daily schedule, not from every push to develop', () => {
+test('nightlies come from private commits (and by hand), not from every push to develop', () => {
   const nightly = load('nightly.yml');
-  assert.deepEqual(Object.keys(nightly.on).sort(), ['schedule', 'workflow_dispatch']);
-  assert.equal(nightly.on.schedule.length, 1, 'once a day');
-  // A scheduled run starts on main: it must build develop, and release that exact commit.
+  // The daily schedule is commented out for now (2026-10-16); uncommenting it adds 'schedule' here.
+  assert.deepEqual(Object.keys(nightly.on).sort(), ['workflow_dispatch']);
+  assert.ok(!nightly.on.push, 'every push to develop would start a nightly');
+  // Manual (and scheduled) runs start on main: they must build develop, and release that exact commit.
   assert.equal(nightly.jobs.plan.steps[0].with.ref, 'develop');
   assert.equal(nightly.jobs.release.with.ref, '${{ needs.plan.outputs.sha }}');
   const release = load('release.yml');

@@ -5,7 +5,7 @@
 1. A push to private `main` → the private pointer bot (`.github/workflows/private-pointer.yml`)
    runs `PR checks` with the new private commit, pushes the pointer bump to `develop` over a deploy
    key, and starts `.github/workflows/nightly.yml`.
-2. The nightly (also once a day at 02:00 UTC) builds `develop` and publishes a pre-release such as
+2. The nightly (also startable by hand; its daily schedule is paused) builds `develop` and publishes a pre-release such as
    `v3.0.2-beta.3` through `release.yml`, then moves `package.json` on to `3.0.2-beta.4`.
 3. Installs on the Beta channel (Settings → Editor → Updates) download it in the background and
    install it on restart (`src/main/src/autoupdater.js`). Stable installs only take stable releases.

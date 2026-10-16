@@ -8,7 +8,7 @@ name: Private pointer
 #      to the branch over a deploy key, then a nightly of it started (nightly.yml).
 # On develop, a ruleset lists deploy keys as a bypass actor, so this push needs no PR or approval;
 # the checks in step 2 are the gate. So every private commit becomes a nightly; nightly.yml also
-# runs once a day for everything else merged into develop.
+# can also run once a day for everything else merged into develop (that schedule is paused).
 #
 # Triggers:
 #   - private-main-push, sent by the private repo on every push to main
@@ -166,11 +166,11 @@ jobs:
             echo "Push rejected (try $i); retrying on the newest $BASE"
             sleep 5
           done
-          echo "::error::$BASE rejected the pointer bump. Its ruleset needs \"Deploy keys\" in the bypass list (update-plan.md → Setup checklist 3)."
+          echo "::error::$BASE rejected the pointer bump. Its ruleset needs \"Deploy keys\" in the bypass list (docs/update-plan.md → Setup checklist 3)."
           exit 1
 
       # Every private commit becomes a nightly: start it now, on the commit just pushed. (Pushes to
-      # develop no longer start one by themselves; nightly.yml also runs once a day.) A dispatch made
+      # develop no longer start one by themselves.) A dispatch made
       # with the GITHUB_TOKEN does start a run, unlike a push made with it.
       - name: Start the nightly
         if: steps.bump.outputs.pushed == 'true'

@@ -8,7 +8,8 @@ name: Nightly
 # When (2026-10-16):
 #   - after every private pointer bump: private-pointer.yml starts it once it has pushed the new
 #     private/ commit to develop, so every private commit becomes a nightly;
-#   - once a day (02:00 UTC), which picks up everything else merged into develop;
+#   - once a day (02:00 UTC), which picks up everything else merged into develop: PAUSED, see
+#     the commented-out schedule below;
 #   - by hand (Actions → Nightly → Run workflow).
 # Not on every push to develop. A scheduled or manual run builds develop's newest commit, and does
 # nothing if that commit already has a release (nothing changed since the last nightly). schedule
@@ -23,8 +24,10 @@ name: Nightly
 #                   develop becomes 3.0.3-beta.2
 # A version that already has a release (drafts included) is skipped forward.
 on:
-  schedule:
-    - cron: '0 2 * * *'
+  # Daily run paused (2026-10-16): nightlies only come from private commits and manual runs for now.
+  # Uncomment to build develop once a day again.
+  # schedule:
+  #   - cron: '0 2 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -45,7 +48,7 @@ jobs:
       version: ${{ steps.plan.outputs.version }}
       sha: ${{ steps.plan.outputs.sha }}
     steps:
-      # Always develop's newest commit: a scheduled run starts on main.
+      # Always develop's newest commit: scheduled and manual runs start on main.
       - uses: actions/checkout@v4
         with:
           ref: develop

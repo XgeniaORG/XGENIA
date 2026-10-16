@@ -2,7 +2,7 @@
 
 Research date: 2026-10-16. Method: the workflow and config files of ~40 public repositories, read from their default branches with `gh api`, plus GitHub, electron-builder and OpenSSF docs. Every claim links to the file it comes from; line anchors may drift as those repos change. Items marked **(unverified)** could not be confirmed from a file.
 
-Our setup as of this writing is described in [`update-plan.md`](../../update-plan.md). In one paragraph:
+Our setup as of this writing is described in [`docs/update-plan.md`](../update-plan.md). In one paragraph:
 - **Builds.** A private submodule (`private/`) holds closed-source code. A workflow bot runs PR checks against each new private commit, then pushes the pointer bump straight to `develop` over a deploy key. That starts a nightly, which also runs once a day.
 - **Releases.** Nightlies publish `package.json`'s version (`3.0.2-beta.N`) to GitHub Releases as a pre-release, then commit the next version to `develop`.
 - **Checks before publishing.** macOS is signed, notarized and verified. Linux is launch-tested under xvfb. Every `latest*.yml` is signed with our Ed25519 key. Releases go draft → read back and verify → publish.
