@@ -1349,52 +1349,6 @@ function launchApp() {
       viewerWindow.openDevTools();
     }
 
-    var floatingWindows = {};
-    function closeFloatingWindow(options) {
-      if (!floatingWindows[options.id]) return;
-
-      floatingWindows[options.id].close();
-      if (options.sendCloseEvent) {
-        win && win.webContents.send('floating-window-closed', { id: options.id });
-      }
-    }
-
-    function openFloatingWindow(options) {
-      if (!floatingWindows[options.id]) floatingWindows[options.id] = new FloatingWindow();
-      const floatingWindow = floatingWindows[options.id];
-
-      const parentBounds = win.getBounds();
-
-      const width = options.width || 800;
-      const height = options.height || 600;
-
-      floatingWindow.open({
-        x: parentBounds.width - width - 50,
-        y: 80,
-        width,
-        height,
-        parent: win,
-        minWidth: options.minWidth || 120,
-        minHeight: options.minHeight || 175,
-        url: options.url.replace('{{appPath}}', appPath)
-      });
-
-      // floatingWindow.openDevTools();
-
-      floatingWindow.window.webContents.once('did-finish-load', () => {
-        floatingWindow.send('floating-window-options', options.id, options.options);
-
-        // Floating windows are editor chrome - keep them on the same zoom.
-        try {
-          floatingWindow.window.webContents.setZoomFactor(uiZoomFactor);
-        } catch { }
-      });
-
-      floatingWindow.forwardIpcEvents(['editor-api-response']);
-
-      return floatingWindow;
-    }
-
     let saveWindowSettingsTimeout;
     function onMainWindowBoundsChanged() {
       clearTimeout(saveWindowSettingsTimeout);
@@ -1503,15 +1457,6 @@ function launchApp() {
       } catch (e) {
         console.warn('[Main Process] Failed to apply UI zoom:', e && e.message ? e.message : e);
       }
-
-      // Floating windows are editor chrome too.
-      try {
-        Object.keys(floatingWindows).forEach((id) => {
-          const fw = floatingWindows[id];
-          const wc = fw && fw.window && !fw.window.isDestroyed() ? fw.window.webContents : null;
-          if (wc) wc.setZoomFactor(clamped);
-        });
-      } catch { }
 
       if (!options || options.persist !== false) {
         try {
@@ -2049,8 +1994,6 @@ function launchApp() {
 
       setupEditorApiRouting();
 
-      setupFloatingWindowIpc();
-
       setupMainWindowControlIpc();
 
       setupMenu();
@@ -2120,18 +2063,6 @@ function launchApp() {
         win && win.webContents.send('app-blurred');
       }
     });
-
-    // --------------------------------------------------------------------------------------------------------------------
-    // Floating windows
-    // --------------------------------------------------------------------------------------------------------------------
-    function setupFloatingWindowIpc() {
-      ipcMain.on('floating-window-close', function (event, options) {
-        closeFloatingWindow(options);
-      });
-      ipcMain.on('floating-window-open', function (event, options) {
-        openFloatingWindow(options);
-      });
-    }
 
     // --------------------------------------------------------------------------------------------------------------------
     // Main window control
