@@ -55,6 +55,7 @@ import {
     type PublishStartSpec,
 } from '@xgenia-utils/publish/publishCommands';
 import { setActiveGame } from '@xgenia-utils/rgs/rgsClient';
+import { desktopNotificationService } from '@xgenia-utils/DesktopNotificationService';
 
 interface PluginCommand {
     id: string;
@@ -1063,6 +1064,16 @@ export class EditorBridge {
         // the real handler further down (search "Project directory") is registered later and
         // therefore won this key anyway, and it wraps the same read in a try/catch. Removed
         // rather than left as a second definition of the same route.
+
+        // (2026-10-16) "The AI finished" while XGENIA is in the background. The chat is a remote iframe,
+        // which may not ask for notification permission itself, so it asks the editor. Nothing shows
+        // while the user is in the app.
+        h('notify.aiTaskComplete', ([message]: [string?]) =>
+            desktopNotificationService.notifyAITaskComplete(typeof message === 'string' ? message.slice(0, 200) : undefined)
+        );
+        h('notify.aiError', ([message]: [string?]) =>
+            desktopNotificationService.notifyAIError(typeof message === 'string' ? message.slice(0, 200) : undefined)
+        );
 
         h('project.getName', () => {
             return (ProjectModel.instance as any)?.name || null;
