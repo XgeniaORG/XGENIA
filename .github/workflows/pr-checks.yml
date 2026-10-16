@@ -67,6 +67,7 @@ jobs:
           TSX_TSCONFIG_PATH=packages/xgenia-editor/tsconfig.json npx tsx --test --test-force-exit 'packages/xgenia-editor/tests/**/*.test.ts' 'packages/xgenia-editor/tests/**/*.test.tsx'
           node --test scripts/live-engine/pack.test.mjs scripts/live-engine/workflow.test.mjs scripts/live-engine/minify-viewer.test.mjs
           node --test scripts/release/*.test.mjs
+          npm test -w @xgenia/pro-nodes
           npx tsx packages/xgenia-runtime/src/api/test-compiler-bundle-parity.ts
 
       # The pro nodes are bundled into the viewer: a private change that breaks the bundle fails here,
