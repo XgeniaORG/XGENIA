@@ -77,10 +77,11 @@ export class ToolsModel extends Model {
 
     try {
       if (!this._toolsProjectPath) {
-        console.warn('[ToolsModel] scanToolsProject: Bailing out, _toolsProjectPath is still null or empty.');
+        // No tools project is the normal case (it is optional): an empty list, not an error. It
+        // used to be reported as one, so every project open logged a console error.
         this._tools = [];
         this._categories = [];
-        this.notifyListeners(ToolsModelEvent.Error, 'No tools project path configured after load attempt');
+        this.notifyListeners(ToolsModelEvent.ToolsLoaded, this._tools);
         return;
       }
 
