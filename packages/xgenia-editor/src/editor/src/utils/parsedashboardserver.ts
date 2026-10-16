@@ -22,7 +22,7 @@ export default class ParseDashboardServer {
    */
   openInBrowser(environment: Environment) {
     this.start(environment, (port) => {
-      electron.shell.openExternal(`http://localhost:${port}`);
+      electron.shell.openExternal(`http://127.0.0.1:${port}`);
     });
   }
 
@@ -110,7 +110,8 @@ export default class ParseDashboardServer {
 
     this.stop(); //stop running server (if any) so there's only one
 
-    this.httpServer = app.listen(0, () => {
+    // This machine only: it holds the backend's master key.
+    this.httpServer = app.listen(0, '127.0.0.1', () => {
       //save current config
       this.currentEnvironment = environment;
 

@@ -3,6 +3,7 @@ const { BrowserWindow, ipcMain } = electron;
 const http = require('http');
 const https = require('https');
 const { parseRequestUrl } = require('./request-url');
+const { originAllowed } = require('./relay-guard');
 
 var port = process.env.XGENIA_CLOUD_FUNCTIONS_PORT || 8577;
 
@@ -171,11 +172,20 @@ function startCloudFunctionServer(app, cloudServicesGetActive, mainWindow) {
 
   function handleRequest(request, response) {
     const headers = {
-      'Access-Control-Allow-Origin': '*' /* @dev First, read about security */,
+      // Our own pages only (relay-guard.js): '*' let any web page the user had open call the project's
+      // cloud functions on this machine.
+      'Access-Control-Allow-Origin': request.headers.origin || '*',
+      Vary: 'Origin',
       'Access-Control-Allow-Methods': 'OPTIONS, POST',
       'Access-Control-Max-Age': 2592000, // 30 days
       'Access-Control-Allow-Headers': '*'
     };
+
+    if (!originAllowed(request.headers.origin)) {
+      response.writeHead(403, { 'Content-Type': 'text/plain' });
+      response.end('Forbidden');
+      return;
+    }
 
     if (request.method === 'OPTIONS') {
       response.writeHead(204, headers);
