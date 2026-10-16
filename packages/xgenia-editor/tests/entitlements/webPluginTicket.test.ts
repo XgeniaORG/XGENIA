@@ -10,7 +10,7 @@ import {
   TICKET_REFRESH_MS,
   type EntitlementsBackend,
 } from '../../src/editor/src/views/panels/ChatPanelBridge/PluginLoader';
-import { entitlementsForPanelOpen, nextFrameUrl } from '../../src/editor/src/views/panels/WebPluginPanel/webPluginFrame';
+import { entitlementsForPanelOpen, hasTicket, nextFrameUrl, renewedTicket, TICKET_RENEW_MS } from '../../src/editor/src/views/panels/WebPluginPanel/webPluginFrame';
 
 const MIN = 60 * 1000;
 const panel = (t: string) => ({ id: 'example-panel', name: 'Example', url: `https://panel.example.com/app?x=1&t=${t}`, version: '1', kind: 'web-panel' });
@@ -95,4 +95,20 @@ test('a real URL change reloads the iframe', () => {
   assert.equal(nextFrameUrl(mounted, 'https://panel.example.com/v2/app?x=1&t=new'), 'https://panel.example.com/v2/app?x=1&t=new');
   assert.equal(nextFrameUrl(mounted, 'https://panel.example.com/app?x=2&t=old'), 'https://panel.example.com/app?x=2&t=old');
   assert.equal(nextFrameUrl(null, panel('first').url), panel('first').url, 'nothing mounted yet: mount it');
+});
+
+test('an open plugin is handed each new ticket for its own page, never one for another page', () => {
+  const mounted = panel('ticket1').url;
+  assert.equal(renewedTicket(mounted, panel('ticket2').url), 'ticket2');
+  assert.equal(renewedTicket(mounted, mounted), null, 'same ticket: nothing to hand over');
+  assert.equal(renewedTicket(mounted, 'https://panel.example.com/other?x=1&t=ticket2'), null, 'another page reloads instead');
+  assert.equal(renewedTicket(null, panel('ticket2').url), null, 'nothing mounted yet');
+  assert.equal(renewedTicket(mounted, 'https://panel.example.com/app?x=1'), null, 'no ticket in the answer');
+});
+
+test('only a ticketed plugin is renewed, and well inside a 2-hour session', () => {
+  assert.equal(hasTicket(panel('ticket1').url), true);
+  assert.equal(hasTicket('https://panel.example.com/app?x=1'), false);
+  assert.equal(hasTicket(null), false);
+  assert.ok(TICKET_RENEW_MS > TICKET_REFRESH_MS && TICKET_RENEW_MS <= 60 * MIN);
 });
