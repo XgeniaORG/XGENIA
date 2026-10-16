@@ -790,6 +790,82 @@ function launchApp() {
     process.env.exePath = app.getPath('exe');
     let reopenWindow = false;
 
+    // ---- Docs AI chat ("Ask the docs") ------------------------------------------
+    // The renderer shows the docs site's chat page (/embed/chat/) in a <webview>
+    // (views/DocsChat). The editor renderer has Node integration and web security
+    // off, so this page must never run with those powers: these guards force the
+    // webview into a locked-down, separate session no matter what the renderer
+    // asks for. It is deliberately separate from the builder AI (its own
+    // partition, no bridge, no preload).
+    const DOCS_CHAT_PARTITION = 'persist:xgenia-docs-chat';
+    const DOCS_CHAT_PATH = '/embed/chat/';
+
+    /** Origins the docs chat may load from: production, local docs, or an XGENIA_DOCS_CHAT_URL override. */
+    function docsChatOrigins() {
+      const origins = ['https://docsapp.xgenia.com'];
+      if (global.useLocalDocs) origins.push('http://localhost:3000');
+      const override = process.env.XGENIA_DOCS_CHAT_URL;
+      if (override) {
+        try {
+          origins.push(new URL(override).origin);
+        } catch { }
+      }
+      return origins;
+    }
+
+    function isDocsChatUrl(url) {
+      try {
+        const parsed = new URL(url);
+        return docsChatOrigins().includes(parsed.origin) && parsed.pathname.startsWith(DOCS_CHAT_PATH);
+      } catch {
+        return false;
+      }
+    }
+
+    let docsChatSessionReady = false;
+    function installDocsChatWebviewGuards(win) {
+      if (!docsChatSessionReady) {
+        docsChatSessionReady = true;
+        const docsSession = electron.session.fromPartition(DOCS_CHAT_PARTITION);
+        // Electron grants every permission by default; the chat needs none beyond copying text.
+        const allowed = (permission) => permission === 'clipboard-sanitized-write';
+        docsSession.setPermissionRequestHandler((_wc, permission, callback) => callback(allowed(permission)));
+        docsSession.setPermissionCheckHandler((_wc, permission) => allowed(permission));
+      }
+
+      win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+        if (params.partition !== DOCS_CHAT_PARTITION) return; // other webviews are not ours to change
+        if (!isDocsChatUrl(params.src)) {
+          console.warn('[Main Process] Blocked docs chat webview for', params.src);
+          event.preventDefault();
+          return;
+        }
+        delete webPreferences.preload;
+        delete webPreferences.preloadURL;
+        webPreferences.nodeIntegration = false;
+        webPreferences.nodeIntegrationInSubFrames = false;
+        webPreferences.contextIsolation = true;
+        webPreferences.sandbox = true;
+        webPreferences.webSecurity = true;
+        webPreferences.webviewTag = false;
+      });
+
+      win.webContents.on('did-attach-webview', (_event, contents) => {
+        if (contents.session !== electron.session.fromPartition(DOCS_CHAT_PARTITION)) return;
+        // Links in answers (target=_blank) open in the user's browser, never in a new Electron window.
+        contents.setWindowOpenHandler(({ url }) => {
+          if (/^https?:\/\//.test(url)) shell.openExternal(url);
+          return { action: 'deny' };
+        });
+        // The chat page itself never navigates; anything else goes to the browser.
+        contents.on('will-navigate', (event, url) => {
+          if (isDocsChatUrl(url)) return;
+          event.preventDefault();
+          if (/^https?:\/\//.test(url)) shell.openExternal(url);
+        });
+      });
+    }
+
     function createWindow() {
       console.log('[Main Process] *** ENTERING createWindow() function ***');
       // Check if preload script exists before using it
@@ -981,6 +1057,8 @@ function launchApp() {
         else console.warn('[Main Process] Not opening a non-web link from page content:', String(url).slice(0, 200));
         return { action: 'deny' }; //deny a new electron window
       });
+
+      installDocsChatWebviewGuards(win);
 
       // A file dropped anywhere the page does not handle makes Chromium navigate
       // to that file:// URL — which throws away the whole editor, unsaved work
@@ -1634,6 +1712,14 @@ function launchApp() {
             click: () => {
               if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
                 win.webContents.send('editor-menu-command', { command: 'showShortcuts' });
+              }
+            }
+          },
+          {
+            label: 'Ask the Docs (AI)',
+            click: () => {
+              if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+                win.webContents.send('editor-menu-command', { command: 'openDocsChat' });
               }
             }
           },
