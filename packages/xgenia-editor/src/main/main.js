@@ -87,6 +87,15 @@ const MemoryTelemetry = require('./src/memory-telemetry');
 const { ensureLinuxDesktopEntry } = require('./src/linux-desktop-entry');
 const { rememberDialogFolder } = require('./src/dialog-last-folder');
 
+/** http(s) and mailto only: what a link in page content may hand to the OS. */
+function isWebOrMailLink(url) {
+  try {
+    return ['http:', 'https:', 'mailto:'].includes(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
+
 // (debug-export 1783408275898) Local-only minidump collection + crash-log.jsonl.
 // Must start before any window is created so Crashpad covers all renderers.
 CrashTelemetry.start();
@@ -962,9 +971,12 @@ function launchApp() {
         }
       }
 
-      // Make sure <a href target="_blank"> and window.open opens in external browser
+      // Make sure <a href target="_blank"> and window.open opens in external browser — web and mail
+      // links only: the URL comes from page content (a game in the preview, a plugin panel), and
+      // openExternal also launches file://, smb:// and app protocols.
       win.webContents.setWindowOpenHandler(({ url }) => {
-        shell.openExternal(url);
+        if (isWebOrMailLink(url)) shell.openExternal(url);
+        else console.warn('[Main Process] Not opening a non-web link from page content:', String(url).slice(0, 200));
         return { action: 'deny' }; //deny a new electron window
       });
 
@@ -1025,7 +1037,8 @@ function launchApp() {
           });
           items.push({
             label: 'Open Link in Browser',
-            click: () => shell.openExternal(params.linkURL)
+            enabled: isWebOrMailLink(params.linkURL),
+            click: () => isWebOrMailLink(params.linkURL) && shell.openExternal(params.linkURL)
           });
         }
 
