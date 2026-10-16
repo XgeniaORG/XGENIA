@@ -55,7 +55,35 @@ test('the pointer bot pushes a pointer-only commit to develop, only after the PR
   assert.match(run, /test "\$CHANGED" = "private"/, 'the push is not limited to a pointer-only change');
   assert.ok(!/git add/.test(run), 'the bump must not stage anything but the gitlink');
   assert.equal(wf.concurrency['cancel-in-progress'], false, 'a newer run would cancel a bump mid-push');
-  assert.match(fs.readFileSync(path.join(DIR, 'private-pointer.yml'), 'utf8'), /MIN_HOURS: \$\{\{ vars\.PRIVATE_POINTER_MIN_HOURS \|\| '4' \}\}/);
+  assert.match(fs.readFileSync(path.join(DIR, 'private-pointer.yml'), 'utf8'), /MIN_HOURS: \$\{\{ vars\.PRIVATE_POINTER_MIN_HOURS \|\| '0' \}\}/, 'every private commit is bumped by default');
+});
+
+test('nightlies come from private commits and a daily schedule, not from every push to develop', () => {
+  const nightly = load('nightly.yml');
+  assert.deepEqual(Object.keys(nightly.on).sort(), ['schedule', 'workflow_dispatch']);
+  assert.equal(nightly.on.schedule.length, 1, 'once a day');
+  // A scheduled run starts on main: it must build develop, and release that exact commit.
+  assert.equal(nightly.jobs.plan.steps[0].with.ref, 'develop');
+  assert.equal(nightly.jobs.release.with.ref, '${{ needs.plan.outputs.sha }}');
+  const release = load('release.yml');
+  assert.equal(release.jobs.build.with.ref, "${{ inputs.ref || '' }}");
+  assert.match(release.jobs['draft-release'].steps.map((s) => s.run || '').join('\n'), /--target "\$\(git rev-parse HEAD\)"/);
+  const builds = load('nightly-builds.yml');
+  for (const s of steps(builds).filter((s) => /actions\/checkout/.test(s.uses || ''))) {
+    assert.equal(s.with && s.with.ref, "${{ inputs.ref || '' }}", `nightly-builds ${s.job} checks out the wrong commit`);
+  }
+  // Every pointer bump starts one.
+  const push = load('private-pointer.yml').jobs.push;
+  const start = push.steps.find((s) => /gh workflow run nightly\.yml/.test(s.run || ''));
+  assert.ok(start, 'the bot does not start a nightly after a bump');
+  assert.equal(start.if, "steps.bump.outputs.pushed == 'true'", 'only after a bump was actually pushed');
+  assert.equal(push.permissions.actions, 'write');
+});
+
+test('releases carry no blockmap files', async () => {
+  const text = fs.readFileSync(path.resolve(DIR, '../../scripts/release/collect-release-assets.mjs'), 'utf8');
+  const shipped = /const SHIPPED = \[(.*)\];/.exec(text)[1];
+  assert.ok(!/blockmap/.test(shipped), 'collect-release-assets ships .blockmap files');
 });
 
 test('every release moves develop\'s version on, without starting another nightly', () => {

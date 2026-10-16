@@ -83,21 +83,16 @@ test('the two per-arch macOS manifests become one listing both archs', () => {
   assert.equal(merged.head.releaseDate, "'2026-10-05T10:00:00.000Z'");
 });
 
-test('collects every installer, blockmap and manifest into one folder', () => {
+test('collects every installer and manifest into one folder, and no blockmaps', () => {
   const { root, out } = artifacts();
   collectReleaseAssets(root, out);
   assert.deepEqual(fs.readdirSync(out).sort(), [
     'XGENIA-3.0.1-mac-arm64.dmg',
-    'XGENIA-3.0.1-mac-arm64.dmg.blockmap',
     'XGENIA-3.0.1-mac-arm64.zip',
-    'XGENIA-3.0.1-mac-arm64.zip.blockmap',
     'XGENIA-3.0.1-mac-x64.dmg',
-    'XGENIA-3.0.1-mac-x64.dmg.blockmap',
     'XGENIA-3.0.1-mac-x64.zip',
-    'XGENIA-3.0.1-mac-x64.zip.blockmap',
     'XGENIA-3.0.1.AppImage',
     'XGENIA-Setup-3.0.1.exe',
-    'XGENIA-Setup-3.0.1.exe.blockmap',
     'latest-linux.yml',
     'latest-mac.yml',
     'latest.yml',

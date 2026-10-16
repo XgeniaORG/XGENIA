@@ -5,11 +5,16 @@ name: Nightly
 # build, the checks on the assets, the publish, and moves develop's version on afterwards; this
 # workflow decides whether to run and which version to publish.
 #
-# Every push to develop triggers it, including the private pointer bumps pushed by
-# private-pointer.yml (which throttles those, so a busy day on private/ does not mean a build per
-# commit). The version bump release.yml commits afterwards carries [skip ci], so it starts nothing.
+# When (2026-10-16):
+#   - after every private pointer bump: private-pointer.yml starts it once it has pushed the new
+#     private/ commit to develop, so every private commit becomes a nightly;
+#   - once a day (02:00 UTC), which picks up everything else merged into develop;
+#   - by hand (Actions → Nightly → Run workflow).
+# Not on every push to develop. A scheduled or manual run builds develop's newest commit, and does
+# nothing if that commit already has a release (nothing changed since the last nightly). schedule
+# and workflow_dispatch only run the copy of this file on the default branch (main).
 # The concurrency group keeps one build running and at most one waiting: GitHub drops an older
-# waiting run when a newer one queues, so a burst of pushes collapses into the newest.
+# waiting run when a newer one queues, so a burst of private commits collapses into the newest.
 #
 # Version (scripts/release/next-version.mjs): packages/xgenia-editor/package.json holds the version
 # the next nightly publishes, and each nightly moves it on by one.
@@ -18,8 +23,8 @@ name: Nightly
 #                   develop becomes 3.0.3-beta.2
 # A version that already has a release (drafts included) is skipped forward.
 on:
-  push:
-    branches: [develop]
+  schedule:
+    - cron: '0 2 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -38,24 +43,30 @@ jobs:
     outputs:
       build: ${{ steps.plan.outputs.build }}
       version: ${{ steps.plan.outputs.version }}
+      sha: ${{ steps.plan.outputs.sha }}
     steps:
+      # Always develop's newest commit: a scheduled run starts on main.
       - uses: actions/checkout@v4
+        with:
+          ref: develop
 
       - name: Plan
         id: plan
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # A re-run, or a commit that already has a release: nothing to ship.
-          if git ls-remote --tags origin | awk '{print $1}' | grep -qx "$GITHUB_SHA"; then
-            echo "A release already exists for $GITHUB_SHA"
+          SHA=$(git rev-parse HEAD)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          # Nothing merged since the last nightly (or a re-run): nothing to ship.
+          if git ls-remote --tags origin | awk '{print $1}' | grep -qx "$SHA"; then
+            echo "develop's $SHA already has a release; nothing new to build."
             echo "build=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           gh release list -R "$GITHUB_REPOSITORY" --limit 300 --json tagName --jq '.[].tagName' > "$RUNNER_TEMP/released.txt"
           PACKAGE=$(jq -r .version packages/xgenia-editor/package.json)
           VERSION=$(node scripts/release/next-version.mjs nightly "$PACKAGE" "$RUNNER_TEMP/released.txt")
-          echo "Nightly v$VERSION (package.json $PACKAGE) from $GITHUB_SHA, private at $(git ls-tree HEAD private | awk '{print $3}')"
+          echo "Nightly v$VERSION (package.json $PACKAGE) from develop $SHA, private at $(git ls-tree HEAD private | awk '{print $3}')"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "build=true" >> "$GITHUB_OUTPUT"
 
@@ -66,6 +77,7 @@ jobs:
     with:
       version: ${{ needs.plan.outputs.version }}
       nightly: true
+      ref: ${{ needs.plan.outputs.sha }}
     secrets: inherit
 
   # Any failure, from a build to the final public check, reaches the team. nightly-builds.yml reports
@@ -85,7 +97,7 @@ jobs:
           msg-title: 'XGENIA nightly failed'
           msg-text: |
             Version: v${{ needs.plan.outputs.version }}
-            Commit: ${{ github.sha }}
+            Commit: ${{ needs.plan.outputs.sha }} (develop)
             A release that failed after it was created is left as a draft for inspection; nothing a draft holds reaches an install.
           status: failure
           workflow-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

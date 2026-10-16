@@ -24,6 +24,10 @@ on:
         description: 'Publish as a nightly pre-release instead of a draft'
         type: boolean
         default: false
+      ref:
+        description: 'Commit to build and release (default: the one that triggered the run). nightly.yml passes develop''s.'
+        type: string
+        default: ''
 
 jobs:
   # The version this run releases: the one nightly.yml passed in, or the stable version of
@@ -34,6 +38,8 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || '' }}
 
       - name: Pick the version
         id: version
@@ -60,6 +66,7 @@ jobs:
     with:
       release: true
       version: ${{ needs.plan.outputs.version }}
+      ref: ${{ inputs.ref || '' }}
     secrets: inherit
 
   draft-release:
@@ -71,6 +78,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || '' }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -126,9 +135,11 @@ jobs:
             TITLE="XGENIA v$VERSION"
           fi
           # Always a draft first: no install sees a release while its files are still uploading.
+          # The tag goes on the commit that was built (the checkout above), which for a scheduled
+          # nightly is develop's, not the main commit the run started from.
           gh release create "v$VERSION" release-dist/* \
             --draft $PRERELEASE \
-            --target "$GITHUB_SHA" \
+            --target "$(git rev-parse HEAD)" \
             --title "$TITLE" \
             --generate-notes
 

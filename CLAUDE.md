@@ -92,8 +92,9 @@ applies to this repo only.
 You rarely need to bump it by hand: the private pointer bot
 (`.github/workflows/private-pointer.yml`, a workflow, not an App or a person)
 runs the PR checks against the latest private `main` and, if they pass, pushes
-the pointer bump to `develop` itself over a deploy key; that push becomes a
-nightly pre-release (`.github/workflows/nightly.yml`).
+the pointer bump to `develop` itself over a deploy key, then starts a nightly
+pre-release (`.github/workflows/nightly.yml`). Nightlies run after every private
+commit and once a day, not on every push to `develop`.
 
 Don't bump `packages/xgenia-editor/package.json`'s version by hand either: every
 nightly and every release moves it on by itself (`scripts/release/next-version.mjs`).
