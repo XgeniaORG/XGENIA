@@ -93,6 +93,9 @@
   "overrides": {
     "revolt-fx": {
       "pixi.js": "^8.0.0"
+    },
+    "electron-updater": {
+      "js-yaml": "^4.3.2"
     }
   }
 }

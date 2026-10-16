@@ -141,7 +141,7 @@
     "electron-store": "^8.1.0",
     "electron-updater": "^6.8.9",
     "express": "^4.17.3",
-    "fast-xml-parser": "^5.2.5",
+    "fast-xml-parser": "^5.11.2",
     "highlight.js": "^11.5.1",
     "html-to-image": "^1.11.13",
     "idb": "^8.0.3",
