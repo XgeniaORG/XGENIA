@@ -51,14 +51,8 @@ class DesktopNotificationService {
       this.isAppFocused = false;
     });
 
-    // Also listen to window focus/blur as fallback
-    window.addEventListener('focus', () => {
-      this.isAppFocused = true;
-    });
-
-    window.addEventListener('blur', () => {
-      this.isAppFocused = false;
-    });
+    // No window focus/blur fallback: clicking into the AI chat (an iframe) blurs this window while
+    // the user is still in the app, and a notification then would interrupt them mid-sentence.
   }
 
   /**
@@ -108,8 +102,9 @@ class DesktopNotificationService {
    * Show a desktop notification if the app is not focused
    */
   public notifyIfAppNotFocused(options: NotificationOptions): boolean {
-    // Only show notification if app is not focused
-    if (this.isAppFocused) {
+    // Only show notification if app is not focused. document.hasFocus() stays true while focus is in
+    // one of our frames (the chat, the preview).
+    if (this.isAppFocused || (typeof document !== 'undefined' && document.hasFocus())) {
       return false;
     }
 

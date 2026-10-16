@@ -10,12 +10,19 @@ export function execute({
   options,
 }: IGitRunOptions): Promise<IGitResult> {
   return new Promise<IGitResult>(async (resolve, reject) => {
-    const gitResult = await GitProcess.exec(args, path, {
-      env: options.env,
-      stdin: options?.stdin,
-      stdinEncoding: options?.stdinEncoding,
-      processCallback: options?.processCallback,
-    });
+    // An async executor swallows its own throw: if git cannot be started at all (missing binary,
+    // a folder that no longer exists) the promise would never settle and the operation would hang.
+    let gitResult: Awaited<ReturnType<typeof GitProcess.exec>>;
+    try {
+      gitResult = await GitProcess.exec(args, path, {
+        env: options?.env,
+        stdin: options?.stdin,
+        stdinEncoding: options?.stdinEncoding,
+        processCallback: options?.processCallback,
+      });
+    } catch (err) {
+      return reject(err);
+    }
 
     const exitCodes = options?.successExitCodes || new Set([0]);
     const acceptableExitCode =
@@ -23,13 +30,15 @@ export function execute({
 
     const shouldParseErrors = !(options?.parseErrors === false);
 
-    // Parse the error if acceptable exit code
-    const gitError = shouldParseErrors
-      ? acceptableExitCode
+    // Parse an error only when the exit code is NOT one we expect (as GitHub Desktop, where this
+    // comes from, does). It was the other way round: a failure never carried its parsed error, so
+    // expectedErrors (merge conflicts, authentication) never matched, and a success could be read
+    // as an error.
+    const gitError =
+      shouldParseErrors && !acceptableExitCode
         ? GitProcess.parseError(gitResult.stderr) ??
           GitProcess.parseError(gitResult.stdout)
-        : null
-      : null;
+        : null;
 
     const gitErrorDescription = gitError
       ? getDescriptionForError(gitError)

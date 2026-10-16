@@ -2,7 +2,8 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const nodePath = require('path');
-const URL = require('url');
+const { parseRequestUrl } = require('./request-url');
+const { originAllowed, mayRegisterAs } = require('./relay-guard');
 const path = require('path');
 
 const { contentTypeForUrl } = require('./content-type');
@@ -622,7 +623,7 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
   }
 
   function handleRequest(request, response) {
-    var parsedUrl = URL.parse(request.url, true);
+    var parsedUrl = parseRequestUrl(request.url);
     let requestPath;
     try {
       requestPath = decodeURI(parsedUrl.pathname);
@@ -890,7 +891,7 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
         const modulePath = nodePath.join(toolsProjectPath, requestPath);
         console.log(`[WebServer] Serving tools project module from: ${modulePath}`);
 
-        if (fs.existsSync(modulePath)) {
+        if (fs.existsSync(modulePath) && realPathInside(toolsProjectPath, modulePath)) {
           serveFile(modulePath, request, response);
         } else {
           console.error(`[WebServer] Tools project module not found at: ${modulePath}`);
@@ -1004,7 +1005,7 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
         // Guard against null or undefined info here as well before accessing projectDirectory
         if (typeof info === 'object' && info !== null && info.projectDirectory) {
           const projectPath = info.projectDirectory + requestPath;
-          if (fs.existsSync(projectPath)) {
+          if (fs.existsSync(projectPath) && realPathInside(info.projectDirectory, projectPath)) {
             serveFile(projectPath, request, response);
           } else {
             serve404(response);
@@ -1072,21 +1073,35 @@ function startWebSocketServer(server) {
   }
 
   var wss = new WebSocketServer({
-    server: server
+    server: server,
+    // Browsers send an Origin and CORS does not cover WebSockets: only our own pages (relay-guard.js).
+    verifyClient: (info) => originAllowed(info.origin)
   });
 
-  wss.on('connection', function (ws) {
+  wss.on('connection', function (ws, req) {
     var handle = {
       ws: ws
     };
+    var remoteAddress = req && req.socket && req.socket.remoteAddress;
+    var origin = req && req.headers && req.headers.origin;
     connectedSockets.push(handle);
 
     (function () {
       var _handle = handle;
 
       ws.on('message', function (message) {
-        var request = JSON.parse(message);
+        var request;
+        try {
+          request = JSON.parse(message);
+        } catch (e) {
+          return;
+        }
         if (request.cmd === 'register') {
+          // The editor and service roles drive viewers; only this machine may take them.
+          if (!mayRegisterAs(request.type, remoteAddress, origin)) {
+            ws.close(1008, 'role not allowed from here');
+            return;
+          }
           _handle.type = request.type;
           _handle.clientId = request.clientId;
 
@@ -1105,6 +1120,11 @@ function startWebSocketServer(server) {
             // A new serivce is registered
             services[request.service] = handle;
         }
+        // Nothing is relayed for a socket that has not registered: its messages used to be
+        // broadcast to every client, viewers included.
+        else if (!_handle.type) {
+          return;
+        }
         // If this is a request to a service, pass it along to the service
         else if (request.service) {
           var s = services[request.service];
@@ -1112,6 +1132,8 @@ function startWebSocketServer(server) {
         } else {
           // If there is a target client, send the message to that client
           if (request.target) {
+            // Only the editor and services address one client directly; a viewer talks to editors.
+            if (_handle.type !== 'editor' && _handle.type !== 'service') return;
             for (var i = 0; i < connectedSockets.length; i++)
               if (connectedSockets[i].clientId === request.target) connectedSockets[i].ws.send(message);
           }
@@ -1173,6 +1195,21 @@ function hasTraversal(rawPath) {
   }
   if (p.includes('\0')) return true;
   return p.split(/[\\/]/).some((segment) => segment === '..');
+}
+
+/**
+ * Whether `filePath`, symlinks resolved, is still inside `base`. hasTraversal() stops ".." in the
+ * URL; this stops a symlink in the project (a cloned or imported project can carry one, git
+ * creates them) from serving a file outside it, e.g. assets/x -> ~/.ssh/id_rsa, to the LAN.
+ */
+function realPathInside(base, filePath) {
+  try {
+    const realBase = fs.realpathSync(base);
+    const real = fs.realpathSync(decodeURI(filePath));
+    return real === realBase || real.startsWith(realBase + nodePath.sep);
+  } catch {
+    return false;
+  }
 }
 
 function serveFile(filePath, request, response) {

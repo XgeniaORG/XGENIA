@@ -89,13 +89,6 @@ dotenv.config();
   //       It basically means that some package is not relative to this path.
   console.log("--- Run 'npm install' ...");
 
-  if (platform === 'darwin') {
-    execSync(`npm install electron-notarize`, {
-      stdio: 'inherit',
-      env: withNodeHeap(process.env)
-    });
-  }
-
   execSync(`npm install --arch=${arch} --scope xgenia-editor`, {
     stdio: 'inherit',
     env: withNodeHeap(process.env)

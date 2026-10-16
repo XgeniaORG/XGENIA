@@ -27,3 +27,31 @@ test('the panel renders into document.body, not inside the card that mounts it',
     await act(async () => { root.unmount(); });
     assert.equal(document.body.children.length, 1, 'unmounting removes the layer');
 });
+
+// (2026-10-16) The portal escapes PanelHost's `display: none`, so switching to another panel (or closing
+// the card) left Character Studio over the whole editor. The layer follows PanelActiveContext instead.
+test('the layer hides while its panel is off screen and comes back with the same frame', async () => {
+    const React = (await import('react')).default;
+    const { createRoot } = await import('react-dom/client');
+    const { act } = await import('react');
+    const { WebPluginPanel } = await import('../../src/editor/src/views/panels/WebPluginPanel/WebPluginPanel');
+    const { PanelActiveContext } = await import('../../src/editor/src/views/panels/panelActive');
+    const card = document.getElementById('card')!;
+    const root = createRoot(card);
+    const render = (active: boolean) =>
+        root.render(React.createElement(PanelActiveContext.Provider, { value: active }, React.createElement(WebPluginPanel, { pluginId: 'character-studio' })));
+    const layer = () => [...document.body.children].find((el) => el.id !== 'card') as HTMLElement | undefined;
+
+    await act(async () => { render(true); });
+    const shown = layer();
+    assert.ok(shown, 'the layer is mounted');
+    assert.notEqual(shown!.style.display, 'none', 'visible while its panel is on screen');
+
+    await act(async () => { render(false); });
+    assert.equal(layer(), shown, 'still the same element: the plugin keeps its state while hidden');
+    assert.equal(layer()!.style.display, 'none', 'hidden while another panel is on screen');
+
+    await act(async () => { render(true); });
+    assert.notEqual(layer()!.style.display, 'none', 'visible again when switched back');
+    await act(async () => { root.unmount(); });
+});

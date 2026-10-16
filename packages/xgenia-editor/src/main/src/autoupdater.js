@@ -318,6 +318,20 @@ function simulateUpdate() {
   }, 2000);
 }
 
+/**
+ * Where the updater does not run (development builds, Config.enableAutoUpdate off), the windows still
+ * ask for its state on load. Answer with the idle, disabled state instead of leaving the calls with
+ * no handler: Electron logs every one of those as an error, which buried real ones in the log.
+ */
+function setupDisabledAutoUpdate() {
+  if (started) return;
+  started = true;
+  ipcMain.handle('auto-update:get-state', () => state);
+  ipcMain.handle('auto-update:check', () => state);
+  ipcMain.handle('auto-update:set-channel', () => state);
+}
+
 module.exports = {
-  setupAutoUpdate
+  setupAutoUpdate,
+  setupDisabledAutoUpdate
 };

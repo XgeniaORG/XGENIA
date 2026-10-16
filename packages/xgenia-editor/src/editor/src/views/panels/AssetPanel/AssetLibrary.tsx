@@ -781,6 +781,9 @@ export function AssetLibrary() {
       onDragOver={(e) => {
         if (!hasFiles(e)) return;
         e.preventDefault();
+        // The window-wide drop handler (popuplayer) copies dropped files to the project root;
+        // a drop here imports into assets instead, so it must not reach that one as well.
+        e.stopPropagation();
         setDropActive(true);
       }}
       onDragLeave={(e) => {
@@ -789,6 +792,7 @@ export function AssetLibrary() {
       onDrop={(e) => {
         if (!hasFiles(e)) return;
         e.preventDefault();
+        e.stopPropagation();
         setDropActive(false);
         void doImport(e.dataTransfer.files);
       }}

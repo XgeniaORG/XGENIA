@@ -30,8 +30,8 @@ function watchSmokeTest(app, win, { timeoutMs = 120000, settleMs = 10000 } = {})
     // -3 is ERR_ABORTED: a navigation replaced by another, not a failure.
     if (isMainFrame && code !== -3) finish(1, `failed to load ${url}: ${code} ${description}`);
   });
-  win.webContents.on('console-message', (_event, level, message, line, source) => {
-    if (level >= 3) rendererErrors.push(`${message} (${source}:${line})`);
+  win.webContents.on('console-message', ({ level, message, lineNumber, sourceId }) => {
+    if (level === 'error') rendererErrors.push(`${message} (${sourceId}:${lineNumber})`);
   });
 
   const rendered = () =>

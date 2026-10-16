@@ -11,6 +11,7 @@ const { ToastLayer } = require('./ToastLayer/ToastLayer');
 
 const utils = require('../utils/utils');
 const { platform, PlatformOS } = require('@xgenia/platform');
+const { getPathForFile } = require('@xgenia-utils/filePath');
 
 // Styles
 require('../styles/popuplayer.css');
@@ -188,10 +189,11 @@ PopupLayer.prototype.render = function () {
         let skippedFiles = 0;
         for (var i = 0; i < files.length; i++) {
           // Check if path exists and is a string before processing
-          if (typeof files[i].path === 'string' && files[i].path.length > 0) {
-             // Pass null instead of trying to get directory name from potentially undefined file.path
+          const filePath = getPathForFile(files[i]);
+          if (filePath) {
+             // Pass null instead of trying to get directory name from a missing path
              collectFiles(
-                { fullPath: files[i].path, name: files[i].name },
+                { fullPath: filePath, name: files[i].name },
                  null
               );
           } else {

@@ -24,8 +24,13 @@ export function execute({
     } as Object,
   };
 
-  return new Promise<IGitResult>(async (resolve, reject) => {
-    const process = GitProcess.spawn(args, path, spawnOptions);
+  return new Promise<IGitResult>((resolve, reject) => {
+    let process: ReturnType<typeof GitProcess.spawn>;
+    try {
+      process = GitProcess.spawn(args, path, spawnOptions);
+    } catch (err) {
+      return reject(err);
+    }
 
     // Send the stdin
     if (options?.stdin) {
@@ -72,21 +77,15 @@ export function execute({
           options?.processDataCallback(chunk);
         }
 
-        if (
-          options?.maxBuffer === undefined ||
-          (options?.maxBuffer &&
-            (!options.maxBuffer || totalStdoutLength < options.maxBuffer))
-        ) {
+        // Keep output up to maxBuffer, and stop git once it is exceeded. With no maxBuffer, keep
+        // everything: the kill below used to fire on the FIRST chunk then, cutting off any command
+        // whose output spans several (`diff --check` found 520 of 3000 conflicted files).
+        if (options?.maxBuffer === undefined || totalStdoutLength < options.maxBuffer) {
           stdoutChunks.push(chunk);
           totalStdoutLength += chunk.length;
         }
 
-        if (
-          options?.maxBuffer === undefined ||
-          (options?.maxBuffer &&
-            totalStdoutLength >= options.maxBuffer &&
-            !killSignalSent)
-        ) {
+        if (options?.maxBuffer !== undefined && totalStdoutLength >= options.maxBuffer && !killSignalSent) {
           process.kill();
           killSignalSent = true;
         }
@@ -127,13 +126,12 @@ export function execute({
 
       const shouldParseErrors = !(options?.parseErrors === false);
 
-      // Parse the error if acceptable exit code
-      const gitError = shouldParseErrors
-        ? acceptableExitCode
+      // Parse an error only when the exit code is NOT one we expect (see client-exec.ts).
+      const gitError =
+        shouldParseErrors && !acceptableExitCode
           ? GitProcess.parseError(stderr.toString()) ??
             GitProcess.parseError(stdout.toString())
-          : null
-        : null;
+          : null;
 
       const gitErrorDescription = gitError
         ? getDescriptionForError(gitError)

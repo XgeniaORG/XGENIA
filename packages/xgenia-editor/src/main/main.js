@@ -73,19 +73,6 @@ if (process.platform === 'linux' && app.getName() !== 'XGENIA') {
 }
 
 const axios = require('axios');
-// Ensure fetch is available in the main process (older Electron/Node may lack global fetch)
-try {
-  if (typeof fetch === 'undefined') {
-    const { fetch: undiciFetch, Headers, Request, Response } = require('undici');
-    global.fetch = undiciFetch;
-    global.Headers = Headers;
-    global.Request = Request;
-    global.Response = Response;
-    console.log('[Main Process] Installed undici fetch polyfill');
-  }
-} catch (e) {
-  console.warn('[Main Process] Unable to polyfill fetch:', e?.message);
-}
 
 const AutoUpdater = require('./src/autoupdater');
 const FloatingWindow = require('./src/floating-window');
@@ -98,10 +85,23 @@ const { getOAuthServer } = require('./src/oauth-callback-server');
 const CrashTelemetry = require('./src/crash-telemetry');
 const MemoryTelemetry = require('./src/memory-telemetry');
 const { ensureLinuxDesktopEntry } = require('./src/linux-desktop-entry');
+const { rememberDialogFolder } = require('./src/dialog-last-folder');
+
+/** http(s) and mailto only: what a link in page content may hand to the OS. */
+function isWebOrMailLink(url) {
+  try {
+    return ['http:', 'https:', 'mailto:'].includes(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
 
 // (debug-export 1783408275898) Local-only minidump collection + crash-log.jsonl.
 // Must start before any window is created so Crashpad covers all renderers.
 CrashTelemetry.start();
+
+// Electron 43+: dialogs without a defaultPath would open in Downloads every time.
+rememberDialogFolder(dialog);
 
 const { handleProjectMerge } = require('./src/merge-driver');
 
@@ -173,14 +173,14 @@ app.commandLine.appendSwitch('--preserve-symlinks-main');
 // are exactly the two with it off. `cpu-composite` is the half of `software` that stays
 // usable: WebGL and canvas keep the GPU, so the preview still ticks at 119fps.
 // macOS only — the flash has never been reported on Windows or Linux, and those platforms
-// should not pay for CPU compositing. Opt out with XGENIA_GPU_MODE=default.
-// REMOVE THIS DEFAULT when Electron is bumped: it is a workaround for Chromium 126 (mid-2024)
-// compositing onto macOS 26 on an M5, and the upgrade is the real fix.
-const gpuMode = process.env.XGENIA_GPU_MODE || (process.platform === 'darwin' ? 'cpu-composite' : '');
+// should not pay for CPU compositing.
+// (2026-10-15) Default removed with the Electron 31 → 44 bump (Chromium 126 → 152): the
+// default was a workaround for Chromium 126 compositing onto macOS 26 on an M5, and the
+// upgrade is the real fix. If the flash comes back, XGENIA_GPU_MODE=cpu-composite restores it;
+// re-default it only on a measured flash, as above.
+const gpuMode = process.env.XGENIA_GPU_MODE || '';
 if (gpuMode) {
-  console.log(
-    `[Main Process] XGENIA_GPU_MODE=${gpuMode}${process.env.XGENIA_GPU_MODE ? '' : ' (macOS default)'}`
-  );
+  console.log(`[Main Process] XGENIA_GPU_MODE=${gpuMode}`);
   if (gpuMode === 'raster') {
     app.commandLine.appendSwitch('disable-gpu-rasterization');
   } else if (gpuMode === 'angle-gl') {
@@ -476,6 +476,14 @@ function launchApp() {
       if (!_editorAPICallbacks[token]) return;
       _editorAPICallbacks[token](args);
       delete _editorAPICallbacks[token];
+    });
+
+    // Electron 44 took `clipboard` out of renderer processes. Renderers use navigator.clipboard
+    // (utils/systemClipboard.ts) and fall back to these when the W3C API refuses, e.g. the
+    // document isn't focused. `clipboard.readText()` returns a Promise from Electron 44 on.
+    ipcMain.handle('clipboard:read-text', async () => (await electron.clipboard.readText()) || '');
+    ipcMain.handle('clipboard:write-text', async (event, text) => {
+      await electron.clipboard.writeText(String(text ?? ''));
     });
 
     ipcMain.handle('image-editor:write-file', async (event, { filePath, dataBase64 }) => {
@@ -917,6 +925,8 @@ function launchApp() {
 
       if (Config.enableAutoUpdate) {
         AutoUpdater.setupAutoUpdate(win);
+      } else {
+        AutoUpdater.setupDisabledAutoUpdate();
       }
 
       // Load the main HTML file with enhanced debugging
@@ -963,9 +973,12 @@ function launchApp() {
         }
       }
 
-      // Make sure <a href target="_blank"> and window.open opens in external browser
+      // Make sure <a href target="_blank"> and window.open opens in external browser — web and mail
+      // links only: the URL comes from page content (a game in the preview, a plugin panel), and
+      // openExternal also launches file://, smb:// and app protocols.
       win.webContents.setWindowOpenHandler(({ url }) => {
-        shell.openExternal(url);
+        if (isWebOrMailLink(url)) shell.openExternal(url);
+        else console.warn('[Main Process] Not opening a non-web link from page content:', String(url).slice(0, 200));
         return { action: 'deny' }; //deny a new electron window
       });
 
@@ -1026,7 +1039,8 @@ function launchApp() {
           });
           items.push({
             label: 'Open Link in Browser',
-            click: () => shell.openExternal(params.linkURL)
+            enabled: isWebOrMailLink(params.linkURL),
+            click: () => isWebOrMailLink(params.linkURL) && shell.openExternal(params.linkURL)
           });
         }
 
@@ -1077,22 +1091,22 @@ function launchApp() {
         }
       });
 
-      win.webContents.on('crashed', (event, killed) => {
-        console.error('[Main Process] WebContents crashed. Killed:', killed);
-      });
-
       win.webContents.on('unresponsive', () => {
         console.error('[Main Process] WebContents became unresponsive');
       });
 
-      win.webContents.on('console-message', (event, level, message, line, sourceId) => {
+      win.webContents.on('console-message', ({ level, message, sourceId, lineNumber }) => {
         if (message.includes('[Preload]')) {
           console.log(`[Main Process] Preload log: ${message}`);
         }
 
-        // Detect hot reload related errors
-        if (message.includes('module hot update') || message.includes('Cannot read properties of undefined')) {
+        if (message.includes('module hot update')) {
           console.warn('[Main Process] Hot reload related error detected:', message);
+        } else if (level === 'error') {
+          // Every renderer error, with where it came from: this used to keep only messages that
+          // contained "Cannot read properties of undefined", labelled as hot-reload trouble, and
+          // without the file and line that make one findable.
+          console.error(`[Renderer error] ${String(message).slice(0, 2000)} (${sourceId || '?'}:${lineNumber ?? '?'})`);
         }
       });
 
@@ -1335,11 +1349,16 @@ function launchApp() {
       {
         label: 'About Application',
         click: () => {
-          require('about-window').default({
-            icon_path: appPath + '/src/assets/images/icon.png',
-            copyright: 'Copyright (c) 2024 XGENIA LLC',
-            description: buildNumber ? 'Build ' + buildNumber : undefined
+          // Electron's own about panel (macOS, Windows, Linux) replaces the unmaintained
+          // about-window package.
+          app.setAboutPanelOptions({
+            applicationName: app.getName(),
+            applicationVersion: app.getVersion(),
+            version: buildNumber ? 'Build ' + buildNumber : '',
+            copyright: 'Copyright (c) 2022-2026 XGENIA LLC',
+            iconPath: appPath + '/src/assets/images/icon.png'
           });
+          app.showAboutPanel();
         }
       },
       { type: 'separator' }
@@ -2081,7 +2100,7 @@ function startUDPMulticast() {
     const hostname = os.hostname();
 
     if (hostname) {
-      const message = new Buffer(
+      const message = Buffer.from(
         jsToArrayBuffer({ https: process.env.ssl ? true : false, hostname, status: 'closed' })
       );
       server.send(message, 0, message.length, 8575, '225.0.0.100');
@@ -2093,7 +2112,7 @@ function startUDPMulticast() {
     const httpPort = process.env.XGENIAPORT || 8574;
 
     if (hostname) {
-      const message = new Buffer(
+      const message = Buffer.from(
         jsToArrayBuffer({ https: process.env.ssl ? true : false, hostname, httpPort, projectName, status: 'active' })
       );
       server.send(message, 0, message.length, 8575, '225.0.0.100');

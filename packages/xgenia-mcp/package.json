@@ -12,13 +12,10 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector": "^0.15.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "keytar": "^7.9.0"
   },
   "devDependencies": {
-    "@types/electron": "^1.4.38",
-    "@types/keytar": "^4.4.0",
     "typescript": "^5.9.3"
   }
 }

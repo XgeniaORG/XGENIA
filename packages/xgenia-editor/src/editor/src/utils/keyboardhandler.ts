@@ -76,7 +76,7 @@ export interface KeyboardCommand {
 }
 
 function getKeyMod(evt: KeyboardEvent): KeyMod {
-  let modKey: KeyMod = 0;
+  let modKey = 0 as KeyMod;
   if (evt.metaKey || evt.ctrlKey) modKey |= KeyMod.CtrlCmd; // | KeyMod.WinCtrl
   if (evt.shiftKey) modKey |= KeyMod.Shift;
   if (evt.altKey) modKey |= KeyMod.Alt;

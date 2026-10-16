@@ -22,6 +22,7 @@ import { createPortal } from 'react-dom';
 
 import { PluginLoader, isVerdict, pluginOrigin, webPanelPlugins, WEB_PLUGIN_FRAME_ATTR, type EntitlementsResponse } from '../ChatPanelBridge/PluginLoader';
 import { entitlementsForPanelOpen, nextFrameUrl } from './webPluginFrame';
+import { usePanelActive } from '../panelActive';
 
 /**
  * `not-entitled` is reserved for a VERDICT (the server said no); `unavailable` is "we could
@@ -37,12 +38,19 @@ export interface WebPluginPanelProps {
  * The panel is mounted inside LeftPanelCard, whose z-index makes it a stacking context: a `position: fixed`
  * child there stays under every later sibling layer, so the node inspector (RightPropertyPanel) covered the
  * plugin's right side. Rendering into document.body lets the full-window panel sit above the editor as intended.
+ *
+ * The portal also escapes the host's `display: none`, which is how PanelHost hides a panel the user switched
+ * away from (or closed) while keeping it mounted, so the panel stayed over the editor for good. It hides itself
+ * when the host says it is off screen; the iframe stays mounted, so switching back keeps the plugin's state.
  */
 export function WebPluginPanel(props: WebPluginPanelProps) {
-    return createPortal(<WebPluginPanelContent {...props} />, document.body);
+    const isActive = usePanelActive();
+    return createPortal(<WebPluginPanelContent {...props} hidden={!isActive} />, document.body);
 }
 
-function WebPluginPanelContent({ pluginId }: WebPluginPanelProps) {
+function WebPluginPanelContent({ pluginId, hidden }: WebPluginPanelProps & { hidden: boolean }) {
+    // Applied to the layer's root in every state below.
+    const hide: React.CSSProperties = hidden ? { display: 'none' } : {};
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [status, setStatus] = useState<PanelStatus>('loading');
     const [pluginUrl, setPluginUrl] = useState<string | null>(null);
@@ -141,7 +149,7 @@ function WebPluginPanelContent({ pluginId }: WebPluginPanelProps) {
 
     if (status === 'not-entitled') {
         return (
-            <div style={shellStyle}>
+            <div style={{ ...shellStyle, ...hide }}>
                 <div style={messageStyle}>
                     <h3 style={headingStyle}>{title}</h3>
                     <p style={bodyTextStyle}>Your plan does not include this plugin.</p>
@@ -156,7 +164,7 @@ function WebPluginPanelContent({ pluginId }: WebPluginPanelProps) {
 
     if (status === 'unavailable') {
         return (
-            <div style={shellStyle}>
+            <div style={{ ...shellStyle, ...hide }}>
                 <div style={messageStyle}>
                     <h3 style={headingStyle}>Couldn&apos;t check your plan</h3>
                     <p style={{ ...bodyTextStyle, maxWidth: '300px' }}>
@@ -170,7 +178,7 @@ function WebPluginPanelContent({ pluginId }: WebPluginPanelProps) {
 
     if (status === 'error') {
         return (
-            <div style={shellStyle}>
+            <div style={{ ...shellStyle, ...hide }}>
                 <div style={messageStyle}>
                     <p style={{ color: '#ff6b6b', fontSize: '12px', textAlign: 'center' }}>
                         {errorMsg || `Failed to load ${title}`}
@@ -193,7 +201,8 @@ function WebPluginPanelContent({ pluginId }: WebPluginPanelProps) {
             overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
-            WebkitAppRegion: 'no-drag'
+            WebkitAppRegion: 'no-drag',
+            ...hide
         } as React.CSSProperties}>
             {status === 'loading' && !pluginUrl && (
                 <div style={{

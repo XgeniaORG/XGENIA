@@ -1,5 +1,6 @@
 import { filesystem } from '@xgenia/platform';
 import { ProjectModel } from '../../../models/projectmodel';
+import { getPathForFile } from '@xgenia-utils/filePath';
 
 // Real filesystem operations for the Asset panel. Mirrors the LOGIC of the backend
 // manage_asset tool (.trash recycle bin, sanitize, conflict checks) but translated to
@@ -194,7 +195,7 @@ export async function duplicate(relPath: string, isFolder: boolean): Promise<str
 
 /**
  * Copy OS files into the project's assets folder. `destRel` is project-relative and must
- * be `assets` or below. Electron 31 exposes `File.path` for dropped files; a File without
+ * be `assets` or below. A dropped file or folder is copied from its path on disk; a File without
  * one (pasted, synthesized) is read and written instead. Name collisions get ` 2`, ` 3`, …
  * rather than silently overwriting an existing asset. Returns the project-relative paths
  * written, in the same order as `files`.
@@ -208,7 +209,9 @@ export async function importFiles(files: FileList | File[], destRel: string = 'a
 
   const written: string[] = [];
   for (const file of Array.from(files as ArrayLike<File>)) {
-    const [base, ext] = splitExt(file.name);
+    const srcPath = getPathForFile(file);
+    const isFolder = !!srcPath && isDirectoryOnDisk(srcPath);
+    const [base, ext] = isFolder ? [file.name, ''] : splitExt(file.name);
     let candidate = file.name;
     let n = 2;
     while (filesystem.exists(filesystem.join(destAbs, candidate))) {
@@ -217,8 +220,9 @@ export async function importFiles(files: FileList | File[], destRel: string = 'a
     }
     const target = filesystem.join(destAbs, candidate);
     assertUnderAssets(root, target);
-    const srcPath = (file as any).path as string | undefined;
-    if (srcPath) {
+    if (isFolder) {
+      await filesystem.copyFolder(srcPath, target);
+    } else if (srcPath) {
       await filesystem.copyFile(srcPath, target);
     } else {
       await filesystem.writeFile(target, Buffer.from(await file.arrayBuffer()));
@@ -226,6 +230,16 @@ export async function importFiles(files: FileList | File[], destRel: string = 'a
     written.push(`${destRel}/${candidate}`.replace(/\\/g, '/'));
   }
   return written;
+}
+
+/** A dropped folder arrives as a File too; the platform FS cannot tell, so ask Node. */
+function isDirectoryOnDisk(absPath: string): boolean {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require('fs').statSync(absPath).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 /** Open a project file in the OS default app (Preview for images). A browser tab is the wrong tool. */
