@@ -925,6 +925,8 @@ function launchApp() {
 
       if (Config.enableAutoUpdate) {
         AutoUpdater.setupAutoUpdate(win);
+      } else {
+        AutoUpdater.setupDisabledAutoUpdate();
       }
 
       // Load the main HTML file with enhanced debugging
