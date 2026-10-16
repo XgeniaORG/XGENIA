@@ -3,7 +3,7 @@ name: Pull a release
 # Stops a bad release from spreading: turns it back into a draft, which no install can see.
 # Installs that already took it are fixed by the next release with a higher version (a nightly from
 # a revert on develop is always higher, since nightly versions carry a timestamp). Runbook:
-# update-plan.md → "When a bad build gets out".
+# docs/update-plan.md → "When a bad build gets out".
 #
 # Same as running: gh release edit <tag> --draft=true -R XgeniaORG/XGENIA
 on:

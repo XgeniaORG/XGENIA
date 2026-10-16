@@ -9,10 +9,11 @@ Ship everything, including the closed-source `private/` code, as normal app buil
 ```
 push to private main
   └─► private-pointer.yml   (workflow: runs the PR checks with the new private/,
-        │                    then pushes the pointer bump over a deploy key; throttled)
+        │                    pushes the pointer bump to develop over a deploy key,
+        │                    then starts the nightly)
         ▼
-push to develop
-  └─► nightly.yml           (publishes the version in package.json, e.g. 3.0.2-beta.1)
+every private commit (the daily 02:00 UTC run is commented out for now), or started by hand
+  └─► nightly.yml           (builds develop; publishes the version in package.json, e.g. 3.0.2-beta.1)
         └─► release.yml     (build all platforms, check the assets, publish a GitHub pre-release,
                              then commit package.json's next version to develop: 3.0.2-beta.2)
               ▼
@@ -35,7 +36,7 @@ flowchart TD
     subgraph BOT["private-pointer.yml · a workflow, no App, no PR"]
         B0(["Triggers: dispatch · hourly schedule · manual"])
         B1{"develop pointer ==<br/>private main?"}
-        B2{"Last bump less<br/>than 4h ago?"}
+        B2{"Throttle on and last bump<br/>too recent? (off by default)"}
         B5{"PR checks pass<br/>with the new private/?"}
         B6["Commit changing only the private gitlink,<br/>pushed to develop over the deploy key<br/>(ruleset lets deploy keys bypass)"]
         BX1(["Stop: up to date"])
@@ -57,8 +58,8 @@ flowchart TD
 
     %% ── Nightly ──
     subgraph NIGHT["nightly.yml · one build at a time, a burst collapses into the newest"]
-        N0(["Push to develop<br/>(bot's pointer push or a human PR merge)"])
-        N1{"Nightly tag already<br/>on this commit?"}
+        N0(["Started by the bot after a pointer push,<br/>or by hand (daily run paused)"])
+        N1{"develop's newest commit<br/>already released?"}
         N2["Version from package.json<br/>3.0.2-beta.1 → v3.0.2-beta.1<br/>3.0.3 → v3.0.3-beta.1 · taken ones skipped"]
         NX(["Stop"])
         N0 --> N1
@@ -69,7 +70,7 @@ flowchart TD
     %% ── Build and publish ──
     subgraph REL["release.yml → nightly-builds.yml"]
         R1["macOS arm64 + x64<br/>signed, notarized, dmg + zip<br/>codesign / spctl / stapler checked"]
-        R2["Windows x64<br/>NSIS + blockmap"]
+        R2["Windows x64<br/>NSIS"]
         R3["Linux x64<br/>deb + AppImage<br/>launch smoke test under xvfb"]
         R4["collect-release-assets.mjs<br/>merge latest-mac.yml, check every file"]
         RS["sign-update-manifests.mjs<br/>ed25519 .sig next to every latest*.yml"]
@@ -110,7 +111,7 @@ flowchart TD
     P2 --> B0
     B2 -. "calls (workflow_call)" .-> C1
     C1 -. "result" .-> B5
-    B6 --> N0
+    B6 -- "starts (workflow_dispatch)" --> N0
     N2 --> R1 & R2 & R3
     R5 --> A0
 ```
@@ -138,7 +139,10 @@ The smoke test runs on Linux only: it's the cheapest runner with a virtual displ
 ## When a bad build gets out anyway
 
 1. **Stop it spreading:** Actions → **Pull a release** → the tag and a reason. It becomes a draft again, so no install sees it. The equivalent command is `gh release edit <tag> --draft=true`.
-2. **Fix the installs that already took it:** revert the change on `develop`, or let the bot bring in the private fix. The next nightly has a later timestamp, so it's a higher version, and Beta installs update to it within 4 hours, or straight away with Settings → Updates → Check for updates.
+2. **Fix the installs that already took it:**
+   - A private fix: push it to private `main`, and the bot builds a nightly of it right away.
+   - Anything else: revert it on `develop`, then run Actions → **Nightly** → Run workflow.
+   - The next nightly always has a higher version. Beta installs update to it within 4 hours, or straight away with Settings → Updates → Check for updates.
 3. **A bad Stable release:** pull it the same way, then publish a higher patch version (for example `3.1.1` after `3.1.0`). Never re-use a version number: installs that already have it would never update.
 
 The manual paths still exist alongside it:
@@ -187,10 +191,11 @@ This is our own version of electron-builder's new built-in feature (Ed25519-sign
 |---|---|
 | `.github/workflows/private-pointer.yml` | **New.** The bot. It's a plain workflow, with no GitHub App or personal token, triggered by the private repo's dispatch, an hourly schedule and manual runs. It reads private `main`, runs `pr-checks.yml` with `private/` at that commit, and only if they pass, pushes a commit that changes nothing but the gitlink, over a deploy key. Pushes over a deploy key start other workflows (pushes with `GITHUB_TOKEN` don't), and a ruleset can let deploy keys bypass `develop`'s PR rule. If the branch moved meanwhile, it re-applies the bump on the newest commit. Throttle: at most one bump per `PRIVATE_POINTER_MIN_HOURS` (default 4). Runs queue rather than cancel. The commit message gives only a count, never private commit messages. |
 | `.github/workflows/pr-checks.yml` | **New.** Runs on every PR into `develop`, with the pinned private commit: runtime tests, live-engine tests, release and workflow tests, compiler parity, and a viewer build (which catches a pro-node change that breaks the bundle). The bot also calls it as a reusable workflow, with the private commit it's about to pin. That's the bot's gate. |
-| `.github/workflows/nightly.yml` | **New.** On every push to `develop`: picks the version from `package.json` (see "Version numbering"), calls `release.yml`, and keeps the newest `NIGHTLY_KEEP` (default 10) nightlies, found by their "XGENIA Nightly" title. One build runs at a time, and a burst of pushes collapses into the newest. |
+| `.github/workflows/nightly.yml` | **New.** Runs after every private pointer bump (the bot starts it) and by hand. A daily 02:00 UTC run is in the file but commented out for now. It always builds `develop`'s newest commit, and does nothing if that commit already has a release. Not on every push to `develop`. It picks the version from `package.json` (see "Version numbering"), calls `release.yml`, and keeps the newest `NIGHTLY_KEEP` (default 10) nightlies, found by their "XGENIA Nightly" title. One build runs at a time, and a burst of pushes collapses into the newest. |
 | `.github/workflows/release.yml` | Can be called by another workflow (`version`, `nightly`). A nightly is published as a pre-release. A manual run releases the stable version as a draft. Either way, a `bump-version` job then moves `develop`'s `package.json` on by one, over the deploy key, with `[skip ci]`. |
 | `scripts/release/next-version.mjs` | **New.** Version numbering: the nightly version, the stable version, the next version, and a write that never lowers it. Dependency-free; checked against the `semver` package electron-updater uses. |
-| `.github/workflows/nightly-builds.yml` | New `version` input, set in the checkout only. Builds the pinned private commit, not `--remote`. |
+| `.github/workflows/nightly-builds.yml` | New `version` input, set in the checkout only, and a `ref` input: the commit to build. A scheduled run starts on `main`, so `nightly.yml` passes `develop`'s commit, and the release is tagged on that commit too. Builds the pinned private commit, not `--remote`. |
+| `scripts/release/collect-release-assets.mjs` | Releases carry no `.blockmap` files (2026-10-16). Those only enable differential downloads; without them electron-updater downloads the whole installer, so every update is a full download. |
 | `.github/workflows/nightly-builds-internal.yml` | Builds the pinned private commit. |
 | `.github/workflows/live-engine.yml` | Manual only. No push or dispatch triggers. |
 | `packages/xgenia-editor/src/main/src/autoupdater.js` | Rewritten as above: signature check before download, IPC state for the in-app UI, Linux AppImage and `.deb`. |
@@ -240,10 +245,12 @@ This is our own version of electron-builder's new built-in feature (Ed25519-sign
 
 | Day | What happens |
 |---|---|
-| One private commit | The dispatch arrives and the last bump is older than 4 h, so the bot runs the checks and pushes the bump. The nightly starts right away. Users have it in about 1–1.5 h. |
-| Twenty private commits | The first bumps immediately. The rest are held by the throttle, and the hourly run bumps to the newest after 4 h. That is a few nightlies a day, not twenty, and runner time and update prompts stay bounded. |
-| A dispatch is lost | The hourly schedule notices that the pointer is behind. |
-| A check fails | Nothing is pushed. The run fails and Teams is told. The next private push, or the hourly run, tries again. |
+| One private commit | The dispatch arrives, the bot runs the checks, pushes the bump and starts the nightly. Users on Beta have it in about 1–1.5 h. |
+| Twenty private commits | Every one is bumped, but bot runs and nightlies each queue only the newest run behind the one in progress. A burst therefore becomes a handful of builds of the latest commit, not twenty. If that's still too many, set `PRIVATE_POINTER_MIN_HOURS` (for example `4`) to hold bumps back. |
+| Changes merged into `develop` by people | No nightly per merge. The next private commit's nightly includes them, or start one by hand (Actions → Nightly → Run workflow). The daily run that used to catch these is paused. |
+| Nothing changed | A manual run finds `develop`'s newest commit already released and stops. The paused daily run would do the same. |
+| A dispatch is lost | The hourly bot run notices the pointer is behind. |
+| A check fails | Nothing is pushed and no nightly starts. The run fails and Teams is told. The next private push, or the hourly run, tries again. |
 
 ---
 

@@ -5,10 +5,10 @@ name: Private pointer
 #   2. checks: the PR checks (pr-checks.yml, called as a reusable workflow) against the branch with
 #      private/ at the new commit;
 #   3. push:   only if they pass, a commit that changes nothing but the private gitlink, pushed straight
-#      to the branch over a deploy key.
-# That push starts nightly.yml: pushes made over a deploy key start workflows, pushes made with the
-# built-in GITHUB_TOKEN do not. On develop, a ruleset lists deploy keys as a bypass actor, so this
-# push needs no PR or approval; the checks in step 2 are the gate.
+#      to the branch over a deploy key, then a nightly of it started (nightly.yml).
+# On develop, a ruleset lists deploy keys as a bypass actor, so this push needs no PR or approval;
+# the checks in step 2 are the gate. So every private commit becomes a nightly; nightly.yml also
+# can also run once a day for everything else merged into develop (that schedule is paused).
 #
 # Triggers:
 #   - private-main-push, sent by the private repo on every push to main
@@ -17,10 +17,10 @@ name: Private pointer
 #   - manual runs, which skip the throttle.
 # repository_dispatch and schedule only ever run the copy of this file on the default branch (main).
 #
-# Pushes to private are uneven: one a day, or twenty. The throttle pushes at most one bump per
-# PRIVATE_POINTER_MIN_HOURS (repo variable, default 4), so a quiet day ships its one commit within the
-# hour and a busy day becomes a few nightlies, not twenty. Runs queue rather than cancel each other
-# (one running, the newest waiting), so a bump always gets to finish.
+# Pushes to private are uneven: one a day, or twenty. By default every one is bumped (throttle 0).
+# Runs queue rather than cancel each other (one running, the newest waiting), and so do nightlies,
+# so a burst of private commits collapses into a few bumps and builds of the newest, not one each.
+# PRIVATE_POINTER_MIN_HOURS (repo variable) holds bumps back to one per N hours if builds pile up.
 #
 # Setup (repo admin, no org settings needed):
 #   - a deploy key with write access (Settings → Deploy keys); its private half is the secret
@@ -65,7 +65,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PRIVATE_PAT: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
-          MIN_HOURS: ${{ vars.PRIVATE_POINTER_MIN_HOURS || '4' }}
+          # 0: every private commit is bumped, and so becomes a nightly (2026-10-16). Set the repo
+          # variable to hold bumps back to one per N hours if that ever means too many builds.
+          MIN_HOURS: ${{ vars.PRIVATE_POINTER_MIN_HOURS || '0' }}
           MANUAL: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
           HAS_DEPLOY_KEY: ${{ secrets.BOT_DEPLOY_KEY != '' }}
         run: |
@@ -119,15 +121,20 @@ jobs:
   push:
     needs: [decide, checks]
     runs-on: ubuntu-latest
+    # actions: write to start nightly.yml once the bump is in.
+    permissions:
+      contents: read
+      actions: write
     steps:
-      # Over the deploy key: that is what lets this push start nightly.yml, and get past develop's
-      # ruleset. This job installs nothing, so the key is never next to third-party code.
+      # Over the deploy key: that is what gets past develop's ruleset. This job installs nothing, so
+      # the key is never next to third-party code.
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.decide.outputs.base }}
           ssh-key: ${{ secrets.BOT_DEPLOY_KEY }}
 
       - name: Push the pointer bump
+        id: bump
         env:
           LATEST: ${{ needs.decide.outputs.latest }}
           PINNED: ${{ needs.decide.outputs.pinned }}
@@ -152,12 +159,27 @@ jobs:
               -m "From ${PINNED:0:8}, ${COUNT} commits on private main. Pushed by the private pointer bot after the PR checks passed: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             CHANGED=$(git diff --name-only HEAD~1 HEAD)
             test "$CHANGED" = "private" || { echo "::error::the bump would change more than private/: $CHANGED"; exit 1; }
-            git push origin "HEAD:$BASE" && exit 0
+            if git push origin "HEAD:$BASE"; then
+              echo "pushed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             echo "Push rejected (try $i); retrying on the newest $BASE"
             sleep 5
           done
-          echo "::error::$BASE rejected the pointer bump. Its ruleset needs \"Deploy keys\" in the bypass list (update-plan.md → Setup checklist 3)."
+          echo "::error::$BASE rejected the pointer bump. Its ruleset needs \"Deploy keys\" in the bypass list (docs/update-plan.md → Setup checklist 3)."
           exit 1
+
+      # Every private commit becomes a nightly: start it now, on the commit just pushed. (Pushes to
+      # develop no longer start one by themselves.) A dispatch made
+      # with the GITHUB_TOKEN does start a run, unlike a push made with it.
+      - name: Start the nightly
+        if: steps.bump.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LATEST: ${{ needs.decide.outputs.latest }}
+        run: |
+          gh workflow run nightly.yml -R "$GITHUB_REPOSITORY" --ref "$BASE"
+          echo "Started a nightly of $BASE with private/ at ${LATEST:0:8}."
 
   notify-failure:
     needs: [decide, checks, push]

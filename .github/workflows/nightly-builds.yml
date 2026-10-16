@@ -18,6 +18,10 @@ on:
         description: 'Build as this version instead of the one in packages/xgenia-editor/package.json (nightly.yml)'
         type: string
         default: ''
+      ref:
+        description: 'Commit to build (default: the one that triggered the run). nightly.yml passes develop''s: a scheduled run starts on main.'
+        type: string
+        default: ''
 
 jobs:
   build-macos:
@@ -33,6 +37,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || '' }}
 
       - name: Init private submodule
         run: |
@@ -145,6 +151,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || '' }}
 
       - name: Init private submodule
         run: |
@@ -239,6 +247,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || '' }}
 
       - name: Init private submodule
         shell: bash
@@ -313,6 +323,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || '' }}
 
       - name: Get version from package.json
         id: package-version
@@ -330,13 +342,14 @@ jobs:
         id: results
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILT: ${{ inputs.ref || github.sha }}
         run: |
           {
             echo 'text<<CARD_EOF'
             gh api --paginate \
               "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs" \
               --jq '.jobs[] | select(.name | startswith("Build ")) | "\(.name): \(.conclusion // .status)"'
-            echo "Commit: ${{ github.sha }}"
+            echo "Commit: $BUILT"
             echo 'CARD_EOF'
           } >> "$GITHUB_OUTPUT"
 

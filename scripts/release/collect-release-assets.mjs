@@ -15,7 +15,9 @@ import { fileURLToPath } from 'node:url';
 
 // latest-linux.yml lists both the AppImage and the .deb: electron-updater's AppImageUpdater and
 // DebUpdater each pick their own file from it (2026-10-06).
-const SHIPPED = [/\.dmg$/, /-mac-.*\.zip$/, /\.blockmap$/, /Setup.*\.exe$/, /\.deb$/, /\.AppImage$/, /^latest\.yml$/, /^latest-linux\.yml$/];
+// No .blockmap files (2026-10-16): they only let electron-updater download the changed parts of an
+// update; without them it downloads the whole installer, so a release stays smaller and simpler.
+const SHIPPED = [/\.dmg$/, /-mac-.*\.zip$/, /Setup.*\.exe$/, /\.deb$/, /\.AppImage$/, /^latest\.yml$/, /^latest-linux\.yml$/];
 
 // electron-builder's latest*.yml: top-level scalars and one `files:` list of `- url:` entries.
 // Values are kept as written (quotes included) so they come back out unchanged.

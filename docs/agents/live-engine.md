@@ -3,12 +3,12 @@
 **Manual only since 2026-10-06.** Engine and private changes now reach users as app builds:
 
 1. A push to private `main` → the private pointer bot (`.github/workflows/private-pointer.yml`)
-   opens a pointer PR on `develop` and merges it once `PR checks` pass (at most one bump per
-   `PRIVATE_POINTER_MIN_HOURS`, default 4).
-2. Every push to `develop` → `.github/workflows/nightly.yml` publishes a pre-release such as
-   `v3.0.1-beta.9.nightly.202610070215` through `release.yml`.
-3. Beta installs download it in the background and install it on restart (`src/main/src/autoupdater.js`).
-   Stable installs only take stable releases.
+   runs `PR checks` with the new private commit, pushes the pointer bump to `develop` over a deploy
+   key, and starts `.github/workflows/nightly.yml`.
+2. The nightly (also startable by hand; its daily schedule is paused) builds `develop` and publishes a pre-release such as
+   `v3.0.2-beta.3` through `release.yml`, then moves `package.json` on to `3.0.2-beta.4`.
+3. Installs on the Beta channel (Settings → Editor → Updates) download it in the background and
+   install it on restart (`src/main/src/autoupdater.js`). Stable installs only take stable releases.
 
 An app update drops any live engine installed under the previous app version (`select.js`), since
 the new build carries a newer engine. The workflow below is kept for an emergency engine hotfix
