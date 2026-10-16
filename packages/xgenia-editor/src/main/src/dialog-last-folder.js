@@ -9,9 +9,13 @@ const path = require('path');
 function rememberDialogFolder(dialog) {
   let lastFolder;
 
-  const remember = (picked) => {
-    if (typeof picked === 'string' && picked) lastFolder = path.dirname(picked);
+  // A folder picker returns the folder itself: that is where the user was, not its parent.
+  const remember = (picked, options) => {
+    if (typeof picked !== 'string' || !picked) return;
+    const pickedFolder = Array.isArray(options && options.properties) && options.properties.includes('openDirectory');
+    lastFolder = pickedFolder ? picked : path.dirname(picked);
   };
+  const optionsOf = (args) => (args.length >= 2 ? args[1] : args[0]) || {};
 
   // (options) or (window, options); options may be missing.
   const withDefaultPath = (args) => {
@@ -27,12 +31,12 @@ function rememberDialogFolder(dialog) {
 
   dialog.showOpenDialog = async (...args) => {
     const result = await showOpenDialog.apply(dialog, withDefaultPath(args));
-    if (!result.canceled) remember(result.filePaths[0]);
+    if (!result.canceled) remember(result.filePaths[0], optionsOf(args));
     return result;
   };
   dialog.showOpenDialogSync = (...args) => {
     const filePaths = showOpenDialogSync.apply(dialog, withDefaultPath(args));
-    remember(filePaths && filePaths[0]);
+    remember(filePaths && filePaths[0], optionsOf(args));
     return filePaths;
   };
   dialog.showSaveDialog = async (...args) => {

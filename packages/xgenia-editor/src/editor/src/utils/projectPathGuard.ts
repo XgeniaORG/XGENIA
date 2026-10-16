@@ -20,14 +20,27 @@ export function resolveInsideProject(projectDir: string | null | undefined, p: s
     /* a root that does not exist yet: lexical */
   }
   const within = (candidate: string, base: string) => candidate === base || candidate.startsWith(base + path.sep);
-  let check = resolved;
+  // The deepest ancestor that is THERE — lstat, not existsSync: existsSync follows links, so a dangling
+  // link (`notes -> /elsewhere/not-yet.txt`) read as absent, the walk climbed past it, and a write then
+  // followed it out of the project.
+  const present = (p2: string) => {
+    try {
+      fs.lstatSync(p2);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  let probe = resolved;
+  while (probe !== path.dirname(probe) && !present(probe)) probe = path.dirname(probe);
+  let check: string;
   try {
-    let probe = resolved;
-    while (probe !== path.dirname(probe) && !fs.existsSync(probe)) probe = path.dirname(probe);
-    const realProbe = fs.realpathSync(probe);
-    check = path.resolve(realProbe, path.relative(probe, resolved));
+    check = path.resolve(fs.realpathSync(probe), path.relative(probe, resolved));
   } catch {
-    /* unreadable ancestor: fall back to the lexical check */
+    // A link whose target cannot be resolved (dangling, or a loop): where it leads is unknown, so no.
+    throw new Error(
+      `FileSystem.${op} refused: "${p}" goes through a link that cannot be resolved; the AI bridge only follows links that stay inside the project.`
+    );
   }
   if (!within(check, realRoot) || !within(resolved, root)) {
     throw new Error(

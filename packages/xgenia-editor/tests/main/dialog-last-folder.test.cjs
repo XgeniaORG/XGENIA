@@ -59,3 +59,10 @@ test('a cancelled save remembers nothing; sync variants remember too', () => {
   dialog.showOpenDialogSync();
   assert.deepEqual(calls[2], [{ defaultPath: '/x' }]);
 });
+
+test('a folder picker remembers the folder picked, not its parent', async () => {
+  const { dialog, calls } = fakeDialog(['/work/art', '/work/art/x.png']);
+  await dialog.showOpenDialog({ properties: ['openDirectory'] });
+  await dialog.showOpenDialog({ properties: ['openFile'] });
+  assert.equal(calls[1][0].defaultPath, '/work/art');
+});

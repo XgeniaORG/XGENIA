@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { app as remoteApp } from '@electron/remote';
-import { app as electronApp, shell, clipboard } from 'electron';
+import { app as electronApp, shell, clipboard, ipcRenderer } from 'electron';
 import { addTrailingSlash, IPlatform, PlatformOS, SaveFileResult } from '@xgenia/platform';
 import { processPlatformToPlatformOS } from '@xgenia/platform-node/src/helper';
 import { saveDialogFilters } from './save-dialog-filters';
@@ -87,8 +87,17 @@ export class PlatformElectron implements IPlatform {
   async copyToClipboard(value: string): Promise<void> {
     // Electron 44 removed `clipboard` from renderer processes, so it is undefined there and the
     // W3C API does the job; in the main process Electron's own clipboard still works.
-    if (clipboard) await clipboard.writeText(value);
-    else await navigator.clipboard.writeText(value);
+    // When the W3C API refuses (the document is not focused), the main process writes it, as
+    // utils/systemClipboard.ts in the editor does (main.js 'clipboard:write-text').
+    if (clipboard) {
+      await clipboard.writeText(value);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      await ipcRenderer.invoke('clipboard:write-text', value);
+    }
   }
 
   /**

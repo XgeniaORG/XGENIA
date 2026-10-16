@@ -40,3 +40,11 @@ test('a project reached through a symlink still works, and its escapes are still
   refused(linkedProject, '../outside/x.txt');
   refused(linkedProject, 'escape-link/x.txt');
 });
+
+test('a dangling symlink inside the project cannot be written through to the outside', () => {
+  const target = path.join(outside, 'not-yet-there.txt'); // parent exists, file does not
+  fs.symlinkSync(target, path.join(project, 'notes'));
+  refused(project, 'notes');
+  refused(project, 'notes/child.txt');
+  assert.equal(fs.existsSync(target), false);
+});
