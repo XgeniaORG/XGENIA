@@ -68,6 +68,9 @@ jobs:
           node --test scripts/live-engine/pack.test.mjs scripts/live-engine/workflow.test.mjs scripts/live-engine/minify-viewer.test.mjs
           node --test scripts/release/*.test.mjs
           npm test -w @xgenia/pro-nodes
+          # Package suites that were not run anywhere (each a few seconds; puppet about a minute).
+          # character-jobs (~6 min) is left to its own runs.
+          CI=1 npm test -w @xgenia/mcp-server -w @xgenia/platform-node -w @xgenia/xgenia-viewer-react -w @xgenia/puppet -w xgenia-character-studio-app
           npx tsx packages/xgenia-runtime/src/api/test-compiler-bundle-parity.ts
 
       # The pro nodes are bundled into the viewer: a private change that breaks the bundle fails here,
