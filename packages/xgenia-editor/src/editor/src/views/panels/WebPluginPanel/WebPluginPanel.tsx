@@ -22,7 +22,7 @@ import { createPortal } from 'react-dom';
 
 import { PluginLoader, isVerdict, pluginOrigin, webPanelPlugins, WEB_PLUGIN_FRAME_ATTR, type EntitlementsResponse } from '../ChatPanelBridge/PluginLoader';
 import { entitlementsForPanelOpen, nextFrameUrl } from './webPluginFrame';
-import { usePanelActive } from '../useIsActivePanel';
+import { usePanelActive } from '../panelActive';
 
 /**
  * `not-entitled` is reserved for a VERDICT (the server said no); `unavailable` is "we could
@@ -45,15 +45,12 @@ export interface WebPluginPanelProps {
  */
 export function WebPluginPanel(props: WebPluginPanelProps) {
     const isActive = usePanelActive();
-    return createPortal(
-        <div style={{ display: isActive ? 'contents' : 'none' }}>
-            <WebPluginPanelContent {...props} />
-        </div>,
-        document.body
-    );
+    return createPortal(<WebPluginPanelContent {...props} hidden={!isActive} />, document.body);
 }
 
-function WebPluginPanelContent({ pluginId }: WebPluginPanelProps) {
+function WebPluginPanelContent({ pluginId, hidden }: WebPluginPanelProps & { hidden: boolean }) {
+    // Applied to the layer's root in every state below.
+    const hide: React.CSSProperties = hidden ? { display: 'none' } : {};
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [status, setStatus] = useState<PanelStatus>('loading');
     const [pluginUrl, setPluginUrl] = useState<string | null>(null);
@@ -152,7 +149,7 @@ function WebPluginPanelContent({ pluginId }: WebPluginPanelProps) {
 
     if (status === 'not-entitled') {
         return (
-            <div style={shellStyle}>
+            <div style={{ ...shellStyle, ...hide }}>
                 <div style={messageStyle}>
                     <h3 style={headingStyle}>{title}</h3>
                     <p style={bodyTextStyle}>Your plan does not include this plugin.</p>
@@ -167,7 +164,7 @@ function WebPluginPanelContent({ pluginId }: WebPluginPanelProps) {
 
     if (status === 'unavailable') {
         return (
-            <div style={shellStyle}>
+            <div style={{ ...shellStyle, ...hide }}>
                 <div style={messageStyle}>
                     <h3 style={headingStyle}>Couldn&apos;t check your plan</h3>
                     <p style={{ ...bodyTextStyle, maxWidth: '300px' }}>
@@ -181,7 +178,7 @@ function WebPluginPanelContent({ pluginId }: WebPluginPanelProps) {
 
     if (status === 'error') {
         return (
-            <div style={shellStyle}>
+            <div style={{ ...shellStyle, ...hide }}>
                 <div style={messageStyle}>
                     <p style={{ color: '#ff6b6b', fontSize: '12px', textAlign: 'center' }}>
                         {errorMsg || `Failed to load ${title}`}
@@ -204,7 +201,8 @@ function WebPluginPanelContent({ pluginId }: WebPluginPanelProps) {
             overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
-            WebkitAppRegion: 'no-drag'
+            WebkitAppRegion: 'no-drag',
+            ...hide
         } as React.CSSProperties}>
             {status === 'loading' && !pluginUrl && (
                 <div style={{

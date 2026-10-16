@@ -12591,8 +12591,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiPuppet.js",
       "category": "Pixi|Animation",
       "docs": null,
-      "lineCount": 823,
-      "byteSize": 31055,
+      "lineCount": 987,
+      "byteSize": 39523,
       "inputFormatHints": {
         "source": {
           "displayName": "Package URL",
@@ -12821,6 +12821,36 @@
           "type": "number",
           "group": "Advanced"
         },
+        "puppetName": {
+          "displayName": "Name",
+          "type": "string",
+          "group": "Riding"
+        },
+        "rideOn": {
+          "displayName": "Ride On",
+          "type": "string",
+          "group": "Riding"
+        },
+        "rideBone": {
+          "displayName": "Ride Bone",
+          "type": "string",
+          "group": "Riding"
+        },
+        "rideTurn": {
+          "displayName": "Turn With Bone",
+          "type": "boolean",
+          "group": "Riding"
+        },
+        "rideShare": {
+          "displayName": "Share Moments",
+          "type": "boolean",
+          "group": "Riding"
+        },
+        "rideParams": {
+          "displayName": "Share Sliders",
+          "type": "string",
+          "group": "Riding"
+        },
         "functionScript": {
           "displayName": "Script",
           "type": "string",
@@ -12878,6 +12908,16 @@
         "clipFinished": {
           "displayName": "Clip Finished",
           "type": "signal",
+          "group": "Events"
+        },
+        "tapped": {
+          "displayName": "Tapped",
+          "type": "signal",
+          "group": "Events"
+        },
+        "tappedPart": {
+          "displayName": "Tapped Part",
+          "type": "string",
           "group": "Events"
         },
         "finishedClip": {
@@ -12965,7 +13005,9 @@
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
-          "initialize": [],
+          "initialize": [
+            "ALL_PUPPETS"
+          ],
           "set": [
             "finite",
             "MARKETS"
@@ -12974,7 +13016,9 @@
           "getPuppet": [],
           "getBehaviour": [],
           "registerPixiContainerRef": [],
-          "_dispose": [],
+          "_dispose": [
+            "ALL_PUPPETS"
+          ],
           "_hostAlive": [],
           "_reload": [
             "errorText"
@@ -12986,6 +13030,8 @@
           "_attachTicker": [],
           "_detachTicker": [],
           "_tick": [],
+          "_advanceHidden": [],
+          "_hiddenNow": [],
           "_step": [
             "errorText"
           ],
@@ -13000,12 +13046,25 @@
           ],
           "_ensureBehaviour": [],
           "_runBehaviour": [],
-          "_roundEvent": [],
+          "_roundEvent": [
+            "ALL_PUPPETS"
+          ],
+          "_onPointerTap": [],
           "_triggerState": [],
           "_setBehaviourState": [],
           "_setBlocked": [],
           "_onPuppetEvent": [],
           "_onClipFinished": [],
+          "_setRideParams": [],
+          "_mirrorParams": [
+            "RIDE_TARGETS"
+          ],
+          "_setPuppetName": [
+            "RIDE_TARGETS"
+          ],
+          "_applyRide": [
+            "RIDE_TARGETS"
+          ],
           "_applyTransform": [],
           "_setReady": [],
           "_setLoading": [],
@@ -76282,6 +76341,42 @@
         "direction": "input"
       }
     ],
+    "puppetName": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "rideOn": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "rideBone": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "rideTurn": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "rideShare": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "rideParams": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
     "ready": [
       {
         "node": "pixi.Puppet",
@@ -76319,6 +76414,18 @@
       }
     ],
     "clipFinished": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "tapped": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "tappedPart": [
       {
         "node": "pixi.Puppet",
         "direction": "output"

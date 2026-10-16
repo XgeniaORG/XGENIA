@@ -916,6 +916,11 @@ export class CanvasView extends View {
         const asIs = atSize(seen) ? measureInPlaceSurfaceProof(el, width, height, browserSurfaceProofEnv()) : null;
         if (!asIs || !asIs.ok) {
           resized = true;
+          // The game's own canvas, before the resize: it redraws on the guest's resize handler, after
+          // the viewport already reports the new size (waitUntilSettled in paintWait.ts, #192).
+          const CANVAS_SIZE_JS = '(() => { let w = 0, h = 0; for (const c of document.querySelectorAll("canvas")) { const r = c.getBoundingClientRect(); if (r.width * r.height > w * h) { w = r.width; h = r.height; } } return { w: Math.round(w), h: Math.round(h) }; })()';
+          let canvasBefore: { w: number; h: number } | null = null;
+          try { canvasBefore = await this.webview!.executeJavaScript(CANVAS_SIZE_JS); } catch { /* no guest yet: nothing to wait for */ }
           fitInPane();
           // Wait for the guest to report the new viewport, or the image is the OLD layout scaled.
           // VisualCanvas re-renders with a literal style on this iframe, so re-assert every tick.
@@ -929,6 +934,39 @@ export class CanvasView extends View {
           if (!atSize(seen)) {
             reply({ success: false, message: `design capture: the preview did not reach ${width}x${height} (it reports ${seen.w}x${seen.h}) — the image would be the wrong surface, so none was taken` });
             return;
+          }
+          // Then for the game's canvas to follow: resized from what it was, or filling the new
+          // viewport. (2026-10-16) #221 dropped this and the letterbox wait below when the capture
+          // moved in place; without them one capture in eleven showed the old small canvas, and a
+          // letterboxed game at the pane's scale (#192). A guest with no canvas has nothing to wait for.
+          // Each tick re-asserts the fit, as the viewport wait above does: a VisualCanvas re-render
+          // in between would put the old size back and the game would follow THAT.
+          const fitTick = async () => {
+            await frames(1);
+            if (el.style.width !== `${width}px` || !String(el.style.transform).startsWith('scale(')) fitInPane();
+          };
+          if (canvasBefore && canvasBefore.w > 0) {
+            const before = canvasBefore;
+            await waitUntilSettled(
+              async () => {
+                try { return await this.webview!.executeJavaScript(CANVAS_SIZE_JS); } catch { return before; }
+              },
+              (c: { w: number; h: number }) =>
+                !!c && (Math.abs(c.w - before.w) > 2 || Math.abs(c.h - before.h) > 2 || c.w >= width - 2 || c.h >= height - 2),
+              { timeoutMs: 1000, tick: fitTick }
+            );
+          }
+          // And for every letterboxed Group to re-scale for the new window: it measures with a
+          // ResizeObserver and re-renders after the resize (letterboxesSettled in paintWait.ts).
+          {
+            const LETTERBOX_SETTLED_JS = `(${letterboxesSettled.toString()})(document)`;
+            await waitUntilSettled(
+              async () => {
+                try { return await this.webview!.executeJavaScript(LETTERBOX_SETTLED_JS); } catch { return true; }
+              },
+              (ok: boolean) => ok === true,
+              { timeoutMs: 1000, tick: fitTick }
+            );
           }
           // Let the game paint at its new size before the frame is taken.
           await frames(2);
