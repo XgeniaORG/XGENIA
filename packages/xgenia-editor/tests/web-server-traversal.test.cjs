@@ -45,6 +45,11 @@ before(async () => {
   fs.mkdirSync(path.join(projectDir, 'assets'), { recursive: true });
   fs.writeFileSync(path.join(projectDir, 'assets/logo.txt'), 'project asset');
   fs.writeFileSync(path.join(root, 'secret.txt'), 'TOP SECRET');
+  // A cloned or imported project can carry symlinks (git creates them): they must not lead out.
+  fs.symlinkSync(path.join(root, 'secret.txt'), path.join(projectDir, 'assets/linked-secret.txt'));
+  fs.symlinkSync(root, path.join(projectDir, 'assets/linked-dir'));
+  fs.writeFileSync(path.join(projectDir, 'assets/real.txt'), 'inside');
+  fs.symlinkSync(path.join(projectDir, 'assets/real.txt'), path.join(projectDir, 'assets/alias.txt'));
 
   port = await freePort();
   // The server's helpers pull in Electron modules at load time; stub them so it runs under node.
@@ -98,3 +103,17 @@ for (const p of [
     assert.doesNotMatch(r.body, /TOP SECRET/);
   });
 }
+
+for (const p of ['/assets/linked-secret.txt', '/assets/linked-dir/secret.txt']) {
+  test(`does not follow a project symlink out of the project: ${p}`, async () => {
+    const r = await get(p);
+    assert.notEqual(r.status, 200);
+    assert.doesNotMatch(r.body, /TOP SECRET/);
+  });
+}
+
+test('a symlink that stays inside the project still serves', async () => {
+  const r = await get('/assets/alias.txt');
+  assert.equal(r.status, 200);
+  assert.equal(r.body, 'inside');
+});

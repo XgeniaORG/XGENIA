@@ -890,7 +890,7 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
         const modulePath = nodePath.join(toolsProjectPath, requestPath);
         console.log(`[WebServer] Serving tools project module from: ${modulePath}`);
 
-        if (fs.existsSync(modulePath)) {
+        if (fs.existsSync(modulePath) && realPathInside(toolsProjectPath, modulePath)) {
           serveFile(modulePath, request, response);
         } else {
           console.error(`[WebServer] Tools project module not found at: ${modulePath}`);
@@ -1004,7 +1004,7 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
         // Guard against null or undefined info here as well before accessing projectDirectory
         if (typeof info === 'object' && info !== null && info.projectDirectory) {
           const projectPath = info.projectDirectory + requestPath;
-          if (fs.existsSync(projectPath)) {
+          if (fs.existsSync(projectPath) && realPathInside(info.projectDirectory, projectPath)) {
             serveFile(projectPath, request, response);
           } else {
             serve404(response);
@@ -1173,6 +1173,21 @@ function hasTraversal(rawPath) {
   }
   if (p.includes('\0')) return true;
   return p.split(/[\\/]/).some((segment) => segment === '..');
+}
+
+/**
+ * Whether `filePath`, symlinks resolved, is still inside `base`. hasTraversal() stops ".." in the
+ * URL; this stops a symlink in the project (a cloned or imported project can carry one, git
+ * creates them) from serving a file outside it, e.g. assets/x -> ~/.ssh/id_rsa, to the LAN.
+ */
+function realPathInside(base, filePath) {
+  try {
+    const realBase = fs.realpathSync(base);
+    const real = fs.realpathSync(decodeURI(filePath));
+    return real === realBase || real.startsWith(realBase + nodePath.sep);
+  } catch {
+    return false;
+  }
 }
 
 function serveFile(filePath, request, response) {
