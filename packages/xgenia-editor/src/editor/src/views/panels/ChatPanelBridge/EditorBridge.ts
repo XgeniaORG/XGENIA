@@ -56,6 +56,7 @@ import {
 } from '@xgenia-utils/publish/publishCommands';
 import { setActiveGame } from '@xgenia-utils/rgs/rgsClient';
 import { desktopNotificationService } from '@xgenia-utils/DesktopNotificationService';
+import { resolveInsideProject } from '@xgenia-utils/projectPathGuard';
 
 interface PluginCommand {
     id: string;
@@ -3272,27 +3273,8 @@ export class EditorBridge {
         // Containment cannot live in a text classifier — it belongs here, where the real path is.
         // resolve() collapses `..`; realpath (best-effort) closes the symlink escape. A path that
         // does not exist yet is checked at its resolved location, which is what a create needs.
-        const assertInsideProject = (p: string, op: string): string => {
-            const path = require('path');
-            const fs = require('fs');
-            const projectDir = ProjectModel.instance._retainedProjectDirectory;
-            if (!projectDir) throw new Error(`FileSystem.${op} refused: no project is open, so nothing can be resolved safely.`);
-            const root = path.resolve(projectDir);
-            const resolved = path.resolve(root, p || '');
-            const within = (candidate: string) => candidate === root || candidate.startsWith(root + path.sep);
-            let check = resolved;
-            try {
-                // realpath the deepest EXISTING ancestor, so a symlinked parent cannot smuggle us out.
-                let probe = resolved;
-                while (probe !== path.dirname(probe) && !fs.existsSync(probe)) probe = path.dirname(probe);
-                const realProbe = fs.realpathSync(probe);
-                check = path.resolve(realProbe, path.relative(probe, resolved));
-            } catch { /* unreadable ancestor — fall back to the lexical check below */ }
-            if (!within(check) || !within(resolved)) {
-                throw new Error(`FileSystem.${op} refused: "${p}" resolves outside the project directory. The AI bridge may only touch files inside the open project.`);
-            }
-            return resolved;
-        };
+        const assertInsideProject = (p: string, op: string): string =>
+            resolveInsideProject(ProjectModel.instance._retainedProjectDirectory, p, op);
 
         h('fs.readFile', async ([filePath, encoding]: [string, string?]) => {
             filePath = assertInsideProject(filePath, 'readFile');
