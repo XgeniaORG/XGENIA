@@ -5,6 +5,7 @@
 import {
     isVerdict,
     stableUrl,
+    TICKET_PARAM,
     TICKET_REFRESH_MS,
     type EntitlementsResponse,
     type PluginLoader,
@@ -18,6 +19,38 @@ import {
 export function nextFrameUrl(mounted: string | null, entitled: string): string {
     if (mounted && stableUrl(mounted) === stableUrl(entitled)) return mounted;
     return entitled;
+}
+
+/**
+ * How often an open panel fetches a fresh ticket for its plugin. The plugin host turns a ticket
+ * into a session that ends on its own (Character Studio: 2 hours) and the mounted URL keeps its
+ * first ticket, so a panel left open longer would start failing on whatever it loads later.
+ */
+export const TICKET_RENEW_MS = 45 * 60 * 1000;
+
+function ticketOf(url: string): string | null {
+    try {
+        return new URL(url).searchParams.get(TICKET_PARAM);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * The fresh ticket to hand the plugin already mounted at `mounted`, or null: only when the
+ * entitled URL is that same plugin page and carries a ticket the mounted URL does not. The panel
+ * posts it to the plugin as `{ type: 'plugin-ticket', ticket }`; the plugin renews its session
+ * with it, without a reload.
+ */
+export function renewedTicket(mounted: string | null, entitled: string): string | null {
+    if (!mounted || stableUrl(mounted) !== stableUrl(entitled)) return null;
+    const ticket = ticketOf(entitled);
+    return ticket && ticket !== ticketOf(mounted) ? ticket : null;
+}
+
+/** Whether a frame URL carries a ticket (and so a session the panel must keep renewing). */
+export function hasTicket(url: string | null): boolean {
+    return !!url && !!ticketOf(url);
 }
 
 /**

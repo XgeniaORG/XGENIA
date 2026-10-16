@@ -15,13 +15,15 @@
  * reload the frame. A plugin host that rejects the ticket can tell the panel by posting
  * `{ type: 'plugin-load-error', status }` to its parent; the panel then shows its error state,
  * whose Retry fetches a fresh URL. (The editor cannot read the HTTP status of a cross-origin
- * frame itself.)
+ * frame itself.) While the panel stays open it fetches a fresh ticket every TICKET_RENEW_MS and
+ * posts it to the plugin as `{ type: 'plugin-ticket', ticket }`, so the plugin's session outlives
+ * the first ticket's.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { PluginLoader, isVerdict, pluginOrigin, webPanelPlugins, WEB_PLUGIN_FRAME_ATTR, type EntitlementsResponse } from '../ChatPanelBridge/PluginLoader';
-import { entitlementsForPanelOpen, nextFrameUrl } from './webPluginFrame';
+import { entitlementsForPanelOpen, hasTicket, nextFrameUrl, renewedTicket, TICKET_RENEW_MS } from './webPluginFrame';
 import { usePanelActive } from '../panelActive';
 
 /**
@@ -64,7 +66,11 @@ function WebPluginPanelContent({ pluginId, hidden }: WebPluginPanelProps & { hid
         const plugin = webPanelPlugins(e).find((p) => p.id === pluginId);
         if (plugin) {
             setTitle(plugin.name || plugin.id);
-            // A new ticket alone keeps the mounted URL: no reload, no lost work.
+            // A new ticket alone keeps the mounted URL: no reload, no lost work. The plugin gets the
+            // ticket by message instead, to renew its session.
+            const ticket = renewedTicket(pluginUrlRef.current, plugin.url);
+            const origin = pluginOrigin(pluginUrlRef.current);
+            if (ticket && origin) iframeRef.current?.contentWindow?.postMessage({ type: 'plugin-ticket', ticket }, origin);
             const next = nextFrameUrl(pluginUrlRef.current, plugin.url);
             if (pluginUrlRef.current === next) return;
             pluginUrlRef.current = next;
@@ -103,6 +109,16 @@ function WebPluginPanelContent({ pluginId, hidden }: WebPluginPanelProps & { hid
 
         return () => { cancelled = true; unsub(); };
     }, [applyEntitlements]);
+
+    // While a ticketed plugin is mounted, fetch a fresh ticket now and then; applyEntitlements
+    // hands it to the plugin (the answer also reaches it through onChange).
+    useEffect(() => {
+        if (!hasTicket(pluginUrl)) return;
+        const timer = setInterval(() => {
+            entitlementsForPanelOpen(PluginLoader.instance).then(applyEntitlements, () => {});
+        }, TICKET_RENEW_MS);
+        return () => clearInterval(timer);
+    }, [pluginUrl, applyEntitlements]);
 
     // The plugin host reports a rejected ticket (or any load failure it can see) by message.
     useEffect(() => {
