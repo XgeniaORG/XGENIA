@@ -61,7 +61,7 @@ jobs:
       - name: Engine tests
         run: |
           npm test -w @xgenia/runtime -- --ci
-          node --test 'packages/xgenia-editor/tests/live-engine/*.test.cjs' 'packages/xgenia-editor/tests/auto-update/*.test.cjs' 'packages/xgenia-editor/tests/updater/*.test.cjs' 'packages/xgenia-editor/tests/main/*.test.cjs'
+          node --test 'packages/xgenia-editor/tests/live-engine/*.test.cjs' 'packages/xgenia-editor/tests/auto-update/*.test.cjs' 'packages/xgenia-editor/tests/updater/*.test.cjs' 'packages/xgenia-editor/tests/main/*.test.cjs' 'packages/xgenia-editor/tests/web-server-traversal.test.cjs'
           # The editor's TypeScript tests (panels, undo, timeline, deploy, assets...). They resolve the
           # editor's path aliases through its tsconfig; force-exit because some start retry timers.
           TSX_TSCONFIG_PATH=packages/xgenia-editor/tsconfig.json npx tsx --test --test-force-exit 'packages/xgenia-editor/tests/**/*.test.ts' 'packages/xgenia-editor/tests/**/*.test.tsx'
