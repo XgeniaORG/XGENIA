@@ -838,7 +838,13 @@ function launchApp() {
       }
 
       win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-        if (params.partition !== DOCS_CHAT_PARTITION) return; // other webviews are not ours to change
+        // The docs chat is the editor's only <webview> (the preview is an iframe since 2026-09-07), so any
+        // other one, whichever frame asked for it, is refused rather than attached with the settings it chose.
+        if (params.partition !== DOCS_CHAT_PARTITION) {
+          console.warn('[Main Process] Blocked a webview that is not the docs chat:', params.src);
+          event.preventDefault();
+          return;
+        }
         if (!isDocsChatUrl(params.src)) {
           console.warn('[Main Process] Blocked docs chat webview for', params.src);
           event.preventDefault();
