@@ -109,6 +109,10 @@ const { handleProjectMerge } = require('./src/merge-driver');
 //running in a separate browser window (file:// cross origin warning)
 app.commandLine.appendSwitch('disable-site-isolation-trials');
 
+// Remote panels (AI chat, plugins) get their own process; see src/frame-isolation.js.
+const frameIsolation = require('./src/frame-isolation');
+app.commandLine.appendSwitch('isolate-origins', frameIsolation.isolateOriginsValue(app.getPath('userData')));
+
 // Add more robust GPU and network flags to prevent crashes
 app.commandLine.appendSwitch('disable-gpu-process-crash-limit');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
@@ -834,7 +838,13 @@ function launchApp() {
       }
 
       win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-        if (params.partition !== DOCS_CHAT_PARTITION) return; // other webviews are not ours to change
+        // The docs chat is the editor's only <webview> (the preview is an iframe since 2026-09-07), so any
+        // other one, whichever frame asked for it, is refused rather than attached with the settings it chose.
+        if (params.partition !== DOCS_CHAT_PARTITION) {
+          console.warn('[Main Process] Blocked a webview that is not the docs chat:', params.src);
+          event.preventDefault();
+          return;
+        }
         if (!isDocsChatUrl(params.src)) {
           console.warn('[Main Process] Blocked docs chat webview for', params.src);
           event.preventDefault();
@@ -941,6 +951,12 @@ function launchApp() {
       }
 
       require('@electron/remote/main').enable(win.webContents);
+
+      win.webContents.on('did-frame-navigate', (_event, url, _code, _status, isMainFrame) => {
+        if (!isMainFrame && frameIsolation.rememberFrameOrigin(app.getPath('userData'), url)) {
+          console.warn('[FrameIsolation] New embedded origin, isolated from the next launch:', new URL(url).origin);
+        }
+      });
 
       // Register main-process memory profiling IPC once window is ready
       try {
@@ -1333,52 +1349,6 @@ function launchApp() {
       viewerWindow.openDevTools();
     }
 
-    var floatingWindows = {};
-    function closeFloatingWindow(options) {
-      if (!floatingWindows[options.id]) return;
-
-      floatingWindows[options.id].close();
-      if (options.sendCloseEvent) {
-        win && win.webContents.send('floating-window-closed', { id: options.id });
-      }
-    }
-
-    function openFloatingWindow(options) {
-      if (!floatingWindows[options.id]) floatingWindows[options.id] = new FloatingWindow();
-      const floatingWindow = floatingWindows[options.id];
-
-      const parentBounds = win.getBounds();
-
-      const width = options.width || 800;
-      const height = options.height || 600;
-
-      floatingWindow.open({
-        x: parentBounds.width - width - 50,
-        y: 80,
-        width,
-        height,
-        parent: win,
-        minWidth: options.minWidth || 120,
-        minHeight: options.minHeight || 175,
-        url: options.url.replace('{{appPath}}', appPath)
-      });
-
-      // floatingWindow.openDevTools();
-
-      floatingWindow.window.webContents.once('did-finish-load', () => {
-        floatingWindow.send('floating-window-options', options.id, options.options);
-
-        // Floating windows are editor chrome - keep them on the same zoom.
-        try {
-          floatingWindow.window.webContents.setZoomFactor(uiZoomFactor);
-        } catch { }
-      });
-
-      floatingWindow.forwardIpcEvents(['editor-api-response']);
-
-      return floatingWindow;
-    }
-
     let saveWindowSettingsTimeout;
     function onMainWindowBoundsChanged() {
       clearTimeout(saveWindowSettingsTimeout);
@@ -1487,15 +1457,6 @@ function launchApp() {
       } catch (e) {
         console.warn('[Main Process] Failed to apply UI zoom:', e && e.message ? e.message : e);
       }
-
-      // Floating windows are editor chrome too.
-      try {
-        Object.keys(floatingWindows).forEach((id) => {
-          const fw = floatingWindows[id];
-          const wc = fw && fw.window && !fw.window.isDestroyed() ? fw.window.webContents : null;
-          if (wc) wc.setZoomFactor(clamped);
-        });
-      } catch { }
 
       if (!options || options.persist !== false) {
         try {
@@ -2033,8 +1994,6 @@ function launchApp() {
 
       setupEditorApiRouting();
 
-      setupFloatingWindowIpc();
-
       setupMainWindowControlIpc();
 
       setupMenu();
@@ -2104,18 +2063,6 @@ function launchApp() {
         win && win.webContents.send('app-blurred');
       }
     });
-
-    // --------------------------------------------------------------------------------------------------------------------
-    // Floating windows
-    // --------------------------------------------------------------------------------------------------------------------
-    function setupFloatingWindowIpc() {
-      ipcMain.on('floating-window-close', function (event, options) {
-        closeFloatingWindow(options);
-      });
-      ipcMain.on('floating-window-open', function (event, options) {
-        openFloatingWindow(options);
-      });
-    }
 
     // --------------------------------------------------------------------------------------------------------------------
     // Main window control
