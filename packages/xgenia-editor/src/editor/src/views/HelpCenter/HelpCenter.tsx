@@ -30,7 +30,7 @@ export function HelpCenter() {
 
   const portalRoot = document.querySelector('.help-center-layer');
   const docsEndpoint = getDocsEndpoint();
-  const discordInviteUrl = (process && process.env && process.env.XGENIA_DISCORD_URL) || 'https://discord.com/invite/n4P5zkpvFE';
+  const discordInviteUrl = (process && process.env && process.env.XGENIA_DISCORD_URL) || 'https://xgenia.atlassian.net/helpcenter/XCS/';
 
   if (!portalRoot) return null;
 
