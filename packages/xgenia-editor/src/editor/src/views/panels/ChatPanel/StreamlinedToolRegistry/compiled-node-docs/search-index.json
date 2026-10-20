@@ -8145,8 +8145,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiCamera2D.js",
       "category": "Pixi|Camera",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-camera2d/",
-      "lineCount": 292,
-      "byteSize": 11467,
+      "lineCount": 293,
+      "byteSize": 11538,
       "inputFormatHints": {
         "target": {
           "displayName": "Target",
@@ -8556,8 +8556,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiCollisionDetectorNode.js",
       "category": "Pixi|Logic",
       "docs": "https://en.wikipedia.org/wiki/Collision_detection",
-      "lineCount": 188,
-      "byteSize": 7218,
+      "lineCount": 189,
+      "byteSize": 7289,
       "inputFormatHints": {
         "a": {
           "displayName": "Object A",
@@ -10446,8 +10446,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiGSAPInertiaNode.js",
       "category": "Pixi|Animation",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-gsap-inertia",
-      "lineCount": 333,
-      "byteSize": 13391,
+      "lineCount": 334,
+      "byteSize": 13462,
       "inputFormatHints": {
         "target": {
           "displayName": "Target Node",
@@ -10668,8 +10668,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiGSAPPhysicsNode.js",
       "category": "Pixi|Animation",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-gsap-physics",
-      "lineCount": 307,
-      "byteSize": 11807,
+      "lineCount": 308,
+      "byteSize": 11878,
       "inputFormatHints": {
         "target": {
           "displayName": "Target Node",
@@ -12318,8 +12318,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiParticleEmitter.js",
       "category": "Pixi|Effects",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-particle-emitter/",
-      "lineCount": 1603,
-      "byteSize": 64195,
+      "lineCount": 1629,
+      "byteSize": 67990,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
@@ -12543,6 +12543,7 @@
           "group": "Mounted"
         }
       },
+      "description": "Particle emitter inside a pixi.Stage. Its own engine (not @pixi/particle-emitter), configured by emitterConfigJSON — see that port for every field it reads. Position the emitter with x/y (stage px); particles are children of the emitter, so by default they MOVE WITH IT — set \"particleSpace\": \"world\" in the config for a trail behind a moving emitter. startEmitter restarts emission and lets live particles finish, so repeated bursts stack; stopEmitter stops spawning; stopAndClear also removes live particles. The live engine is node.pixiEmitter (particlePool, each particle with _vx/_vy in px/s). An emitter cannot home onto a moving target: a particle's direction is fixed at spawn.",
       "portsSource": "registry",
       "portsComplete": true,
       "closureRisk": {
@@ -12561,6 +12562,7 @@
           "_interpolateColorList": [],
           "cleanup": [],
           "reset": [],
+          "restart": [],
           "destroy": [],
           "particleCount": [],
           "complete": [],
@@ -14670,8 +14672,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiSpriteNode.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-sprite/",
-      "lineCount": 652,
-      "byteSize": 42171,
+      "lineCount": 659,
+      "byteSize": 42597,
       "inputFormatHints": {
         "x": {
           "displayName": "X",
