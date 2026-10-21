@@ -25,7 +25,6 @@ import { EditorTopbar } from '../../EditorTopbar';
 import { DocsChat } from '../../DocsChat/DocsChat';
 import { HelpCenter } from '../../HelpCenter';
 import { NodeGraphEditor } from '../../nodegrapheditor';
-import { NodeGraphEditorNode } from '../../nodegrapheditor/NodeGraphEditorNode';
 import { showContextMenuInPopup } from '../../ShowContextMenuInPopup';
 import { TimelineDockHost, useTimelineDockBindings } from '../../TimelineDock';
 import { useCanvasView } from './hooks/UseCanvasView';
@@ -261,11 +260,9 @@ function EditorDocument() {
   }, [viewerDetached, canvasView, throttledIpcSend]);
 
   useEffect(() => {
-    // EMERGENCY: Skip if IPC disabled
-    if (ipcThrottleRef.current.totalBlockedEvents > ipcThrottleRef.current.PERMANENT_DISABLE_THRESHOLD) {
-      return;
-    }
-
+    // Not gated on the IPC breaker: the preview is an in-process iframe, so switching its inspector
+    // needs no IPC, and throttledIpcSend already refuses the detached-viewer message on its own.
+    // Gating it here left Edit/Preview dead for the rest of the session once the breaker tripped.
     const inspectMode = previewMode ? false : true;
     console.log(`[EditorDocument] useEffect: previewMode=${previewMode}, inspectMode=${inspectMode}`);
 
@@ -284,11 +281,6 @@ function EditorDocument() {
   }, [previewMode, canvasView, throttledIpcSend]);
 
   useEffect(() => {
-    // EMERGENCY: Skip if IPC disabled
-    if (ipcThrottleRef.current.totalBlockedEvents > ipcThrottleRef.current.PERMANENT_DISABLE_THRESHOLD) {
-      return;
-    }
-
     if (!previewMode) {
       // Add a small delay to ensure webview APIs are ready
       const timeoutId = setTimeout(() => {
@@ -464,33 +456,23 @@ function EditorDocument() {
       (args) => {
         console.log('[EditorDocument] 🎯 RECEIVED inspectNodes event:', args);
         if (args.nodeIds.length === 1) {
-          // Select node - use the node graph editor's findNodeWithId method which returns NodeGraphEditorNode
+          // Look the node up in the whole project, not only the component open in the graph: the
+          // preview shows every component, so the clicked element is often in another one.
           const nodeId = args.nodeIds[0];
-          console.log('[EditorDocument] Looking for node with ID:', nodeId);
-          const allNodes: NodeGraphEditorNode[] = [];
-          nodeGraph.forEachNode((node) => {
-            allNodes.push(node);
-          });
-          console.log('[EditorDocument] Total nodes in graph:', allNodes.length);
-          console.log('[EditorDocument] First 5 node IDs:', allNodes.slice(0, 5).map(n => n.id));
-          const node = nodeGraph.findNodeWithId(nodeId);
-          console.log('[EditorDocument] Node found:', !!node, 'Node details:', node ? { id: node.id, label: node.model?.label, type: node.model?.type } : 'null');
-
-          if (node) {
-            // Select the node in the current graph
-            nodeGraph.clearSelection();
-            nodeGraph.selectNode(node);
-            console.log('[EditorDocument] Selected node in current graph:', node.id);
-
-            // Show a brief notification that the node was selected
-            console.log(`[Inspector] ✅ Node "${node.model.label || node.id}" selected in editor via visual inspector!`);
-          } else {
-            console.warn('[EditorDocument] Node not found with ID:', args.nodeIds[0]);
-            // Show notification that node was not found
-            setTimeout(() => {
-              console.log(`[Inspector] ❌ Node "${args.nodeIds[0]}" not found in project. Make sure components are properly registered.`);
-            }, 100);
+          const model = ProjectModel.instance.findNodeWithId(nodeId);
+          const component = model?.owner?.owner;
+          if (!model || !component) {
+            console.warn('[EditorDocument] inspectNodes: node not found in project:', nodeId);
+            return;
           }
+
+          // A click arrives twice (inspector-node-selected and the editor API request). Selecting a
+          // node that is already selected is a double click, which dives into it, so skip the repeat.
+          const current = nodeGraph.getActiveComponent() === component ? nodeGraph.findNodeWithId(nodeId) : null;
+          if (current?.selected) return;
+
+          // Open its component, select it, centre the graph on it and show its properties.
+          nodeGraph.switchToComponent(component, { node: model, pushHistory: true });
         } else {
           const nodes = args.nodeIds.map((id) => ProjectModel.instance.findNodeWithId(id)).filter((node) => !!node);
 
