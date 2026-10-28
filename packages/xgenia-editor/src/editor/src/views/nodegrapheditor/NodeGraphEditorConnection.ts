@@ -15,6 +15,55 @@ function getPortIndex(p) {
   return p ? p.index || 0 : undefined;
 }
 
+type ClipRect = { minX: number; maxX: number; minY: number; maxY: number };
+
+// 2026-10-28 perf audit. A wire is one cubic from its source plug to its target
+// plug, and in a big graph most wires are far longer than the view: on a 440
+// node / 822 wire game the 521 wires crossing a 1670x602 view had a median
+// height of ~9,750 world units and a max of ~34,000. Skia rasterizes the WHOLE
+// stroke regardless of what is on screen, so the GPU process spent ~95% of its
+// time in SkCanvas::drawPath (~210us per wire, up to 50ms for one) and input
+// lagged 150-450ms — zooming over dense wiring felt frozen, and the 30 Hz
+// debug pulse repaint kept it that way even with no input. Trimming each wire
+// to the view with de Casteljau splits (below) took drawPath to ~27us a wire
+// and input latency to ~10-25ms on the same graph.
+//
+// 14 splits deep is 1/16384 of the wire — ~2 world units on the longest one
+// measured, finer than the stroke — so segments straddling the edge stop
+// splitting there and are drawn whole.
+const CLIP_MAX_DEPTH = 14;
+
+function addCubicInRect(ctx: CanvasRenderingContext2D, x0, y0, x1, y1, x2, y2, x3, y3, rect: ClipRect, depth: number, pen: IVector2) {
+  // The control points' bounding box contains the curve, so this culls safely.
+  const minX = Math.min(x0, x1, x2, x3);
+  const maxX = Math.max(x0, x1, x2, x3);
+  const minY = Math.min(y0, y1, y2, y3);
+  const maxY = Math.max(y0, y1, y2, y3);
+  if (minX > rect.maxX || maxX < rect.minX || minY > rect.maxY || maxY < rect.minY) return;
+
+  const inside = minX >= rect.minX && maxX <= rect.maxX && minY >= rect.minY && maxY <= rect.maxY;
+  if (inside || depth >= CLIP_MAX_DEPTH) {
+    // Continue the current subpath when this piece starts where the last one
+    // ended, so the visible run strokes as one line with no seams at the splits.
+    if (pen.x !== x0 || pen.y !== y0) ctx.moveTo(x0, y0);
+    ctx.bezierCurveTo(x1, y1, x2, y2, x3, y3);
+    pen.x = x3;
+    pen.y = y3;
+    return;
+  }
+
+  // Split at t = 0.5
+  const ax = (x0 + x1) / 2, ay = (y0 + y1) / 2;
+  const bx = (x1 + x2) / 2, by = (y1 + y2) / 2;
+  const cx = (x2 + x3) / 2, cy = (y2 + y3) / 2;
+  const dx = (ax + bx) / 2, dy = (ay + by) / 2;
+  const ex = (bx + cx) / 2, ey = (by + cy) / 2;
+  const mx = (dx + ex) / 2, my = (dy + ey) / 2;
+
+  addCubicInRect(ctx, x0, y0, ax, ay, dx, dy, mx, my, rect, depth + 1, pen);
+  addCubicInRect(ctx, mx, my, ex, ey, cx, cy, x3, y3, rect, depth + 1, pen);
+}
+
 export class NodeGraphEditorConnection {
   ctx: CanvasRenderingContext2D;
   owner: NodeGraphEditor;
@@ -208,7 +257,10 @@ export class NodeGraphEditorConnection {
     if (type === 'move') {
       if (this.ctx) {
         this.ctx.lineWidth = 10;
-        this.drawCurve();
+        // Only the piece of the wire near the cursor can be under it; hit-testing
+        // the whole (often 10,000+ unit) curve on every mouse move is wasted work.
+        const hit = 10;
+        this.drawCurve({ minX: pos.x - hit, maxX: pos.x + hit, minY: pos.y - hit, maxY: pos.y + hit });
         if (this.ctx.isPointInStroke(pos.x, pos.y)) {
           evt.consumed = true;
           this.owner.setHighlightedConnection(this, pos);
@@ -274,11 +326,17 @@ export class NodeGraphEditorConnection {
     }
   }
 
-  drawCurve() {
+  /** Builds the wire's path. With `clipRect`, only the part inside it (see addCubicInRect). */
+  drawCurve(clipRect?: ClipRect) {
     const c = this.curve;
     if (!c) return;
     const ctx = this.ctx;
     ctx.beginPath();
+    if (clipRect) {
+      const pen = { x: NaN, y: NaN };
+      addCubicInRect(ctx, c[0].x, c[0].y, c[1].x, c[1].y, c[2].x, c[2].y, c[3].x, c[3].y, clipRect, 0, pen);
+      return;
+    }
     ctx.moveTo(c[0].x, c[0].y);
     ctx.bezierCurveTo(c[1].x, c[1].y, c[2].x, c[2].y, c[3].x, c[3].y);
   }
@@ -456,7 +514,8 @@ export class NodeGraphEditorConnection {
       return;
     }
 
-    if (!this.getHealth().healthy) {
+    const dashed = !this.getHealth().healthy;
+    if (dashed) {
       ctx.setLineDash([5]);
     }
 
@@ -482,7 +541,20 @@ export class NodeGraphEditorConnection {
       ctx.strokeStyle = 'rgba(236, 91, 224, 0.9)';
     }
 
-    this.drawCurve();
+    // Trimmed to the view, padded so the stroke never ends visibly at the edge.
+    // A dashed wire is drawn whole: its dash pattern starts where the path does,
+    // so trimming would make the dashes crawl as the view moves.
+    const pad = 20;
+    this.drawCurve(
+      dashed
+        ? undefined
+        : {
+            minX: paintRect.minX - pad,
+            maxX: paintRect.maxX + pad,
+            minY: paintRect.minY - pad,
+            maxY: paintRect.maxY + pad
+          }
+    );
     ctx.stroke();
 
     // ═══════════════════════════════════════════════
