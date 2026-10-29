@@ -43,6 +43,10 @@ import Edit02Icon from '@hugeicons/core-free-icons/Edit02Icon';
 import FolderOpenIcon from '@hugeicons/core-free-icons/FolderOpenIcon';
 // @ts-ignore
 import PuzzleIcon from '@hugeicons/core-free-icons/PuzzleIcon';
+// @ts-ignore
+import FlashIcon from '@hugeicons/core-free-icons/FlashIcon';
+// @ts-ignore
+import CloudIcon from '@hugeicons/core-free-icons/CloudIcon';
 
 interface IconProps {
     size?: number;
@@ -86,6 +90,9 @@ export const SideSettings = makeIcon(Settings01Icon, 'SideSettings');
 export const SideAddNode = makeIcon(Add01Icon, 'SideAddNode');
 /** Generic rail icon for a server-provided web plugin panel (WebPluginPanel). */
 export const SideWebPlugin = makeIcon(PuzzleIcon, 'SideWebPlugin');
+/** Cloud Functions and Cloud Services panels. Hugeicons, like SideWebPlugin: GlassIcons.tsx has no slots for them yet. */
+export const SideCloudFunctions = makeIcon(FlashIcon, 'SideCloudFunctions');
+export const SideCloud = makeIcon(CloudIcon, 'SideCloud');
 export const SideLogout = makeIcon(Logout01Icon, 'SideLogout');
 export const TopbarImport = makeIcon(Download04Icon, 'TopbarImport');
 export const TopbarPanelOpen = makeIcon(PanelLeftOpenIcon, 'TopbarPanelOpen');
