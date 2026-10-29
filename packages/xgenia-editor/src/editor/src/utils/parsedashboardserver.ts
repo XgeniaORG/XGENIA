@@ -4,8 +4,29 @@ import express from 'express';
 import ParseDashboard from '@xgenia/xgenia-parse-dashboard';
 
 import { Environment } from '@xgenia-models/CloudServices';
+import { CloudServiceType } from '@xgenia-models/CloudServices/type';
+
+import { ToastLayer } from '../views/ToastLayer/ToastLayer';
 
 const { BrowserWindow } = require('@electron/remote');
+
+/**
+ * Where a Supabase environment's dashboard lives. A hosted project
+ * (`https://<ref>.supabase.co`) goes to its page on supabase.com; any other URL is a
+ * self-hosted Supabase, whose Studio is served from the project URL itself.
+ */
+export function supabaseDashboardUrl(environment: Environment): string | undefined {
+  const projectUrl = environment.supabaseUrl || environment.url;
+  if (!projectUrl) return undefined;
+
+  try {
+    const { hostname, origin } = new URL(projectUrl);
+    const hosted = hostname.match(/^([a-z0-9]+)\.supabase\.(co|in)$/i);
+    return hosted ? `https://supabase.com/dashboard/project/${hosted[1]}` : origin;
+  } catch {
+    return undefined;
+  }
+}
 
 export default class ParseDashboardServer {
   public static instance = new ParseDashboardServer();
@@ -21,6 +42,8 @@ export default class ParseDashboardServer {
    * @param environment The environment we want to open with.
    */
   openInBrowser(environment: Environment) {
+    if (this.openSupabaseDashboard(environment)) return;
+
     this.start(environment, (port) => {
       electron.shell.openExternal(`http://127.0.0.1:${port}`);
     });
@@ -32,6 +55,8 @@ export default class ParseDashboardServer {
    * @param environment The environment we want to open with.
    */
   openInWindow(environment: Environment) {
+    if (this.openSupabaseDashboard(environment)) return;
+
     this.start(environment, (port) => {
       if (this.browserWin) {
         this.browserWin.focus();
@@ -50,6 +75,25 @@ export default class ParseDashboardServer {
         this.browserWin.loadURL(`http://localhost:${port}`);
       }
     });
+  }
+
+  /**
+   * Parse Dashboard cannot manage a Supabase project, so a Supabase environment opens
+   * Supabase's own dashboard instead. Always in the browser, even from "open in
+   * window": it signs in with the user's supabase.com session, which lives there.
+   *
+   * @returns true if `environment` is Supabase and has been handled here.
+   */
+  private openSupabaseDashboard(environment: Environment): boolean {
+    if (environment.type !== CloudServiceType.SUPABASE) return false;
+
+    const url = supabaseDashboardUrl(environment);
+    if (url) {
+      electron.shell.openExternal(url);
+    } else {
+      ToastLayer.showError(`"${environment.name}" has no valid Supabase URL to open a dashboard for.`);
+    }
+    return true;
   }
 
   stop() {
