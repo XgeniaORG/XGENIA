@@ -119,6 +119,7 @@
     "@xgenia/platform": "file:../xgenia-platform",
     "@xgenia/platform-electron": "file:../xgenia-platform-electron",
     "@xgenia/xgenia-parse-dashboard": "file:../xgenia-parse-dashboard",
+    "acorn": "^8.16.0",
     "algoliasearch": "^4.14.2",
     "archiver": "^5.3.0",
     "assert": "^2.1.0",

@@ -14,6 +14,7 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@supabase/supabase-js": "^2.49.8",
     "@xgenia/mcp": "file:../xgenia-mcp",
+    "acorn": "^8.16.0",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "lodash.difference": "^4.5.0",
