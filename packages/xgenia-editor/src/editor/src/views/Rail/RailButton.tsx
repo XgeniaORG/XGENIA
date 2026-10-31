@@ -6,6 +6,7 @@ import { IconButton, IconButtonState, IconButtonVariant } from '@xgenia-core-ui/
 import { DialogRenderDirection } from '@xgenia-core-ui/components/layout/BaseDialog';
 import { Tooltip } from '@xgenia-core-ui/components/popups/Tooltip';
 
+import { railGuideId } from '../../utils/guideIds';
 import css from './Rail.module.scss';
 
 export interface RailButtonProps {
@@ -71,6 +72,7 @@ export function RailButton(props: RailButtonProps) {
         isRecounting && css['is-recount']
       )}
       data-rail-id={props.id}
+      data-guide={railGuideId(props.id)}
       onPointerDownCapture={props.onPointerDownCapture}
       onMouseLeave={props.onTooltipClosed}
       onDragOver={props.onDrop ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } : undefined}

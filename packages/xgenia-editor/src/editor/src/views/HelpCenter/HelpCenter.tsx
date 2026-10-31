@@ -36,7 +36,7 @@ export function HelpCenter() {
 
   return (
     <Portal portalRoot={portalRoot}>
-      <div className={css['Root']} ref={rootRef} onClick={() => setIsDialogVisible(true)}>
+      <div className={css['Root']} ref={rootRef} onClick={() => setIsDialogVisible(true)} data-guide="help.button">
         <IconButton icon={IconName.QuestionFree} variant={IconButtonVariant.OpaqueOnHover} size={IconSize.Large} />
       </div>
 

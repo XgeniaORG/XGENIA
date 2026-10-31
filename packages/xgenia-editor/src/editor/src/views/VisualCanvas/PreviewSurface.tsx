@@ -106,7 +106,7 @@ export function PreviewSurface({ canvasViewInstance, onResize }: PreviewSurfaceP
     return (
         <div className={css.ContentArea}>
             {/* Viewport surface — always mounted, hidden when not showing */}
-            <div className={css.FrameWrapper} style={{ display: surface === 'viewport' ? 'block' : 'none' }}>
+            <div className={css.FrameWrapper} style={{ display: surface === 'viewport' ? 'block' : 'none' }} data-guide="preview.frame">
                 <Frame instance={canvasViewInstance} onResize={onResize} />
             </div>
 

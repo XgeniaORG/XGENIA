@@ -34,7 +34,7 @@ export function OverflowMenu({ documentLayout, setDocumentLayout, onImport, anch
   // which would knock the button off the bar's centre line. Task 8 creates no
   // OverflowMenu.module.scss, so there is nowhere else to put three layout rules.
   return (
-    <div ref={anchorRef} style={{ display: 'flex', alignItems: 'center', flex: 'none' }}>
+    <div ref={anchorRef} style={{ display: 'flex', alignItems: 'center', flex: 'none' }} data-guide="topbar.overflow">
       <Tooltip content="More">
         <IconButton
           icon={IconName.DotsThreeHorizontal}

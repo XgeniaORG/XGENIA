@@ -16,6 +16,7 @@ export function TimelineToggle() {
       aria-pressed={state.open}
       title={state.open ? 'Hide the Timeline' : 'Show the Timeline (keyframe animation)'}
       aria-label="Timeline"
+      data-guide="topbar.timeline"
       onClick={() => TimelineState.toggle()}
     >
       <Hi icon="keyframes" size={14} />

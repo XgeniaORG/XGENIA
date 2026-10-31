@@ -336,7 +336,7 @@ export function StatusPill({
 
   return (
     <>
-      <div ref={setRootEl} className={css.Pill}>
+      <div ref={setRootEl} className={css.Pill} data-guide="topbar.status">
         {state.kind !== 'typing' && surfaceSwitch}
         {body}
         {warn}

@@ -146,7 +146,7 @@ export function TimelineDockHost({ position, children }: TimelineDockHostProps) 
           {handle}
         </>
       )}
-      <div className={css.HostMain}>{children}</div>
+      <div className={css.HostMain} data-guide="graph.canvas">{children}</div>
       {state.open && position === 'bottom' && (
         <>
           {handle}

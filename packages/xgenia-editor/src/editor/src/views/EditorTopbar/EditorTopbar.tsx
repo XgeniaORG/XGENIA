@@ -324,6 +324,7 @@ export function EditorTopbar({
             variant={IconButtonVariant.Transparent}
             size={IconSize.Small}
             onClick={() => EventDispatcher.instance.emit('viewer-refresh')}
+            data-guide="topbar.refresh"
           />
         </Tooltip>
       </div>
@@ -423,6 +424,7 @@ function UndoRedoButtons() {
           variant={IconButtonVariant.Transparent}
           size={IconSize.Small}
           onClick={() => KeyboardHandler.instance.run(UNDO)}
+          data-guide="topbar.undo"
           isDisabled={state.undo === null}
         />
       </Tooltip>
@@ -432,6 +434,7 @@ function UndoRedoButtons() {
           variant={IconButtonVariant.Transparent}
           size={IconSize.Small}
           onClick={() => KeyboardHandler.instance.run(REDO)}
+          data-guide="topbar.redo"
           isDisabled={state.redo === null}
         />
       </Tooltip>

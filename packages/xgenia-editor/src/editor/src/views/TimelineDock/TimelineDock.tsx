@@ -519,7 +519,7 @@ export function TimelineDock({ height }: TimelineDockProps) {
 
   if (!timelineNode) {
     return (
-      <div className={css.Root} style={{ height }} ref={rootRef} tabIndex={-1}>
+      <div className={css.Root} style={{ height }} ref={rootRef} tabIndex={-1} data-guide="timeline.dock">
         {header}
         <div className={css.Empty}>
           Select a Timeline node in the node graph to edit it here. Add one from the node picker under Animation &rsaquo; Timeline.
@@ -533,6 +533,7 @@ export function TimelineDock({ height }: TimelineDockProps) {
   return (
     <div
       className={classNames(css.Root, state.recording && css.isRecording)}
+      data-guide="timeline.dock"
       style={{ height }}
       ref={rootRef}
       tabIndex={0}

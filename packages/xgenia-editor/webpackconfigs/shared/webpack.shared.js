@@ -38,7 +38,8 @@ const alias = {
   '@xgenia-services': path.join(editorDir, 'src/editor/src/services'),
   '@xgenia-editor-views': path.join(editorDir, 'src/editor/src/views'),
   '@xgenia-editor': path.join(editorDir, 'src/editor/src'),
-  '@xgenia/image-editor': path.join(rootDir, 'private/xgenia-image-editor/src')
+  '@xgenia/image-editor': path.join(rootDir, 'private/xgenia-image-editor/src'),
+  '@xgenia/coach': path.join(rootDir, 'private/xgenia-coach/src')
 };
 
 console.log('> alias:');

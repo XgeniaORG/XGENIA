@@ -57,6 +57,7 @@ import {
 import { setActiveGame } from '@xgenia-utils/rgs/rgsClient';
 import { desktopNotificationService } from '@xgenia-utils/DesktopNotificationService';
 import { resolveInsideProject } from '@xgenia-utils/projectPathGuard';
+import { getActivePreviewHost } from '@xgenia-utils/previewHostRegistry';
 
 interface PluginCommand {
     id: string;
@@ -1034,6 +1035,17 @@ export class EditorBridge {
         h('aiBrowser.getPageInfo', () => AiBrowserManager.getPageInfo());
         h('aiBrowser.getState', () => ({ state: AiBrowserManager.getState(), logs: AiBrowserManager.getConsoleLogs(false) }));
         h('aiBrowser.getConsoleLogs', ([clear]: [boolean]) => AiBrowserManager.getConsoleLogs(!!clear));
+
+        // --- Coach layer: the panel's lessons draw a spotlight, card and pointer over the editor and
+        // hear back what the user clicked. Proprietary (private/xgenia-coach): open-source builds
+        // have no coach.* commands, and the panel then keeps lessons off. ---
+        try {
+            require('@xgenia/coach').registerCoachCommands(h, (event: string, data: unknown) => this.pushEvent(event, data), {
+                previewFrame: () => getActivePreviewHost()?.element
+            });
+        } catch {
+            // @xgenia/coach not available (open-source build)
+        }
 
         // --- Project commands ---
         h('project.getComponents', () => {
