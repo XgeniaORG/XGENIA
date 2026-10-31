@@ -52,6 +52,9 @@
       ],
       "@xgenia/image-editor/*": [
         "../../private/xgenia-image-editor/src/*"
+      ],
+      "@xgenia/coach": [
+        "../../private/xgenia-coach/src/index.ts"
       ]
     },
     "resolveJsonModule": true
