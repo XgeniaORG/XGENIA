@@ -53,6 +53,7 @@ export function IdentityChip() {
           aria-haspopup="menu"
           aria-expanded={isOpen}
           data-test="rail-identity"
+          data-guide="rail.project"
         >
           {showImage ? <img src={identity.thumb} alt="" onError={() => setImgBroken(true)} /> : <span>{initial}</span>}
         </button>

@@ -24,7 +24,7 @@ interface Props {
  */
 export function AddNodeButton({ showAfterMs, onTooltipClosed }: Props) {
   return (
-    <div className={css.Item} onMouseLeave={onTooltipClosed}>
+    <div className={css.Item} onMouseLeave={onTooltipClosed} data-guide="rail.add">
       <Tooltip content="Add node" renderDirection={DialogRenderDirection.Horizontal} showAfterMs={showAfterMs}>
         <IconButton
           icon={SideAddNode}

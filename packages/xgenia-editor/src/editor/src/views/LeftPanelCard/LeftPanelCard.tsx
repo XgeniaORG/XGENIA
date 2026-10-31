@@ -174,6 +174,7 @@ export function PanelCard({ panelId, isHidden }: CardProps) {
       className={classNames(css.Card, isResizing && css['is-resizing'])}
       style={{ width, display: isHidden ? 'none' : undefined }}
       data-test="left-card"
+      data-guide="panel.left"
       data-panel-id={panelId}
     >
       <div className={css.Content}>
