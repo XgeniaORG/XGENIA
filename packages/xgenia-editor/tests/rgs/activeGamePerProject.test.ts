@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeGameFor } from '../../src/editor/src/utils/rgs/rgsClient';
+import { activeGameFor } from '../../src/editor/src/utils/rgs/activeGame';
 
 test('the selected RGS game belongs to one project, never the next one opened', () => {
   const settings = {

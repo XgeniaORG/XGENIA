@@ -6,6 +6,7 @@
 // user-facing name is "XGENIA RGS".
 
 import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
+import { activeGameFor } from './activeGame';
 
 export const XRGS_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/functions/v1';
 
@@ -328,16 +329,11 @@ function currentProjectId(): string | null {
   }
 }
 
-/** The selection for a project, from the settings blob. Pure, for tests. */
-export function activeGameFor(settings: any, projectId: string | null): SelectedGame | null {
-  if (!projectId) return null;
-  const g = settings?.activeGameByProject?.[projectId];
-  return g?.id ? g : null;
-}
+export { activeGameFor };
 
 export function getActiveGame(): SelectedGame | null {
   try {
-    return activeGameFor(JSON.parse(localStorage.getItem(RGS_SETTINGS_KEY) || '{}'), currentProjectId());
+    return activeGameFor<SelectedGame>(JSON.parse(localStorage.getItem(RGS_SETTINGS_KEY) || '{}'), currentProjectId());
   } catch {
     return null;
   }
