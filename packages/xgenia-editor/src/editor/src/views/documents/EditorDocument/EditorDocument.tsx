@@ -1,5 +1,5 @@
 import { useShowAllTools } from '../../Rail/useShowAllTools';
-import { defaultPreviewSize } from './defaultPreviewSize';
+import { defaultPreviewSize, savedPreviewSize } from './defaultPreviewSize';
 import { useNodeGraphContext } from '@xgenia-contexts/NodeGraphContext/NodeGraphContext';
 import { useKeyboardCommands } from '@xgenia-hooks/useKeyboardCommands';
 import usePrevious from '@xgenia-hooks/usePrevious';
@@ -604,8 +604,9 @@ function EditorDocument() {
       }
     }
 
-    if (settings.frameDividerSize) {
-      setFrameDividerSize(settings.frameDividerSize);
+    const savedSize = savedPreviewSize(settings.frameDividerSize);
+    if (savedSize) {
+      setFrameDividerSize(savedSize);
     }
 
     // setEnableAi(settings[AI_ASSISTANT_ENABLED_KEY]);
