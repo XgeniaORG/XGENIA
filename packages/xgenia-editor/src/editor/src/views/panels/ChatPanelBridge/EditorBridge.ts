@@ -222,6 +222,9 @@ export class EditorBridge {
     private aiUndoTimer: ReturnType<typeof setTimeout> | null = null;
     /** Quiet period that ends a burst. Tool calls within a turn arrive far closer
      *  together than this; a new user prompt is far further apart. */
+    /** The AI chat panel's frames (from its handshake), so only its commands light "AI working". */
+    private static _chatWindows = new WeakSet<object>();
+
     private static readonly AI_UNDO_IDLE_MS = 1500;
 
     /**
@@ -808,6 +811,8 @@ export class EditorBridge {
             // type-the-URL-and-use-it-free path. Real protection means not
             // serving the bundle unauthenticated; that is a hosting change.
             const sourceWindow = event.source as WindowProxy;
+            // Only the chat's commands are the AI at work (see the AiActivity call below).
+            if (sourceWindow && msg.plugin === 'xgenia-ai') EditorBridge._chatWindows.add(sourceWindow);
             if (sourceWindow) {
                 const pluginId = msg.plugin === 'xgenia-image-editor' ? 'ai-image-editor' : 'ai-chat';
                 let entitled = false;
@@ -889,7 +894,10 @@ export class EditorBridge {
             // this to undo bursts alone meant a turn made entirely of inspection tools
             // never lit the top bar at all. AiActivity ends itself on an idle window,
             // so there is no matching end() to place here. Coach commands are not the AI.
-            if (isAiWork(msg.command, (msg as any).args, (msg as any).quiet)) {
+            // Only the AI chat's commands: the image editor and web plugins load with every game
+            // and their start-up reads lit "AI working" on each open (2026-11-01).
+            const fromChat = !src || EditorBridge._chatWindows.has(src);
+            if (fromChat && isAiWork(msg.command, (msg as any).args, (msg as any).quiet)) {
                 AiActivity.begin();
                 RailPresence.noteCommand(msg.command);
             }
