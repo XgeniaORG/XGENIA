@@ -13,6 +13,7 @@ import { Text, TextSize } from '@xgenia-core-ui/components/typography/Text';
 import View from '../../../../../shared/view';
 import { Frame } from '../../common/Frame';
 import { Ports } from '../propertyeditor/DataTypes/Ports';
+import { useShowAllTools } from '../../Rail/useShowAllTools';
 import { ProjectSettingsModel } from './ProjectSettingsModel';
 import { DeploySection } from './sections/DeploySection';
 import { GeneralSection } from './sections/GeneralSection';
@@ -32,6 +33,7 @@ import { SitemapSection } from './sections/SitemapSection';
 export function ProjectSettingsTab() {
   const [propertyView, setPropertyView] = useState<View | null>(null);
   const [renderIndex, triggerRerender] = useTriggerRerenderState();
+  const showAllTools = useShowAllTools();
 
   function onOpenProjectFolderClicked() {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -91,8 +93,9 @@ export function ProjectSettingsTab() {
 
       <GeneralSection />
       <LayoutSection />
-      <RepeaterSection />
-      <SitemapSection />
+      {/* Web-site settings (list repeater, sitemap): a game never needs them, so only with "Show all tools". */}
+      {showAllTools && <RepeaterSection />}
+      {showAllTools && <SitemapSection />}
       <DeploySection />
     </>
   );
