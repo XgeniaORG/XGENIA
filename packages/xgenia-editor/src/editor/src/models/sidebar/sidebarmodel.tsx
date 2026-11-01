@@ -33,6 +33,11 @@ export interface SidebarItem<TProps = Record<string, unknown>> {
    * Default: false
    */
   transient?: boolean;
+  /**
+   * A full-screen tool (the image editor takes over the canvas): never reopened by itself. Opened
+   * once, it was where every game opened from then on, the game and the AI hidden (2026-11-01).
+   */
+  opensOnHome?: boolean;
 
   /**
    * Unmount this panel while another one is showing, instead of keeping it
@@ -253,7 +258,7 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
     const storedOpen = EditorSettings.instance.get(SidebarModel.SETTINGS_OPEN);
     const homeId = this.defaultDockedId();
     const stored = typeof storedActive === 'string' ? storedActive : storedDocked;
-    const activeId = typeof stored === 'string' && this.items.some((x) => x.id === stored && !x.transient) ? stored : homeId;
+    const activeId = typeof stored === 'string' && this.items.some((x) => x.id === stored && !x.transient && !x.opensOnHome) ? stored : homeId;
     this.dispatch({ type: 'restore', homeId, activeId, open: storedOpen !== false });
   }
 

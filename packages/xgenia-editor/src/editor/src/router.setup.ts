@@ -177,7 +177,8 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     name: 'AI Image Editor',
     order: 70,
     icon: SideImageEditor,
-    panel: ImageEditorPanel
+    panel: ImageEditorPanel,
+    opensOnHome: true
   });
 
   SidebarModel.instance.register({
