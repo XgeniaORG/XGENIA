@@ -312,7 +312,8 @@ export function NewGameSheet({
                   {/* Blank stays available, as its own tile rather than as a third route. */}
                   <button
                     type="button"
-                    className={!selectedTemplate && !selectedGameId ? `${css.Tile} ${css.TileOn}` : css.Tile}
+                    // Lit only when it is what Create makes: with a description typed, the AI lane decides.
+                    className={origin === 'blank' ? `${css.Tile} ${css.TileOn}` : css.Tile}
                     data-test="create-blank-project-item"
                     onClick={() => {
                       setSelectedTemplate(null);
