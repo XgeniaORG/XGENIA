@@ -341,6 +341,9 @@ export class EditorBridge {
         window.addEventListener('message', this.handleMessage);
         // Listen for active component changes from the NodeGraphEditor
         this.listenForComponentChanges();
+        // Setting changes reach the panel as they happen (the OpenRouter key, Show all tools, ...).
+        // Lost in a refactor (#37): nothing called it, so the panel never heard of a change (2026-11-01).
+        this.listenForSettingChanges();
         // Forward viewer console output into the plugin iframe
         this.forwardViewerConsole();
     }
