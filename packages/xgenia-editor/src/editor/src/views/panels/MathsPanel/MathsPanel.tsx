@@ -53,6 +53,7 @@ import {
 import { NodeGraphContextTmp } from '@xgenia-contexts/NodeGraphContext/NodeGraphContext';
 import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
 import { ComponentsPanel } from '../componentspanel';
+import { useShowAllTools } from '../../Rail/useShowAllTools';
 import { MathsComponentDocumentProvider } from '../../documents/MathsComponentDocument';
 import { MathsSimulateDocumentProvider } from '../../documents/MathsSimulateDocument';
 import { MathsChangedSection } from './subsections/MathsChangedSection';
@@ -398,6 +399,7 @@ type InputMode = 'rng' | 'fixed' | 'trigger' | 'off';
 interface InputConfig { mode: InputMode; value: number; rngMin?: number; rngMax?: number }
 
 export function MathsPanel() {
+    const showAllTools = useShowAllTools();
     const [settings, setSettings] = useState(getRgsSettings());
     const [keyInput, setKeyInput] = useState('');
     const [showInput, setShowInput] = useState(false);
@@ -1580,6 +1582,43 @@ export function MathsPanel() {
     return (
         <BasePanel title="Maths" isFill>
             <Container direction={ContainerDirection.Vertical} isFill>
+                {/* Newcomers see what the maths is for and who changes it. The connection, operator key,
+                    wallet, game, server versions and Deploy are publishing tools: they stay behind
+                    Show all tools, and the AI drives them when the game is published. */}
+                {!showAllTools && (
+                    <div data-guide="maths-intro" style={{ flexShrink: 0, padding: '14px 14px 12px' }}>
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: '#e8e8ec', marginBottom: '6px' }}>
+                            What each round pays
+                        </div>
+                        <div style={{ fontSize: '12px', lineHeight: 1.5, color: '#a0a0b0', marginBottom: '10px' }}>
+                            The maths decides how often a round wins and how much it pays. Ask the AI to
+                            change it, for example &ldquo;make small wins more often&rdquo;. It tests the
+                            numbers before it changes anything.
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                // Required lazily, as dispatchCommand does.
+                                const { SidebarModel } = require('@xgenia-models/sidebar');
+                                const chatId = SidebarModel.instance.getAiActivityPanelId();
+                                if (chatId) SidebarModel.instance.switch(chatId);
+                            }}
+                            style={{
+                                padding: '6px 12px',
+                                borderRadius: '6px',
+                                border: 0,
+                                background: 'var(--theme-color-publish, #67DE92)',
+                                color: '#000',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                cursor: 'pointer'
+                            }}
+                        >
+                            Ask the AI
+                        </button>
+                    </div>
+                )}
+                {showAllTools && (<>
                 {/* RGS controls (connection, target game, server versions) — sized to content, capped so the
                     components list below always has room. */}
                 <div style={{ flexShrink: 0, maxHeight: '50%', overflowY: 'auto', overflowX: 'hidden' }}>
@@ -2159,7 +2198,9 @@ export function MathsPanel() {
                     </VStack>
                 </Box>
                 </div>
+                </>)}
 
+                {showAllTools && (<>
                 {/* Deploy target + Deploy — turns every Maths Component in the tree below
                     into its own backend component of the selected Server Version.
                     Per component: compile (inline every nested integration layer into one
@@ -2236,6 +2277,7 @@ export function MathsPanel() {
                         </div>
                     )}
                 </div>
+                </>)}
 
                 {/* Maths Components — four views, split by WHERE a component lives rather
                     than by what you want to do with it. The two that hold real components
@@ -2272,6 +2314,9 @@ export function MathsPanel() {
                     quarter of the width, and a "(3)" suffix wraps. Counts live inside each
                     section's header instead. */}
                 <div style={{ flex: '1.5 1 0', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    {!showAllTools ? (
+                        <ComponentsPanel options={mathsPanelOptions} />
+                    ) : (
                     <Tabs
                         variant={TabsVariant.Sidebar}
                         // The tree is a legacy view with its own DOM and scroll state;
@@ -2333,6 +2378,7 @@ export function MathsPanel() {
                             }
                         ]}
                     />
+                    )}
                 </div>
 
                 {/* Deployed Functions — COMMENTED OUT, deliberately kept rather than deleted.
