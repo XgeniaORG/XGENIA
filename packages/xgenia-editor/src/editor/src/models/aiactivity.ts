@@ -50,6 +50,14 @@ function set(next: AiActivitySnapshot) {
   EventDispatcher.instance.emit('ai-activity-changed', { ...snap });
 }
 
+/**
+ * Whether a panel command is the AI at work. The coach (lessons, first-use tips) is not: a tip on a
+ * menu lit "AI working" while nothing ran.
+ */
+export function isAiWork(command: unknown): boolean {
+  return !String(command ?? '').startsWith('coach.');
+}
+
 export const AiActivity = {
   /** A copy: the snapshot goes straight into React state, where an in-place edit would
    *  otherwise rewrite this module's single source of truth. */

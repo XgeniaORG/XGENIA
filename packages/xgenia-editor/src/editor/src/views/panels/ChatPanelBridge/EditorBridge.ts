@@ -19,7 +19,7 @@ import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import { serializeNodeParameters } from './serialize-param-guard';
 import { mergeAssetMeta, loadAssetMeta, migrateAssetMeta, flushAssetMeta, type AssetMetaEntry } from '../AssetPanel/assetMeta';
 import { reconcileGraphAssetRefs } from '../AssetPanel/assetGraphRefs';
-import { AiActivity } from '@xgenia-models/aiactivity';
+import { AiActivity, isAiWork } from '@xgenia-models/aiactivity';
 import { RailPresence } from '@xgenia-models/railpresence';
 import { GitStatus } from '@xgenia-models/gitstatus';
 import { ComponentModel } from '@xgenia-models/componentmodel';
@@ -881,9 +881,11 @@ export class EditorBridge {
             // Every command is a sign the AI is working, read-only ones included. Tying
             // this to undo bursts alone meant a turn made entirely of inspection tools
             // never lit the top bar at all. AiActivity ends itself on an idle window,
-            // so there is no matching end() to place here.
-            AiActivity.begin();
-            RailPresence.noteCommand(msg.command);
+            // so there is no matching end() to place here. Coach commands are not the AI.
+            if (isAiWork(msg.command)) {
+                AiActivity.begin();
+                RailPresence.noteCommand(msg.command);
+            }
             this.executeCommand(msg as PluginCommand, event);
             return;
         }
