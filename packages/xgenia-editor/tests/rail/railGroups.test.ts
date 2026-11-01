@@ -47,7 +47,7 @@ test('every panel gets its short label', () => {
     'maths-panel': 'Maths',
     history: 'History',
     'cloud-functions': 'Functions',
-    'node-references': 'Uses',
+    'node-references': 'Where used',
     versioncontrol: 'Versions',
     cloudservice: 'Cloud',
     settings: 'Settings'
@@ -78,7 +78,7 @@ test('full rail: five groups in order, bottom cluster History, Versions, Cloud, 
     ['look', ['Assets', 'Images', 'Characters', 'Styles']],
     ['structure', ['Parts', 'Layers', 'Search']],
     ['game', ['Maths']],
-    ['advanced', ['Functions', 'Uses']]
+    ['advanced', ['Functions', 'Where used']]
   ]);
   assert.deepEqual(labels(r.bottom), ['History', 'Versions', 'Cloud', 'Settings']);
   assert.deepEqual(r.overflow, []);
@@ -110,7 +110,7 @@ test('simple rail: AI, Add, Assets, Images, Characters, Maths, History, Settings
   ]);
   assert.deepEqual(labels(r.bottom), ['History', 'Settings']);
   // More lists them in rail order: top tools first, then bottom ones.
-  assert.deepEqual(labels(r.overflow), ['Styles', 'Parts', 'Layers', 'Search', 'Functions', 'Uses', 'Versions', 'Cloud']);
+  assert.deepEqual(labels(r.overflow), ['Styles', 'Parts', 'Layers', 'Search', 'Functions', 'Where used', 'Versions', 'Cloud']);
   assert.equal(r.hasMore, true);
   for (const id of ['ChatPanel', 'assets', 'image-editor', 'web-plugin:character-studio', 'maths-panel', 'history', 'settings']) {
     assert.ok(isSimpleRailItem(id), id);
@@ -146,7 +146,7 @@ test('user order moves items inside their group, never across groups', () => {
     ['look', ['Assets', 'Images', 'Characters', 'Styles']],
     ['structure', ['Search', 'Parts', 'Layers']],
     ['game', ['Maths']],
-    ['advanced', ['Functions', 'Uses']]
+    ['advanced', ['Functions', 'Where used']]
   ]);
 });
 
@@ -182,7 +182,7 @@ test('a short rail folds the tail into More, and what is left fits with More dra
     // Folded in rail order: the visible list plus the fold is the full order.
     const visible = r.groups.flatMap((g) => g.items);
     assert.deepEqual(labels([...visible, ...r.overflow]), [
-      'AI', 'Assets', 'Images', 'Characters', 'Styles', 'Parts', 'Layers', 'Search', 'Maths', 'Functions', 'Uses'
+      'AI', 'Assets', 'Images', 'Characters', 'Styles', 'Parts', 'Layers', 'Search', 'Maths', 'Functions', 'Where used'
     ]);
     assert.equal(r.groups[0].id, 'make');
     assert.ok(r.groups.every((g) => g.items.length > 0 || g.id === 'make'), 'no empty group left behind');

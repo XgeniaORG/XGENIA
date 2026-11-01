@@ -22,7 +22,7 @@ export interface RailEntry {
  *
  * "Parts", not "Screens", for Components: the panel lists every component in the project —
  * pages, but also visual parts, logic-only components and folders — so "Screens" would promise
- * less than it shows. "Uses", not "Refs", for Node References: it counts how often each node
+ * less than it shows. "Where used", not "Refs", for Node References: it counts how often each node
  * and component is used, and "Refs" is jargon.
  */
 export const RAIL_ENTRIES: Readonly<Record<string, RailEntry>> = {
@@ -42,7 +42,7 @@ export const RAIL_ENTRIES: Readonly<Record<string, RailEntry>> = {
   'maths-panel': { label: 'Maths', group: 'game', rank: 0, simple: true },
 
   'cloud-functions': { label: 'Functions', group: 'advanced', rank: 0 },
-  'node-references': { label: 'Uses', group: 'advanced', rank: 1 },
+  'node-references': { label: 'Where used', group: 'advanced', rank: 1 },
 
   // Bottom cluster.
   history: { label: 'History', rank: 0, simple: true },
