@@ -20,11 +20,15 @@ import { AddNodeButton } from './AddNodeButton';
 import { IdentityChip } from './IdentityChip';
 import { RailButton, RailButtonProps } from './RailButton';
 import { activePanelId } from './railLayout';
+import { railGuideId } from '../../utils/guideIds';
 import { badgeFor, tooltipSuffixFor, type RailBadge } from './railBadges';
 import { arrangeGroupedRail, dedupeRailIcons, MORE_LABEL, railLabelFor, RAIL_SLOT } from './railGroups';
 import { setShowAllTools, useShowAllTools } from './useShowAllTools';
 import { useTooltipGroup } from './useTooltipGroup';
 import css from './Rail.module.scss';
+
+/** Dispatch on document with detail { guide } to open that rail tool (see the listener in Rail). */
+export const OPEN_RAIL_ITEM_EVENT = 'xgenia:open-rail-item';
 
 type PresenceState = Record<string, { unseen: number; lastAt: number }>;
 
@@ -457,6 +461,24 @@ export function Rail() {
     SidebarModel.instance.dispatch({ type: 'click', id: item.id });
     item.onClick?.();
   };
+
+  // "Take me to Styles" from a guide (the coach, Ask the docs' Show me): open a tool by its
+  // data-guide id, also when the simple rail keeps it under More. Already open = left as is (a
+  // click would close it). Sets detail.opened so the sender knows it worked.
+  const openRef = useRef({ items, active, clickItem });
+  openRef.current = { items, active, clickItem };
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ guide?: string; opened?: boolean }>).detail;
+      const { items: all, active: current, clickItem: click } = openRef.current;
+      const item = detail && all.find((i) => railGuideId(i.id) === detail.guide && !i.isDisabled);
+      if (!item) return;
+      if (item.id !== current) click(item);
+      detail.opened = true;
+    };
+    document.addEventListener(OPEN_RAIL_ITEM_EVENT, onOpen);
+    return () => document.removeEventListener(OPEN_RAIL_ITEM_EVENT, onOpen);
+  }, []);
 
   const overflowMenuItems: (MenuDialogItem | 'divider')[] = [];
   arrangement.overflow.forEach((item, i) => {
