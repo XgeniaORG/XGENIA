@@ -14,7 +14,7 @@ import css from './LeftPanelCard.module.scss';
 // Matches --rail-width in styles/custom-properties/glass.css. The card's available width
 // is the window minus this strip; panelWidth.ts stays free of any window/DOM read, so the
 // subtraction happens here rather than inside it.
-const RAIL_WIDTH = 48;
+const RAIL_WIDTH = 64;
 
 function getStorage(): Storage | null {
   try {

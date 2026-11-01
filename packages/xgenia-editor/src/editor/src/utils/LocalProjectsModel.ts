@@ -300,6 +300,21 @@ export class LocalProjectsModel extends Model {
     return this.projectEntries;
   }
 
+  /**
+   * How many projects this profile has opened, for the rail's simple-mode default. The loaded
+   * list when there is one; otherwise the stored list as-is (a window that never ran `fetch()`
+   * must not make an experienced user look new). Never throws.
+   */
+  getRecentProjectCount(): number {
+    if (this.projectEntries?.length) return this.projectEntries.length;
+    try {
+      const stored = this.recentProjectsStore.get('recentProjects');
+      return Array.isArray(stored) ? stored.length : 0;
+    } catch {
+      return 0;
+    }
+  }
+
   getProjectEntryWithId(id: string): ProjectItem {
     return this.projectEntries.find((p) => p.id === id);
   }

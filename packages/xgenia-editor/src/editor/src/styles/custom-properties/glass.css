@@ -45,7 +45,7 @@
   --motion-pill: 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 
   /* ---- left rail + floating panel cards (2026-09-06) ---- */
-  --rail-width: 48px;
+  --rail-width: 64px;
   --card-bg: rgba(22, 22, 24, 0.62);
 
   /* Opaque counterpart to --card-bg, for surfaces that sit INSIDE a card and have to
