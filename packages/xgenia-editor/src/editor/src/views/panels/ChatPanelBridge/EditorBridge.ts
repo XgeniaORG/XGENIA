@@ -801,7 +801,10 @@ export class EditorBridge {
             }
             console.log(`[EditorBridge] Plugin handshake received from '${msg.plugin}':`, msg.version);
             this.connected = true;
-            this.pluginOrigin = event.origin || '*';
+            // The chat's origin only: pushEvent posts to the chat frame with this origin, and the
+            // image editor's handshake (another origin) set it too, so every push after Images had
+            // loaded was silently dropped by postMessage (2026-11-01).
+            if (msg.plugin === 'xgenia-ai') this.pluginOrigin = event.origin || '*';
 
             // Send handshake acknowledgment to the source iframe.
             //
@@ -834,7 +837,7 @@ export class EditorBridge {
                 this.safePostMessage(
                     sourceWindow,
                     { type: 'handshake-ack', entitled, tier },
-                    this.pluginOrigin
+                    event.origin || '*'
                 );
             }
 
