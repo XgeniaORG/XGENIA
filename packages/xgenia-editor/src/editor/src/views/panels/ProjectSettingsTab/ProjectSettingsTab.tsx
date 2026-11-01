@@ -5,15 +5,19 @@ import React, { useEffect, useState } from 'react';
 import { ProjectModel } from '@xgenia-models/projectmodel';
 
 import { IconName } from '@xgenia-core-ui/components/common/Icon';
-import { PrimaryButton, PrimaryButtonSize, PrimaryButtonVariant } from '@xgenia-core-ui/components/inputs/PrimaryButton';
+import {
+  PrimaryButton,
+  PrimaryButtonSize,
+  PrimaryButtonVariant
+} from '@xgenia-core-ui/components/inputs/PrimaryButton';
 import { Box } from '@xgenia-core-ui/components/layout/Box';
 import { Section } from '@xgenia-core-ui/components/sidebar/Section';
 import { Text, TextSize } from '@xgenia-core-ui/components/typography/Text';
 
 import View from '../../../../../shared/view';
 import { Frame } from '../../common/Frame';
-import { Ports } from '../propertyeditor/DataTypes/Ports';
 import { useShowAllTools } from '../../Rail/useShowAllTools';
+import { Ports } from '../propertyeditor/DataTypes/Ports';
 import { ProjectSettingsModel } from './ProjectSettingsModel';
 import { DeploySection } from './sections/DeploySection';
 import { GeneralSection } from './sections/GeneralSection';
@@ -68,7 +72,11 @@ export function ProjectSettingsTab() {
     <>
       <Section hasGutter hasVisibleOverflow>
         <Box hasBottomSpacing>
-          <Text size={TextSize.Medium}>Saved in project.json — shared with your team and used by the deployed app.</Text>
+          <Text size={TextSize.Medium}>
+            {showAllTools
+              ? 'Saved in project.json — shared with your team and used by the deployed app.'
+              : 'Saved with this game, for everyone who opens it.'}
+          </Text>
         </Box>
 
         <PrimaryButton
@@ -91,12 +99,13 @@ export function ProjectSettingsTab() {
       */}
       <Frame instance={propertyView} refresh={renderIndex} isContentSize isFitWidth />
 
-      <GeneralSection />
-      <LayoutSection />
-      {/* Web-site settings (list repeater, sitemap): a game never needs them, so only with "Show all tools". */}
+      <GeneralSection simple={!showAllTools} />
+      {/* Web-site settings (body scroll, list repeater, sitemap, deploy URLs): a game never needs them,
+          and Publish in the top bar covers deploying, so only with "Show all tools". */}
+      {showAllTools && <LayoutSection />}
       {showAllTools && <RepeaterSection />}
       {showAllTools && <SitemapSection />}
-      <DeploySection />
+      {showAllTools && <DeploySection />}
     </>
   );
 }
