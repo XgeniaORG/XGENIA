@@ -188,15 +188,19 @@ export function LobbyPage({ onProjectLoaded }: LobbyPageProps) {
 
   // ─── templates ────────────────────────────────────────────────────────────
 
+  // Loaded with the lobby, not when New game opens: opened at once, the sheet showed only "Empty
+  // game" for a second while the starters loaded (2026-11-01).
+  // Once per lobby: an empty answer (offline) must not start the load again and again.
+  const templatesRequested = useRef(false);
   useEffect(() => {
-    if (!sheet || templates.length || templatesLoading) return;
-
+    if (templatesRequested.current) return;
+    templatesRequested.current = true;
     setTemplatesLoading(true);
     void ops
       .listTemplates()
       .then(setTemplates)
       .finally(() => setTemplatesLoading(false));
-  }, [sheet, templates.length, templatesLoading]);
+  }, []);
 
   // ─── hero fold ────────────────────────────────────────────────────────────
 
