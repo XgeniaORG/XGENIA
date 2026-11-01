@@ -130,9 +130,22 @@ export function DocsChat() {
       if (args && args.command === 'openDocsChat') openChat();
     };
     renderer?.on('editor-menu-command', onMenu);
+    // "Show me" in an answer: open and spotlight that area (the coach, a private module, knows the
+    // areas; an open-source build without it ignores the request).
+    const onShow = (_event: unknown, guide: unknown) => {
+      if (typeof guide !== 'string') return;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        require('@xgenia/coach').spotlightArea(guide);
+      } catch {
+        // no coach in this build
+      }
+    };
+    renderer?.on('docs-chat:show', onShow);
     return () => {
       EventDispatcher.instance.off(group);
       renderer?.removeListener('editor-menu-command', onMenu);
+      renderer?.removeListener('docs-chat:show', onShow);
     };
   }, [openChat]);
 

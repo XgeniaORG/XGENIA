@@ -921,14 +921,27 @@ function launchApp() {
         }
       });
       const contents = docsChatWin.webContents;
+      // "Show me" in an answer (xgenia://show/<area id>): the editor opens and spotlights that area.
+      // Only an area id goes across, checked by shape here and against the area map in the editor.
+      const showInEditor = (target) => {
+        const m = /^xgenia:\/\/show\/([A-Za-z0-9.:_-]{1,60})$/.exec(String(target || ''));
+        if (!m) return false;
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('docs-chat:show', m[1]);
+          win.focus();
+        }
+        return true;
+      };
       // Links in answers open in the user's browser, never in another Electron window.
       contents.setWindowOpenHandler(({ url: target }) => {
+        if (showInEditor(target)) return { action: 'deny' };
         if (/^https?:\/\//.test(target)) shell.openExternal(target);
         return { action: 'deny' };
       });
       contents.on('will-navigate', (event, target) => {
         if (isDocsChatUrl(target)) return;
         event.preventDefault();
+        if (showInEditor(target)) return;
         if (/^https?:\/\//.test(target)) shell.openExternal(target);
       });
       // Closing hides it, so the conversation is still there next time; quitting really closes it.
