@@ -28,6 +28,7 @@ import { gameNameFrom } from './gameName';
 import { cachedStarters, pickStarter } from './starters';
 import { monogramFor, monogramHue } from '../../utils/thumbnails/thumbnail-weak';
 import { Icon } from './LobbyIcons';
+import { useShowAllTools } from '../Rail/useShowAllTools';
 import css from './NewGameSheet.module.scss';
 
 /** What the sheet hands back. `path` is null until the user has picked a folder. */
@@ -111,15 +112,22 @@ export function NewGameSheet({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // A beginner sees the game starters only; developer templates (Hello World) come with "Show all tools".
+  const showAllTools = useShowAllTools();
+  const offered = useMemo(
+    () => (showAllTools ? templates : templates.filter((t) => t.category === 'Starters')),
+    [templates, showAllTools]
+  );
+
   const categories = useMemo(() => {
     const set = new Set<string>();
-    for (const t of templates) if (t.category) set.add(t.category);
+    for (const t of offered) if (t.category) set.add(t.category);
     return ['All', ...Array.from(set)];
-  }, [templates]);
+  }, [offered]);
 
   const shown = useMemo(
-    () => (category === 'All' ? templates : templates.filter((t) => t.category === category)),
-    [templates, category]
+    () => (category === 'All' ? offered : offered.filter((t) => t.category === category)),
+    [offered, category]
   );
 
   const remixGame = selectedGameId ? games.find((g) => g.id === selectedGameId) : undefined;
@@ -325,13 +333,13 @@ export function NewGameSheet({
                     </span>
                     <span className={css.TileName}>
                       Empty game
-                      <small>Nothing but a root node</small>
+                      <small>A blank screen to build on</small>
                     </span>
                   </button>
 
                   {templatesLoading && <div className={css.Note}>Loading templates…</div>}
 
-                  {!templatesLoading && !templates.length && (
+                  {!templatesLoading && !offered.length && (
                     <div className={css.Note}>
                       Templates could not be loaded. Check your connection, or start from an empty game.
                     </div>
