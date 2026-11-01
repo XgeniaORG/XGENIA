@@ -876,6 +876,102 @@ function launchApp() {
       });
     }
 
+    // ── "Ask the docs" in a window of its own (2026-11-01) ────────────────────────────────────────
+    // It used to be a <webview> floating over the editor. Under the editor's UI zoom a <webview>
+    // stops repainting: the chat showed a stale, cut-off frame and nothing typed appeared. A child
+    // window is always above the editor, can be moved and resized, and keeps the same isolation:
+    // its own session (DOCS_CHAT_PARTITION), sandboxed, no preload, no Node, no editor bridge.
+    let docsChatWin = null;
+    let docsChatQuitting = false;
+    electron.app.on('before-quit', () => {
+      docsChatQuitting = true;
+    });
+
+    function openDocsChatWindow(url) {
+      if (!isDocsChatUrl(url)) return false;
+      if (docsChatWin && !docsChatWin.isDestroyed()) {
+        docsChatWin.show();
+        docsChatWin.focus();
+        return true;
+      }
+      const parent = win && !win.isDestroyed() ? win : undefined;
+      const pb = parent ? parent.getBounds() : { x: 120, y: 120, width: 1400, height: 900 };
+      const width = 420;
+      const height = Math.min(660, Math.max(420, pb.height - 140));
+      docsChatWin = new BrowserWindow({
+        parent,
+        x: Math.round(pb.x + pb.width - width - 24),
+        y: Math.round(pb.y + pb.height - height - 72),
+        width,
+        height,
+        minWidth: 320,
+        minHeight: 360,
+        title: 'Ask the docs',
+        backgroundColor: '#1c1c1e',
+        show: false,
+        fullscreenable: false,
+        webPreferences: {
+          partition: DOCS_CHAT_PARTITION,
+          sandbox: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+          nodeIntegrationInSubFrames: false,
+          webviewTag: false,
+          webSecurity: true
+        }
+      });
+      const contents = docsChatWin.webContents;
+      // Links in answers open in the user's browser, never in another Electron window.
+      contents.setWindowOpenHandler(({ url: target }) => {
+        if (/^https?:\/\//.test(target)) shell.openExternal(target);
+        return { action: 'deny' };
+      });
+      contents.on('will-navigate', (event, target) => {
+        if (isDocsChatUrl(target)) return;
+        event.preventDefault();
+        if (/^https?:\/\//.test(target)) shell.openExternal(target);
+      });
+      // Closing hides it, so the conversation is still there next time; quitting really closes it.
+      docsChatWin.on('close', (event) => {
+        if (docsChatQuitting || !parent || parent.isDestroyed()) return;
+        event.preventDefault();
+        docsChatWin.hide();
+      });
+      if (parent) {
+        parent.once('closed', () => {
+          if (docsChatWin && !docsChatWin.isDestroyed()) docsChatWin.destroy();
+          docsChatWin = null;
+        });
+      }
+      docsChatWin.once('ready-to-show', () => {
+        if (docsChatWin && !docsChatWin.isDestroyed()) docsChatWin.show();
+      });
+      docsChatWin.loadURL(url);
+      return true;
+    }
+
+    ipcMain.handle('docs-chat:open', (event, url) => {
+      if (!win || win.isDestroyed() || event.sender !== win.webContents) return false;
+      return openDocsChatWindow(String(url || ''));
+    });
+
+    // Which docs page the selected node has: plain data, one way, so "what does this node do?" works.
+    ipcMain.handle('docs-chat:context', (event, context) => {
+      if (!win || win.isDestroyed() || event.sender !== win.webContents) return false;
+      if (!docsChatWin || docsChatWin.isDestroyed()) return false;
+      const value = {
+        path: typeof context?.path === 'string' ? context.path.slice(0, 300) : '/',
+        title: typeof context?.title === 'string' ? context.title.slice(0, 150) : ''
+      };
+      const json = JSON.stringify(value);
+      docsChatWin.webContents
+        .executeJavaScript(
+          `window.__xgeniaDocsContext=${json};window.dispatchEvent(new CustomEvent('xgenia:docs-context',{detail:window.__xgeniaDocsContext}));`
+        )
+        .catch(() => undefined);
+      return true;
+    });
+
     function createWindow() {
       console.log('[Main Process] *** ENTERING createWindow() function ***');
       // Check if preload script exists before using it

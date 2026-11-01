@@ -48,7 +48,7 @@ import Folder01Icon from '@hugeicons/core-free-icons/Folder01Icon';
 // @ts-ignore
 import AiImageIcon from '@hugeicons/core-free-icons/AiImageIcon';
 // @ts-ignore
-import UserIcon from '@hugeicons/core-free-icons/UserIcon';
+import MaskTheater01Icon from '@hugeicons/core-free-icons/MaskTheater01Icon';
 // @ts-ignore
 import PaintBoardIcon from '@hugeicons/core-free-icons/PaintBoardIcon';
 // @ts-ignore
@@ -58,9 +58,9 @@ import Search01Icon from '@hugeicons/core-free-icons/Search01Icon';
 // @ts-ignore
 import DiceFaces05Icon from '@hugeicons/core-free-icons/DiceFaces05Icon';
 // @ts-ignore
-import TimeQuarterPassIcon from '@hugeicons/core-free-icons/TimeQuarterPassIcon';
+import Clock01Icon from '@hugeicons/core-free-icons/Clock01Icon';
 // @ts-ignore
-import CodeIcon from '@hugeicons/core-free-icons/CodeIcon';
+import ServerStack01Icon from '@hugeicons/core-free-icons/ServerStack01Icon';
 // @ts-ignore
 import Link04Icon from '@hugeicons/core-free-icons/Link04Icon';
 // @ts-ignore
@@ -98,8 +98,8 @@ export const SideAddNode = makeIcon(Add01Icon, 'SideAddNode');
 export const SideAssets = makeIcon(Folder01Icon, 'SideAssets');
 /** "Images" — the AI Image Editor. */
 export const SideImageEditor = makeIcon(AiImageIcon, 'SideImageEditor');
-/** "Characters" — Character Studio (a web plugin panel). */
-export const SideCharacters = makeIcon(UserIcon, 'SideCharacters');
+/** "Characters" — Character Studio (a web plugin panel). A mask, not a person: a person reads as "your account". */
+export const SideCharacters = makeIcon(MaskTheater01Icon, 'SideCharacters');
 /** "Styles" — Project Styles. */
 export const SideProjectStyles = makeIcon(PaintBoardIcon, 'SideProjectStyles');
 /** "Parts" — the Components panel. */
@@ -110,11 +110,11 @@ export const SideHierarchy = makeIcon(Layers01Icon, 'SideHierarchy');
 export const SideSearch = makeIcon(Search01Icon, 'SideSearch');
 /** "Maths" — Maths RGS: odds, RTP, the round. */
 export const SideMaths = makeIcon(DiceFaces05Icon, 'SideMaths');
-/** "History" — the undo list. */
-export const SideHistory = makeIcon(TimeQuarterPassIcon, 'SideHistory');
-/** "Functions" — Cloud Functions. */
-export const SideCloudFunctions = makeIcon(CodeIcon, 'SideCloudFunctions');
-/** "Uses" — Node References. */
+/** "History" — the undo list. A plain clock: the dotted one read as a loading spinner. */
+export const SideHistory = makeIcon(Clock01Icon, 'SideHistory');
+/** "Server" — Cloud Functions: code that runs on the server. */
+export const SideCloudFunctions = makeIcon(ServerStack01Icon, 'SideCloudFunctions');
+/** "Where used" — Node References. */
 export const SideNodeReferences = makeIcon(Link04Icon, 'SideNodeReferences');
 /** "Versions" — Version control. */
 export const SideVersionControl = makeIcon(GitBranchIcon, 'SideVersionControl');
