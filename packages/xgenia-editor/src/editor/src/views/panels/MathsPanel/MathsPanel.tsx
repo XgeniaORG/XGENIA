@@ -1578,7 +1578,7 @@ export function MathsPanel() {
 
 
     return (
-        <BasePanel title="Maths RGS" isFill>
+        <BasePanel title="Maths" isFill>
             <Container direction={ContainerDirection.Vertical} isFill>
                 {/* RGS controls (connection, target game, server versions) — sized to content, capped so the
                     components list below always has room. */}
