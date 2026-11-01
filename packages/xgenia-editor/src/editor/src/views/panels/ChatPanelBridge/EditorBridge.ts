@@ -443,6 +443,13 @@ export class EditorBridge {
             const { EditorSettings } = require('../../../utils/editorsettings');
             if (EditorSettings?.instance?.on) {
                 EditorSettings.instance.on('updated', ({ key }: any) => {
+                    // "Show all tools" decides whether the panel shows model choice: push the value the
+                    // rail itself uses (a profile with no stored choice gets its default).
+                    if (key === 'rail.showAllTools') {
+                        const { readShowAllTools } = require('../../Rail/useShowAllTools');
+                        this.pushEvent('settingChanged', { key, value: readShowAllTools() }, `settingChanged:${key}`);
+                        return;
+                    }
                     if (EditorBridge.PUSHED_SETTING_KEYS.includes(key)) {
                         const value = EditorSettings.instance.get(key);
                         console.log(`[EditorBridge] Setting updated: ${key}, pushing to plugins`);
@@ -3024,6 +3031,11 @@ export class EditorBridge {
         //
         // Waiting is bounded: a storage layer that never answers must not hang
         // the bridge, so after 5s we answer with what we have and say so.
+        // Whether the user has "Show all tools" on, resolved as the rail resolves it.
+        h('editor.showAllTools', async () => {
+            const { readShowAllTools } = require('../../Rail/useShowAllTools');
+            return readShowAllTools();
+        });
         h('settings.get', async ([key]: [string]) => {
             try {
                 const { EditorSettings } = require('../../../utils/editorsettings');
