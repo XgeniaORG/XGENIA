@@ -1,3 +1,5 @@
+import { useShowAllTools } from '../../Rail/useShowAllTools';
+import { defaultPreviewSize } from './defaultPreviewSize';
 import { useNodeGraphContext } from '@xgenia-contexts/NodeGraphContext/NodeGraphContext';
 import { useKeyboardCommands } from '@xgenia-hooks/useKeyboardCommands';
 import usePrevious from '@xgenia-hooks/usePrevious';
@@ -692,6 +694,7 @@ function EditorDocument() {
   );
 }
 
+
 function ViewComponent({
   canvasViewInstance,
   documentLayout,
@@ -703,6 +706,11 @@ function ViewComponent({
 
   const horizontal = documentLayout === 'horizontal';
   const totalSize = frameBounds ? (horizontal ? frameBounds.height : frameBounds.width) : undefined;
+  const showAllTools = useShowAllTools();
+  // A game that has never had its split dragged opens game-first: on the simple layout the game
+  // takes nearly all the height and the graph is a strip to drag open; otherwise half and half.
+  // A size the user dragged (saved per project) always wins.
+  const dividerSize = frameDividerSize ?? defaultPreviewSize(totalSize, horizontal, showAllTools);
 
   // Canvas pane: viewport preview or the AI browser, switched from the status pill
   const canvasPane = (
@@ -731,7 +739,7 @@ function ViewComponent({
         second={second}
         sizeMin={100}
         sizeMax={totalSize ? totalSize - 100 : undefined}
-        size={frameDividerSize}
+        size={dividerSize}
         onSizeChanged={(size) => {
           onSizeUpdated(size);
         }}
