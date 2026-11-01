@@ -26,6 +26,7 @@ import { tracker } from '../../utils/tracker';
 import { ToastLayer } from '../ToastLayer/ToastLayer';
 import { judgeDrop, type DroppedKind } from '../../models/lobby/lobbyDrop';
 import { setPendingSeed } from '../../models/lobby/lobbySeed';
+import { fetchStarters, pickStarter, starterSeed, starterUrl, type StarterEntry } from './starters';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { ChatPanelIframe_ID } from '../panels/ChatPanelBridge/ChatPanelIframe';
 import { ChatPanel_ID as ChatPanelShell_ID } from '../panels/ChatPanelShell';
@@ -177,13 +178,27 @@ export async function createGame(args: CreateGameArgs): Promise<ProjectModel | n
   ToastLayer.showActivity('Creating new game', activityId);
 
   try {
-    const project = await new Promise<ProjectModel | null>((resolve) => {
-      LocalProjectsModel.instance.newProject((p: ProjectModel) => resolve(p || null), {
-        name: args.name,
-        path: args.path,
-        projectTemplate: args.templateUrl
+    // "Describe it" with no template chosen: a description that names a slot, crash or plinko game
+    // starts from a playable starter of that kind (starters.ts); anything else starts empty.
+    let starter: StarterEntry | null = null;
+    if (args.description?.trim() && !args.templateUrl) {
+      starter = pickStarter(args.description, await fetchStarters());
+    }
+    const create = (projectTemplate?: string) =>
+      new Promise<ProjectModel | null>((resolve) => {
+        LocalProjectsModel.instance.newProject((p: ProjectModel) => resolve(p || null), {
+          name: args.name,
+          path: args.path,
+          projectTemplate
+        });
       });
-    });
+
+    let project = await create(starter ? starterUrl(starter) : args.templateUrl);
+    if (!project && starter) {
+      // The starter could not be had (offline, a bad download): the game starts empty instead.
+      starter = null;
+      project = await create(undefined);
+    }
 
     if (!project) {
       ToastLayer.showError('Could not create the game.');
@@ -202,9 +217,12 @@ export async function createGame(args: CreateGameArgs): Promise<ProjectModel | n
 
     // The description the user typed is handed to the chat panel once the editor is up. See
     // models/lobby/lobbySeed.ts for why this is a stored intent rather than a direct call.
-    if (args.description?.trim()) setPendingSeed(project.id, args.description.trim());
+    if (args.description?.trim()) {
+      setPendingSeed(project.id, starter ? starterSeed(starter.type, args.description) : args.description.trim());
+    }
 
     tracker.track('Create New Project', {
+      starter: starter?.type,
       templateLabel: args.templateLabel,
       templateUrl: args.templateUrl,
       origin: args.origin
