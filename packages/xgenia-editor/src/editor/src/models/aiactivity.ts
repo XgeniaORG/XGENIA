@@ -50,12 +50,21 @@ function set(next: AiActivitySnapshot) {
   EventDispatcher.instance.emit('ai-activity-changed', { ...snap });
 }
 
+/** The panel's own housekeeping: settings, sign-in, the lobby seed, its notifications. */
+const HOUSEKEEPING = /^(coach|settings|auth|notify)\.|^project\.(getId|takeLobbySeed)$/;
+
 /**
  * Whether a panel command is the AI at work. The coach (lessons, first-use tips) is not: a tip on a
- * menu lit "AI working" while nothing ran.
+ * menu lit "AI working" while nothing ran. Nor is the panel opening a game (reading settings, the
+ * sign-in token, the saved chat), which lit it on every open (2026-11-01). A command the panel marks
+ * `quiet` is not either.
  */
-export function isAiWork(command: unknown): boolean {
-  return !String(command ?? '').startsWith('coach.');
+export function isAiWork(command: unknown, args?: unknown, quiet?: unknown): boolean {
+  const name = String(command ?? '');
+  if (quiet === true || HOUSEKEEPING.test(name)) return false;
+  // Saving or restoring the chat itself.
+  if (name.startsWith('fs.') && Array.isArray(args) && typeof args[0] === 'string' && args[0].includes('/.xgenia/chat/')) return false;
+  return true;
 }
 
 export const AiActivity = {

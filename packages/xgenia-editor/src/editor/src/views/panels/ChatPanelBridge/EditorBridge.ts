@@ -882,7 +882,7 @@ export class EditorBridge {
             // this to undo bursts alone meant a turn made entirely of inspection tools
             // never lit the top bar at all. AiActivity ends itself on an idle window,
             // so there is no matching end() to place here. Coach commands are not the AI.
-            if (isAiWork(msg.command)) {
+            if (isAiWork(msg.command, (msg as any).args, (msg as any).quiet)) {
                 AiActivity.begin();
                 RailPresence.noteCommand(msg.command);
             }
