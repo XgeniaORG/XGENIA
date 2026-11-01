@@ -3,6 +3,8 @@
 // first version runs in seconds and the AI makes it the user's own from there. Anything else starts
 // empty, as before. The list is served next to the AI panel, so new starters need no editor release.
 
+import type { TemplateItem } from '../../utils/forge/template/template';
+
 export const STARTERS_BASE = 'https://xgenia-ai-app-xgenia.vercel.app/starters/';
 const MANIFEST_URL = STARTERS_BASE + 'manifest.json';
 
@@ -12,6 +14,10 @@ export interface StarterEntry {
   /** Zip file name, relative to STARTERS_BASE. Versioned: templates are cached by URL. */
   file: string;
   keywords: string[];
+  /** 16:9 picture of the starter running, relative to STARTERS_BASE. */
+  thumbnail?: string;
+  /** One line for its tile. */
+  tagline?: string;
 }
 
 /** How many of a starter's keywords the description contains, as whole words or phrases. */
@@ -43,6 +49,31 @@ export function starterUrl(starter: StarterEntry): string {
   return STARTERS_BASE + starter.file;
 }
 
+const TITLES: Record<string, string> = { slot: 'Slot', crash: 'Crash', plinko: 'Plinko' };
+
+/** The starters as New game tiles (category "Starters"), shown before the other templates. */
+export function starterTemplates(starters: StarterEntry[]): TemplateItem[] {
+  return starters.map((s) => ({
+    iconURL: s.thumbnail && /^[\w.-]+\.(jpg|png|webp)$/.test(s.thumbnail) ? STARTERS_BASE + s.thumbnail : '',
+    title: TITLES[s.type] || s.name,
+    desc: s.tagline || 'Playable from the start',
+    category: 'Starters',
+    projectURL: starterUrl(s)
+  }));
+}
+
+/** The kind of starter a template URL is, or null for any other template. */
+export function starterTypeOfUrl(url: string | undefined): string | null {
+  const m = url && url.startsWith(STARTERS_BASE) ? /^([a-z]+)-v\d+\.zip$/.exec(url.slice(STARTERS_BASE.length)) : null;
+  return m ? m[1] : null;
+}
+
+let cached: StarterEntry[] = [];
+/** The last starter list fetched (for the New game sheet's live "starts from…" line). */
+export function cachedStarters(): StarterEntry[] {
+  return cached;
+}
+
 /** The starter list, or [] when it cannot be had quickly (offline: the game starts empty). */
 export async function fetchStarters(fetchImpl: typeof fetch = fetch, timeoutMs = 4000): Promise<StarterEntry[]> {
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -52,9 +83,10 @@ export async function fetchStarters(fetchImpl: typeof fetch = fetch, timeoutMs =
     if (!res.ok) return [];
     const json: any = await res.json();
     const list = Array.isArray(json?.starters) ? json.starters : [];
-    return list.filter(
+    cached = list.filter(
       (s: any) => s && typeof s.type === 'string' && typeof s.file === 'string' && /^[\w.-]+\.zip$/.test(s.file) && Array.isArray(s.keywords)
     );
+    return cached;
   } catch {
     return [];
   } finally {

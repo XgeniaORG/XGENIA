@@ -32,3 +32,14 @@ test('the manifest is read defensively: bad entries dropped, failures give an em
   assert.deepEqual(await fetchStarters((async () => new Response('nope', { status: 500 })) as unknown as typeof fetch), []);
   assert.deepEqual(await fetchStarters((async () => { throw new Error('offline'); }) as unknown as typeof fetch), []);
 });
+
+import { starterTemplates, starterTypeOfUrl } from '../../src/editor/src/views/lobby/starters';
+
+test('starters become New game tiles with their picture, and a tile URL names its kind', () => {
+  const tiles = starterTemplates([{ ...STARTERS[2], thumbnail: 'slot-v1.jpg', tagline: '5 reels, ready to play' }, { ...STARTERS[0], thumbnail: '../x.jpg' }]);
+  assert.deepEqual(tiles[0], { iconURL: STARTERS_BASE + 'slot-v1.jpg', title: 'Slot', desc: '5 reels, ready to play', category: 'Starters', projectURL: STARTERS_BASE + 'slot-v1.zip' });
+  assert.equal(tiles[1].iconURL, ''); // a picture path that leaves the folder is not used
+  assert.equal(starterTypeOfUrl(STARTERS_BASE + 'crash-v2.zip'), 'crash');
+  assert.equal(starterTypeOfUrl('https://elsewhere/crash-v2.zip'), null);
+  assert.equal(starterTypeOfUrl(undefined), null);
+});

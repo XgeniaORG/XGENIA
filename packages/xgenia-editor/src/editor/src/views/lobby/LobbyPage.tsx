@@ -555,6 +555,8 @@ export function LobbyPage({ onProjectLoaded }: LobbyPageProps) {
           initialRemixId={sheet.remixId}
           onClose={() => setSheet(null)}
           onChooseFolder={ops.chooseFolder}
+          defaultFolder={ops.defaultGamesFolder().replace(/^\/Users\/[^/]+/, '~')}
+          onDefaultPath={ops.defaultGamePath}
           onCreate={create}
         />
       )}

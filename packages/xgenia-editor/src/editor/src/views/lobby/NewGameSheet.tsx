@@ -24,6 +24,7 @@ import type { TemplateItem } from '../../utils/forge/template/template';
 import type { LobbyItem } from '../../models/lobby/lobbyGrouping';
 import { templateTagline } from '../../models/lobby/templateTagline';
 import { resolveThumbSrc } from '../../utils/thumbnails/thumbnail-store';
+import { cachedStarters, pickStarter } from './starters';
 import { monogramFor, monogramHue } from '../../utils/thumbnails/thumbnail-weak';
 import { Icon } from './LobbyIcons';
 import css from './NewGameSheet.module.scss';
@@ -51,14 +52,21 @@ export interface NewGameSheetProps {
   initialRemixId?: string;
   onClose(): void;
   onChooseFolder(name: string): Promise<string | null>;
+  /** Where a game goes when no folder is picked (shown in the footer; Create uses it without a dialog). */
+  defaultFolder?: string;
+  /** A unique path for `name` in the default folder. Absent = ask with the folder dialog, as before. */
+  onDefaultPath?(name: string): Promise<string>;
   onCreate(choice: NewGameChoice): void;
 }
 
-/** Example prompts. Real mechanics, in the vocabulary the maths engine actually uses. */
+/**
+ * Example prompts. Each names a game a playable starter exists for, so an example is never the slow
+ * road: the first version plays in seconds and the AI restyles it (starters.ts).
+ */
 const EXAMPLES = [
-  'Crash game, space theme, 1.00× to 100×',
-  'Wheel of fortune with 12 segments',
-  'Keno, 40 numbers, pick 10'
+  'A candy slot with free spins',
+  'A space crash game with a rocket',
+  'Neon plinko with 12 rows'
 ];
 
 /** A folder name that will not upset a filesystem, derived from the game's name. */
@@ -76,7 +84,9 @@ export function NewGameSheet({
   initialRemixId,
   onClose,
   onChooseFolder,
-  onCreate
+  onCreate,
+  defaultFolder,
+  onDefaultPath
 }: NewGameSheetProps) {
   const [description, setDescription] = useState(initialDescription || '');
   const [name, setName] = useState(initialDescription ? defaultNameFor(initialDescription) : '');
@@ -124,6 +134,12 @@ export function NewGameSheet({
         ? 'ai'
         : 'blank';
 
+  // Typing a slot, crash or plinko game: say up front that it starts playable (lobbyOperations picks it).
+  const describedStarter = origin === 'ai' ? pickStarter(description, cachedStarters()) : null;
+  const starterHint = describedStarter
+    ? `Starts from our playable ${describedStarter.type}: you can play it in seconds while the AI makes it yours.`
+    : '';
+
   const effectiveName =
     name.trim() ||
     (origin === 'remix' && remixGame ? `${remixGame.name} remix` : '') ||
@@ -153,7 +169,7 @@ export function NewGameSheet({
       // The folder picker is the one unavoidable OS dialog. Rather than making it a separate
       // step, it is folded into the create button: pressing Create asks for a folder if one
       // has not been chosen, then creates.
-      const path = folder || (await pickFolder());
+      const path = folder || (onDefaultPath ? await onDefaultPath(effectiveName || 'Untitled') : await pickFolder());
       if (!path) return;
 
       onCreate({
@@ -174,6 +190,28 @@ export function NewGameSheet({
       setBusy(false);
     }
   };
+
+  const renderTemplateTile = (t: TemplateItem) => (
+                    <button
+                      key={t.projectURL}
+                      type="button"
+                      className={selectedTemplate?.projectURL === t.projectURL ? `${css.Tile} ${css.TileOn}` : css.Tile}
+                      data-test="project-template-item"
+                      onClick={() => {
+                        setSelectedTemplate(t);
+                        setSelectedGameId(null);
+                        if (!nameTouched && !name.trim()) setName(t.title);
+                      }}
+                    >
+                      <span className={css.TileArt}>
+                        {t.iconURL ? <img src={t.iconURL} alt="" loading="lazy" /> : <Icon name="layout" size={22} />}
+                      </span>
+                      <span className={css.TileName}>
+                        {t.title}
+                        <small>{templateTagline(t)}</small>
+                      </span>
+                    </button>
+  );
 
   return (
     <div className={css.Scrim} onClick={onClose}>
@@ -223,6 +261,7 @@ export function NewGameSheet({
                 </button>
               ))}
             </div>
+            {starterHint && <div className={css.StarterHint}>{starterHint}</div>}
           </div>
 
           <div className={css.Lane}>
@@ -267,6 +306,9 @@ export function NewGameSheet({
                 )}
 
                 <div className={css.Trail}>
+                  {/* Playable starters lead (starters.ts): a first game should start from one that runs. */}
+                  {shown.filter((t) => t.category === 'Starters').map(renderTemplateTile)}
+
                   {/* Blank stays available, as its own tile rather than as a third route. */}
                   <button
                     type="button"
@@ -294,27 +336,7 @@ export function NewGameSheet({
                     </div>
                   )}
 
-                  {shown.map((t) => (
-                    <button
-                      key={t.projectURL}
-                      type="button"
-                      className={selectedTemplate?.projectURL === t.projectURL ? `${css.Tile} ${css.TileOn}` : css.Tile}
-                      data-test="project-template-item"
-                      onClick={() => {
-                        setSelectedTemplate(t);
-                        setSelectedGameId(null);
-                        if (!nameTouched && !name.trim()) setName(t.title);
-                      }}
-                    >
-                      <span className={css.TileArt}>
-                        {t.iconURL ? <img src={t.iconURL} alt="" loading="lazy" /> : <Icon name="layout" size={22} />}
-                      </span>
-                      <span className={css.TileName}>
-                        {t.title}
-                        <small>{templateTagline(t)}</small>
-                      </span>
-                    </button>
-                  ))}
+                  {shown.filter((t) => t.category !== 'Starters').map(renderTemplateTile)}
                 </div>
               </>
             ) : (
@@ -383,7 +405,7 @@ export function NewGameSheet({
 
           <button type="button" className={`${css.Field} ${css.FolderField}`} onClick={pickFolder}>
             <span>Folder</span>
-            <em>{folder || 'Choose when you create'}</em>
+            <em>{folder || (defaultFolder ? `${defaultFolder} · change` : 'Choose when you create')}</em>
             {folder && <Icon name="check" />}
           </button>
 
