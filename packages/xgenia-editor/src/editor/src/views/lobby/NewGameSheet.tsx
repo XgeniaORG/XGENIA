@@ -98,6 +98,9 @@ export function NewGameSheet({
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateItem | null>(null);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(initialRemixId || null);
   const [busy, setBusy] = useState(false);
+  // Empty is a choice the user makes, not the default: with nothing picked or typed the sheet used to
+  // light "Empty game" and offer "Create empty game", steering a first-timer to a blank screen.
+  const [blankPicked, setBlankPicked] = useState(false);
   const promptRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -143,6 +146,8 @@ export function NewGameSheet({
         : 'blank';
 
   // Typing a slot, crash or plinko game: say up front that it starts playable (lobbyOperations picks it).
+  const nothingChosen = origin === 'blank' && !blankPicked;
+
   const describedStarter = origin === 'ai' ? pickStarter(description, cachedStarters()) : null;
   const starterHint = describedStarter
     ? `Starts from our playable ${describedStarter.type}: you can play it in seconds while the AI makes it yours.`
@@ -161,7 +166,9 @@ export function NewGameSheet({
         ? `Create from ${selectedTemplate.title}`
         : origin === 'ai'
           ? 'Start with AI'
-          : 'Create empty game';
+          : nothingChosen
+            ? 'Describe it or pick a start'
+            : 'Create empty game';
 
   const pickFolder = async () => {
     const picked = await onChooseFolder(effectiveName || 'Untitled');
@@ -170,7 +177,7 @@ export function NewGameSheet({
   };
 
   const submit = async () => {
-    if (busy) return;
+    if (busy || nothingChosen) return;
     setBusy(true);
 
     try {
@@ -321,11 +328,12 @@ export function NewGameSheet({
                   <button
                     type="button"
                     // Lit only when it is what Create makes: with a description typed, the AI lane decides.
-                    className={origin === 'blank' ? `${css.Tile} ${css.TileOn}` : css.Tile}
+                    className={origin === 'blank' && blankPicked ? `${css.Tile} ${css.TileOn}` : css.Tile}
                     data-test="create-blank-project-item"
                     onClick={() => {
                       setSelectedTemplate(null);
                       setSelectedGameId(null);
+                      setBlankPicked(true);
                     }}
                   >
                     <span className={`${css.TileArt} ${css.TileBlank}`}>
@@ -422,7 +430,7 @@ export function NewGameSheet({
           <button
             type="button"
             className={css.Go}
-            disabled={busy}
+            disabled={busy || nothingChosen}
             data-test="create-project-from-template-button"
             onClick={submit}
           >
