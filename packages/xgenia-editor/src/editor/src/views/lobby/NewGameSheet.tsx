@@ -69,6 +69,11 @@ const EXAMPLES = [
   'Neon plinko with 12 rows'
 ];
 
+/** The default folder as people read it: its last two parts ("Documents / XGENIA Games"). */
+function folderLabel(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).slice(-2).join(' / ');
+}
+
 /** A folder name that will not upset a filesystem, derived from the game's name. */
 function defaultNameFor(description: string): string {
   const words = description.trim().split(/\s+/).slice(0, 3).join(' ');
@@ -405,7 +410,8 @@ export function NewGameSheet({
 
           <button type="button" className={`${css.Field} ${css.FolderField}`} onClick={pickFolder}>
             <span>Folder</span>
-            <em>{folder || (defaultFolder ? `${defaultFolder} · change` : 'Choose when you create')}</em>
+            <em>{folder || (defaultFolder ? folderLabel(defaultFolder) : 'Choose when you create')}</em>
+            {!folder && defaultFolder && <small className={css.Change}>Change</small>}
             {folder && <Icon name="check" />}
           </button>
 

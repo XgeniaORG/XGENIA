@@ -52,8 +52,11 @@ export function starterUrl(starter: StarterEntry): string {
 const TITLES: Record<string, string> = { slot: 'Slot', crash: 'Crash', plinko: 'Plinko' };
 
 /** The starters as New game tiles (category "Starters"), shown before the other templates. */
+const ORDER = ['slot', 'crash', 'plinko'];
+
 export function starterTemplates(starters: StarterEntry[]): TemplateItem[] {
-  return starters.map((s) => ({
+  const rank = (t: string) => (ORDER.indexOf(t) < 0 ? ORDER.length : ORDER.indexOf(t));
+  return [...starters].sort((a, b) => rank(a.type) - rank(b.type)).map((s) => ({
     iconURL: s.thumbnail && /^[\w.-]+\.(jpg|png|webp)$/.test(s.thumbnail) ? STARTERS_BASE + s.thumbnail : '',
     title: TITLES[s.type] || s.name,
     desc: s.tagline || 'Playable from the start',
