@@ -2,8 +2,6 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 
 import { SidebarModel, SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
 import getDocsEndpoint from '@xgenia-utils/getDocsEndpoint';
-import { IconName, IconSize } from '@xgenia-core-ui/components/common/Icon';
-import { IconButton, IconButtonVariant } from '@xgenia-core-ui/components/inputs/IconButton';
 import { Portal } from '@xgenia-core-ui/components/layout/Portal';
 
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
@@ -12,8 +10,8 @@ import css from './DocsChat.module.scss';
 
 /**
  * "Ask the docs": the docs site's AI chat (docsapp.xgenia.com/embed/chat/) in a
- * floating window over the node graph, opened from a button next to the "?"
- * help button, the "?" menu, or Help > Ask the Docs (AI).
+ * floating window over the node graph, opened from the "?" menu or Help > Ask the
+ * Docs (AI). One help button, not two (2026-11-01).
  *
  * It is reference documentation, so it floats instead of taking a side panel,
  * and it is deliberately separate from the builder AI: a <webview> in its own
@@ -113,7 +111,6 @@ export function DocsChat() {
   const [src, setSrc] = useState('');
   const [position, setPosition] = useState<{ right: number; bottom: number; maxHeight: number } | null>(null);
 
-  const launcherRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<WebviewElement | null>(null);
   const readyRef = useRef(false);
 
@@ -162,8 +159,9 @@ export function DocsChat() {
   // Anchor the window just above the launcher, following it when panels resize the canvas.
   useLayoutEffect(() => {
     if (!open) return;
+    const anchor = () => document.querySelector('[data-guide="help.button"]') as HTMLElement | null;
     const place = () => {
-      const rect = launcherRef.current?.getBoundingClientRect();
+      const rect = anchor()?.getBoundingClientRect();
       if (!rect) return;
       setPosition({
         right: Math.max(GAP, window.innerWidth - rect.right),
@@ -173,7 +171,7 @@ export function DocsChat() {
     };
     place();
     const observer = new ResizeObserver(place);
-    const host = launcherRef.current?.closest('.help-center-layer')?.parentElement;
+    const host = anchor()?.closest('.help-center-layer')?.parentElement;
     if (host) observer.observe(host);
     window.addEventListener('resize', place);
     return () => {
@@ -217,22 +215,19 @@ export function DocsChat() {
 
   return (
     <>
-      <Portal portalRoot={portalRoot}>
-        <div
-          ref={launcherRef}
-          className={`${css['Launcher']} ${open ? css['is-open'] : ''}`}
-          title="Ask the docs (AI)"
-          onClick={() => (open ? setOpen(false) : openChat())}
-        >
-          <IconButton icon={IconName.Chat} variant={IconButtonVariant.OpaqueOnHover} size={IconSize.Large} />
-        </div>
-      </Portal>
 
       {loaded && (
         <Portal portalRoot={document.body}>
           <div
             className={`${css['Window']} ${open ? css['is-open'] : ''} ${expanded ? css['is-expanded'] : ''}`}
-            style={position ? { right: position.right, bottom: position.bottom, maxHeight: position.maxHeight } : undefined}
+            // Closed, it moves off screen instead of being hidden: an Electron <webview> under
+            // visibility:hidden, opacity or a transform stops repainting, so the chat showed a stale
+            // frame with no text box and typing went in unseen (2026-11-01).
+            style={
+              open && position
+                ? { right: position.right, bottom: position.bottom, maxHeight: position.maxHeight }
+                : { left: -10000, top: 0, right: 'auto', bottom: 'auto' }
+            }
             role="dialog"
             aria-label="Ask the docs"
             aria-hidden={!open}

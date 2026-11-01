@@ -1,27 +1,5 @@
-// Round button just left of the "?" help button (HelpCenter.module.scss: bottom 16px, right 16px, 36px).
-.Launcher {
-  position: absolute;
-  bottom: 16px;
-  right: 16px + 36px + 8px;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  border-radius: 50%;
-  background-color: var(--theme-color-bg-4);
-  // A soft ring in the primary colour sets it apart from the plain "?" button.
-  box-shadow: 0 0 10px var(--theme-color-bg-1-transparent), 0 0 0 1px var(--theme-color-primary);
-  cursor: pointer;
-
-  &.is-open {
-    background-color: var(--theme-color-primary);
-  }
-}
-
-// Floating window above the launcher. `right`, `bottom` and `max-height` are set
-// inline from the launcher's position, so it follows the canvas when panels move.
+// Floating window above the "?" help button. `right`, `bottom` and `max-height` are set
+// inline from that button's position, so it follows the canvas when panels move.
 .Window {
   position: fixed;
   right: 16px;
@@ -37,19 +15,10 @@
   border-radius: 10px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 
-  // Hidden, not removed, when closed: the conversation stays as it was.
-  visibility: hidden;
-  opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0.15s, width 0.2s ease,
-    height 0.2s ease;
-
-  &.is-open {
-    visibility: visible;
-    opacity: 1;
-    transform: none;
-    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s, width 0.2s ease, height 0.2s ease;
-  }
+  // Kept, not removed, when closed (the conversation stays as it was), and moved off screen
+  // rather than hidden: no visibility, opacity or transform on a <webview>'s ancestors, or it
+  // stops repainting and stops showing what is typed.
+  transition: width 0.2s ease, height 0.2s ease;
 
   // Enlarged: about 30% wider and taller, still within the window (max-height is set inline).
   &.is-expanded {
