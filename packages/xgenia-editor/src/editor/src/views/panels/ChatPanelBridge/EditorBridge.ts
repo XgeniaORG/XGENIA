@@ -493,9 +493,14 @@ export class EditorBridge {
 
     /** Set the iframe reference (called when iframe mounts) */
     setIframe(iframe: HTMLIFrameElement, pluginId: string = 'xgenia-ai') {
-        this.iframe = iframe; // Legacy compatibility
+        // Only the chat is the primary frame pushEvent writes to. The image editor registering here
+        // replaced it, and from then on settingChanged, componentSwitched and the rest went to the
+        // image editor: the AI chat stopped hearing the editor once Images had been opened (2026-11-01).
+        if (pluginId === 'xgenia-ai') {
+            this.iframe = iframe;
+            this.flushPendingEvents();
+        }
         this.iframes.set(pluginId, iframe);
-        this.flushPendingEvents();
     }
 
     /**
