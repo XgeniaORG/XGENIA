@@ -313,14 +313,34 @@ export function isRgsConnected(): boolean {
  * (getSelectedGame/setSelectedGame below), which the panel never actually wrote —
  * so the Deploy flow read a stale leftover value and deployed to the wrong game.
  */
+/**
+ * (2026-11-01) The selection is kept PER PROJECT. It used to be one value for the whole editor, so a
+ * plinko project opened after a crash project showed "Selected game: crash-space-97" in Maths — and
+ * Publish would have deployed the plinko game to the crash game's backend. A project with no
+ * selection of its own has none (the panel asks), never the last project's.
+ */
+function currentProjectId(): string | null {
+  try {
+    const id = (globalThis as any).ProjectModel?.instance?.id;
+    return typeof id === 'string' && id ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The selection for a project, from the settings blob. Pure, for tests. */
+export function activeGameFor(settings: any, projectId: string | null): SelectedGame | null {
+  if (!projectId) return null;
+  const g = settings?.activeGameByProject?.[projectId];
+  return g?.id ? g : null;
+}
+
 export function getActiveGame(): SelectedGame | null {
   try {
-    const p = JSON.parse(localStorage.getItem(RGS_SETTINGS_KEY) || '{}');
-    if (p?.activeGame?.id) return p.activeGame;
+    return activeGameFor(JSON.parse(localStorage.getItem(RGS_SETTINGS_KEY) || '{}'), currentProjectId());
   } catch {
-    /* ignore */
+    return null;
   }
-  return null;
 }
 
 export function setActiveGame(game: SelectedGame | null): void {
@@ -330,7 +350,15 @@ export function setActiveGame(game: SelectedGame | null): void {
   } catch {
     /* ignore */
   }
-  localStorage.setItem(RGS_SETTINGS_KEY, JSON.stringify({ ...cur, activeGame: game || null }));
+  const projectId = currentProjectId();
+  const byProject = { ...(cur.activeGameByProject || {}) };
+  if (projectId) {
+    if (game) byProject[projectId] = game;
+    else delete byProject[projectId];
+  }
+  // The old editor-wide `activeGame` is dropped: it is what leaked one project's game into the next.
+  const { activeGame: _dropped, ...rest } = cur;
+  localStorage.setItem(RGS_SETTINGS_KEY, JSON.stringify({ ...rest, activeGameByProject: byProject }));
   EventDispatcher.instance.emit('rgs.gameSelected', game);
 }
 

@@ -54,7 +54,7 @@ import {
     startPublish,
     type PublishStartSpec,
 } from '@xgenia-utils/publish/publishCommands';
-import { setActiveGame } from '@xgenia-utils/rgs/rgsClient';
+import { getActiveGame, setActiveGame } from '@xgenia-utils/rgs/rgsClient';
 import { desktopNotificationService } from '@xgenia-utils/DesktopNotificationService';
 import { resolveInsideProject } from '@xgenia-utils/projectPathGuard';
 import { getActivePreviewHost } from '@xgenia-utils/previewHostRegistry';
@@ -3208,7 +3208,7 @@ export class EditorBridge {
             const s = readRgs();
             return s.apiKey ? { apiKey: s.apiKey, url: s.rgsUrl || XRGS_DEFAULT_URL } : null;
         });
-        h('xrgs.getActiveGame', () => readRgs().activeGame ?? null);
+        h('xrgs.getActiveGame', () => getActiveGame());
         // Through rgsClient, not writeRgs: it also emits `rgs.gameSelected`, so the
         // Publish popup follows a game the AI picks instead of showing the old one.
         h('xrgs.setActiveGame', ([game]: [any]) => { setActiveGame(game ?? null); return true; });

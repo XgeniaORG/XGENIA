@@ -72,6 +72,7 @@ import {
     saveRgsSettings,
     clearRgsSettings,
     setActiveGame,
+    getActiveGame,
     createOperator,
     fetchOperatorInfo,
     formatOperatorFunds,
@@ -91,7 +92,8 @@ import {
 function getRgsExtra(): { activeGame?: any; testSettings?: any } {
     try {
         const p = JSON.parse(localStorage.getItem('xgenia_rgs_settings') || '{}');
-        return { activeGame: p.activeGame, testSettings: p.testSettings };
+        // The selected game is per project (rgsClient getActiveGame), never the last project's.
+        return { activeGame: getActiveGame(), testSettings: p.testSettings };
     } catch { return {}; }
 }
 
