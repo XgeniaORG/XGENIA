@@ -3039,6 +3039,11 @@ export class EditorBridge {
         //
         // Waiting is bounded: a storage layer that never answers must not hang
         // the bridge, so after 5s we answer with what we have and say so.
+        // The chat panel's turn signal (start, a beat every TURN_BEAT_MS, end) for the status pill.
+        h('editor.aiTurn', ([on]: [unknown]) => {
+            AiActivity.turn(on === true);
+            return true;
+        });
         // Whether the user has "Show all tools" on, resolved as the rail resolves it.
         h('editor.showAllTools', async () => {
             const { readShowAllTools } = require('../../Rail/useShowAllTools');

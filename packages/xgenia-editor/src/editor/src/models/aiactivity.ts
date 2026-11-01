@@ -29,6 +29,10 @@ const SAFETY_MS = 30_000;
  */
 const IDLE_MS = 4000;
 
+/** How often the panel repeats "a turn is running"; a missed beat ends the pill 1.5 beats later. */
+export const TURN_BEAT_MS = 20_000;
+let turnUntil = 0;
+
 let snap: AiActivitySnapshot = { active: false, label: '' };
 let safety: ReturnType<typeof setTimeout> | null = null;
 let idle: ReturnType<typeof setTimeout> | null = null;
@@ -82,14 +86,32 @@ export const AiActivity = {
   begin(label?: string) {
     set({ active: true, label: label || snap.label || 'AI working' });
     // Re-armed on every call, so a long turn keeps the pill alive instead of timing out
-    // mid-run, and a turn that simply stops is cleaned up by the idle window.
+    // mid-run, and a turn that simply stops is cleaned up by the idle window. While the panel
+    // says a turn is running, its heartbeat decides the end, not a quiet patch.
     clearTimers();
-    idle = setTimeout(() => AiActivity.end(), IDLE_MS);
-    safety = setTimeout(() => AiActivity.end(), SAFETY_MS);
+    const wait = Math.max(IDLE_MS, turnUntil - Date.now());
+    idle = setTimeout(() => AiActivity.end(), wait);
+    safety = setTimeout(() => AiActivity.end(), Math.max(SAFETY_MS, wait));
+  },
+
+  /**
+   * The chat panel's own word that a turn is running (sent every TURN_BEAT_MS while it does)
+   * or has ended. Commands alone left the pill dark whenever the model thought for more than
+   * the idle window, so it blinked off and on through every turn (2026-11-01).
+   */
+  turn(on: boolean) {
+    if (!on) {
+      turnUntil = 0;
+      AiActivity.end();
+      return;
+    }
+    turnUntil = Date.now() + TURN_BEAT_MS * 1.5;
+    AiActivity.begin();
   },
 
   end() {
     clearTimers();
+    turnUntil = 0;
     set({ active: false, label: '' });
   }
 };
