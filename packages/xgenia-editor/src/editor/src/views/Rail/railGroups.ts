@@ -41,7 +41,7 @@ export const RAIL_ENTRIES: Readonly<Record<string, RailEntry>> = {
 
   'maths-panel': { label: 'Maths', group: 'game', rank: 0, simple: true },
 
-  'cloud-functions': { label: 'Server code', group: 'advanced', rank: 0 },
+  'cloud-functions': { label: 'Server', group: 'advanced', rank: 0 },
   'node-references': { label: 'Where used', group: 'advanced', rank: 1 },
 
   // Bottom cluster.
