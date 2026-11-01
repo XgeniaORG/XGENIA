@@ -54,7 +54,7 @@ export function NodeReferencesPanel() {
   }
 
   return (
-    <BasePanel title="Node References" isFill>
+    <BasePanel title="Where used" isFill>
       <ExperimentalFlag />
       <Section variant={SectionVariant.PanelShy} hasVisibleOverflow hasGutter>
         <SearchInput

@@ -111,7 +111,9 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
       // This is a temporary solution so we can keep the state of open folder etc
       options: {
         showSheetList: true,
-        hideSheets: ['__cloud__', '__maths__']
+        hideSheets: ['__cloud__', '__maths__'],
+        // The rail calls this panel Parts; its heading says the same (2026-11-01).
+        componentTitle: 'Parts'
       }
     },
     panel: ComponentsPanel
