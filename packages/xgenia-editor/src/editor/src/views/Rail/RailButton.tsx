@@ -5,11 +5,12 @@ import { DialogRenderDirection } from '@xgenia-core-ui/components/layout/BaseDia
 import { Tooltip } from '@xgenia-core-ui/components/popups/Tooltip';
 
 import { railGuideId } from '../../utils/guideIds';
+import { railTipFor } from './railGroups';
 import css from './Rail.module.scss';
 
 export interface RailButtonProps {
   id: string;
-  /** Full name: the tooltip and the accessible name. */
+  /** Full name: the accessible name, and the tooltip when the rail has no plain tip for it. */
   name: string;
   /** The short label printed under the icon. */
   label: string;
@@ -39,7 +40,8 @@ export interface RailButtonProps {
 /** Icon above, one-line label below, inside a pill that fills when the item is active. */
 export function RailButton(props: RailButtonProps) {
   const { badge } = props;
-  const content = props.tooltipSuffix ? `${props.name} ${props.tooltipSuffix}` : props.name;
+  const tip = railTipFor(props);
+  const content = props.tooltipSuffix ? `${tip} ${props.tooltipSuffix}` : tip;
   const Icon = props.icon;
 
   // "Changed since you looked" ping: a 600ms pulse the moment the unseen dot appears

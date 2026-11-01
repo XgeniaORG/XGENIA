@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  arrangeGroupedRail, dedupeRailIcons, isSimpleRailItem, railGroupFor, railLabelFor, railTopBudget, resolveShowAllTools,
-  ADD_LABEL, MORE_LABEL, RAIL_ENTRIES, RAIL_SEPARATOR, RAIL_SLOT, SHOW_ALL_TOOLS_MIN_PROJECTS
+  arrangeGroupedRail, dedupeRailIcons, isSimpleRailItem, railGroupFor, railLabelFor, railTipFor, railTopBudget, resolveShowAllTools,
+  ADD_LABEL, MORE_LABEL, RAIL_ENTRIES, RAIL_TIPS, RAIL_SEPARATOR, RAIL_SLOT, SHOW_ALL_TOOLS_MIN_PROJECTS
 } from '../../src/editor/src/views/Rail/railGroups';
 import { railGuideId } from '../../src/editor/src/utils/guideIds';
 
@@ -239,4 +239,15 @@ test('data-guide ids are unchanged for every rail item', () => {
     'web-plugin:character-studio': 'rail.webPlugin:characterStudio'
   };
   for (const [id, guide] of Object.entries(expected)) assert.equal(railGuideId(id), guide, id);
+});
+
+test('every rail item has a plain tooltip that starts from what it is called', () => {
+  for (const id of Object.keys(RAIL_ENTRIES)) {
+    const tip = RAIL_TIPS[id];
+    assert.ok(tip, `${id} has no tooltip`);
+    assert.ok(tip.startsWith(`${RAIL_ENTRIES[id].label}:`), `${id}: "${tip}" should open with its label`);
+  }
+  assert.equal(railTipFor({ id: 'maths-panel', name: 'Maths RGS' }), 'Maths: payouts, odds and the game server');
+  assert.equal(railTipFor({ id: 'some-plugin', name: 'Some plugin' }), 'Some plugin');
+  assert.doesNotMatch(railTipFor({ id: 'node-picker', name: 'Add node' }), /node/i);
 });

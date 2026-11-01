@@ -62,6 +62,35 @@ export interface RailLabelSource {
   shortLabel?: string;
 }
 
+/**
+ * The tooltip: what the tool is for, in a newcomer's words. The panel names ("Maths RGS",
+ * "Add node", "Version control") are the editor's words and said nothing to someone new.
+ */
+export const RAIL_TIPS: Readonly<Record<string, string>> = {
+  ChatPanel: 'AI: describe what you want and it builds it',
+  'chat-panel': 'AI: describe what you want and it builds it',
+  'node-picker': 'Add a new piece to the game',
+  assets: 'Assets: your pictures, sounds and files',
+  'image-editor': 'Images: make and edit pictures with AI',
+  'web-plugin:character-studio': 'Characters: animated characters for your game',
+  'project-styles': 'Styles: colours and text styles for the whole game',
+  components: 'Parts: the screens and pieces your game is made of',
+  hierarchy: 'Layers: everything on this screen, front to back',
+  search: 'Search: find anything in your game',
+  'maths-panel': 'Maths: payouts, odds and the game server',
+  'cloud-functions': 'Server: code that runs online, not in the player’s browser',
+  'node-references': 'Where used: what uses each part',
+  history: 'History: go back to any step',
+  versioncontrol: 'Versions: saved versions of your game',
+  cloudservice: 'Cloud: online services your game connects to',
+  settings: 'Settings: game title, editor and account'
+};
+
+/** The tooltip for a rail item: its plain-words tip, else its full name. */
+export function railTipFor(item: { id: string; name: string }): string {
+  return RAIL_TIPS[item.id] || item.name;
+}
+
 /** The label under a rail icon: the item's own `shortLabel`, then the table, then its name. */
 export function railLabelFor(item: RailLabelSource): string {
   return item.shortLabel || RAIL_ENTRIES[item.id]?.label || item.name;
