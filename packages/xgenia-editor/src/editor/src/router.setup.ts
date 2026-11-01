@@ -113,7 +113,8 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
         showSheetList: true,
         hideSheets: ['__cloud__', '__maths__'],
         // The rail calls this panel Parts; its heading says the same (2026-11-01).
-        componentTitle: 'Parts'
+        panelTitle: 'Parts',
+        componentTitle: 'All parts'
       }
     },
     panel: ComponentsPanel
