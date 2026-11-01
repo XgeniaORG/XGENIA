@@ -24,6 +24,7 @@ import type { TemplateItem } from '../../utils/forge/template/template';
 import type { LobbyItem } from '../../models/lobby/lobbyGrouping';
 import { templateTagline } from '../../models/lobby/templateTagline';
 import { resolveThumbSrc } from '../../utils/thumbnails/thumbnail-store';
+import { gameNameFrom } from './gameName';
 import { cachedStarters, pickStarter } from './starters';
 import { monogramFor, monogramHue } from '../../utils/thumbnails/thumbnail-weak';
 import { Icon } from './LobbyIcons';
@@ -74,12 +75,6 @@ function folderLabel(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).slice(-2).join(' / ');
 }
 
-/** A folder name that will not upset a filesystem, derived from the game's name. */
-function defaultNameFor(description: string): string {
-  const words = description.trim().split(/\s+/).slice(0, 3).join(' ');
-  return words.replace(/[\\/:*?"<>|]/g, '').trim() || 'Untitled';
-}
-
 export function NewGameSheet({
   templates,
   templatesLoading,
@@ -94,7 +89,7 @@ export function NewGameSheet({
   onDefaultPath
 }: NewGameSheetProps) {
   const [description, setDescription] = useState(initialDescription || '');
-  const [name, setName] = useState(initialDescription ? defaultNameFor(initialDescription) : '');
+  const [name, setName] = useState(initialDescription ? gameNameFrom(initialDescription) : '');
   const [nameTouched, setNameTouched] = useState(!!initialDescription);
   const [folder, setFolder] = useState<string | null>(null);
   const [source, setSource] = useState<'templates' | 'games'>(initialRemixId ? 'games' : 'templates');
@@ -149,7 +144,7 @@ export function NewGameSheet({
     name.trim() ||
     (origin === 'remix' && remixGame ? `${remixGame.name} remix` : '') ||
     (origin === 'template' && selectedTemplate ? selectedTemplate.title : '') ||
-    (description.trim() ? defaultNameFor(description) : '');
+    (description.trim() ? gameNameFrom(description) : '');
 
   const buttonLabel =
     origin === 'remix' && remixGame
@@ -247,7 +242,7 @@ export function NewGameSheet({
               onChange={(e) => {
                 setDescription(e.target.value);
                 // The name tracks the description until the user edits it themselves.
-                if (!nameTouched) setName(defaultNameFor(e.target.value));
+                if (!nameTouched) setName(gameNameFrom(e.target.value));
               }}
             />
 
@@ -258,7 +253,7 @@ export function NewGameSheet({
                   type="button"
                   onClick={() => {
                     setDescription(ex);
-                    if (!nameTouched) setName(defaultNameFor(ex));
+                    if (!nameTouched) setName(gameNameFrom(ex));
                     promptRef.current?.focus();
                   }}
                 >
