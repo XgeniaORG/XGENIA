@@ -801,7 +801,7 @@ function launchApp() {
     // webview into a locked-down, separate session no matter what the renderer
     // asks for. It is deliberately separate from the builder AI (its own
     // partition, no bridge, no preload).
-    const DOCS_CHAT_PARTITION = 'persist:xgenia-docs-chat';
+    const { DOCS_CHAT_PARTITION, AI_BROWSER_PARTITION, webviewKind, lockDown } = require('./src/webview-policy');
     const DOCS_CHAT_PATH = '/embed/chat/';
 
     /** Origins the docs chat may load from: production, local docs, or an XGENIA_DOCS_CHAT_URL override. */
@@ -838,29 +838,24 @@ function launchApp() {
       }
 
       win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-        // The docs chat is the editor's only <webview> (the preview is an iframe since 2026-09-07), so any
-        // other one, whichever frame asked for it, is refused rather than attached with the settings it chose.
-        if (params.partition !== DOCS_CHAT_PARTITION) {
-          console.warn('[Main Process] Blocked a webview that is not the docs chat:', params.src);
+        // Two <webview>s exist (the preview is an iframe since 2026-09-07): the docs chat and the AI
+        // browser, each in its own session (webview-policy.js). Any other one, whichever frame asked for
+        // it, is refused rather than attached with the settings it chose.
+        if (!webviewKind(params, isDocsChatUrl)) {
+          console.warn('[Main Process] Blocked a webview:', params.partition, params.src);
           event.preventDefault();
           return;
         }
-        if (!isDocsChatUrl(params.src)) {
-          console.warn('[Main Process] Blocked docs chat webview for', params.src);
-          event.preventDefault();
-          return;
-        }
-        delete webPreferences.preload;
-        delete webPreferences.preloadURL;
-        webPreferences.nodeIntegration = false;
-        webPreferences.nodeIntegrationInSubFrames = false;
-        webPreferences.contextIsolation = true;
-        webPreferences.sandbox = true;
-        webPreferences.webSecurity = true;
-        webPreferences.webviewTag = false;
+        lockDown(webPreferences);
       });
 
       win.webContents.on('did-attach-webview', (_event, contents) => {
+        if (contents.session === electron.session.fromPartition(AI_BROWSER_PARTITION)) {
+          // Pages the AI opens get no new windows and no permissions.
+          contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+          contents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+          return;
+        }
         if (contents.session !== electron.session.fromPartition(DOCS_CHAT_PARTITION)) return;
         // Links in answers (target=_blank) open in the user's browser, never in a new Electron window.
         contents.setWindowOpenHandler(({ url }) => {
