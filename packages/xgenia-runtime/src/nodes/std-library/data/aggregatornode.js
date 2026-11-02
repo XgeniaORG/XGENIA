@@ -39,6 +39,11 @@
 //   { "result": 3 }   ->   out-result = 3
 //
 // Phase 1: the request URL is a dummy localhost value supplied at compile time.
+//
+// Money in cents (2026-11-03): an Aggregator Publish points at a Math Component whose deployed script converts
+// (editor utils/rgs/moneyScale.ts) carries `moneyScale` (100), `betField` and `winField`. It sends the bet field
+// × moneyScale with `__moneyScale`, and divides the win field — and the RGS balance and win — by it, so the RGS
+// ledger counts cents while the game's graph keeps the money the player sees. Without `moneyScale` nothing changes.
 
 const EdgeTriggeredInput = require('../../../edgetriggeredinput');
 const { getPlayContextFields } = require('./rgs-play-context');
@@ -163,6 +168,31 @@ const AggregatorNode = {
       set: function (value) {
         this._internal.signalOutputs = value;
       }
+    },
+    moneyScale: {
+      type: 'number',
+      displayName: 'Money Scale',
+      group: 'Money',
+      default: 1,
+      set: function (value) {
+        this._internal.moneyScale = Number(value) || 1;
+      }
+    },
+    betField: {
+      type: 'string',
+      displayName: 'Bet Field',
+      group: 'Money',
+      set: function (value) {
+        this._internal.betField = value;
+      }
+    },
+    winField: {
+      type: 'string',
+      displayName: 'Win Field',
+      group: 'Money',
+      set: function (value) {
+        this._internal.winField = value;
+      }
     }
   },
   outputs: {
@@ -228,8 +258,13 @@ const AggregatorNode = {
       // What the RGS recorded for a staked round: the wallet balance after it, what it paid and its id. A published
       // demo shows THIS balance and win (the RGS owns the money), not what the game's own logic would have said.
       const rgs = body.__rgs && typeof body.__rgs === 'object' ? body.__rgs : null;
+      // Cents back to the game's money: only from a script that converted this request (it says so).
+      const scale = this.moneyScaleInUse();
+      const converted = scale > 1 && Number(body.__moneyScale) === scale;
+      const money = (v) => (converted && typeof v === 'number' ? v / scale : v);
+      const winField = converted ? this._internal.winField : null;
       if (rgs) {
-        const fromRgs = { rgsBalance: rgs.balance_after, rgsWin: rgs.win_amount, rgsRoundId: rgs.round_id };
+        const fromRgs = { rgsBalance: money(rgs.balance_after), rgsWin: money(rgs.win_amount), rgsRoundId: rgs.round_id };
         for (const name in fromRgs) {
           if (fromRgs[name] === undefined) continue;
           this._internal.outputValues[name] = fromRgs[name];
@@ -239,13 +274,13 @@ const AggregatorNode = {
       }
       for (const field in body) {
         if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
-        if (field === '__rgs') continue;
+        if (field === '__rgs' || field === '__moneyScale') continue;
         if (signals.has(field)) {
           // A signal is not a value: fire it (below) when this response says it fired.
           if (body[field] === true) fired.push(field);
           continue;
         }
-        this._internal.outputValues[field] = body[field];
+        this._internal.outputValues[field] = field === winField ? money(body[field]) : body[field];
         this.registerOutputIfNeeded('out-' + field);
         if (this.hasOutput('out-' + field)) this.flagOutputDirty('out-' + field);
       }
@@ -254,10 +289,27 @@ const AggregatorNode = {
         if (this.hasOutput('out-' + field)) this.sendSignalOnOutput('out-' + field);
       }
     },
+    moneyScaleInUse: function () {
+      const scale = Number(this._internal.moneyScale) || 1;
+      return scale > 1 && this._internal.betField && this._internal.winField ? scale : 1;
+    },
     doSend: function () {
       const payload = {};
       const data = this._internal.dataValues || {};
       for (const key in data) payload[key] = data[key];
+
+      // The bet in cents, rounded to a whole cent; the script divides it back before the maths runs.
+      const scale = this.moneyScaleInUse();
+      if (scale > 1) {
+        const betField = this._internal.betField;
+        if (typeof payload[betField] === 'string' && payload[betField].trim() !== '' && isFinite(Number(payload[betField]))) {
+          payload[betField] = Number(payload[betField]);
+        }
+        if (typeof payload[betField] === 'number' && isFinite(payload[betField])) {
+          payload[betField] = Math.round(payload[betField] * scale);
+        }
+        payload.__moneyScale = scale;
+      }
 
       const triggers = splitList(this._internal.triggers);
       for (let i = 0; i < triggers.length; i++) {
