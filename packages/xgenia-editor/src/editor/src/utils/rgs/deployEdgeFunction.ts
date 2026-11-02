@@ -3,7 +3,7 @@
 // first opens a versioned deployment (createEdgeDeployment) and deploys its
 // components into it, so the game keeps full deploy history.
 
-import { XRGS_URL, XRGS_ANON_KEY, rgsHeaders } from './rgsClient';
+import { rgsFunctionsUrl, rgsAnonKey, rgsHeaders } from './rgsClient';
 import { FunctionArtifact } from './generateFunctionArtifact';
 
 /** A rewrite the platform applied to the script as it was stored. */
@@ -38,7 +38,7 @@ export async function createEdgeDeployment(
   gameId: string,
   name: string
 ): Promise<{ deploymentId: string; version: number }> {
-  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+  const res = await fetch(`${rgsFunctionsUrl()}/maths-deployer`, {
     method: 'POST',
     headers: rgsHeaders(apiKey),
     body: JSON.stringify({
@@ -72,7 +72,7 @@ export async function deployEdgeFunction(
   deploymentId: string,
   artifact: FunctionArtifact
 ): Promise<DeployedFunction> {
-  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+  const res = await fetch(`${rgsFunctionsUrl()}/maths-deployer`, {
     method: 'POST',
     headers: rgsHeaders(apiKey),
     body: JSON.stringify({
@@ -89,10 +89,10 @@ export async function deployEdgeFunction(
       // keeps the bet/win ports the original publish stored.
       ...(artifact.betInputPort !== undefined ? { bet_input_port: artifact.betInputPort } : {}),
       ...(artifact.winOutputPort !== undefined ? { win_output_port: artifact.winOutputPort } : {}),
-      functions_base: XRGS_URL,
+      functions_base: rgsFunctionsUrl(),
       // Public anon key, embedded in the function URL so the deployed frontend
       // (Aggregator node) can call it through the gateway without extra headers.
-      functions_anon_key: XRGS_ANON_KEY
+      functions_anon_key: rgsAnonKey()
     })
   });
 
@@ -180,7 +180,7 @@ export interface EdgeDeploymentBundle {
  * descending), each with its component functions' API docs but not their scripts.
  */
 export async function listEdgeDeployments(apiKey: string, gameId: string): Promise<any[]> {
-  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+  const res = await fetch(`${rgsFunctionsUrl()}/maths-deployer`, {
     method: 'POST',
     headers: rgsHeaders(apiKey),
     body: JSON.stringify({ action: 'list-edge-deployments', game_id: gameId })
@@ -200,7 +200,7 @@ export async function downloadEdgeDeployment(
   apiKey: string,
   deploymentId: string
 ): Promise<EdgeDeploymentBundle> {
-  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+  const res = await fetch(`${rgsFunctionsUrl()}/maths-deployer`, {
     method: 'POST',
     headers: rgsHeaders(apiKey),
     body: JSON.stringify({ action: 'download-edge-deployment', deployment_id: deploymentId })
@@ -230,7 +230,7 @@ export async function deleteEdgeDeployment(
   deploymentId: string,
   gameId?: string
 ): Promise<{ version: number }> {
-  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+  const res = await fetch(`${rgsFunctionsUrl()}/maths-deployer`, {
     method: 'POST',
     headers: rgsHeaders(apiKey),
     body: JSON.stringify({ action: 'delete-edge-deployment', deployment_id: deploymentId, game_id: gameId })

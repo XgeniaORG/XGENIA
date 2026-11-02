@@ -31,7 +31,7 @@ import { MathsDeployedSection } from './subsections/MathsDeployedSection';
 // `xgenia_rgs_settings` localStorage key (read/written by the AI via __xrgs) are
 // kept below — rgsClient does not provide them.
 import {
-    XRGS_URL,
+    rgsFunctionsUrl,
     getRgsSettings,
     setActiveGame,
     getActiveGame,
@@ -59,7 +59,7 @@ function mergeRgsSettings(patch: Record<string, any>): void {
 // Expose for other panels / AI tools
 (window as any).__xrgs = {
     getApiKey: () => getRgsSettings()?.apiKey || null,
-    getUrl: () => XRGS_URL,
+    getUrl: () => rgsFunctionsUrl(),
 
     /**
      * List all maths components in the current project.

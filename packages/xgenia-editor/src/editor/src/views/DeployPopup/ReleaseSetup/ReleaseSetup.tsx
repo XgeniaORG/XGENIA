@@ -25,9 +25,10 @@ import { Text } from '@xgenia-core-ui/components/typography/Text';
 import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
 
 import {
-  XRGS_URL,
+  rgsFunctionsUrl,
   clearRgsSettings,
   completeEmailSignIn,
+  connectWithXgeniaLogin,
   emailSignInCode,
   fetchOperatorInfo,
   getActiveGame,
@@ -66,7 +67,7 @@ const LINK: React.CSSProperties = { fontSize: '11px', color: '#67DE92', cursor: 
 const ROW: React.CSSProperties = { display: 'flex', gap: '8px' };
 
 function base(apiKey: string) {
-  return { functionsUrl: XRGS_URL, headers: rgsHeaders(apiKey) };
+  return { functionsUrl: rgsFunctionsUrl(), headers: rgsHeaders(apiKey) };
 }
 
 // ─── Step 1: sign in ──────────────────────────────────────────────────────────
@@ -77,6 +78,51 @@ export function RgsSignInForm({ onSignedIn }: { onSignedIn?: () => void }) {
   const [codeSent, setCodeSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Every XGENIA login is a play-money RGS sandbox (2026-11-02): connect with it first, by itself. The email code
+  // below is only for an invited studio, or when the XGENIA sign-in cannot be used.
+  const [xgenia, setXgenia] = useState<'trying' | 'failed' | 'email'>('trying');
+  const [xgeniaError, setXgeniaError] = useState('');
+  useEffect(() => {
+    let live = true;
+    connectWithXgeniaLogin()
+      .then(() => { if (live) onSignedIn?.(); })
+      .catch((e: any) => {
+        if (!live) return;
+        setXgeniaError(e?.message || String(e));
+        setXgenia('failed');
+      });
+    return () => { live = false; };
+  }, []);
+
+  if (xgenia !== 'email') {
+    return (
+      <div style={STEP_STYLE} data-guide="rgs-sign-in">
+        <div style={STEP_TITLE}>1 · Your play-money RGS</div>
+        {xgenia === 'trying' ? (
+          <div style={HINT}>Connecting with your XGENIA sign-in…</div>
+        ) : (
+          <>
+            <div style={ERROR}>{xgeniaError}</div>
+            <div style={ROW}>
+              <PrimaryButton
+                label="Try again"
+                size={PrimaryButtonSize.Small}
+                onClick={() => {
+                  setXgenia('trying');
+                  connectWithXgeniaLogin()
+                    .then(() => onSignedIn?.())
+                    .catch((e: any) => { setXgeniaError(e?.message || String(e)); setXgenia('failed'); });
+                }}
+              />
+            </div>
+          </>
+        )}
+        <div style={{ ...LINK, marginTop: '8px' }} onClick={() => setXgenia('email')}>
+          Use an invited RGS account instead
+        </div>
+      </div>
+    );
+  }
 
   const send = async () => {
     const problem = emailProblem(email);

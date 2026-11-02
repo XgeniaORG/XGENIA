@@ -54,7 +54,7 @@ import {
     startPublish,
     type PublishStartSpec,
 } from '@xgenia-utils/publish/publishCommands';
-import { getActiveGame, getRgsSettings, setActiveGame } from '@xgenia-utils/rgs/rgsClient';
+import { connectWithXgeniaLogin, getActiveGame, getRgsSettings, setActiveGame } from '@xgenia-utils/rgs/rgsClient';
 import { desktopNotificationService } from '@xgenia-utils/DesktopNotificationService';
 import { resolveInsideProject } from '@xgenia-utils/projectPathGuard';
 import { getActivePreviewHost } from '@xgenia-utils/previewHostRegistry';
@@ -3247,6 +3247,12 @@ export class EditorBridge {
         h('xrgs.getSettings', () => {
             const s = getRgsSettings();
             return s?.apiKey ? { apiKey: s.apiKey, url: s.rgsUrl || XRGS_DEFAULT_URL } : null;
+        });
+        // Connect with the XGENIA login (the play-money sandbox, made the first time), as Publish does by itself:
+        // the AI uses this instead of asking the person to sign in (2026-11-02).
+        h('xrgs.connect', async () => {
+            const r = await connectWithXgeniaLogin();
+            return { connected: true, sandbox: true, operatorSlug: r.operatorSlug, created: r.created };
         });
         h('xrgs.getActiveGame', () => getActiveGame());
         // Through rgsClient, not writeRgs: it also emits `rgs.gameSelected`, so the

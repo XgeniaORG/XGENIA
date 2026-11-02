@@ -7,7 +7,7 @@
 
 import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
 import { activeGameFor } from './activeGame';
-import { RgsSignInResult, sendSignInCode, verifySignInCode } from './rgsSignIn';
+import { RgsSignInResult, connectWithXgeniaToken, sendSignInCode, verifySignInCode } from './rgsSignIn';
 
 export const XRGS_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/functions/v1';
 
@@ -19,7 +19,33 @@ export const XRGS_AUTH_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/auth/v1';
 export const XRGS_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzdWJ6d3lkcmplbG1qZmtrcmhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4ODA3NDcsImV4cCI6MjA4NzQ1Njc0N30.Hewc7WlLZuufC0trhCKKKc4AhLXk7jy7qG3irBQPykY';
 
+// The play-money test RGS (2026-11-02): every XGENIA login gets a sandbox there with no invite and no second
+// account (rgs-connect `xgenia-connect`). Its own Supabase project, never the real-money one; a connection made
+// there remembers it (settings.rgsUrl), so every request of that connection goes to the test RGS.
+export const XRGS_SANDBOX_URL = 'https://mzbfpxsipkklvxjsedeu.supabase.co/functions/v1';
+// The test RGS's publishable key: public by design, it only passes the gateway.
+export const XRGS_SANDBOX_ANON_KEY = 'sb_publishable_OL5q_b23joomjamFmjoaVg_TiOV4KAP';
+
 const RGS_SETTINGS_KEY = 'xgenia_rgs_settings';
+
+/** The RGS this connection talks to: the test RGS for a sandbox connection, the real-money RGS otherwise. */
+export function rgsFunctionsUrl(): string {
+  return readStoredSettings().rgsUrl === XRGS_SANDBOX_URL ? XRGS_SANDBOX_URL : XRGS_URL;
+}
+
+/** True when the connection is a play-money sandbox (an XGENIA login, not an invited studio). */
+export function isSandboxConnection(): boolean {
+  return rgsFunctionsUrl() === XRGS_SANDBOX_URL;
+}
+
+function anonKeyFor(functionsUrl: string): string {
+  return functionsUrl === XRGS_SANDBOX_URL ? XRGS_SANDBOX_ANON_KEY : XRGS_ANON_KEY;
+}
+
+/** The gateway key of the RGS this connection talks to. */
+export function rgsAnonKey(): string {
+  return anonKeyFor(rgsFunctionsUrl());
+}
 
 export interface RgsSettings {
   apiKey: string;
@@ -37,8 +63,8 @@ export function rgsHeaders(apiKey: string): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     'X-Operator-Key': apiKey,
-    apikey: XRGS_ANON_KEY,
-    Authorization: `Bearer ${XRGS_ANON_KEY}`
+    apikey: anonKeyFor(rgsFunctionsUrl()),
+    Authorization: `Bearer ${anonKeyFor(rgsFunctionsUrl())}`
   };
 }
 
@@ -56,8 +82,29 @@ export function emailSignInCode(email: string): Promise<void> {
 /** Checks the code, stores the returned key as the editor's connection, and returns it. */
 export async function completeEmailSignIn(email: string, code: string): Promise<RgsSignInResult> {
   const result = await verifySignInCode(email, code, SIGN_IN_ENDPOINTS);
-  saveRgsSettings(result.apiKey);
+  // An invited studio's key belongs to the real-money RGS: say so, or a sandbox address stored before would stick.
+  saveRgsSettings({ apiKey: result.apiKey, rgsUrl: XRGS_URL });
   EventDispatcher.instance.emit('rgs.connected', { operatorSlug: result.operatorSlug });
+  return result;
+}
+
+/**
+ * Connect with the XGENIA login this editor is already signed in with: the play-money sandbox on the test RGS,
+ * made the first time. What Publish does by itself; the email code stays for invited studios.
+ */
+export async function connectWithXgeniaLogin(): Promise<RgsSignInResult> {
+  const { supabase } = await import('../../supabaseInit');
+  // getSession() can wait behind the auth lock (EditorBridge auth.getJwt): bound it.
+  const session = await Promise.race([
+    supabase.auth.getSession().then((r) => r.data.session),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
+  ]);
+  const result = await connectWithXgeniaToken(session?.access_token || '', {
+    functionsUrl: XRGS_SANDBOX_URL,
+    anonKey: XRGS_SANDBOX_ANON_KEY
+  });
+  saveRgsSettings({ apiKey: result.apiKey, rgsUrl: XRGS_SANDBOX_URL });
+  EventDispatcher.instance.emit('rgs.connected', { operatorSlug: result.operatorSlug, sandbox: true });
   return result;
 }
 
@@ -83,7 +130,7 @@ export interface OperatorInfo {
  * an error.
  */
 export async function fetchOperatorInfo(apiKey: string): Promise<OperatorInfo | null> {
-  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+  const res = await fetch(`${rgsFunctionsUrl()}/maths-deployer`, {
     method: 'POST',
     headers: rgsHeaders(apiKey),
     body: JSON.stringify({ action: 'operator-info' })
@@ -104,7 +151,7 @@ export async function fetchOperatorInfo(apiKey: string): Promise<OperatorInfo | 
  * (ReleaseSetup) offers.
  */
 export async function listGames(apiKey: string): Promise<any[]> {
-  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+  const res = await fetch(`${rgsFunctionsUrl()}/maths-deployer`, {
     method: 'POST',
     headers: rgsHeaders(apiKey),
     body: JSON.stringify({ action: 'list-games' })
@@ -159,6 +206,11 @@ function withVaultTimeout<T>(p: Promise<T>): Promise<T> {
     const t = setTimeout(() => reject(new Error('the OS keychain did not answer')), VAULT_TIMEOUT_MS);
     p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
   });
+}
+
+/** Only the two RGS addresses this editor knows; anything else stored is the real-money one. */
+function knownRgsUrl(url: unknown): string {
+  return url === XRGS_SANDBOX_URL ? XRGS_SANDBOX_URL : XRGS_URL;
 }
 
 function readStoredSettings(): any {
@@ -277,7 +329,7 @@ export function saveRgsSettings(settings: RgsSettings | string): void {
     memoryKey = key;
     const { apiKey: _new, ...rest } = patch;
     const { apiKey: _old, ...curRest } = cur;
-    localStorage.setItem(RGS_SETTINGS_KEY, JSON.stringify({ ...curRest, ...rest, rgsUrl: XRGS_URL }));
+    localStorage.setItem(RGS_SETTINGS_KEY, JSON.stringify({ ...curRest, ...rest, rgsUrl: knownRgsUrl(rest.rgsUrl ?? curRest.rgsUrl) }));
     pendingKeyWrite = writeCipher(vault, key).then((ok) => {
       if (ok || memoryKey !== key) return;
       // The keychain refused after saying it was there: keep the key usable after
@@ -288,7 +340,7 @@ export function saveRgsSettings(settings: RgsSettings | string): void {
     });
     return;
   }
-  localStorage.setItem(RGS_SETTINGS_KEY, JSON.stringify({ ...cur, ...patch, rgsUrl: XRGS_URL }));
+  localStorage.setItem(RGS_SETTINGS_KEY, JSON.stringify({ ...cur, ...patch, rgsUrl: knownRgsUrl(patch.rgsUrl ?? cur.rgsUrl) }));
 }
 
 export function clearRgsSettings(): void {

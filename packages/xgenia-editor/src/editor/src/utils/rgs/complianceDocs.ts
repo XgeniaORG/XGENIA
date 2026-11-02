@@ -34,7 +34,7 @@
 // (see deployedGames.ts). The platform builds that subject itself from the
 // source it holds; the editor sends the name and nothing else.
 
-import { XRGS_URL, rgsHeaders } from './rgsClient';
+import { rgsFunctionsUrl, rgsHeaders } from './rgsClient';
 
 /** Whether the model that answered was paid or free — a description of the run, not a choice. */
 export type ComplianceAiTier = 'free' | 'paid';
@@ -255,7 +255,7 @@ async function callComplianceDocs<T>(
 ): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${XRGS_URL}/compliance-docs`, {
+    res = await fetch(`${rgsFunctionsUrl()}/compliance-docs`, {
       method: 'POST',
       headers: rgsHeaders(apiKey),
       body: JSON.stringify(body),

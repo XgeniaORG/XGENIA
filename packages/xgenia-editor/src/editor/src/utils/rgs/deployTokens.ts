@@ -28,7 +28,7 @@
 // been connected to XGENIA RGS cannot fetch them — by design, and the reason
 // callers must surface `reason` rather than leave the user at a null token.
 
-import { XRGS_ANON_KEY, XRGS_URL, getRgsSettings, rgsHeaders, rgsKeyReady } from './rgsClient';
+import { rgsAnonKey, rgsFunctionsUrl, getRgsSettings, rgsHeaders, rgsKeyReady } from './rgsClient';
 import { detectWebPublishCached } from '../publish/webPublishClient';
 
 /** Why a load attempt produced no tokens — surfaced by the Deploy panel. */
@@ -69,7 +69,7 @@ async function doLoad(): Promise<DeployTokenResult> {
     }
 
     try {
-        const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+        const res = await fetch(`${rgsFunctionsUrl()}/maths-deployer`, {
             method: 'POST',
             headers: rgsHeaders(apiKey),
             body: JSON.stringify({ action: 'deploy-tokens' }),
@@ -142,7 +142,7 @@ export async function warmPublishCredentials(): Promise<void> {
     const apiKey = getRgsSettings()?.apiKey;
     if (!apiKey) return; // nothing to fetch with; Publish asks for a sign-in
     try {
-        const detection = await detectWebPublishCached({ functionsUrl: XRGS_URL, anonKey: XRGS_ANON_KEY, apiKey });
+        const detection = await detectWebPublishCached({ functionsUrl: rgsFunctionsUrl(), anonKey: rgsAnonKey(), apiKey });
         if (detection.available) return;
         console.warn(`[deployTokens] XGENIA RGS web-publish unavailable (${detection.reason}); warming the shared Vercel token instead.`);
     } catch {

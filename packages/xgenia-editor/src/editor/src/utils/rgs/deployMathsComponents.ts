@@ -36,7 +36,7 @@ import { cloneRootsWithIdMap, inlineAll } from '../compile/flattenLogic';
 import { toFunctionSlug } from './functionSlug';
 import { generateFunctionArtifact, FunctionArtifact } from './generateFunctionArtifact';
 import { createEdgeDeployment, deployEdgeFunction, listEdgeDeployments } from './deployEdgeFunction';
-import { XRGS_URL, rgsHeaders } from './rgsClient';
+import { rgsFunctionsUrl, rgsHeaders } from './rgsClient';
 import { WIN_PORT_PRECEDENCE, platformWarningsFor, winPortFor } from './mathsPorts';
 
 /** Sheet every Math Component lives under. */
@@ -239,7 +239,7 @@ export async function uploadComponentProject(
   functionSlug: string,
   projectJson: Record<string, any>
 ): Promise<void> {
-  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+  const res = await fetch(`${rgsFunctionsUrl()}/maths-deployer`, {
     method: 'POST',
     headers: rgsHeaders(apiKey),
     body: JSON.stringify({

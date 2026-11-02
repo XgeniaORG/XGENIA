@@ -33,7 +33,7 @@
 
 import { filesystem, platform } from '@xgenia/platform';
 
-import { XRGS_URL, rgsHeaders } from '@xgenia-utils/rgs/rgsClient';
+import { rgsFunctionsUrl, rgsHeaders } from '@xgenia-utils/rgs/rgsClient';
 
 import {
   buildStakeExportManifest,
@@ -64,7 +64,7 @@ export interface StakeExportModesInfo {
 }
 
 async function postMathsDeployer(apiKey: string, body: Record<string, unknown>, outOfDateHint: string): Promise<any> {
-  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+  const res = await fetch(`${rgsFunctionsUrl()}/maths-deployer`, {
     method: 'POST',
     headers: rgsHeaders(apiKey),
     body: JSON.stringify(body)
