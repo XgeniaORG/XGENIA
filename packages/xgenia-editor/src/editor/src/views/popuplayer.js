@@ -630,7 +630,6 @@ PopupLayer.prototype.hidePopout = function (popout) {
   }
 
   popout.resizeObserver.disconnect();
-  popout.onClose && popout.onClose();
 
   const close = () => {
     popout.el.detach();
@@ -640,13 +639,19 @@ PopupLayer.prototype.hidePopout = function (popout) {
     }
   };
 
-  if (popout.animate) {
-    popout.el.css({ transition: 'all 200ms ease-out', transform: 'translateY(10px)', opacity: 0 });
-    setTimeout(() => {
+  try {
+    popout.onClose && popout.onClose();
+  } finally {
+    // The popout is already out of this.popouts, so if a throwing onClose skipped
+    // this nothing would ever remove it: it stayed on screen for good.
+    if (popout.animate) {
+      popout.el.css({ transition: 'all 200ms ease-out', transform: 'translateY(10px)', opacity: 0 });
+      setTimeout(() => {
+        close();
+      }, 250);
+    } else {
       close();
-    }, 250);
-  } else {
-    close();
+    }
   }
 };
 
