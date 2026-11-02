@@ -48,6 +48,7 @@ type FetchLike = (url: string, init?: any) => Promise<{ ok: boolean; status: num
 
 /** Plain-English messages, exported so the panel and the tests agree on them. */
 export const SIGN_IN_MESSAGES = {
+  xgeniaSignedOut: 'Your XGENIA sign-in has expired. Sign in to XGENIA again, then press Publish.',
   emailRequired: 'Enter your email address.',
   emailInvalid: 'That does not look like an email address.',
   codeRequired: 'Enter the 6-digit code from the email.',
@@ -163,5 +164,35 @@ export async function verifySignInCode(
     apiKey,
     operatorSlug: String(keyed.body?.operator_slug || ''),
     created: /new rgs connection/i.test(String(keyed.body?.message || ''))
+  };
+}
+
+/**
+ * Every XGENIA login is a play-money RGS sandbox (2026-11-02): the test RGS checks the XGENIA access token with
+ * XGENIA's own auth service and makes or reuses this account's sandbox, then issues a key for this install. No
+ * second account, no invite, no email code.
+ */
+export async function connectWithXgeniaToken(
+  xgeniaToken: string,
+  ep: { functionsUrl: string; anonKey: string },
+  fetchFn: FetchLike = fetch as any
+): Promise<RgsSignInResult> {
+  if (!xgeniaToken) throw new Error(SIGN_IN_MESSAGES.xgeniaSignedOut);
+  const keyed = await post(
+    fetchFn,
+    `${ep.functionsUrl}/rgs-connect`,
+    { action: 'xgenia-connect', xgenia_token: xgeniaToken },
+    { apikey: ep.anonKey, Authorization: `Bearer ${ep.anonKey}` }
+  );
+  if (keyed.res.status === 401) throw new Error(SIGN_IN_MESSAGES.xgeniaSignedOut);
+  if (!keyed.res.ok) {
+    throw new Error(serverMessage(keyed.body, keyed.text) || `The play-money RGS refused the sign-in (HTTP ${keyed.res.status}).`);
+  }
+  const apiKey = keyed.body?.api_key;
+  if (!apiKey) throw new Error(SIGN_IN_MESSAGES.noKey);
+  return {
+    apiKey,
+    operatorSlug: String(keyed.body?.operator_slug || ''),
+    created: /is ready/i.test(String(keyed.body?.message || ''))
   };
 }

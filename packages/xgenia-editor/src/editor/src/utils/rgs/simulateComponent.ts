@@ -23,7 +23,7 @@
 // concatenates the series arrays and keeps the last response's `stats`, which is
 // already cumulative over every chunk.
 
-import { XRGS_URL, rgsHeaders } from './rgsClient';
+import { rgsFunctionsUrl, rgsHeaders } from './rgsClient';
 
 /** Ceiling the platform enforces on one run. Mirrored here to bound the UI's input. */
 export const MAX_SIMULATION_ROUNDS = 10_000_000;
@@ -166,7 +166,7 @@ export async function simulateDeployedComponent(
       return { ...toResult(last, series, chunks), cancelled: true };
     }
 
-    const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+    const res = await fetch(`${rgsFunctionsUrl()}/maths-deployer`, {
       method: 'POST',
       headers: rgsHeaders(opts.apiKey),
       body: JSON.stringify({ ...request, carry })

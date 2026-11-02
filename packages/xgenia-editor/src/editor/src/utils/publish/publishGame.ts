@@ -34,8 +34,8 @@ import {
   RgsSettings,
   rgsKeyReady,
   SelectedGame,
-  XRGS_ANON_KEY,
-  XRGS_URL
+  rgsAnonKey,
+  rgsFunctionsUrl
 } from '@xgenia-utils/rgs/rgsClient';
 import {
   CompleteTelemetryMapping,
@@ -137,8 +137,8 @@ export async function resolvePublishRoute(rgs?: RgsSettings | null): Promise<{ r
     rgs = getRgsSettings();
   }
   return choosePublishRoute({
-    functionsUrl: XRGS_URL,
-    anonKey: XRGS_ANON_KEY,
+    functionsUrl: rgsFunctionsUrl(),
+    anonKey: rgsAnonKey(),
     apiKey: rgs?.apiKey,
     loadToken: async () => {
       const loaded = await loadDeployCredentials();

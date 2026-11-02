@@ -121,7 +121,9 @@ test('a new studio signs in by email, creates its game with its own numbers, and
     React.createElement('div', null, React.createElement(RgsReleaseSetup, { projectName: 'Crash Space' }), React.createElement(RgsCertifyPanel));
   await act(async () => { root.render(React.createElement(App)); });
 
-  // ── 1. Sign in ──
+  // ── 1. Sign in ── (no XGENIA session here, so the automatic sandbox connect fails and the studio uses its invite)
+  await act(async () => { await tick(20); });
+  await act(async () => { click(byText(host, 'div', 'Use an invited RGS account instead')); });
   assert.match(host.textContent || '', /Sign in to XGENIA RGS/);
   assert.doesNotMatch(host.textContent || '', /API key|operator key/i, 'nobody is asked for a key');
   await act(async () => { type(host.querySelector('input')!, 'studio@example.com'); });
@@ -188,9 +190,53 @@ test('an address that is not invited is told what to do, not shown a database er
   const host = document.getElementById('root')!;
   const root = createRoot(host);
   await act(async () => { root.render(React.createElement(RgsSignInForm)); });
+  await act(async () => { await tick(20); });
+  await act(async () => { click(byText(host, 'div', 'Use an invited RGS account instead')); });
   await act(async () => { type(host.querySelector('input')!, 'stranger@example.com'); });
   await act(async () => { click(byText(host, 'button', 'Email me a code')); await tick(); });
   assert.match(host.textContent || '', /has not been invited to XGENIA RGS yet/);
   assert.doesNotMatch(host.textContent || '', /Database error/);
   await act(async () => { root.unmount(); });
+});
+
+
+// (2026-11-02) Every XGENIA login is a play-money RGS sandbox: Publish connects with the XGENIA sign-in by itself —
+// no email, no code, no invite — and every later RGS call of that connection goes to the test RGS.
+test('a signed-in XGENIA user is connected to their play-money sandbox with nothing to type', async () => {
+  const React = (await import('react')).default;
+  const { createRoot } = await import('react-dom/client');
+  const { act } = await import('react');
+  const { RgsSignInForm, rgsClient } = await loadComponents();
+  localStorage.clear();
+  // A persisted XGENIA session, as the editor keeps it.
+  localStorage.setItem('sb-pcrghrjikkcmelflwiys-auth-token', JSON.stringify({
+    access_token: 'xgenia-jwt', refresh_token: 'r', token_type: 'bearer', expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: 'u1', email: 'maker@example.com', aud: 'authenticated' }
+  }));
+  const calls: Array<{ url: string; body: any }> = [];
+  g.fetch = async (url: string, init: any) => {
+    const body = init?.body ? JSON.parse(init.body) : {};
+    calls.push({ url, body });
+    return { ok: true, status: 200, text: async () => JSON.stringify({ connected: true, sandbox: true, operator_slug: 'sandbox-1', api_key: 'xrgs_sandbox', message: 'Your play-money RGS sandbox is ready.' }) };
+  };
+  let signedIn = 0;
+  const host = document.getElementById('root')!;
+  const root = createRoot(host);
+  await act(async () => { root.render(React.createElement(RgsSignInForm, { onSignedIn: () => { signedIn++; } })); });
+  await act(async () => { await tick(30); });
+
+  assert.equal(signedIn, 1, 'connected with no input');
+  const connect = calls.find((c) => c.url.endsWith('/rgs-connect'))!;
+  assert.equal(connect.url, `${rgsClient.XRGS_SANDBOX_URL}/rgs-connect`, 'the test RGS, never the real-money one');
+  assert.deepEqual(connect.body, { action: 'xgenia-connect', xgenia_token: 'xgenia-jwt' });
+  assert.equal(rgsClient.rgsFunctionsUrl(), rgsClient.XRGS_SANDBOX_URL, 'later calls go to the test RGS');
+  assert.equal(rgsClient.isSandboxConnection(), true);
+  assert.equal(rgsClient.rgsHeaders('k').apikey, rgsClient.XRGS_SANDBOX_ANON_KEY);
+  assert.doesNotMatch(host.textContent || '', /Email me a code/);
+  await act(async () => { root.unmount(); });
+
+  // An invited studio signing in by email afterwards is back on the real-money RGS.
+  rgsClient.saveRgsSettings({ apiKey: 'xrgs_studio', rgsUrl: rgsClient.XRGS_URL });
+  assert.equal(rgsClient.rgsFunctionsUrl(), rgsClient.XRGS_URL);
+  localStorage.clear();
 });
