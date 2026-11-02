@@ -6,7 +6,8 @@ import { SidebarModel } from '@xgenia-models/sidebar';
 
 import {
   SideComponents, SideSearch, SideVersionControl, SideSettings, SideChatPanel, SideProjectStyles,
-  SideNodeReferences, SideImageEditor, SideMaths, SideAssets, SideAddNode, SideCloudFunctions, SideCloud
+  SideNodeReferences, SideImageEditor, SideMaths, SideAssets, SideAddNode, SideCloudFunctions, SideCloud,
+  SideHierarchy, SideHistory
 } from './views/SidePanel/SidebarIcons';
 
 import { ComponentDiffDocumentProvider } from './views/documents/ComponentDiffDocument';
@@ -59,8 +60,8 @@ import { installWebPluginPanels } from './views/panels/WebPluginPanel';
 import { ProjectStylesPanel } from './views/panels/ProjectStylesPanel/ProjectStylesPanel';
 import { MathsPanel, MathsPanel_ID } from './views/panels/MathsPanel';
 import { AssetPanel } from './views/panels/AssetPanel';
-import { GlassHierarchy, HierarchyPanel, HierarchyPanel_ID } from './views/panels/HierarchyPanel';
-import { GlassHistory, HistoryPanel, HistoryPanel_ID } from './views/panels/HistoryPanel';
+import { HierarchyPanel, HierarchyPanel_ID } from './views/panels/HierarchyPanel';
+import { HistoryPanel, HistoryPanel_ID } from './views/panels/HistoryPanel';
 
 
 
@@ -110,7 +111,10 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
       // This is a temporary solution so we can keep the state of open folder etc
       options: {
         showSheetList: true,
-        hideSheets: ['__cloud__', '__maths__']
+        hideSheets: ['__cloud__', '__maths__'],
+        // The rail calls this panel Parts; its heading says the same (2026-11-01).
+        panelTitle: 'Parts',
+        componentTitle: 'All parts'
       }
     },
     panel: ComponentsPanel
@@ -122,16 +126,18 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     id: HierarchyPanel_ID,
     name: 'Hierarchy',
     order: 21,
-    icon: GlassHierarchy,
+    icon: SideHierarchy,
     panel: HierarchyPanel
   });
 
-  // The undo queue as a clickable list (jump back or forward to any step).
+  // The undo queue as a clickable list (jump back or forward to any step). Bottom cluster,
+  // first of the four (History, Versions, Cloud, Settings): a utility, not somewhere you author.
   SidebarModel.instance.register({
     id: HistoryPanel_ID,
     name: 'History',
-    order: 90,
-    icon: GlassHistory,
+    order: 5,
+    placement: 'bottom',
+    icon: SideHistory,
     panel: HistoryPanel
   });
 
@@ -174,7 +180,8 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     name: 'AI Image Editor',
     order: 70,
     icon: SideImageEditor,
-    panel: ImageEditorPanel
+    panel: ImageEditorPanel,
+    opensOnHome: true
   });
 
   SidebarModel.instance.register({
@@ -244,16 +251,15 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
   // "Project settings" and "Editor settings" were merged into one entry
   // (2026-08-12). The two scopes live on as the panel's Project/Editor tabs —
   // see SettingsPanel for why they are tabs and not one flat section list.
-  // Not rendered as a rail button — reachable only from the identity chip's project menu
-  // (ProjectMenu.tsx). Still fully registered and dispatchable: `railHidden` only affects
-  // the rail's own rendering (see Rail.tsx), not `SidebarModel.switch`/`dispatch`.
+  // Last item of the rail's bottom cluster (2026-11-01: back on the rail, labelled, so a new
+  // user finds it without knowing the project menu), and still in the identity chip's
+  // project menu (ProjectMenu.tsx).
   SidebarModel.instance.register({
     id: SettingsPanel_ID,
     name: 'Settings',
     order: 30,
     placement: 'bottom',
     icon: SideSettings,
-    railHidden: true,
     panel: SettingsPanel
   });
 

@@ -440,7 +440,7 @@ export function ProjectStylesPanel() {
     };
 
     return (
-        <BasePanel title="Project Styles" hasContentScroll>
+        <BasePanel title="Styles" hasContentScroll>
             {/* --- Global Style Prompt --- */}
             <Section title="Global Style Prompt" hasVisibleOverflow>
                 <Box hasXSpacing hasBottomSpacing={4}>

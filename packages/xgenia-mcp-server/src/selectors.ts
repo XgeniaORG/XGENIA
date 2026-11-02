@@ -73,8 +73,12 @@ export const SELECTORS = Object.freeze({
    * happen to reuse the same component — verified live, the sidebar rail's
    * own buttons all sit at `x < 58` CSS pixels, which is what actually
    * narrows a match down to the rail.
+   *
+   * Since the 2026-11 labelled rail (icon above a text label), rail buttons are plain buttons inside
+   * an element tagged `data-guide="rail.<name>"`, still with `aria-label="<panel name>"`; both shapes
+   * are matched so the harness drives either build.
    */
-  sidebarIconButton: 'button[class*=IconButton-module__Root]',
+  sidebarIconButton: 'button[class*=IconButton-module__Root], [data-guide^="rail."] button',
   /**
    * A tooltip bubble revealed on hover. Matched three ways because which
    * one actually renders was determined empirically (hover a button, wait

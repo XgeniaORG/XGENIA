@@ -12,6 +12,7 @@ import { ExperimentalFlag, ExperimentalFlagVariant } from '@xgenia-core-ui/compo
 import { Section } from '@xgenia-core-ui/components/sidebar/Section';
 import { Text, TextSize } from '@xgenia-core-ui/components/typography/Text';
 
+import { readShowAllTools, setShowAllTools } from '../../Rail/useShowAllTools';
 import { UpdatesSection } from './UpdatesSection';
 
 /**
@@ -41,6 +42,18 @@ export function EditorSettingsTab() {
     <>
       <Section hasGutter hasVisibleOverflow>
         <Text size={TextSize.Medium}>Applies to this machine only — not saved in the project.</Text>
+      </Section>
+
+      <Section title="Left rail" hasGutter hasVisibleOverflow>
+        <Checkbox
+          label="Show all tools"
+          variant={CheckboxVariant.Sidebar}
+          isChecked={readShowAllTools()}
+          onChange={(ev) => setShowAllTools(ev.target.checked)}
+        />
+        <Box hasTopSpacing>
+          <Text size={TextSize.Medium}>Off keeps the rail to the main tools. The rest stay one click away under More.</Text>
+        </Box>
       </Section>
 
       <UpdatesSection />

@@ -289,7 +289,7 @@ export function HierarchyPanel() {
 
   return (
     <BasePanel
-      title="Hierarchy"
+      title="Layers"
       isFill
       headerSlot={
         <button

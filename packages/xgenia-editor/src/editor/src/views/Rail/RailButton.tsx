@@ -1,18 +1,21 @@
 import classNames from 'classnames';
 import React, { useEffect, useRef, useState } from 'react';
 
-import { IconName, IconSize } from '@xgenia-core-ui/components/common/Icon';
-import { IconButton, IconButtonState, IconButtonVariant } from '@xgenia-core-ui/components/inputs/IconButton';
 import { DialogRenderDirection } from '@xgenia-core-ui/components/layout/BaseDialog';
 import { Tooltip } from '@xgenia-core-ui/components/popups/Tooltip';
 
 import { railGuideId } from '../../utils/guideIds';
+import { railTipFor } from './railGroups';
 import css from './Rail.module.scss';
 
 export interface RailButtonProps {
   id: string;
+  /** Full name: the accessible name, and the tooltip when the rail has no plain tip for it. */
   name: string;
-  icon: React.ElementType | IconName;
+  /** The short label printed under the icon. */
+  label: string;
+  /** A `Side*` wrapper from views/SidePanel/SidebarIcons (takes `size`, draws in currentColor). */
+  icon?: React.ElementType;
   fineType?: string;
   isActive: boolean;
   isDisabled?: boolean;
@@ -26,11 +29,20 @@ export interface RailButtonProps {
   isDropTarget?: boolean;
   isDropDimmed?: boolean;
   onDrop?: (files: FileList) => void;
+  /** `data-guide` override, for rail items that are not sidebar panels (the Add button). */
+  guideId?: string;
+  /** `data-test` override; default `<id>-panel`. */
+  testId?: string;
+  /** Tints the icon with the accent colour (the Add button). */
+  isAccent?: boolean;
 }
 
+/** Icon above, one-line label below, inside a pill that fills when the item is active. */
 export function RailButton(props: RailButtonProps) {
   const { badge } = props;
-  const content = props.tooltipSuffix ? `${props.name} ${props.tooltipSuffix}` : props.name;
+  const tip = railTipFor(props);
+  const content = props.tooltipSuffix ? `${tip} ${props.tooltipSuffix}` : tip;
+  const Icon = props.icon;
 
   // "Changed since you looked" ping: a 600ms pulse the moment the unseen dot appears
   // (false → true), not on every render while it stays true. Initialised from the
@@ -66,38 +78,41 @@ export function RailButton(props: RailButtonProps) {
       className={classNames(
         css.Item,
         props.isActive && css['is-active'],
+        props.isAccent && css['is-accent'],
         props.isDropTarget && css['is-drop-target'],
         props.isDropDimmed && css['is-drop-dimmed'],
         isPinging && css['is-ping'],
         isRecounting && css['is-recount']
       )}
       data-rail-id={props.id}
-      data-guide={railGuideId(props.id)}
+      data-guide={props.guideId ?? railGuideId(props.id)}
       onPointerDownCapture={props.onPointerDownCapture}
       onMouseLeave={props.onTooltipClosed}
       onDragOver={props.onDrop ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } : undefined}
       onDrop={props.onDrop ? (e) => { e.preventDefault(); e.stopPropagation(); props.onDrop!(e.dataTransfer.files); } : undefined}
     >
       <Tooltip content={content} fineType={props.fineType} renderDirection={DialogRenderDirection.Horizontal} showAfterMs={props.showAfterMs}>
-        <IconButton
-          icon={props.icon}
-          size={IconSize.Small}
-          selfPaintedIcon
-          variant={IconButtonVariant.Transparent}
-          state={props.isActive ? IconButtonState.Active : IconButtonState.Default}
-          isDisabled={props.isDisabled}
+        <button
+          type="button"
+          className={css.Button}
+          disabled={props.isDisabled}
           onClick={props.onClick}
-          testId={`${props.id}-panel`}
+          data-test={props.testId ?? `${props.id}-panel`}
           aria-label={props.name}
-          UNSAFE_className={css.Button}
-        />
+          aria-current={props.isActive ? 'page' : undefined}
+        >
+          <span className={css.Glyph}>
+            {Icon && <Icon size={20} color="currentColor" />}
+            {badge?.ring && <span className={css.Ring} aria-hidden="true" />}
+            {badge?.count !== undefined && badge.count > 0 && (
+              <span className={css.Count} aria-label={`${badge.count}`}>{badge.count > 99 ? '99+' : badge.count}</span>
+            )}
+            {badge?.unseen && badge.count === undefined && <span className={css.Unseen} aria-hidden="true" />}
+            {props.digit !== undefined && <span className={css.Digit} aria-hidden="true">{props.digit}</span>}
+          </span>
+          <span className={css.Label}>{props.label}</span>
+        </button>
       </Tooltip>
-      {badge?.ring && <span className={css.Ring} aria-hidden="true" />}
-      {badge?.count !== undefined && badge.count > 0 && (
-        <span className={css.Count} aria-label={`${badge.count}`}>{badge.count > 99 ? '99+' : badge.count}</span>
-      )}
-      {badge?.unseen && badge.count === undefined && <span className={css.Unseen} aria-hidden="true" />}
-      {props.digit !== undefined && <span className={css.Digit} aria-hidden="true">{props.digit}</span>}
     </div>
   );
 }

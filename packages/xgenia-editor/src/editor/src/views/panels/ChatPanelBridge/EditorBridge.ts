@@ -19,7 +19,7 @@ import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import { serializeNodeParameters } from './serialize-param-guard';
 import { mergeAssetMeta, loadAssetMeta, migrateAssetMeta, flushAssetMeta, type AssetMetaEntry } from '../AssetPanel/assetMeta';
 import { reconcileGraphAssetRefs } from '../AssetPanel/assetGraphRefs';
-import { AiActivity } from '@xgenia-models/aiactivity';
+import { AiActivity, isAiWork } from '@xgenia-models/aiactivity';
 import { RailPresence } from '@xgenia-models/railpresence';
 import { GitStatus } from '@xgenia-models/gitstatus';
 import { ComponentModel } from '@xgenia-models/componentmodel';
@@ -54,7 +54,7 @@ import {
     startPublish,
     type PublishStartSpec,
 } from '@xgenia-utils/publish/publishCommands';
-import { setActiveGame } from '@xgenia-utils/rgs/rgsClient';
+import { getActiveGame, setActiveGame } from '@xgenia-utils/rgs/rgsClient';
 import { desktopNotificationService } from '@xgenia-utils/DesktopNotificationService';
 import { resolveInsideProject } from '@xgenia-utils/projectPathGuard';
 import { getActivePreviewHost } from '@xgenia-utils/previewHostRegistry';
@@ -222,6 +222,9 @@ export class EditorBridge {
     private aiUndoTimer: ReturnType<typeof setTimeout> | null = null;
     /** Quiet period that ends a burst. Tool calls within a turn arrive far closer
      *  together than this; a new user prompt is far further apart. */
+    /** The AI chat panel's frames (from its handshake), so only its commands light "AI working". */
+    private static _chatWindows = new WeakSet<object>();
+
     private static readonly AI_UNDO_IDLE_MS = 1500;
 
     /**
@@ -338,6 +341,9 @@ export class EditorBridge {
         window.addEventListener('message', this.handleMessage);
         // Listen for active component changes from the NodeGraphEditor
         this.listenForComponentChanges();
+        // Setting changes reach the panel as they happen (the OpenRouter key, Show all tools, ...).
+        // Lost in a refactor (#37): nothing called it, so the panel never heard of a change (2026-11-01).
+        this.listenForSettingChanges();
         // Forward viewer console output into the plugin iframe
         this.forwardViewerConsole();
     }
@@ -443,6 +449,13 @@ export class EditorBridge {
             const { EditorSettings } = require('../../../utils/editorsettings');
             if (EditorSettings?.instance?.on) {
                 EditorSettings.instance.on('updated', ({ key }: any) => {
+                    // "Show all tools" decides whether the panel shows model choice: push the value the
+                    // rail itself uses (a profile with no stored choice gets its default).
+                    if (key === 'rail.showAllTools') {
+                        const { readShowAllTools } = require('../../Rail/useShowAllTools');
+                        this.pushEvent('settingChanged', { key, value: readShowAllTools() }, `settingChanged:${key}`);
+                        return;
+                    }
                     if (EditorBridge.PUSHED_SETTING_KEYS.includes(key)) {
                         const value = EditorSettings.instance.get(key);
                         console.log(`[EditorBridge] Setting updated: ${key}, pushing to plugins`);
@@ -483,9 +496,14 @@ export class EditorBridge {
 
     /** Set the iframe reference (called when iframe mounts) */
     setIframe(iframe: HTMLIFrameElement, pluginId: string = 'xgenia-ai') {
-        this.iframe = iframe; // Legacy compatibility
+        // Only the chat is the primary frame pushEvent writes to. The image editor registering here
+        // replaced it, and from then on settingChanged, componentSwitched and the rest went to the
+        // image editor: the AI chat stopped hearing the editor once Images had been opened (2026-11-01).
+        if (pluginId === 'xgenia-ai') {
+            this.iframe = iframe;
+            this.flushPendingEvents();
+        }
         this.iframes.set(pluginId, iframe);
-        this.flushPendingEvents();
     }
 
     /**
@@ -783,7 +801,10 @@ export class EditorBridge {
             }
             console.log(`[EditorBridge] Plugin handshake received from '${msg.plugin}':`, msg.version);
             this.connected = true;
-            this.pluginOrigin = event.origin || '*';
+            // The chat's origin only: pushEvent posts to the chat frame with this origin, and the
+            // image editor's handshake (another origin) set it too, so every push after Images had
+            // loaded was silently dropped by postMessage (2026-11-01).
+            if (msg.plugin === 'xgenia-ai') this.pluginOrigin = event.origin || '*';
 
             // Send handshake acknowledgment to the source iframe.
             //
@@ -801,6 +822,8 @@ export class EditorBridge {
             // type-the-URL-and-use-it-free path. Real protection means not
             // serving the bundle unauthenticated; that is a hosting change.
             const sourceWindow = event.source as WindowProxy;
+            // Only the chat's commands are the AI at work (see the AiActivity call below).
+            if (sourceWindow && msg.plugin === 'xgenia-ai') EditorBridge._chatWindows.add(sourceWindow);
             if (sourceWindow) {
                 const pluginId = msg.plugin === 'xgenia-image-editor' ? 'ai-image-editor' : 'ai-chat';
                 let entitled = false;
@@ -814,7 +837,7 @@ export class EditorBridge {
                 this.safePostMessage(
                     sourceWindow,
                     { type: 'handshake-ack', entitled, tier },
-                    this.pluginOrigin
+                    event.origin || '*'
                 );
             }
 
@@ -881,9 +904,14 @@ export class EditorBridge {
             // Every command is a sign the AI is working, read-only ones included. Tying
             // this to undo bursts alone meant a turn made entirely of inspection tools
             // never lit the top bar at all. AiActivity ends itself on an idle window,
-            // so there is no matching end() to place here.
-            AiActivity.begin();
-            RailPresence.noteCommand(msg.command);
+            // so there is no matching end() to place here. Coach commands are not the AI.
+            // Only the AI chat's commands: the image editor and web plugins load with every game
+            // and their start-up reads lit "AI working" on each open (2026-11-01).
+            const fromChat = !src || EditorBridge._chatWindows.has(src);
+            if (fromChat && isAiWork(msg.command, (msg as any).args, (msg as any).quiet)) {
+                AiActivity.begin();
+                RailPresence.noteCommand(msg.command);
+            }
             this.executeCommand(msg as PluginCommand, event);
             return;
         }
@@ -3022,6 +3050,16 @@ export class EditorBridge {
         //
         // Waiting is bounded: a storage layer that never answers must not hang
         // the bridge, so after 5s we answer with what we have and say so.
+        // The chat panel's turn signal (start, a beat every TURN_BEAT_MS, end) for the status pill.
+        h('editor.aiTurn', ([on]: [unknown]) => {
+            AiActivity.turn(on === true);
+            return true;
+        });
+        // Whether the user has "Show all tools" on, resolved as the rail resolves it.
+        h('editor.showAllTools', async () => {
+            const { readShowAllTools } = require('../../Rail/useShowAllTools');
+            return readShowAllTools();
+        });
         h('settings.get', async ([key]: [string]) => {
             try {
                 const { EditorSettings } = require('../../../utils/editorsettings');
@@ -3208,7 +3246,7 @@ export class EditorBridge {
             const s = readRgs();
             return s.apiKey ? { apiKey: s.apiKey, url: s.rgsUrl || XRGS_DEFAULT_URL } : null;
         });
-        h('xrgs.getActiveGame', () => readRgs().activeGame ?? null);
+        h('xrgs.getActiveGame', () => getActiveGame());
         // Through rgsClient, not writeRgs: it also emits `rgs.gameSelected`, so the
         // Publish popup follows a game the AI picks instead of showing the old one.
         h('xrgs.setActiveGame', ([game]: [any]) => { setActiveGame(game ?? null); return true; });

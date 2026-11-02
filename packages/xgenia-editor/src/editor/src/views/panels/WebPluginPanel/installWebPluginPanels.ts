@@ -8,7 +8,7 @@ import type React from 'react';
 import { SidebarModel, type SidebarItem } from '@xgenia-models/sidebar';
 
 import {
-    SideAssets, SideComponents, SideImageEditor, SideMaths, SideProjectStyles, SideWebPlugin
+    SideAssets, SideCharacters, SideComponents, SideImageEditor, SideMaths, SideProjectStyles, SideWebPlugin
 } from '../../SidePanel/SidebarIcons';
 import { PluginLoader, type EntitlementsResponse, type PluginEntitlement } from '../ChatPanelBridge/PluginLoader';
 import { WebPluginPanel } from './WebPluginPanel';
@@ -22,9 +22,21 @@ const ICONS: Record<string, React.ElementType> = {
     maths: SideMaths,
     assets: SideAssets,
     styles: SideProjectStyles,
+    character: SideCharacters,
+    characters: SideCharacters,
 };
 
-export function webPluginIcon(key: string | undefined): React.ElementType {
+/**
+ * Plugins the editor knows by id get their own rail icon whatever key the server sends:
+ * Character Studio asks for 'components', which drew the same picture as the Components panel.
+ * (The rail also refuses to draw a plugin with a built-in panel's icon; see dedupeRailIcons.)
+ */
+const PLUGIN_ICONS: Record<string, React.ElementType> = {
+    'character-studio': SideCharacters,
+};
+
+export function webPluginIcon(key: string | undefined, pluginId?: string): React.ElementType {
+    if (pluginId && Object.prototype.hasOwnProperty.call(PLUGIN_ICONS, pluginId)) return PLUGIN_ICONS[pluginId];
     return (key && Object.prototype.hasOwnProperty.call(ICONS, key) && ICONS[key]) || SideWebPlugin;
 }
 
@@ -34,7 +46,7 @@ function makeItem(plugin: PluginEntitlement, index: number): SidebarItem<{ plugi
         name: plugin.name || plugin.id,
         description: plugin.description,
         order: WEB_PLUGIN_PANEL_ORDER + index / 100,
-        icon: webPluginIcon(plugin.icon),
+        icon: webPluginIcon(plugin.icon, plugin.id),
         panel: WebPluginPanel,
         panelProps: { pluginId: plugin.id },
     };

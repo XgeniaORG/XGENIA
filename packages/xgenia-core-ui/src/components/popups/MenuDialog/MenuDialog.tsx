@@ -23,6 +23,8 @@ export interface MenuDialogItem {
   key?: string;
   icon?: IconName;
   endSlot?: Slot;
+  /** A keyboard shortcut, shown at the right end of the label's row (endSlot goes under the label). */
+  shortcut?: string;
 
   tooltip?: string;
   tooltipShowAfterMs?: number;
@@ -99,6 +101,7 @@ export function MenuDialog({
                 <Label variant={TextType.DefaultContrast} hasTextWrap>
                   {item.label}
                 </Label>
+                {item.shortcut && <kbd className={css['Shortcut']}>{item.shortcut}</kbd>}
               </div>
               {item.component && cloneElement(item.component(() => onClose()) as TSFixme)}
               <div className={css['EndSlot']}>

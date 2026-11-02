@@ -41,7 +41,7 @@ function CloudServicePanelChild() {
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
 
   return (
-    <BasePanel title="Cloud Services" hasActivityBlocker={hasActivity} hasContentScroll>
+    <BasePanel title="Cloud" hasActivityBlocker={hasActivity} hasContentScroll>
       <DeleteDialog />
 
       <ConditionalContainer doRenderWhen={Boolean(cloudService.backend.items)} loaderVisibilityDelayMs={0}>

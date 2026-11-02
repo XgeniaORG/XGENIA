@@ -801,7 +801,7 @@ function launchApp() {
     // webview into a locked-down, separate session no matter what the renderer
     // asks for. It is deliberately separate from the builder AI (its own
     // partition, no bridge, no preload).
-    const DOCS_CHAT_PARTITION = 'persist:xgenia-docs-chat';
+    const { DOCS_CHAT_PARTITION, AI_BROWSER_PARTITION, webviewKind, lockDown } = require('./src/webview-policy');
     const DOCS_CHAT_PATH = '/embed/chat/';
 
     /** Origins the docs chat may load from: production, local docs, or an XGENIA_DOCS_CHAT_URL override. */
@@ -838,29 +838,24 @@ function launchApp() {
       }
 
       win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-        // The docs chat is the editor's only <webview> (the preview is an iframe since 2026-09-07), so any
-        // other one, whichever frame asked for it, is refused rather than attached with the settings it chose.
-        if (params.partition !== DOCS_CHAT_PARTITION) {
-          console.warn('[Main Process] Blocked a webview that is not the docs chat:', params.src);
+        // Two <webview>s exist (the preview is an iframe since 2026-09-07): the docs chat and the AI
+        // browser, each in its own session (webview-policy.js). Any other one, whichever frame asked for
+        // it, is refused rather than attached with the settings it chose.
+        if (!webviewKind(params, isDocsChatUrl)) {
+          console.warn('[Main Process] Blocked a webview:', params.partition, params.src);
           event.preventDefault();
           return;
         }
-        if (!isDocsChatUrl(params.src)) {
-          console.warn('[Main Process] Blocked docs chat webview for', params.src);
-          event.preventDefault();
-          return;
-        }
-        delete webPreferences.preload;
-        delete webPreferences.preloadURL;
-        webPreferences.nodeIntegration = false;
-        webPreferences.nodeIntegrationInSubFrames = false;
-        webPreferences.contextIsolation = true;
-        webPreferences.sandbox = true;
-        webPreferences.webSecurity = true;
-        webPreferences.webviewTag = false;
+        lockDown(webPreferences);
       });
 
       win.webContents.on('did-attach-webview', (_event, contents) => {
+        if (contents.session === electron.session.fromPartition(AI_BROWSER_PARTITION)) {
+          // Pages the AI opens get no new windows and no permissions.
+          contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+          contents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+          return;
+        }
         if (contents.session !== electron.session.fromPartition(DOCS_CHAT_PARTITION)) return;
         // Links in answers (target=_blank) open in the user's browser, never in a new Electron window.
         contents.setWindowOpenHandler(({ url }) => {
@@ -875,6 +870,115 @@ function launchApp() {
         });
       });
     }
+
+    // ── "Ask the docs" in a window of its own (2026-11-01) ────────────────────────────────────────
+    // It used to be a <webview> floating over the editor. Under the editor's UI zoom a <webview>
+    // stops repainting: the chat showed a stale, cut-off frame and nothing typed appeared. A child
+    // window is always above the editor, can be moved and resized, and keeps the same isolation:
+    // its own session (DOCS_CHAT_PARTITION), sandboxed, no preload, no Node, no editor bridge.
+    let docsChatWin = null;
+    let docsChatQuitting = false;
+    electron.app.on('before-quit', () => {
+      docsChatQuitting = true;
+    });
+
+    function openDocsChatWindow(url) {
+      if (!isDocsChatUrl(url)) return false;
+      if (docsChatWin && !docsChatWin.isDestroyed()) {
+        docsChatWin.show();
+        docsChatWin.focus();
+        return true;
+      }
+      const parent = win && !win.isDestroyed() ? win : undefined;
+      const pb = parent ? parent.getBounds() : { x: 120, y: 120, width: 1400, height: 900 };
+      const width = 420;
+      const height = Math.min(660, Math.max(420, pb.height - 140));
+      docsChatWin = new BrowserWindow({
+        parent,
+        x: Math.round(pb.x + pb.width - width - 24),
+        y: Math.round(pb.y + pb.height - height - 72),
+        width,
+        height,
+        minWidth: 320,
+        minHeight: 360,
+        title: 'Ask the docs',
+        backgroundColor: '#1c1c1e',
+        show: false,
+        fullscreenable: false,
+        webPreferences: {
+          partition: DOCS_CHAT_PARTITION,
+          sandbox: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+          nodeIntegrationInSubFrames: false,
+          webviewTag: false,
+          webSecurity: true
+        }
+      });
+      const contents = docsChatWin.webContents;
+      // "Show me" in an answer (xgenia://show/<area id>): the editor opens and spotlights that area.
+      // Only an area id goes across, checked by shape here and against the area map in the editor.
+      const showInEditor = (target) => {
+        const m = /^xgenia:\/\/show\/([A-Za-z0-9.:_-]{1,60})$/.exec(String(target || ''));
+        if (!m) return false;
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('docs-chat:show', m[1]);
+          win.focus();
+        }
+        return true;
+      };
+      // Links in answers open in the user's browser, never in another Electron window.
+      contents.setWindowOpenHandler(({ url: target }) => {
+        if (showInEditor(target)) return { action: 'deny' };
+        if (/^https?:\/\//.test(target)) shell.openExternal(target);
+        return { action: 'deny' };
+      });
+      contents.on('will-navigate', (event, target) => {
+        if (isDocsChatUrl(target)) return;
+        event.preventDefault();
+        if (showInEditor(target)) return;
+        if (/^https?:\/\//.test(target)) shell.openExternal(target);
+      });
+      // Closing hides it, so the conversation is still there next time; quitting really closes it.
+      docsChatWin.on('close', (event) => {
+        if (docsChatQuitting || !parent || parent.isDestroyed()) return;
+        event.preventDefault();
+        docsChatWin.hide();
+      });
+      if (parent) {
+        parent.once('closed', () => {
+          if (docsChatWin && !docsChatWin.isDestroyed()) docsChatWin.destroy();
+          docsChatWin = null;
+        });
+      }
+      docsChatWin.once('ready-to-show', () => {
+        if (docsChatWin && !docsChatWin.isDestroyed()) docsChatWin.show();
+      });
+      docsChatWin.loadURL(url);
+      return true;
+    }
+
+    ipcMain.handle('docs-chat:open', (event, url) => {
+      if (!win || win.isDestroyed() || event.sender !== win.webContents) return false;
+      return openDocsChatWindow(String(url || ''));
+    });
+
+    // Which docs page the selected node has: plain data, one way, so "what does this node do?" works.
+    ipcMain.handle('docs-chat:context', (event, context) => {
+      if (!win || win.isDestroyed() || event.sender !== win.webContents) return false;
+      if (!docsChatWin || docsChatWin.isDestroyed()) return false;
+      const value = {
+        path: typeof context?.path === 'string' ? context.path.slice(0, 300) : '/',
+        title: typeof context?.title === 'string' ? context.title.slice(0, 150) : ''
+      };
+      const json = JSON.stringify(value);
+      docsChatWin.webContents
+        .executeJavaScript(
+          `window.__xgeniaDocsContext=${json};window.dispatchEvent(new CustomEvent('xgenia:docs-context',{detail:window.__xgeniaDocsContext}));`
+        )
+        .catch(() => undefined);
+      return true;
+    });
 
     function createWindow() {
       console.log('[Main Process] *** ENTERING createWindow() function ***');

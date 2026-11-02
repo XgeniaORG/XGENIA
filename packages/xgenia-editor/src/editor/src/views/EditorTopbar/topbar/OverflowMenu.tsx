@@ -8,6 +8,7 @@ import { MenuDialog, MenuDialogWidth } from '@xgenia-core-ui/components/popups/M
 import { Tooltip } from '@xgenia-core-ui/components/popups/Tooltip';
 
 import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
+import { useShowAllTools } from '../../Rail/useShowAllTools';
 import { toggleShortcutSheet } from '../../ShortcutSheet';
 
 export type OverflowLayout = 'vertical' | 'horizontal' | 'detachedPreview';
@@ -29,6 +30,7 @@ export interface OverflowMenuProps {
  */
 export function OverflowMenu({ documentLayout, setDocumentLayout, onImport, anchorRef }: OverflowMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const showAllTools = useShowAllTools();
 
   // Layout-only inline style on the wrapper: Tooltip renders its trigger as a block,
   // which would knock the button off the bar's centre line. Task 8 creates no
@@ -65,11 +67,9 @@ export function OverflowMenu({ documentLayout, setDocumentLayout, onImport, anch
           },
           {
             label: 'Detach preview',
-            // MenuDialog's `endSlot` renders UNDER the label (it adds bottom spacing to
-            // the label row), so it is a subtitle slot, not a right-aligned hint. Used
-            // consistently on every item that has a shortcut, a stacked shortcut reads
-            // as deliberate; used on one item only it reads as a layout bug.
-            endSlot: Keybindings.DETACH_PREVIEW.label,
+            // Shortcuts sit at the right of the row, as in a macOS menu (endSlot stacked
+            // them under the label, which read as a layout bug).
+            shortcut: Keybindings.DETACH_PREVIEW.label,
             icon: IconName.Cards,
             isHighlighted: documentLayout === 'detachedPreview',
             onClick: () => {
@@ -81,7 +81,9 @@ export function OverflowMenu({ documentLayout, setDocumentLayout, onImport, anch
           {
             label: 'Open dev tools',
             icon: IconName.Bug,
-            endSlot: Keybindings.OPEN_DEVTOOLS.label,
+            shortcut: Keybindings.OPEN_DEVTOOLS.label,
+            // A developer tool: only with Settings › Editor › "Show all tools".
+            isHidden: !showAllTools,
             onClick: () => EventDispatcher.instance.emit('viewer-open-devtools')
           },
           {
@@ -93,7 +95,7 @@ export function OverflowMenu({ documentLayout, setDocumentLayout, onImport, anch
           {
             label: 'Keyboard shortcuts',
             icon: IconName.Question,
-            endSlot: '?',
+            shortcut: '?',
             onClick: () => toggleShortcutSheet()
           }
         ]}

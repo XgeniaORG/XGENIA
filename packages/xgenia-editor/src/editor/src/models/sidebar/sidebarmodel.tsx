@@ -11,7 +11,13 @@ import { activePanelId, reduceRailLayout, RailAction, RailLayout } from '../../v
 
 export interface SidebarItem<TProps = Record<string, unknown>> {
   id: string;
+  /** The full name: the rail tooltip and the panel header. */
   name: string;
+  /**
+   * The one-line label under the rail icon, when it should differ from `name`. Built-in
+   * panels get theirs from views/Rail/railGroups.ts; this is for anything registered elsewhere.
+   */
+  shortLabel?: string;
   description?: string;
   fineType?: string;
   /** An IconName or one of the `Side*` wrappers from views/SidePanel/SidebarIcons. */
@@ -27,6 +33,11 @@ export interface SidebarItem<TProps = Record<string, unknown>> {
    * Default: false
    */
   transient?: boolean;
+  /**
+   * A full-screen tool (the image editor takes over the canvas): never reopened by itself. Opened
+   * once, it was where every game opened from then on, the game and the AI hidden (2026-11-01).
+   */
+  opensOnHome?: boolean;
 
   /**
    * Unmount this panel while another one is showing, instead of keeping it
@@ -60,9 +71,8 @@ export interface SidebarItem<TProps = Record<string, unknown>> {
   showsAiActivity?: boolean;
 
   /**
-   * Registered and fully dispatchable (`SidebarModel.switch`, the settings panel's own
-   * "Project settings" menu item, etc.) but not rendered as a rail button — e.g.
-   * Settings, reachable only from the identity chip's project menu.
+   * Registered and fully dispatchable (`SidebarModel.switch`, a menu item, etc.) but not
+   * rendered as a rail button. Nothing uses it today (Settings did until 2026-11-01).
    */
   railHidden?: boolean;
 
@@ -184,7 +194,11 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
   private static readonly SETTINGS_DOCKED_LEGACY = 'rail.docked';
   private static readonly SETTINGS_ACTIVE = 'rail.active';
   private static readonly SETTINGS_OPEN = 'rail.open';
-  private static readonly SETTINGS_ORDER = 'rail.order';
+  /**
+   * `.v2` since the grouped, labelled rail (2026-11-01): an order saved against the old flat
+   * rail would scramble the new groups, so it is left behind rather than migrated.
+   */
+  private static readonly SETTINGS_ORDER = 'rail.order.v2';
 
   private layout: RailLayout = { activeId: 'components', homeId: 'components', open: true };
 
@@ -244,7 +258,7 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
     const storedOpen = EditorSettings.instance.get(SidebarModel.SETTINGS_OPEN);
     const homeId = this.defaultDockedId();
     const stored = typeof storedActive === 'string' ? storedActive : storedDocked;
-    const activeId = typeof stored === 'string' && this.items.some((x) => x.id === stored && !x.transient) ? stored : homeId;
+    const activeId = typeof stored === 'string' && this.items.some((x) => x.id === stored && !x.transient && !x.opensOnHome) ? stored : homeId;
     this.dispatch({ type: 'restore', homeId, activeId, open: storedOpen !== false });
   }
 
