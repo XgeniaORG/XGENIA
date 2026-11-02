@@ -149,9 +149,11 @@ test('certification start and status follow the contract, and resume by game aft
 
 test('results read in plain words: certified, preview, fails its declared RTP, none', () => {
   const passed = toCertificationStatus({ status: 'passed', measured_rtp: 96.02, declared_rtp: 96, within_tolerance: true });
-  assert.deepEqual(describeCertification(passed), { tone: 'good', text: 'Certified: pays 96.02% against a declared 96.00%.' });
+  assert.deepEqual(describeCertification(passed), { tone: 'good', text: 'RTP verified on XGENIA RGS (not a lab certificate): pays 96.02% against a declared 96.00%.' });
+  // Never the word "Certified" on its own: a studio with no lab certificate must not read that it has one.
+  assert.doesNotMatch(describeCertification(passed).text, /^Certified/);
   const preview = toCertificationStatus({ status: 'passed', quick: true, measured_rtp: 95.9, declared_rtp: 96, within_tolerance: true });
-  assert.match(describeCertification(preview).text, /^Preview passed \(not a certificate\)/);
+  assert.match(describeCertification(preview).text, /^Preview passed \(not a verification\)/);
   const failed = toCertificationStatus({ status: 'failed', measured_rtp: 94.6, declared_rtp: 96, within_tolerance: false });
   assert.equal(describeCertification(failed).tone, 'bad');
   assert.match(describeCertification(failed).text, /Pays 94\.60% but declares 96\.00%/);

@@ -1539,7 +1539,7 @@ export function MathsPanel() {
                         </div>
                         <div style={{ fontSize: '12px', lineHeight: 1.5, color: '#a0a0b0', marginBottom: '10px' }}>
                             Publish signs you in to XGENIA RGS, creates the game, deploys this maths and gives you a
-                            playable link. Certification for real money and the pre-certification pack are there too.
+                            playable link. RTP verification and the pre-certification pack for a test lab are there too.
                         </div>
                         <button
                             type="button"

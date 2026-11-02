@@ -235,26 +235,39 @@ export function isCertificationActive(s: CertificationStatus): boolean {
   return s.status === 'queued' || s.status === 'running';
 }
 
-/** One line for the popup: the server's sentence when it gave one, else our own. */
+/**
+ * One line for the popup: the server's sentence when it gave one, else our own.
+ *
+ * Wording rule: this is XGENIA RGS's OWN measurement of a game's return to
+ * player — never a laboratory or regulator certificate, and nothing on screen
+ * may read as one. A studio with no certifications yet must not be told its
+ * game is "certified"; it is "RTP verified on XGENIA RGS", and the lab
+ * certificate is a separate step the pre-certification pack prepares for.
+ */
 export function describeCertification(s: CertificationStatus): { tone: 'idle' | 'busy' | 'good' | 'bad'; text: string } {
   const pct = (v: number | null) => (v === null ? '—' : `${v.toFixed(2)}%`);
   if (s.status === 'none') {
-    return { tone: 'idle', text: s.message || 'Not certified yet. Real money needs a passing certification of this exact maths.' };
+    return {
+      tone: 'idle',
+      text:
+        s.message ||
+        'RTP not verified yet. Real money needs a passing RTP verification of this exact maths on XGENIA RGS — and, in most markets, a lab certificate as well.'
+    };
   }
   if (isCertificationActive(s)) {
     const done = s.roundsTotal ? ` — ${s.roundsDone.toLocaleString()} of ${s.roundsTotal.toLocaleString()} rounds` : '';
-    return { tone: 'busy', text: `Certifying on XGENIA RGS: ${Math.round(s.progress * 100)}%${done}. You can close this window; it keeps running.` };
+    return { tone: 'busy', text: `Verifying the RTP on XGENIA RGS: ${Math.round(s.progress * 100)}%${done}. You can close this window; it keeps running.` };
   }
   if (s.status === 'passed' && s.withinTolerance !== false) {
-    const label = s.quick ? 'Preview passed (not a certificate)' : 'Certified';
+    const label = s.quick ? 'Preview passed (not a verification)' : 'RTP verified on XGENIA RGS (not a lab certificate)';
     return { tone: 'good', text: s.message || `${label}: pays ${pct(s.measuredRtp)} against a declared ${pct(s.declaredRtp)}.` };
   }
-  if (s.status === 'cancelled') return { tone: 'bad', text: s.message || 'The certification run was cancelled. Start it again.' };
+  if (s.status === 'cancelled') return { tone: 'bad', text: s.message || 'The RTP verification was cancelled. Start it again.' };
   return {
     tone: 'bad',
     text:
       s.message ||
-      `Pays ${pct(s.measuredRtp)} but declares ${pct(s.declaredRtp)}. Change the maths or the declared RTP, deploy, and certify again.`
+      `Pays ${pct(s.measuredRtp)} but declares ${pct(s.declaredRtp)}. Change the maths or the declared RTP, publish, and verify again.`
   };
 }
 

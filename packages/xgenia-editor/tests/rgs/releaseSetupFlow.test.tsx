@@ -167,12 +167,13 @@ test('a new studio signs in by email, creates its game with its own numbers, and
 
   // ── 4. Certify ──
   await act(async () => { await tick(); });
-  assert.match(host.textContent || '', /Not certified yet/);
-  await act(async () => { click(byText(host, 'button', 'Certify')); await tick(); });
+  assert.match(host.textContent || '', /RTP not verified yet/);
+  await act(async () => { click(byText(host, 'button', 'Verify RTP')); await tick(); });
   assert.ok(calls.some((c) => c.body.action === 'certify-game' && c.body.game_id === 'g1' && c.body.quick === false));
   // Started → the panel polls by game until the run finishes.
   await act(async () => { await tick(5200); });
-  assert.match(host.textContent || '', /Certified: pays 96\.01% against a declared 96\.00%/);
+  assert.match(host.textContent || '', /RTP verified on XGENIA RGS \(not a lab certificate\): pays 96\.01% against a declared 96\.00%/);
+  assert.doesNotMatch(host.textContent || '', /(^|[^-])\bCertified\b/, 'nothing on screen claims a certification');
 
   await act(async () => { root.unmount(); });
 });

@@ -221,7 +221,7 @@ function GameStep({ projectName, onChosen }: { projectName: string; onChosen: ()
       ) : (
         <>
           <div style={HINT}>
-            These are the numbers your game is certified and played against. Bets are in {currency}; max win is a multiple of the stake.
+            These are the numbers your game is verified and played against. Bets are in {currency}; max win is a multiple of the stake.
           </div>
           <TextInput label="Game name" value={form.name} onChange={set('name')} hasBottomSpacing isAutoFocus />
           <div style={ROW}>
@@ -373,11 +373,13 @@ export function RgsCertifyPanel() {
 
   return (
     <div style={{ ...STEP_STYLE, marginTop: '12px' }} data-guide="rgs-certify">
-      <div style={STEP_TITLE}>Real money: certify and get your pre-certification pack</div>
+      <div style={STEP_TITLE}>Before real money: verify the RTP, then send the pack to a lab</div>
       <div style={HINT}>
-        Certification plays your deployed maths on XGENIA RGS until its return to player is measured precisely enough to
-        compare with what you declared. A game takes real money only with a passing certificate for exactly the maths it runs,
-        so publish first, then certify. Changing the maths later means certifying again.
+        <b>Verify RTP</b> plays your published maths on XGENIA RGS until its return to player is measured precisely enough
+        to compare with what you declared. XGENIA RGS takes real money only on a game whose exact maths passed — and this
+        is our own measurement, not a certificate: most markets also need a test lab (GLI, BMM, eCOGRA, iTech…) to
+        certify the game. The <b>pre-certification pack</b> is what you send them: the maths and its fingerprint, the
+        verification report, the rules and the documents, signed. Changing the maths later means verifying again.
       </div>
       {line && <div style={{ fontSize: '12px', color: colour, marginBottom: '8px' }}>{line.text}</div>}
       {running && (
@@ -387,7 +389,7 @@ export function RgsCertifyPanel() {
       )}
       <div style={ROW}>
         <PrimaryButton
-          label={busy === 'certify' ? 'Starting…' : running ? 'Certifying…' : status?.status === 'passed' ? 'Certify again' : 'Certify'}
+          label={busy === 'certify' ? 'Starting…' : running ? 'Verifying…' : status?.status === 'passed' ? 'Verify again' : 'Verify RTP'}
           onClick={certify}
           isDisabled={!!busy || running}
           size={PrimaryButtonSize.Small}

@@ -897,7 +897,7 @@ export function XgeniaDeployTab() {
       // longer lets this game take real money. Say so at the moment it happens.
       if (maths.deployed.length > 0) {
         ToastLayer.showSuccess(
-          `${maths.message} Real money needs this maths certified — use Certify below once the game is live.`
+          `${maths.message} Real money needs this maths verified — use Verify RTP below once the game is live.`
         );
       }
     } catch (e: any) {
