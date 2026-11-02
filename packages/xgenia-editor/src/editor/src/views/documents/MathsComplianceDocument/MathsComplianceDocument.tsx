@@ -715,7 +715,7 @@ function MathsComplianceDocument({
                         {groups.length === 0 ? (
                             <div style={{ ...HINT_STYLE, fontStyle: 'italic' }}>
                                 {notConnected
-                                    ? 'Connect to XGENIA RGS from the Maths RGS panel to see what can be generated.'
+                                    ? 'Sign in to XGENIA RGS under Publish → XGENIA to see what can be generated.'
                                     : loading
                                       ? 'Reading the compliance catalogue…'
                                       : loadError

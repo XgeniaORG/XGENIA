@@ -206,19 +206,16 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
   // project's cloud-service environments (a Supabase cloud service). The active one
   // is what Cloud Functions (below) deploys `/#__cloud__/` components to and what
   // the deploy-supabase-edge-functions compile pass targets; the two panels go
-  // together. The Maths RGS panel reaches the RGS backend by its own route
-  // (operator key + maths-deployer), not through a cloud-service environment.
+  // together. Maths reaches the RGS backend by its own route (operator key +
+  // maths-deployer, signed in through Publish), not through a cloud-service
+  // environment.
   //
   // Withdrawn 2026-08-06 (#37) together with Cloud Functions, restored with it
   // 2026-10-29. Bottom cluster, as before the rail redesign: it manages a setting,
   // it is not somewhere you author.
   //
-  // Publish (XgeniaDeployTab) is unaffected either way: its own "Connected cloud
-  // services" picker is commented out and its state pinned to
-  // RGS_ENVIRONMENT_VALUE, so Publish takes the RGS path regardless of which
-  // environment is active here. Do not "fix" that pinning by restoring
-  // NO_ENVIRONMENT_VALUE without also restoring that picker — see the comment above
-  // `environmentId` in XgeniaDeployTab.tsx.
+  // Publish (XgeniaDeployTab) is unaffected either way: it always publishes
+  // through XGENIA RGS, whichever environment is active here.
   SidebarModel.instance.register({
     id: 'cloudservice',
     name: 'Cloud Services',

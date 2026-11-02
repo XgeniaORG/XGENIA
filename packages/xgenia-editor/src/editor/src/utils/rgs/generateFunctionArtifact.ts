@@ -6,7 +6,7 @@
 //     feature. Ports live on `xgenia.cloud.request` / `xgenia.cloud.response`
 //     nodes as `params` + `pm-`prefixed dynamic ports.
 //   * `/#__maths__/<name>` — a Math Component the user authored by hand and
-//     deploys from the Maths RGS panel. Ports live on the ordinary
+//     deploys through Publish. Ports live on the ordinary
 //     `Component Inputs` / `Component Outputs` gateway nodes, which is also
 //     exactly what the generated script reads (`config[<port name>]`) and
 //     writes (`_componentOutputs[<port name>]`), so the payload/response keys
@@ -31,8 +31,8 @@ export interface FunctionArtifact {
   payloadExample: Record<string, any>;
   responseExample: Record<string, any>;
   // Which request port carries the bet and which response port carries the win.
-  // Chosen by the user in the post-compile setup card (ComponentSetupDialog) and
-  // stored on the RGS row so the platform's "Testing → Simulate" section defaults
+  // Derived from the component's ports at deploy time (deployMathsComponents)
+  // and stored on the RGS row so the platform's "Testing → Simulate" section defaults
   // to the same mapping instead of guessing the first numeric port. Left
   // undefined by generateFunctionArtifact — the deploy caller fills them in — and
   // an undefined value leaves whatever RGS already has untouched.

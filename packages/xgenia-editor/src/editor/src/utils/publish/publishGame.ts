@@ -68,8 +68,8 @@ import {
  * endpoint in the build belongs to game A.
  */
 export function publishPreconditionError(rgs: RgsSettings | null, game: SelectedGame | null): string {
-  if (!rgs?.apiKey) return 'Not connected to XGENIA RGS. Connect in the Maths RGS panel first.';
-  if (!game?.id) return 'No game selected. Select one in the Maths RGS panel first.';
+  if (!rgs?.apiKey) return 'Not connected to XGENIA RGS. Sign in under Publish → XGENIA first.';
+  if (!game?.id) return 'No game selected. Choose or create one under Publish → XGENIA first.';
   return '';
 }
 
@@ -195,11 +195,10 @@ export interface DeployedBuild {
 }
 
 /**
- * Deploy an already-built folder's files under `name`, by whichever route is open.
- * Shared by publishGameToWeb and the popup's generic (non-RGS) path so neither
- * talks to Vercel on its own.
+ * Deploy an already-built folder's files under `name`, by whichever route is open
+ * (XGENIA RGS /web-publish, or the old token path on a platform that predates it).
  */
-export async function deployBuiltFiles(
+async function deployBuiltFiles(
   route: PublishRoute,
   files: GitHubFile[],
   name: string,
@@ -352,7 +351,7 @@ export interface PublishGameOptions {
   isPrivate?: boolean;
   /** Read via rgsClient when omitted. */
   rgs?: RgsSettings | null;
-  /** Read via rgsClient (the Maths RGS panel's selection) when omitted. */
+  /** Read via rgsClient (the project's game, chosen in Publish) when omitted. */
   game?: SelectedGame | null;
   /** How to reach Vercel (resolvePublishRoute); resolved here when omitted. */
   route?: PublishRoute;

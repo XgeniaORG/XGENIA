@@ -33,7 +33,7 @@ import { detectWebPublishCached } from '../publish/webPublishClient';
 
 /** Why a load attempt produced no tokens — surfaced by the Deploy panel. */
 export type DeployTokenFailure =
-    | 'not-connected'   // no operator key stored; connect in the Maths RGS panel
+    | 'not-connected'   // no operator key stored; sign in under Publish → XGENIA
     | 'unauthorized'    // key rejected (revoked, or wrong platform)
     | 'not-configured'  // platform has no tokens set
     | 'network'         // offline / request failed
@@ -53,7 +53,7 @@ const NOT_CONNECTED: DeployTokenResult = {
     reason: 'not-connected',
     message:
         'Not connected to XGENIA RGS, so the shared Vercel/GitHub deploy tokens could not be' +
-        ' fetched. Connect in the Maths RGS panel, then try again.',
+        ' fetched. Sign in under Publish → XGENIA, then try again.',
 };
 
 // Resolved only on success, so a failure never becomes permanent for the session:
@@ -85,7 +85,7 @@ async function doLoad(): Promise<DeployTokenResult> {
                     reason: 'unauthorized',
                     message:
                         'XGENIA RGS rejected this operator key, so the shared Vercel/GitHub deploy' +
-                        ' tokens could not be fetched. Reconnect in the Maths RGS panel.',
+                        ' tokens could not be fetched. Sign in again under Publish → XGENIA.',
                 };
             }
             if (res.status === 404) {

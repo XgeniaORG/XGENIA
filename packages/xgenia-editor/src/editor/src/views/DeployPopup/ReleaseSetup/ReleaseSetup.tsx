@@ -14,8 +14,8 @@
 //   4. Certify   — RgsCertifyPanel below: one button, progress that survives
 //                  closing the popup, and the pre-certification pack download.
 //
-// The Maths panel's advanced tools still exist for people who want them; nobody
-// needs them to release a game.
+// This is the only release surface: the Maths panel's old manual tools (paste a
+// key, game picker, Server Versions, Deploy) are gone.
 
 import React, { useCallback, useEffect, useState } from 'react';
 

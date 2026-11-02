@@ -3274,11 +3274,10 @@ export class EditorBridge {
 
         // --- Publish (2026-10-05) ---
         // Publishing the open game as a playable demo with a shareable link — the same thing the
-        // user gets from Publish → Deploy (XGENIA tab), and the Maths RGS panel's Math Components →
-        // Deploy that the published game's backend calls come from. Before this, both pipelines
-        // lived inside React components and the AI could not run either. They are plain modules
-        // now (utils/publish), the popup and the panel call them, and these commands call the SAME
-        // modules — no second pipeline. See utils/publish/publishCommands.ts.
+        // user gets from Publish → XGENIA, including the Math Components deploy that the published
+        // game's backend calls come from. Both are plain modules (utils/publish): the popup calls
+        // them, and these commands call the SAME modules — no second pipeline. See
+        // utils/publish/publishCommands.ts.
         //
         // WHY START-AND-POLL. A game publish takes minutes (UI build, GitHub push, then up to 2 min
         // of Vercel polling), and the panel forwards each command with a hard 30 s timeout. So

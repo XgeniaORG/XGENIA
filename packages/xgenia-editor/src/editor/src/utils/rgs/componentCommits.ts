@@ -1,50 +1,23 @@
-// Deploy history for a game's Math Components — the panel's "Commits" subsection.
+// Deploy history for a game's Math Components.
 //
 // A deploy upserts the component's `game_edge_functions` row, so the previous
 // script and authored graph are gone the moment it is re-deployed. The platform
 // therefore keeps a separate, append-only record of each Deploy press
 // (`game_component_commits` + `game_component_commit_files`, migration
 // 20260806120000), with a frozen snapshot of every component that press pushed.
-// That snapshot is why a superseded version can still be opened.
+// That snapshot is why a superseded version can still be recovered.
 //
-// Three actions on `maths-deployer`, all scoped by the same ownership check as
-// every other game action:
-//   create-component-commit    — record what a deploy just did
-//   list-component-commits     — the history, without the snapshot bodies
-//   download-component-commit  — one commit's snapshots, in full
+// The editor only writes it (`create-component-commit`, scoped by the same
+// ownership check as every other game action): Publish records one commit per
+// maths deploy. `maths-deployer` also serves `list-component-commits` and
+// `download-component-commit` for reading the history back.
 
 import type { MathsDeployResult } from './deployMathsComponents';
-import type { MathsComponentStatus, MathsStatus } from './mathsComponentStatus';
+import type { MathsStatus } from './mathsComponentStatus';
 import { XRGS_URL, rgsHeaders } from './rgsClient';
 
 /** How a component changed in a commit — the same three words git uses. */
 export type CommitChangeKind = 'added' | 'modified' | 'deleted';
-
-/** One component's entry in a commit, as the history list shows it. */
-export interface CommitFileSummary {
-  function_slug: string;
-  function_name: string | null;
-  change_kind: CommitChangeKind;
-}
-
-/** The same entry with its snapshot — only ever fetched one commit at a time. */
-export interface CommitFile extends CommitFileSummary {
-  /** The compiled script as of this commit. Null for a deletion. */
-  script: string | null;
-  /** The authored graph as of this commit, project.json-shaped. Null for a deletion. */
-  project_json: Record<string, any> | null;
-}
-
-export interface ComponentCommit {
-  id: string;
-  game_id: string;
-  deployment_id: string;
-  message: string;
-  author: string | null;
-  created_at: string;
-  /** Present on list responses; the bodies are not. */
-  files?: CommitFileSummary[];
-}
 
 /** What a deploy asks to have recorded, per component. */
 export interface CommitFileInput {
@@ -56,44 +29,21 @@ export interface CommitFileInput {
 }
 
 /**
- * The files one Deploy press records.
- *
- * One per component it deployed, carrying exactly what was sent (the result's
- * script and authored graph) and marked added or modified as the comparison the
- * deploy ran from said. Then one per deletion, carrying the component's
- * last-known state, read from what was already fetched off the platform. That is
- * what makes a removal recoverable — after the delete, this commit is the only
- * place the component's graph still exists.
- *
- * Shared by the Maths RGS panel's Deploy and the AI's (deployChangedMathsComponents,
- * which never deletes and so passes none), so a commit means the same thing
- * whichever of them made it.
+ * The files one maths deploy records: one per component it deployed, carrying
+ * exactly what was sent (the result's script and authored graph) and marked
+ * added or modified as the comparison the deploy ran from said. A deploy from
+ * the editor (deployChangedMathsComponents) never deletes, so it records no
+ * deletions.
  */
-export function commitFilesForDeploy(
-  results: MathsDeployResult[],
-  status: MathsStatus,
-  deletions: MathsComponentStatus[] = []
-): CommitFileInput[] {
+export function commitFilesForDeploy(results: MathsDeployResult[], status: MathsStatus): CommitFileInput[] {
   const kindBySlug = new Map(status.changed.map((c) => [c.slug, c.kind]));
-  const files: CommitFileInput[] = results.map((r) => ({
+  return results.map((r) => ({
     function_slug: r.slug,
     function_name: r.functionName,
     change_kind: kindBySlug.get(r.slug) === 'added' ? 'added' : 'modified',
     script: r.script,
     project_json: r.projectJson
   }));
-
-  deletions.forEach((entry) => {
-    const live = status.deployedBySlug.get(entry.slug);
-    files.push({
-      function_slug: entry.slug,
-      function_name: live?.functionName || entry.displayName,
-      change_kind: 'deleted',
-      ...(live?.component ? { project_json: { components: [live.component] } } : {})
-    });
-  });
-
-  return files;
 }
 
 /**
@@ -124,7 +74,7 @@ async function postCommitAction(apiKey: string, action: string, body: Record<str
 }
 
 /**
- * Records one Deploy press.
+ * Records one maths deploy.
  *
  * Called AFTER the components are deployed, never before: a commit describes
  * something that happened, and one written up front would claim a deploy that
@@ -152,41 +102,4 @@ export async function createComponentCommit(
     createdAt: data.created_at,
     componentCount: data.component_count ?? files.length
   };
-}
-
-/** The history of one Server Version, newest first. */
-export async function listComponentCommits(
-  apiKey: string,
-  gameId: string,
-  deploymentId?: string,
-  limit = 50
-): Promise<ComponentCommit[]> {
-  const data = await postCommitAction(apiKey, 'list-component-commits', {
-    game_id: gameId,
-    deployment_id: deploymentId,
-    limit
-  });
-  return (data.commits ?? []) as ComponentCommit[];
-}
-
-/**
- * One commit's snapshots. Pass `functionSlug` when opening a single component —
- * a commit that pushed a dozen components carries a dozen graphs, and the caller
- * usually wants one.
- */
-export async function downloadComponentCommit(
-  apiKey: string,
-  commitId: string,
-  functionSlug?: string
-): Promise<{ commit: ComponentCommit; files: CommitFile[] }> {
-  const data = await postCommitAction(apiKey, 'download-component-commit', {
-    commit_id: commitId,
-    function_slug: functionSlug
-  });
-  return { commit: data.commit, files: (data.files ?? []) as CommitFile[] };
-}
-
-/** "a3f9c1" — the short hash a commit is recognised by in the list. */
-export function shortCommitId(id: string): string {
-  return String(id || '').replace(/-/g, '').slice(0, 6);
 }

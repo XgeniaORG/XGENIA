@@ -1,11 +1,11 @@
 // Deploys the project's Math Components (`/#__maths__/…`) into one RGS Server
 // Version, one backend component each.
 //
-// This is the "Math Components → Deploy" button in the Maths RGS panel, and it
-// replaces the old route where a component only became a backend at Publish time
-// (whole-project Compile → extract logic → deploy). Here the user authors a
-// component in the tree, presses Deploy, and it IS a backend component from then
-// on — Publish just points the frontend at it.
+// Publish runs it first (deployChangedMathsComponents), and it replaces the old
+// route where a component only became a backend at Publish time (whole-project
+// Compile → extract logic → deploy). Here the user authors a component in the
+// tree, it is deployed once, and it IS a backend component from then on —
+// publishing the frontend just points it at the component.
 //
 // Per component, in order:
 //   1. COMPILE — clone its graph and inline every nested component instance, so

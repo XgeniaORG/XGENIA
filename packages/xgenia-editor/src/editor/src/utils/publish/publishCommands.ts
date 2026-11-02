@@ -3,7 +3,7 @@
 //
 // Nothing here is a second publish pipeline. A game publish is publishGameToWeb,
 // the routine the Publish popup runs; a maths deploy is
-// deployChangedMathsComponents, built from the Maths RGS panel's own pieces; names
+// deployChangedMathsComponents, the one Publish runs first; names
 // are checked with the popup's rules and availability check. What this adds is
 // only what a caller without a screen needs:
 //
@@ -116,7 +116,7 @@ async function activeGameDetails(rgs: RgsSettings | null, game: SelectedGame | n
   try {
     const games = await withTimeout(listGames(rgs.apiKey), READ_TIMEOUT_MS, 'XGENIA RGS (list-games)');
     const live = games.find((g: any) => g?.id === game.id);
-    if (!live) return { ...details, note: 'This key cannot see the selected game any more — select one in the Maths RGS panel.' };
+    if (!live) return { ...details, note: 'This key cannot see the selected game any more — choose one under Publish → XGENIA.' };
     return { ...details, name: live.name ?? details.name, slug: live.slug ?? details.slug, status: live.status, mode: live.mode };
   } catch (e) {
     return { ...details, note: `Mode/status unknown: ${messageOf(e)}` };

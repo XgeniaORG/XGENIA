@@ -1,9 +1,9 @@
 // Shared XGENIA RGS connection settings + helpers.
-// Single source of truth for the Maths RGS panel and the Deploy flow.
+// Single source of truth for Publish, the Maths panel and the AI's bridge.
 //
-// The XRGS endpoint is fixed — users only provide their operator API key
-// (generated from the RGS dashboard). "XRGS" is the internal identifier; the
-// user-facing name is "XGENIA RGS".
+// The XRGS endpoint is fixed — the operator key comes from the email sign-in in
+// Publish (rgsSignIn.ts). "XRGS" is the internal identifier; the user-facing
+// name is "XGENIA RGS".
 
 import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
 import { activeGameFor } from './activeGame';
@@ -20,7 +20,6 @@ export const XRGS_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzdWJ6d3lkcmplbG1qZmtrcmhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4ODA3NDcsImV4cCI6MjA4NzQ1Njc0N30.Hewc7WlLZuufC0trhCKKKc4AhLXk7jy7qG3irBQPykY';
 
 const RGS_SETTINGS_KEY = 'xgenia_rgs_settings';
-const SELECTED_GAME_KEY = 'xgenia_selected_game';
 
 export interface RgsSettings {
   apiKey: string;
@@ -41,34 +40,6 @@ export function rgsHeaders(apiKey: string): Record<string, string> {
     apikey: XRGS_ANON_KEY,
     Authorization: `Bearer ${XRGS_ANON_KEY}`
   };
-}
-
-/** An operator's MODE: demo (play money), live (real money) or internal (platform staff). */
-export type OperatorMode = 'demo' | 'live';
-
-/**
- * A GAME's mode — whether real money moves through it. Mirrors the RGS platform's
- * "Mode" field on the Game Library form; distinct from `status`, which is the
- * game's lifecycle rather than its money.
- */
-export type GameMode = 'demo' | 'live';
-
-export const GAME_MODES: { value: GameMode; label: string; blurb: string }[] = [
-  { value: 'demo', label: 'Demo', blurb: 'Play money. Nothing real is at stake.' },
-  { value: 'live', label: 'Live', blurb: 'Real money.' }
-];
-
-/**
- * Which modes a game created with this key may have. The connected operator's own
- * mode is the ceiling: a demo key's wallet holds play money, so its games can only
- * be demo, while live and internal keys can create either.
- *
- * An unknown mode (operator-info not loaded, or the key resolved to a platform
- * session) is treated as demo-only — the restrictive read, since the backend and
- * the DB trigger both reject a live game the key isn't entitled to anyway.
- */
-export function gameModesForOperatorMode(operatorMode: string | null | undefined): GameMode[] {
-  return operatorMode === 'live' || operatorMode === 'internal' ? ['demo', 'live'] : ['demo'];
 }
 
 /**
@@ -132,10 +103,11 @@ export interface OperatorInfo {
 }
 
 /**
- * Who is this key? Used by the Maths RGS panel to show the connected operator's
- * name, mode and remaining wallet funds. Returns null when the key resolves to no
- * operator (e.g. a platform session rather than an operator key), so the caller
- * can simply not render the detail line rather than handle an error.
+ * Who is this key? Its name, mode, currency and wallet funds — Publish reads the
+ * currency for the create-game form and credits maths commits to the name.
+ * Returns null when the key resolves to no operator (e.g. a platform session
+ * rather than an operator key), so the caller can fall back rather than handle
+ * an error.
  */
 export async function fetchOperatorInfo(apiKey: string): Promise<OperatorInfo | null> {
   const res = await fetch(`${XRGS_URL}/maths-deployer`, {
@@ -155,8 +127,8 @@ export async function fetchOperatorInfo(apiKey: string): Promise<OperatorInfo | 
 
 /**
  * The games this key can see (maths-deployer `list-games`), each with its
- * lifecycle `status` and money `mode` — the list the Maths RGS panel's game
- * picker shows.
+ * lifecycle `status` and money `mode` — the list Publish's game step
+ * (ReleaseSetup) offers.
  */
 export async function listGames(apiKey: string): Promise<any[]> {
   const res = await fetch(`${XRGS_URL}/maths-deployer`, {
@@ -169,14 +141,6 @@ export async function listGames(apiKey: string): Promise<any[]> {
     throw new Error(data?.error || `Could not list games (HTTP ${res.status})`);
   }
   return data.games || [];
-}
-
-/** Format a cents amount for display, e.g. 100000000 → "$1,000,000.00". */
-export function formatOperatorFunds(cents: number | null | undefined, currency = 'USD'): string {
-  if (cents === null || cents === undefined) return '—';
-  const symbols: Record<string, string> = { EUR: '€', USD: '$', GBP: '£' };
-  const amount = (cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `${symbols[currency] || currency + ' '}${amount}`;
 }
 
 // ─── The operator key at rest (G1-S14, 2026-11-03) ───────────────────────────
@@ -368,19 +332,15 @@ export function isRgsConnected(): boolean {
 }
 
 /**
- * The game selected in the Maths RGS panel. This is the single source of truth
- * shared by the panel and the Deploy flow: the panel (via __xrgs.setActiveGame)
- * and the AI (via the EditorBridge's xrgs.setActiveGame) both write it through
- * setActiveGame below into `xgenia_rgs_settings.activeGame`, and the Deploy
- * popup reads it here to show the backend target game.
+ * The game this project releases as. This is the single source of truth shared
+ * by Publish, the Maths panel and the AI: Publish (ReleaseSetup) and the AI (via
+ * the EditorBridge's xrgs.setActiveGame, or __xrgs.setActiveGame) write it through
+ * setActiveGame below into `xgenia_rgs_settings.activeGameByProject`, and the
+ * Publish popup and the Maths panel read it here.
  *
  * Every write MUST go through setActiveGame: it is what emits `rgs.gameSelected`.
  * The Publish popup is always mounted, so a write that skips the event leaves it
  * showing the previous game until it happens to re-render.
- *
- * NOTE: this replaced the old, separate `xgenia_selected_game` key
- * (getSelectedGame/setSelectedGame below), which the panel never actually wrote —
- * so the Deploy flow read a stale leftover value and deployed to the wrong game.
  */
 /**
  * (2026-11-01) The selection is kept PER PROJECT. It used to be one value for the whole editor, so a
@@ -424,32 +384,4 @@ export function setActiveGame(game: SelectedGame | null): void {
   const { activeGame: _dropped, ...rest } = cur;
   localStorage.setItem(RGS_SETTINGS_KEY, JSON.stringify({ ...rest, activeGameByProject: byProject }));
   EventDispatcher.instance.emit('rgs.gameSelected', game);
-}
-
-/**
- * @deprecated Superseded by getActiveGame/setActiveGame. Kept only so any older
- * code paths still compile; the `xgenia_selected_game` key is no longer written
- * or read by the panel or the Deploy flow.
- */
-export function setSelectedGame(game: SelectedGame | null): void {
-  if (!game) {
-    localStorage.removeItem(SELECTED_GAME_KEY);
-  } else {
-    localStorage.setItem(SELECTED_GAME_KEY, JSON.stringify(game));
-  }
-  EventDispatcher.instance.emit('rgs.gameSelected', game);
-}
-
-/** @deprecated Use getActiveGame. */
-export function getSelectedGame(): SelectedGame | null {
-  try {
-    const raw = localStorage.getItem(SELECTED_GAME_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed?.id) return parsed;
-    }
-  } catch {
-    /* ignore */
-  }
-  return null;
 }

@@ -1,23 +1,11 @@
-import { useModernModel } from '@xgenia-hooks/useModel';
 import React, { useState, useEffect, useReducer } from 'react';
-import { filesystem } from '@xgenia/platform';
-import * as os from 'os';
 
-import { CloudService } from '@xgenia-models/CloudServices';
 import { ProjectModel } from '@xgenia-models/projectmodel';
-import { projectFromDirectory } from '@xgenia-models/projectmodel.editor';
 import { PublishState } from '@xgenia-models/publishstate';
-import { createEditorCompilation } from '@xgenia-utils/compilation/compilation.editor';
-import * as Exporter from '@xgenia-utils/exporter';
-// Publishing no longer compiles or deploys logic: Math Components are compiled and
-// deployed as backend components from the Maths RGS panel, so this tab only wires
-// the frontend to their live endpoints (see deployToRgsAndVercel).
-// compileProject / generateFunctionArtifact / createEdgeDeployment /
-// deployEdgeFunction are therefore unused here now, and kept imported alongside the
-// retained ComponentSetupDialog helpers so that flow is one edit away.
-import { compileProject } from '@xgenia-utils/compile';
-import { generateFunctionArtifact } from '@xgenia-utils/rgs/generateFunctionArtifact';
-import { createEdgeDeployment, deployEdgeFunction, deleteEdgeDeployment } from '@xgenia-utils/rgs/deployEdgeFunction';
+// Publishing does not compile or deploy logic itself: changed Math Components are
+// deployed as backend components first (deployChangedMathsComponents), and the
+// frontend is wired to their live endpoints (publishGameToWeb).
+import { deleteEdgeDeployment } from '@xgenia-utils/rgs/deployEdgeFunction';
 import { getRgsSettings, getActiveGame, isRgsConnected } from '@xgenia-utils/rgs/rgsClient';
 import { isPreviewPickerAvailable, pickUiElementFromPreview } from '@xgenia-utils/rgs/pickUiElement';
 import {
@@ -48,7 +36,6 @@ import {
 } from '@xgenia-utils/publish/deployedDomains';
 import {
   checkPublishDomain,
-  deployBuiltFiles,
   describeRegistration,
   describeWiring,
   publishGameToWeb,
@@ -58,20 +45,14 @@ import {
 } from '@xgenia-utils/publish/publishGame';
 import { PublishRoute } from '@xgenia-utils/publish/publishRoute';
 import { WebPublishError } from '@xgenia-utils/publish/webPublishClient';
-import {
-  XGENIA_VERCEL_TEAM,
-  checkDomainAvailability,
-  collectProjectFiles
-} from '@xgenia-utils/publish/webDeploy';
+import { XGENIA_VERCEL_TEAM, checkDomainAvailability } from '@xgenia-utils/publish/webDeploy';
 
 import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
-import { Select } from '@xgenia-core-ui/components/inputs/Select';
 import { PopupSection } from '@xgenia-core-ui/components/popups/PopupSection';
 import { Text } from '@xgenia-core-ui/components/typography/Text';
 import { TextType } from '@xgenia-core-ui/components/typography/Text/Text';
 import { TextInput } from '@xgenia-core-ui/components/inputs/TextInput';
 
-import { NodeGraphContextTmp } from '@xgenia-contexts/NodeGraphContext/NodeGraphContext';
 import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
 
 import { ToastLayer } from '../../../ToastLayer/ToastLayer';
@@ -80,16 +61,9 @@ import { IconName, IconSize } from '@xgenia-core-ui/components/common/Icon';
 import { ContextMenu } from '@xgenia-core-ui/components/popups/ContextMenu';
 import { MathsComplianceDocumentProvider } from '../../../documents/MathsComplianceDocument';
 import { useDeployContext } from '../../DeployPopup.context';
-import {
-  ComponentSetupDialog,
-  ComponentSetupChoice,
-  ComponentSetupItem
-} from '../../ComponentSetupDialog';
 import { DeployTelemetryDialog } from '../../DeployTelemetryDialog';
-import { NO_ENVIRONMENT_VALUE, RGS_ENVIRONMENT_VALUE } from '../../DeployPopup.constants';
-import { useEnvironmentsAsOptions } from '../../DeployPopup.hooks';
 import { useAuth } from '../../../../context/AuthContext';
-import { ConnectionStore, ServiceName } from '../../../../services/ConnectionStore';
+import { ConnectionStore } from '../../../../services/ConnectionStore';
 import { RgsCertifyPanel, RgsReleaseSetup } from '../../ReleaseSetup/ReleaseSetup';
 
 // The publish pipeline itself — the GitHub/Vercel calls, the RGS wiring and the
@@ -103,35 +77,6 @@ import { RgsCertifyPanel, RgsReleaseSetup } from '../../ReleaseSetup/ReleaseSetu
 // resolvePublishRoute fall back to the shared token (with a console warning).
 
 /**
- * Port names in an example payload whose value is a JS number.
- *
- * The RGS side has no stored port types — it infers each port's type from the
- * `typeof` of its example value (see test.tsx `portTypeOf`), and only numeric
- * ports can be a bet or a win. Mirroring that rule here keeps the choices this
- * popup offers identical to the ones RGS Testing will show.
- */
-function numericPortNames(example: Record<string, any> | undefined | null): string[] {
-  if (!example || typeof example !== 'object') return [];
-  return Object.keys(example).filter((key) => typeof example[key] === 'number');
-}
-
-/**
- * Last path segment of a component's name — "/Components/Keno Dynasty" →
- * "Keno Dynasty".
- *
- * Component names are folder paths, so the segments in front are where the user
- * filed it, not what it is called. Returns '' for a missing or all-slashes name,
- * which callers treat as "no name to use".
- */
-function leafComponentName(componentName: string | undefined | null): string {
-  const segments = String(componentName || '')
-    .split('/')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return segments.length ? segments[segments.length - 1] : '';
-}
-
-/**
  * A site in the list that an older editor published with the shared Vercel token.
  * XGENIA RGS did not publish it, so it does not own it and will not touch it.
  */
@@ -142,66 +87,19 @@ const OLDER_EDITOR_SITE = (name: string, verb: 'rename' | 'delete') =>
 
 export function XgeniaDeployTab() {
   const { closePopup } = useDeployContext();
-  const cloudService = useModernModel(CloudService.instance);
-  // Always offer "XGENIA RGS" here so the user can pick it and get a clear
-  // "connect first" error when no operator key is set (see rgsError below).
-  // Feeds only the commented-out picker below; kept so restoring it is a pure
-  // uncomment.
-  const environmentOptions = useEnvironmentsAsOptions(cloudService, { alwaysIncludeRgs: true });
   const { user } = useAuth();
 
-  // ── PUBLISH TARGET — PINNED TO XGENIA RGS (2026-08-06) ────────────────
-  //
-  // This is not a preference. `onDeployToVercelClicked` branches on it, so it
-  // chooses which of two publish routines runs:
-  //
-  //   RGS_ENVIRONMENT_VALUE → deployToRgsAndVercel: duplicate the project, swap
-  //     every deployed Math Component instance for an Aggregator on its live
-  //     /rgs-fn/<game>/<slug> endpoint, repoint stale ones, stamp `rgsgame`,
-  //     then build. This is the only path that connects the published frontend
-  //     to the backend components.
-  //   anything else → the generic path, which bakes in a cloudService.backend
-  //     environment and does NONE of that wiring.
-  //
-  // Now that Math Components ARE the backend — deployed from the Maths RGS panel,
-  // living in game_edge_functions, already integrated — the second path can only
-  // ever be the wrong answer for this tab, so the picker below is commented out
-  // and this defaults to RGS.
-  //
-  // IT HAD TO DEFAULT HERE, not just be hidden. The old initial value was
-  // NO_ENVIRONMENT_VALUE, so hiding the dropdown on its own would have sent every
-  // Publish down the generic path: no Aggregator swap, no `rgsgame` stamp, and a
-  // published game whose maths silently runs in the player's browser while the
-  // deployed endpoints sit there uncalled. That failure is invisible — the build
-  // succeeds and the page loads.
-  //
-  // Note the two paths are already mutually exclusive: deployToRgsAndVercel calls
-  // deployToFolder with `environment: undefined` and skips the built-in cloud
-  // -function pass outright, so picking a cloud service and picking RGS never did
-  // anything together. Choosing RGS always meant ignoring the cloud service.
-  //
-  // COST OF THIS, stated plainly: a project can no longer be published without an
-  // RGS operator key and a selected game — the Deploy button below stays disabled
-  // until both exist. To publish a frontend-only project again, or to target a
-  // cloudService.backend environment, uncomment the picker and restore
-  // NO_ENVIRONMENT_VALUE here.
-  const [environmentId, setEnvironmentId] = useState(RGS_ENVIRONMENT_VALUE);
-
   // ── XGENIA RGS backend target ──────────────────────────────────────────
-  // Which RGS game this frontend belongs to. Read from the Maths RGS panel, never
-  // picked here: a project's Math Components are deployed as backend components of
-  // ONE game, so that game is a fact about the project, not a publish-time choice.
-  // Offering a dropdown could only let the two disagree — publishing "to game B"
-  // while every endpoint baked into the build belongs to game A.
+  // Which RGS game this frontend belongs to: the project's game, chosen once in
+  // RgsReleaseSetup below (or by the AI). A project's Math Components are deployed
+  // as backend components of ONE game, so the game is a fact about the project.
   //
   // Read at render, like rgsConnected below — never held in state. The popup is
   // alwaysMounted, so a copy taken at mount kept showing the first game ever
-  // selected after the panel had switched to another one. Opening the popup
-  // re-renders this tab; while it is open, `rgs.gameSelected` (effect below)
-  // forces the re-render.
+  // selected after another one was chosen. Opening the popup re-renders this tab;
+  // while it is open, `rgs.gameSelected` (effect below) forces the re-render.
   const [, rerenderOnGameSelected] = useReducer((n: number) => n + 1, 0);
   const rgsGame = getActiveGame();
-  const rgsSelected = environmentId === RGS_ENVIRONMENT_VALUE;
   const rgsConnected = isRgsConnected();
   const [domainName, setDomainName] = useState('');
   const [isPrivate, setIsPrivate] = useState(true);
@@ -214,54 +112,6 @@ export function XgeniaDeployTab() {
   const [newDomainName, setNewDomainName] = useState('');
   const [domainError, setDomainError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-
-  // ── Post-compile component setup card ─────────────────────────────────
-  // Holds the pending "name your components / map bet + win" prompt. The deploy
-  // routine parks on the promise stored here while the user fills the card in.
-  const [setupRequest, setSetupRequest] = useState<{
-    items: ComponentSetupItem[];
-    resolve: (choices: Record<string, ComponentSetupChoice> | null) => void;
-  } | null>(null);
-
-  /** Show the setup card and resolve with the user's choices, or null if cancelled. */
-  function requestComponentSetup(items: ComponentSetupItem[]) {
-    return new Promise<Record<string, ComponentSetupChoice> | null>((resolve) => {
-      setSetupRequest({ items, resolve });
-    });
-  }
-
-  /**
-   * Reveal in the editor the component a compiled logic component came from.
-   *
-   * Deliberately targets the OPEN project, never the compiled copy: the copy's
-   * cloud components are flattened and machine-named (useless for recognising
-   * anything), and loading it would replace what the user is looking at. The
-   * source component is the one they recognise, it is still open, and compile
-   * left it untouched — so this is a pure navigation, no project swap.
-   *
-   * Node ids match because the copy is a byte-for-byte duplicate, so the exact
-   * nodes that became the edge function can be highlighted — ALL of them. A
-   * component's logic is routinely several roots, and each root a subtree, so
-   * highlighting one node would misrepresent what is being deployed.
-   */
-  function showSourceComponent(item: ComponentSetupItem): boolean {
-    try {
-      const project: any = ProjectModel.instance;
-      const comp = project?.getComponentWithName?.(item.sourceComponentName);
-      if (!comp) return false;
-      const switchTo = NodeGraphContextTmp?.switchToComponent;
-      if (typeof switchTo !== 'function') return false;
-
-      // Switch first with no `node` — passing one would single-select it and
-      // pan to it, which revealNodes is about to override anyway.
-      switchTo(comp, { pushHistory: true });
-      NodeGraphContextTmp.nodeGraph?.revealNodes?.(item.logicNodeIds);
-      return true;
-    } catch (e) {
-      console.warn('[Deploy] Could not reveal source component:', e);
-      return false;
-    }
-  }
 
   // ── Pre-deploy telemetry form ─────────────────────────────────────────
   // Holds the pending "which UI element is the bet / the win / the bet button"
@@ -322,9 +172,9 @@ export function XgeniaDeployTab() {
     return () => { unsub(); EventDispatcher.instance.off(group); };
   }, []);
 
-  // Follow the Maths RGS panel's game selection. Every write of it emits
-  // `rgs.gameSelected` (see rgsClient.setActiveGame), so a game chosen while this
-  // popup is open is reflected here rather than leaving a stale name on screen.
+  // Follow the game selection. Every write of it emits `rgs.gameSelected` (see
+  // rgsClient.setActiveGame), so a game chosen while this popup is open — here or
+  // by the AI — is reflected rather than leaving a stale name on screen.
   //
   // No games list is fetched any more: without a picker there is nothing to
   // populate, and the selection already carries the id, slug and name that
@@ -636,7 +486,7 @@ export function XgeniaDeployTab() {
     const apiKey = getRgsSettings()?.apiKey;
     if (!apiKey) {
       ToastLayer.showError(
-        'Connect to XGENIA RGS in the Maths RGS panel first — compliance documents are generated and stored there.'
+        'Sign in to XGENIA RGS above first — compliance documents are generated and stored there.'
       );
       return;
     }
@@ -707,7 +557,7 @@ export function XgeniaDeployTab() {
    * Never throws. By the time this runs the Vercel project is already gone, so a
    * backend that won't delete cannot be allowed to fail the whole operation —
    * it has to be reported instead, with the version named so it can be removed
-   * by hand from the Maths RGS panel.
+   * by hand (the domain stays listed for a retry, or the XRGS back office).
    */
   async function deleteRgsBackends(
     domain: DeployedDomain
@@ -722,8 +572,8 @@ export function XgeniaDeployTab() {
         ok: false,
         keepRecord: true,
         message:
-          ` Its XGENIA RGS backend (${backends.map(backendLabel).join(', ')}) was NOT deleted — not connected to` +
-          ` XGENIA RGS. Connect in the Maths RGS panel and delete again.`
+          ` Its XGENIA RGS backend (${backends.map(backendLabel).join(', ')}) was NOT deleted — not signed in to` +
+          ` XGENIA RGS. Sign in above and delete again.`
       };
     }
 
@@ -747,7 +597,7 @@ export function XgeniaDeployTab() {
         keepRecord: true,
         message:
           ` Its XGENIA RGS backend could not be deleted (${failures.join('; ')}).` +
-          ` Delete it from the Maths RGS panel — the domain stays listed so you can retry.`
+          ` The domain stays listed so you can retry, or delete the version in the XRGS back office.`
       };
     }
     const deleted = backends.map(backendLabel).join(', ');
@@ -870,8 +720,8 @@ export function XgeniaDeployTab() {
    */
   async function deployToRgsAndVercel(activityId: string, telemetry: CompleteTelemetryMapping) {
     const rgs = getRgsSettings();
-    // Which RGS game this frontend belongs to: the Maths RGS panel's selection,
-    // never a choice made here (see publishPreconditionError).
+    // Which RGS game this frontend belongs to: the project's game, chosen in
+    // RgsReleaseSetup (see publishPreconditionError).
     const game = getActiveGame();
     const precondition = publishPreconditionError(rgs, game);
     if (precondition) {
@@ -883,11 +733,10 @@ export function XgeniaDeployTab() {
       return;
     }
 
-    // Deploy the maths first, so Publish is one button. It used to be a separate
-    // trip to Maths RGS → Math Components → New version → Deploy → commit
-    // message; skipping it shipped the game with its maths running in the
-    // player's browser. Only changed components are deployed; a game whose
-    // maths already matches costs one comparison.
+    // Deploy the maths first, so Publish is one button. Skipping it shipped the
+    // game with its maths running in the player's browser. Only changed
+    // components are deployed; a game whose maths already matches costs one
+    // comparison.
     try {
       const maths = await deployChangedMathsComponents({
         onProgress: (step) => ToastLayer.showActivity(`Maths: ${step}`, activityId)
@@ -923,11 +772,11 @@ export function XgeniaDeployTab() {
         ToastLayer.showSuccess(`Deployed to Vercel — ${wiringText}.\nLive URL: ${userFriendlyDomain}`);
         setSuccessMessage(`Deployed to Vercel (${wiringText}). Live URL: ${userFriendlyDomain}`);
 
-        // No RGS backend reference is recorded any more: this publish did not
-        // create a Server Version, and the ones it calls are managed in the Maths
-        // RGS panel and may be shared by several frontends. Deleting this domain
-        // must not delete them — deleteRgsBackends already no-ops on a record with
-        // none, and records written by the old flow keep their links.
+        // No RGS backend reference is recorded any more: the Server Versions this
+        // publish calls belong to the game and may be shared by several frontends.
+        // Deleting this domain must not delete them — deleteRgsBackends already
+        // no-ops on a record with none, and records written by the old flow keep
+        // their links.
         saveDeployedDomain(viaRgs ? project : domainName.trim(), deploymentId, liveUrl, undefined, viaRgs ? { project, site } : undefined);
         if (showDeployedDomains) await fetchDeployedDomains();
       }
@@ -993,113 +842,17 @@ export function XgeniaDeployTab() {
       const availability = await checkPublishDomain(publishRoute, domainName.trim());
       if (!availability.available) {
         ToastLayer.hideActivity(activityId);
-        // Same family as the two RGS guards below: an early return inside this try
-        // never reaches the outer catch, so the publish state has to be closed here
-        // or the Publish button spins forever on a refused name.
+        // Same family as the precondition guard in deployToRgsAndVercel: an early
+        // return inside this try never reaches the outer catch, so the publish state
+        // has to be closed here or the Publish button spins forever on a refused name.
         const unavailableMessage = availability.message || domainUnavailableMessage(domainName.trim(), availability.reason);
         PublishState.fail(unavailableMessage);
         setDomainError(unavailableMessage);
         return;
       }
 
-      // ── XGENIA RGS path ──────────────────────────────────────────────
-      // Compile → deploy each logic component as a per-game RGS edge function →
-      // point each Aggregator node at its deployed URL → Vercel-deploy ONLY the
-      // UI (visual components + Aggregators). Logic and UI become decoupled,
-      // talking over HTTPS REST.
-      if (environmentId === RGS_ENVIRONMENT_VALUE) {
-        await deployToRgsAndVercel(activityId, telemetry);
-        return;
-      }
-
-      // Step 1: Compile and prepare project
-      ToastLayer.showActivity('Step 1/4: Compiling project...', activityId);
-
-      // Create a temporary directory for deployment using os.tmpdir() approach
-      const tempDir = filesystem.join(os.tmpdir(), `xgenia-deploy-${Date.now()}`);
-      await filesystem.makeDirectory(tempDir);
-
-      try {
-        // Use the same compilation process as self-hosting
-        const compilation = createEditorCompilation(ProjectModel.instance)
-          .addProjectBuildScripts()
-          .addBuildScript({
-            async onPreBuild() {
-              console.log('Pre-build started for Vercel deployment');
-            },
-            async onPostBuild({ status }) {
-              if (status === 'success') {
-                console.log('Build completed successfully');
-              } else {
-                console.error('Build failed');
-              }
-            }
-          });
-
-        const environment = cloudService.backend.items.find((x) => x.id === environmentId);
-
-        // Deploy to temporary folder first
-        await compilation.deployToFolder(tempDir, {
-          environment
-        });
-
-        // Collect all files from the temporary directory
-        const files = await collectProjectFiles(tempDir);
-
-        if (files.length === 0) {
-          throw new Error('No files were generated during deployment');
-        }
-
-        // Through XGENIA RGS /web-publish, or the old token path on a platform
-        // that predates it (deployBuiltFiles) — never a token held here otherwise.
-        ToastLayer.showActivity('Step 4/4: Deploying...', activityId);
-        const deployed = await deployBuiltFiles(
-          publishRoute,
-          files,
-          domainName.trim(),
-          (step) => ToastLayer.showActivity(step, activityId),
-          (message) => ToastLayer.showError(message)
-        );
-        const { deploymentId, aliasUrl } = deployed;
-        const viaRgs = publishRoute.kind === 'rgs';
-        PublishState.succeed(aliasUrl);
-
-        ToastLayer.hideActivity(activityId);
-        const userFriendlyDomain = aliasUrl.replace(/^https?:\/\//, '');
-        ToastLayer.showSuccess(`Successfully deployed to Vercel!\nLive URL: ${userFriendlyDomain}\n(Domain may take a few minutes to become active)`);
-        setSuccessMessage(`Successfully deployed to Vercel. Live URL: ${userFriendlyDomain}`);
-
-        // Save deployed domain to local storage
-        saveDeployedDomain(
-          viaRgs ? deployed.project : domainName.trim(),
-          deploymentId,
-          aliasUrl,
-          undefined,
-          viaRgs ? { project: deployed.project, site: deployed.site } : undefined
-        );
-
-        // Refresh the deployed domains list if it's currently visible
-        if (showDeployedDomains) {
-          await fetchDeployedDomains();
-        }
-
-        // Clean up temporary directory
-        try {
-          filesystem.removeDirRecursive(tempDir);
-        } catch (cleanupError) {
-          console.warn('Failed to clean up temporary directory:', cleanupError);
-        }
-
-      } catch (deployError) {
-        // Clean up temporary directory on error
-        try {
-          filesystem.removeDirRecursive(tempDir);
-        } catch (cleanupError) {
-          console.warn('Failed to clean up temporary directory after error:', cleanupError);
-        }
-        throw deployError;
-      }
-
+      // Deploy changed maths, wire the frontend to its live endpoints, publish.
+      await deployToRgsAndVercel(activityId, telemetry);
     } catch (error: any) {
       PublishState.fail(error?.message || String(error));
       ToastLayer.hideActivity(activityId);
@@ -1118,18 +871,14 @@ export function XgeniaDeployTab() {
           Publish your game
         </Text>
 
-        {/* Sign in and choose the game right here — Publish used to send people to
-            the Maths RGS panel for both, where the controls are hidden by default.
-            GitHub/Vercel are not the studio's to connect: XGENIA RGS provides
-            the hosting, so that panel is gone from this tab. */}
-        {rgsSelected && (
-          <RgsReleaseSetup
-            projectName={String((ProjectModel.instance as any)?.name || '')}
-            onChanged={() => { rerenderOnGameSelected(); void reloadCredentials(); }}
-          />
-        )}
+        {/* Sign in and choose the game right here. GitHub/Vercel are not the
+            studio's to connect: XGENIA RGS provides the hosting. */}
+        <RgsReleaseSetup
+          projectName={String((ProjectModel.instance as any)?.name || '')}
+          onChanged={() => { rerenderOnGameSelected(); void reloadCredentials(); }}
+        />
 
-        {(!rgsSelected || (rgsConnected && rgsGame?.id)) && (<>
+        {rgsConnected && rgsGame?.id && (<>
         <TextInput
           label="Domain Name"
           value={domainName}
@@ -1151,53 +900,10 @@ export function XgeniaDeployTab() {
           </Text>
         )}
 
-        {/* Connected cloud services — COMMENTED OUT (2026-08-06), deliberately kept
-            rather than deleted.
-
-            There is nothing left for it to choose. The backend of an XGENIA project
-            is now its Math Components, deployed to a game from the Maths RGS panel;
-            by the time anyone opens this popup they are already deployed, already
-            integrated, and the publish routine only has to point the frontend at
-            them. This dropdown's other options — "No cloud service" and any
-            cloudService.backend environment — all route to a publish that skips that
-            wiring entirely, so every one of them was a way to ship a broken game.
-
-            The target is pinned to XGENIA RGS at the `environmentId` useState above;
-            read the note there before touching either. Restoring this is a pure
-            uncomment PLUS putting NO_ENVIRONMENT_VALUE back as the initial value —
-            uncommenting alone leaves the dropdown showing "XGENIA RGS" preselected,
-            which is harmless, but restoring the initial value without uncommenting
-            is the silent-breakage case.
-
-            The cloud-service picker still exists on the other two deploy tabs
-            (DeployToFolderTab, DeployToStakeTab), so the feature is not gone from
-            the editor — only from the path that publishes to XGENIA RGS. */}
-        {/*
-        {environmentOptions.length > 1 && (
-          <Select
-            options={environmentOptions}
-            onChange={(value: string) => setEnvironmentId(value)}
-            placeholder="No cloud services"
-            value={environmentId}
-            label="Connected cloud services"
-            hasBottomSpacing
-          />
-        )}
-        */}
-
-        {/* XGENIA RGS. There is no "Target game" picker here any more: the game is
-            wherever the project's Math Components were deployed, which is chosen
-            once in the Maths RGS panel. Publishing reads that, so it can never
-            build a frontend for game B out of endpoints belonging to game A. Shown
-            read-only so it is still obvious what is about to be published. */}
         <PrimaryButton
           label={isDeploying ? 'Publishing…' : 'Publish'}
           onClick={onDeployToVercelClicked}
-          isDisabled={
-            isDeploying ||
-            !domainName.trim() ||
-            (rgsSelected && (!rgsConnected || !rgsGame?.id))
-          }
+          isDisabled={isDeploying || !domainName.trim() || !rgsConnected || !rgsGame?.id}
         />
         {isCompleteMapping(storedTelemetryMapping(ProjectModel.instance as any)) && (
           <Text style={{ marginTop: '6px', fontSize: '11px', color: '#888' }}>
@@ -1211,7 +917,7 @@ export function XgeniaDeployTab() {
           </Text>
         )}
 
-        {rgsSelected && <RgsCertifyPanel />}
+        <RgsCertifyPanel />
         </>)}
 
         <div style={{ marginTop: '12px' }}>
@@ -1385,7 +1091,7 @@ export function XgeniaDeployTab() {
                                   icon: IconName.File,
                                   tooltip: isRgsConnected()
                                     ? 'Compliance documents for this deployed game — generated on XGENIA RGS from its whole uploaded source'
-                                    : 'Connect to XGENIA RGS in the Maths RGS panel first',
+                                    : 'Sign in to XGENIA RGS above first',
                                   isDisabled: !isRgsConnected() || deletingDomains.has(domain.id),
                                   onClick: () => openCompliance(domain)
                                 },
@@ -1453,31 +1159,6 @@ export function XgeniaDeployTab() {
           }}
         />
       )}
-
-      {/* Post-compile setup card — REPLACED.
-          Belonged to the compile-and-deploy publish flow: it asked the user to name
-          each extracted logic component and map its bet/win ports. Publishing no
-          longer compiles or deploys anything, so nothing sets `setupRequest`.
-          Commented out with the flow itself; a Math Component is named by the user
-          in the component tree, and its bet/win mapping is set on the platform.
-
-      {setupRequest && (
-        <ComponentSetupDialog
-          items={setupRequest.items}
-          onShowComponent={showSourceComponent}
-          onConfirm={(choices) => {
-            const { resolve } = setupRequest;
-            setSetupRequest(null);
-            resolve(choices);
-          }}
-          onCancel={() => {
-            const { resolve } = setupRequest;
-            setSetupRequest(null);
-            resolve(null);
-          }}
-        />
-      )}
-      */}
     </>
   );
 }

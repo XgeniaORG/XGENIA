@@ -1,18 +1,17 @@
-// Math Components → Deploy, for a caller without the Maths RGS panel (the AI's
-// `publish.start` with kind 'maths').
+// Math Components → Deploy: the one way maths reaches XGENIA RGS from the editor.
+// Publish runs it before every publish, and the AI's `publish.start` with kind
+// 'maths' runs it on its own.
 //
-// Same building blocks as the panel's Deploy (MathsPanel
-// handleDeployMathsComponents): compare the project against what is deployed
-// (loadMathsStatus), deploy only what changed (deployMathsComponents with
-// onlySlugs), then record the commit (commitFilesForDeploy + createComponentCommit).
+// Compare the project against what is deployed (loadMathsStatus), deploy only
+// what changed (deployMathsComponents with onlySlugs), then record the commit
+// (commitFilesForDeploy + createComponentCommit).
 //
-// Two deliberate differences:
-//   * The target is the active game's NEWEST Server Version — the panel's own
-//     default — because there is no row for the AI to click. A game with no
-//     version yet gets one, named after the project, as "＋ New version" would.
+//   * The target is the active game's NEWEST Server Version. A game with no
+//     version yet gets one, named after the project.
 //   * It NEVER deletes. A component removed from the project stays live on RGS
 //     and is reported in `notDeleted`: taking an endpoint offline can break a
-//     game already in the wild, so that stays a human action in the panel.
+//     game already in the wild, so that stays a deliberate human action in the
+//     XRGS back office.
 
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
@@ -37,8 +36,8 @@ export interface ServerVersionRef {
 }
 
 /**
- * The game's newest Server Version, or null when it has none — the one the
- * Maths RGS panel's Deploy targets until the user clicks another row.
+ * The game's newest Server Version, or null when it has none — the one a deploy
+ * targets and the Maths panel's Deployed tab shows.
  */
 export async function newestServerVersion(apiKey: string, gameId: string): Promise<ServerVersionRef | null> {
   const deployments = await listEdgeDeployments(apiKey, gameId);
@@ -84,8 +83,8 @@ export interface ChangedMathsDeployResult {
 }
 
 const NOT_DELETED_NOTE =
-  'removed from the project but still live on XGENIA RGS — deleting a deployed component is left to you: ' +
-  'Maths RGS panel → Math Components → Deploy applies removals.';
+  'removed from the project but still live on XGENIA RGS — deleting a deployed component is left to you, ' +
+  'in the XRGS back office (the game’s Versions).';
 
 function refOf(status: MathsComponentStatus): MathsComponentRef {
   return { name: status.displayName, slug: status.slug, ...(status.url ? { endpoint: status.url } : {}) };
@@ -143,8 +142,8 @@ export async function deployChangedMathsComponents(
   let created = false;
   if (!target) {
     progress('Creating a server version…');
-    // Named after the open project, same as the panel's "＋ New version", so
-    // the version is recognisable in the RGS studio's Versions tab.
+    // Named after the open project, so the version is recognisable in the RGS
+    // studio's Versions tab.
     const fresh = await createEmptyServerVersion(rgs.apiKey, game.id, project.name || game.name || 'Server Version');
     target = { deploymentId: fresh.deploymentId, version: fresh.version };
     created = true;
@@ -199,7 +198,7 @@ export async function deployChangedMathsComponents(
   let commit: ChangedMathsDeployResult['commit'];
   try {
     progress('Recording commit…');
-    // The panel credits the connected operator; so does this, when it can say who that is.
+    // Credit the connected operator, when it can say who that is.
     const author = await fetchOperatorInfo(rgs.apiKey)
       .then((info) => info?.name || undefined)
       .catch((): undefined => undefined);
@@ -219,9 +218,9 @@ export async function deployChangedMathsComponents(
     warnings.push(`The components are live, but ${error} — only the history entry is missing.`);
   }
 
-  // Said out loud for the same reasons the panel says them: a live backend with
-  // no readable graph stored, one that sees a stake of 0 until its bet/win
-  // mapping is set, and nodes that do nothing on the server.
+  // Said out loud: a live backend with no readable graph stored, one that sees
+  // a stake of 0 until its bet/win mapping is set, and nodes that do nothing on
+  // the server.
   results.forEach((r) => {
     if (!r.projectUploaded) warnings.push(`${r.functionName}: project.json upload failed: ${r.projectError || 'unknown error'}`);
     if (r.betWinWarning) warnings.push(r.betWinWarning);
@@ -229,7 +228,7 @@ export async function deployChangedMathsComponents(
     (r.platformWarnings || []).forEach((w) => warnings.push(w));
   });
 
-  // The Maths RGS panel re-reads versions, what is deployed and the commits.
+  // The Maths panel re-reads what is deployed; Publish re-reads its state.
   EventDispatcher.instance.emit(MATHS_DEPLOYED_ELSEWHERE, { gameId: game.id, deploymentId: target.deploymentId });
 
   return {
