@@ -293,8 +293,6 @@ export async function checkPublishName(input: unknown) {
 
 export interface PublishStartSpec {
   kind: 'maths' | 'game';
-  /** kind 'maths': the commit message. */
-  commitMessage?: string;
   /** kind 'maths': recompile and redeploy unchanged components too (deployChangedMathsComponents). */
   redeployAll?: boolean;
   /** kind 'game': the subdomain — "my-game" of my-game.vercel.app. */
@@ -397,14 +395,14 @@ async function runGameJob(
 }
 
 /** A Math Components deploy: the panel's Deploy, without deletions. */
-async function runMathsJob(commitMessage: string | undefined, progress: (text: string) => void, redeployAll = false) {
+async function runMathsJob(progress: (text: string) => void, redeployAll = false) {
   const show = (step: string) => {
     progress(step);
     ToastLayer.showActivity(step, MATHS_ACTIVITY_ID);
   };
   try {
     show('Deploying Math Components...');
-    const result = await deployChangedMathsComponents({ commitMessage, onProgress: show, redeployAll });
+    const result = await deployChangedMathsComponents({ onProgress: show, redeployAll });
     ToastLayer.hideActivity(MATHS_ACTIVITY_ID);
     ToastLayer.showSuccess(`Math Components — ${result.message}`);
     if (result.warnings.length > 0) ToastLayer.showError(result.warnings.join('\n'));
@@ -445,7 +443,7 @@ export function startPublish(spec: PublishStartSpec | null | undefined): Publish
   if (precondition) return { error: precondition };
 
   if (kind === 'maths') {
-    return jobs.start('maths', (progress) => runMathsJob(spec.commitMessage, progress, spec.redeployAll === true));
+    return jobs.start('maths', (progress) => runMathsJob(progress, spec.redeployAll === true));
   }
 
   const { name, error } = normalizeDomainName(spec.name);

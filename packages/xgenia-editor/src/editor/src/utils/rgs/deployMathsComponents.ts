@@ -350,15 +350,6 @@ export interface MathsDeployResult {
    * production build strips console output, so nobody ever saw them.
    */
   platformWarnings?: string[];
-  /**
-   * Exactly what was sent to the platform — the compiled script and the authored
-   * graph. Returned so the caller can snapshot this deploy into a commit without
-   * compiling everything a second time, and without re-reading it back over the
-   * network (which would record whatever is live at THAT moment, not what this
-   * deploy pushed).
-   */
-  script: string;
-  projectJson: Record<string, any>;
 }
 
 export interface MathsDeployOptions {
@@ -370,11 +361,10 @@ export interface MathsDeployOptions {
   /**
    * Deploy only these slugs, instead of every Math Component in the project.
    *
-   * This is how Deploy became a commit: only components that differ from what is
-   * deployed are pushed. Re-uploading an identical component would put a
-   * duplicate snapshot in the history and make every commit look like it touched
-   * the whole project. Omitted (or empty) deploys everything, which is what the
-   * button did before and what a first deploy still needs.
+   * deployChangedMathsComponents passes the components that differ from what is
+   * deployed (or all of them, for `redeployAll`), so an unchanged component is
+   * not recompiled and re-uploaded. Omitted (or empty)
+   * deploys everything, which is what a first deploy needs.
    */
   onlySlugs?: Set<string>;
   /** Progress line for the panel, e.g. "Compiling SlotMaths (1/3)…". */
@@ -552,9 +542,7 @@ export async function deployMathsComponents(
       winOutputPort: mapBoth ? winOutputPort : null,
       betWinWarning,
       unsupportedNodeWarning,
-      platformWarnings: platformWarningsFor(label, rewrites, rng),
-      script: artifact.script,
-      projectJson
+      platformWarnings: platformWarningsFor(label, rewrites, rng)
     });
   }
 

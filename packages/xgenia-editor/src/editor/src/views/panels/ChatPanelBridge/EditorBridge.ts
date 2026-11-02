@@ -3293,7 +3293,7 @@ export class EditorBridge {
         //                                               deployedDomains[{name, url, deploymentId, …}], … }
         //   publish.checkName([name])               → { valid, available (null = could not tell), url, reason?,
         //                                               republish? (this editor's own earlier publish of it) }
-        //   publish.start([{ kind: 'maths', commitMessage? }])
+        //   publish.start([{ kind: 'maths', redeployAll? }])
         //   publish.start([{ kind: 'game', name, telemetry?: { betInput?, winOutput?, betButton? }, isPrivate? }])
         //                                           → { jobId, kind, startedAt } | { error, unresolved?, candidates? }
         //   publish.job([jobId?])                   → { jobId, kind, state, step, steps, startedAt, finishedAt?,

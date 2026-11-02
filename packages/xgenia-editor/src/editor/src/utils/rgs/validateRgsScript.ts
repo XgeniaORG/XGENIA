@@ -1,22 +1,23 @@
-// Pre-flight validation for a hand-edited RGS component script, run before it
-// is redeployed over a live edge function — and, via findBlockedConstructs, to
-// tell an author why Simulate will not run their component.
+// The editor's mirror of XGENIA RGS's script sandbox blocklist: which constructs
+// in a generated RGS component script the platform will refuse, by name and line.
 //
 // The RGS side compiles every stored script through `compileScript`
 // (supabase/functions/_shared/script-sandbox.ts) on each request — but only at
 // *execution* time. A script that trips a sandbox rule therefore deploys fine
-// and then fails on the next round, with nothing surfaced in the editor. These
-// checks mirror the server's rules so the user is told at redeploy time.
+// and then fails on the next round. findBlockedConstructs names the construct
+// up front; xgenia-runtime's compiler parity checks (test-rgs-pass-loop,
+// test-slot-feature-parity) run every generated script through it.
 //
-// Keep BLOCKED_PATTERNS and MAX_SCRIPT_SIZE in sync with script-sandbox.ts —
-// there are three copies (there, here, and XRGS apps/studio/lib). They had
-// drifted: this one was missing `Math.random`, `crypto.getRandomValues` and
-// `crypto.randomUUID`, which is how a script that the live endpoint refuses
-// outright could still be saved from the editor without a word of warning.
-// 39 of the 125 currently deployed components call Math.random.
-
-// Mirrors MAX_SCRIPT_SIZE in script-sandbox.ts.
-const MAX_SCRIPT_SIZE = 256 * 1024;
+// (2026-11-02) The redeploy pre-flight that also lived here, validateRgsScript()
+// with its size limit, went with the Maths panel's deployed-script editor — its
+// only caller.
+//
+// Keep BLOCKED_PATTERNS in sync with script-sandbox.ts — there are three copies
+// (there, here, and XRGS apps/studio/lib). They had drifted: this one was
+// missing `Math.random`, `crypto.getRandomValues` and `crypto.randomUUID`, which
+// is how a script that the live endpoint refuses outright could still be saved
+// from the editor without a word of warning. 39 of the 125 currently deployed
+// components call Math.random.
 
 export interface BlockedPattern {
   re: RegExp;
@@ -137,50 +138,4 @@ export function findBlockedConstructs(script: string): BlockedConstruct[] {
   }
 
   return found;
-}
-
-export interface ScriptValidationResult {
-  ok: boolean;
-  error?: string;
-}
-
-/**
- * Checks an edited script for the three failures that would otherwise only show
- * up as a broken live endpoint: a syntax error, an oversized body, or a
- * sandbox-blocked API.
- *
- * Scripts are function *bodies* with a top-level `return`, so syntax is checked
- * by constructing `new Function('ctx', script)` — the same check the Maths panel
- * runs before its own upload. Constructing it does not execute it.
- */
-export function validateRgsScript(script: string): ScriptValidationResult {
-  if (!script || !script.trim()) {
-    return { ok: false, error: 'Script is empty.' };
-  }
-
-  if (script.length > MAX_SCRIPT_SIZE) {
-    return {
-      ok: false,
-      error: `Script is ${Math.round(script.length / 1024)} KB — the RGS sandbox rejects anything over ${MAX_SCRIPT_SIZE / 1024} KB.`
-    };
-  }
-
-  const blocked = findBlockedConstructs(script);
-  if (blocked.length > 0) {
-    const first = blocked[0];
-    const where = first.line > 0 ? ` (line ${first.line})` : '';
-    return {
-      ok: false,
-      error: `Script uses ${first.label}${where}, which the RGS sandbox blocks — ${first.reason}. Remove it before redeploying.`
-    };
-  }
-
-  try {
-    // eslint-disable-next-line no-new-func
-    new Function('ctx', normaliseScript(script));
-  } catch (e: any) {
-    return { ok: false, error: `Syntax error: ${e?.message || 'script could not be parsed'}` };
-  }
-
-  return { ok: true };
 }

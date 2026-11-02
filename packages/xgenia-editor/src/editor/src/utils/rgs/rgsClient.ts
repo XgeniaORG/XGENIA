@@ -43,33 +43,6 @@ export function rgsHeaders(apiKey: string): Record<string, string> {
 }
 
 /**
- * May this key EDIT and REDEPLOY an already-deployed component's script (the
- * Maths RGS panel → Deployed Functions → a component → "Deployed script" editor)?
- *
- * Every mode may, as of 2026-08-05. This used to be internal-only, on the reading
- * that overwriting a deployed component is a platform operation rather than an
- * operator one. Two things changed:
- *
- *   * Overwriting is now the ORDINARY path. "Maths Components → Deploy" re-deploys
- *     an edited component into the same Server Version under the same slug, so a
- *     mode gate here meant a demo or live key could deploy a component once and
- *     then never edit it again.
- *   * The server-side gate it mirrored is gone too (maths-deployer's withdrawn
- *     deployed-script write guard). Leaving this one would only make the editor
- *     refuse what the backend now accepts.
- *
- * Scope is enforced by OWNERSHIP instead: maths-deployer's assertGameAccess
- * refuses any game the caller does not own, so a key can only ever reach
- * components of its own games — which is the property that actually matters.
- *
- * Kept as a function rather than inlined so restoring the gate is a one-line
- * change, and so callers keep threading the operator mode they already resolve.
- */
-export function canEditDeployedScript(_operatorMode: string | null | undefined): boolean {
-  return true;
-}
-
-/**
  * Sign in to XGENIA RGS with an email code (see rgsSignIn.ts for why this replaced
  * the self-serve create_operator RPC). The first sign-in creates the studio's own
  * organisation and demo operator; later ones find them again.
@@ -104,7 +77,7 @@ export interface OperatorInfo {
 
 /**
  * Who is this key? Its name, mode, currency and wallet funds — Publish reads the
- * currency for the create-game form and credits maths commits to the name.
+ * currency for the create-game form.
  * Returns null when the key resolves to no operator (e.g. a platform session
  * rather than an operator key), so the caller can fall back rather than handle
  * an error.

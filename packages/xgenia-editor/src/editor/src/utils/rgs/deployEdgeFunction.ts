@@ -142,45 +142,6 @@ export async function deployEdgeFunction(
   };
 }
 
-/**
- * Overwrites one already-deployed component's script in place, keeping it in
- * the same deployment (Server Version) under the same slug.
- *
- * This reuses the ordinary `deploy-edge-function` action rather than adding a
- * new one: that handler upserts on the `game_edge_functions`
- * (deployment_id, function_slug) unique constraint, so re-sending an existing
- * pair replaces that row's script instead of inserting a second copy.
- *
- * The component's `payload_example` / `response_example` are re-sent unchanged
- * — they describe the graph's ports, which hand-editing the script body does
- * not alter, and the handler would otherwise reset them to `{}`.
- *
- * NOTE: the public `rgs-fn` dispatcher serves the NEWEST active row for a
- * (game, slug) across all versions. Overwriting the latest version therefore
- * goes live immediately; overwriting an older version updates the stored script
- * but does not change what players hit. Callers should say which case applies.
- */
-export async function redeployEdgeFunctionScript(
-  apiKey: string,
-  gameId: string,
-  deploymentId: string,
-  fn: {
-    function_slug: string;
-    function_name: string;
-    payload_example?: Record<string, any>;
-    response_example?: Record<string, any>;
-  },
-  script: string
-): Promise<DeployedFunction> {
-  return deployEdgeFunction(apiKey, gameId, deploymentId, {
-    slug: fn.function_slug,
-    functionName: fn.function_name,
-    script,
-    payloadExample: fn.payload_example ?? {},
-    responseExample: fn.response_example ?? {}
-  });
-}
-
 // ─── Server Versions: list, read & delete ────────────────────────
 // Publish deploys into a game's newest Server Version, the Maths panel's
 // Deployed tab reads it, and deleting a published domain deletes the version
