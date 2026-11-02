@@ -33,6 +33,7 @@ import {
   fetchOperatorInfo,
   getActiveGame,
   getRgsSettings,
+  isSandboxConnection,
   listGames,
   rgsHeaders,
   setActiveGame,
@@ -72,7 +73,12 @@ function base(apiKey: string) {
 
 // ─── Step 1: sign in ──────────────────────────────────────────────────────────
 
-export function RgsSignInForm({ onSignedIn }: { onSignedIn?: () => void }) {
+/**
+ * `start`: 'auto' connects with the XGENIA login by itself (first open of Publish). After an explicit sign-out it is
+ * 'choose' — reconnecting by itself would make Sign out a no-op and leave an invited studio a split second to click
+ * past its sandbox (found 2026-11-02). 'email' opens straight on the invited-account sign-in.
+ */
+export function RgsSignInForm({ onSignedIn, start = 'auto' }: { onSignedIn?: () => void; start?: 'auto' | 'choose' | 'email' }) {
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
@@ -80,9 +86,19 @@ export function RgsSignInForm({ onSignedIn }: { onSignedIn?: () => void }) {
   const [error, setError] = useState('');
   // Every XGENIA login is a play-money RGS sandbox (2026-11-02): connect with it first, by itself. The email code
   // below is only for an invited studio, or when the XGENIA sign-in cannot be used.
-  const [xgenia, setXgenia] = useState<'trying' | 'failed' | 'email'>('trying');
+  const [xgenia, setXgenia] = useState<'trying' | 'failed' | 'email' | 'choose'>(
+    start === 'email' ? 'email' : start === 'choose' ? 'choose' : 'trying'
+  );
   const [xgeniaError, setXgeniaError] = useState('');
+  const connectXgenia = () => {
+    setXgenia('trying');
+    setXgeniaError('');
+    connectWithXgeniaLogin()
+      .then(() => onSignedIn?.())
+      .catch((e: any) => { setXgeniaError(e?.message || String(e)); setXgenia('failed'); });
+  };
   useEffect(() => {
+    if (start !== 'auto') return;
     let live = true;
     connectWithXgeniaLogin()
       .then(() => { if (live) onSignedIn?.(); })
@@ -98,7 +114,14 @@ export function RgsSignInForm({ onSignedIn }: { onSignedIn?: () => void }) {
     return (
       <div style={STEP_STYLE} data-guide="rgs-sign-in">
         <div style={STEP_TITLE}>1 · Your play-money RGS</div>
-        {xgenia === 'trying' ? (
+        {xgenia === 'choose' ? (
+          <>
+            <div style={HINT}>Publish and play with play money, using your XGENIA sign-in. Nothing to type.</div>
+            <div style={ROW}>
+              <PrimaryButton label="Connect with my XGENIA login" size={PrimaryButtonSize.Small} onClick={connectXgenia} />
+            </div>
+          </>
+        ) : xgenia === 'trying' ? (
           <div style={HINT}>Connecting with your XGENIA sign-in…</div>
         ) : (
           <>
@@ -107,12 +130,7 @@ export function RgsSignInForm({ onSignedIn }: { onSignedIn?: () => void }) {
               <PrimaryButton
                 label="Try again"
                 size={PrimaryButtonSize.Small}
-                onClick={() => {
-                  setXgenia('trying');
-                  connectWithXgeniaLogin()
-                    .then(() => onSignedIn?.())
-                    .catch((e: any) => { setXgeniaError(e?.message || String(e)); setXgenia('failed'); });
-                }}
+                onClick={connectXgenia}
               />
             </div>
           </>
@@ -196,6 +214,9 @@ export function RgsSignInForm({ onSignedIn }: { onSignedIn?: () => void }) {
         </>
       )}
       {error && <div style={ERROR}>{error}</div>}
+      <div style={{ ...LINK, marginTop: '8px' }} onClick={() => { if (!busy) connectXgenia(); }}>
+        Use my XGENIA login (play money) instead
+      </div>
     </div>
   );
 }
@@ -301,6 +322,9 @@ function GameStep({ projectName, onChosen }: { projectName: string; onChosen: ()
 export function RgsReleaseSetup({ projectName, onChanged }: { projectName: string; onChanged?: () => void }) {
   const [, rerender] = useState(0);
   const refresh = useCallback(() => { rerender((n) => n + 1); onChanged?.(); }, [onChanged]);
+  // How the sign-in opens after the user left a connection on purpose (see RgsSignInForm `start`).
+  const [nextStart, setNextStart] = useState<'auto' | 'choose' | 'email'>('auto');
+  const leave = (then: 'choose' | 'email') => { clearRgsSettings(); setNextStart(then); refresh(); };
 
   useEffect(() => {
     const tick = () => rerender((n) => n + 1);
@@ -312,15 +336,22 @@ export function RgsReleaseSetup({ projectName, onChanged }: { projectName: strin
   const settings = getRgsSettings();
   const game: SelectedGame | null = settings ? getActiveGame() : null;
 
-  if (!settings?.apiKey) return <RgsSignInForm onSignedIn={refresh} />;
+  if (!settings?.apiKey) return <RgsSignInForm key={nextStart} start={nextStart} onSignedIn={refresh} />;
   if (!game?.id) return <GameStep projectName={projectName} onChosen={refresh} />;
 
   return (
     <Text style={{ marginBottom: '12px', fontSize: '12px', color: '#999' }}>
-      Publishing <span style={{ color: '#ddd' }}>{game.name || game.slug}</span> on XGENIA RGS.{' '}
+      Publishing <span style={{ color: '#ddd' }}>{game.name || game.slug}</span>{' '}
+      {isSandboxConnection() ? 'on your play-money sandbox (test RGS).' : 'on XGENIA RGS.'}{' '}
       <span style={LINK} onClick={() => { setActiveGame(null); refresh(); }}>Change game</span>
+      {isSandboxConnection() && (
+        <>
+          {' · '}
+          <span style={LINK} onClick={() => leave('email')}>Use an invited RGS account</span>
+        </>
+      )}
       {' · '}
-      <span style={LINK} onClick={() => { clearRgsSettings(); refresh(); }}>Sign out</span>
+      <span style={LINK} onClick={() => leave('choose')}>Sign out</span>
     </Text>
   );
 }
