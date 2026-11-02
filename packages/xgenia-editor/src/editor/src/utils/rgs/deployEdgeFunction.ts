@@ -55,7 +55,7 @@ export async function createEdgeDeployment(
     if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes('create-edge-deployment')) {
       throw new Error(
         'XGENIA RGS backend is out of date — it does not support edge-function deployments yet. ' +
-          'Redeploy the `maths-deployer` function (and apply the game_function_deployments migration) to the RGS project, then try again.'
+          'Try again later; if it keeps happening, contact XGENIA support.'
       );
     }
     throw new Error(serverError || `RGS deployment create failed (HTTP ${res.status})`);
@@ -103,9 +103,11 @@ export async function deployEdgeFunction(
     // action existed — rejects this request with "Invalid action. Use: …".
     // Surface an actionable message instead of dumping the raw action list.
     if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes('deploy-edge-function')) {
+      // Said to a game studio, not to the platform's engineers: redeploying a
+      // server function is not something a studio can do or should be told to.
       throw new Error(
-        'XGENIA RGS backend is out of date — it does not support edge-function deploys yet. ' +
-          'Redeploy the `maths-deployer` function (and apply the game_edge_functions migration) to the RGS project, then try again.'
+        'XGENIA RGS cannot take this deploy yet (the server is older than this editor). ' +
+          'Try again later; if it keeps happening, contact XGENIA support.'
       );
     }
     throw new Error(serverError || `RGS deploy failed (HTTP ${res.status})`);
@@ -250,7 +252,7 @@ export async function downloadEdgeDeployment(
     if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes('download-edge-deployment')) {
       throw new Error(
         'XGENIA RGS backend is out of date — it does not support downloading versions yet. ' +
-          'Redeploy the `maths-deployer` function to the RGS project, then try again.'
+          'Try again later; if it keeps happening, contact XGENIA support.'
       );
     }
     throw new Error(serverError || `RGS download failed (HTTP ${res.status})`);
@@ -288,7 +290,7 @@ export async function renameEdgeDeployment(
     if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes('rename-edge-deployment')) {
       throw new Error(
         'XGENIA RGS backend is out of date — it does not support renaming versions yet. ' +
-          'Redeploy the `maths-deployer` function to the RGS project, then try again.'
+          'Try again later; if it keeps happening, contact XGENIA support.'
       );
     }
     throw new Error(serverError || `RGS rename failed (HTTP ${res.status})`);
@@ -346,7 +348,7 @@ export async function renameEdgeFunction(
     if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes('rename-edge-function')) {
       throw new Error(
         'XGENIA RGS backend is out of date — it does not support renaming components yet. ' +
-          'Redeploy the `maths-deployer` function to the RGS project, then try again.'
+          'Try again later; if it keeps happening, contact XGENIA support.'
       );
     }
     throw new Error(serverError || `RGS rename failed (HTTP ${res.status})`);
@@ -385,7 +387,7 @@ export async function deleteEdgeFunction(
     if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes('delete-edge-function')) {
       throw new Error(
         'XGENIA RGS backend is out of date — it does not support deleting single components yet. ' +
-          'Redeploy the `maths-deployer` function to the RGS project, then try again.'
+          'Try again later; if it keeps happening, contact XGENIA support.'
       );
     }
     throw new Error(serverError || `RGS delete failed (HTTP ${res.status})`);
@@ -431,7 +433,7 @@ export async function deleteComponentEverywhere(
     if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes('delete-component')) {
       throw new Error(
         'XGENIA RGS backend is out of date — it cannot remove a component from every version yet. ' +
-          'Redeploy the `maths-deployer` function to the RGS project, then try again.'
+          'Try again later; if it keeps happening, contact XGENIA support.'
       );
     }
     throw new Error(serverError || `RGS component delete failed (HTTP ${res.status})`);
@@ -461,7 +463,7 @@ export async function deleteEdgeDeployment(
     if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes('delete-edge-deployment')) {
       throw new Error(
         'XGENIA RGS backend is out of date — it does not support deleting versions yet. ' +
-          'Redeploy the `maths-deployer` function to the RGS project, then try again.'
+          'Try again later; if it keeps happening, contact XGENIA support.'
       );
     }
     throw new Error(serverError || `RGS delete failed (HTTP ${res.status})`);

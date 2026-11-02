@@ -84,7 +84,7 @@ async function postMathsDeployer(apiKey: string, body: Record<string, unknown>, 
 
 const OUT_OF_DATE =
   'XGENIA RGS backend is out of date — it cannot export Stake books yet. ' +
-  'Redeploy the `maths-deployer` function to the RGS project, then try again.';
+  'Try again later; if it keeps happening, contact XGENIA support.';
 
 export async function fetchStakeExportModes(apiKey: string, deploymentId: string, functionSlug: string): Promise<StakeExportModesInfo> {
   const d = await postMathsDeployer(apiKey, { action: 'stake-export-modes', deployment_id: deploymentId, function_slug: functionSlug }, OUT_OF_DATE);

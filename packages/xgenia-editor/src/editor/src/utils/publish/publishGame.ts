@@ -336,17 +336,22 @@ export async function publishGameToWeb(opts: PublishGameOptions): Promise<Publis
       );
     }
 
-    // A Math Component that the UI uses but nobody deployed is now shipped
-    // as-is and RUNS IN THE BROWSER — there is no compile pass left to extract
-    // it. That is a real thing to know about a published game, so say it
-    // plainly instead of quietly building it.
+    // A Math Component that the UI uses but nobody deployed would ship as-is
+    // and RUN IN THE BROWSER — there is no compile pass left to extract it.
+    // That used to be a heads-up toast on a publish that went ahead. It is a
+    // refusal now: browser-side maths is maths the player can rewrite, that no
+    // certificate covers and no round record captures, so "published" would be
+    // the wrong word for it. The Publish popup deploys changed maths before it
+    // gets here (deployChangedMathsComponents), so reaching this means a
+    // component could not be deployed — say which, and stop.
     const undeployed = undeployedMathsInstances(copy, endpoints);
     if (undeployed.length > 0) {
       console.warn('[Deploy] Math Components used by the UI but not deployed:', undeployed);
-      warn(
-        `Heads up: ${leafNames(undeployed)} ${undeployed.length === 1 ? 'is' : 'are'} not deployed to ` +
-          `${game.name || 'this game'}, so ${undeployed.length === 1 ? 'its' : 'their'} maths will run in the ` +
-          `player's browser. Deploy ${undeployed.length === 1 ? 'it' : 'them'} from Maths RGS → Math Components.`
+      throw new Error(
+        `${leafNames(undeployed)} ${undeployed.length === 1 ? 'is' : 'are'} not deployed to ` +
+          `${game.name || 'this game'}, so publishing would run ${undeployed.length === 1 ? 'its' : 'their'} maths in the ` +
+          `player's browser. Publish again to deploy ${undeployed.length === 1 ? 'it' : 'them'}; if this repeats, ` +
+          `open Maths and check ${undeployed.length === 1 ? 'that component' : 'those components'} for errors.`
       );
     }
 

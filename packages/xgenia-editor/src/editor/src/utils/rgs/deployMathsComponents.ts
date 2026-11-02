@@ -37,6 +37,7 @@ import { toFunctionSlug } from './functionSlug';
 import { generateFunctionArtifact, FunctionArtifact } from './generateFunctionArtifact';
 import { createEdgeDeployment, deployEdgeFunction, listEdgeDeployments } from './deployEdgeFunction';
 import { XRGS_URL, rgsHeaders } from './rgsClient';
+import { WIN_PORT_PRECEDENCE, platformWarningsFor, winPortFor } from './mathsPorts';
 
 /** Sheet every Math Component lives under. */
 export const MATHS_PREFIX = '/#__maths__/';
@@ -303,17 +304,6 @@ function betPortFor(payloadExample: Record<string, any>): string | null {
  * fallbacks are deliberately not considered: a nested field is not a response
  * port, so there would be nothing for rgs-fn to read `data[win_output_port]` from.
  */
-const WIN_PORT_PRECEDENCE = ['win', 'winAmount', 'spinWinnings', 'totalPayout', 'totalWinnings'];
-
-function winPortFor(responseExample: Record<string, any>): string | null {
-  const keys = Object.keys(responseExample || {});
-  for (const candidate of WIN_PORT_PRECEDENCE) {
-    const hit = keys.find((k) => k === candidate) || keys.find((k) => k.toLowerCase() === candidate.toLowerCase());
-    if (hit) return hit;
-  }
-  return null;
-}
-
 /**
  * The bet/win mapping a deploy of this artifact WOULD store — the same two rules
  * as the deploy, exposed so a simulation of an undeployed component stakes and
@@ -353,6 +343,13 @@ export interface MathsDeployResult {
    * see the guard in this file.
    */
   unsupportedNodeWarning?: string;
+  /**
+   * What XGENIA RGS reported about the script on the way in — calls it rewrote
+   * (Math.random → the certified generator) and a component whose outcome does
+   * not respond to its random input. These were console.warn only, and the
+   * production build strips console output, so nobody ever saw them.
+   */
+  platformWarnings?: string[];
   /**
    * Exactly what was sent to the platform — the compiled script and the authored
    * graph. Returned so the caller can snapshot this deploy into a commit without
@@ -515,11 +512,11 @@ export async function deployMathsComponents(
     const betWinWarning = betInputPort && !winOutputPort
       ? `${label} has a betAmount input but no recognisable win output ` +
         `(${WIN_PORT_PRECEDENCE.join(', ')}), so its bet/win mapping was left unset. ` +
-        `Until it is set on the platform, the script sees a stake of 0 and no rounds are recorded.`
+        `Rename its win output to one of those names and publish again — until then the script sees a stake of 0 and no rounds are recorded.`
       : undefined;
 
     onProgress?.(`Deploying ${label} ${position}…`);
-    const { url } = await deployEdgeFunction(apiKey, gameId, deploymentId, {
+    const { url, rewrites, rng } = await deployEdgeFunction(apiKey, gameId, deploymentId, {
       ...artifact,
       slug,
       functionName: label,
@@ -555,6 +552,7 @@ export async function deployMathsComponents(
       winOutputPort: mapBoth ? winOutputPort : null,
       betWinWarning,
       unsupportedNodeWarning,
+      platformWarnings: platformWarningsFor(label, rewrites, rng),
       script: artifact.script,
       projectJson
     });
@@ -991,3 +989,4 @@ export function repointMathsAggregators(
 
   return repointed;
 }
+

@@ -226,6 +226,7 @@ export async function deployChangedMathsComponents(
     if (!r.projectUploaded) warnings.push(`${r.functionName}: project.json upload failed: ${r.projectError || 'unknown error'}`);
     if (r.betWinWarning) warnings.push(r.betWinWarning);
     if (r.unsupportedNodeWarning) warnings.push(r.unsupportedNodeWarning);
+    (r.platformWarnings || []).forEach((w) => warnings.push(w));
   });
 
   // The Maths RGS panel re-reads versions, what is deployed and the commits.

@@ -59,6 +59,7 @@ import { MathsSimulateDocumentProvider } from '../../documents/MathsSimulateDocu
 import { MathsChangedSection } from './subsections/MathsChangedSection';
 import { MathsDeployedSection } from './subsections/MathsDeployedSection';
 import { MathsCommitsSection } from './subsections/MathsCommitsSection';
+import { RgsSignInForm } from '../../DeployPopup/ReleaseSetup/ReleaseSetup';
 
 
 // ─── RGS Connection ─────────────────────────────────────────
@@ -74,14 +75,11 @@ import {
     clearRgsSettings,
     setActiveGame,
     getActiveGame,
-    createOperator,
     fetchOperatorInfo,
     formatOperatorFunds,
-    EDITOR_OPERATOR_MODES,
     GAME_MODES,
     gameModesForOperatorMode,
     RgsSettings,
-    OperatorMode,
     GameMode,
     OperatorInfo
 } from '@xgenia-utils/rgs/rgsClient';
@@ -309,32 +307,6 @@ const CREATE_DEFAULTS = { name: '', slug: '', description: '', mode: 'demo' as G
 // Slug generation matches the RGS Game Library form's autoSlug.
 const autoSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
-// Create-operator form — mirrors the RGS platform's "New Operator" form field for
-// field (Operator Name, Slug, Mode, Wallet Balance, Supported Currencies, Max Bet,
-// Max Win, IP Whitelist), with one deliberate difference: Mode offers only Demo and
-// Live. `internal` is superadmin over every game in the platform and is granted
-// from the RGS platform alone — see EDITOR_OPERATOR_MODES in rgsClient.
-//
-// wallet_balance / max_bet / max_win are held as strings because they are text
-// inputs; wallet_balance is entered in MAJOR units (what the platform shows) and
-// converted to cents on submit, while max bet/win are in cents, exactly as the
-// platform labels them.
-const OPERATOR_DEFAULTS = {
-    name: '',
-    slug: '',
-    mode: 'demo' as OperatorMode,
-    wallet_balance: '0.00',
-    // EUR, not USD: the RGS platform's operating currency went back to EUR on
-    // 2026-08-04 (migration 20260804130000) and create_operator's own default is
-    // EUR, so an operator opened from here in USD would be the only one on the
-    // platform quoting a currency it does not operate in.
-    currencies: 'EUR',
-    max_bet: '',
-    max_win: '',
-    contact_email: '',
-    allowed_ips: ''
-};
-
 const MODAL_LABEL_STYLE: React.CSSProperties = { display: 'block', fontSize: '11px', color: '#a0a0b0', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' };
 const MODAL_INPUT_STYLE: React.CSSProperties = { width: '100%', padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', color: '#fff', fontSize: '14px', outline: 'none', boxSizing: 'border-box' };
 // Small per-version action buttons in the Server Versions list (download/delete).
@@ -520,14 +492,6 @@ export function MathsPanel() {
     const [deletePreviewLoading, setDeletePreviewLoading] = useState(false);
     const [deletingGame, setDeletingGame] = useState(false);
     const [deleteGameError, setDeleteGameError] = useState<string | null>(null);
-
-    // Create Operator modal state. `newOperatorKey` holds the raw key returned once
-    // by the RPC so it can be shown/copied before the modal closes.
-    const [showOperatorModal, setShowOperatorModal] = useState(false);
-    const [creatingOperator, setCreatingOperator] = useState(false);
-    const [operatorError, setOperatorError] = useState<string | null>(null);
-    const [operatorForm, setOperatorForm] = useState({ ...OPERATOR_DEFAULTS });
-    const [newOperatorKey, setNewOperatorKey] = useState<string | null>(null);
 
     // The operator this key belongs to — name, mode and remaining wallet funds,
     // shown under "Connected to XGENIA RGS". Null while loading or if the lookup
@@ -965,6 +929,20 @@ export function MathsPanel() {
         return () => { EventDispatcher.instance.off(group); };
     }, [fetchVersions, refreshDeployed, refreshCommits]);
 
+    // Signing in or choosing a game can now happen in the Publish popup too
+    // (ReleaseSetup). Follow it, or this panel keeps saying "Not connected" /
+    // showing the previous game after the popup has moved on.
+    useEffect(() => {
+        const group = {};
+        EventDispatcher.instance.on('rgs.connected', () => setSettings(getRgsSettings()), group);
+        EventDispatcher.instance.on(
+            'rgs.gameSelected',
+            (game: any) => setSelectedGame(game?.id || null),
+            group
+        );
+        return () => { EventDispatcher.instance.off(group); };
+    }, []);
+
     /**
      * Deploy = commit.
      *
@@ -1325,61 +1303,6 @@ export function MathsPanel() {
         setCreating(false);
     }, [settings, createForm, games, operatorInfo]);
 
-    // Create an operator + API key on XGENIA RGS (so the user can connect without
-    // leaving the editor). Mirrors the RGS platform's "Operators" section.
-    const handleCreateOperator = useCallback(async () => {
-        const name = operatorForm.name.trim();
-        if (!name) { setOperatorError('Enter an operator name'); return; }
-
-        // Entered in major units, stored in cents — same as the platform's form.
-        const funds = Math.round(parseFloat(operatorForm.wallet_balance || '0') * 100);
-        if (!Number.isFinite(funds) || funds < 0) {
-            setOperatorError('Wallet balance must be zero or more');
-            return;
-        }
-
-        // Loose shape check, the same rule the column's CHECK constraint and the
-        // platform's mailer apply. Caught here so a typo reads as a sentence
-        // instead of as "violates operator_connectors_contact_email_check".
-        const contactEmail = operatorForm.contact_email.trim();
-        if (contactEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contactEmail)) {
-            setOperatorError(`"${contactEmail}" is not a valid email address`);
-            return;
-        }
-
-        setCreatingOperator(true);
-        setOperatorError(null);
-        try {
-            const currencies = operatorForm.currencies
-                .split(',')
-                .map((c) => c.trim().toUpperCase())
-                .filter(Boolean);
-            const allowedIps = operatorForm.allowed_ips
-                .split(',')
-                .map((ip) => ip.trim())
-                .filter(Boolean);
-            const result = await createOperator({
-                name,
-                slug: operatorForm.slug.trim() || undefined,
-                mode: operatorForm.mode,
-                currencies: currencies.length ? currencies : ['EUR'],
-                walletBalance: funds,
-                maxBet: operatorForm.max_bet ? parseInt(operatorForm.max_bet, 10) : null,
-                maxWin: operatorForm.max_win ? parseInt(operatorForm.max_win, 10) : null,
-                allowedIps,
-                contactEmail,
-            });
-            // Connect immediately using the freshly minted key (same as handleConnect).
-            saveRgsSettings(result.api_key);
-            setSettings({ apiKey: result.api_key });
-            setNewOperatorKey(result.api_key);
-            setUploadStatus({ type: 'success', message: `Operator "${name}" created — connected to XGENIA RGS` });
-        } catch (e) {
-            setOperatorError(e instanceof Error ? e.message : 'Failed to create operator');
-        }
-        setCreatingOperator(false);
-    }, [operatorForm]);
-
     // ─── Delete the selected game ───────────────────────────────
     // Ask the server what deleting it would cost before showing any confirmation:
     // whether it is deletable at all (a played game never is — its rounds, ledger
@@ -1450,13 +1373,6 @@ export function MathsPanel() {
             setDeletingGame(false);
         }
     }, [settings, selectedGame, deletePreview]);
-
-    const closeOperatorModal = useCallback(() => {
-        setShowOperatorModal(false);
-        setOperatorForm({ ...OPERATOR_DEFAULTS });
-        setOperatorError(null);
-        setNewOperatorKey(null);
-    }, []);
 
     const dispatchCommand = useCallback((command: string) => {
         const { SidebarModel } = require('@xgenia-models/sidebar');
@@ -1615,6 +1531,31 @@ export function MathsPanel() {
                             }}
                         >
                             Ask the AI
+                        </button>
+                        {/* The release path for everyone: Publish signs you in, creates the game, deploys
+                            the maths, publishes, and certifies — no panel tools needed. */}
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: '#e8e8ec', margin: '16px 0 6px' }}>
+                            Release your game
+                        </div>
+                        <div style={{ fontSize: '12px', lineHeight: 1.5, color: '#a0a0b0', marginBottom: '10px' }}>
+                            Publish signs you in to XGENIA RGS, creates the game, deploys this maths and gives you a
+                            playable link. Certification for real money and the pre-certification pack are there too.
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => EventDispatcher.instance.emit('publish.open')}
+                            style={{
+                                padding: '6px 12px',
+                                borderRadius: '6px',
+                                border: '1px solid rgba(103, 222, 146, 0.5)',
+                                background: 'transparent',
+                                color: 'var(--theme-color-publish, #67DE92)',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                cursor: 'pointer'
+                            }}
+                        >
+                            Open Publish
                         </button>
                     </div>
                 )}
@@ -1830,11 +1771,19 @@ export function MathsPanel() {
                             </>
                         ) : (
                             <>
+                                {/* Email-code sign-in (rgsSignIn.ts). It replaced "Create operator & get key",
+                                    whose create_operator RPC XRGS revoked from the public key — every new
+                                    studio got "permission denied" there. The first sign-in creates the
+                                    studio's own space; pasting a key stays available for keys handed out
+                                    by XGENIA. */}
+                                <Box hasBottomSpacing>
+                                    <RgsSignInForm onSignedIn={() => setSettings(getRgsSettings())} />
+                                </Box>
                                 {showInput ? (
                                     <>
                                         <Box hasBottomSpacing>
                                             <label style={{ display: 'block', fontSize: '11px', color: '#a0a0b0', marginBottom: '4px' }}>
-                                                API Key (from RGS Dashboard → API Keys)
+                                                Operator key (starts with xrgs_)
                                             </label>
                                             <input
                                                 type="password"
@@ -1875,31 +1824,16 @@ export function MathsPanel() {
                                         </Box>
                                     </>
                                 ) : (
-                                    <Box hasBottomSpacing>
-                                        <PrimaryButton
-                                            icon={IconName.CloudData}
-                                            label="Connect to XGENIA RGS"
-                                            size={PrimaryButtonSize.Small}
-                                            variant={PrimaryButtonVariant.MutedOnLowBg}
+                                    <div style={{ fontSize: '11px', color: '#888' }}>
+                                        Have an operator key from XGENIA?{' '}
+                                        <span
                                             onClick={() => setShowInput(true)}
-                                            isGrowing
-                                        />
-                                    </Box>
+                                            style={{ color: '#67DE92', cursor: 'pointer', textDecoration: 'underline' }}
+                                        >
+                                            Paste it instead
+                                        </span>
+                                    </div>
                                 )}
-                                {/* Self-serve: create an operator + key without leaving the editor */}
-                                <Box hasBottomSpacing>
-                                    <PrimaryButton
-                                        icon={IconName.CloudData}
-                                        label="Create operator & get key"
-                                        size={PrimaryButtonSize.Small}
-                                        variant={PrimaryButtonVariant.MutedOnLowBg}
-                                        onClick={() => { setShowOperatorModal(true); setOperatorError(null); setNewOperatorKey(null); }}
-                                        isGrowing
-                                    />
-                                </Box>
-                                <div style={{ fontSize: '10px', color: '#666' }}>
-                                    No API key yet? Create an operator to generate one and connect.
-                                </div>
                             </>
                         )}
 
@@ -2712,10 +2646,12 @@ export function MathsPanel() {
                                 Pipeline Steps
                             </div>
                             {[
+                                // What runMathsTest actually does (utils/rgs/mathsPipeline). It used to
+                                // list "Auto-Approve — Bypass compliance" and "Deploy Live": neither
+                                // happens, and nothing in this panel can bypass compliance.
                                 { icon: '①', label: 'Upload to RGS', desc: 'Draft status' },
-                                { icon: '②', label: 'Run Simulation', desc: `${simCount.toLocaleString()} spins` },
-                                { icon: '③', label: 'Auto-Approve', desc: 'Bypass compliance' },
-                                { icon: '④', label: 'Deploy Live', desc: 'Exportable' },
+                                { icon: '②', label: 'Run Simulation', desc: `${simCount.toLocaleString()} rounds` },
+                                { icon: '③', label: 'Report', desc: 'Stays in testing — real money needs a certificate' },
                             ].map((step, i) => (
                                 <div key={i} style={{
                                     display: 'flex', alignItems: 'center', gap: '8px',
@@ -2730,29 +2666,14 @@ export function MathsPanel() {
                             ))}
                         </div>
 
-                        <div style={{ marginBottom: '16px' }}>
-                            <label style={MODAL_LABEL_STYLE}>Commit message</label>
-                            <input
-                                type="text"
-                                placeholder="what changed, and why"
-                                value={commitPrompt.message}
-                                onChange={(e) => setCommitPrompt({ message: e.target.value })}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && commitPrompt.message.trim() && !deployingComponents) {
-                                        const message = commitPrompt.message.trim();
-                                        setCommitPrompt(null);
-                                        void handleDeployMathsComponents(message);
-                                    }
-                                }}
-                                style={MODAL_INPUT_STYLE}
-                                autoFocus
-                            />
-                        </div>
-
+                        {/* The Deploy prompt's commit-message input used to sit here too —
+                            pasted in by a merge — reading commitPrompt.message while
+                            commitPrompt is null, so opening Test crashed the whole panel.
+                            A test run records no commit; it has nothing to ask. */}
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                             <button
-                                onClick={() => setCommitPrompt(null)}
-                                disabled={deployingComponents}
+                                onClick={() => setShowTestConfigModal(false)}
+                                disabled={uploading}
                                 style={{
                                     padding: '8px 16px',
                                     borderRadius: '6px',
@@ -3015,247 +2936,6 @@ export function MathsPanel() {
                                 >{deletingGame ? 'Deleting…' : 'Delete game'}</button>
                             )}
                         </div>
-                    </div>
-                </div>
-            )}
-
-            {/* ─── Create Operator modal ─── */}
-            {showOperatorModal && (
-                <div style={{
-                    position: 'fixed', inset: 0, zIndex: 10000,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    backgroundColor: 'rgba(0,0,0,0.6)',
-                }} onClick={() => { if (!creatingOperator) { newOperatorKey ? closeOperatorModal() : setShowOperatorModal(false); } }}>
-                    <div
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                            width: '440px', maxHeight: '85vh', overflowY: 'auto',
-                            backgroundColor: '#1e1e2e',
-                            border: '1px solid rgba(255,255,255,0.12)',
-                            borderRadius: '12px',
-                            padding: '24px',
-                            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-                        }}
-                    >
-                        <div style={{ marginBottom: '20px' }}>
-                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>Create Operator</div>
-                            <div style={{ fontSize: '12px', color: '#888' }}>
-                                Creates an operator on XGENIA RGS and generates its API key, so you can connect the editor to the RGS platform.
-                            </div>
-                        </div>
-
-                        {newOperatorKey ? (
-                            <>
-                                <div style={{ marginBottom: '12px' }}>
-                                    <label style={MODAL_LABEL_STYLE}>Your API Key (shown once)</label>
-                                    <input
-                                        type="text"
-                                        readOnly
-                                        value={newOperatorKey}
-                                        onFocus={(e) => e.currentTarget.select()}
-                                        style={{ ...MODAL_INPUT_STYLE, fontFamily: 'monospace', fontSize: '12px' }}
-                                    />
-                                </div>
-                                <div style={{ fontSize: '10px', color: '#E0B44A', marginBottom: '16px' }}>
-                                    Save this key now — it is only shown once and cannot be retrieved again. It has already been stored in this editor and is sent as the X-Operator-Key header.
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                                    <button
-                                        onClick={() => { navigator.clipboard?.writeText(newOperatorKey); }}
-                                        style={{
-                                            padding: '8px 16px', borderRadius: '6px',
-                                            border: '1px solid rgba(255,255,255,0.12)', backgroundColor: 'transparent',
-                                            color: '#a0a0b0', fontSize: '13px', cursor: 'pointer',
-                                        }}
-                                    >Copy</button>
-                                    <button
-                                        onClick={closeOperatorModal}
-                                        style={{
-                                            padding: '8px 20px', borderRadius: '6px', border: 'none',
-                                            backgroundColor: '#67DE92', color: '#1a1a2e',
-                                            fontSize: '13px', fontWeight: 700, cursor: 'pointer',
-                                        }}
-                                    >Done</button>
-                                </div>
-                            </>
-                        ) : (
-                            <>
-                                {/* Name + slug — as on the platform's form, the slug
-                                    is derived from the name until the user edits it. */}
-                                <div style={{ marginBottom: '16px' }}>
-                                    <label style={MODAL_LABEL_STYLE}>Operator Name</label>
-                                    <input
-                                        type="text"
-                                        placeholder="e.g. Acme Casino"
-                                        value={operatorForm.name}
-                                        onChange={(e) => {
-                                            setOperatorForm({
-                                                ...operatorForm,
-                                                name: e.target.value,
-                                                slug: autoSlug(e.target.value),
-                                            });
-                                            setOperatorError(null);
-                                        }}
-                                        onKeyDown={(e) => { if (e.key === 'Enter') handleCreateOperator(); }}
-                                        style={MODAL_INPUT_STYLE}
-                                        autoFocus
-                                    />
-                                </div>
-
-                                <div style={{ marginBottom: '16px' }}>
-                                    <label style={MODAL_LABEL_STYLE}>Slug</label>
-                                    <input
-                                        type="text"
-                                        placeholder="acme-casino"
-                                        value={operatorForm.slug}
-                                        onChange={(e) => setOperatorForm({ ...operatorForm, slug: e.target.value })}
-                                        style={MODAL_INPUT_STYLE}
-                                    />
-                                    <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>Used in API URLs.</div>
-                                </div>
-
-                                {/* Mode — Demo and Live only. Internal is superadmin
-                                    over every game and is granted from the RGS
-                                    platform alone. */}
-                                <div style={{ marginBottom: '16px' }}>
-                                    <label style={MODAL_LABEL_STYLE}>Mode</label>
-                                    <select
-                                        value={operatorForm.mode}
-                                        onChange={(e) => setOperatorForm({ ...operatorForm, mode: e.target.value as OperatorMode })}
-                                        style={{ ...MODAL_INPUT_STYLE, appearance: 'none', cursor: 'pointer' }}
-                                    >
-                                        {EDITOR_OPERATOR_MODES.map((m) => (
-                                            <option key={m.value} value={m.value} style={{ background: '#1a1a2e' }}>{m.label}</option>
-                                        ))}
-                                    </select>
-                                    <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
-                                        {EDITOR_OPERATOR_MODES.find((m) => m.value === operatorForm.mode)?.blurb}
-                                        {' '}Internal mode is created from the RGS platform only.
-                                    </div>
-                                </div>
-
-                                {/* Contact email — the operator's registered address on
-                                    the RGS platform. It is the ONE address compliance
-                                    documents are delivered to: a game's Compliance
-                                    section can generate a Gaming Licence Application
-                                    Pack for a deployed component and email it, and that
-                                    Send button is disabled for an operator with no
-                                    address. Optional, so trying the editor out does not
-                                    require one. */}
-                                <div style={{ marginBottom: '16px' }}>
-                                    <label style={MODAL_LABEL_STYLE}>Contact Email</label>
-                                    <input
-                                        type="email"
-                                        placeholder="compliance@acme-casino.com"
-                                        value={operatorForm.contact_email}
-                                        onChange={(e) => { setOperatorForm({ ...operatorForm, contact_email: e.target.value }); setOperatorError(null); }}
-                                        onKeyDown={(e) => { if (e.key === 'Enter') handleCreateOperator(); }}
-                                        style={MODAL_INPUT_STYLE}
-                                    />
-                                    <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
-                                        Where the RGS platform sends compliance and certification documents for this
-                                        operator's games. Can be added later from the platform's Operators section.
-                                    </div>
-                                </div>
-
-                                {/* Wallet — the funding behind this operator's games. */}
-                                <div style={{ marginBottom: '16px' }}>
-                                    <label style={MODAL_LABEL_STYLE}>
-                                        Wallet Balance ({operatorForm.currencies.split(',')[0]?.trim() || 'EUR'})
-                                    </label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        placeholder="1000000.00"
-                                        value={operatorForm.wallet_balance}
-                                        onChange={(e) => { setOperatorForm({ ...operatorForm, wallet_balance: e.target.value }); setOperatorError(null); }}
-                                        style={MODAL_INPUT_STYLE}
-                                    />
-                                    <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
-                                        Funding for the games this operator owns. Player losses credit it; player wins are paid out of it.
-                                    </div>
-                                </div>
-
-                                {/* Currencies + bet limits */}
-                                <div style={{ marginBottom: '16px' }}>
-                                    <label style={MODAL_LABEL_STYLE}>Supported Currencies</label>
-                                    <input
-                                        type="text"
-                                        placeholder="EUR, USD, GBP"
-                                        value={operatorForm.currencies}
-                                        onChange={(e) => setOperatorForm({ ...operatorForm, currencies: e.target.value })}
-                                        style={MODAL_INPUT_STYLE}
-                                    />
-                                    <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>Comma-separated ISO codes.</div>
-                                </div>
-
-                                <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
-                                    <div style={{ flex: 1 }}>
-                                        <label style={MODAL_LABEL_STYLE}>Max Bet (cents)</label>
-                                        <input
-                                            type="number"
-                                            placeholder="100000"
-                                            value={operatorForm.max_bet}
-                                            onChange={(e) => setOperatorForm({ ...operatorForm, max_bet: e.target.value })}
-                                            style={MODAL_INPUT_STYLE}
-                                        />
-                                    </div>
-                                    <div style={{ flex: 1 }}>
-                                        <label style={MODAL_LABEL_STYLE}>Max Win (cents)</label>
-                                        <input
-                                            type="number"
-                                            placeholder="5000000"
-                                            value={operatorForm.max_win}
-                                            onChange={(e) => setOperatorForm({ ...operatorForm, max_win: e.target.value })}
-                                            style={MODAL_INPUT_STYLE}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div style={{ marginBottom: '16px' }}>
-                                    <label style={MODAL_LABEL_STYLE}>IP Whitelist</label>
-                                    <input
-                                        type="text"
-                                        placeholder="1.2.3.4, 5.6.7.8"
-                                        value={operatorForm.allowed_ips}
-                                        onChange={(e) => setOperatorForm({ ...operatorForm, allowed_ips: e.target.value })}
-                                        style={MODAL_INPUT_STYLE}
-                                    />
-                                    <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
-                                        Comma-separated. Leave blank to allow all IPs.
-                                    </div>
-                                </div>
-
-                                {operatorError && (
-                                    <div style={{ fontSize: '11px', color: '#EF4444', marginBottom: '12px' }}>{operatorError}</div>
-                                )}
-
-                                {/* Actions */}
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                                    <button
-                                        onClick={() => setShowOperatorModal(false)}
-                                        disabled={creatingOperator}
-                                        style={{
-                                            padding: '8px 16px', borderRadius: '6px',
-                                            border: '1px solid rgba(255,255,255,0.12)', backgroundColor: 'transparent',
-                                            color: '#a0a0b0', fontSize: '13px', cursor: creatingOperator ? 'not-allowed' : 'pointer',
-                                        }}
-                                    >Cancel</button>
-                                    <button
-                                        onClick={handleCreateOperator}
-                                        disabled={creatingOperator || !operatorForm.name.trim()}
-                                        style={{
-                                            padding: '8px 20px', borderRadius: '6px', border: 'none',
-                                            backgroundColor: creatingOperator || !operatorForm.name.trim() ? '#444' : '#67DE92',
-                                            color: creatingOperator || !operatorForm.name.trim() ? '#888' : '#1a1a2e',
-                                            fontSize: '13px', fontWeight: 700,
-                                            cursor: creatingOperator || !operatorForm.name.trim() ? 'not-allowed' : 'pointer',
-                                        }}
-                                    >{creatingOperator ? 'Creating…' : 'Create Operator'}</button>
-                                </div>
-                            </>
-                        )}
                     </div>
                 </div>
             )}

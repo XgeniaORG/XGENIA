@@ -7,11 +7,12 @@
 
 import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
 import { activeGameFor } from './activeGame';
+import { RgsSignInResult, sendSignInCode, verifySignInCode } from './rgsSignIn';
 
 export const XRGS_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/functions/v1';
 
-// PostgREST base for the same project — used to call the create_operator RPC.
-export const XRGS_REST_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/rest/v1';
+// Supabase Auth base for the same project — the email-code sign-in (rgsSignIn.ts).
+export const XRGS_AUTH_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/auth/v1';
 
 // Supabase anon key — required by verify_jwt on edge functions.
 // This is NOT a secret; it's the publishable key used to pass gateway auth.
@@ -42,24 +43,8 @@ export function rgsHeaders(apiKey: string): Record<string, string> {
   };
 }
 
-/**
- * An operator's MODE — the only thing that decides what its key can reach.
- *
- *   demo     — has a wallet, no real money; sees only the games it created.
- *   live     — the same, with a real-money wallet.
- *   internal — no wallet, superadmin over every game in the platform.
- *
- * Only demo and live can be created from the editor: `internal` is superadmin, so
- * the RGS platform's own Operators page is the only place that grants it (the
- * create_operator RPC rejects it — the editor holds nothing but the public anon
- * key, so this cannot be a UI-only restriction).
- */
+/** An operator's MODE: demo (play money), live (real money) or internal (platform staff). */
 export type OperatorMode = 'demo' | 'live';
-
-export const EDITOR_OPERATOR_MODES: { value: OperatorMode; label: string; blurb: string }[] = [
-  { value: 'demo', label: 'Demo', blurb: 'Wallet with play money. Sees only the games created with this key.' },
-  { value: 'live', label: 'Live', blurb: 'Same as Demo, with a real-money wallet.' }
-];
 
 /**
  * A GAME's mode — whether real money moves through it. Mirrors the RGS platform's
@@ -114,89 +99,22 @@ export function canEditDeployedScript(_operatorMode: string | null | undefined):
 }
 
 /**
- * Fields the RGS platform's "New Operator" form collects, so the editor's
- * "Create operator & get key" popup can mirror it exactly.
- *
- * Amounts are in MINOR UNITS (cents), matching the platform and the DB.
+ * Sign in to XGENIA RGS with an email code (see rgsSignIn.ts for why this replaced
+ * the self-serve create_operator RPC). The first sign-in creates the studio's own
+ * organisation and demo operator; later ones find them again.
  */
-export interface CreateOperatorInput {
-  name: string;
-  slug?: string;
-  mode?: OperatorMode;
-  currencies?: string[];
-  /** Opening wallet balance, in cents. */
-  walletBalance?: number;
-  maxBet?: number | null;
-  maxWin?: number | null;
-  allowedIps?: string[];
-  /**
-   * The operator's registered address. This is where the RGS platform delivers
-   * compliance documents — a game's Compliance section can generate a Gaming
-   * Licence Application Pack and email it, and the Send button is disabled for an
-   * operator that has none. Optional: an operator opened to try the editor out has
-   * nothing to receive, and the address can be added later from the RGS platform's
-   * Operators section.
-   */
-  contactEmail?: string;
+const SIGN_IN_ENDPOINTS = { authUrl: XRGS_AUTH_URL, functionsUrl: XRGS_URL, anonKey: XRGS_ANON_KEY };
+
+export function emailSignInCode(email: string): Promise<void> {
+  return sendSignInCode(email, SIGN_IN_ENDPOINTS);
 }
 
-export interface CreateOperatorResult {
-  operator_id: string;
-  operator_slug: string;
-  name: string;
-  wallet_mode: string;
-  wallet_balance: number;
-  supported_currencies: string[];
-  contact_email: string | null;
-  api_key: string;
-}
-
-/**
- * Self-serve create an operator on XGENIA RGS and get its API key (returned once).
- * Calls the public.create_operator RPC via PostgREST with the anon key: the RPC is
- * SECURITY DEFINER and performs the admin-only operator_connectors insert on the
- * caller's behalf, returning the raw X-Operator-Key. Only the key's SHA-256 hash
- * is stored, so the raw key cannot be retrieved again.
- */
-export async function createOperator(input: CreateOperatorInput): Promise<CreateOperatorResult> {
-  const res = await fetch(`${XRGS_REST_URL}/rpc/create_operator`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: XRGS_ANON_KEY,
-      Authorization: `Bearer ${XRGS_ANON_KEY}`
-    },
-    body: JSON.stringify({
-      p_name: input.name,
-      p_slug: input.slug || null,
-      p_wallet_mode: input.mode || 'demo',
-      p_currencies: input.currencies && input.currencies.length ? input.currencies : ['EUR'],
-      p_wallet_balance: Math.max(0, Math.round(input.walletBalance || 0)),
-      p_max_bet: input.maxBet ?? null,
-      p_max_win: input.maxWin ?? null,
-      p_allowed_ips: input.allowedIps && input.allowedIps.length ? input.allowedIps : null,
-      // Blank is "not given", not an empty string: the column's CHECK rejects ''
-      // and the RPC stores NULL for a blank. Sending '' would fail the insert.
-      p_contact_email: input.contactEmail && input.contactEmail.trim() ? input.contactEmail.trim().toLowerCase() : null
-    })
-  });
-
-  const text = await res.text();
-  let data: any = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    /* non-JSON error body */
-  }
-
-  if (!res.ok) {
-    const msg = (data && (data.message || data.error || data.hint)) || text || `Request failed (${res.status})`;
-    throw new Error(msg);
-  }
-  if (!data || !data.api_key) {
-    throw new Error('Operator was created but no key was returned');
-  }
-  return data as CreateOperatorResult;
+/** Checks the code, stores the returned key as the editor's connection, and returns it. */
+export async function completeEmailSignIn(email: string, code: string): Promise<RgsSignInResult> {
+  const result = await verifySignInCode(email, code, SIGN_IN_ENDPOINTS);
+  saveRgsSettings(result.apiKey);
+  EventDispatcher.instance.emit('rgs.connected', { operatorSlug: result.operatorSlug });
+  return result;
 }
 
 /** The operator an API key belongs to, as reported by maths-deployer/operator-info. */

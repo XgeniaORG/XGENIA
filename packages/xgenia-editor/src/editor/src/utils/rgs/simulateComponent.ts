@@ -181,7 +181,7 @@ export async function simulateDeployedComponent(
       if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes('simulate-component')) {
         throw new Error(
           'XGENIA RGS backend is out of date — it cannot simulate components yet. ' +
-            'Redeploy the `maths-deployer` function to the RGS project, then try again.'
+            'Try again later; if it keeps happening, contact XGENIA support.'
         );
       }
       throw new Error(serverError || `Simulation failed (HTTP ${res.status})`);

@@ -134,6 +134,9 @@ export function EditorTopbar({
       (snapshot: AiActivitySnapshot) => setAiSnap(snapshot),
       eventGroup
     );
+    // Anything that wants to start a release (the Maths panel's "Release your
+    // game") opens the same Publish popup the top-bar button does.
+    EventDispatcher.instance.on('publish.open', () => setIsDeployVisible(true), eventGroup);
 
     wirePublishState();
 

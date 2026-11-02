@@ -45,6 +45,22 @@ function failure(step: string, data: any): string | null {
 }
 
 /**
+ * Why a stress-test answer is not a pass, in words, or null when it is one.
+ * A missing verdict (an older server) is not treated as a failure.
+ */
+export function stressVerdictProblem(stress: any): string | null {
+  const verdict = String(stress?.verdict || '').toUpperCase();
+  if (!verdict || verdict === 'PASSED' || verdict === 'PASS') return null;
+  if (verdict === 'INCONCLUSIVE') {
+    return 'Stress test was inconclusive: too few rounds to judge. Run it again with more rounds.';
+  }
+  const failed = Object.entries(stress?.tests || {})
+    .filter(([, t]: [string, any]) => t && t.passed === false && !t.skipped)
+    .map(([name]) => name);
+  return `Stress test failed${failed.length ? ` (${failed.join(', ')})` : ''}. Check the maths and try again.`;
+}
+
+/**
  * upload → activate → stress-test, then STOP.
  *
  * Deliberately does not call `approve` or `deploy`. Promotion is
@@ -86,6 +102,11 @@ export async function runMathsTest(p: MathsTestParams): Promise<MathsTestResult>
   });
   const stressErr = failure('Stress test', stress);
   if (stressErr) return { ok: false, error: stressErr, mathsConfigId, version };
+
+  // The gauntlet answers 200 with its verdict in the body. Only `error` used to
+  // be checked, so a FAILED or INCONCLUSIVE run was shown as a green "tested".
+  const verdictErr = stressVerdictProblem(stress);
+  if (verdictErr) return { ok: false, error: verdictErr, mathsConfigId, version, stress };
 
   return { ok: true, mathsConfigId, version, stress };
 }

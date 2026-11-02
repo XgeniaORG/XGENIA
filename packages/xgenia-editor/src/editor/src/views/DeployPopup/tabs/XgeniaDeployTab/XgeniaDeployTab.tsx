@@ -23,9 +23,12 @@ import { isPreviewPickerAvailable, pickUiElementFromPreview } from '@xgenia-util
 import {
   CompleteTelemetryMapping,
   DeployTelemetryMapping,
+  isCompleteMapping,
   TELEMETRY_METADATA_KEY,
   UiNodeCandidate
 } from '@xgenia-utils/rgs/telemetryMapping';
+import { deployChangedMathsComponents } from '@xgenia-utils/publish/deployChangedMaths';
+import { autoSlug } from '@xgenia-utils/rgs/rgsRelease';
 import { collectUiNodeCandidates, refForNodeId, storedTelemetryMapping } from '@xgenia-utils/rgs/uiNodeCandidates';
 import {
   DOMAIN_NAME_REQUIRED,
@@ -84,7 +87,7 @@ import { NO_ENVIRONMENT_VALUE, RGS_ENVIRONMENT_VALUE } from '../../DeployPopup.c
 import { useEnvironmentsAsOptions } from '../../DeployPopup.hooks';
 import { useAuth } from '../../../../context/AuthContext';
 import { ConnectionStore, ServiceName } from '../../../../services/ConnectionStore';
-import { ConnectedServicesPanel } from '../../../panels/ConnectedServicesPanel/ConnectedServicesPanel';
+import { RgsCertifyPanel, RgsReleaseSetup } from '../../ReleaseSetup/ReleaseSetup';
 
 // The publish pipeline itself — the GitHub/Vercel calls, the RGS wiring and the
 // Deployed Games listing — lives in utils/publish (publishGameToWeb, webDeploy),
@@ -284,19 +287,22 @@ export function XgeniaDeployTab() {
   // "Cannot read properties of null (reading 'projects')" on delete.
   const [tokenError, setTokenError] = useState<string>('');
 
+  // Ensures the shared deploy tokens from RGS are installed on
+  // window.__XGENIA_DEFAULT_TOKENS__ before reading them (see
+  // loadDeployCredentials — the AI's publish loads them the same way). Re-run
+  // after a sign-in in this popup: the tokens are fetched with the operator key,
+  // so before it there are none to read.
+  const reloadCredentials = React.useCallback(async () => {
+    const credentials = await loadDeployCredentials();
+    setTokenError(credentials.tokenError);
+    setVercelToken(credentials.vercelToken);
+    setGithubToken(credentials.githubToken);
+    setTokensLoaded(true);
+  }, []);
+
   // Load tokens from ConnectionStore on mount
   useEffect(() => {
-    const loadTokens = async () => {
-      // Ensures the shared deploy tokens from RGS are installed on
-      // window.__XGENIA_DEFAULT_TOKENS__ before reading them (see
-      // loadDeployCredentials — the AI's publish loads them the same way).
-      const credentials = await loadDeployCredentials();
-      setTokenError(credentials.tokenError);
-      setVercelToken(credentials.vercelToken);
-      setGithubToken(credentials.githubToken);
-      setTokensLoaded(true);
-    };
-    loadTokens();
+    void reloadCredentials();
 
     // Listen for connection changes
     const store = ConnectionStore.getInstance();
@@ -320,6 +326,17 @@ export function XgeniaDeployTab() {
     EventDispatcher.instance.on('rgs.gameSelected', rerenderOnGameSelected, rerenderOnGameSelected);
     return () => { EventDispatcher.instance.off(rerenderOnGameSelected); };
   }, []);
+
+  // The site name starts as the game's slug — one less thing to invent before the
+  // first publish. Only fills an empty field; a name the user typed is theirs.
+  useEffect(() => {
+    if (!domainName.trim() && rgsGame?.slug) setDomainName(autoSlug(rgsGame.slug));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rgsGame?.slug]);
+
+  // The bet / win / bet-button mapping is asked once per project: a publish with
+  // a complete saved mapping uses it. This link asks again.
+  const [askTelemetryAgain, setAskTelemetryAgain] = useState(false);
 
   // The Vercel team the deploy token can use (VercelSDKWrapper.team): the shared
   // token's own team when it cannot see XGENIA_VERCEL_TEAM (2026-10-05: 403 on
@@ -770,6 +787,27 @@ export function XgeniaDeployTab() {
       return;
     }
 
+    // Deploy the maths first, so Publish is one button. It used to be a separate
+    // trip to Maths RGS → Math Components → New version → Deploy → commit
+    // message; skipping it shipped the game with its maths running in the
+    // player's browser. Only changed components are deployed; a game whose
+    // maths already matches costs one comparison.
+    try {
+      const maths = await deployChangedMathsComponents({
+        onProgress: (step) => ToastLayer.showActivity(`Maths: ${step}`, activityId)
+      });
+      maths.warnings.forEach((w) => ToastLayer.showError(w));
+      // New maths has a new fingerprint: a certificate for the old maths no
+      // longer lets this game take real money. Say so at the moment it happens.
+      if (maths.deployed.length > 0) {
+        ToastLayer.showSuccess(
+          `${maths.message} Real money needs this maths certified — use Certify below once the game is live.`
+        );
+      }
+    } catch (e: any) {
+      throw new Error(`Deploying the maths failed: ${e?.message || e}`);
+    }
+
     const result = await publishGameToWeb({
       project: ProjectModel.instance,
       domainName: domainName.trim(),
@@ -833,8 +871,10 @@ export function XgeniaDeployTab() {
     // rounds of the deployed game, and the person who built the UI is the one
     // who knows. Cancel here costs nothing — no compile, no repo, no publish
     // state has been opened yet.
-    const telemetry = await requestTelemetryMapping();
+    const saved = storedTelemetryMapping(ProjectModel.instance as any);
+    const telemetry = !askTelemetryAgain && isCompleteMapping(saved) ? saved : await requestTelemetryMapping();
     if (!telemetry) return;
+    setAskTelemetryAgain(false);
     // Remember the answer on the project, so the next publish opens pre-filled.
     try {
       (ProjectModel.instance as any)?.setMetaData?.(TELEMETRY_METADATA_KEY, telemetry);
@@ -965,12 +1005,21 @@ export function XgeniaDeployTab() {
     <>
       <PopupSection>
         <Text hasBottomSpacing textType={TextType.DefaultContrast}>
-          Deploy your project to Vercel
+          Publish your game
         </Text>
 
-        {/* Connect GitHub + Vercel — both are required to publish the UI. */}
-        <ConnectedServicesPanel filterFor="deploy" compact />
+        {/* Sign in and choose the game right here — Publish used to send people to
+            the Maths RGS panel for both, where the controls are hidden by default.
+            GitHub/Vercel are not the studio's to connect: XGENIA RGS provides
+            the hosting, so that panel is gone from this tab. */}
+        {rgsSelected && (
+          <RgsReleaseSetup
+            projectName={String((ProjectModel.instance as any)?.name || '')}
+            onChanged={() => { rerenderOnGameSelected(); void reloadCredentials(); }}
+          />
+        )}
 
+        {(!rgsSelected || (rgsConnected && rgsGame?.id)) && (<>
         <TextInput
           label="Domain Name"
           value={domainName}
@@ -1030,27 +1079,8 @@ export function XgeniaDeployTab() {
             once in the Maths RGS panel. Publishing reads that, so it can never
             build a frontend for game B out of endpoints belonging to game A. Shown
             read-only so it is still obvious what is about to be published. */}
-        {rgsSelected && !rgsConnected && (
-          <Text style={{ marginBottom: '12px', fontSize: '12px', color: '#f66' }}>
-            Not connected to XGENIA RGS. Connect in the Maths RGS panel first.
-          </Text>
-        )}
-
-        {rgsSelected && rgsConnected && (
-          rgsGame ? (
-            <Text style={{ marginBottom: '12px', fontSize: '12px', color: '#999' }}>
-              Backend: <span style={{ color: '#ddd' }}>{rgsGame.name || rgsGame.slug}</span> — the game
-              its Math Components are deployed to. Change it in the Maths RGS panel.
-            </Text>
-          ) : (
-            <Text style={{ marginBottom: '12px', fontSize: '12px', color: '#f66' }}>
-              No game selected. Select one in the Maths RGS panel first.
-            </Text>
-          )
-        )}
-
         <PrimaryButton
-          label={isDeploying ? "Deploying..." : "Deploy"}
+          label={isDeploying ? 'Publishing…' : 'Publish'}
           onClick={onDeployToVercelClicked}
           isDisabled={
             isDeploying ||
@@ -1058,6 +1088,20 @@ export function XgeniaDeployTab() {
             (rgsSelected && (!rgsConnected || !rgsGame?.id))
           }
         />
+        {isCompleteMapping(storedTelemetryMapping(ProjectModel.instance as any)) && (
+          <Text style={{ marginTop: '6px', fontSize: '11px', color: '#888' }}>
+            Uses this project&rsquo;s saved bet / win mapping.{' '}
+            <span
+              style={{ color: '#67DE92', cursor: 'pointer' }}
+              onClick={() => setAskTelemetryAgain(true)}
+            >
+              {askTelemetryAgain ? 'You will be asked on Publish.' : 'Change it'}
+            </span>
+          </Text>
+        )}
+
+        {rgsSelected && <RgsCertifyPanel />}
+        </>)}
 
         <div style={{ marginTop: '12px' }}>
           <PrimaryButton
