@@ -62,3 +62,56 @@ describe('Aggregator signal outputs', () => {
     expect(byName['out-capital']).toEqual({ name: '*', allowConnectionsOnly: true });
   });
 });
+
+// (2026-11-02) A published demo plays its rounds on the RGS: the RGS's wallet balance and paid win are what the
+// screen shows, a request that never answers fails instead of spinning forever, and a duplicated request carries
+// the same idempotency key so it is never charged twice.
+describe('Aggregator and the RGS', () => {
+  test('the RGS round record becomes rgsBalance / rgsWin / rgsRoundId outputs, not an out-__rgs object', () => {
+    const { ctx, events } = makeAggregator({ outputs: 'winAmount', signalOutputs: '' });
+    ctx.applyOutputs({ winAmount: 300, __rgs: { round_id: 'r1', bet_amount: 200, win_amount: 300, balance_after: 1000100 } }, true);
+    expect(ctx.getOutputValue('rgsBalance')).toBe(1000100);
+    expect(ctx.getOutputValue('rgsWin')).toBe(300);
+    expect(ctx.getOutputValue('rgsRoundId')).toBe('r1');
+    expect(events.map((e) => e[1])).not.toContain('out-__rgs');
+  });
+
+  test('ports: RGS outputs and Error are always offered', () => {
+    const names = AggregatorModule.buildPorts({ outputs: 'winAmount', signalOutputs: '' }).map((p) => p.name);
+    expect(names).toEqual(expect.arrayContaining(['out-rgsBalance', 'out-rgsWin', 'out-rgsRoundId', 'out-error']));
+  });
+
+  test('every request carries its own idempotency key; a refusal reports why', async () => {
+    const { ctx, events } = makeAggregator({ outputs: 'winAmount', signalOutputs: '' });
+    const bodies = [];
+    global.fetch = jest.fn(async (_url, init) => {
+      bodies.push(JSON.parse(init.body));
+      return { ok: false, status: 409, json: async () => ({ error: 'Bet outside allowed range' }) };
+    });
+    ctx.doSend();
+    ctx.doSend();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0].__idempotency).toBeTruthy();
+    expect(bodies[0].__idempotency).not.toBe(bodies[1].__idempotency);
+    expect(ctx.getOutputValue('error')).toBe('Bet outside allowed range');
+    expect(events).toContainEqual(['signal', 'failure']);
+    delete global.fetch;
+  });
+
+  test('a request with no answer fails after the timeout instead of waiting forever', async () => {
+    jest.useFakeTimers();
+    const { ctx, events } = makeAggregator({ outputs: 'winAmount', signalOutputs: '' });
+    global.fetch = jest.fn((_url, init) => new Promise((_res, rej) => {
+      init.signal.addEventListener('abort', () => { const e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
+    }));
+    ctx.doSend();
+    jest.advanceTimersByTime(10000);
+    jest.useRealTimers();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(events).toContainEqual(['signal', 'failure']);
+    expect(ctx.getOutputValue('error')).toMatch(/No answer within 10 s/);
+    delete global.fetch;
+  });
+});

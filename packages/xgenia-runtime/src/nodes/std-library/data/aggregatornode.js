@@ -44,6 +44,12 @@ const EdgeTriggeredInput = require('../../../edgetriggeredinput');
 const { getPlayContextFields } = require('./rgs-play-context');
 
 const DEFAULT_URL = 'http://localhost:54321/functions/v1/aggregator';
+const REQUEST_TIMEOUT_MS = 10000;
+
+function newRequestId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+}
 
 // "firstNumber" -> "First Number" (used for port display names only)
 function humanize(name) {
@@ -219,8 +225,21 @@ const AggregatorNode = {
       this._internal.outputValues = this._internal.outputValues || {};
       const signals = new Set(splitList(this._internal.signalOutputs));
       const fired = ok === true ? Array.from(signals).filter((s) => !Object.prototype.hasOwnProperty.call(body, s)) : [];
+      // What the RGS recorded for a staked round: the wallet balance after it, what it paid and its id. A published
+      // demo shows THIS balance and win (the RGS owns the money), not what the game's own logic would have said.
+      const rgs = body.__rgs && typeof body.__rgs === 'object' ? body.__rgs : null;
+      if (rgs) {
+        const fromRgs = { rgsBalance: rgs.balance_after, rgsWin: rgs.win_amount, rgsRoundId: rgs.round_id };
+        for (const name in fromRgs) {
+          if (fromRgs[name] === undefined) continue;
+          this._internal.outputValues[name] = fromRgs[name];
+          this.registerOutputIfNeeded('out-' + name);
+          if (this.hasOutput('out-' + name)) this.flagOutputDirty('out-' + name);
+        }
+      }
       for (const field in body) {
         if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
+        if (field === '__rgs') continue;
         if (signals.has(field)) {
           // A signal is not a value: fire it (below) when this response says it fired.
           if (body[field] === true) fired.push(field);
@@ -253,6 +272,9 @@ const AggregatorNode = {
       // rgs-play-context.js.
       const context = getPlayContextFields();
       for (const key in context) payload[key] = context[key];
+      // One key per request: the RGS answers a repeat of it with the round it already played, so a request the
+      // network delivered twice can never be charged or paid twice.
+      payload.__idempotency = newRequestId();
 
       this._internal.lastPayload = payload;
 
@@ -271,10 +293,15 @@ const AggregatorNode = {
         return;
       }
 
+      // A request that never answers used to leave the game waiting forever (the reels spun on with no result).
+      // After REQUEST_TIMEOUT_MS it fails like any other failure, with the reason on `error`.
+      const abort = typeof AbortController === 'function' ? new AbortController() : null;
+      const timer = abort ? setTimeout(function () { abort.abort(); }, REQUEST_TIMEOUT_MS) : null;
       fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: body
+        body: body,
+        ...(abort ? { signal: abort.signal } : {})
       })
         .then(function (response) {
           return response
@@ -287,13 +314,24 @@ const AggregatorNode = {
               _this._internal.inspectData = { status: response.status, payload: payload, response: body };
               // Map response fields -> output ports -> connected UI components.
               _this.applyOutputs(body, response.ok);
+              if (!response.ok) _this.setError((body && (body.message || body.error)) || 'HTTP ' + response.status);
               _this.sendSignalOnOutput(response.ok ? 'success' : 'failure');
             });
         })
         .catch(function (e) {
           console.log('Aggregator: failed to POST to', url, e);
+          _this.setError(e && e.name === 'AbortError' ? 'No answer within ' + REQUEST_TIMEOUT_MS / 1000 + ' s' : String((e && e.message) || e));
           _this.sendSignalOnOutput('failure');
+        })
+        .finally(function () {
+          if (timer) clearTimeout(timer);
         });
+    },
+    setError: function (message) {
+      this._internal.outputValues = this._internal.outputValues || {};
+      this._internal.outputValues.error = String(message);
+      this.registerOutputIfNeeded('out-error');
+      if (this.hasOutput('out-error')) this.flagOutputDirty('out-error');
     }
   }
 };
@@ -330,6 +368,18 @@ function buildPorts(parameters) {
       name: 'out-' + field,
       displayName: humanize(field)
     });
+  });
+
+  // Always there: what the RGS recorded for a staked round, and why a request failed.
+  const declared = new Set(splitList(parameters.outputs));
+  [
+    ['rgsBalance', 'RGS Balance'],
+    ['rgsWin', 'RGS Win'],
+    ['rgsRoundId', 'RGS Round Id'],
+    ['error', 'Error']
+  ].forEach(function (pair) {
+    if (declared.has(pair[0])) return;
+    ports.push({ type: { name: '*', allowConnectionsOnly: true }, plug: 'output', group: 'RGS', name: 'out-' + pair[0], displayName: pair[1] });
   });
 
   return ports;
