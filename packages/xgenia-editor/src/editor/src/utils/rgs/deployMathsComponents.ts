@@ -1,11 +1,11 @@
 // Deploys the project's Math Components (`/#__maths__/…`) into one RGS Server
 // Version, one backend component each.
 //
-// This is the "Math Components → Deploy" button in the Maths RGS panel, and it
-// replaces the old route where a component only became a backend at Publish time
-// (whole-project Compile → extract logic → deploy). Here the user authors a
-// component in the tree, presses Deploy, and it IS a backend component from then
-// on — Publish just points the frontend at it.
+// Publish runs it first (deployChangedMathsComponents), and it replaces the old
+// route where a component only became a backend at Publish time (whole-project
+// Compile → extract logic → deploy). Here the user authors a component in the
+// tree, it is deployed once, and it IS a backend component from then on —
+// publishing the frontend just points it at the component.
 //
 // Per component, in order:
 //   1. COMPILE — clone its graph and inline every nested component instance, so
@@ -37,6 +37,7 @@ import { toFunctionSlug } from './functionSlug';
 import { generateFunctionArtifact, FunctionArtifact } from './generateFunctionArtifact';
 import { createEdgeDeployment, deployEdgeFunction, listEdgeDeployments } from './deployEdgeFunction';
 import { XRGS_URL, rgsHeaders } from './rgsClient';
+import { WIN_PORT_PRECEDENCE, platformWarningsFor, winPortFor } from './mathsPorts';
 
 /** Sheet every Math Component lives under. */
 export const MATHS_PREFIX = '/#__maths__/';
@@ -303,17 +304,6 @@ function betPortFor(payloadExample: Record<string, any>): string | null {
  * fallbacks are deliberately not considered: a nested field is not a response
  * port, so there would be nothing for rgs-fn to read `data[win_output_port]` from.
  */
-const WIN_PORT_PRECEDENCE = ['win', 'winAmount', 'spinWinnings', 'totalPayout', 'totalWinnings'];
-
-function winPortFor(responseExample: Record<string, any>): string | null {
-  const keys = Object.keys(responseExample || {});
-  for (const candidate of WIN_PORT_PRECEDENCE) {
-    const hit = keys.find((k) => k === candidate) || keys.find((k) => k.toLowerCase() === candidate.toLowerCase());
-    if (hit) return hit;
-  }
-  return null;
-}
-
 /**
  * The bet/win mapping a deploy of this artifact WOULD store — the same two rules
  * as the deploy, exposed so a simulation of an undeployed component stakes and
@@ -354,14 +344,12 @@ export interface MathsDeployResult {
    */
   unsupportedNodeWarning?: string;
   /**
-   * Exactly what was sent to the platform — the compiled script and the authored
-   * graph. Returned so the caller can snapshot this deploy into a commit without
-   * compiling everything a second time, and without re-reading it back over the
-   * network (which would record whatever is live at THAT moment, not what this
-   * deploy pushed).
+   * What XGENIA RGS reported about the script on the way in — calls it rewrote
+   * (Math.random → the certified generator) and a component whose outcome does
+   * not respond to its random input. These were console.warn only, and the
+   * production build strips console output, so nobody ever saw them.
    */
-  script: string;
-  projectJson: Record<string, any>;
+  platformWarnings?: string[];
 }
 
 export interface MathsDeployOptions {
@@ -373,11 +361,10 @@ export interface MathsDeployOptions {
   /**
    * Deploy only these slugs, instead of every Math Component in the project.
    *
-   * This is how Deploy became a commit: only components that differ from what is
-   * deployed are pushed. Re-uploading an identical component would put a
-   * duplicate snapshot in the history and make every commit look like it touched
-   * the whole project. Omitted (or empty) deploys everything, which is what the
-   * button did before and what a first deploy still needs.
+   * deployChangedMathsComponents passes the components that differ from what is
+   * deployed (or all of them, for `redeployAll`), so an unchanged component is
+   * not recompiled and re-uploaded. Omitted (or empty)
+   * deploys everything, which is what a first deploy needs.
    */
   onlySlugs?: Set<string>;
   /** Progress line for the panel, e.g. "Compiling SlotMaths (1/3)…". */
@@ -515,11 +502,11 @@ export async function deployMathsComponents(
     const betWinWarning = betInputPort && !winOutputPort
       ? `${label} has a betAmount input but no recognisable win output ` +
         `(${WIN_PORT_PRECEDENCE.join(', ')}), so its bet/win mapping was left unset. ` +
-        `Until it is set on the platform, the script sees a stake of 0 and no rounds are recorded.`
+        `Rename its win output to one of those names and publish again — until then the script sees a stake of 0 and no rounds are recorded.`
       : undefined;
 
     onProgress?.(`Deploying ${label} ${position}…`);
-    const { url } = await deployEdgeFunction(apiKey, gameId, deploymentId, {
+    const { url, rewrites, rng } = await deployEdgeFunction(apiKey, gameId, deploymentId, {
       ...artifact,
       slug,
       functionName: label,
@@ -555,8 +542,7 @@ export async function deployMathsComponents(
       winOutputPort: mapBoth ? winOutputPort : null,
       betWinWarning,
       unsupportedNodeWarning,
-      script: artifact.script,
-      projectJson
+      platformWarnings: platformWarningsFor(label, rewrites, rng)
     });
   }
 
@@ -991,3 +977,4 @@ export function repointMathsAggregators(
 
   return repointed;
 }
+

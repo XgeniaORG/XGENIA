@@ -3,7 +3,7 @@
 //
 // Nothing here is a second publish pipeline. A game publish is publishGameToWeb,
 // the routine the Publish popup runs; a maths deploy is
-// deployChangedMathsComponents, built from the Maths RGS panel's own pieces; names
+// deployChangedMathsComponents, the one Publish runs first; names
 // are checked with the popup's rules and availability check. What this adds is
 // only what a caller without a screen needs:
 //
@@ -35,15 +35,14 @@ import { deployChangedMathsComponents, newestServerVersion } from './deployChang
 import { domainUnavailableMessage, getFullDomain, normalizeDomainName, vercelProjectName } from './deployDomain';
 import { getDeviceId, persistedAccountId, readOwnedDomains, saveDeployedDomain } from './deployedDomains';
 import {
-  deployCredentialError,
+  checkPublishDomain,
   describeRegistration,
   describeWiring,
-  loadDeployCredentials,
   publishGameToWeb,
-  publishPreconditionError
+  publishPreconditionError,
+  resolvePublishRoute
 } from './publishGame';
 import { createPublishJobRegistry, PublishJobStart, withTimeout } from './publishJobs';
-import { checkDomainAvailability, VercelSDKWrapper } from './webDeploy';
 
 /**
  * The Publish popup's activity toast id. Reusing it is what makes an AI publish
@@ -117,7 +116,7 @@ async function activeGameDetails(rgs: RgsSettings | null, game: SelectedGame | n
   try {
     const games = await withTimeout(listGames(rgs.apiKey), READ_TIMEOUT_MS, 'XGENIA RGS (list-games)');
     const live = games.find((g: any) => g?.id === game.id);
-    if (!live) return { ...details, note: 'This key cannot see the selected game any more — select one in the Maths RGS panel.' };
+    if (!live) return { ...details, note: 'This key cannot see the selected game any more — choose one under Publish → XGENIA.' };
     return { ...details, name: live.name ?? details.name, slug: live.slug ?? details.slug, status: live.status, mode: live.mode };
   } catch (e) {
     return { ...details, note: `Mode/status unknown: ${messageOf(e)}` };
@@ -165,11 +164,15 @@ async function mathsComponentStates(rgs: RgsSettings | null, game: SelectedGame 
   }
 }
 
-async function deployTokensState(): Promise<{ ready: boolean; error?: string }> {
+/**
+ * Can this editor publish right now, and which way: through XGENIA RGS
+ * /web-publish (no token in the editor), or the old shared token on a platform
+ * that predates it (resolvePublishRoute).
+ */
+async function deployTokensState(): Promise<{ ready: boolean; via?: 'rgs' | 'token'; error?: string }> {
   try {
-    const credentials = await withTimeout(loadDeployCredentials(), READ_TIMEOUT_MS, 'Loading the deploy tokens');
-    const error = deployCredentialError({ ...credentials, tokensLoaded: true });
-    return error ? { ready: false, error } : { ready: true };
+    const { route, error } = await withTimeout(resolvePublishRoute(), READ_TIMEOUT_MS, 'Checking how to publish');
+    return route ? { ready: true, via: route.kind } : { ready: false, error };
   } catch (e) {
     return { ready: false, error: messageOf(e) };
   }
@@ -218,6 +221,7 @@ export async function publishStatus() {
       ? { betInput: plainRef(saved.betInput), winOutput: plainRef(saved.winOutput), betButton: plainRef(saved.betButton) }
       : null,
     deployTokensReady: tokens.ready,
+    ...(tokens.via ? { publishVia: tokens.via === 'rgs' ? 'xgenia-rgs' : 'shared-vercel-token' } : {}),
     ...(tokens.error ? { deployTokensError: tokens.error } : {}),
     deployedDomains,
     ...(deployedDomainsError ? { deployedDomainsError } : {}),
@@ -237,29 +241,37 @@ export async function checkPublishName(input: unknown) {
   if (error) return { valid: false, available: false, name, url: null as string | null, reason: error };
   const url = `https://${getFullDomain(name)}`;
 
-  let credentials;
+  let resolved;
   try {
-    credentials = await withTimeout(loadDeployCredentials(), READ_TIMEOUT_MS, 'Loading the deploy tokens');
+    resolved = await withTimeout(resolvePublishRoute(), READ_TIMEOUT_MS, 'Checking how to publish');
   } catch (e) {
     return { valid: true, available: null as boolean | null, name, url, reason: messageOf(e) };
   }
-  if (!credentials.vercelToken) {
-    return {
-      valid: true,
-      available: null as boolean | null,
-      name,
-      url,
-      reason: deployCredentialError({ ...credentials, tokensLoaded: true })
-    };
+  if (!resolved.route) {
+    return { valid: true, available: null as boolean | null, name, url, reason: resolved.error };
   }
 
   try {
     const availability = await withTimeout(
-      checkDomainAvailability(new VercelSDKWrapper({ bearerToken: credentials.vercelToken }), name),
+      checkPublishDomain(resolved.route, name),
       AVAILABILITY_TIMEOUT_MS,
       'The availability check'
     );
-    if (availability.available) return { valid: true, available: true, name, url };
+    // Through XGENIA RGS the name becomes "<studio prefix>-<name>", and the platform
+    // itself says whether it is this studio's own earlier publish.
+    const finalUrl = availability.domain ? `https://${availability.domain}` : url;
+    if (availability.available) {
+      return {
+        valid: true,
+        available: true,
+        name,
+        url: finalUrl,
+        ...(availability.republish
+          ? { republish: true, reason: 'Published by this studio before — publishing again replaces it at the same link.' }
+          : {})
+      };
+    }
+    if (availability.message) return { valid: true, available: false, name, url: finalUrl, reason: availability.message };
     const own = availability.reason === 'existing-project' ? ownDeployedDomain(name) : null;
     if (own) {
       return {
@@ -281,8 +293,6 @@ export async function checkPublishName(input: unknown) {
 
 export interface PublishStartSpec {
   kind: 'maths' | 'game';
-  /** kind 'maths': the commit message. */
-  commitMessage?: string;
   /** kind 'maths': recompile and redeploy unchanged components too (deployChangedMathsComponents). */
   redeployAll?: boolean;
   /** kind 'game': the subdomain — "my-game" of my-game.vercel.app. */
@@ -322,23 +332,28 @@ async function runGameJob(
   PublishState.begin();
   let live = false;
   try {
-    show('Loading deploy credentials...');
+    show('Checking how to publish...');
     // A job has no command timeout above it: every network wait here needs its own, or a slow
     // RGS / Vercel leaves the job 'running' for good and blocks the next start.
-    const credentials = await withTimeout(loadDeployCredentials(), JOB_NETWORK_TIMEOUT_MS, 'Loading the deploy credentials');
-    const credentialError = deployCredentialError({ ...credentials, tokensLoaded: true });
-    if (credentialError) throw new Error(credentialError);
+    const resolved = await withTimeout(resolvePublishRoute(), JOB_NETWORK_TIMEOUT_MS, 'Checking how to publish');
+    if (!resolved.route) throw new Error(resolved.error);
+    const route = resolved.route;
 
     // Before any heavy work, as the popup does.
     show('Checking domain availability...');
     const availability = await withTimeout(
-      checkDomainAvailability(new VercelSDKWrapper({ bearerToken: credentials.vercelToken }), args.name),
+      checkPublishDomain(route, args.name),
       JOB_NETWORK_TIMEOUT_MS,
       'The availability check'
     );
-    // Our own earlier publish of this name is an update, not a clash (see ownDeployedDomain).
-    const republish = !availability.available && availability.reason === 'existing-project' && !!ownDeployedDomain(args.name);
-    if (!availability.available && !republish) throw new Error(domainUnavailableMessage(args.name, availability.reason));
+    // Our own earlier publish of this name is an update, not a clash: XGENIA RGS says so itself;
+    // on the old token path the Deployed Domains list decides (see ownDeployedDomain).
+    const republish =
+      !!availability.republish ||
+      (route.kind === 'token' && !availability.available && availability.reason === 'existing-project' && !!ownDeployedDomain(args.name));
+    if (!availability.available && !republish) {
+      throw new Error(availability.message || domainUnavailableMessage(args.name, availability.reason));
+    }
 
     const owner = domainOwner();
     const result = await publishGameToWeb({
@@ -348,17 +363,18 @@ async function runGameJob(
       isPrivate: args.isPrivate,
       rgs: args.rgs,
       game: args.game,
-      tokens: { github: credentials.githubToken, vercel: credentials.vercelToken },
+      route,
       onProgress: show,
       onWarning: (message) => ToastLayer.showError(message),
-      onLive: ({ liveUrl, deploymentId, wiring }) => {
+      onLive: ({ liveUrl, deploymentId, wiring, project, site, viaRgs }) => {
         live = true;
         PublishState.succeed(liveUrl);
         ToastLayer.hideActivity(GAME_ACTIVITY_ID);
         ToastLayer.showSuccess(
           `Deployed to Vercel — ${describeWiring(wiring, args.game.name)}.\nLive URL: ${liveUrl.replace(/^https?:\/\//, '')}`
         );
-        saveDeployedDomain(owner, args.name, deploymentId, liveUrl);
+        // Recorded under the project actually created, so the popup's list, rename and delete find it.
+        saveDeployedDomain(owner, viaRgs ? project : args.name, deploymentId, liveUrl, undefined, viaRgs ? { project, site } : undefined);
       }
     });
 
@@ -379,14 +395,14 @@ async function runGameJob(
 }
 
 /** A Math Components deploy: the panel's Deploy, without deletions. */
-async function runMathsJob(commitMessage: string | undefined, progress: (text: string) => void, redeployAll = false) {
+async function runMathsJob(progress: (text: string) => void, redeployAll = false) {
   const show = (step: string) => {
     progress(step);
     ToastLayer.showActivity(step, MATHS_ACTIVITY_ID);
   };
   try {
     show('Deploying Math Components...');
-    const result = await deployChangedMathsComponents({ commitMessage, onProgress: show, redeployAll });
+    const result = await deployChangedMathsComponents({ onProgress: show, redeployAll });
     ToastLayer.hideActivity(MATHS_ACTIVITY_ID);
     ToastLayer.showSuccess(`Math Components — ${result.message}`);
     if (result.warnings.length > 0) ToastLayer.showError(result.warnings.join('\n'));
@@ -427,7 +443,7 @@ export function startPublish(spec: PublishStartSpec | null | undefined): Publish
   if (precondition) return { error: precondition };
 
   if (kind === 'maths') {
-    return jobs.start('maths', (progress) => runMathsJob(spec.commitMessage, progress, spec.redeployAll === true));
+    return jobs.start('maths', (progress) => runMathsJob(progress, spec.redeployAll === true));
   }
 
   const { name, error } = normalizeDomainName(spec.name);

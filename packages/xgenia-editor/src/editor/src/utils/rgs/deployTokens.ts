@@ -28,11 +28,12 @@
 // been connected to XGENIA RGS cannot fetch them — by design, and the reason
 // callers must surface `reason` rather than leave the user at a null token.
 
-import { XRGS_URL, getRgsSettings, rgsHeaders } from './rgsClient';
+import { XRGS_ANON_KEY, XRGS_URL, getRgsSettings, rgsHeaders, rgsKeyReady } from './rgsClient';
+import { detectWebPublishCached } from '../publish/webPublishClient';
 
 /** Why a load attempt produced no tokens — surfaced by the Deploy panel. */
 export type DeployTokenFailure =
-    | 'not-connected'   // no operator key stored; connect in the Maths RGS panel
+    | 'not-connected'   // no operator key stored; sign in under Publish → XGENIA
     | 'unauthorized'    // key rejected (revoked, or wrong platform)
     | 'not-configured'  // platform has no tokens set
     | 'network'         // offline / request failed
@@ -52,7 +53,7 @@ const NOT_CONNECTED: DeployTokenResult = {
     reason: 'not-connected',
     message:
         'Not connected to XGENIA RGS, so the shared Vercel/GitHub deploy tokens could not be' +
-        ' fetched. Connect in the Maths RGS panel, then try again.',
+        ' fetched. Sign in under Publish → XGENIA, then try again.',
 };
 
 // Resolved only on success, so a failure never becomes permanent for the session:
@@ -84,7 +85,7 @@ async function doLoad(): Promise<DeployTokenResult> {
                     reason: 'unauthorized',
                     message:
                         'XGENIA RGS rejected this operator key, so the shared Vercel/GitHub deploy' +
-                        ' tokens could not be fetched. Reconnect in the Maths RGS panel.',
+                        ' tokens could not be fetched. Sign in again under Publish → XGENIA.',
                 };
             }
             if (res.status === 404) {
@@ -124,6 +125,31 @@ async function doLoad(): Promise<DeployTokenResult> {
             message: `Could not reach XGENIA RGS to fetch the shared deploy tokens: ${e?.message || e}`,
         };
     }
+}
+
+/**
+ * What the editor warms at startup (editor/index.ts) so Publish opens ready.
+ *
+ * (2026-11-03, XRGS G1-S2) Publishing goes through XGENIA RGS /web-publish, which
+ * keeps the Vercel token on the server — so when the platform has it, NOTHING is
+ * fetched here and the shared token never reaches this editor. Only a platform
+ * that predates /web-publish gets the old warm-up (loadSharedDeployTokens), which
+ * the platform counts and reports as "editors still fetching the shared Vercel
+ * token" until it can be switched off.
+ */
+export async function warmPublishCredentials(): Promise<void> {
+    await rgsKeyReady();
+    const apiKey = getRgsSettings()?.apiKey;
+    if (!apiKey) return; // nothing to fetch with; Publish asks for a sign-in
+    try {
+        const detection = await detectWebPublishCached({ functionsUrl: XRGS_URL, anonKey: XRGS_ANON_KEY, apiKey });
+        if (detection.available) return;
+        console.warn(`[deployTokens] XGENIA RGS web-publish unavailable (${detection.reason}); warming the shared Vercel token instead.`);
+    } catch {
+        // Unreachable now: the old warm-up fails the same way, and Publish asks again when opened.
+        return;
+    }
+    await loadSharedDeployTokens();
 }
 
 /**

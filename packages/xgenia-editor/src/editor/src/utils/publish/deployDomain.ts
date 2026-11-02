@@ -56,13 +56,23 @@ export function normalizeDomainName(input: unknown): { name: string; error?: str
   return { name };
 }
 
-/** Why a name cannot be published under — drives the message shown. */
-export type DomainUnavailableReason = 'existing-project' | 'taken-elsewhere';
+/**
+ * Why a name cannot be published under — drives the message shown. The last two
+ * come only from XGENIA RGS /web-publish, which knows which studio owns a site.
+ */
+export type DomainUnavailableReason = 'existing-project' | 'taken-elsewhere' | 'taken-by-another-studio' | 'site-limit';
 
 export type DomainAvailability = {
   available: boolean;
   /** Why it is unavailable — drives the message shown to the user. */
   reason?: DomainUnavailableReason;
+  /** XGENIA RGS's own wording of why, when it answered. Preferred over domainUnavailableMessage. */
+  message?: string;
+  /** XGENIA RGS: available because it is this studio's own earlier publish. */
+  republish?: boolean;
+  /** XGENIA RGS: the project and hostname the name becomes (`<studio prefix>-<name>`). */
+  project?: string;
+  domain?: string;
 };
 
 /**

@@ -54,7 +54,7 @@ import {
     startPublish,
     type PublishStartSpec,
 } from '@xgenia-utils/publish/publishCommands';
-import { getActiveGame, setActiveGame } from '@xgenia-utils/rgs/rgsClient';
+import { getActiveGame, getRgsSettings, setActiveGame } from '@xgenia-utils/rgs/rgsClient';
 import { desktopNotificationService } from '@xgenia-utils/DesktopNotificationService';
 import { resolveInsideProject } from '@xgenia-utils/projectPathGuard';
 import { getActivePreviewHost } from '@xgenia-utils/previewHostRegistry';
@@ -3242,9 +3242,11 @@ export class EditorBridge {
         const writeRgs = (patch: Record<string, any>): void => {
             try { localStorage.setItem('xgenia_rgs_settings', JSON.stringify({ ...readRgs(), ...patch })); } catch { /* ignore */ }
         };
+        // The key is NOT in localStorage any more (it is in the OS keychain, decrypted
+        // into memory by rgsClient — G1-S14): read it through getRgsSettings.
         h('xrgs.getSettings', () => {
-            const s = readRgs();
-            return s.apiKey ? { apiKey: s.apiKey, url: s.rgsUrl || XRGS_DEFAULT_URL } : null;
+            const s = getRgsSettings();
+            return s?.apiKey ? { apiKey: s.apiKey, url: s.rgsUrl || XRGS_DEFAULT_URL } : null;
         });
         h('xrgs.getActiveGame', () => getActiveGame());
         // Through rgsClient, not writeRgs: it also emits `rgs.gameSelected`, so the
@@ -3272,11 +3274,10 @@ export class EditorBridge {
 
         // --- Publish (2026-10-05) ---
         // Publishing the open game as a playable demo with a shareable link — the same thing the
-        // user gets from Publish → Deploy (XGENIA tab), and the Maths RGS panel's Math Components →
-        // Deploy that the published game's backend calls come from. Before this, both pipelines
-        // lived inside React components and the AI could not run either. They are plain modules
-        // now (utils/publish), the popup and the panel call them, and these commands call the SAME
-        // modules — no second pipeline. See utils/publish/publishCommands.ts.
+        // user gets from Publish → XGENIA, including the Math Components deploy that the published
+        // game's backend calls come from. Both are plain modules (utils/publish): the popup calls
+        // them, and these commands call the SAME modules — no second pipeline. See
+        // utils/publish/publishCommands.ts.
         //
         // WHY START-AND-POLL. A game publish takes minutes (UI build, GitHub push, then up to 2 min
         // of Vercel polling), and the panel forwards each command with a hard 30 s timeout. So
@@ -3292,7 +3293,7 @@ export class EditorBridge {
         //                                               deployedDomains[{name, url, deploymentId, …}], … }
         //   publish.checkName([name])               → { valid, available (null = could not tell), url, reason?,
         //                                               republish? (this editor's own earlier publish of it) }
-        //   publish.start([{ kind: 'maths', commitMessage? }])
+        //   publish.start([{ kind: 'maths', redeployAll? }])
         //   publish.start([{ kind: 'game', name, telemetry?: { betInput?, winOutput?, betButton? }, isPrivate? }])
         //                                           → { jobId, kind, startedAt } | { error, unresolved?, candidates? }
         //   publish.job([jobId?])                   → { jobId, kind, state, step, steps, startedAt, finishedAt?,

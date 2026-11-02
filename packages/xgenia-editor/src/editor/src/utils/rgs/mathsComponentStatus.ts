@@ -1,5 +1,6 @@
-// What is deployed, what has changed since — the model behind the Maths
-// Components panel's Deployed / Changed / Commits subsections.
+// What is deployed, what has changed since — the model behind the Maths panel's
+// Deployed tab and Local-tree badges, and what Publish's maths deploy
+// (deployChangedMaths) compares against to deploy only what changed.
 //
 // The panel is Source Control for Math Components, so it needs the same two facts
 // git does: what the remote holds, and how the working copy differs from it. Both

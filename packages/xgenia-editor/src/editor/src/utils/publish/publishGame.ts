@@ -28,7 +28,15 @@ import {
 } from '@xgenia-utils/rgs/deployMathsComponents';
 import { loadSharedDeployTokens } from '@xgenia-utils/rgs/deployTokens';
 import { registerDeployedGame } from '@xgenia-utils/rgs/deployedGames';
-import { getActiveGame, getRgsSettings, RgsSettings, SelectedGame } from '@xgenia-utils/rgs/rgsClient';
+import {
+  getActiveGame,
+  getRgsSettings,
+  RgsSettings,
+  rgsKeyReady,
+  SelectedGame,
+  XRGS_ANON_KEY,
+  XRGS_URL
+} from '@xgenia-utils/rgs/rgsClient';
 import {
   CompleteTelemetryMapping,
   TELEMETRY_METADATA_KEY,
@@ -36,8 +44,17 @@ import {
 } from '@xgenia-utils/rgs/telemetryMapping';
 import { ConnectionStore } from '@xgenia-services/ConnectionStore';
 
-import { DOMAIN_NAME_REQUIRED, getFullDomain } from './deployDomain';
-import { collectProjectFiles, deployToVercel, uploadFilesToVercel, VercelSDKWrapper } from './webDeploy';
+import { DOMAIN_NAME_REQUIRED, DomainAvailability, getFullDomain } from './deployDomain';
+import { choosePublishRoute, PublishRoute } from './publishRoute';
+import { BuiltFile, publishFilesViaRgs } from './webPublishClient';
+import {
+  checkDomainAvailability,
+  collectProjectFiles,
+  deployToVercel,
+  GitHubFile,
+  uploadFilesToVercel,
+  VercelSDKWrapper
+} from './webDeploy';
 
 // ─── Preconditions ────────────────────────────────────────────────────────────
 
@@ -51,8 +68,8 @@ import { collectProjectFiles, deployToVercel, uploadFilesToVercel, VercelSDKWrap
  * endpoint in the build belongs to game A.
  */
 export function publishPreconditionError(rgs: RgsSettings | null, game: SelectedGame | null): string {
-  if (!rgs?.apiKey) return 'Not connected to XGENIA RGS. Connect in the Maths RGS panel first.';
-  if (!game?.id) return 'No game selected. Select one in the Maths RGS panel first.';
+  if (!rgs?.apiKey) return 'Not connected to XGENIA RGS. Sign in under Publish → XGENIA first.';
+  if (!game?.id) return 'No game selected. Choose or create one under Publish → XGENIA first.';
   return '';
 }
 
@@ -65,6 +82,10 @@ export interface DeployCredentials {
 }
 
 /**
+ * THE FALLBACK ONLY (2026-11-03): used by resolvePublishRoute when XGENIA RGS has
+ * no /web-publish yet. On a platform that has it, nothing calls this and the
+ * shared Vercel token never reaches the editor.
+ *
  * Load the deploy tokens exactly as the Publish popup does when it opens:
  * initialise ConnectionStore, make sure the shared tokens from XGENIA RGS are
  * installed on `window.__XGENIA_DEFAULT_TOKENS__` (idempotent on success; a
@@ -98,6 +119,112 @@ export function deployCredentialError(state: DeployCredentials & { tokensLoaded:
   if (state.vercelToken) return '';
   if (state.tokenError) return state.tokenError;
   return 'No Vercel deploy token is available, so this cannot run.';
+}
+
+// ─── Which way to Vercel ──────────────────────────────────────────────────────
+
+/**
+ * How this editor publishes right now: through XGENIA RGS `/web-publish`, holding
+ * no Vercel token, or — only while the platform predates it — the shared token
+ * (see publishRoute.ts). The token is loaded ONLY on that fallback, so a Publish
+ * popup on an up-to-date platform never fetches it.
+ */
+export async function resolvePublishRoute(rgs?: RgsSettings | null): Promise<{ route: PublishRoute | null; error: string }> {
+  // The stored key is decrypted at startup (rgsClient initRgsKeyVault); a popup
+  // mounted before that finished must not read "not connected".
+  if (rgs === undefined) {
+    await rgsKeyReady();
+    rgs = getRgsSettings();
+  }
+  return choosePublishRoute({
+    functionsUrl: XRGS_URL,
+    anonKey: XRGS_ANON_KEY,
+    apiKey: rgs?.apiKey,
+    loadToken: async () => {
+      const loaded = await loadDeployCredentials();
+      return { token: loaded.vercelToken, error: deployCredentialError({ ...loaded, tokensLoaded: true }) };
+    }
+  });
+}
+
+/** The Vercel client of the fallback route. */
+export function vercelFor(route: PublishRoute): VercelSDKWrapper | null {
+  return route.kind === 'token' ? new VercelSDKWrapper({ bearerToken: route.vercelToken }) : null;
+}
+
+/**
+ * Can `name` be published under, by this route? On XGENIA RGS the platform
+ * decides — including "your own earlier publish" (republish) and "another
+ * studio's" — and says why in `message`.
+ */
+export async function checkPublishDomain(route: PublishRoute, name: string): Promise<DomainAvailability> {
+  if (route.kind === 'token') return checkDomainAvailability(vercelFor(route)!, name);
+  const a = await route.client.checkDomain(name.trim());
+  return {
+    available: a.available,
+    reason: a.reason as DomainAvailability['reason'],
+    message: a.message,
+    republish: !!a.republish,
+    project: a.project,
+    domain: a.domain
+  };
+}
+
+/** The built files as bytes (collectProjectFiles keeps them as utf-8 or base64 text). */
+function toBuiltFiles(files: GitHubFile[]): BuiltFile[] {
+  const { Buffer } = (window as any).require('buffer');
+  return files.map((f) => ({ path: f.path, bytes: Buffer.from(f.content, f.encoding === 'base64' ? 'base64' : 'utf8') }));
+}
+
+function sha1Hex(bytes: Uint8Array): string {
+  return (window as any).require('crypto').createHash('sha1').update(bytes).digest('hex');
+}
+
+/** What a deploy of built files produced, by either route. */
+export interface DeployedBuild {
+  deploymentId: string;
+  deploymentUrl: string;
+  /** The URL to hand out (never a guessed one). */
+  aliasUrl: string;
+  /** The Vercel project. On XGENIA RGS: `<studio prefix>-<name>`. */
+  project: string;
+  /** What the user typed — the site name without the studio prefix. */
+  site: string;
+  /** "<project>.vercel.app". */
+  domain: string;
+}
+
+/**
+ * Deploy an already-built folder's files under `name`, by whichever route is open
+ * (XGENIA RGS /web-publish, or the old token path on a platform that predates it).
+ */
+async function deployBuiltFiles(
+  route: PublishRoute,
+  files: GitHubFile[],
+  name: string,
+  onProgress?: (step: string) => void,
+  onWarning?: (message: string) => void
+): Promise<DeployedBuild> {
+  if (route.kind === 'rgs') {
+    const done = await publishFilesViaRgs(route.client, route.info, name.trim(), toBuiltFiles(files), {
+      sha1: sha1Hex,
+      onProgress,
+      onWarning
+    });
+    return {
+      deploymentId: done.deploymentId,
+      deploymentUrl: done.deploymentUrl,
+      aliasUrl: done.liveUrl,
+      project: done.project,
+      site: done.site,
+      domain: done.domain
+    };
+  }
+  const vercel = vercelFor(route)!;
+  const fileRefs = await uploadFilesToVercel(vercel, files, onProgress);
+  onProgress?.('Deploying to Vercel...');
+  const { deploymentId, deploymentUrl, aliasUrl } = await deployToVercel(vercel, { files: fileRefs }, name.trim());
+  return { deploymentId, deploymentUrl, aliasUrl, project: name.trim(), site: name.trim(), domain: getFullDomain(name) };
 }
 
 // ─── Helpers moved with the routine ───────────────────────────────────────────
@@ -206,6 +333,12 @@ export interface PublishGameLive {
   /** Always null since publishing uploads straight to Vercel (kept for the Deployed Games record). */
   githubRepo: string | null;
   wiring: PublishWiring;
+  /** The Vercel project — on XGENIA RGS `<studio prefix>-<site>`, else the name as typed. */
+  project: string;
+  /** The name as typed, without the studio prefix. */
+  site: string;
+  /** True when it went through XGENIA RGS /web-publish (no token in the editor). */
+  viaRgs: boolean;
 }
 
 export interface PublishGameOptions {
@@ -218,9 +351,11 @@ export interface PublishGameOptions {
   isPrivate?: boolean;
   /** Read via rgsClient when omitted. */
   rgs?: RgsSettings | null;
-  /** Read via rgsClient (the Maths RGS panel's selection) when omitted. */
+  /** Read via rgsClient (the project's game, chosen in Publish) when omitted. */
   game?: SelectedGame | null;
-  /** The deploy tokens; loaded the way the popup loads them when omitted. */
+  /** How to reach Vercel (resolvePublishRoute); resolved here when omitted. */
+  route?: PublishRoute;
+  /** @deprecated The old shared-token path only: used when no `route` is given. */
   tokens?: { github: string | null; vercel: string | null };
   /** One line per step — the popup shows these as its activity toast. */
   onProgress?: (step: string) => void;
@@ -235,6 +370,9 @@ export interface PublishGameResult {
   domain: string;
   deploymentId: string;
   githubRepo: string | null;
+  project: string;
+  site: string;
+  viaRgs: boolean;
   /** XGENIA RGS → Deployed Games. A failure here is NOT a failed publish — the site is live. */
   registered: { ok: boolean; publishNumber?: number; message?: string };
   wiring: PublishWiring;
@@ -279,17 +417,13 @@ export async function publishGameToWeb(opts: PublishGameOptions): Promise<Publis
   if (!domainName) throw new Error(DOMAIN_NAME_REQUIRED);
   if (!opts.project) throw new Error('No project is open.');
 
-  let tokens = opts.tokens;
-  if (!tokens) {
-    const loaded = await loadDeployCredentials();
-    tokens = { github: loaded.githubToken, vercel: loaded.vercelToken };
-    const credentialError = deployCredentialError({ ...loaded, tokensLoaded: true });
-    if (credentialError) throw new Error(credentialError);
+  let route = opts.route;
+  if (!route && opts.tokens?.vercel) route = { kind: 'token', vercelToken: opts.tokens.vercel };
+  if (!route) {
+    const resolved = await resolvePublishRoute(rgs);
+    if (!resolved.route) throw new Error(resolved.error);
+    route = resolved.route;
   }
-  if (!tokens.vercel) {
-    throw new Error(deployCredentialError({ tokensLoaded: true, vercelToken: null, githubToken: tokens.github, tokenError: '' }));
-  }
-  const vercel = new VercelSDKWrapper({ bearerToken: tokens.vercel });
 
   const progress = (step: string) => opts.onProgress?.(step);
   const warnings: string[] = [];
@@ -336,17 +470,22 @@ export async function publishGameToWeb(opts: PublishGameOptions): Promise<Publis
       );
     }
 
-    // A Math Component that the UI uses but nobody deployed is now shipped
-    // as-is and RUNS IN THE BROWSER — there is no compile pass left to extract
-    // it. That is a real thing to know about a published game, so say it
-    // plainly instead of quietly building it.
+    // A Math Component that the UI uses but nobody deployed would ship as-is
+    // and RUN IN THE BROWSER — there is no compile pass left to extract it.
+    // That used to be a heads-up toast on a publish that went ahead. It is a
+    // refusal now: browser-side maths is maths the player can rewrite, that no
+    // certificate covers and no round record captures, so "published" would be
+    // the wrong word for it. The Publish popup deploys changed maths before it
+    // gets here (deployChangedMathsComponents), so reaching this means a
+    // component could not be deployed — say which, and stop.
     const undeployed = undeployedMathsInstances(copy, endpoints);
     if (undeployed.length > 0) {
       console.warn('[Deploy] Math Components used by the UI but not deployed:', undeployed);
-      warn(
-        `Heads up: ${leafNames(undeployed)} ${undeployed.length === 1 ? 'is' : 'are'} not deployed to ` +
-          `${game.name || 'this game'}, so ${undeployed.length === 1 ? 'its' : 'their'} maths will run in the ` +
-          `player's browser. Deploy ${undeployed.length === 1 ? 'it' : 'them'} from Maths RGS → Math Components.`
+      throw new Error(
+        `${leafNames(undeployed)} ${undeployed.length === 1 ? 'is' : 'are'} not deployed to ` +
+          `${game.name || 'this game'}, so publishing would run ${undeployed.length === 1 ? 'its' : 'their'} maths in the ` +
+          `player's browser. Publish again to deploy ${undeployed.length === 1 ? 'it' : 'them'}; if this repeats, ` +
+          `open Maths and check ${undeployed.length === 1 ? 'that component' : 'those components'} for errors.`
       );
     }
 
@@ -385,17 +524,17 @@ export async function publishGameToWeb(opts: PublishGameOptions): Promise<Publis
       const files = await collectProjectFiles(tempDir);
       if (files.length === 0) throw new Error('No files were generated during deployment');
 
-      // Straight to Vercel (uploadFilesToVercel): no GitHub repository any more.
+      // Through XGENIA RGS /web-publish (no token here), or the old token path
+      // on a platform that predates it (deployBuiltFiles).
       progress('Preparing project for deployment...');
-      const fileRefs = await uploadFilesToVercel(vercel, files, progress);
-
-      progress('Deploying to Vercel...');
-      const { deploymentId, aliasUrl } = await deployToVercel(vercel, { files: fileRefs }, domainName);
+      const deployed = await deployBuiltFiles(route, files, domainName, progress, warn);
+      const { deploymentId, aliasUrl, project, site } = deployed;
+      const viaRgs = route.kind === 'rgs';
 
       const githubRepo: string | null = null;
-      const domain = getFullDomain(domainName);
+      const domain = deployed.domain;
       const wiring: PublishWiring = { swapped, repointed, untriggered, undeployed };
-      await opts.onLive?.({ liveUrl: aliasUrl, domain, deploymentId, githubRepo, wiring });
+      await opts.onLive?.({ liveUrl: aliasUrl, domain, deploymentId, githubRepo, wiring, project, site, viaRgs });
 
       // 5. List it on XGENIA RGS → Deployed Games: the whole project.json that
       //    went live, the telemetry mapping, and where it is reachable. Vercel
@@ -404,7 +543,8 @@ export async function publishGameToWeb(opts: PublishGameOptions): Promise<Publis
       progress('Listing the game on XGENIA RGS...');
       const registered = await registerDeployedGame(rgs.apiKey, {
         name: sourceName,
-        slug: domainName,
+        // The Vercel project, which is unique across studios; the typed name is not.
+        slug: project,
         domain,
         liveUrl: aliasUrl,
         vercelDeploymentId: deploymentId,
@@ -425,6 +565,9 @@ export async function publishGameToWeb(opts: PublishGameOptions): Promise<Publis
         domain,
         deploymentId,
         githubRepo,
+        project,
+        site,
+        viaRgs,
         registered: registered.ok
           ? { ok: true, publishNumber: registered.publishNumber }
           : { ok: false, message: registered.message },
