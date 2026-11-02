@@ -58,7 +58,9 @@ export const BLOCKED_PATTERNS: BlockedPattern[] = [
   { re: /\batob\s*\(/, label: 'atob()', reason: 'string-built global reach is how sandbox escapes are assembled' },
   { re: /\bbtoa\s*\(/, label: 'btoa()', reason: 'string-built global reach is how sandbox escapes are assembled' },
   // Module loading
-  { re: /\bimport\s*\(/, label: 'dynamic import()', reason: 'the sandbox cannot load modules' },
+  // ANY `import`, matching the server (XRGS _shared/script-sandbox.ts, 2026-11-02):
+  // `import/**/(…)` slipped past `import\s*\(`. A maths script has no use for the word as code.
+  { re: /\bimport\b/, label: 'import', reason: 'the sandbox cannot load modules' },
   { re: /\brequire\s*\(/, label: 'require()', reason: 'the sandbox cannot load modules' },
   // Runtime access
   { re: /\bDeno\b/, label: 'Deno', reason: 'the host runtime is not reachable from a maths script' },
