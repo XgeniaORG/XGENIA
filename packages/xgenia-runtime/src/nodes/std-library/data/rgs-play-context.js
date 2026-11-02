@@ -102,8 +102,40 @@ function getClientId() {
   return getOrCreate('local', CLIENT_ID_KEY);
 }
 
-/** Per-tab id, so one sitting is one session row. Created on first use. */
+/**
+ * The session a casino launched this page with: `?session=<token>` (or
+ * `?session_token=`), as /game-launch's `play_url` hands it out.
+ *
+ * Without this a published game could never take real money: the page made up
+ * its own per-tab session id, /rgs-fn found no launched session behind it, and
+ * every real-money stake was refused ("A valid session is required for
+ * real-money play"). The launch token is what identifies the player, their
+ * limits and their wallet; it must be the session every call of this tab sends.
+ */
+function launchedSessionFromUrl() {
+  try {
+    if (typeof window === 'undefined' || !window.location) return '';
+    var params = new URLSearchParams(window.location.search || '');
+    var token = (params.get('session') || params.get('session_token') || '').trim();
+    // An opaque token, not free text: bounded, and never something with spaces in it.
+    if (!token || token.length > 128 || /\s/.test(token)) return '';
+    return token;
+  } catch (e) {
+    return '';
+  }
+}
+
+/**
+ * Per-tab id, so one sitting is one session row. A launched session (from the
+ * page URL) wins over a made-up one and is remembered for the tab, so it
+ * survives in-page navigation that drops the query string.
+ */
 function getSessionId() {
+  var launched = launchedSessionFromUrl();
+  if (launched) {
+    if (readId('session', SESSION_ID_KEY) !== launched) writeId('session', SESSION_ID_KEY, launched);
+    return launched;
+  }
   return getOrCreate('session', SESSION_ID_KEY);
 }
 
@@ -150,6 +182,7 @@ function getPlayContextFields() {
 module.exports = {
   getClientId: getClientId,
   getSessionId: getSessionId,
+  launchedSessionFromUrl: launchedSessionFromUrl,
   setCurrentPlayerId: setCurrentPlayerId,
   getCurrentPlayerId: getCurrentPlayerId,
   getPlayContextFields: getPlayContextFields
