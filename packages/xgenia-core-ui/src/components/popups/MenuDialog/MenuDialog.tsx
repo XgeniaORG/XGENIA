@@ -22,6 +22,8 @@ export interface MenuDialogItem {
   component?: (doCloseMenu?: () => void) => SingleSlot;
   key?: string;
   icon?: IconName;
+  /** An icon component (size, color props) for a picture outside IconName, e.g. the rail's own icons. Wins over `icon`. */
+  iconComponent?: React.ElementType;
   endSlot?: Slot;
   /** A keyboard shortcut, shown at the right end of the label's row (endSlot goes under the label). */
   shortcut?: string;
@@ -97,7 +99,13 @@ export function MenuDialog({
               data-test={item.testId}
             >
               <div className={classNames(css['Label'], item.endSlot && css['has-bottom-spacing'])}>
-                {item.icon && <Icon icon={item.icon} size={IconSize.Tiny} UNSAFE_className={css['Icon']} />}
+                {item.iconComponent ? (
+                  <span className={css['IconSlot']} aria-hidden="true">
+                    <item.iconComponent size={16} />
+                  </span>
+                ) : (
+                  item.icon && <Icon icon={item.icon} size={IconSize.Tiny} UNSAFE_className={css['Icon']} />
+                )}
                 <Label variant={TextType.DefaultContrast} hasTextWrap>
                   {item.label}
                 </Label>

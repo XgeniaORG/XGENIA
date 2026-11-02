@@ -22,7 +22,7 @@ import { RailButton, RailButtonProps } from './RailButton';
 import { activePanelId } from './railLayout';
 import { railGuideId } from '../../utils/guideIds';
 import { badgeFor, tooltipSuffixFor, type RailBadge } from './railBadges';
-import { arrangeGroupedRail, dedupeRailIcons, MORE_LABEL, railLabelFor, RAIL_SLOT } from './railGroups';
+import { arrangeGroupedRail, dedupeRailIcons, MORE_LABEL, railLabelFor, railTipFor, RAIL_SLOT } from './railGroups';
 import { setShowAllTools, useShowAllTools } from './useShowAllTools';
 import { useTooltipGroup } from './useTooltipGroup';
 import css from './Rail.module.scss';
@@ -488,6 +488,10 @@ export function Rail() {
     overflowMenuItems.push({
       key: item.id,
       label: overflowItemBadges[item.id].unseen ? `${railLabelFor(item)} •` : railLabelFor(item),
+      // The same picture and tip as on the rail, so a tool is recognisable once "Show all tools"
+      // moves it there.
+      iconComponent: iconFor(item.id),
+      tooltip: railTipFor(item),
       isDisabled: item.isDisabled,
       onClick: () => {
         setOverflowOpen(false);
