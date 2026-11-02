@@ -39,26 +39,29 @@ import {
 } from '@xgenia-utils/publish/deployDomain';
 import {
   DeployedDomain,
+  PublishedVia,
   RgsBackendRef,
   getDeviceId,
+  mergePublishedSites,
   readOwnedDomains,
   saveDeployedDomain as storeDeployedDomain
 } from '@xgenia-utils/publish/deployedDomains';
 import {
-  deployCredentialError as credentialErrorFor,
+  checkPublishDomain,
+  deployBuiltFiles,
   describeRegistration,
   describeWiring,
-  loadDeployCredentials,
   publishGameToWeb,
-  publishPreconditionError
+  publishPreconditionError,
+  resolvePublishRoute,
+  vercelFor
 } from '@xgenia-utils/publish/publishGame';
+import { PublishRoute } from '@xgenia-utils/publish/publishRoute';
+import { WebPublishError } from '@xgenia-utils/publish/webPublishClient';
 import {
-  VercelSDKWrapper,
   XGENIA_VERCEL_TEAM,
   checkDomainAvailability,
-  collectProjectFiles,
-  deployToVercel,
-  uploadFilesToVercel
+  collectProjectFiles
 } from '@xgenia-utils/publish/webDeploy';
 
 import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
@@ -94,9 +97,10 @@ import { RgsCertifyPanel, RgsReleaseSetup } from '../../ReleaseSetup/ReleaseSetu
 // shared with the AI's publish commands. This tab is its UI: the form, the
 // toasts, the publish state and the Deployed Domains list.
 
-// Deployment tokens (GitHub + Vercel) resolve through ConnectionStore, which falls
-// back to the hardcoded shared team tokens baked into the source. See
-// ConnectionStore.ts (HARDCODED_DEFAULT_TOKENS) — no per-user connection required.
+// Publishing goes through XGENIA RGS /web-publish (2026-11-03): the platform holds
+// the Vercel token and the studio's operator key is the only credential here, so
+// this tab never loads a token. Only on a platform that predates /web-publish does
+// resolvePublishRoute fall back to the shared token (with a console warning).
 
 /**
  * Port names in an example payload whose value is a JS number.
@@ -126,6 +130,15 @@ function leafComponentName(componentName: string | undefined | null): string {
     .filter(Boolean);
   return segments.length ? segments[segments.length - 1] : '';
 }
+
+/**
+ * A site in the list that an older editor published with the shared Vercel token.
+ * XGENIA RGS did not publish it, so it does not own it and will not touch it.
+ */
+const OLDER_EDITOR_SITE = (name: string, verb: 'rename' | 'delete') =>
+  `${name}.vercel.app was published by an older editor with the shared Vercel token, so XGENIA RGS ` +
+  `does not own it and cannot ${verb} it. Ask the XGENIA team to ${verb === 'delete' ? 'take it down' : 'move it'}, ` +
+  `or publish again under a new name.`;
 
 export function XgeniaDeployTab() {
   const { closePopup } = useDeployContext();
@@ -276,43 +289,37 @@ export function XgeniaDeployTab() {
     });
   }
 
-  // Service connection tokens (loaded from ConnectionStore)
-  const [vercelToken, setVercelToken] = useState<string | null>(null);
-  const [githubToken, setGithubToken] = useState<string | null>(null);
-  const [tokensLoaded, setTokensLoaded] = useState(false);
-  // Why the shared deploy tokens are missing, when they are. Held so every entry
-  // point can say the actual reason ("not connected to XGENIA RGS") instead of
-  // failing later on a null token — which is what produced the two useless
-  // errors this replaced: "Project compilation error" on publish, and
-  // "Cannot read properties of null (reading 'projects')" on delete.
-  const [tokenError, setTokenError] = useState<string>('');
+  // How Publish reaches Vercel (resolvePublishRoute): through XGENIA RGS
+  // /web-publish with the operator key and NO token in the editor, or — only on a
+  // platform that predates it — the old shared Vercel token.
+  const [route, setRoute] = useState<PublishRoute | null>(null);
+  const [routeLoaded, setRouteLoaded] = useState(false);
+  // Why there is no route, when there is none. Held so every entry point can say
+  // the actual reason ("not connected to XGENIA RGS") instead of failing later on
+  // a missing credential — which is what produced the two useless errors this
+  // replaced: "Project compilation error" on publish, and "Cannot read properties
+  // of null (reading 'projects')" on delete.
+  const [routeError, setRouteError] = useState<string>('');
 
-  // Ensures the shared deploy tokens from RGS are installed on
-  // window.__XGENIA_DEFAULT_TOKENS__ before reading them (see
-  // loadDeployCredentials — the AI's publish loads them the same way). Re-run
-  // after a sign-in in this popup: the tokens are fetched with the operator key,
-  // so before it there are none to read.
+  // Re-run after a sign-in in this popup, and when the stored key is restored at
+  // startup (`rgs.connected`): the route is decided with the operator key.
   const reloadCredentials = React.useCallback(async () => {
-    const credentials = await loadDeployCredentials();
-    setTokenError(credentials.tokenError);
-    setVercelToken(credentials.vercelToken);
-    setGithubToken(credentials.githubToken);
-    setTokensLoaded(true);
+    const resolved = await resolvePublishRoute();
+    setRoute(resolved.route);
+    setRouteError(resolved.error);
+    setRouteLoaded(true);
   }, []);
 
-  // Load tokens from ConnectionStore on mount
   useEffect(() => {
     void reloadCredentials();
 
-    // Listen for connection changes
+    // A Vercel account connected by hand only matters to the old token path;
+    // re-deciding is cheap (the web-publish answer is cached).
     const store = ConnectionStore.getInstance();
-    const unsub = store.onChange(async () => {
-      const vToken = await store.getToken('vercel');
-      const gToken = await store.getToken('github');
-      setVercelToken(vToken);
-      setGithubToken(gToken);
-    });
-    return () => unsub();
+    const unsub = store.onChange(() => { void reloadCredentials(); });
+    const group = {};
+    EventDispatcher.instance.on('rgs.connected', () => { void reloadCredentials(); }, group);
+    return () => { unsub(); EventDispatcher.instance.off(group); };
   }, []);
 
   // Follow the Maths RGS panel's game selection. Every write of it emits
@@ -351,17 +358,16 @@ export function XgeniaDeployTab() {
   // Whose Deployed Domains these are (see utils/publish/deployedDomains).
   const domainOwner = { accountId: currentAccountId, deviceId };
 
-  // Initialize Vercel SDK with dynamic token
-  const vercel = vercelToken ? new VercelSDKWrapper({
-    bearerToken: vercelToken,
-  }) : null;
+  // The Vercel client exists ONLY on the old token route; on XGENIA RGS there is
+  // no token in this editor to build one from.
+  const vercel = route?.kind === 'token' ? vercelFor(route) : null;
 
   useEffect(() => {
-    if (!vercelToken) return;
+    if (route?.kind !== 'token') return;
     let live = true;
-    new VercelSDKWrapper({ bearerToken: vercelToken }).team().then((team) => { if (live) setTeamInfo(team); });
+    vercelFor(route)!.team().then((team) => { if (live) setTeamInfo(team); });
     return () => { live = false; };
-  }, [vercelToken]);
+  }, [route]);
 
   /**
    * Are the deploy credentials actually here?
@@ -373,7 +379,8 @@ export function XgeniaDeployTab() {
    * @returns an error message, or '' when the credentials are present.
    */
   function deployCredentialError(): string {
-    return credentialErrorFor({ tokensLoaded, vercelToken, githubToken, tokenError });
+    if (!routeLoaded) return 'Still loading deploy credentials — try again in a moment.';
+    return route ? '' : routeError || 'Not connected to XGENIA RGS.';
   }
 
   // Name rules, availability, the GitHub upload and the Vercel deploy are plain
@@ -385,7 +392,19 @@ export function XgeniaDeployTab() {
     setIsLoadingDomains(true);
     try {
       // From local storage: the current owner's, newest first (readOwnedDomains).
-      setDeployedDomains(readOwnedDomains(domainOwner));
+      const local = readOwnedDomains(domainOwner);
+      if (route?.kind === 'rgs') {
+        // XGENIA RGS knows every site this STUDIO published (from any machine);
+        // local records it does not know are older-editor publishes, kept listed.
+        try {
+          setDeployedDomains(mergePublishedSites(await route.client.list(), local));
+        } catch (error: any) {
+          setDeployedDomains(local);
+          ToastLayer.showError(`Could not load this studio's sites from XGENIA RGS: ${error?.message || error}`);
+        }
+      } else {
+        setDeployedDomains(local);
+      }
       setShowDeployedDomains(true);
     } catch (error: any) {
       console.error('Failed to fetch deployed domains from local storage:', error);
@@ -400,9 +419,10 @@ export function XgeniaDeployTab() {
     domainName: string,
     deploymentId: string,
     deploymentUrl: string,
-    rgsBackend?: RgsBackendRef
+    rgsBackend?: RgsBackendRef,
+    via?: PublishedVia
   ) {
-    storeDeployedDomain(domainOwner, domainName, deploymentId, deploymentUrl, rgsBackend);
+    storeDeployedDomain(domainOwner, domainName, deploymentId, deploymentUrl, rgsBackend, via);
 
     // Auto-refresh the domains list if it's currently being shown
     if (showDeployedDomains) {
@@ -415,7 +435,7 @@ export function XgeniaDeployTab() {
   }
 
   // Update domain name in local storage after successful rename
-  function updateDomainInStorage(oldName: string, newName: string, deploymentId: string, newUrl: string) {
+  function updateDomainInStorage(oldName: string, newName: string, deploymentId: string, newUrl: string, via?: PublishedVia) {
     try {
       const storedDomains = localStorage.getItem('xgenia-deployed-domains');
       const deployedDomainsData = storedDomains ? JSON.parse(storedDomains) : [];
@@ -432,6 +452,7 @@ export function XgeniaDeployTab() {
           updatedAt: new Date().toISOString(),
           url: newUrl,
           accountId: currentAccountId || deployedDomainsData[domainIndex].accountId,
+          ...(via ? { project: via.project, site: via.site } : {}),
         };
         localStorage.setItem('xgenia-deployed-domains', JSON.stringify(deployedDomainsData));
 
@@ -440,7 +461,7 @@ export function XgeniaDeployTab() {
           domain.id === deploymentId && domain.name === oldName && (
             currentAccountId ? domain.accountId === currentAccountId || (!domain.accountId && domain.deviceId === deviceId) : domain.deviceId === deviceId
           )
-            ? { ...domain, name: newName, updatedAt: new Date().toISOString(), url: newUrl, accountId: currentAccountId || domain.accountId }
+            ? { ...domain, name: newName, updatedAt: new Date().toISOString(), url: newUrl, accountId: currentAccountId || domain.accountId, ...(via ? { project: via.project, site: via.site } : {}) }
             : domain
         ));
       }
@@ -467,6 +488,36 @@ export function XgeniaDeployTab() {
     }
 
     const activityId = 'renaming-domain';
+
+    // A site published through XGENIA RGS is renamed BY the platform, which owns
+    // its Vercel project on the studio's behalf and refuses a name it does not own.
+    const record = deployedDomains.find((d) => d.id === domainId && d.name === oldName);
+    if (route?.kind === 'rgs' || record?.project) {
+      if (!record?.project) {
+        ToastLayer.showError(OLDER_EDITOR_SITE(oldName, 'rename'));
+        return;
+      }
+      if (route?.kind !== 'rgs') {
+        ToastLayer.showError(`Cannot rename ${oldName}.vercel.app. ${deployCredentialError() || 'XGENIA RGS web publishing is unavailable right now.'}`);
+        return;
+      }
+      setRenamingDomain(domainId);
+      try {
+        ToastLayer.showActivity('Renaming through XGENIA RGS...', activityId);
+        const renamed = await route.client.rename(record.project, newName.trim());
+        updateDomainInStorage(oldName, renamed.project, domainId, renamed.live_url, { project: renamed.project, site: renamed.site });
+        ToastLayer.hideActivity(activityId);
+        ToastLayer.showSuccess(`Renamed ${oldName}.vercel.app to ${renamed.domain}.${renamed.warnings?.length ? `\n${renamed.warnings.join('\n')}` : ''}`);
+      } catch (error: any) {
+        ToastLayer.hideActivity(activityId);
+        ToastLayer.showError(`Failed to rename domain: ${error?.message || error}`);
+      } finally {
+        setRenamingDomain(null);
+        setNewDomainName('');
+      }
+      return;
+    }
+
     setRenamingDomain(domainId);
 
     try {
@@ -599,7 +650,8 @@ export function XgeniaDeployTab() {
 
   function startRenameDomain(domain: DeployedDomain) {
     setRenamingDomain(domain.id);
-    setNewDomainName(domain.name);
+    // On XGENIA RGS the studio prefix is fixed: the name to edit is the site part.
+    setNewDomainName(domain.site || domain.name);
   }
 
   // Cancel rename process
@@ -626,12 +678,15 @@ export function XgeniaDeployTab() {
   }
 
   /** Drop one domain from the stored list and from the list on screen. */
-  function forgetDomain(domainId: string) {
+  function forgetDomain(domainId: string, project?: string) {
+    // A site published through XGENIA RGS may have several local records (one per
+    // machine/deployment id); they all go with the project.
+    const gone = (d: any) => d.id === domainId || (!!project && d.project === project);
     const storedDomains = localStorage.getItem('xgenia-deployed-domains');
     const deployedDomainsData = storedDomains ? JSON.parse(storedDomains) : [];
-    const updatedDomains = deployedDomainsData.filter((d: any) => d.id !== domainId);
+    const updatedDomains = deployedDomainsData.filter((d: any) => !gone(d));
     localStorage.setItem('xgenia-deployed-domains', JSON.stringify(updatedDomains));
-    setDeployedDomains(prev => prev.filter(domain => domain.id !== domainId));
+    setDeployedDomains(prev => prev.filter(domain => !gone(domain)));
   }
 
   /** "v3 (Keno Dynasty)" — how a backend version is named in messages. */
@@ -709,6 +764,47 @@ export function XgeniaDeployTab() {
   // rather than pulling the logic out from under a frontend that is still live.
   async function deleteDomain(domain: DeployedDomain) {
     const { id: domainId, name: domainName } = domain;
+
+    // Published through XGENIA RGS: the platform deletes its project, and only
+    // one this studio owns. A record WITHOUT a project was published by an older
+    // editor with the shared token; the platform did not publish it and will not
+    // delete it, and this editor no longer holds a token that could.
+    if (route?.kind === 'rgs' || domain.project) {
+      if (!domain.project) {
+        ToastLayer.showError(OLDER_EDITOR_SITE(domainName, 'delete'));
+        return;
+      }
+      if (route?.kind !== 'rgs') {
+        ToastLayer.showError(`Cannot delete ${domainName}.vercel.app. ${deployCredentialError() || 'XGENIA RGS web publishing is unavailable right now.'}`);
+        return;
+      }
+      setDeletingDomains(prev => new Set([...prev, domainId]));
+      try {
+        let gone = 'deleted';
+        try {
+          await route.client.remove(domain.project);
+        } catch (error: any) {
+          // Not a site of this studio's on the platform any more (deleted from
+          // another machine, or from the back office): the frontend is gone.
+          if (!(error instanceof WebPublishError && error.status === 404)) throw error;
+          gone = 'already gone';
+        }
+        const backend = await deleteRgsBackends(domain);
+        if (!backend.keepRecord) forgetDomain(domainId, domain.project);
+        const summary = `${domainName}.vercel.app ${gone === 'deleted' ? 'deleted' : 'was already gone; removed from the list'}.${backend.message}`;
+        if (backend.ok) ToastLayer.showSuccess(summary);
+        else ToastLayer.showError(summary);
+      } catch (error: any) {
+        ToastLayer.showError(`Failed to delete ${domainName}.vercel.app: ${error?.message || error}`);
+      } finally {
+        setDeletingDomains(prev => {
+          const next = new Set(prev);
+          next.delete(domainId);
+          return next;
+        });
+      }
+      return;
+    }
 
     // Without a Vercel token there is no client to call, and the record must stay
     // listed: dropping it here would strand a live project with nothing pointing
@@ -815,10 +911,10 @@ export function XgeniaDeployTab() {
       isPrivate,
       rgs,
       game,
-      tokens: { github: githubToken, vercel: vercelToken },
+      route: route ?? undefined,
       onProgress: (step) => ToastLayer.showActivity(step, activityId),
       onWarning: (message) => ToastLayer.showError(message),
-      onLive: async ({ liveUrl, deploymentId, wiring }) => {
+      onLive: async ({ liveUrl, deploymentId, wiring, project, site, viaRgs }) => {
         // The one point where the live URL is known.
         PublishState.succeed(liveUrl);
         ToastLayer.hideActivity(activityId);
@@ -832,7 +928,7 @@ export function XgeniaDeployTab() {
         // RGS panel and may be shared by several frontends. Deleting this domain
         // must not delete them — deleteRgsBackends already no-ops on a record with
         // none, and records written by the old flow keep their links.
-        saveDeployedDomain(domainName.trim(), deploymentId, liveUrl);
+        saveDeployedDomain(viaRgs ? project : domainName.trim(), deploymentId, liveUrl, undefined, viaRgs ? { project, site } : undefined);
         if (showDeployedDomains) await fetchDeployedDomains();
       }
     });
@@ -860,11 +956,12 @@ export function XgeniaDeployTab() {
     // and failing here costs the user nothing. Failing later costs a compile, an
     // RGS deploy and a repo — and reports it as "Project compilation error".
     const credentialError = deployCredentialError();
-    if (credentialError) {
+    if (credentialError || !route) {
       setDomainError(credentialError);
       ToastLayer.showError(credentialError);
       return;
     }
+    const publishRoute = route;
 
     // Before the workflow starts: which UI element is the bet input, which shows
     // the win, which button places the bet. XGENIA RGS needs this to follow the
@@ -891,13 +988,15 @@ export function XgeniaDeployTab() {
     try {
       // Early: Check domain availability before any heavy work
       ToastLayer.showActivity('Checking domain availability...', activityId);
-      const availability = await checkDomainAvailability(vercel, domainName.trim());
+      // On XGENIA RGS the platform answers, including "your own earlier publish"
+      // (available, republish) and "another studio's" (refused, with why).
+      const availability = await checkPublishDomain(publishRoute, domainName.trim());
       if (!availability.available) {
         ToastLayer.hideActivity(activityId);
         // Same family as the two RGS guards below: an early return inside this try
         // never reaches the outer catch, so the publish state has to be closed here
         // or the Publish button spins forever on a refused name.
-        const unavailableMessage = domainUnavailableMessage(domainName.trim(), availability.reason);
+        const unavailableMessage = availability.message || domainUnavailableMessage(domainName.trim(), availability.reason);
         PublishState.fail(unavailableMessage);
         setDomainError(unavailableMessage);
         return;
@@ -951,13 +1050,18 @@ export function XgeniaDeployTab() {
           throw new Error('No files were generated during deployment');
         }
 
-        // Upload the build straight to Vercel (uploadFilesToVercel) — no GitHub
-        // repository any more (2026-10-05: the shared GitHub token had gone bad).
-        const fileRefs = await uploadFilesToVercel(vercel, files, (step) => ToastLayer.showActivity(step, activityId));
-
-        // Step 4: Deploy to Vercel and setup domain
-        ToastLayer.showActivity('Step 4/4: Deploying to Vercel...', activityId);
-        const { deploymentId, deploymentUrl, aliasUrl } = await deployToVercel(vercel, { files: fileRefs }, domainName.trim());
+        // Through XGENIA RGS /web-publish, or the old token path on a platform
+        // that predates it (deployBuiltFiles) — never a token held here otherwise.
+        ToastLayer.showActivity('Step 4/4: Deploying...', activityId);
+        const deployed = await deployBuiltFiles(
+          publishRoute,
+          files,
+          domainName.trim(),
+          (step) => ToastLayer.showActivity(step, activityId),
+          (message) => ToastLayer.showError(message)
+        );
+        const { deploymentId, aliasUrl } = deployed;
+        const viaRgs = publishRoute.kind === 'rgs';
         PublishState.succeed(aliasUrl);
 
         ToastLayer.hideActivity(activityId);
@@ -966,7 +1070,13 @@ export function XgeniaDeployTab() {
         setSuccessMessage(`Successfully deployed to Vercel. Live URL: ${userFriendlyDomain}`);
 
         // Save deployed domain to local storage
-        saveDeployedDomain(domainName.trim(), deploymentId, aliasUrl);
+        saveDeployedDomain(
+          viaRgs ? deployed.project : domainName.trim(),
+          deploymentId,
+          aliasUrl,
+          undefined,
+          viaRgs ? { project: deployed.project, site: deployed.site } : undefined
+        );
 
         // Refresh the deployed domains list if it's currently visible
         if (showDeployedDomains) {
@@ -1025,6 +1135,7 @@ export function XgeniaDeployTab() {
           value={domainName}
           onChange={(e) => { setDomainName(e.target.value); if (domainError) setDomainError(''); }}
           placeholder="my-project"
+          prefix={route?.kind === 'rgs' ? `${route.info.prefix}-` : undefined}
           suffix=".vercel.app"
           hasBottomSpacing
         />
@@ -1168,16 +1279,16 @@ export function XgeniaDeployTab() {
                           <span style={{ fontSize: '14px', color: '#ccc' }}>.vercel.app</span>
                           <button
                             onClick={() => renameDomain(domain.id, domain.name, newDomainName)}
-                            disabled={!newDomainName.trim() || newDomainName.trim() === domain.name}
+                            disabled={!newDomainName.trim() || newDomainName.trim() === (domain.site || domain.name)}
                             style={{
                               padding: '4px 8px',
                               fontSize: '12px',
-                              backgroundColor: (!newDomainName.trim() || newDomainName.trim() === domain.name) ? '#555' : '#28a745',
+                              backgroundColor: (!newDomainName.trim() || newDomainName.trim() === (domain.site || domain.name)) ? '#555' : '#28a745',
                               color: '#fff',
                               border: 'none',
                               borderRadius: '3px',
-                              cursor: (!newDomainName.trim() || newDomainName.trim() === domain.name) ? 'not-allowed' : 'pointer',
-                              opacity: (!newDomainName.trim() || newDomainName.trim() === domain.name) ? 0.6 : 1
+                              cursor: (!newDomainName.trim() || newDomainName.trim() === (domain.site || domain.name)) ? 'not-allowed' : 'pointer',
+                              opacity: (!newDomainName.trim() || newDomainName.trim() === (domain.site || domain.name)) ? 0.6 : 1
                             }}
                           >
                             Save

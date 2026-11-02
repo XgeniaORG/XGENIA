@@ -28,7 +28,8 @@
 // been connected to XGENIA RGS cannot fetch them — by design, and the reason
 // callers must surface `reason` rather than leave the user at a null token.
 
-import { XRGS_URL, getRgsSettings, rgsHeaders } from './rgsClient';
+import { XRGS_ANON_KEY, XRGS_URL, getRgsSettings, rgsHeaders, rgsKeyReady } from './rgsClient';
+import { detectWebPublishCached } from '../publish/webPublishClient';
 
 /** Why a load attempt produced no tokens — surfaced by the Deploy panel. */
 export type DeployTokenFailure =
@@ -124,6 +125,31 @@ async function doLoad(): Promise<DeployTokenResult> {
             message: `Could not reach XGENIA RGS to fetch the shared deploy tokens: ${e?.message || e}`,
         };
     }
+}
+
+/**
+ * What the editor warms at startup (editor/index.ts) so Publish opens ready.
+ *
+ * (2026-11-03, XRGS G1-S2) Publishing goes through XGENIA RGS /web-publish, which
+ * keeps the Vercel token on the server — so when the platform has it, NOTHING is
+ * fetched here and the shared token never reaches this editor. Only a platform
+ * that predates /web-publish gets the old warm-up (loadSharedDeployTokens), which
+ * the platform counts and reports as "editors still fetching the shared Vercel
+ * token" until it can be switched off.
+ */
+export async function warmPublishCredentials(): Promise<void> {
+    await rgsKeyReady();
+    const apiKey = getRgsSettings()?.apiKey;
+    if (!apiKey) return; // nothing to fetch with; Publish asks for a sign-in
+    try {
+        const detection = await detectWebPublishCached({ functionsUrl: XRGS_URL, anonKey: XRGS_ANON_KEY, apiKey });
+        if (detection.available) return;
+        console.warn(`[deployTokens] XGENIA RGS web-publish unavailable (${detection.reason}); warming the shared Vercel token instead.`);
+    } catch {
+        // Unreachable now: the old warm-up fails the same way, and Publish asks again when opened.
+        return;
+    }
+    await loadSharedDeployTokens();
 }
 
 /**

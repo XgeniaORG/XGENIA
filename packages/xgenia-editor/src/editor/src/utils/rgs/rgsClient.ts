@@ -179,13 +179,148 @@ export function formatOperatorFunds(cents: number | null | undefined, currency =
   return `${symbols[currency] || currency + ' '}${amount}`;
 }
 
+// ─── The operator key at rest (G1-S14, 2026-11-03) ───────────────────────────
+//
+// The key used to sit in plaintext localStorage (`xgenia_rgs_settings.apiKey`),
+// readable by anything that can read this profile's files. It is a credential
+// for the studio's whole XGENIA RGS account — games, maths, wallet, publishing.
+//
+// Now it is encrypted with Electron safeStorage (the OS keychain: Keychain,
+// DPAPI, libsecret) through the editor's existing main-process bridge,
+// store/_internal/StorageApi — the same one GitStore and the cloud-service master
+// key store use. ConnectionStore's own encryption was NOT reused: its AES key is
+// generated in the renderer and kept in IndexedDB next to the ciphertext, so it
+// protects nothing from someone who can read the profile.
+//
+// getRgsSettings() stays synchronous for its ~40 callers: the key is decrypted
+// ONCE at startup (initRgsKeyVault, editor/index.ts) into memory, and every save
+// updates memory synchronously and the ciphertext asynchronously. The first run
+// with a vault migrates an existing plaintext key and deletes it from
+// localStorage. Without a vault — tests, the web build, or an OS with no keychain
+// (isEncryptionAvailable false) — it behaves exactly as before, and says so once
+// on the console; a key is never dropped for want of somewhere safe to put it.
+
+/** The OS-keychain bridge (StorageApi in the editor). decrypt answers undefined on failure. */
+export interface RgsKeyVault {
+  isAvailable(): Promise<boolean>;
+  encrypt(plaintext: string): Promise<string>;
+  decrypt(ciphertext: string): Promise<string | null | undefined>;
+}
+
+/** localStorage key of the safeStorage ciphertext. Never the key itself. */
+export const RGS_KEY_CIPHER_KEY = 'xgenia_rgs_key_enc_v1';
+/** A bridge call that does not answer in this long is treated as no keychain. */
+const VAULT_TIMEOUT_MS = 5000;
+
+let keyVault: RgsKeyVault | null = null;
+let memoryKey: string | null = null;
+let keyReady: Promise<void> = Promise.resolve();
+let pendingKeyWrite: Promise<void> = Promise.resolve();
+
+function withVaultTimeout<T>(p: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('the OS keychain did not answer')), VAULT_TIMEOUT_MS);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
+function readStoredSettings(): any {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RGS_SETTINGS_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Remove the plaintext key from the stored settings, keeping everything else. */
+function dropPlaintextKey(): void {
+  const cur = readStoredSettings();
+  if (!('apiKey' in cur)) return;
+  const { apiKey: _gone, ...rest } = cur;
+  localStorage.setItem(RGS_SETTINGS_KEY, JSON.stringify(rest));
+}
+
+/** Encrypt and store; true when the ciphertext is on disk. */
+async function writeCipher(vault: RgsKeyVault, key: string): Promise<boolean> {
+  try {
+    const cipher = await withVaultTimeout(vault.encrypt(key));
+    if (typeof cipher !== 'string' || !cipher) return false;
+    // A save or clear that happened while this was encrypting wins.
+    if (memoryKey !== key) return true;
+    localStorage.setItem(RGS_KEY_CIPHER_KEY, cipher);
+    return true;
+  } catch (e) {
+    console.error('[rgs] Could not encrypt the XGENIA RGS key:', (e as any)?.message || e);
+    return false;
+  }
+}
+
+/**
+ * Install the OS-keychain bridge, migrate a plaintext key and decrypt the stored
+ * one into memory. Call once at startup; rgsKeyReady() resolves when it is done.
+ */
+export function initRgsKeyVault(vault: RgsKeyVault): Promise<void> {
+  keyReady = (async () => {
+    let available = false;
+    try {
+      available = !!(await withVaultTimeout(vault.isAvailable()));
+    } catch {
+      available = false;
+    }
+    if (!available) {
+      console.warn('[rgs] OS secure storage is unavailable here; the XGENIA RGS key stays in local storage as before.');
+      return;
+    }
+    keyVault = vault;
+
+    const plaintext = readStoredSettings().apiKey;
+    if (typeof plaintext === 'string' && plaintext) {
+      // First run with a vault (or a key an older editor saved since): move it.
+      memoryKey = plaintext;
+      if (await writeCipher(vault, plaintext)) dropPlaintextKey();
+      else keyVault = null; // keep the plaintext rather than lose the key
+    } else {
+      const cipher = localStorage.getItem(RGS_KEY_CIPHER_KEY);
+      if (cipher) {
+        try {
+          const key = await withVaultTimeout(vault.decrypt(cipher));
+          if (typeof key === 'string' && key) memoryKey = key;
+          else console.error('[rgs] The stored XGENIA RGS key could not be decrypted; sign in again under Publish.');
+        } catch (e) {
+          console.error('[rgs] The stored XGENIA RGS key could not be decrypted; sign in again under Publish.', (e as any)?.message || e);
+        }
+      }
+    }
+    // Panels that read the key before it was decrypted re-read it now.
+    if (memoryKey) EventDispatcher.instance.emit('rgs.connected', { restored: true });
+  })();
+  return keyReady;
+}
+
+/** Resolves once the stored key has been read (immediately when there is no vault). */
+export function rgsKeyReady(): Promise<void> {
+  return keyReady;
+}
+
+/** Resolves once the last saved key's ciphertext is written. For tests and shutdown. */
+export function flushRgsKeyWrites(): Promise<void> {
+  return pendingKeyWrite;
+}
+
+/** Back to "no vault, nothing in memory". Tests only. */
+export function resetRgsKeyVaultForTests(): void {
+  keyVault = null;
+  memoryKey = null;
+  keyReady = Promise.resolve();
+  pendingKeyWrite = Promise.resolve();
+}
+
 export function getRgsSettings(): RgsSettings | null {
   try {
-    const settings = localStorage.getItem(RGS_SETTINGS_KEY);
-    if (settings) {
-      const parsed = JSON.parse(settings);
-      if (parsed.apiKey) return parsed;
-    }
+    const parsed = readStoredSettings();
+    const apiKey = memoryKey || (typeof parsed.apiKey === 'string' ? parsed.apiKey : '');
+    if (apiKey) return { ...parsed, apiKey };
   } catch {
     /* ignore */
   }
@@ -196,17 +331,32 @@ export function saveRgsSettings(settings: RgsSettings | string): void {
   // Merge into whatever is already stored so unrelated fields (activeGame /
   // testSettings, written by the Maths RGS panel via mergeRgsSettings) survive a
   // key re-save. Previously this overwrote the whole object and wiped them.
-  let cur: any = {};
-  try {
-    cur = JSON.parse(localStorage.getItem(RGS_SETTINGS_KEY) || '{}');
-  } catch {
-    /* ignore */
+  const cur = readStoredSettings();
+  const patch: any = typeof settings === 'string' ? { apiKey: settings } : { ...settings };
+  const vault = keyVault;
+  if (vault && typeof patch.apiKey === 'string' && patch.apiKey) {
+    // The key goes to memory now and to the keychain next; localStorage never sees it.
+    const key: string = patch.apiKey;
+    memoryKey = key;
+    const { apiKey: _new, ...rest } = patch;
+    const { apiKey: _old, ...curRest } = cur;
+    localStorage.setItem(RGS_SETTINGS_KEY, JSON.stringify({ ...curRest, ...rest, rgsUrl: XRGS_URL }));
+    pendingKeyWrite = writeCipher(vault, key).then((ok) => {
+      if (ok || memoryKey !== key) return;
+      // The keychain refused after saying it was there: keep the key usable after
+      // a restart, as before G1-S14, rather than lose it — and say so.
+      console.error('[rgs] Storing the XGENIA RGS key in local storage instead of the OS keychain.');
+      localStorage.removeItem(RGS_KEY_CIPHER_KEY);
+      localStorage.setItem(RGS_SETTINGS_KEY, JSON.stringify({ ...readStoredSettings(), apiKey: key }));
+    });
+    return;
   }
-  const patch = typeof settings === 'string' ? { apiKey: settings } : { ...settings };
   localStorage.setItem(RGS_SETTINGS_KEY, JSON.stringify({ ...cur, ...patch, rgsUrl: XRGS_URL }));
 }
 
 export function clearRgsSettings(): void {
+  memoryKey = null;
+  localStorage.removeItem(RGS_KEY_CIPHER_KEY);
   localStorage.removeItem(RGS_SETTINGS_KEY);
   // The active game is stored under the same key, so disconnecting clears the
   // selection too — say so, or a listener keeps showing the old game.
