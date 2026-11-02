@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   taglineFromTitle,
   summariseChatIndex,
+  mergeRead,
   TAGLINE_MAX
 } from '../../src/editor/src/models/lobby/lobbyMeta.core';
 
@@ -91,4 +92,14 @@ test('a bad message count never poisons the total', () => {
 
 test('conversations without a lastActivity still yield a tagline', () => {
   assert.equal(summariseChatIndex([{ title: 'Build a keno board' }]).tagline, 'Keno board');
+});
+
+test('a field patched in while a read was in flight survives the read', () => {
+  // The read began with nothing cached; the thumbnail measurement landed before it finished.
+  const current = { weakThumb: true };
+  const merged = mergeRead<{ weakThumb?: boolean; messageCount?: number; tagline?: string }>(current, {
+    messageCount: 62,
+    tagline: 'Publish this game'
+  });
+  assert.deepEqual(merged, { weakThumb: true, messageCount: 62, tagline: 'Publish this game' });
 });
