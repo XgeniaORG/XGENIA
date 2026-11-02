@@ -14,6 +14,7 @@ import { keepInCopy, templateSource } from './projectTemplateSource';
 import Model from '../../../shared/model';
 import { projectFromDirectory, unzipIntoDirectory } from '../models/projectmodel.editor';
 import { makeTile } from './thumbnails/thumbnail-tile';
+import { isWeakCapture, measureImage } from './thumbnails/thumbnail-weak';
 import { planThumbnailWrite, saveThumbnailFile, type ThumbnailFileIO } from './thumbnails/thumbnail-store';
 import { needsTitleCard, shouldCaptureCanvas, type ThumbnailSource } from './thumbnails/thumbnail-policy';
 import FileSystem from './filesystem';
@@ -150,6 +151,11 @@ export class LocalProjectsModel extends Model {
     // The capture is sized for the AI's vision pass, not for a card on the home screen.
     // Derive the tile once, here, so both storage paths carry the same small image.
     const tile = await makeTile(captured);
+
+    // A capture of nothing (the canvas before the game drew, a black or white frame) is never
+    // stored: it would replace real cover art with an empty picture. The lobby shows a monogram
+    // for a project without one, which is the honest picture of an empty capture (2026-11-02).
+    if (source === 'capture' && isWeakCapture(await measureImage(tile))) return false;
 
     const plan = planThumbnailWrite({
       dataUri: tile,

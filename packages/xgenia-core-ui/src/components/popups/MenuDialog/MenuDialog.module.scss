@@ -72,6 +72,20 @@
   }
 }
 
+.IconSlot {
+  display: flex;
+  margin: -4px 10px -4px 0;
+  color: var(--theme-color-fg-default);
+
+  .Item:not(.has-component):not(.is-disabled):hover & {
+    color: var(--theme-color-fg-highlight);
+  }
+
+  .Item.is-disabled & {
+    color: var(--theme-color-fg-muted);
+  }
+}
+
 .Icon {
   margin: -4px 8px -4px 0;
 
