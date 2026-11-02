@@ -101,7 +101,7 @@ describe('Aggregator and the RGS', () => {
   });
 
   test('a request with no answer fails after the timeout instead of waiting forever', async () => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ doNotFake: ['performance'] }); // Node 22's performance is read-only (see slot-features/harness.js)
     const { ctx, events } = makeAggregator({ outputs: 'winAmount', signalOutputs: '' });
     global.fetch = jest.fn((_url, init) => new Promise((_res, rej) => {
       init.signal.addEventListener('abort', () => { const e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
