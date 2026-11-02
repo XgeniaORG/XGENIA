@@ -240,3 +240,42 @@ test('a signed-in XGENIA user is connected to their play-money sandbox with noth
   assert.equal(rgsClient.rgsFunctionsUrl(), rgsClient.XRGS_URL);
   localStorage.clear();
 });
+
+
+// (2026-11-02) An invited studio already on its sandbox must be able to reach the real-money RGS. Sign out used to
+// remount the sign-in, which reconnected to the sandbox by itself before the invited-account link could be clicked,
+// and the connected line never said which RGS it was on.
+test('a studio on its sandbox can switch to an invited real-money account, and Sign out does not reconnect by itself', async () => {
+  const React = (await import('react')).default;
+  const { createRoot } = await import('react-dom/client');
+  const { act } = await import('react');
+  const { RgsReleaseSetup, rgsClient } = await loadComponents();
+  localStorage.clear();
+  localStorage.setItem('sb-pcrghrjikkcmelflwiys-auth-token', JSON.stringify({
+    access_token: 'xgenia-jwt', refresh_token: 'r', token_type: 'bearer', expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: 'u1', email: 'maker@example.com', aud: 'authenticated' }
+  }));
+  const { calls } = installRgs();
+  rgsClient.saveRgsSettings({ apiKey: 'xrgs_sandbox', rgsUrl: rgsClient.XRGS_SANDBOX_URL });
+  rgsClient.setActiveGame({ id: 'g1', slug: 'crash', name: 'Crash' });
+  const host = document.getElementById('root')!;
+  const root = createRoot(host);
+  await act(async () => { root.render(React.createElement(RgsReleaseSetup, { projectName: 'Crash Space' })); });
+  assert.match(host.textContent || '', /play-money sandbox/, 'the connected line says it is play money');
+
+  await act(async () => { click(byText(host, 'span', 'Sign out')); await tick(30); });
+  assert.equal(rgsClient.getRgsSettings(), null, 'signed out');
+  assert.equal(calls.filter((c) => c.url.endsWith('/rgs-connect')).length, 0, 'Sign out must not reconnect by itself');
+  assert.match(host.textContent || '', /Connect with my XGENIA login/);
+
+  await act(async () => { click(byText(host, 'div', 'Use an invited RGS account instead')); });
+  await act(async () => { type(host.querySelector('input')!, 'studio@example.com'); });
+  await act(async () => { click(byText(host, 'button', 'Email me a code')); await tick(); });
+  await act(async () => { type(host.querySelector('input')!, '123456'); });
+  await act(async () => { click(byText(host, 'button', 'Sign in')); await tick(30); });
+  const connect = calls.find((c) => c.url.endsWith('/rgs-connect'))!;
+  assert.equal(connect.url, `${rgsClient.XRGS_URL}/rgs-connect`, 'the invited account signs in on the real-money RGS');
+  assert.equal(rgsClient.isSandboxConnection(), false);
+  await act(async () => { root.unmount(); });
+  localStorage.clear();
+});
