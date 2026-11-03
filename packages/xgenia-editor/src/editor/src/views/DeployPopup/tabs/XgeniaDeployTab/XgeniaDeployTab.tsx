@@ -81,9 +81,8 @@ import { RgsCertifyPanel, RgsReleaseSetup } from '../../ReleaseSetup/ReleaseSetu
  * XGENIA RGS did not publish it, so it does not own it and will not touch it.
  */
 const OLDER_EDITOR_SITE = (name: string, verb: 'rename' | 'delete') =>
-  `${name}.vercel.app was published by an older editor with the shared Vercel token, so XGENIA RGS ` +
-  `does not own it and cannot ${verb} it. Ask the XGENIA team to ${verb === 'delete' ? 'take it down' : 'move it'}, ` +
-  `or publish again under a new name.`;
+  `${name}.vercel.app was published by an older version of XGENIA, so it cannot be ${verb === 'delete' ? 'deleted' : 'renamed'} from here. ` +
+  `Ask the XGENIA team to ${verb === 'delete' ? 'take it down' : 'move it'}, or publish again under a new name.`;
 
 export function XgeniaDeployTab() {
   const { closePopup } = useDeployContext();
@@ -597,7 +596,7 @@ export function XgeniaDeployTab() {
         keepRecord: true,
         message:
           ` Its XGENIA RGS backend could not be deleted (${failures.join('; ')}).` +
-          ` The domain stays listed so you can retry, or delete the version in the XRGS back office.`
+          ` The domain stays listed so you can retry, or delete the version in XGENIA RGS (the game's Versions).`
       };
     }
     const deleted = backends.map(backendLabel).join(', ');
@@ -746,7 +745,7 @@ export function XgeniaDeployTab() {
       // longer lets this game take real money. Say so at the moment it happens.
       if (maths.deployed.length > 0) {
         ToastLayer.showSuccess(
-          `${maths.message} Real money needs this maths verified — use Verify RTP below once the game is live.`
+          `${maths.message} Playable with play money now. Real money needs this maths verified: see Going live with real money below.`
         );
       }
     } catch (e: any) {
@@ -769,8 +768,8 @@ export function XgeniaDeployTab() {
         ToastLayer.hideActivity(activityId);
         const userFriendlyDomain = liveUrl.replace(/^https?:\/\//, '');
         const wiringText = describeWiring(wiring, game.name);
-        ToastLayer.showSuccess(`Deployed to Vercel — ${wiringText}.\nLive URL: ${userFriendlyDomain}`);
-        setSuccessMessage(`Deployed to Vercel (${wiringText}). Live URL: ${userFriendlyDomain}`);
+        ToastLayer.showSuccess(`Published — ${wiringText}.\nLink: ${userFriendlyDomain}`);
+        setSuccessMessage(`Published (${wiringText}). Link: ${userFriendlyDomain}`);
 
         // No RGS backend reference is recorded any more: the Server Versions this
         // publish calls belong to the game and may be shared by several frontends.
@@ -880,7 +879,7 @@ export function XgeniaDeployTab() {
 
         {rgsConnected && rgsGame?.id && (<>
         <TextInput
-          label="Domain Name"
+          label="Link name"
           value={domainName}
           onChange={(e) => { setDomainName(e.target.value); if (domainError) setDomainError(''); }}
           placeholder="my-project"

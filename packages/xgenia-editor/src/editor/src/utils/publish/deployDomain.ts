@@ -10,7 +10,7 @@
 // (tests/deploy/deployDomain.test.ts), so it must not pull in editor models.
 
 export const DOMAIN_NAME_REQUIRED = 'Please enter a domain name';
-export const DOMAIN_NAME_RULE = 'Domain must contain only lowercase letters, numbers, and hyphens';
+export const DOMAIN_NAME_RULE = 'A link name can only use lowercase letters, numbers and hyphens';
 
 /** Is this an acceptable domain name — "my-game", or "my-game.vercel.app"? */
 export function validateDomain(domain: string): boolean {

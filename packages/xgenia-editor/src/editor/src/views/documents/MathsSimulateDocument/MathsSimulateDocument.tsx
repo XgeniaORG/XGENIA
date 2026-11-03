@@ -269,7 +269,7 @@ function MathsSimulateDocument({
                         <span style={{ fontSize: '11px', color: '#7a7a8a' }}>runs on XGENIA RGS</span>
                         {notConnected && (
                             <span style={{ fontSize: '11px', color: '#EF4444' }}>
-                                Not connected to XGENIA RGS — open this from the Deployed tab of the Maths RGS panel.
+                                Not connected to XGENIA RGS. Open Publish to connect, then open this again from the Maths panel&apos;s Deployed list.
                             </span>
                         )}
                     </div>

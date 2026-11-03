@@ -450,13 +450,15 @@ export function RgsCertifyPanel() {
 
   return (
     <div style={{ ...STEP_STYLE, marginTop: '12px' }} data-guide="rgs-certify">
-      <div style={STEP_TITLE}>Before real money: verify the RTP, then send the pack to a lab</div>
+      <div style={STEP_TITLE}>Going live with real money</div>
       <div style={HINT}>
-        <b>Verify RTP</b> plays your published maths on XGENIA RGS until its return to player is measured precisely enough
-        to compare with what you declared. XGENIA RGS takes real money only on a game whose exact maths passed — and this
-        is our own measurement, not a certificate: most markets also need a test lab (GLI, BMM, eCOGRA, iTech…) to
-        certify the game. The <b>pre-certification pack</b> is what you send them: the maths and its fingerprint, the
-        verification report, the rules and the documents, signed. Changing the maths later means verifying again.
+        1. <b>Verify RTP</b>: XGENIA RGS plays your maths until it knows the real return to player.
+        <br />
+        2. Send the <b>pre-certification pack</b> to a test lab, if your market needs one (most do).
+        <br />
+        3. In XGENIA RGS, open the game&#39;s <b>Versions</b>, then <b>Approve</b> and <b>Deploy live</b>.
+        <br />
+        Changing the maths means verifying again.
       </div>
       {line && <div style={{ fontSize: '12px', color: colour, marginBottom: '8px' }}>{line.text}</div>}
       {running && (

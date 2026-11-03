@@ -80,7 +80,7 @@ export interface ChangedMathsDeployResult {
 
 const NOT_DELETED_NOTE =
   'removed from the project but still live on XGENIA RGS — deleting a deployed component is left to you, ' +
-  'in the XRGS back office (the game’s Versions).';
+  'in XGENIA RGS (the game’s Versions).';
 
 function refOf(status: MathsComponentStatus): MathsComponentRef {
   return { name: status.displayName, slug: status.slug, ...(status.url ? { endpoint: status.url } : {}) };
