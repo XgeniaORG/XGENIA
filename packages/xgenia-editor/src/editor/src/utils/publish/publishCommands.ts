@@ -371,7 +371,7 @@ async function runGameJob(
         PublishState.succeed(liveUrl);
         ToastLayer.hideActivity(GAME_ACTIVITY_ID);
         ToastLayer.showSuccess(
-          `Deployed to Vercel — ${describeWiring(wiring, args.game.name)}.\nLive URL: ${liveUrl.replace(/^https?:\/\//, '')}`
+          `Published — ${describeWiring(wiring, args.game.name)}.\nLink: ${liveUrl.replace(/^https?:\/\//, '')}`
         );
         // Recorded under the project actually created, so the popup's list, rename and delete find it.
         saveDeployedDomain(owner, viaRgs ? project : args.name, deploymentId, liveUrl, undefined, viaRgs ? { project, site } : undefined);

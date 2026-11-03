@@ -768,8 +768,8 @@ export function XgeniaDeployTab() {
         ToastLayer.hideActivity(activityId);
         const userFriendlyDomain = liveUrl.replace(/^https?:\/\//, '');
         const wiringText = describeWiring(wiring, game.name);
-        ToastLayer.showSuccess(`Deployed to Vercel — ${wiringText}.\nLive URL: ${userFriendlyDomain}`);
-        setSuccessMessage(`Deployed to Vercel (${wiringText}). Live URL: ${userFriendlyDomain}`);
+        ToastLayer.showSuccess(`Published — ${wiringText}.\nLink: ${userFriendlyDomain}`);
+        setSuccessMessage(`Published (${wiringText}). Link: ${userFriendlyDomain}`);
 
         // No RGS backend reference is recorded any more: the Server Versions this
         // publish calls belong to the game and may be shared by several frontends.
@@ -879,7 +879,7 @@ export function XgeniaDeployTab() {
 
         {rgsConnected && rgsGame?.id && (<>
         <TextInput
-          label="Domain Name"
+          label="Link name"
           value={domainName}
           onChange={(e) => { setDomainName(e.target.value); if (domainError) setDomainError(''); }}
           placeholder="my-project"
