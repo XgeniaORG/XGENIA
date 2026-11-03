@@ -353,6 +353,12 @@ export function RgsReleaseSetup({ projectName, onChanged }: { projectName: strin
       )}
       {' · '}
       <span style={LINK} onClick={() => leave('choose')}>Sign out</span>
+      {isSandboxConnection() && (
+        <span style={{ display: 'block', marginTop: '4px' }}>
+          Play money only. Real money needs an invited RGS account: there the game is created, published and its RTP
+          verified again, then XGENIA puts it live.
+        </span>
+      )}
     </Text>
   );
 }

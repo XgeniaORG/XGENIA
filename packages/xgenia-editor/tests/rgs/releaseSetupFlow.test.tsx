@@ -268,6 +268,7 @@ test('a studio on its sandbox can switch to an invited real-money account, and S
   const root = createRoot(host);
   await act(async () => { root.render(React.createElement(RgsReleaseSetup, { projectName: 'Crash Space' })); });
   assert.match(host.textContent || '', /play-money sandbox/, 'the connected line says it is play money');
+  assert.match(host.textContent || '', /Real money needs an invited RGS account/, 'the sandbox says what real money takes');
 
   await act(async () => { click(byText(host, 'span', 'Sign out')); await tick(30); });
   assert.equal(rgsClient.getRgsSettings(), null, 'signed out');
