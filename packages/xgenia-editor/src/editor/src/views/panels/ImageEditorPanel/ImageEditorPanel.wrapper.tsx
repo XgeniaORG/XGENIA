@@ -10,6 +10,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { editorBridge } from '../ChatPanelBridge/EditorBridge';
 import { PluginLoader, isVerdict, type EntitlementsResponse } from '../ChatPanelBridge/PluginLoader';
+import { usePanelActive } from '../panelActive';
+import { useCoversEditor } from '../editorCovered';
 
 const PLUGIN_ID = 'ai-image-editor';
 
@@ -21,6 +23,9 @@ const PLUGIN_ID = 'ai-image-editor';
 type PanelStatus = 'loading' | 'connected' | 'not-entitled' | 'unavailable' | 'error';
 
 export function ImageEditorPanel() {
+    // This panel fills the window, so nothing behind it needs drawing while it shows. The host
+    // keeps a panel mounted after the user switches away, hence usePanelActive — see editorCovered.
+    useCoversEditor(usePanelActive());
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [status, setStatus] = useState<PanelStatus>('loading');
     const [pluginUrl, setPluginUrl] = useState<string | null>(null);
