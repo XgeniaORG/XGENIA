@@ -38,6 +38,7 @@ import { generateFunctionArtifact, FunctionArtifact } from './generateFunctionAr
 import { createEdgeDeployment, deployEdgeFunction, listEdgeDeployments } from './deployEdgeFunction';
 import { rgsFunctionsUrl, rgsHeaders } from './rgsClient';
 import { WIN_PORT_PRECEDENCE, platformWarningsFor, winPortFor } from './mathsPorts';
+import { MONEY_SCALE, MONEY_SCALE_FIELD, functionConvertsMoney, withMoneyScale } from './moneyScale';
 
 /** Sheet every Math Component lives under. */
 export const MATHS_PREFIX = '/#__maths__/';
@@ -506,8 +507,16 @@ export async function deployMathsComponents(
       : undefined;
 
     onProgress?.(`Deploying ${label} ${position}…`);
+    // A published page sends this component's bet in cents (moneyScale.ts): the script converts, and its
+    // response example says so — which is how Publish knows the page may send cents to it.
     const { url, rewrites, rng } = await deployEdgeFunction(apiKey, gameId, deploymentId, {
       ...artifact,
+      ...(mapBoth
+        ? {
+            script: withMoneyScale(artifact.script, betInputPort!, winOutputPort!),
+            responseExample: { ...artifact.responseExample, [MONEY_SCALE_FIELD]: MONEY_SCALE }
+          }
+        : {}),
       slug,
       functionName: label,
       ...(mapBoth ? { betInputPort: betInputPort!, winOutputPort: winOutputPort! } : {})
@@ -569,6 +578,8 @@ export async function createEmptyServerVersion(
 export interface MathsEndpoint {
   slug: string;
   url: string;
+  /** Set when the deployed script takes its bet and pays its win in cents (moneyScale.ts). */
+  money?: { scale: number; betPort: string; winPort: string };
 }
 
 /**
@@ -589,13 +600,17 @@ export async function mathsEndpointsForGame(
   const deployments = await listEdgeDeployments(apiKey, gameId);
 
   // Newest active row per slug, by created_at.
-  const liveBySlug = new Map<string, { url: string; createdAt: string }>();
+  const liveBySlug = new Map<string, { url: string; createdAt: string; money?: MathsEndpoint['money'] }>();
   for (const deployment of deployments) {
     for (const fn of deployment.functions || []) {
       if (fn.status !== 'active' || !fn.function_url) continue;
       const current = liveBySlug.get(fn.function_slug);
       if (!current || String(fn.created_at) > current.createdAt) {
-        liveBySlug.set(fn.function_slug, { url: fn.function_url, createdAt: String(fn.created_at) });
+        const money =
+          functionConvertsMoney(fn.response_example) && fn.bet_input_port && fn.win_output_port
+            ? { scale: Number(fn.response_example[MONEY_SCALE_FIELD]), betPort: fn.bet_input_port, winPort: fn.win_output_port }
+            : undefined;
+        liveBySlug.set(fn.function_slug, { url: fn.function_url, createdAt: String(fn.created_at), money });
       }
     }
   }
@@ -604,7 +619,7 @@ export async function mathsEndpointsForGame(
   for (const component of listMathsComponents(project)) {
     const slug = mathsComponentSlug(component);
     const live = liveBySlug.get(slug);
-    if (live) endpoints[component.name] = { slug, url: live.url };
+    if (live) endpoints[component.name] = { slug, url: live.url, ...(live.money ? { money: live.money } : {}) };
   }
   return endpoints;
 }
@@ -747,7 +762,9 @@ export function mathsAggregatorParameters(args: {
   /** The component's signal outputs: declared as outputs too, and fired as signals. */
   signalOutputs?: string[];
   targetComponent: string;
-}): Record<string, string> {
+  /** The endpoint takes cents (MathsEndpoint.money): the node converts its bet and win. */
+  money?: MathsEndpoint['money'];
+}): Record<string, string | number> {
   const signalOutputs = args.signalOutputs || [];
   return {
     url: args.url,
@@ -755,7 +772,8 @@ export function mathsAggregatorParameters(args: {
     triggers: args.triggers.join(', '),
     outputs: [...args.outputs, ...signalOutputs].join(', '),
     signalOutputs: signalOutputs.join(', '),
-    targetComponent: args.targetComponent
+    targetComponent: args.targetComponent,
+    ...(args.money ? { moneyScale: args.money.scale, betField: args.money.betPort, winField: args.money.winPort } : {})
   };
 }
 
@@ -853,7 +871,8 @@ export function swapDeployedMathsInstances(
           triggers: usedTriggers,
           outputs: usedOutputs,
           signalOutputs: usedSignals,
-          targetComponent: instance.typename
+          targetComponent: instance.typename,
+          money: endpoint.money
         }),
         ports: [],
         dynamicports: [

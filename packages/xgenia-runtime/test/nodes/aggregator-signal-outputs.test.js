@@ -115,3 +115,67 @@ describe('Aggregator and the RGS', () => {
     delete global.fetch;
   });
 });
+
+// (2026-11-03, lobby-rgs-plinko.vercel.app) The RGS ledger counts cents; a game graph counts money. A plinko sent a
+// 1.00 bet as 1 (booked as one cent) and its 1.08× win came back as 1. Publish now gives the Aggregator a money
+// scale for a script that converts: the bet goes out in cents with __moneyScale, the win and the RGS money come back
+// in the game's money — but only from a response that says it converted.
+describe('Aggregator money in cents', () => {
+  function moneyAggregator() {
+    const made = makeAggregator({ outputs: 'spinWinnings, winAmount', signalOutputs: '' });
+    AggregatorNode.inputs.moneyScale.set.call(made.ctx, 100);
+    AggregatorNode.inputs.betField.set.call(made.ctx, 'BetAmount');
+    AggregatorNode.inputs.winField.set.call(made.ctx, 'spinWinnings');
+    return made;
+  }
+
+  test('the bet goes out in whole cents, with the scale', async () => {
+    const { ctx } = moneyAggregator();
+    const bodies = [];
+    global.fetch = jest.fn(async (_url, init) => {
+      bodies.push(JSON.parse(init.body));
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+    ctx.setDataValue('BetAmount', 0.2);
+    ctx.setDataValue('Risk', 2);
+    ctx.doSend();
+    ctx.setDataValue('BetAmount', '1.10');
+    ctx.doSend();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(bodies[0]).toMatchObject({ BetAmount: 20, Risk: 2, __moneyScale: 100 });
+    expect(bodies[1]).toMatchObject({ BetAmount: 110, __moneyScale: 100 });
+    delete global.fetch;
+  });
+
+  test('the win port and the RGS money come back in the game money; other outputs are left alone', () => {
+    const { ctx, events } = moneyAggregator();
+    ctx.applyOutputs({ spinWinnings: 108, winAmount: 1.08, __moneyScale: 100, __rgs: { round_id: 'r1', win_amount: 108, balance_after: 1000008 } }, true);
+    expect(ctx.getOutputValue('spinWinnings')).toBe(1.08);
+    expect(ctx.getOutputValue('winAmount')).toBe(1.08);
+    expect(ctx.getOutputValue('rgsWin')).toBe(1.08);
+    expect(ctx.getOutputValue('rgsBalance')).toBe(10000.08);
+    expect(events.map((e) => e[1])).not.toContain('out-__moneyScale');
+  });
+
+  test('a response that did not convert (a script deployed before it could) is taken as it is', () => {
+    const { ctx } = moneyAggregator();
+    ctx.applyOutputs({ spinWinnings: 108, __rgs: { win_amount: 108, balance_after: 1000008 } }, true);
+    expect(ctx.getOutputValue('spinWinnings')).toBe(108);
+    expect(ctx.getOutputValue('rgsBalance')).toBe(1000008);
+  });
+
+  test('without a money scale nothing changes', async () => {
+    const { ctx } = makeAggregator({ outputs: 'spinWinnings', signalOutputs: '' });
+    const bodies = [];
+    global.fetch = jest.fn(async (_url, init) => {
+      bodies.push(JSON.parse(init.body));
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+    ctx.setDataValue('BetAmount', 1);
+    ctx.doSend();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(bodies[0].BetAmount).toBe(1);
+    expect(bodies[0].__moneyScale).toBeUndefined();
+    delete global.fetch;
+  });
+});
