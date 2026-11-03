@@ -31,6 +31,7 @@ import {
   connectWithXgeniaLogin,
   emailSignInCode,
   fetchOperatorInfo,
+  gameVersionsUrl,
   getActiveGame,
   getRgsSettings,
   isSandboxConnection,
@@ -447,6 +448,7 @@ export function RgsCertifyPanel() {
   const line = status ? describeCertification(status) : null;
   const colour = line?.tone === 'good' ? '#67DE92' : line?.tone === 'bad' ? '#f66' : '#a0a0b0';
   const running = !!status && isCertificationActive(status);
+  const versionsUrl = gameVersionsUrl(game.slug);
 
   return (
     <div style={{ ...STEP_STYLE, marginTop: '12px' }} data-guide="rgs-certify">
@@ -457,6 +459,14 @@ export function RgsCertifyPanel() {
         2. Send the <b>pre-certification pack</b> to a test lab, if your market needs one (most do).
         <br />
         3. In XGENIA RGS, open the game&#39;s <b>Versions</b>, then <b>Approve</b> and <b>Deploy live</b>.
+        {versionsUrl && (
+          <>
+            {' '}
+            <a href={versionsUrl} target="_blank" rel="noopener noreferrer" style={{ ...LINK, textDecoration: 'none' }}>
+              Open Versions
+            </a>
+          </>
+        )}
         <br />
         Changing the maths means verifying again.
       </div>

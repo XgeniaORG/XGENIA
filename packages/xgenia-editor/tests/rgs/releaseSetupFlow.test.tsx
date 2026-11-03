@@ -176,6 +176,11 @@ test('a new studio signs in by email, creates its game with its own numbers, and
   await act(async () => { await tick(5200); });
   assert.match(host.textContent || '', /RTP verified on XGENIA RGS \(not a lab certificate\): pays 96\.01% against a declared 96\.00%/);
   assert.doesNotMatch(host.textContent || '', /(^|[^-])\bCertified\b/, 'nothing on screen claims a certification');
+  // Step 3 happens in XGENIA RGS: the box links straight to this game's Versions page.
+  assert.equal(
+    byText(host, 'a', 'Open Versions').getAttribute('href'),
+    'https://xrgs-studio.vercel.app/project/default/games/crash-space/versions'
+  );
 
   await act(async () => { root.unmount(); });
 });
@@ -231,6 +236,7 @@ test('a signed-in XGENIA user is connected to their play-money sandbox with noth
   assert.deepEqual(connect.body, { action: 'xgenia-connect', xgenia_token: 'xgenia-jwt' });
   assert.equal(rgsClient.rgsFunctionsUrl(), rgsClient.XRGS_SANDBOX_URL, 'later calls go to the test RGS');
   assert.equal(rgsClient.isSandboxConnection(), true);
+  assert.equal(rgsClient.gameVersionsUrl('crash-space'), null, 'the back office shows real money only: no link from a sandbox');
   assert.equal(rgsClient.rgsHeaders('k').apikey, rgsClient.XRGS_SANDBOX_ANON_KEY);
   assert.doesNotMatch(host.textContent || '', /Email me a code/);
   await act(async () => { root.unmount(); });
