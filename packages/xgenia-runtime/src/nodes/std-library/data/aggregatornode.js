@@ -263,8 +263,8 @@ const AggregatorNode = {
       const converted = scale > 1 && Number(body.__moneyScale) === scale;
       const money = (v) => (converted && typeof v === 'number' ? v / scale : v);
       const winField = converted ? this._internal.winField : null;
-      if (rgs) {
-        const fromRgs = { rgsBalance: money(rgs.balance_after), rgsWin: money(rgs.win_amount), rgsRoundId: rgs.round_id };
+      const fromRgs = rgs ? { rgsBalance: money(rgs.balance_after), rgsWin: money(rgs.win_amount), rgsRoundId: rgs.round_id } : null;
+      if (fromRgs) {
         for (const name in fromRgs) {
           if (fromRgs[name] === undefined) continue;
           this._internal.outputValues[name] = fromRgs[name];
@@ -275,6 +275,9 @@ const AggregatorNode = {
       for (const field in body) {
         if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
         if (field === '__rgs' || field === '__moneyScale') continue;
+        // A Math Component may declare rgsBalance / rgsWin / rgsRoundId outputs so its game can read them; the maths
+        // never sets them (it cannot see the wallet), so its own empty value must not overwrite what the RGS recorded.
+        if (fromRgs && fromRgs[field] !== undefined) continue;
         if (signals.has(field)) {
           // A signal is not a value: fire it (below) when this response says it fired.
           if (body[field] === true) fired.push(field);
