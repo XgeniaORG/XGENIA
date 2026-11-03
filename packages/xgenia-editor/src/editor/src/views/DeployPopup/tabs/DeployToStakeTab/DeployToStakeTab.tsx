@@ -238,7 +238,7 @@ export function DeployToStakeTab() {
         </Text>
         {!canExportMaths ? (
           <Text style={{ fontSize: '12px' }}>
-            Connect XGENIA RGS and select a game in the Maths RGS panel to export the game&apos;s maths (books, lookup
+            Connect XGENIA RGS and pick a game under Publish → XGENIA to export the game&apos;s maths (books, lookup
             tables and index.json) next to the front end.
           </Text>
         ) : (
