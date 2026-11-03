@@ -133,7 +133,7 @@ export async function deployChangedMathsComponents(
   let target = await newestServerVersion(rgs.apiKey, game.id);
   let created = false;
   if (!target) {
-    progress('Creating a server version…');
+    progress('Creating the game’s first version on XGENIA RGS…');
     // Named after the open project, so the version is recognisable in the RGS
     // studio's Versions tab.
     const fresh = await createEmptyServerVersion(rgs.apiKey, game.id, project.name || game.name || 'Server Version');

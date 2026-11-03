@@ -76,6 +76,19 @@ describe('Aggregator and the RGS', () => {
     expect(events.map((e) => e[1])).not.toContain('out-__rgs');
   });
 
+  // (2026-11-03) A Math Component declares an rgsBalance output so its game can show the RGS wallet; the maths
+  // cannot see the wallet, so its response carries that field empty. The RGS's figure must win.
+  test('a maths output named rgsBalance is filled by the RGS, never blanked by the maths\' own empty value', () => {
+    const { ctx } = makeAggregator({ outputs: 'winAmount, rgsBalance', signalOutputs: '' });
+    ctx.applyOutputs({ winAmount: 300, rgsBalance: null, __rgs: { round_id: 'r1', win_amount: 300, balance_after: 1000100 } }, true);
+    expect(ctx.getOutputValue('rgsBalance')).toBe(1000100);
+    const names = AggregatorModule.buildPorts({ outputs: 'winAmount, rgsBalance', signalOutputs: '' }).map((p) => p.name);
+    expect(names.filter((n) => n === 'out-rgsBalance')).toHaveLength(1);
+    // Without a round record (an unstaked call) the maths' own value is all there is.
+    ctx.applyOutputs({ winAmount: 0, rgsBalance: 5 }, true);
+    expect(ctx.getOutputValue('rgsBalance')).toBe(5);
+  });
+
   test('ports: RGS outputs and Error are always offered', () => {
     const names = AggregatorModule.buildPorts({ outputs: 'winAmount', signalOutputs: '' }).map((p) => p.name);
     expect(names).toEqual(expect.arrayContaining(['out-rgsBalance', 'out-rgsWin', 'out-rgsRoundId', 'out-error']));

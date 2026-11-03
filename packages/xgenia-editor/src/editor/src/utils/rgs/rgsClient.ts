@@ -38,6 +38,15 @@ export function isSandboxConnection(): boolean {
   return rgsFunctionsUrl() === XRGS_SANDBOX_URL;
 }
 
+// XGENIA RGS's back office, where a version is approved and deployed live. It shows the real-money RGS only.
+export const XRGS_STUDIO_URL = 'https://xrgs-studio.vercel.app';
+
+/** The game's Versions page in XGENIA RGS; null on a play-money sandbox, which the back office does not show. */
+export function gameVersionsUrl(slug: string | undefined): string | null {
+  if (!slug || isSandboxConnection()) return null;
+  return `${XRGS_STUDIO_URL}/project/default/games/${encodeURIComponent(slug)}/versions`;
+}
+
 function anonKeyFor(functionsUrl: string): string {
   return functionsUrl === XRGS_SANDBOX_URL ? XRGS_SANDBOX_ANON_KEY : XRGS_ANON_KEY;
 }
