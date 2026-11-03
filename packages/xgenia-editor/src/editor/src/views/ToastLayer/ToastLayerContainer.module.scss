@@ -16,6 +16,18 @@
 
 .ToastContainer {
   filter: drop-shadow(0px 0px 20px);
+
+  // react-hot-toast keeps this container mounted and stretched across the whole
+  // window even when there is no toast in it, and `filter` promotes whatever it
+  // is on. So an empty container became a permanent full-window composited layer
+  // (2876x1940, bigger than the window because drop-shadow inflates the bounds),
+  // sitting on top of the glass panels, both accelerated iframes and the canvas.
+  // On macOS every such layer is its own CALayer handed to CoreAnimation, and an
+  // empty present of a top-most full-window layer reads as the whole UI flashing.
+  // With no toasts there is nothing to shadow, so take it out of the picture.
+  &:empty {
+    display: none;
+  }
 }
 
 .Debugger {

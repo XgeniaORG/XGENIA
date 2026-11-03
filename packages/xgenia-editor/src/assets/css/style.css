@@ -279,9 +279,24 @@ button {
 .dialog-layer-portal-target,
 .toast-layer {
   position: absolute;
-  z-index: 666;
   top: 0;
   left: 0;
+}
+
+/*
+  Above the full-window plugin panels (Character Studio, the image editor and any other
+  web panel), which are `position: fixed; z-index: 1000` children of <body> — see
+  WebPluginPanel. At 666 every menu, popover, tooltip and toast opened while one of those
+  was on screen rendered BEHIND it: the project menu in the rail (the one that closes the
+  project) opened invisibly under the Character Studio, and toasts were lost the same way.
+  Dialogs sit just over the panels; toasts sit over the dialogs.
+*/
+.dialog-layer-portal-target {
+  z-index: 1100;
+}
+
+.toast-layer {
+  z-index: 1200;
 }
 
 .login-main #top-bar {
@@ -391,6 +406,27 @@ button {
 
 .spinner .bounce2 {
   animation-delay: -0.16s;
+}
+
+/*
+  The activity box above is mounted for the life of the app and sits at opacity 0 until
+  something calls the (deprecated) showActivity(). Its three dots do not care: a CSS
+  animation runs whether or not the thing it is on can be seen, and `transform: scale()`
+  is a COMPOSITOR animation, so Chromium ticked it on every display frame forever. On a
+  120Hz screen that is 120 compositor commits a second in a completely idle editor, each
+  one handing macOS a fresh transaction for every layer in the window — which is what the
+  flashing rides on.
+
+  showActivity() sets `opacity: 1` inline (popuplayer.js), so that is what the dots are
+  keyed off. If that line ever stops writing the opacity inline, the dots stop bouncing
+  while the box is up; they do not break anything else.
+*/
+.popup-layer-activity .spinner > div {
+  animation-play-state: paused;
+}
+
+.popup-layer-activity[style*="opacity: 1"] .spinner > div {
+  animation-play-state: running;
 }
 
 @keyframes bouncedelay {

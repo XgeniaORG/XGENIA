@@ -25,6 +25,7 @@ import { createPortal } from 'react-dom';
 import { PluginLoader, isVerdict, pluginOrigin, webPanelPlugins, WEB_PLUGIN_FRAME_ATTR, type EntitlementsResponse } from '../ChatPanelBridge/PluginLoader';
 import { entitlementsForPanelOpen, hasTicket, nextFrameUrl, renewedTicket, TICKET_RENEW_MS } from './webPluginFrame';
 import { usePanelActive } from '../panelActive';
+import { useCoversEditor } from '../editorCovered';
 
 /**
  * `not-entitled` is reserved for a VERDICT (the server said no); `unavailable` is "we could
@@ -51,6 +52,9 @@ export function WebPluginPanel(props: WebPluginPanelProps) {
 }
 
 function WebPluginPanelContent({ pluginId, hidden }: WebPluginPanelProps & { hidden: boolean }) {
+    // Every state below covers the whole editor, so while this panel is up the views behind it
+    // have nothing to draw for — see editorCovered.
+    useCoversEditor(!hidden);
     // Applied to the layer's root in every state below.
     const hide: React.CSSProperties = hidden ? { display: 'none' } : {};
     const iframeRef = useRef<HTMLIFrameElement>(null);
