@@ -393,6 +393,48 @@ function currentProjectId(): string | null {
 
 export { activeGameFor };
 
+// ─── The game a project declared, remembered across RGS accounts ─────────────
+//
+// Moving from the play-money sandbox to an invited real-money account is a different RGS: the game
+// is created again there. The studio had to retype what it already declared (name, RTP, bets, max
+// win), and the form opened on defaults that were easy to accept by mistake (XRGS SYSTEM_MAP.md
+// I-13). The declaration is kept per project under its OWN key, so leaving a connection
+// (clearRgsSettings) does not forget it, and the next account's game form opens with it.
+const GAME_DECLARATIONS_KEY = 'xgenia_rgs_game_declarations';
+
+export interface RememberedGameDeclaration {
+  name: string;
+  rtp: string;
+  minBet: string;
+  maxBet: string;
+  maxWin: string;
+  /** Where it was declared: lets the form say "from your sandbox". */
+  fromSandbox: boolean;
+}
+
+export function rememberGameDeclaration(form: Omit<RememberedGameDeclaration, 'fromSandbox'>): void {
+  const project = currentProjectId();
+  if (!project) return;
+  try {
+    const all = JSON.parse(localStorage.getItem(GAME_DECLARATIONS_KEY) || '{}');
+    all[project] = { ...form, fromSandbox: isSandboxConnection() };
+    localStorage.setItem(GAME_DECLARATIONS_KEY, JSON.stringify(all));
+  } catch {
+    /* storage unavailable: the form simply opens on defaults */
+  }
+}
+
+export function rememberedGameDeclaration(): RememberedGameDeclaration | null {
+  const project = currentProjectId();
+  if (!project) return null;
+  try {
+    const d = JSON.parse(localStorage.getItem(GAME_DECLARATIONS_KEY) || '{}')[project];
+    return d && typeof d.name === 'string' && d.name ? (d as RememberedGameDeclaration) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function getActiveGame(): SelectedGame | null {
   try {
     return activeGameFor<SelectedGame>(JSON.parse(localStorage.getItem(RGS_SETTINGS_KEY) || '{}'), currentProjectId());

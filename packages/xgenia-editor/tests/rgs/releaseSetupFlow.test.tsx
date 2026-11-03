@@ -286,3 +286,42 @@ test('a studio on its sandbox can switch to an invited real-money account, and S
   await act(async () => { root.unmount(); });
   localStorage.clear();
 });
+
+// (2026-11-03, XRGS SYSTEM_MAP.md I-13) Moving from the sandbox to an invited real-money account means
+// creating the game again on a different RGS. The studio used to retype everything it had declared, on a
+// form that opened on defaults. The declaration is remembered per project across accounts.
+test('a game declared on the sandbox opens the real-money account\'s game form with the same numbers', async () => {
+  const React = (await import('react')).default;
+  const { createRoot } = await import('react-dom/client');
+  const { act } = await import('react');
+  const { RgsReleaseSetup, rgsClient } = await loadComponents();
+  localStorage.clear();
+
+  // On the sandbox: create the game with the studio's own numbers.
+  installRgs();
+  rgsClient.saveRgsSettings({ apiKey: 'xrgs_sandbox', rgsUrl: rgsClient.XRGS_SANDBOX_URL });
+  const host = document.getElementById('root')!;
+  let root = createRoot(host);
+  await act(async () => { root.render(React.createElement(RgsReleaseSetup, { projectName: 'Crash Space' })); });
+  await act(async () => { await tick(30); });
+  let inputs = [...host.querySelectorAll('input')] as HTMLInputElement[];
+  await act(async () => { type(inputs[0], 'Gold Rush'); });
+  await act(async () => { type(inputs[1], '95.5'); });
+  await act(async () => { click(byText(host, 'button', 'Create game')); await tick(30); });
+  assert.equal(rgsClient.getActiveGame()?.name, 'Gold Rush');
+  await act(async () => { root.unmount(); });
+
+  // Invited: a different RGS with no games yet.
+  installRgs();
+  rgsClient.clearRgsSettings();
+  rgsClient.saveRgsSettings({ apiKey: 'xrgs_studio', rgsUrl: rgsClient.XRGS_URL });
+  root = createRoot(host);
+  await act(async () => { root.render(React.createElement(RgsReleaseSetup, { projectName: 'Crash Space' })); });
+  await act(async () => { await tick(30); });
+  inputs = [...host.querySelectorAll('input')] as HTMLInputElement[];
+  assert.equal(inputs[0].value, 'Gold Rush', 'the name carried over');
+  assert.equal(inputs[1].value, '95.5', 'the RTP carried over');
+  assert.match(host.textContent || '', /Brought over from your play-money sandbox/);
+  await act(async () => { root.unmount(); });
+  localStorage.clear();
+});

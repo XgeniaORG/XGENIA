@@ -36,6 +36,8 @@ import {
   getRgsSettings,
   isSandboxConnection,
   listGames,
+  rememberGameDeclaration,
+  rememberedGameDeclaration,
   rgsHeaders,
   setActiveGame,
   SelectedGame
@@ -229,7 +231,16 @@ function GameStep({ projectName, onChosen }: { projectName: string; onChosen: ()
   const [games, setGames] = useState<any[] | null>(null);
   const [currency, setCurrency] = useState('EUR');
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState<ReleaseGameForm>(() => defaultReleaseGameForm(projectName));
+  // The declaration this project already made (e.g. on its sandbox) opens the form, so moving to a
+  // real-money account is: check the numbers, Create game, Publish (rgsClient: rememberGameDeclaration).
+  const [carried] = useState(() => {
+    const d = rememberedGameDeclaration();
+    return d && d.fromSandbox && !isSandboxConnection() ? d : null;
+  });
+  const [form, setForm] = useState<ReleaseGameForm>(() => {
+    const d = rememberedGameDeclaration();
+    return d ? { name: d.name, rtp: d.rtp, minBet: d.minBet, maxBet: d.maxBet, maxWin: d.maxWin } : defaultReleaseGameForm(projectName);
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -257,6 +268,7 @@ function GameStep({ projectName, onChosen }: { projectName: string; onChosen: ()
     setError('');
     try {
       const g = await createReleaseGame(base(apiKey), form, currency);
+      rememberGameDeclaration(form);
       setActiveGame({ id: g.id, slug: g.slug, name: g.name });
       onChosen();
     } catch (e: any) {
@@ -288,6 +300,12 @@ function GameStep({ projectName, onChosen }: { projectName: string; onChosen: ()
         </>
       ) : (
         <>
+          {carried && (
+            <div style={HINT}>
+              Brought over from your play-money sandbox. Check the numbers and press Create game: Publish then
+              deploys the same maths and page here, and Verify RTP measures it for real money.
+            </div>
+          )}
           <div style={HINT}>
             These are the numbers your game is verified and played against. Bets are in {currency}; max win is a multiple of the stake.
           </div>
