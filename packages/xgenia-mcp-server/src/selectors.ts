@@ -76,9 +76,11 @@ export const SELECTORS = Object.freeze({
    *
    * Since the 2026-11 labelled rail (icon above a text label), rail buttons are plain buttons inside
    * an element tagged `data-guide="rail.<name>"`, still with `aria-label="<panel name>"`; both shapes
-   * are matched so the harness drives either build.
+   * are matched so the harness drives either build. Builds from the new rail until #244 tag the item
+   * only `data-rail-id` (no `data-guide`): matched too, or the harness found no rail buttons at all
+   * there (2026-11-03).
    */
-  sidebarIconButton: 'button[class*=IconButton-module__Root], [data-guide^="rail."] button',
+  sidebarIconButton: 'button[class*=IconButton-module__Root], [data-guide^="rail."] button, [data-rail-id] button',
   /**
    * A tooltip bubble revealed on hover. Matched three ways because which
    * one actually renders was determined empirically (hover a button, wait
