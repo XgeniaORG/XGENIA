@@ -10,5 +10,14 @@ export interface SelectedGameRef {
 export function activeGameFor<T extends SelectedGameRef>(settings: any, projectId: string | null): T | null {
   if (!projectId) return null;
   const g = settings?.activeGameByProject?.[projectId];
-  return g?.id ? (g as T) : null;
+  // A measurement copy is never a project's game (see isMeasurementTwin): treat it as no game chosen.
+  return g?.id && !isMeasurementTwin(g) ? (g as T) : null;
+}
+
+/**
+ * (2026-11-04) The AI measures a published game's maths on a draft copy named "<Game> RTP tests"; that copy got set as
+ * a project's game and Publish read "Publishing Gremlin Party RTP tests". It is tooling, never a game to publish.
+ */
+export function isMeasurementTwin(g: { name?: unknown } | null | undefined): boolean {
+  return / RTP tests$/i.test(String(g?.name ?? ''));
 }
