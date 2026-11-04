@@ -1,6 +1,7 @@
 import { ProjectModel } from '@xgenia-models/projectmodel';
 
 import ProjectModules from '../../../../../../shared/utils/projectmodules';
+import { gameTitle } from '../../gameTitle';
 import { XGENIA_GENERATOR_META, injectXgeniaCredit, wantsXgeniaCredit } from './xgenia-credit';
 
 export interface HtmlProcessorParameters {
@@ -90,7 +91,7 @@ export class HtmlProcessor {
       baseUrl = baseUrl + '/';
     }
 
-    const title = parameters.title || settings.htmlTitle || 'XGENIA Viewer';
+    const title = parameters.title || gameTitle(settings.htmlTitle, this.project.name);
     let headCode = settings.headCode || '';
 
     // FIRST in <head> (the template puts {{#customHeadCode#}} at line 11, every script tag is

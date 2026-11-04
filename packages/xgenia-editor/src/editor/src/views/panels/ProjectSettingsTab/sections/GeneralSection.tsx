@@ -4,6 +4,9 @@ import { PropertyPanelRow } from '@xgenia-core-ui/components/property-panel/Prop
 import { PropertyPanelSelectInput } from '@xgenia-core-ui/components/property-panel/PropertyPanelSelectInput';
 import { PropertyPanelTextInput } from '@xgenia-core-ui/components/property-panel/PropertyPanelTextInput';
 import { CollapsableSection } from '@xgenia-core-ui/components/sidebar/CollapsableSection';
+import { ProjectModel } from '@xgenia-models/projectmodel';
+
+import { gameTitle } from '../../../../utils/compilation/gameTitle';
 
 import { useProjectSetting } from '../useProjectSetting';
 
@@ -12,7 +15,7 @@ import { useProjectSetting } from '../useProjectSetting';
  * recognises. Head code, the tools path and the URL path type are web-site plumbing.
  */
 export function GeneralSection({ simple = false }: { simple?: boolean }) {
-  const [htmlTitle, setHtmlTitle] = useProjectSetting('htmlTitle', 'XGENIA Viewer');
+  const [htmlTitle, setHtmlTitle] = useProjectSetting<string>('htmlTitle', '');
   const [headCode, setHeadCode] = useProjectSetting('headCode', '');
   const [toolsProjectPath, setToolsProjectPath] = useProjectSetting('toolsProjectPath', '');
   const [navigationPathType, setNavigationPathType] = useProjectSetting('navigationPathType', 'hash');
@@ -20,7 +23,7 @@ export function GeneralSection({ simple = false }: { simple?: boolean }) {
   return (
     <CollapsableSection title="General" hasGutter hasVisibleOverflow hasTopDivider isClosed={!simple}>
       <PropertyPanelRow label="Title">
-        <PropertyPanelTextInput value={htmlTitle} onChange={setHtmlTitle} />
+        <PropertyPanelTextInput value={gameTitle(htmlTitle, ProjectModel.instance?.name)} onChange={setHtmlTitle} />
       </PropertyPanelRow>
 
       {!simple && (
