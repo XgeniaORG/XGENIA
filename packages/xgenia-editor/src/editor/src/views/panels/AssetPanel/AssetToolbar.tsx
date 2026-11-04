@@ -1,8 +1,24 @@
 import React, { useState } from 'react';
+import { HugeiconsIcon } from '@hugeicons/react';
+// @ts-ignore – sub-path import; moduleResolution:'node' can't resolve package exports maps
+import SidebarLeftIcon from '@hugeicons/core-free-icons/SidebarLeftIcon';
+// @ts-ignore
+import GridViewIcon from '@hugeicons/core-free-icons/GridViewIcon';
+// @ts-ignore
+import ListViewIcon from '@hugeicons/core-free-icons/ListViewIcon';
+// @ts-ignore
+import FolderAddIcon from '@hugeicons/core-free-icons/FolderAddIcon';
+// @ts-ignore
+import StarIcon from '@hugeicons/core-free-icons/StarIcon';
+// @ts-ignore
+import HelpCircleIcon from '@hugeicons/core-free-icons/HelpCircleIcon';
 
 import { SORT_LABELS, type SortMode } from './assetFilter';
 import type { AssetViewPrefs } from './AssetLibrary';
 import css from './AssetLibrary.module.scss';
+
+// The same line icons as the rail, not text glyphs (▤ ▦ ☰ +▢ read as random marks).
+const Glyph = ({ icon }: { icon: unknown }) => <HugeiconsIcon icon={icon as any} size={14} color="currentColor" />;
 
 const SYNTAX: Array<[string, string]> = [
   ['t:image', 'kind — image, audio, video, font'],
@@ -49,7 +65,7 @@ export function AssetToolbar({
         <input
           ref={searchRef}
           className={css.Search}
-          placeholder="Search — name, prompt, tag, or t: r: l: is:"
+          placeholder="Search assets"
           value={text}
           onChange={(e) => onText(e.target.value)}
           onKeyDown={(e) => {
@@ -61,12 +77,12 @@ export function AssetToolbar({
           aria-label="Search assets"
         />
         {text.trim() && !savedSearches.includes(text.trim()) && (
-          <button type="button" className={css.IconBtn} onClick={() => onSaveSearch(text)} title="Save this search as a chip">
-            ☆
+          <button type="button" className={css.IconBtn} onClick={() => onSaveSearch(text)} title="Save this search as a chip" aria-label="Save this search">
+            <Glyph icon={StarIcon} />
           </button>
         )}
-        <button type="button" className={help ? `${css.IconBtn} ${css.IconBtnOn}` : css.IconBtn} onClick={() => setHelp((v) => !v)} title="Search syntax" aria-expanded={help}>
-          ?
+        <button type="button" className={help ? `${css.IconBtn} ${css.IconBtnOn}` : css.IconBtn} onClick={() => setHelp((v) => !v)} title="Search filters" aria-label="Search filters" aria-expanded={help}>
+          <Glyph icon={HelpCircleIcon} />
         </button>
       </div>
 
@@ -88,15 +104,16 @@ export function AssetToolbar({
           onClick={() => onPrefs({ folders: !prefs.folders })}
           title="Show folders"
           aria-pressed={prefs.folders}
+          aria-label="Show folders"
         >
-          ▤
+          <Glyph icon={SidebarLeftIcon} />
         </button>
         <div className={css.Seg} role="radiogroup" aria-label="View">
-          <button type="button" role="radio" aria-checked={prefs.view === 'grid'} className={prefs.view === 'grid' ? css.SegOn : ''} onClick={() => onPrefs({ view: 'grid' })} title="Grid">
-            ▦
+          <button type="button" role="radio" aria-checked={prefs.view === 'grid'} className={prefs.view === 'grid' ? css.SegOn : ''} onClick={() => onPrefs({ view: 'grid' })} title="Grid" aria-label="Grid">
+            <Glyph icon={GridViewIcon} />
           </button>
-          <button type="button" role="radio" aria-checked={prefs.view === 'list'} className={prefs.view === 'list' ? css.SegOn : ''} onClick={() => onPrefs({ view: 'list' })} title="List">
-            ☰
+          <button type="button" role="radio" aria-checked={prefs.view === 'list'} className={prefs.view === 'list' ? css.SegOn : ''} onClick={() => onPrefs({ view: 'list' })} title="List" aria-label="List">
+            <Glyph icon={ListViewIcon} />
           </button>
         </div>
         {prefs.view === 'grid' && (
@@ -121,12 +138,12 @@ export function AssetToolbar({
         </select>
         <span className={css.FooterGrow} />
         {onOpenBoard && (
-          <button type="button" className={css.IconBtn} onClick={onOpenBoard} title="Placement board: every piece of a key art on the screen, edited together">
-            ⌖
+          <button type="button" className={css.Action} onClick={onOpenBoard} title="Placement board: every piece of a key art on the screen, edited together">
+            Board
           </button>
         )}
-        <button type="button" className={css.IconBtn} onClick={onNewFolder} title={`New folder in ${destFolder}`}>
-          +▢
+        <button type="button" className={css.IconBtn} onClick={onNewFolder} title={`New folder in ${destFolder}`} aria-label="New folder">
+          <Glyph icon={FolderAddIcon} />
         </button>
         <button type="button" className={css.Action} onClick={onImport} title={`Import files into ${destFolder}`}>
           Import

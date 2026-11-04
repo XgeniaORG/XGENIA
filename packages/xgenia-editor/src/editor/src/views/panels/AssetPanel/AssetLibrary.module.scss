@@ -383,6 +383,9 @@
 
 .IconBtn {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 26px;
   height: 26px;
   padding: 0 6px;
@@ -404,6 +407,9 @@
   overflow: hidden;
 
   button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     height: 24px;
     width: 26px;
     border: 0;
