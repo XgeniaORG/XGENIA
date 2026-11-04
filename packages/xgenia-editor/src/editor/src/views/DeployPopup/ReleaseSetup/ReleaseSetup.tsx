@@ -40,7 +40,8 @@ import {
   rememberedGameDeclaration,
   rgsHeaders,
   setActiveGame,
-  SelectedGame
+  SelectedGame,
+  xgeniaAccessToken
 } from '@xgenia-utils/rgs/rgsClient';
 import { emailProblem, codeProblem } from '@xgenia-utils/rgs/rgsSignIn';
 import {
@@ -57,6 +58,9 @@ import {
 } from '@xgenia-utils/rgs/rgsRelease';
 import { MATHS_DEPLOYED_ELSEWHERE } from '@xgenia-utils/rgs/mathsDeployState';
 import { isMeasurementTwin } from '@xgenia-utils/rgs/activeGame';
+
+/** What a play-money sandbox's Verify RTP costs (XGENIA migration 20261104200000, rtp_verify_price). */
+const VERIFY_RTP_SANDBOX_CREDITS = 20;
 
 const STEP_STYLE: React.CSSProperties = {
   padding: '10px 12px',
@@ -451,7 +455,9 @@ export function RgsCertifyPanel() {
     setBusy('certify');
     setError('');
     try {
-      setStatus(await startCertification(base(apiKey), game.id, false));
+      // A sandbox's Verify RTP is paid with the user's XGENIA credits, charged by the RGS with this sign-in.
+      const token = isSandboxConnection() ? await xgeniaAccessToken() : undefined;
+      setStatus(await startCertification(base(apiKey), game.id, false, undefined, token));
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
@@ -496,6 +502,12 @@ export function RgsCertifyPanel() {
         )}
         <br />
         Changing the maths means verifying again.
+        {isSandboxConnection() && (
+          <>
+            <br />
+            In your play-money sandbox, each Verify RTP costs {VERIFY_RTP_SANDBOX_CREDITS} of your bought XGENIA credits.
+          </>
+        )}
       </div>
       {line && <div style={{ fontSize: '12px', color: colour, marginBottom: '8px' }}>{line.text}</div>}
       {running && (
@@ -505,7 +517,13 @@ export function RgsCertifyPanel() {
       )}
       <div style={ROW}>
         <PrimaryButton
-          label={busy === 'certify' ? 'Starting…' : running ? 'Verifying…' : status?.status === 'passed' ? 'Verify again' : 'Verify RTP'}
+          label={
+            busy === 'certify'
+              ? 'Starting…'
+              : running
+                ? 'Verifying…'
+                : `${status?.status === 'passed' ? 'Verify again' : 'Verify RTP'}${isSandboxConnection() ? ` · ${VERIFY_RTP_SANDBOX_CREDITS} credits` : ''}`
+          }
           onClick={certify}
           isDisabled={!!busy || running}
           size={PrimaryButtonSize.Small}

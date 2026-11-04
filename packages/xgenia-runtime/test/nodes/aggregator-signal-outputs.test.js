@@ -192,3 +192,60 @@ describe('Aggregator money in cents', () => {
     delete global.fetch;
   });
 });
+
+// (2026-11-04) A reloaded published page showed the game's opening balance until its first spin: the RGS wallet only
+// arrived with a round's answer. On load it now reads the browser guest's wallet once.
+describe('Aggregator: the RGS wallet on load', () => {
+  const URL = 'https://rgs.example.co/functions/v1/rgs-fn/lucky-slot/GremlinGoldMaths';
+  function published(scale = 100) {
+    const made = makeAggregator({ outputs: 'spinWinnings', signalOutputs: '' });
+    made.ctx.scheduleAfterInputsHaveUpdated = (fn) => fn();
+    AggregatorNode.inputs.moneyScale.set.call(made.ctx, scale);
+    AggregatorNode.inputs.betField.set.call(made.ctx, 'BetAmount');
+    AggregatorNode.inputs.winField.set.call(made.ctx, 'spinWinnings');
+    return made;
+  }
+  afterEach(() => { delete global.fetch; });
+
+  test('reads the guest wallet once and shows it in the game money', async () => {
+    const { ctx, events } = published();
+    const calls = [];
+    global.fetch = jest.fn(async (url, init) => {
+      calls.push([url, init.method]);
+      return { ok: true, status: 200, json: async () => ({ balance: 998700, play_money: true }) };
+    });
+    AggregatorNode.inputs.url.set.call(ctx, URL);
+    AggregatorNode.inputs.url.set.call(ctx, URL);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toMatch(/^https:\/\/rgs\.example\.co\/functions\/v1\/rgs-fn\/lucky-slot\/__balance\?client=.+/);
+    expect(calls[0][1]).toBe('GET');
+    expect(ctx.getOutputValue('rgsBalance')).toBe(9987);
+    expect(events).toContainEqual(['value', 'out-rgsBalance']);
+  });
+
+  test('a round that answered first keeps its figure', async () => {
+    const { ctx } = published();
+    let answer;
+    global.fetch = jest.fn(() => new Promise((r) => { answer = r; }));
+    AggregatorNode.inputs.url.set.call(ctx, URL);
+    ctx.applyOutputs({ __moneyScale: 100, __rgs: { balance_after: 1000100 } }, true);
+    answer({ ok: true, status: 200, json: async () => ({ balance: 5 }) });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctx.getOutputValue('rgsBalance')).toBe(10001);
+  });
+
+  test('not asked: no money scale (an older page), the local dummy URL, or a launched session', async () => {
+    global.fetch = jest.fn(async () => ({ ok: true, json: async () => ({ balance: 1 }) }));
+    AggregatorNode.inputs.url.set.call(published(1).ctx, URL);
+    AggregatorNode.inputs.url.set.call(published().ctx, 'http://localhost:54321/functions/v1/aggregator');
+    global.window = { location: { search: '?session=casino-token-1' } };
+    try {
+      AggregatorNode.inputs.url.set.call(published().ctx, URL);
+    } finally {
+      delete global.window;
+    }
+    await new Promise((r) => setTimeout(r, 0));
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
