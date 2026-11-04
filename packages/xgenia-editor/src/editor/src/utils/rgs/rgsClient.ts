@@ -97,18 +97,23 @@ export async function completeEmailSignIn(email: string, code: string): Promise<
   return result;
 }
 
+/** The XGENIA login's access token ('' when signed out). getSession() can wait behind the auth lock
+ * (EditorBridge auth.getJwt): bounded. */
+export async function xgeniaAccessToken(): Promise<string> {
+  const { supabase } = await import('../../supabaseInit');
+  const session = await Promise.race([
+    supabase.auth.getSession().then((r) => r.data.session),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
+  ]);
+  return session?.access_token || '';
+}
+
 /**
  * Connect with the XGENIA login this editor is already signed in with: the play-money sandbox on the test RGS,
  * made the first time. What Publish does by itself; the email code stays for invited studios.
  */
 export async function connectWithXgeniaLogin(): Promise<RgsSignInResult> {
-  const { supabase } = await import('../../supabaseInit');
-  // getSession() can wait behind the auth lock (EditorBridge auth.getJwt): bound it.
-  const session = await Promise.race([
-    supabase.auth.getSession().then((r) => r.data.session),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
-  ]);
-  const result = await connectWithXgeniaToken(session?.access_token || '', {
+  const result = await connectWithXgeniaToken(await xgeniaAccessToken(), {
     functionsUrl: XRGS_SANDBOX_URL,
     anonKey: XRGS_SANDBOX_ANON_KEY
   });

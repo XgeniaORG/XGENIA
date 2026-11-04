@@ -180,3 +180,19 @@ test('the pack downloads as bytes with the server filename; a JSON error is show
   assert.equal(filenameFromDisposition('attachment; filename="../../evil.zip"', 'x.zip'), '..-..-evil.zip');
   assert.equal(filenameFromDisposition(null, 'fallback.zip'), 'fallback.zip');
 });
+
+test('a play-money sandbox sends its XGENIA sign-in so the RGS can charge Verify RTP to it; a refusal says why', async () => {
+  const calls: any[] = [];
+  const ok = fake([{ match: (_u, b) => b.action === 'certify-game', status: 200, body: { job_id: 'j2', status: 'queued', paid_credits: 20 } }], calls);
+  await startCertification(BASE, 'g1', false, ok, 'xgenia-token');
+  assert.deepEqual(calls[0].body, { action: 'certify-game', game_id: 'g1', quick: false, xgenia_token: 'xgenia-token' });
+
+  const poor = fake([
+    {
+      match: () => true,
+      status: 402,
+      body: { error: 'Verify RTP costs 20 XGENIA credits and you have 8 bought credits.', code: 'INSUFFICIENT_CREDITS' }
+    }
+  ]);
+  await assert.rejects(startCertification(BASE, 'g1', false, poor, 'xgenia-token'), /costs 20 XGENIA credits/);
+});

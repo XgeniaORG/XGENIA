@@ -275,9 +275,13 @@ export async function startCertification(
   base: { functionsUrl: string; headers: Record<string, string> },
   gameId: string,
   quick: boolean,
-  fetchFn: FetchLike = fetch as any
+  fetchFn: FetchLike = fetch as any,
+  // A play-money sandbox pays Verify RTP with the user's XGENIA credits: the RGS charges them with this token.
+  xgeniaToken?: string
 ): Promise<CertificationStatus> {
-  const data = await call(fetchFn, `${base.functionsUrl}/rtp-certify`, base.headers, { action: 'certify-game', game_id: gameId, quick });
+  const body: Record<string, unknown> = { action: 'certify-game', game_id: gameId, quick };
+  if (xgeniaToken) body.xgenia_token = xgeniaToken;
+  const data = await call(fetchFn, `${base.functionsUrl}/rtp-certify`, base.headers, body);
   return toCertificationStatus({ status: 'queued', ...data });
 }
 
