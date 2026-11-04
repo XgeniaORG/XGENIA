@@ -26,7 +26,9 @@ export function EditorSettingsTab() {
   // @ts-expect-error Model is yeah, not great!
   useModel(EditorSettings.instance, ['updated']);
 
-  const experimentalPanels = SidebarModel.instance.getExperimentalItems();
+  // Experimental switches are for people who asked for every tool; a newcomer's Settings stays short.
+  const showAll = readShowAllTools();
+  const experimentalPanels = showAll ? SidebarModel.instance.getExperimentalItems() : [];
 
   const experimentalFeatures = [
     {
@@ -52,7 +54,9 @@ export function EditorSettingsTab() {
           onChange={(ev) => setShowAllTools(ev.target.checked)}
         />
         <Box hasTopSpacing>
-          <Text size={TextSize.Medium}>Off keeps the rail to the main tools. The rest stay one click away under More.</Text>
+          <Text size={TextSize.Medium}>
+            Off keeps the rail to the main tools. The rest stay one click away under More.
+          </Text>
         </Box>
       </Section>
 
@@ -60,7 +64,8 @@ export function EditorSettingsTab() {
 
       {/* Only the panel list depends on there being experimental panels registered.
           The feature toggles below are independent — they used to share this guard,
-          which meant unregistering the last experimental panel silently hid them. */}
+          which meant unregistering the last experimental panel silently hid them.
+          Both show only with "Show all tools" on. */}
       {Boolean(experimentalPanels.length) && (
         <CollapsableSection title="Experimental panels" isClosed>
           <ExperimentalFlag variant={ExperimentalFlagVariant.Small} />
@@ -74,15 +79,17 @@ export function EditorSettingsTab() {
         </CollapsableSection>
       )}
 
-      <CollapsableSection title="Experimental features" isClosed>
-        <Box hasXSpacing hasTopSpacing={1} hasBottomSpacing={5}>
-          <VStack hasSpacing>
-            {experimentalFeatures.map((item) => (
-              <ExperimentalFeatureItem key={item.id} {...item} />
-            ))}
-          </VStack>
-        </Box>
-      </CollapsableSection>
+      {showAll && (
+        <CollapsableSection title="Experimental features" isClosed>
+          <Box hasXSpacing hasTopSpacing={1} hasBottomSpacing={5}>
+            <VStack hasSpacing>
+              {experimentalFeatures.map((item) => (
+                <ExperimentalFeatureItem key={item.id} {...item} />
+              ))}
+            </VStack>
+          </Box>
+        </CollapsableSection>
+      )}
     </>
   );
 }

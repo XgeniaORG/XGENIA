@@ -246,6 +246,8 @@ const mathsPanelOptions = {
     // that here would say nothing; naming it Local says which of the two it is.
     componentTitle: 'Local Components'
 };
+// The simple rail has no Local/Deployed tabs, so "Local" contrasts with nothing; the rail calls components Parts.
+const simpleMathsPanelOptions = { ...mathsPanelOptions, componentTitle: 'Maths parts' };
 
 export function MathsPanel() {
     const showAllTools = useShowAllTools();
@@ -442,7 +444,7 @@ export function MathsPanel() {
                         nobody needs it to release a game. */}
                 <div style={{ flex: '1.5 1 0', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                     {!showAllTools ? (
-                        <ComponentsPanel options={mathsPanelOptions} />
+                        <ComponentsPanel options={simpleMathsPanelOptions} />
                     ) : (
                     <Tabs
                         variant={TabsVariant.Sidebar}
