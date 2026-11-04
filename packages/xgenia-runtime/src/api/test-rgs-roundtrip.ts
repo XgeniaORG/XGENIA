@@ -383,7 +383,7 @@ async function main() {
 
     // ── Step 5: Run a spin ──────────────────────────────────────────────────
     console.log('Step 5: Running a test spin...');
-    const spinRes = await fetch(`${XRGS_URL}/spin`, {
+    const spinRes = await fetch(`${XRGS_URL}/round`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -431,7 +431,7 @@ async function main() {
     let wins = 0;
 
     for (let i = 0; i < 10; i++) {
-        const sr = await fetch(`${XRGS_URL}/spin`, {
+        const sr = await fetch(`${XRGS_URL}/round`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Operator-Key': API_KEY },
             body: JSON.stringify({ game_slug: gameSlug, bet_amount: 100, currency: 'USD', demo: true }),
