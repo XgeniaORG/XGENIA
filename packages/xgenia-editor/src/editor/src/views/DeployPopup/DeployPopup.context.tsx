@@ -20,16 +20,20 @@ interface IDeployContext {
    * left open over it would hide what was just opened.
    */
   closePopup: () => void;
+
+  /** Is the Publish window on screen? It stays mounted while closed, so what it shows is re-read when it opens. */
+  isVisible: boolean;
 }
 
 const DeployContext = createContext<IDeployContext>({
   updateQueue: null,
   hasActivity: null,
   runActivity: null,
-  closePopup: null
+  closePopup: null,
+  isVisible: false
 });
 
-export function DeployContextProvider({ children, onClose }: { children: React.ReactNode; onClose?: () => void }) {
+export function DeployContextProvider({ children, onClose, isVisible = false }: { children: React.ReactNode; onClose?: () => void; isVisible?: boolean }) {
   const { hasActivity, runActivity } = useActivityQueue({});
 
   return (
@@ -38,7 +42,8 @@ export function DeployContextProvider({ children, onClose }: { children: React.R
         updateQueue: null,
         hasActivity,
         runActivity,
-        closePopup: () => onClose?.()
+        closePopup: () => onClose?.(),
+        isVisible
       }}
     >
       {children}

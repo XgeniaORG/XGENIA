@@ -64,6 +64,9 @@ import { DeployTelemetryDialog } from '../../DeployTelemetryDialog';
 import { useAuth } from '../../../../context/AuthContext';
 import { ConnectionStore } from '../../../../services/ConnectionStore';
 import { RgsCertifyPanel, RgsReleaseSetup } from '../../ReleaseSetup/ReleaseSetup';
+import { Tabs } from '@xgenia-core-ui/components/layout/Tabs';
+import { DeployToFolderTab } from '../DeployToFolderTab';
+import { DeployToStakeTab } from '../DeployToStakeTab/DeployToStakeTab';
 
 // The publish pipeline itself — the GitHub/Vercel calls, the RGS wiring and the
 // Deployed Games listing — lives in utils/publish (publishGameToWeb, webDeploy),
@@ -84,7 +87,7 @@ const OLDER_EDITOR_SITE = (name: string, verb: 'rename' | 'delete') =>
   `Ask the XGENIA team to ${verb === 'delete' ? 'take it down' : 'move it'}, or publish again under a new name.`;
 
 export function XgeniaDeployTab() {
-  const { closePopup } = useDeployContext();
+  const { closePopup, isVisible } = useDeployContext();
   const { user } = useAuth();
 
   // ── XGENIA RGS backend target ──────────────────────────────────────────
@@ -111,7 +114,9 @@ export function XgeniaDeployTab() {
   const [domainError, setDomainError] = useState('');
   // The link this project is live at: from this publish, or the studio's site of the same name.
   const [liveUrl, setLiveUrl] = useState('');
-  const [showMore, setShowMore] = useState(false);
+  // Which page of the window is open: the first screen, or one of the pages its rows open.
+  const [view, setView] = useState<'main' | 'games' | 'money' | 'export'>('main');
+  const [editingLink, setEditingLink] = useState(false);
 
   // ── Pre-deploy telemetry form ─────────────────────────────────────────
   // Holds the pending "which UI element is the bet / the win / the bet button"
@@ -191,9 +196,11 @@ export function XgeniaDeployTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rgsGame?.slug]);
 
-  // Already published under this name? Show its link before anyone presses Publish.
+  // Already published under this name? Show its link before anyone presses Publish. Read again each time the window
+  // opens: it stays mounted while closed, and a game the AI published in between was shown as never published.
   useEffect(() => {
     const name = domainName.trim();
+    if (!isVisible) return;
     if (route?.kind !== 'rgs' || !name) { setLiveUrl(''); return; }
     let live = true;
     route.client.list()
@@ -201,9 +208,12 @@ export function XgeniaDeployTab() {
         const mine = sites.find((site) => site.site === name || site.project === name);
         if (live) setLiveUrl(mine?.live_url || '');
       })
-      .catch(() => { /* no list: the link appears after publishing */ });
+      .catch((e) => console.warn('[Publish] could not read this studio\'s sites:', e?.message || e));
     return () => { live = false; };
-  }, [route, domainName]);
+  }, [route, domainName, isVisible]);
+
+  // Each opening starts on the first screen.
+  useEffect(() => { if (isVisible) { setView('main'); setEditingLink(false); } }, [isVisible]);
 
   // The bet / win / bet-button mapping is asked once per project: a publish with
   // a complete saved mapping uses it. This link asks again.
@@ -785,6 +795,7 @@ export function XgeniaDeployTab() {
         const wiringText = describeWiring(wiring, game.name);
         ToastLayer.showSuccess(`Published — ${wiringText}.\nLink: ${userFriendlyDomain}`);
         setLiveUrl(liveUrl);
+        setEditingLink(false);
 
         // No RGS backend reference is recorded any more: the Server Versions this
         // publish calls belong to the game and may be shared by several frontends.
@@ -878,68 +889,102 @@ export function XgeniaDeployTab() {
   }
 
   // ── What the window shows ─────────────────────────────────────────────
-  // (2026-11-04, Mark: "keep in mind how easy and clean it should be") One field, one button, the live link. The
-  // game, the account, the bet / win mapping, real money and the list of links fold away: Lovable-style, a demo
-  // link is the whole job, and everything else is there when it is asked for.
-  const linkPrefix = route?.kind === 'rgs' && route.info.prefix ? `${route.info.prefix}-` : undefined;
+  // (2026-11-04, Mark: "still confusing for users, not sure what a lot is") The first screen says what Publish does
+  // and shows the whole link, or — once the game is live — the link itself, with Copy and Open. Everything else is a
+  // named page behind a row that says what is on it, each with Back: the published games, real money, and other
+  // ways to ship the game. Nothing on the first screen is a word a player-facing creator has to look up.
+  const linkPrefix = route?.kind === 'rgs' && route.info.prefix ? `${route.info.prefix}-` : '';
   const linkSuffix = `.${siteDomain(route?.kind === 'rgs' ? route.info : null)}`;
+  const fullLink = `https://${linkPrefix}${domainName.trim() || 'your-game'}${linkSuffix}`;
   const liveHost = liveUrl ? liveUrl.replace(/^https?:\/\//, '').replace(/\/$/, '') : '';
+  const ready = rgsConnected && !!rgsGame?.id;
+  const showLinkField = !liveUrl || editingLink;
+
+  const back = (title: string) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+      <span role="button" style={{ ...LINK_TEXT, fontSize: '12px' }} onClick={() => setView('main')}>← Back</span>
+      <span style={{ fontSize: '13px', color: '#eee', fontWeight: 600 }}>{title}</span>
+    </div>
+  );
 
   return (
     <>
       <PopupSection>
         {/* Sign in or choose the game only when one is missing; once both are known this renders nothing. */}
-        <RgsReleaseSetup
-          projectName={String((ProjectModel.instance as any)?.name || '')}
-          onChanged={() => { rerenderOnGameSelected(); void reloadCredentials(); }}
-          isQuietWhenReady
-        />
-
-        {rgsConnected && rgsGame?.id && (<>
-          <TextInput
-            label="Your game's link"
-            value={domainName}
-            onChange={(e) => { setDomainName(e.target.value.toLowerCase()); if (domainError) setDomainError(''); }}
-            placeholder="my-game"
-            prefix={linkPrefix}
-            suffix={linkSuffix}
-            hasBottomSpacing
+        {view === 'main' && (
+          <RgsReleaseSetup
+            projectName={String((ProjectModel.instance as any)?.name || '')}
+            onChanged={() => { rerenderOnGameSelected(); void reloadCredentials(); }}
+            isQuietWhenReady
           />
-          {domainError && <Text style={ERROR_TEXT}>{domainError}</Text>}
+        )}
 
-          <PrimaryButton
-            label={isDeploying ? 'Publishing…' : liveUrl ? 'Publish update' : 'Publish'}
-            onClick={onDeployToVercelClicked}
-            isDisabled={isDeploying || !domainName.trim()}
-            isGrowing
-          />
-          <Text style={HINT_TEXT}>
-            {isDeploying ? 'Publishing takes a minute or two…' : 'Play-money demo. Anyone with the link can play.'}
-          </Text>
-
-          {liveUrl && !isDeploying && (
+        {ready && view === 'main' && (<>
+          {liveUrl && !isDeploying ? (
             <div style={LIVE_CARD} data-testid="publish-live-link">
-              <div style={{ fontSize: '12px', color: '#9be7b4', marginBottom: '6px' }}>✓ Live</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#9be7b4', marginBottom: '6px' }}>
+                <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#67DE92', display: 'inline-block' }} />
+                Live — anyone with the link can play (play money)
+              </div>
               <a href={liveUrl} target="_blank" rel="noopener noreferrer" style={LIVE_LINK}>{liveHost}</a>
               <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
                 <button style={SMALL_BUTTON} onClick={() => { void navigator.clipboard?.writeText(liveUrl).then(() => ToastLayer.showSuccess('Link copied')); }}>Copy link</button>
                 <a href={liveUrl} target="_blank" rel="noopener noreferrer" style={{ ...SMALL_BUTTON, textDecoration: 'none' }}>Open</a>
               </div>
             </div>
+          ) : (
+            <Text style={{ fontSize: '13px', color: '#ccc', marginBottom: '14px', lineHeight: '1.45' }}>
+              Get a link anyone can open to play your game. It runs on play money, so nothing real is at stake.
+            </Text>
           )}
+
+          {showLinkField && (<>
+            <TextInput
+              label="Link name"
+              value={domainName}
+              onChange={(e) => { setDomainName(e.target.value.toLowerCase()); if (domainError) setDomainError(''); }}
+              placeholder="my-game"
+            />
+            <Text style={{ fontSize: '11px', color: '#999', margin: '6px 0 12px', wordBreak: 'break-all' }}>
+              Your link: <span style={{ color: '#ddd' }}>{fullLink}</span>
+            </Text>
+          </>)}
+          {domainError && <Text style={ERROR_TEXT}>{domainError}</Text>}
+
+          <div style={{ marginTop: liveUrl && !editingLink ? '12px' : '0' }}>
+            <PrimaryButton
+              label={isDeploying ? 'Publishing…' : liveUrl && !editingLink ? 'Publish changes' : 'Publish'}
+              onClick={onDeployToVercelClicked}
+              isDisabled={isDeploying || !domainName.trim()}
+              isGrowing
+            />
+          </div>
+          <Text style={HINT_TEXT}>
+            {isDeploying
+              ? 'Usually takes a minute or two.'
+              : liveUrl && !editingLink
+                ? 'Puts your latest changes on this link.'
+                : ''}
+          </Text>
+          {liveUrl && !editingLink && !isDeploying && (
+            <span role="button" style={{ ...LINK_TEXT, fontSize: '11px' }} onClick={() => setEditingLink(true)}>Use a different link</span>
+          )}
+
+          <div style={{ marginTop: '16px', borderTop: '1px solid #3a3a3a' }}>
+            <MenuRow title="My published games" detail="Open, rename or take down your links" onClick={() => { setView('games'); void fetchDeployedDomains(); }} />
+            <MenuRow title="Real money" detail="Verify the return to player and go live with a casino" onClick={() => setView('money')} />
+            <MenuRow title="Download or other platforms" detail="Export the game's files, or publish to Stake" onClick={() => setView('export')} />
+          </div>
         </>)}
 
-        <Fold
-          title={`Your links${showDeployedDomains ? ` (${deployedDomains.length})` : ''}`}
-          isOpen={showDeployedDomains}
-          onToggle={() => { if (showDeployedDomains) setShowDeployedDomains(false); else void fetchDeployedDomains(); }}
-        >
+        {view === 'games' && (<>
+          {back('My published games')}
           {isLoadingDomains ? (
             <Text style={HINT_TEXT}>Loading…</Text>
           ) : deployedDomains.length === 0 ? (
             <Text style={HINT_TEXT}>Nothing published yet.</Text>
           ) : (
-            <div style={{ maxHeight: '260px', overflowY: 'auto' }}>
+            <div style={{ maxHeight: '320px', overflowY: 'auto' }}>
               {deployedDomains.map((domain, index) => (
                 <div key={domain.id || index} style={{ padding: '8px 0', borderBottom: index < deployedDomains.length - 1 ? '1px solid #333' : 'none', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {renamingDomain === domain.id ? (
@@ -955,7 +1000,6 @@ export function XgeniaDeployTab() {
                         style={RENAME_INPUT}
                         autoFocus
                       />
-                      <span style={{ fontSize: '12px', color: '#999' }}>{linkSuffix}</span>
                       <button style={SMALL_BUTTON} onClick={() => renameDomain(domain.id, domain.name, newDomainName)} disabled={!newDomainName.trim() || newDomainName.trim() === (domain.site || domain.name)}>Save</button>
                       <button style={SMALL_BUTTON} onClick={cancelRename}>Cancel</button>
                     </div>
@@ -967,7 +1011,7 @@ export function XgeniaDeployTab() {
                           {(domain.url || getFullDomain(domain.name)).replace(/^https?:\/\//, '')}
                         </a>
                         <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
-                          {deletingDomains.has(domain.id) ? 'Deleting…' : formatTimestamp(domain.updatedAt || domain.deployedAt)}
+                          {deletingDomains.has(domain.id) ? 'Taking down…' : `Published ${formatTimestamp(domain.updatedAt || domain.deployedAt)}`}
                         </div>
                       </div>
                       <ContextMenu
@@ -975,14 +1019,14 @@ export function XgeniaDeployTab() {
                         menuItems={[
                           { label: 'Rename', icon: IconName.Pencil, isDisabled: deletingDomains.has(domain.id), onClick: () => startRenameDomain(domain) },
                           {
-                            label: 'Compliance',
+                            label: 'Compliance documents',
                             icon: IconName.File,
-                            tooltip: isRgsConnected() ? 'Compliance documents for this game, generated on XGENIA RGS' : 'Sign in to XGENIA RGS first',
+                            tooltip: isRgsConnected() ? 'The documents a regulator or test lab asks for, made from this game' : 'Sign in to XGENIA RGS first',
                             isDisabled: !isRgsConnected() || deletingDomains.has(domain.id),
                             onClick: () => openCompliance(domain)
                           },
                           'divider',
-                          { label: 'Delete', icon: IconName.Trash, isDangerous: true, isDisabled: deletingDomains.has(domain.id), onClick: () => deleteDomain(domain) }
+                          { label: 'Take down', icon: IconName.Trash, isDangerous: true, isDisabled: deletingDomains.has(domain.id), onClick: () => deleteDomain(domain) }
                         ]}
                       />
                     </>
@@ -991,27 +1035,35 @@ export function XgeniaDeployTab() {
               ))}
             </div>
           )}
-        </Fold>
+        </>)}
 
-        {rgsConnected && rgsGame?.id && (
-          <Fold title="More" isOpen={showMore} onToggle={() => setShowMore(!showMore)}>
-            {/* Which game and account this publishes as — Change game, Sign out. */}
-            <RgsReleaseSetup
-              projectName={String((ProjectModel.instance as any)?.name || '')}
-              onChanged={() => { rerenderOnGameSelected(); void reloadCredentials(); }}
-            />
-            {isCompleteMapping(storedTelemetryMapping(ProjectModel.instance as any)) && (
-              <Text style={HINT_TEXT}>
-                The bet, win and spin button RGS follows are set.{' '}
-                <span style={LINK_TEXT} onClick={() => setAskTelemetryAgain(true)}>
-                  {askTelemetryAgain ? 'You will be asked on Publish.' : 'Change them'}
-                </span>
-              </Text>
-            )}
-            <div style={{ fontSize: '12px', color: '#ddd', fontWeight: 600, margin: '14px 0 6px' }}>Real money</div>
-            <RgsCertifyPanel />
-          </Fold>
-        )}
+        {view === 'money' && (<>
+          {back('Real money')}
+          {/* Which game and account this publishes as — Change game, Sign out. */}
+          <RgsReleaseSetup
+            projectName={String((ProjectModel.instance as any)?.name || '')}
+            onChanged={() => { rerenderOnGameSelected(); void reloadCredentials(); }}
+          />
+          <RgsCertifyPanel />
+          {isCompleteMapping(storedTelemetryMapping(ProjectModel.instance as any)) && (
+            <Text style={HINT_TEXT}>
+              XGENIA RGS follows each round through your game&rsquo;s bet, win and Spin button.{' '}
+              <span style={LINK_TEXT} onClick={() => setAskTelemetryAgain(true)}>
+                {askTelemetryAgain ? 'You will be asked on the next publish.' : 'Choose them again'}
+              </span>
+            </Text>
+          )}
+        </>)}
+
+        {view === 'export' && (<>
+          {back('Download or other platforms')}
+          <Tabs
+            tabs={[
+              { label: 'Download files', content: <DeployToFolderTab />, testId: 'self-hosting-tab-button' },
+              { label: 'Stake', content: <DeployToStakeTab />, testId: 'stake-tab-button' }
+            ]}
+          />
+        </>)}
       </PopupSection>
 
       {/* Pre-deploy telemetry form — see requestTelemetryMapping. Portalled to
@@ -1047,15 +1099,15 @@ const LIVE_LINK: React.CSSProperties = { fontSize: '14px', color: '#fff', fontWe
 const SMALL_BUTTON: React.CSSProperties = { padding: '4px 10px', fontSize: '12px', backgroundColor: '#3a3a3a', color: '#eee', border: '1px solid #555', borderRadius: '4px', cursor: 'pointer' };
 const RENAME_INPUT: React.CSSProperties = { flex: 1, padding: '4px 8px', fontSize: '13px', backgroundColor: '#2a2a2a', color: '#fff', border: '1px solid #555', borderRadius: '3px', outline: 'none' };
 
-/** A section that stays folded until it is opened: the Publish window's way of keeping one thing in view. */
-export function Fold({ title, isOpen, onToggle, children }: { title: string; isOpen: boolean; onToggle: () => void; children: React.ReactNode }) {
+/** A row on the Publish window's first screen: what is behind it, in a line, and an arrow. */
+function MenuRow({ title, detail, onClick }: { title: string; detail: string; onClick: () => void }) {
   return (
-    <div style={{ marginTop: '14px', borderTop: '1px solid #3a3a3a', paddingTop: '10px' }}>
-      <div role="button" onClick={onToggle} style={{ fontSize: '12px', color: '#ccc', cursor: 'pointer', userSelect: 'none' }}>
-        <span style={{ display: 'inline-block', width: '12px', transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform 120ms' }}>▸</span>
-        {title}
+    <div role="button" onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 0', borderBottom: '1px solid #3a3a3a', cursor: 'pointer' }}>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: '13px', color: '#eee' }}>{title}</div>
+        <div style={{ fontSize: '11px', color: '#999', marginTop: '2px' }}>{detail}</div>
       </div>
-      {isOpen && <div style={{ marginTop: '10px' }}>{children}</div>}
+      <span style={{ color: '#888', fontSize: '14px' }}>›</span>
     </div>
   );
 }
