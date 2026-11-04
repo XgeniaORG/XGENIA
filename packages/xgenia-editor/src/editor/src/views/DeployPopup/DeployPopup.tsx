@@ -1,20 +1,16 @@
-import React, { RefObject, useState } from 'react';
+import React, { RefObject } from 'react';
 
 import { ProjectModel } from '@xgenia-models/projectmodel';
 
 import { ActivityIndicator } from '@xgenia-core-ui/components/common/ActivityIndicator';
 import { BaseDialog } from '@xgenia-core-ui/components/layout/BaseDialog';
-import { Tabs } from '@xgenia-core-ui/components/layout/Tabs';
 import { PopupSection } from '@xgenia-core-ui/components/popups/PopupSection';
 
 import { DeployContextProvider, useDeployContext } from './DeployPopup.context';
-import { DeployToFolderTab } from './tabs/DeployToFolderTab';
-import { Fold, XgeniaDeployTab } from './tabs/XgeniaDeployTab';
-import { DeployToStakeTab } from './tabs/DeployToStakeTab/DeployToStakeTab';
+import { XgeniaDeployTab } from './tabs/XgeniaDeployTab';
 
 function DeployPopupChild() {
   const { hasActivity } = useDeployContext();
-  const [showOther, setShowOther] = useState(false);
 
   return (
     <div style={{ width: 400 }}>
@@ -29,19 +25,8 @@ function DeployPopupChild() {
       >
         <PopupSection title="Publish" />
 
-        {/* (2026-11-04) Publishing to XGENIA is the job; self-hosting and Stake are other ways, folded away rather
-            than tabs that sit level with it. */}
+        {/* Other ways to ship the game (download, Stake) are a page inside the Publish window. */}
         <XgeniaDeployTab />
-        <div style={{ padding: '0 16px 14px' }}>
-          <Fold title="Other ways to publish" isOpen={showOther} onToggle={() => setShowOther(!showOther)}>
-            <Tabs
-              tabs={[
-                { label: 'Self hosting', content: <DeployToFolderTab />, testId: 'self-hosting-tab-button' },
-                { label: 'Stake', content: <DeployToStakeTab />, testId: 'stake-tab-button' }
-              ]}
-            />
-          </Fold>
-        </div>
 
         {hasActivity && <ActivityIndicator isOverlay />}
       </div>
@@ -57,7 +42,7 @@ export interface DeployPopupProps {
 
 export function DeployPopup(props: DeployPopupProps) {
   return (
-    <DeployContextProvider onClose={props.onClose}>
+    <DeployContextProvider onClose={props.onClose} isVisible={props.isVisible}>
       <BaseDialog
         triggerRef={props.triggerRef}
         isVisible={props.isVisible}
