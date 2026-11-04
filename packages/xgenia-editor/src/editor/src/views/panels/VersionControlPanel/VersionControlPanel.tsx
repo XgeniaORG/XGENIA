@@ -239,7 +239,8 @@ function BaseVersionControlPanel({ openPublishDialogOnMount }: BaseVersionContro
   return (
     <BasePanel
       isFill
-      title="Version Control"
+      // The rail calls it Versions; the header says the same.
+      title="Versions"
       headerSlot={
         <HStack ref={headerActionsRef} hasSpacing={1} UNSAFE_style={{ height: 'auto' }}>
           <Tooltip content="Commit" fineType={hasConflictsInProject ? 'Resolve the conflicts first' : undefined}>
@@ -400,7 +401,7 @@ export function VersionControlPanel() {
 
   if (git === null && state === 'not-git') {
     return (
-      <BasePanel isFill title="Version Control">
+      <BasePanel isFill title="Versions">
         <Box hasXSpacing hasYSpacing>
           <Text hasBottomSpacing>
             This project has no Git repository yet. Initialize one to enable version control, or publish the project

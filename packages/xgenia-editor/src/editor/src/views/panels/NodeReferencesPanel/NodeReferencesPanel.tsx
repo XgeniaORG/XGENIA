@@ -19,7 +19,6 @@ import { ListItem } from '@xgenia-core-ui/components/layout/ListItem';
 import { ScrollArea } from '@xgenia-core-ui/components/layout/ScrollArea';
 import { HStack } from '@xgenia-core-ui/components/layout/Stack';
 import { BasePanel } from '@xgenia-core-ui/components/sidebar/BasePanel';
-import { ExperimentalFlag } from '@xgenia-core-ui/components/sidebar/ExperimentalFlag';
 import { Section, SectionVariant } from '@xgenia-core-ui/components/sidebar/Section';
 import { Label } from '@xgenia-core-ui/components/typography/Label';
 
@@ -55,7 +54,7 @@ export function NodeReferencesPanel() {
 
   return (
     <BasePanel title="Where used" isFill>
-      <ExperimentalFlag />
+      {/* No "untested, may lose work" banner: this panel only lists uses and jumps to them; it changes nothing. */}
       <Section variant={SectionVariant.PanelShy} hasVisibleOverflow hasGutter>
         <SearchInput
           placeholder="Search..."
