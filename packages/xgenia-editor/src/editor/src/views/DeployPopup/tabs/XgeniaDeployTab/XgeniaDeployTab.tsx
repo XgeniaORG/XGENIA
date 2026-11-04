@@ -44,7 +44,7 @@ import {
   vercelFor
 } from '@xgenia-utils/publish/publishGame';
 import { PublishRoute } from '@xgenia-utils/publish/publishRoute';
-import { WebPublishError } from '@xgenia-utils/publish/webPublishClient';
+import { siteDomain, WebPublishError } from '@xgenia-utils/publish/webPublishClient';
 import { XGENIA_VERCEL_TEAM, checkDomainAvailability } from '@xgenia-utils/publish/webDeploy';
 
 import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
@@ -884,7 +884,7 @@ export function XgeniaDeployTab() {
           onChange={(e) => { setDomainName(e.target.value); if (domainError) setDomainError(''); }}
           placeholder="my-project"
           prefix={route?.kind === 'rgs' ? `${route.info.prefix}-` : undefined}
-          suffix=".vercel.app"
+          suffix={`.${siteDomain(route?.kind === 'rgs' ? route.info : null)}`}
           hasBottomSpacing
         />
 
@@ -981,7 +981,7 @@ export function XgeniaDeployTab() {
                             }}
                             autoFocus
                           />
-                          <span style={{ fontSize: '14px', color: '#ccc' }}>.vercel.app</span>
+                          <span style={{ fontSize: '14px', color: '#ccc' }}>.{siteDomain(route?.kind === 'rgs' ? route.info : null)}</span>
                           <button
                             onClick={() => renameDomain(domain.id, domain.name, newDomainName)}
                             disabled={!newDomainName.trim() || newDomainName.trim() === (domain.site || domain.name)}

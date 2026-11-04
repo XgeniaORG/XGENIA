@@ -41,8 +41,10 @@ export interface WebPublishEndpoint {
 
 export interface WebPublishInfo {
   configured: boolean;
-  /** The studio's part of every project name: sites are `<prefix>-<site>.vercel.app`. */
+  /** The studio's part of every project name: sites are `<prefix>-<site>.<domain>`. */
   prefix: string;
+  /** Where sites live: "xgenia.app" on XGENIA's own game hosting; absent on an RGS that publishes to Vercel. */
+  domain?: string;
   limits: { max_file_bytes: number; max_files: number; max_deployment_bytes: number; max_sites: number };
   content_types: Record<string, string>;
 }
@@ -392,4 +394,9 @@ export async function publishFilesViaRgs(
     progress(`Waiting for the site to go live (${status.state || 'building'})...`);
   }
   throw new Error('Deployment timeout - taking longer than expected');
+}
+
+/** The domain a site's name goes in front of, as this RGS hosts it. */
+export function siteDomain(info: Pick<WebPublishInfo, 'domain'> | null | undefined): string {
+  return info?.domain || 'vercel.app';
 }
