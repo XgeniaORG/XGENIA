@@ -59,8 +59,9 @@ import {
 import { MATHS_DEPLOYED_ELSEWHERE } from '@xgenia-utils/rgs/mathsDeployState';
 import { isMeasurementTwin } from '@xgenia-utils/rgs/activeGame';
 
-/** What a play-money sandbox's Verify RTP costs (XGENIA migration 20261104200000, rtp_verify_price). */
-const VERIFY_RTP_SANDBOX_CREDITS = 20;
+/** What a play-money sandbox's Verify RTP costs: one credit, EUR 0.25 (XGENIA rtp_verify_price, migration 20261104210000). */
+const VERIFY_RTP_SANDBOX_CREDITS = 1;
+const creditsText = (n: number) => `${n} credit${n === 1 ? '' : 's'}`;
 
 const STEP_STYLE: React.CSSProperties = {
   padding: '10px 12px',
@@ -505,7 +506,7 @@ export function RgsCertifyPanel() {
         {isSandboxConnection() && (
           <>
             <br />
-            In your play-money sandbox, each Verify RTP costs {VERIFY_RTP_SANDBOX_CREDITS} of your bought XGENIA credits.
+            In your play-money sandbox, each Verify RTP costs {VERIFY_RTP_SANDBOX_CREDITS === 1 ? "one" : VERIFY_RTP_SANDBOX_CREDITS} of your bought XGENIA credits (€0.25 each).
           </>
         )}
       </div>
@@ -522,7 +523,7 @@ export function RgsCertifyPanel() {
               ? 'Starting…'
               : running
                 ? 'Verifying…'
-                : `${status?.status === 'passed' ? 'Verify again' : 'Verify RTP'}${isSandboxConnection() ? ` · ${VERIFY_RTP_SANDBOX_CREDITS} credits` : ''}`
+                : `${status?.status === 'passed' ? 'Verify again' : 'Verify RTP'}${isSandboxConnection() ? ` · ${creditsText(VERIFY_RTP_SANDBOX_CREDITS)}` : ''}`
           }
           onClick={certify}
           isDisabled={!!busy || running}
