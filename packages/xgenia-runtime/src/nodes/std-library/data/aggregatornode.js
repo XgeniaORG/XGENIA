@@ -44,9 +44,14 @@
 // (editor utils/rgs/moneyScale.ts) carries `moneyScale` (100), `betField` and `winField`. It sends the bet field
 // × moneyScale with `__moneyScale`, and divides the win field — and the RGS balance and win — by it, so the RGS
 // ledger counts cents while the game's graph keeps the money the player sees. Without `moneyScale` nothing changes.
+//
+// The wallet on load (2026-11-04): rgsBalance used to arrive only with a round's answer, so a reloaded page showed the
+// game's opening balance until the first spin. A published page that converts money now asks the RGS once, on load,
+// for this browser guest's play-money balance (GET /rgs-fn/<game>/__balance) and fills rgsBalance with it. Not for a
+// launched session (a casino's player is not the browser guest), and a round's own answer always wins over it.
 
 const EdgeTriggeredInput = require('../../../edgetriggeredinput');
-const { getPlayContextFields } = require('./rgs-play-context');
+const { getPlayContextFields, getClientId, launchedSessionFromUrl } = require('./rgs-play-context');
 
 const DEFAULT_URL = 'http://localhost:54321/functions/v1/aggregator';
 const REQUEST_TIMEOUT_MS = 10000;
@@ -135,6 +140,7 @@ const AggregatorNode = {
       default: DEFAULT_URL,
       set: function (value) {
         this._internal.url = value;
+        this.scheduleAfterInputsHaveUpdated(this.readRgsBalanceOnLoad.bind(this));
       }
     },
     dataInputs: {
@@ -265,6 +271,7 @@ const AggregatorNode = {
       const winField = converted ? this._internal.winField : null;
       const fromRgs = rgs ? { rgsBalance: money(rgs.balance_after), rgsWin: money(rgs.win_amount), rgsRoundId: rgs.round_id } : null;
       if (fromRgs) {
+        this._internal.roundAnswered = true;
         for (const name in fromRgs) {
           if (fromRgs[name] === undefined) continue;
           this._internal.outputValues[name] = fromRgs[name];
@@ -291,6 +298,36 @@ const AggregatorNode = {
         this.registerOutputIfNeeded('out-' + field);
         if (this.hasOutput('out-' + field)) this.sendSignalOnOutput('out-' + field);
       }
+    },
+    // The wallet before the first round (see the header). Once per node; never throws.
+    readRgsBalanceOnLoad: function () {
+      if (this._internal.balanceAsked) return;
+      const url = this._internal.url || '';
+      const match = /^(https?:\/\/[^?#]*\/rgs-fn\/[^/?#]+)\/[^/?#]+/.exec(url);
+      const scale = this.moneyScaleInUse();
+      if (!match || scale <= 1 || typeof fetch !== 'function' || launchedSessionFromUrl()) return;
+      this._internal.balanceAsked = true;
+      const _this = this;
+      let client;
+      try {
+        client = getClientId();
+      } catch (e) {
+        return;
+      }
+      if (!client) return;
+      fetch(match[1] + '/__balance?client=' + encodeURIComponent(client), { method: 'GET' })
+        .then(function (response) {
+          return response.ok ? response.json() : null;
+        })
+        .then(function (body) {
+          // A round that answered meanwhile carries the fresher figure.
+          if (!body || typeof body.balance !== 'number' || !isFinite(body.balance) || _this._internal.roundAnswered) return;
+          _this._internal.outputValues = _this._internal.outputValues || {};
+          _this._internal.outputValues.rgsBalance = body.balance / scale;
+          _this.registerOutputIfNeeded('out-rgsBalance');
+          if (_this.hasOutput('out-rgsBalance')) _this.flagOutputDirty('out-rgsBalance');
+        })
+        .catch(function () {});
     },
     moneyScaleInUse: function () {
       const scale = Number(this._internal.moneyScale) || 1;
