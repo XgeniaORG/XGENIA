@@ -1,4 +1,4 @@
-import React, { RefObject } from 'react';
+import React, { RefObject, useState } from 'react';
 
 import { ProjectModel } from '@xgenia-models/projectmodel';
 
@@ -9,11 +9,12 @@ import { PopupSection } from '@xgenia-core-ui/components/popups/PopupSection';
 
 import { DeployContextProvider, useDeployContext } from './DeployPopup.context';
 import { DeployToFolderTab } from './tabs/DeployToFolderTab';
-import { XgeniaDeployTab } from './tabs/XgeniaDeployTab';
+import { Fold, XgeniaDeployTab } from './tabs/XgeniaDeployTab';
 import { DeployToStakeTab } from './tabs/DeployToStakeTab/DeployToStakeTab';
 
 function DeployPopupChild() {
   const { hasActivity } = useDeployContext();
+  const [showOther, setShowOther] = useState(false);
 
   return (
     <div style={{ width: 400 }}>
@@ -26,15 +27,21 @@ function DeployPopupChild() {
           overflowX: 'hidden'
         }}
       >
-        <PopupSection title="Publish options" />
+        <PopupSection title="Publish" />
 
-        <Tabs
-          tabs={[
-            { label: 'XGENIA', content: <XgeniaDeployTab />, testId: 'xgenia-tab-button' },
-            { label: 'Self Hosting', content: <DeployToFolderTab />, testId: 'self-hosting-tab-button' },
-            { label: 'Deploy to Stake', content: <DeployToStakeTab />, testId: 'stake-tab-button' }
-          ]}
-        />
+        {/* (2026-11-04) Publishing to XGENIA is the job; self-hosting and Stake are other ways, folded away rather
+            than tabs that sit level with it. */}
+        <XgeniaDeployTab />
+        <div style={{ padding: '0 16px 14px' }}>
+          <Fold title="Other ways to publish" isOpen={showOther} onToggle={() => setShowOther(!showOther)}>
+            <Tabs
+              tabs={[
+                { label: 'Self hosting', content: <DeployToFolderTab />, testId: 'self-hosting-tab-button' },
+                { label: 'Stake', content: <DeployToStakeTab />, testId: 'stake-tab-button' }
+              ]}
+            />
+          </Fold>
+        </div>
 
         {hasActivity && <ActivityIndicator isOverlay />}
       </div>

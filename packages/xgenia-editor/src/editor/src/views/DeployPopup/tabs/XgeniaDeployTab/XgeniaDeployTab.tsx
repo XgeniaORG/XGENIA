@@ -50,7 +50,6 @@ import { XGENIA_VERCEL_TEAM, checkDomainAvailability } from '@xgenia-utils/publi
 import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
 import { PopupSection } from '@xgenia-core-ui/components/popups/PopupSection';
 import { Text } from '@xgenia-core-ui/components/typography/Text';
-import { TextType } from '@xgenia-core-ui/components/typography/Text/Text';
 import { TextInput } from '@xgenia-core-ui/components/inputs/TextInput';
 
 import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
@@ -110,7 +109,9 @@ export function XgeniaDeployTab() {
   const [renamingDomain, setRenamingDomain] = useState<string | null>(null);
   const [newDomainName, setNewDomainName] = useState('');
   const [domainError, setDomainError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
+  // The link this project is live at: from this publish, or the studio's site of the same name.
+  const [liveUrl, setLiveUrl] = useState('');
+  const [showMore, setShowMore] = useState(false);
 
   // ── Pre-deploy telemetry form ─────────────────────────────────────────
   // Holds the pending "which UI element is the bet / the win / the bet button"
@@ -189,6 +190,20 @@ export function XgeniaDeployTab() {
     if (!domainName.trim() && rgsGame?.slug) setDomainName(autoSlug(rgsGame.slug));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rgsGame?.slug]);
+
+  // Already published under this name? Show its link before anyone presses Publish.
+  useEffect(() => {
+    const name = domainName.trim();
+    if (route?.kind !== 'rgs' || !name) { setLiveUrl(''); return; }
+    let live = true;
+    route.client.list()
+      .then((sites) => {
+        const mine = sites.find((site) => site.site === name || site.project === name);
+        if (live) setLiveUrl(mine?.live_url || '');
+      })
+      .catch(() => { /* no list: the link appears after publishing */ });
+    return () => { live = false; };
+  }, [route, domainName]);
 
   // The bet / win / bet-button mapping is asked once per project: a publish with
   // a complete saved mapping uses it. This link asks again.
@@ -769,7 +784,7 @@ export function XgeniaDeployTab() {
         const userFriendlyDomain = liveUrl.replace(/^https?:\/\//, '');
         const wiringText = describeWiring(wiring, game.name);
         ToastLayer.showSuccess(`Published — ${wiringText}.\nLink: ${userFriendlyDomain}`);
-        setSuccessMessage(`Published (${wiringText}). Link: ${userFriendlyDomain}`);
+        setLiveUrl(liveUrl);
 
         // No RGS backend reference is recorded any more: the Server Versions this
         // publish calls belong to the game and may be shared by several frontends.
@@ -831,7 +846,6 @@ export function XgeniaDeployTab() {
     PublishState.begin();
     setIsDeploying(true);
     setDomainError('');
-    setSuccessMessage('');
 
     try {
       // Early: Check domain availability before any heavy work
@@ -863,276 +877,140 @@ export function XgeniaDeployTab() {
     // Keep popup open so the confirmation message is visible
   }
 
+  // ── What the window shows ─────────────────────────────────────────────
+  // (2026-11-04, Mark: "keep in mind how easy and clean it should be") One field, one button, the live link. The
+  // game, the account, the bet / win mapping, real money and the list of links fold away: Lovable-style, a demo
+  // link is the whole job, and everything else is there when it is asked for.
+  const linkPrefix = route?.kind === 'rgs' && route.info.prefix ? `${route.info.prefix}-` : undefined;
+  const linkSuffix = `.${siteDomain(route?.kind === 'rgs' ? route.info : null)}`;
+  const liveHost = liveUrl ? liveUrl.replace(/^https?:\/\//, '').replace(/\/$/, '') : '';
+
   return (
     <>
       <PopupSection>
-        <Text hasBottomSpacing textType={TextType.DefaultContrast}>
-          Publish your game
-        </Text>
-
-        {/* Sign in and choose the game right here. GitHub/Vercel are not the
-            studio's to connect: XGENIA RGS provides the hosting. */}
+        {/* Sign in or choose the game only when one is missing; once both are known this renders nothing. */}
         <RgsReleaseSetup
           projectName={String((ProjectModel.instance as any)?.name || '')}
           onChanged={() => { rerenderOnGameSelected(); void reloadCredentials(); }}
+          isQuietWhenReady
         />
 
         {rgsConnected && rgsGame?.id && (<>
-        <TextInput
-          label="Link name"
-          value={domainName}
-          onChange={(e) => { setDomainName(e.target.value); if (domainError) setDomainError(''); }}
-          placeholder="my-project"
-          prefix={route?.kind === 'rgs' ? `${route.info.prefix}-` : undefined}
-          suffix={`.${siteDomain(route?.kind === 'rgs' ? route.info : null)}`}
-          hasBottomSpacing
-        />
+          <TextInput
+            label="Your game's link"
+            value={domainName}
+            onChange={(e) => { setDomainName(e.target.value.toLowerCase()); if (domainError) setDomainError(''); }}
+            placeholder="my-game"
+            prefix={linkPrefix}
+            suffix={linkSuffix}
+            hasBottomSpacing
+          />
+          {domainError && <Text style={ERROR_TEXT}>{domainError}</Text>}
 
-        {domainError && (
-          <Text style={{ marginTop: '8px', fontSize: '12px', color: '#f66' }}>
-            {domainError}
+          <PrimaryButton
+            label={isDeploying ? 'Publishing…' : liveUrl ? 'Publish update' : 'Publish'}
+            onClick={onDeployToVercelClicked}
+            isDisabled={isDeploying || !domainName.trim()}
+            isGrowing
+          />
+          <Text style={HINT_TEXT}>
+            {isDeploying ? 'Publishing takes a minute or two…' : 'Play-money demo. Anyone with the link can play.'}
           </Text>
-        )}
-        {successMessage && (
-          <Text style={{ marginTop: '8px', fontSize: '12px', color: '#6f6' }}>
-            {successMessage}
-          </Text>
-        )}
 
-        <PrimaryButton
-          label={isDeploying ? 'Publishing…' : 'Publish'}
-          onClick={onDeployToVercelClicked}
-          isDisabled={isDeploying || !domainName.trim() || !rgsConnected || !rgsGame?.id}
-        />
-        {isCompleteMapping(storedTelemetryMapping(ProjectModel.instance as any)) && (
-          <Text style={{ marginTop: '6px', fontSize: '11px', color: '#888' }}>
-            Uses this project&rsquo;s saved bet / win mapping.{' '}
-            <span
-              style={{ color: '#67DE92', cursor: 'pointer' }}
-              onClick={() => setAskTelemetryAgain(true)}
-            >
-              {askTelemetryAgain ? 'You will be asked on Publish.' : 'Change it'}
-            </span>
-          </Text>
-        )}
-
-        <RgsCertifyPanel />
+          {liveUrl && !isDeploying && (
+            <div style={LIVE_CARD} data-testid="publish-live-link">
+              <div style={{ fontSize: '12px', color: '#9be7b4', marginBottom: '6px' }}>✓ Live</div>
+              <a href={liveUrl} target="_blank" rel="noopener noreferrer" style={LIVE_LINK}>{liveHost}</a>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                <button style={SMALL_BUTTON} onClick={() => { void navigator.clipboard?.writeText(liveUrl).then(() => ToastLayer.showSuccess('Link copied')); }}>Copy link</button>
+                <a href={liveUrl} target="_blank" rel="noopener noreferrer" style={{ ...SMALL_BUTTON, textDecoration: 'none' }}>Open</a>
+              </div>
+            </div>
+          )}
         </>)}
 
-        <div style={{ marginTop: '12px' }}>
-          <PrimaryButton
-            label={isLoadingDomains ? "Loading..." : "Show Deployed Domains"}
-            onClick={fetchDeployedDomains}
-            isDisabled={isLoadingDomains}
-          />
-        </div>
-
-        {isDeploying && (
-          <Text style={{ marginTop: '12px', fontSize: '12px', color: '#999' }}>
-            This process may take 2-3 minutes to complete...
-          </Text>
-        )}
-
-        {showDeployedDomains && (
-          <div style={{ marginTop: '16px', padding: '12px', border: '1px solid #444', borderRadius: '4px', backgroundColor: '#272625' }}>
-            <Text style={{ marginBottom: '8px', fontWeight: 'bold' }}>
-              Previously Deployed Domains ({deployedDomains.length})
-            </Text>
-            {deployedDomains.length > 0 ? (
-              <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-                {deployedDomains.map((domain, index) => (
-                  <div key={domain.id || index} style={{
-                    padding: '12px 0',
-                    borderBottom: index < deployedDomains.length - 1 ? '1px solid #333' : 'none',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px'
-                  }}>
-                    {/* Domain name and actions row */}
-                    <div style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center'
-                    }}>
-                      {renamingDomain === domain.id ? (
-                        // Rename input mode
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
-                          <input
-                            type="text"
-                            value={newDomainName}
-                            onChange={(e) => setNewDomainName(e.target.value)}
-                            onKeyPress={(e) => {
-                              if (e.key === 'Enter') {
-                                renameDomain(domain.id, domain.name, newDomainName);
-                              } else if (e.key === 'Escape') {
-                                cancelRename();
-                              }
-                            }}
-                            placeholder="Enter new domain name"
-                            style={{
-                              flex: 1,
-                              padding: '4px 8px',
-                              fontSize: '14px',
-                              backgroundColor: '#2a2a2a',
-                              color: '#fff',
-                              border: '1px solid #555',
-                              borderRadius: '3px',
-                              outline: 'none'
-                            }}
-                            autoFocus
-                          />
-                          <span style={{ fontSize: '14px', color: '#ccc' }}>.{siteDomain(route?.kind === 'rgs' ? route.info : null)}</span>
-                          <button
-                            onClick={() => renameDomain(domain.id, domain.name, newDomainName)}
-                            disabled={!newDomainName.trim() || newDomainName.trim() === (domain.site || domain.name)}
-                            style={{
-                              padding: '4px 8px',
-                              fontSize: '12px',
-                              backgroundColor: (!newDomainName.trim() || newDomainName.trim() === (domain.site || domain.name)) ? '#555' : '#28a745',
-                              color: '#fff',
-                              border: 'none',
-                              borderRadius: '3px',
-                              cursor: (!newDomainName.trim() || newDomainName.trim() === (domain.site || domain.name)) ? 'not-allowed' : 'pointer',
-                              opacity: (!newDomainName.trim() || newDomainName.trim() === (domain.site || domain.name)) ? 0.6 : 1
-                            }}
-                          >
-                            Save
-                          </button>
-                          <button
-                            onClick={cancelRename}
-                            style={{
-                              padding: '4px 8px',
-                              fontSize: '12px',
-                              backgroundColor: '#6c757d',
-                              color: '#fff',
-                              border: 'none',
-                              borderRadius: '3px',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        // Normal display mode
-                        <>
-                          <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                              {/* Link the URL Vercel actually assigned (domain.url),
-                                  never a guessed "<name>.vercel.app" — that alias
-                                  may belong to a different Vercel account. */}
-                              <a
-                                href={domain.url || `https://${domain.name}.vercel.app`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                style={{
-                                  fontSize: '14px',
-                                  color: '#4A9EFF',
-                                  textDecoration: 'none',
-                                  cursor: 'pointer',
-                                  fontWeight: '500'
-                                }}
-                                onMouseEnter={(e) => (e.target as HTMLAnchorElement).style.textDecoration = 'underline'}
-                                onMouseLeave={(e) => (e.target as HTMLAnchorElement).style.textDecoration = 'none'}
-                              >
-                                {(domain.url || `https://${domain.name}.vercel.app`).replace(/^https?:\/\//, '')}
-                              </a>
-                            </div>
-
-                            {/* Timestamps */}
-                            <div style={{
-                              fontSize: '11px',
-                              color: '#888',
-                              marginTop: '4px',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '2px'
-                            }}>
-                              <div>
-                                <span style={{ color: '#aaa' }}>Created:</span> {formatTimestamp(domain.deployedAt)}
-                              </div>
-                              {domain.updatedAt && domain.updatedAt !== domain.deployedAt && (
-                                <div>
-                                  <span style={{ color: '#aaa' }}>Updated:</span> {formatTimestamp(domain.updatedAt)}
-                                </div>
-                              )}
-                              {/* Delete removes the linked RGS Server Version(s)
-                                  as well, so name them here — that is not
-                                  something to discover from the toast after the
-                                  fact. */}
-                              {(domain.rgsBackends || []).length > 0 && (
-                                <div>
-                                  <span style={{ color: '#aaa' }}>RGS backend:</span>{' '}
-                                  {(domain.rgsBackends || []).map(backendLabel).join(', ')}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Rename / Compliance / Delete sit in a three-dot menu:
-                              three labelled buttons beside the URL and its
-                              timestamps do not fit a 400px popup. */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                            {deletingDomains.has(domain.id) && (
-                              <span style={{ fontSize: '11px', color: '#888' }}>Deleting...</span>
-                            )}
-                            <ContextMenu
-                              size={IconSize.Tiny}
-                              menuItems={[
-                                {
-                                  label: 'Rename',
-                                  icon: IconName.Pencil,
-                                  isDisabled: deletingDomains.has(domain.id),
-                                  onClick: () => startRenameDomain(domain)
-                                },
-                                {
-                                  label: 'Compliance',
-                                  icon: IconName.File,
-                                  tooltip: isRgsConnected()
-                                    ? 'Compliance documents for this deployed game — generated on XGENIA RGS from its whole uploaded source'
-                                    : 'Sign in to XGENIA RGS above first',
-                                  isDisabled: !isRgsConnected() || deletingDomains.has(domain.id),
-                                  onClick: () => openCompliance(domain)
-                                },
-                                'divider',
-                                {
-                                  label: 'Delete',
-                                  icon: IconName.Trash,
-                                  isDangerous: true,
-                                  isDisabled: deletingDomains.has(domain.id),
-                                  onClick: () => deleteDomain(domain)
-                                }
-                              ]}
-                            />
-                          </div>
-                        </>
-                      )}
+        <Fold
+          title={`Your links${showDeployedDomains ? ` (${deployedDomains.length})` : ''}`}
+          isOpen={showDeployedDomains}
+          onToggle={() => { if (showDeployedDomains) setShowDeployedDomains(false); else void fetchDeployedDomains(); }}
+        >
+          {isLoadingDomains ? (
+            <Text style={HINT_TEXT}>Loading…</Text>
+          ) : deployedDomains.length === 0 ? (
+            <Text style={HINT_TEXT}>Nothing published yet.</Text>
+          ) : (
+            <div style={{ maxHeight: '260px', overflowY: 'auto' }}>
+              {deployedDomains.map((domain, index) => (
+                <div key={domain.id || index} style={{ padding: '8px 0', borderBottom: index < deployedDomains.length - 1 ? '1px solid #333' : 'none', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {renamingDomain === domain.id ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
+                      <input
+                        type="text"
+                        value={newDomainName}
+                        onChange={(e) => setNewDomainName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') renameDomain(domain.id, domain.name, newDomainName);
+                          else if (e.key === 'Escape') cancelRename();
+                        }}
+                        style={RENAME_INPUT}
+                        autoFocus
+                      />
+                      <span style={{ fontSize: '12px', color: '#999' }}>{linkSuffix}</span>
+                      <button style={SMALL_BUTTON} onClick={() => renameDomain(domain.id, domain.name, newDomainName)} disabled={!newDomainName.trim() || newDomainName.trim() === (domain.site || domain.name)}>Save</button>
+                      <button style={SMALL_BUTTON} onClick={cancelRename}>Cancel</button>
                     </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <Text style={{ fontSize: '14px', color: '#888' }}>
-                No domains found
+                  ) : (
+                    <>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        {/* The URL the host actually serves (domain.url), never a guessed one. */}
+                        <a href={domain.url || `https://${getFullDomain(domain.name)}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '13px', color: '#4A9EFF', textDecoration: 'none', wordBreak: 'break-all' }}>
+                          {(domain.url || getFullDomain(domain.name)).replace(/^https?:\/\//, '')}
+                        </a>
+                        <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+                          {deletingDomains.has(domain.id) ? 'Deleting…' : formatTimestamp(domain.updatedAt || domain.deployedAt)}
+                        </div>
+                      </div>
+                      <ContextMenu
+                        size={IconSize.Tiny}
+                        menuItems={[
+                          { label: 'Rename', icon: IconName.Pencil, isDisabled: deletingDomains.has(domain.id), onClick: () => startRenameDomain(domain) },
+                          {
+                            label: 'Compliance',
+                            icon: IconName.File,
+                            tooltip: isRgsConnected() ? 'Compliance documents for this game, generated on XGENIA RGS' : 'Sign in to XGENIA RGS first',
+                            isDisabled: !isRgsConnected() || deletingDomains.has(domain.id),
+                            onClick: () => openCompliance(domain)
+                          },
+                          'divider',
+                          { label: 'Delete', icon: IconName.Trash, isDangerous: true, isDisabled: deletingDomains.has(domain.id), onClick: () => deleteDomain(domain) }
+                        ]}
+                      />
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </Fold>
+
+        {rgsConnected && rgsGame?.id && (
+          <Fold title="More" isOpen={showMore} onToggle={() => setShowMore(!showMore)}>
+            {/* Which game and account this publishes as — Change game, Sign out. */}
+            <RgsReleaseSetup
+              projectName={String((ProjectModel.instance as any)?.name || '')}
+              onChanged={() => { rerenderOnGameSelected(); void reloadCredentials(); }}
+            />
+            {isCompleteMapping(storedTelemetryMapping(ProjectModel.instance as any)) && (
+              <Text style={HINT_TEXT}>
+                The bet, win and spin button RGS follows are set.{' '}
+                <span style={LINK_TEXT} onClick={() => setAskTelemetryAgain(true)}>
+                  {askTelemetryAgain ? 'You will be asked on Publish.' : 'Change them'}
+                </span>
               </Text>
             )}
-            <div style={{ marginTop: '8px' }}>
-              <button
-                onClick={() => setShowDeployedDomains(false)}
-                style={{
-                  padding: '4px 8px',
-                  fontSize: '12px',
-                  backgroundColor: '#333',
-                  color: '#ccc',
-                  border: '1px solid #555',
-                  borderRadius: '3px',
-                  cursor: 'pointer'
-                }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
+            <div style={{ fontSize: '12px', color: '#ddd', fontWeight: 600, margin: '14px 0 6px' }}>Real money</div>
+            <RgsCertifyPanel />
+          </Fold>
         )}
       </PopupSection>
 
@@ -1159,5 +1037,25 @@ export function XgeniaDeployTab() {
         />
       )}
     </>
+  );
+}
+const HINT_TEXT: React.CSSProperties = { marginTop: '6px', fontSize: '11px', color: '#999' };
+const ERROR_TEXT: React.CSSProperties = { marginBottom: '8px', fontSize: '12px', color: '#f66' };
+const LINK_TEXT: React.CSSProperties = { color: '#67DE92', cursor: 'pointer' };
+const LIVE_CARD: React.CSSProperties = { marginTop: '12px', padding: '10px 12px', borderRadius: '6px', backgroundColor: '#2c3a31', border: '1px solid #3f6b4f' };
+const LIVE_LINK: React.CSSProperties = { fontSize: '14px', color: '#fff', fontWeight: 600, textDecoration: 'none', wordBreak: 'break-all' };
+const SMALL_BUTTON: React.CSSProperties = { padding: '4px 10px', fontSize: '12px', backgroundColor: '#3a3a3a', color: '#eee', border: '1px solid #555', borderRadius: '4px', cursor: 'pointer' };
+const RENAME_INPUT: React.CSSProperties = { flex: 1, padding: '4px 8px', fontSize: '13px', backgroundColor: '#2a2a2a', color: '#fff', border: '1px solid #555', borderRadius: '3px', outline: 'none' };
+
+/** A section that stays folded until it is opened: the Publish window's way of keeping one thing in view. */
+export function Fold({ title, isOpen, onToggle, children }: { title: string; isOpen: boolean; onToggle: () => void; children: React.ReactNode }) {
+  return (
+    <div style={{ marginTop: '14px', borderTop: '1px solid #3a3a3a', paddingTop: '10px' }}>
+      <div role="button" onClick={onToggle} style={{ fontSize: '12px', color: '#ccc', cursor: 'pointer', userSelect: 'none' }}>
+        <span style={{ display: 'inline-block', width: '12px', transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform 120ms' }}>▸</span>
+        {title}
+      </div>
+      {isOpen && <div style={{ marginTop: '10px' }}>{children}</div>}
+    </div>
   );
 }

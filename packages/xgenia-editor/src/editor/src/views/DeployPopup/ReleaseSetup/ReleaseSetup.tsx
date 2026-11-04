@@ -56,6 +56,7 @@ import {
   startCertification
 } from '@xgenia-utils/rgs/rgsRelease';
 import { MATHS_DEPLOYED_ELSEWHERE } from '@xgenia-utils/rgs/mathsDeployState';
+import { isMeasurementTwin } from '@xgenia-utils/rgs/activeGame';
 
 const STEP_STYLE: React.CSSProperties = {
   padding: '10px 12px',
@@ -292,7 +293,7 @@ function GameStep({ projectName, onChosen }: { projectName: string; onChosen: ()
         <>
           <div style={HINT}>Pick the game this project publishes, or create a new one.</div>
           <div style={{ display: 'grid', gap: '6px', marginBottom: '8px' }}>
-            {games.map((g) => (
+            {games.filter((g) => !isMeasurementTwin(g)).map((g) => (
               <PrimaryButton key={g.id} label={g.name} variant={PrimaryButtonVariant.MutedOnLowBg} size={PrimaryButtonSize.Small} onClick={() => choose(g)} isGrowing />
             ))}
           </div>
@@ -338,7 +339,7 @@ function GameStep({ projectName, onChosen }: { projectName: string; onChosen: ()
  * summary once nothing is. `onChanged` lets the popup re-read the connection
  * (deploy credentials depend on it) after a sign-in.
  */
-export function RgsReleaseSetup({ projectName, onChanged }: { projectName: string; onChanged?: () => void }) {
+export function RgsReleaseSetup({ projectName, onChanged, isQuietWhenReady = false }: { projectName: string; onChanged?: () => void; isQuietWhenReady?: boolean }) {
   const [, rerender] = useState(0);
   const refresh = useCallback(() => { rerender((n) => n + 1); onChanged?.(); }, [onChanged]);
   // How the sign-in opens after the user left a connection on purpose (see RgsSignInForm `start`).
@@ -357,6 +358,8 @@ export function RgsReleaseSetup({ projectName, onChanged }: { projectName: strin
 
   if (!settings?.apiKey) return <RgsSignInForm key={nextStart} start={nextStart} onSignedIn={refresh} />;
   if (!game?.id) return <GameStep projectName={projectName} onChosen={refresh} />;
+  // The Publish window shows the game and account under More once both are known (isQuietWhenReady).
+  if (isQuietWhenReady) return null;
 
   return (
     <Text style={{ marginBottom: '12px', fontSize: '12px', color: '#999' }}>
