@@ -253,7 +253,7 @@ function WebPluginPanelContent({ pluginId, hidden }: WebPluginPanelProps & { hid
                         background: '#1a1a1a',
                     }}
                     allow="clipboard-read; clipboard-write"
-                    sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals"
+                    sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals allow-downloads"
                 />
             )}
         </div>
