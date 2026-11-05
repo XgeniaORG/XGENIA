@@ -33,7 +33,8 @@ test('the bots are workflows: no GitHub App, no personal token', () => {
 });
 
 test('the deploy key only reaches jobs that install nothing', () => {
-  for (const name of ['private-pointer.yml', 'release.yml']) {
+  // release.yml no longer pushes anything (#266 removed its version bump), so only the pointer bot holds it.
+  for (const name of ['private-pointer.yml']) {
     const holders = Object.entries(load(name).jobs).filter(([, j]) => JSON.stringify(j).includes('BOT_DEPLOY_KEY'));
     assert.ok(holders.length >= 1, `${name}: no job uses the deploy key`);
     for (const [job, j] of holders) {
@@ -87,15 +88,12 @@ test('releases carry no blockmap files', async () => {
   assert.ok(!/blockmap/.test(shipped), 'collect-release-assets ships .blockmap files');
 });
 
-test('every release moves develop\'s version on, without starting another nightly', () => {
+test('a release ships package.json\'s version as it is and pushes nothing back to develop', () => {
+  // Since #266 the version is set by hand: release.yml reads it and never bumps it.
   const wf = load('release.yml');
-  const bump = wf.jobs['bump-version'];
-  assert.deepEqual(bump.needs, ['plan', 'draft-release'], 'the bump must wait until the release exists');
-  const run = bump.steps.map((s) => s.run || '').join('\n');
-  assert.match(run, /next-version\.mjs bump "\$RELEASED"/);
-  assert.match(run, /next-version\.mjs set packages\/xgenia-editor\/package\.json/);
-  assert.match(run, /\[skip ci\]/, 'the bump commit would start a nightly of its own');
-  assert.match(run, /test "\$CHANGED" = "packages\/xgenia-editor\/package\.json"/);
+  assert.ok(!wf.jobs['bump-version'], 'release.yml moves develop\'s version on again');
+  assert.ok(!JSON.stringify(wf).includes('BOT_DEPLOY_KEY'), 'release.yml holds the deploy key');
+  assert.match(wf.jobs.plan.steps.map((s) => s.run || '').join('\n'), /packages\/xgenia-editor\/package\.json/);
   assert.equal(wf.jobs.build.with.version, '${{ needs.plan.outputs.version }}', 'every platform must build the planned version');
   assert.match(load('nightly.yml').jobs.plan.steps.map((s) => s.run || '').join('\n'), /next-version\.mjs nightly/);
 });
