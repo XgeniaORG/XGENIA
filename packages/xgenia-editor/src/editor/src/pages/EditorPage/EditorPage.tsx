@@ -47,6 +47,7 @@ import { LeftPanelCard } from '../../views/LeftPanelCard';
 import { RightPropertyPanel } from '../../views/RightPropertyPanel';
 import { ToastLayer } from '../../views/ToastLayer/ToastLayer';
 import { getPendingSeed } from '../../models/lobby/lobbySeed';
+import { takeNewGame } from '../../models/lobby/newGameArrival';
 import { openChatPanel } from '../../views/lobby/lobbyOperations';
 import { BaseWindow } from '../../views/windows/BaseWindow';
 import { whatsnewRender } from '../../whats-new';
@@ -130,7 +131,8 @@ export function EditorPage({ route }: EditorPageProps) {
         // this page synchronously, and the chat's sidebar item does not exist until the
         // installSidePanel() call just above.
         const projectId = ProjectModel.instance?.id;
-        if (projectId && getPendingSeed(projectId)) openChatPanel();
+        // Any game just made in the New game sheet opens on the AI too (models/lobby/newGameArrival.ts).
+        if (projectId && (getPendingSeed(projectId) || takeNewGame(projectId))) openChatPanel();
         installDocuments();
 
         const eventGroup = {};
