@@ -169,7 +169,7 @@ async function mathsComponentStates(rgs: RgsSettings | null, game: SelectedGame 
  * /web-publish (no token in the editor), or the old shared token on a platform
  * that predates it (resolvePublishRoute).
  */
-async function deployTokensState(): Promise<{ ready: boolean; via?: 'rgs' | 'token'; error?: string }> {
+async function deployTokensState(): Promise<{ ready: boolean; via?: 'rgs' | 'token' | 'local'; error?: string }> {
   try {
     const { route, error } = await withTimeout(resolvePublishRoute(), READ_TIMEOUT_MS, 'Checking how to publish');
     return route ? { ready: true, via: route.kind } : { ready: false, error };

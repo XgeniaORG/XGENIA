@@ -18,6 +18,96 @@ export interface StakeModeInfo {
   kind: 'base' | 'buy' | 'special';
   optionId: string | null;
   label: string;
+  /** Set for a play setup: the request each book's paid round is played from (StakePlaySetup). */
+  roundRequest?: StakeRoundRequest;
+}
+
+// ─── PLAY SETUPS ───────────────────────────────────────────────
+//
+// (2026-11-03) The export played every book as `{ is<spin trigger>: true, <bet port>: bet }`. That is
+// a whole round only when the game's round IS one request. A Mines `Bet` opens a board that player
+// decisions (Reveal, CashOut) settle, and refuses without a `mines` count, so every book paid 0. A play
+// setup names the request instead — `AutoBet` with `mines` and `autoTiles` — and is its own Stake mode;
+// `before` steps run unpaid at the start of each book (a provably-fair maths mints its seed there,
+// `Restore`, or every book replays one board). XGENIA RGS validates and plays it (_shared/stake-books.ts).
+
+export interface StakeRoundStep {
+  trigger: string;
+  inputs?: Record<string, unknown>;
+}
+
+export interface StakeRoundRequest extends StakeRoundStep {
+  before?: StakeRoundStep[];
+}
+
+export interface StakePlaySetup extends StakeRoundRequest {
+  /** The Stake mode name: 1-40 of a-z, 0-9 and _. Call one `base` to make it the base game. */
+  name: string;
+}
+
+const MODE_NAME = /^[a-z0-9_]{1,40}$/;
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function stepProblem(s: unknown, where: string): string | null {
+  if (!isPlainObject(s)) return `${where} must be an object with a "trigger"`;
+  if (typeof s.trigger !== 'string' || !s.trigger.trim()) return `${where} needs a "trigger" naming the input that plays it`;
+  if (s.inputs !== undefined && !isPlainObject(s.inputs)) return `${where}.inputs must be an object of input name → value`;
+  return null;
+}
+
+/**
+ * The play setups typed into the Stake tab: blank → none (the export plays the guessed round, as it
+ * always has), otherwise a JSON list of { name, trigger, inputs?, before? }. Shape only — whether the
+ * trigger exists and the inputs stay off the stake is XGENIA RGS's to say, against the deployed script.
+ */
+export function parseStakePlaySetups(text: string): { setups: StakePlaySetup[]; error: string | null } {
+  if (!text.trim()) return { setups: [], error: null };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    return { setups: [], error: `Play setups are not valid JSON: ${(e as Error).message}` };
+  }
+  const list = Array.isArray(raw) ? raw : [raw];
+  const names = new Set<string>();
+  const setups: StakePlaySetup[] = [];
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i];
+    const where = `Play setup ${i + 1}`;
+    const p = stepProblem(s, where);
+    if (p) return { setups: [], error: p };
+    const o = s as Record<string, unknown>;
+    if (typeof o.name !== 'string' || !MODE_NAME.test(o.name)) return { setups: [], error: `${where} needs a "name" of 1-40 characters a-z, 0-9 and _ (the Stake mode name)` };
+    if (names.has(o.name)) return { setups: [], error: `Two play setups are named "${o.name}"; each is its own Stake mode` };
+    names.add(o.name);
+    if (o.before !== undefined && !Array.isArray(o.before)) return { setups: [], error: `${where}.before must be a list of steps` };
+    const before = (o.before as unknown[] | undefined) ?? [];
+    for (let j = 0; j < before.length; j++) {
+      const bp = stepProblem(before[j], `${where}.before[${j}]`);
+      if (bp) return { setups: [], error: bp };
+    }
+    setups.push({
+      name: o.name,
+      trigger: String(o.trigger).trim(),
+      ...(o.inputs !== undefined ? { inputs: o.inputs as Record<string, unknown> } : {}),
+      ...(before.length ? { before: before as StakeRoundStep[] } : {})
+    });
+  }
+  return { setups, error: null };
+}
+
+/** The modes a run exports: the setups (each a 1× mode), then the component's priced options. */
+export function stakeModesWithSetups(declared: StakeModeInfo[], setups: StakePlaySetup[]): StakeModeInfo[] {
+  if (setups.length === 0) return declared;
+  const fromSetups: StakeModeInfo[] = setups.map(({ name, ...rr }) => ({
+    name, cost: 1, kind: 'base', optionId: null, label: `${rr.trigger} ${JSON.stringify(rr.inputs ?? {})}`, roundRequest: rr
+  }));
+  // The setups replace the guessed base round; a buy or special bet keeps its own mode unless a
+  // setup took its name.
+  return [...fromSetups, ...declared.filter((m) => m.kind !== 'base' && !setups.some((s) => s.name === m.name))];
 }
 
 export interface StakeLutRow {
@@ -169,6 +259,8 @@ export function buildStakeExportManifest(i: StakeExportManifestInput): Record<st
       cost: m.mode.cost,
       kind: m.mode.kind,
       option_id: m.mode.optionId,
+      // How each book's paid round was requested; null = the component's own spin trigger and the stake.
+      round_request: m.mode.roundRequest ?? null,
       files: { events: stakeBooksFileName(m.mode.name), weights: stakeLookupFileName(m.mode.name) },
       weights: 'uniform (1 per book) — the Math SDK\'s unoptimised table; run its optimizer on the CSV to target an RTP',
       stats: m.stats

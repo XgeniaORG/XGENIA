@@ -294,9 +294,25 @@ export async function uploadComponentProject(
 // caller reports it, so the mapping is set deliberately on the platform instead of
 // half-applied here.
 
-/** The input port the generated script reads as `ctx.bet`, if the component has one. */
+/**
+ * The input port that carries the stake, if the component has one — most telling name first.
+ *
+ * (2026-11-05) Only `betAmount` counted, so a component whose stake input was called `Bet` (Wheel Game
+ * Test Math: 15 components, `{ Bet, Nonce, ClientSeed, ServerSeed }`) deployed with NO mapping at all —
+ * its win port `spinWinnings` was found and then dropped, because the pair is sent only together. rgs-fn
+ * then played every round at a stake of 0, and the Stake export did not list the components. rgs-fn
+ * reads the stake as `payload[bet_input_port]` whatever the port is called, and withMoneyScale converts
+ * that port by name, so any numeric input named like a stake is the bet port.
+ */
+const BET_PORT_PRECEDENCE = ['betamount', 'bet', 'stake', 'wager', 'betsize', 'stakeamount', 'betvalue'];
+
 function betPortFor(payloadExample: Record<string, any>): string | null {
-  return Object.keys(payloadExample || {}).find((k) => k.toLowerCase() === 'betamount') || null;
+  const keys = Object.keys(payloadExample || {}).filter((k) => typeof payloadExample[k] === 'number' || payloadExample[k] == null);
+  for (const name of BET_PORT_PRECEDENCE) {
+    const hit = keys.find((k) => k.toLowerCase() === name);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 /**

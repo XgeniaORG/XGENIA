@@ -38,6 +38,7 @@ import { rgsFunctionsUrl, rgsHeaders } from '@xgenia-utils/rgs/rgsClient';
 import {
   buildStakeExportManifest,
   lookupTableCsv,
+  stakeModesWithSetups,
   stakeBooksFileName,
   stakeIndexJson,
   stakeLookupFileName,
@@ -45,8 +46,13 @@ import {
   type StakeLutRow,
   type StakeModeExport,
   type StakeModeInfo,
-  type StakeModeStats
+  type StakeModeStats,
+  type StakePlaySetup,
+  type StakeRoundRequest
 } from './stakeMathsFormat';
+import { stakeExportNotes } from './stakeExportNotes';
+
+export { stakeExportNotes };
 
 /** What `stake-export-modes` says about a component before a run is committed to. */
 export interface StakeExportModesInfo {
@@ -77,10 +83,31 @@ async function postMathsDeployer(apiKey: string, body: Record<string, unknown>, 
     if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes(String(body.action))) {
       throw new Error(outOfDateHint);
     }
-    throw new Error(serverError || `XGENIA RGS request failed (HTTP ${res.status})`);
+    throw stakeError(serverError || `XGENIA RGS request failed (HTTP ${res.status})`, data?.code);
   }
   return data;
 }
+
+/**
+ * What the RGS found, by kind (XRGS maths-deployer): `stale_compile` — the deployed copy was built by an
+ * old compiler and only a redeploy fixes it, which the Deploy to Stake tab does by itself; `no_round` —
+ * nothing the component answers to is a whole paid round, a real fault in the maths; `maths_error` —
+ * the maths threw while being played.
+ */
+export type StakeErrorCode = 'stale_compile' | 'no_round' | 'maths_error';
+
+export function stakeError(message: string, code?: unknown): Error & { stakeCode?: StakeErrorCode } {
+  const e: Error & { stakeCode?: StakeErrorCode } = new Error(message);
+  if (code === 'stale_compile' || code === 'no_round' || code === 'maths_error') e.stakeCode = code;
+  return e;
+}
+
+export function stakeErrorCode(e: unknown): StakeErrorCode | null {
+  return (e as { stakeCode?: StakeErrorCode } | null)?.stakeCode ?? null;
+}
+
+/** Books replayed at the start of each mode to prove the package re-derives from its seed. */
+const REPLAY_CHECK_BOOKS = 20;
 
 const OUT_OF_DATE =
   'XGENIA RGS backend is out of date — it cannot export Stake books yet. ' +
@@ -104,6 +131,8 @@ export async function fetchStakeExportModes(apiKey: string, deploymentId: string
 }
 
 export interface StakeExportProgress {
+  /** 'setup': the platform is playing the component to find its paid round; 'books': writing a mode. */
+  phase?: 'setup' | 'books';
   mode: string;
   modeIndex: number;
   modeCount: number;
@@ -125,6 +154,8 @@ export interface StakeExportOptions {
   /** Only `base` and the named modes; every mode the component declares when omitted. */
   modes?: string[];
   choicePolicy?: 'default' | 'random';
+  /** Named rounds to export as modes, in place of the guessed base round (stakeMathsFormat: PLAY SETUPS). */
+  playSetups?: StakePlaySetup[];
   booksPerChunk?: number;
   onProgress?: (p: StakeExportProgress) => void;
   /** Polled between chunks — the only place a run can stop, and it costs nothing. */
@@ -144,7 +175,68 @@ export interface StakeExportResult {
   cancelled: boolean;
   /** Round-trips the run took. */
   chunks: number;
+  /** Per mode: the paid round the platform found by playing the component, where its own request was not one. */
+  autoSetups: Record<string, StakeAutoSetup>;
+  /** Things worth knowing that do not stop the export (stakeExportNotes). */
+  notes: string[];
 }
+
+
+/** What `stake-auto-setup` found: the request each book is played from, and how it played. */
+export interface StakeAutoSetup {
+  roundRequest: StakeRoundRequest;
+  label: string;
+  rtp: number;
+  hitRate: number;
+}
+
+/**
+ * Let the platform find the request that is one paid round (XRGS _shared/stake-autoplay.ts), so an author
+ * does not have to: MinesMaths needed AutoBet with a mines count and tiles, a re-seed and a fixed client
+ * seed, and each was its own failed export before. Null when the game's own request already is one —
+ * then nothing about the export changes. A platform without the action answers as before (null).
+ */
+export async function findStakeAutoSetup(
+  apiKey: string,
+  deploymentId: string,
+  functionSlug: string,
+  bet: number,
+  mode: string,
+  onStep?: (tried: number) => void,
+  shouldCancel?: () => boolean
+): Promise<StakeAutoSetup | null> {
+  let cursor = 0;
+  let closest: unknown = null;
+  let defaultProblem: string | null = null;
+  for (let call = 0; call < 200; call++) {
+    if (shouldCancel?.()) return null;
+    let d: any;
+    try {
+      d = await postMathsDeployer(
+        apiKey,
+        { action: 'stake-auto-setup', deployment_id: deploymentId, function_slug: functionSlug, bet, mode, cursor, closest, default_problem: defaultProblem },
+        AUTO_SETUP_UNAVAILABLE
+      );
+    } catch (e) {
+      // An RGS from before the action plays the game's own request, exactly as it always did.
+      if (e instanceof Error && e.message === AUTO_SETUP_UNAVAILABLE) return null;
+      throw e;
+    }
+    if (d.status === 'refused') throw stakeError(String(d.error || d.message || 'No paid round was found.'), d.code);
+    if (d.status === 'found') {
+      if (!d.round_request) return null;
+      return { roundRequest: d.round_request, label: String(d.label || ''), rtp: Number(d.rtp) || 0, hitRate: Number(d.hit_rate) || 0 };
+    }
+    if (!(Number(d.cursor) > cursor)) throw new Error("The platform made no progress finding this game's paid round — stopping rather than retrying for ever.");
+    cursor = Number(d.cursor);
+    closest = d.closest ?? null;
+    defaultProblem = d.default_problem ?? null;
+    onStep?.(Number(d.tried) || cursor);
+  }
+  throw new Error("Finding this game's paid round took too long. Name it in Play setups and export again.");
+}
+
+const AUTO_SETUP_UNAVAILABLE = '__stake_auto_setup_unavailable__';
 
 /** Node's zstd, or null on a runtime without it. */
 function zstdCompressor(): ((input: Buffer) => Buffer) | null {
@@ -162,7 +254,23 @@ export function stakePublishDir(outputDir: string): string {
   return filesystem.join(filesystem.join(outputDir, 'math'), 'publish_files');
 }
 
+/** An export failure, with what the platform said about the component — the diagnosis reads its ports. */
+export type StakeExportFailure = Error & { stakeInfo?: StakeExportModesInfo | null };
+
 export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeExportResult> {
+  let seen: StakeExportModesInfo | null = null;
+  try {
+    return await runStakeExport(opts, (i) => {
+      seen = i;
+    });
+  } catch (e) {
+    const failure: StakeExportFailure = e instanceof Error ? e : stakeError(String(e));
+    failure.stakeInfo = seen;
+    throw failure;
+  }
+}
+
+async function runStakeExport(opts: StakeExportOptions, onInfo: (info: StakeExportModesInfo) => void): Promise<StakeExportResult> {
   const compress = zstdCompressor();
   if (!compress) {
     throw new Error(
@@ -172,10 +280,35 @@ export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeE
   }
 
   const info = await fetchStakeExportModes(opts.apiKey, opts.deploymentId, opts.functionSlug);
-  const wanted = opts.modes && opts.modes.length ? info.modes.filter((m) => opts.modes!.includes(m.name)) : info.modes;
-  if (wanted.length === 0) throw new Error('No bet modes to export.');
-  const booksPerMode = Math.max(1, Math.min(Math.floor(opts.booksPerMode), info.maxBooksPerMode));
+  onInfo(info);
   const bet = Math.floor(opts.bet && opts.bet > 0 ? opts.bet : info.defaultBet);
+
+  const declared = stakeModesWithSetups(info.modes, opts.playSetups ?? []);
+  let wanted = opts.modes && opts.modes.length ? declared.filter((m) => opts.modes!.includes(m.name)) : declared;
+  if (wanted.length === 0) throw new Error('No bet modes to export.');
+
+  // Every mode — base, each feature buy, each special bet — is played by the platform at its own price
+  // to find the request that is one paid round in THAT mode, before any book is written: a buy can be a
+  // different request from the base game, and a mode nothing plays fails the export now, not an hour in.
+  // A mode the author named in Play setups is taken as written.
+  const autoSetups: Record<string, StakeAutoSetup> = {};
+  for (let mi = 0; mi < wanted.length; mi++) {
+    const m = wanted[mi];
+    if (m.roundRequest) continue;
+    const step = (tried: number) =>
+      opts.onProgress?.({ phase: 'setup', mode: m.name, modeIndex: mi, modeCount: wanted.length, books: tried, booksPerMode: 0, chunks: 0 });
+    step(0);
+    let found: StakeAutoSetup | null;
+    try {
+      found = await findStakeAutoSetup(opts.apiKey, opts.deploymentId, opts.functionSlug, bet, m.name, step, opts.shouldCancel);
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      throw stakeError(wanted.length > 1 ? `Mode ${m.name}: ${why}` : why, stakeErrorCode(e));
+    }
+    if (found) autoSetups[m.name] = found;
+  }
+  wanted = wanted.map((m) => (autoSetups[m.name] ? { ...m, roundRequest: autoSetups[m.name].roundRequest } : m));
+  const booksPerMode = Math.max(1, Math.min(Math.floor(opts.booksPerMode), info.maxBooksPerMode));
   const choicePolicy = opts.choicePolicy ?? 'default';
 
   const dir = filesystem.join(opts.outputDir, 'math');
@@ -199,7 +332,7 @@ export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeE
 
     for (;;) {
       if (opts.shouldCancel?.()) {
-        return { dir, publishDir, manifestPath: '', modes: done, info, bet, masterSeed: masterSeed || '', cancelled: true, chunks };
+        return { dir, publishDir, manifestPath: '', modes: done, info, bet, masterSeed: masterSeed || '', cancelled: true, chunks, autoSetups, notes: [] };
       }
       const d = await postMathsDeployer(
         opts.apiKey,
@@ -215,7 +348,8 @@ export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeE
           carry,
           startup_state: startupState,
           books_per_chunk: opts.booksPerChunk,
-          choice_policy: choicePolicy
+          choice_policy: choicePolicy,
+          ...(mode.roundRequest ? { round_request: mode.roundRequest } : {})
         },
         OUT_OF_DATE
       );
@@ -226,6 +360,42 @@ export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeE
       const got: string[] = Array.isArray(d.lines) ? d.lines : [];
       const gotRows: StakeLutRow[] = Array.isArray(d.rows) ? d.rows : [];
       if (got.length !== gotRows.length) throw new Error('The platform returned books and lookup rows of different lengths.');
+
+      // (2026-11-03) A book must be fixed by (master seed, id) — the manifest promises it, and a dispute
+      // or a lab re-derives from it. MinesEngine mixed Date.now() into its client seed, so the same book
+      // came back a different board each time and nothing said so. Replay the first books and compare
+      // what they PAY: an id or a timestamp the maths writes into its response (KenoEngine's bet_id) changes
+      // the bytes but not the game, while a moving board flips about half of twenty payouts.
+      if (nextId === 0 && got.length > 0) {
+        const probe = Math.min(REPLAY_CHECK_BOOKS, gotRows.length);
+        const again = await postMathsDeployer(
+          opts.apiKey,
+          {
+            action: 'export-stake-books',
+            deployment_id: opts.deploymentId,
+            function_slug: opts.functionSlug,
+            mode: mode.name,
+            book_count: booksPerMode,
+            bet,
+            master_seed: masterSeed,
+            next_id: 0,
+            books_per_chunk: probe,
+            choice_policy: choicePolicy,
+            ...(mode.roundRequest ? { round_request: mode.roundRequest } : {})
+          },
+          OUT_OF_DATE
+        );
+        chunks++;
+        const replayed: StakeLutRow[] = Array.isArray(again.rows) ? again.rows : [];
+        const moved = gotRows.slice(0, probe).findIndex((r, i) => !replayed[i] || replayed[i].payout !== r.payout);
+        if (replayed.length < probe || moved !== -1) {
+          throw new Error(
+            `Mode ${mode.name}: book ${Math.max(moved, 0)} paid differently when played again from the same seed, so no book in this ` +
+              'package could be re-derived for a dispute or a test lab. The maths draws on something other than the ' +
+              "round's RNG — look for Date.now(), a timestamp or a counter feeding a seed or an outcome, and derive it from the RNG instead."
+          );
+        }
+      }
       for (const l of got) jsonlBytes += l.length + 1;
       lines.push(...got);
       rows.push(...gotRows);
@@ -237,7 +407,7 @@ export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeE
       // book per call, so this only fires if that contract is broken.
       if (!(Number(d.next_id) > nextId)) throw new Error('The platform returned no progress for this export — stopping rather than retrying for ever.');
       nextId = Number(d.next_id);
-      opts.onProgress?.({ mode: mode.name, modeIndex: mi, modeCount: wanted.length, books: nextId, booksPerMode, chunks });
+      opts.onProgress?.({ phase: 'books', mode: mode.name, modeIndex: mi, modeCount: wanted.length, books: nextId, booksPerMode, chunks });
       lastBooks = nextId;
       if (d.complete) break;
     }
@@ -295,5 +465,5 @@ export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeE
     )
   );
 
-  return { dir, publishDir, manifestPath, modes: done, info, bet, masterSeed: masterSeed || '', cancelled: false, chunks };
+  return { dir, publishDir, manifestPath, modes: done, info, bet, masterSeed: masterSeed || '', cancelled: false, chunks, autoSetups, notes: stakeExportNotes(done) };
 }
