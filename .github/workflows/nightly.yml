@@ -2,8 +2,8 @@ name: Nightly
 
 # Turns develop into a versioned pre-release that installs on the Beta update channel update to
 # (opt-in, Settings → Editor → Updates; Stable installs never see pre-releases). release.yml does the
-# build, the checks on the assets, the publish, and moves develop's version on afterwards; this
-# workflow decides whether to run and which version to publish.
+# build, the checks on the assets and the publish; this workflow decides whether to run and which
+# version to publish. Nothing is committed back to develop.
 #
 # When (2026-10-16):
 #   - after every private pointer bump: private-pointer.yml starts it once it has pushed the new
@@ -17,12 +17,11 @@ name: Nightly
 # The concurrency group keeps one build running and at most one waiting: GitHub drops an older
 # waiting run when a newer one queues, so a burst of private commits collapses into the newest.
 #
-# Version (scripts/release/next-version.mjs): packages/xgenia-editor/package.json holds the version
-# the next nightly publishes, and each nightly moves it on by one.
-#   3.0.2-beta.1 -> publishes v3.0.2-beta.1, develop becomes 3.0.2-beta.2
-#   3.0.3        -> publishes v3.0.3-beta.1 (never a release version: that would reach Stable),
-#                   develop becomes 3.0.3-beta.2
-# A version that already has a release (drafts included) is skipped forward.
+# Version (scripts/release/next-version.mjs): packages/xgenia-editor/package.json is the starting
+# point, set by hand; the nightly publishes the first version from there with no release yet
+# (drafts included), and package.json is not changed.
+#   3.0.2-beta.1 -> v3.0.2-beta.1, then v3.0.2-beta.2, v3.0.2-beta.3, ... on later nightlies
+#   3.0.3        -> v3.0.3-beta.1 (never a release version: that would reach Stable), then beta.2, ...
 on:
   # Daily run paused (2026-10-16): nightlies only come from private commits and manual runs for now.
   # Uncomment to build develop once a day again.
@@ -84,8 +83,7 @@ jobs:
     secrets: inherit
 
   # Any failure, from a build to the final public check, reaches the team. nightly-builds.yml reports
-  # the per-platform builds; this also covers collecting, signing, verifying, publishing and the
-  # version bump.
+  # the per-platform builds; this also covers collecting, signing, verifying and publishing.
   notify-failure:
     needs: [plan, release]
     if: failure()

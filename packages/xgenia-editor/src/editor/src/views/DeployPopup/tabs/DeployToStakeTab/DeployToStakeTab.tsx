@@ -57,6 +57,9 @@ export async function listExportableComponents(apiKey: string, gameId: string): 
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** The Stake maths export (books, lookup tables, index.json). Off until it is ready: frontend only for now. */
+const STAKE_MATHS_AVAILABLE = false;
+
 export function DeployToStakeTab() {
   const cloudService = useModernModel(CloudService.instance);
   const environmentOptions = useEnvironmentsAsOptions(cloudService);
@@ -69,9 +72,12 @@ export function DeployToStakeTab() {
   // The front end above is static files; Stake's RGS plays the game from pre-simulated books
   // it never had. These are produced by the platform from the deployed component (see
   // utils/stake/stakeMathsExport.ts) and written into `<folder>/math/` after the front end.
+  //
+  // Switched off for now (2026-11-05): only the frontend export ships; the maths export is
+  // "coming soon". Set STAKE_MATHS_AVAILABLE to true and restore the commented-out section below.
   const rgs = getRgsSettings();
   const game = getActiveGame();
-  const canExportMaths = !!rgs?.apiKey && !!game?.id;
+  const canExportMaths = STAKE_MATHS_AVAILABLE && !!rgs?.apiKey && !!game?.id;
   const [exportMaths, setExportMaths] = useState(canExportMaths);
   const [components, setComponents] = useState<ExportableComponent[]>([]);
   const [componentsError, setComponentsError] = useState('');
@@ -211,7 +217,10 @@ export function DeployToStakeTab() {
     <>
       <PopupSection>
         <Text hasBottomSpacing textType={TextType.DefaultContrast}>
-          Deploy a static frontend files to Stake.com (Pro Nodes)
+          Export your game&apos;s frontend as static files for Stake.com (Pro Nodes).
+        </Text>
+        <Text style={{ fontSize: '12px', color: '#f5c26b', marginBottom: '10px', lineHeight: '1.45' }}>
+          Only the frontend can be exported for now. Exporting the maths for Stake Engine is coming soon.
         </Text>
 
         {successMessage && (
@@ -232,6 +241,7 @@ export function DeployToStakeTab() {
         <PrimaryButton label="Pick folder" onClick={onPickFolderClicked} isDisabled={isExporting} />
       </PopupSection>
 
+      {/* Stake maths export: coming soon (STAKE_MATHS_AVAILABLE). Restore this section with the flag.
       <PopupSection>
         <Text hasBottomSpacing textType={TextType.DefaultContrast}>
           Maths — Stake Engine books, played on XGENIA RGS
@@ -286,6 +296,7 @@ export function DeployToStakeTab() {
           </>
         )}
       </PopupSection>
+      */}
     </>
   );
 }
