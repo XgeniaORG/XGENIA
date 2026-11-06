@@ -96,6 +96,7 @@
     },
     "electron-updater": {
       "js-yaml": "^4.3.2"
-    }
+    },
+    "tar": "^7.5.22"
   }
 }
