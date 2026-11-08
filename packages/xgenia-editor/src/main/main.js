@@ -482,6 +482,9 @@ function launchApp() {
       delete _editorAPICallbacks[token];
     });
 
+    // Electron 44 puts the preview iframe in its own process; the renderer scripts it through here.
+    require('./src/preview-frame').registerPreviewFrameHandlers(ipcMain);
+
     // Electron 44 took `clipboard` out of renderer processes. Renderers use navigator.clipboard
     // (utils/systemClipboard.ts) and fall back to these when the W3C API refuses, e.g. the
     // document isn't focused. `clipboard.readText()` returns a Promise from Electron 44 on.
