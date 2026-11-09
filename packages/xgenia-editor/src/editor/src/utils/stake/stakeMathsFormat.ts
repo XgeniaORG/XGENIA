@@ -114,6 +114,57 @@ export interface StakeLutRow {
   id: number;
   payout: number;
   weight?: number;
+  /** The book's kind (XRGS 2026-11-09): 'wincap' | 'freegame' | '0' | 'basegame'. */
+  criteria?: string;
+  /** Its sampled stratum ('no_win', 'win_1x' … 'win_10x'), or null for a rare book kept for certain. */
+  stratum?: string | null;
+}
+
+/** Whole-number weights for a rare book (one round); a sampled one is this times its stratum's ratio. */
+export const STAKE_WEIGHT_SCALE = 1_000_000;
+
+/**
+ * Weights from TRUE COUNTS, per stratum (2026-11-09).
+ *
+ * XRGS keeps every rare round (max win, feature, a win of 10× the price or more) and a 1-in-N sample of the
+ * rest at weight N. Unbiased — but a flat N leaves the luck of which ordinary rounds the sample kept:
+ * MinesMaths (0 or 2×) came out at 100.18% against 99.50% over all 50,000 rounds, and would have been told
+ * "Stake approves modes under 100%". So once the last chunk is in, each stratum's sampled books share
+ * exactly the rounds of that stratum the run simulated: weight = scale × (stratum's rounds ÷ its books
+ * kept). Every stratum then pays its true share of the simulation, and within a stratum payouts differ by
+ * at most 2.5×. Rare books keep `scale` — one round each. Every number is a count of rounds the maths
+ * played; nothing aims at a target.
+ */
+export function reweightSampledBooks(
+  rows: StakeLutRow[],
+  strata: { stratum: string; simulations: number }[],
+  cost: number,
+  scale = STAKE_WEIGHT_SCALE
+): { rows: StakeLutRow[]; rtp: number; hitRate: number; unrepresented: string[] } {
+  const kept = new Map<string, number>();
+  for (const r of rows) if (r.stratum) kept.set(r.stratum, (kept.get(r.stratum) ?? 0) + 1);
+  const ratio = new Map<string, number>();
+  const unrepresented: string[] = [];
+  for (const st of strata) {
+    const n = kept.get(st.stratum) ?? 0;
+    if (n > 0) ratio.set(st.stratum, st.simulations / n);
+    else if (st.simulations > 0) unrepresented.push(st.stratum);
+  }
+  let wSum = 0, wPay = 0, wHit = 0;
+  const out = rows.map((r) => {
+    const k = r.stratum ? ratio.get(r.stratum) ?? 1 : 1;
+    const weight = Math.max(1, Math.round(scale * k));
+    wSum += weight;
+    wPay += weight * r.payout;
+    if (r.payout > 0) wHit += weight;
+    return { ...r, weight };
+  });
+  return {
+    rows: out,
+    rtp: wSum > 0 ? wPay / (wSum * cost * 100) : 0,
+    hitRate: wSum > 0 ? wHit / wSum : 0,
+    unrepresented
+  };
 }
 
 export function stakeBooksFileName(mode: string): string {
@@ -187,12 +238,30 @@ export function verifyStakeMode(lutCsv: string, bookPayouts: number[]): string[]
 }
 
 /** The statistics the platform derives per mode, as its last chunk reported them. */
+export interface StakeCriteriaStats {
+  /** The stake-sdk's criteria: 'wincap' | 'freegame' | '0' | 'basegame'. */
+  criteria: string;
+  simulations: number;
+  books: number;
+  hit_rate: number;
+  rtp_contribution: number;
+  rtp_share: number;
+}
+
 export interface StakeModeStats {
   books: number;
   evaluate_calls: number;
+  /** The package's RTP as Stake plays it (weighted). */
   rtp: number;
   rtp_raw: number;
   hit_rate: number;
+  /** Rounds simulated and what they paid (XRGS 2026-11-09; absent from an older RGS). */
+  simulations?: number;
+  rtp_simulated?: number;
+  hit_rate_simulated?: number;
+  criteria?: StakeCriteriaStats[];
+  /** Rounds simulated in each sampled stratum (reweightSampledBooks). */
+  strata?: { stratum: string; simulations: number }[];
   feature_books: number;
   feature_rounds: number;
   choice_books: number;
@@ -222,6 +291,8 @@ export interface StakeExportManifestInput {
   bet: number;
   maxWinMultiplier: number | null;
   choicePolicy: string;
+  /** Rounds simulated per book asked for; 1 = every round kept at weight 1. */
+  oversample?: number;
   declaredRtp: unknown;
   modes: StakeModeExport[];
   skippedOptions: string[];
@@ -251,7 +322,11 @@ export function buildStakeExportManifest(i: StakeExportManifestInput): Record<st
       bet_minor_units: i.bet,
       max_win_multiplier: i.maxWinMultiplier,
       choice_policy: i.choicePolicy,
-      rule: 'book i is played from Isaac.fromHex(sha256(master_seed + ":" + i)); the start-up request runs once from index -1 and its state opens every book'
+      rule:
+        (i.oversample ?? 1) > 1
+          ? 'simulated round s is played from Isaac.fromHex(sha256(master_seed + ":" + s)) and named in its book as "simulation"; the start-up request runs once from index -1 and its state opens every round'
+          : 'book i is played from Isaac.fromHex(sha256(master_seed + ":" + i)); the start-up request runs once from index -1 and its state opens every book',
+      oversample: i.oversample ?? 1
     },
     declared_rtp: i.declaredRtp ?? null,
     modes: i.modes.map((m) => ({
@@ -262,7 +337,10 @@ export function buildStakeExportManifest(i: StakeExportManifestInput): Record<st
       // How each book's paid round was requested; null = the component's own spin trigger and the stake.
       round_request: m.mode.roundRequest ?? null,
       files: { events: stakeBooksFileName(m.mode.name), weights: stakeLookupFileName(m.mode.name) },
-      weights: 'uniform (1 per book) — the Math SDK\'s unoptimised table; run its optimizer on the CSV to target an RTP',
+      weights:
+        (i.oversample ?? 1) > 1
+          ? `true frequencies: ${i.oversample} rounds simulated per book; every wincap, freegame and 10×-or-more round kept at weight ${STAKE_WEIGHT_SCALE} (one round), the others a 1-in-${i.oversample} sample (by a hash of the round's index, never its outcome) weighted ${STAKE_WEIGHT_SCALE} × (its payout stratum's rounds ÷ that stratum's books kept). The weighted table pays each stratum's true share of the simulation; no weight is chosen to fit a target RTP.`
+          : 'uniform (1 per book) — every simulated round is a book',
       stats: m.stats
     })),
     skipped_options: i.skippedOptions,
@@ -283,8 +361,22 @@ export function summariseStakeModes(modes: StakeModeExport[]): string {
       if (s.rounded_books > 0) flags.push(`${s.rounded_books} rounded to Stake's 0.1× grid (raw RTP ${(s.rtp_raw * 100).toFixed(2)}%)`);
       if (s.truncated_books > 0) flags.push(`${s.truncated_books} cut at the feature backstop`);
       if (s.capped_books > 0) flags.push(`${s.capped_books} hit the max-win cap`);
-      return `${m.mode.name}: ${s.books.toLocaleString()} books, RTP ${(s.rtp * 100).toFixed(2)}%, hit ${(s.hit_rate * 100).toFixed(1)}%` +
-        (flags.length ? ` — ${flags.join('; ')}` : '');
+      const simulated = s.simulations && s.simulations > s.books ? ` from ${s.simulations.toLocaleString()} rounds` : '';
+      const split = (s.criteria || [])
+        .filter((c) => c.simulations > 0)
+        .map((c) => `${CRITERIA_LABEL[c.criteria] || c.criteria} ${(c.rtp_share * 100).toFixed(1)}% of RTP (1 in ${formatOneIn(c.hit_rate)})`)
+        .join(', ');
+      return `${m.mode.name}: ${s.books.toLocaleString()} books${simulated}, RTP ${(s.rtp * 100).toFixed(2)}%, hit ${(s.hit_rate * 100).toFixed(1)}%` +
+        (flags.length ? ` — ${flags.join('; ')}` : '') +
+        (split ? `\n  ${split}` : '');
     })
     .join('\n');
+}
+
+const CRITERIA_LABEL: Record<string, string> = { wincap: 'max win', freegame: 'free games', '0': 'no win', basegame: 'base wins' };
+
+function formatOneIn(rate: number): string {
+  if (!(rate > 0)) return '—';
+  const n = 1 / rate;
+  return n < 10 ? n.toFixed(1) : Math.round(n).toLocaleString();
 }

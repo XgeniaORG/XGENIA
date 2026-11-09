@@ -38,6 +38,7 @@ import { rgsFunctionsUrl, rgsHeaders } from '@xgenia-utils/rgs/rgsClient';
 import {
   buildStakeExportManifest,
   lookupTableCsv,
+  reweightSampledBooks,
   stakeModesWithSetups,
   stakeBooksFileName,
   stakeIndexJson,
@@ -67,6 +68,9 @@ export interface StakeExportModesInfo {
   defaultBet: number;
   scriptSha256: string | null;
   maxBooksPerMode: number;
+  /** 0 when the RGS predates oversampling (it then plays every round as a book, at weight 1). */
+  maxOversample: number;
+  maxSimulationsPerMode: number;
 }
 
 async function postMathsDeployer(apiKey: string, body: Record<string, unknown>, outOfDateHint: string): Promise<any> {
@@ -109,6 +113,13 @@ export function stakeErrorCode(e: unknown): StakeErrorCode | null {
 /** Books replayed at the start of each mode to prove the package re-derives from its seed. */
 const REPLAY_CHECK_BOOKS = 20;
 
+/**
+ * Rounds simulated per book asked for (XRGS stake-books.ts, RARE ROUNDS KEPT, 2026-11-09). Every max-win,
+ * feature and big-win round is kept, the rest are a 1-in-N sample weighted N: the package pays what the
+ * maths pays and holds the rare rounds a plain sample of the same size would miss.
+ */
+export const STAKE_DEFAULT_OVERSAMPLE = 10;
+
 const OUT_OF_DATE =
   'XGENIA RGS backend is out of date — it cannot export Stake books yet. ' +
   'Try again later; if it keeps happening, contact XGENIA support.';
@@ -126,7 +137,9 @@ export async function fetchStakeExportModes(apiKey: string, deploymentId: string
     maxWinMultiplier: typeof d.max_win_multiplier === 'number' ? d.max_win_multiplier : null,
     defaultBet: Number(d.default_bet) > 0 ? Math.floor(Number(d.default_bet)) : 100,
     scriptSha256: d.script_sha256 ?? null,
-    maxBooksPerMode: Number(d.max_books_per_mode) > 0 ? Number(d.max_books_per_mode) : 1_000_000
+    maxBooksPerMode: Number(d.max_books_per_mode) > 0 ? Number(d.max_books_per_mode) : 1_000_000,
+    maxOversample: Number(d.max_oversample) > 0 ? Math.floor(Number(d.max_oversample)) : 0,
+    maxSimulationsPerMode: Number(d.max_simulations_per_mode) > 0 ? Number(d.max_simulations_per_mode) : 0
   };
 }
 
@@ -157,6 +170,8 @@ export interface StakeExportOptions {
   /** Named rounds to export as modes, in place of the guessed base round (stakeMathsFormat: PLAY SETUPS). */
   playSetups?: StakePlaySetup[];
   booksPerChunk?: number;
+  /** Rounds simulated per book (STAKE_DEFAULT_OVERSAMPLE when omitted; 1 = every round a book). */
+  oversample?: number;
   onProgress?: (p: StakeExportProgress) => void;
   /** Polled between chunks — the only place a run can stop, and it costs nothing. */
   shouldCancel?: () => boolean;
@@ -310,6 +325,20 @@ async function runStakeExport(opts: StakeExportOptions, onInfo: (info: StakeExpo
   wanted = wanted.map((m) => (autoSetups[m.name] ? { ...m, roundRequest: autoSetups[m.name].roundRequest } : m));
   const booksPerMode = Math.max(1, Math.min(Math.floor(opts.booksPerMode), info.maxBooksPerMode));
   const choicePolicy = opts.choicePolicy ?? 'default';
+  // An RGS that predates oversampling is sent none and plays every round as a book, as it always did.
+  const oversample =
+    info.maxOversample > 0
+      ? Math.max(
+          1,
+          Math.min(
+            Math.floor(opts.oversample ?? STAKE_DEFAULT_OVERSAMPLE),
+            info.maxOversample,
+            info.maxSimulationsPerMode > 0 ? Math.floor(info.maxSimulationsPerMode / booksPerMode) : Infinity
+          )
+        )
+      : 1;
+  const sampling = oversample > 1 ? { oversample } : {};
+  const roundsPerMode = booksPerMode * oversample;
 
   const dir = filesystem.join(opts.outputDir, 'math');
   const publishDir = stakePublishDir(opts.outputDir);
@@ -349,6 +378,7 @@ async function runStakeExport(opts: StakeExportOptions, onInfo: (info: StakeExpo
           startup_state: startupState,
           books_per_chunk: opts.booksPerChunk,
           choice_policy: choicePolicy,
+          ...sampling,
           ...(mode.roundRequest ? { round_request: mode.roundRequest } : {})
         },
         OUT_OF_DATE
@@ -367,7 +397,8 @@ async function runStakeExport(opts: StakeExportOptions, onInfo: (info: StakeExpo
       // what they PAY: an id or a timestamp the maths writes into its response (KenoEngine's bet_id) changes
       // the bytes but not the game, while a moving board flips about half of twenty payouts.
       if (nextId === 0 && got.length > 0) {
-        const probe = Math.min(REPLAY_CHECK_BOOKS, gotRows.length);
+        // Oversampled, a chunk of N rounds keeps about N / oversample books: replay enough rounds for ~20.
+        const probe = Math.min(REPLAY_CHECK_BOOKS, gotRows.length) * oversample;
         const again = await postMathsDeployer(
           opts.apiKey,
           {
@@ -381,14 +412,16 @@ async function runStakeExport(opts: StakeExportOptions, onInfo: (info: StakeExpo
             next_id: 0,
             books_per_chunk: probe,
             choice_policy: choicePolicy,
+            ...sampling,
             ...(mode.roundRequest ? { round_request: mode.roundRequest } : {})
           },
           OUT_OF_DATE
         );
         chunks++;
         const replayed: StakeLutRow[] = Array.isArray(again.rows) ? again.rows : [];
-        const moved = gotRows.slice(0, probe).findIndex((r, i) => !replayed[i] || replayed[i].payout !== r.payout);
-        if (replayed.length < probe || moved !== -1) {
+        const compared = Math.min(replayed.length, gotRows.length);
+        const moved = gotRows.slice(0, compared).findIndex((r, i) => replayed[i].payout !== r.payout || (replayed[i].weight ?? 1) !== (r.weight ?? 1));
+        if (compared === 0 || moved !== -1) {
           throw new Error(
             `Mode ${mode.name}: book ${Math.max(moved, 0)} paid differently when played again from the same seed, so no book in this ` +
               'package could be re-derived for a dispute or a test lab. The maths draws on something other than the ' +
@@ -407,14 +440,28 @@ async function runStakeExport(opts: StakeExportOptions, onInfo: (info: StakeExpo
       // book per call, so this only fires if that contract is broken.
       if (!(Number(d.next_id) > nextId)) throw new Error('The platform returned no progress for this export — stopping rather than retrying for ever.');
       nextId = Number(d.next_id);
-      opts.onProgress?.({ phase: 'books', mode: mode.name, modeIndex: mi, modeCount: wanted.length, books: nextId, booksPerMode, chunks });
+      opts.onProgress?.({ phase: 'books', mode: mode.name, modeIndex: mi, modeCount: wanted.length, books: nextId, booksPerMode: roundsPerMode, chunks });
       lastBooks = nextId;
       if (d.complete) break;
     }
     if (!stats) throw new Error(`No statistics came back for mode ${mode.name}.`);
 
+    // Oversampled: weight each stratum's sampled books by that stratum's true count (reweightSampledBooks).
+    let finalRows: StakeLutRow[] = rows;
+    if (oversample > 1 && Array.isArray(stats.strata) && rows.every((r) => r.stratum !== undefined)) {
+      const rw = reweightSampledBooks(rows, stats.strata, mode.cost);
+      finalRows = rw.rows;
+      stats = { ...stats, rtp: rw.rtp, hit_rate: rw.hitRate };
+      if (rw.unrepresented.length > 0) {
+        throw new Error(
+          `Mode ${mode.name}: no book of ${rw.unrepresented.join(', ')} was sampled, so the package could not pay its share. ` +
+            'Export with more books per mode.'
+        );
+      }
+    }
+
     // Refuse before writing what Stake would refuse after uploading.
-    const lut = lookupTableCsv(rows);
+    const lut = lookupTableCsv(finalRows);
     const payouts = lines.map((l) => {
       const m = /"payoutMultiplier":\s*(-?\d+)/.exec(l);
       return m ? Number(m[1]) : NaN;
@@ -428,8 +475,8 @@ async function runStakeExport(opts: StakeExportOptions, onInfo: (info: StakeExpo
     await filesystem.writeFileOverride(filesystem.join(publishDir, stakeLookupFileName(mode.name)), lut);
     lines.length = 0;
 
-    done.push({ mode, rows, stats, jsonlBytes });
-    if (lastBooks !== booksPerMode) throw new Error(`Mode ${mode.name} wrote ${lastBooks} books, not the ${booksPerMode} asked for.`);
+    done.push({ mode, rows: finalRows, stats, jsonlBytes });
+    if (lastBooks !== roundsPerMode) throw new Error(`Mode ${mode.name} played ${lastBooks} rounds, not the ${roundsPerMode} asked for.`);
   }
 
   await filesystem.writeFileOverride(filesystem.join(publishDir, 'index.json'), stakeIndexJson(done.map((m) => m.mode)));
@@ -455,6 +502,7 @@ async function runStakeExport(opts: StakeExportOptions, onInfo: (info: StakeExpo
         bet,
         maxWinMultiplier: info.maxWinMultiplier,
         choicePolicy,
+        oversample,
         declaredRtp: info.game?.declared_rtp ?? null,
         modes: done,
         skippedOptions: info.skippedOptions,

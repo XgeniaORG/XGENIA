@@ -287,7 +287,7 @@ export function DeployToStakeTab() {
               ? `Playing ${target.name} to find the paid round of ${p.mode} (${p.modeIndex + 1}/${p.modeCount})` +
                   (p.books ? ` — ${p.books.toLocaleString()} requests tried` : '…')
               : `Exporting maths for Stake — ${p.mode} (${p.modeIndex + 1}/${p.modeCount}): ` +
-                  `${p.books.toLocaleString()} / ${p.booksPerMode.toLocaleString()} books`
+                  `${p.books.toLocaleString()} / ${p.booksPerMode.toLocaleString()} rounds played`
           )
       });
 
