@@ -63,6 +63,14 @@ test('a base-only export that lost its free spins fails with --expect-feature', 
   assert.ok(codes(validatePackage(dir, { expectFeature: true })).includes('BASE_NEVER_TRIGGERS_FEATURE'));
 });
 
+test('XRGS-dialect books ending on finalWin still show their bonus rounds', () => {
+  const r = validatePackage(fixture('xrgs'), { expectFeature: true });
+  const base = r.modes.find((m) => m.mode === 'base');
+  assert.ok(base.featureBooks > 0, 'feature books not detected');
+  assert.ok(base.dialects.xrgs > 0 && !base.dialects.custom, JSON.stringify(base.dialects));
+  assert.ok(!codes(r).includes('BASE_NEVER_TRIGGERS_FEATURE'));
+});
+
 test('XRGS-dialect books are flagged (warning by default, error with --strict)', () => {
   const loose = validatePackage(fixture('xrgs'));
   assert.ok(loose.warnings.some((w) => w.code === 'EVENTS_XRGS_DIALECT'));

@@ -89,7 +89,8 @@
   /** Same rule as tools/stake-harness/lib/rounds.mjs: a round starts at each reveal (standard) or each XRGS round event. */
   function roundStarts(events) {
     if (events.some((e) => e.type === 'reveal')) { const s = []; events.forEach((e, i) => e.type === 'reveal' && s.push(i)); s[0] = 0; return s; }
-    if (events.length && events.every((e) => ['round', 'featureRound', 'choiceRound'].includes(e.type))) return events.map((_, i) => i);
+    const R = ['round', 'featureRound', 'choiceRound'];
+    if (events.some((e) => R.includes(e.type)) && events.every((e) => R.includes(e.type) || e.type === 'finalWin' || e.type === 'wincap')) return events.flatMap((e, i) => (R.includes(e.type) ? [i] : []));
     return [0];
   }
 

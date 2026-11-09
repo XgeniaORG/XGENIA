@@ -100,6 +100,8 @@ function toXrgs(book) {
       cur.data.totalWin = e.amount;
     }
   }
+  // As XRGS stake-books.ts writes it since 2026-11-09: the rounds, then finalWin.
+  out.push({ index: out.length, type: 'finalWin', amount: book.payoutMultiplier });
   return { id: book.id, payoutMultiplier: book.payoutMultiplier, events: out };
 }
 
