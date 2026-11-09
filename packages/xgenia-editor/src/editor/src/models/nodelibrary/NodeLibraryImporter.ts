@@ -149,10 +149,15 @@ class ClientCollection {
 /**
  * Handle merging of node libraries between different runtimes.
  */
+/** How long a disconnected viewer's nodes stay, so a reloading preview can come back. */
+const NODE_REMOVAL_GRACE_MS = 5000;
+
 export class NodeLibraryImporter {
   public static instance = new NodeLibraryImporter();
 
   private currentNodeLibrary: NodeLibraryData = null;
+  private removeNodesTimer: ReturnType<typeof setTimeout> | undefined;
+  private rememberedLibraries = new Map<RuntimeType, { hash: string; text: string }>();
   private clients = new ClientCollection();
   private _cache: { [key: string]: Set<string> } = {};
 
@@ -214,7 +219,27 @@ export class NodeLibraryImporter {
    */
   public onClientDisconnect(clientId: string) {
     this.clients.remove(clientId);
-    this.updateIndex(false);
+
+    // A preview reload closes the old viewer just before the new one connects. Removing its nodes
+    // straight away would rebuild the whole library twice per reload.
+    clearTimeout(this.removeNodesTimer);
+    this.removeNodesTimer = setTimeout(() => this.updateIndex(false), NODE_REMOVAL_GRACE_MS);
+  }
+
+  /** Keeps the raw text a runtime sent. Returns whether it differs from what that runtime sent last. */
+  public rememberLibrary(runtimeType: RuntimeType, hash: string | undefined, text: string): boolean {
+    const previous = this.rememberedLibraries.get(runtimeType);
+    if (!hash) {
+      this.rememberedLibraries.delete(runtimeType);
+      return true;
+    }
+    this.rememberedLibraries.set(runtimeType, { hash, text });
+    return previous?.hash !== hash;
+  }
+
+  public getRememberedLibrary(runtimeType: RuntimeType, hash: string): string | undefined {
+    const remembered = this.rememberedLibraries.get(runtimeType);
+    return remembered?.hash === hash ? remembered.text : undefined;
   }
 
   /**
@@ -223,9 +248,15 @@ export class NodeLibraryImporter {
    * @param clientId
    * @param runtimeType
    * @param library
+   * @param contentChanged the library differs from the last one this runtime sent
    * @returns
    */
-  public onClientImport(clientId: string, runtimeType: RuntimeType, library: NodeLibraryData): void {
+  public onClientImport(
+    clientId: string,
+    runtimeType: RuntimeType,
+    library: NodeLibraryData,
+    contentChanged = true
+  ): void {
     // Ensure default runtime is initialized
     this.initializeDefaultRuntime();
 
@@ -239,7 +270,7 @@ export class NodeLibraryImporter {
       this.assignNewLibrary(runtimeType, library);
       updated = true;
     } else {
-      if (this.mergeUpdates(runtimeType, library)) {
+      if (this.mergeUpdates(runtimeType, library, contentChanged)) {
         updated = true;
       }
     }
@@ -303,7 +334,7 @@ export class NodeLibraryImporter {
     }
   }
 
-  private mergeUpdates(runtimeType: RuntimeType, library: NodeLibraryData): boolean {
+  private mergeUpdates(runtimeType: RuntimeType, library: NodeLibraryData, contentChanged: boolean): boolean {
     let updated = false;
 
     // Loop over all the new node types
@@ -315,7 +346,14 @@ export class NodeLibraryImporter {
         this.currentNodeLibrary.nodetypes.push(node);
         updated = true;
       } else {
-        // TODO: Update the node data?
+        // A changed library from the only runtime that owns this node replaces its definition.
+        const existingRuntimes = this.currentNodeLibrary.nodetypes[index].runtimeTypes || [];
+        if (contentChanged && existingRuntimes.every((runtime) => runtime === runtimeType)) {
+          node.runtimeTypes = [runtimeType];
+          this.currentNodeLibrary.nodetypes[index] = node;
+          updated = true;
+          return;
+        }
 
         // Create the array if it doesnt exist
         if (!this.currentNodeLibrary.nodetypes[index].runtimeTypes) {

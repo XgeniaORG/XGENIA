@@ -166,7 +166,23 @@ export class ViewerConnection extends Model {
         ipcRenderer.send('live-engine:viewer-ok', request.engineVersion);
       }
 
-      this.loadNodeLibrary(request.clientId, request.runtimeType, content);
+      const contentChanged = NodeLibraryImporter.instance.rememberLibrary(
+        request.runtimeType,
+        request.hash,
+        request.content
+      );
+      this.loadNodeLibrary(request.clientId, request.runtimeType, content, contentChanged);
+    } else if (request.cmd === 'nodelibraryOffer' && request.type === 'viewer') {
+      const known = NodeLibraryImporter.instance.getRememberedLibrary(request.runtimeType, request.hash);
+      if (known === undefined) {
+        this.send({ cmd: 'nodelibraryNeeded', target: request.clientId, hash: request.hash });
+      } else {
+        if (request.runtimeType === 'browser' && typeof request.engineVersion === 'string') {
+          ipcRenderer.send('live-engine:viewer-ok', request.engineVersion);
+        }
+        this.send({ cmd: 'nodelibraryKnown', target: request.clientId, hash: request.hash });
+        this.loadNodeLibrary(request.clientId, request.runtimeType, JSON.parse(known), false);
+      }
     } else if (request.cmd === 'sendToOtherClients' && request.type === 'viewer') {
       this.send({
         cmd: 'messageFromOtherClient',
@@ -462,12 +478,13 @@ export class ViewerConnection extends Model {
    * @param {string} clientId
    * @param {require('@xgenia-models/nodelibrary/NodeLibraryData').RuntimeType} runtimeType
    * @param {require('@xgenia-models/nodelibrary/NodeLibraryData').NodeLibraryData} newLibrary
+   * @param {boolean} contentChanged the library differs from the last one this runtime sent
    */
-  loadNodeLibrary(clientId, runtimeType, newLibrary) {
+  loadNodeLibrary(clientId, runtimeType, newLibrary, contentChanged) {
     this.clientsToExportTo.add(clientId);
     this.registeredRuntimeTypes.add(runtimeType);
 
-    NodeLibraryImporter.instance.onClientImport(clientId, runtimeType, newLibrary);
+    NodeLibraryImporter.instance.onClientImport(clientId, runtimeType, newLibrary, contentChanged);
 
     if (NodeLibrary.instance.isLoaded()) {
       this.export();
