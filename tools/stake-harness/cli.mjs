@@ -9,6 +9,7 @@
  *   node tools/stake-harness/cli.mjs browser <math-dir> (--game <dir> | --game-url <url>) [--buy-steps "#buy,#confirm-yes"]
  *   node tools/stake-harness/cli.mjs rebalance <math-dir> --rtp 0.963 [--into <dir>]
  *   node tools/stake-harness/cli.mjs fixture <out-dir> [--flavour standard|xrgs|drop-free-spins|...]
+ *   node tools/stake-harness/cli.mjs engine <build-dir> --session-url "<Engine session URL>" [--rounds 10]
  *
  * <math-dir> is the directory you upload to Stake as the maths (the editor writes
  * <folder>/math/publish_files). See README.md for what each check means and why it exists.
@@ -165,6 +166,26 @@ async function main() {
       console.log(`\nOVERALL: ${ok ? 'PASS' : 'FAIL'}${report.browser ? '' : ' (maths only — the frontend was not tested)'}`);
       console.log(`Report: ${path.join(out, 'report.json')}`);
       return ok ? 0 : 1;
+    }
+    case 'engine': {
+      if (!dir && !flag('game-url')) usage('engine needs <build-dir> (or --game-url) and --session-url');
+      const sessionUrl = flag('session-url');
+      if (!sessionUrl || sessionUrl === true) usage('engine needs --session-url "<the URL from Engine\'s Start game session>"');
+      const { runEngineLive } = await import('./lib/engine-live.mjs');
+      const r = await runEngineLive({
+        gameDir: dir ? path.resolve(dir) : undefined,
+        gameUrl: flag('game-url') && flag('game-url') !== true ? flag('game-url') : undefined,
+        sessionUrl,
+        rounds: Number(flag('rounds', 10)),
+        spinKey: flag('spin-key', 'Space'),
+        spinSelector: flag('spin-selector') || undefined,
+        roundTimeoutMs: Number(flag('round-timeout-ms', 60_000)),
+        out: flag('out', 'stake-harness-report'),
+        headed: !!flag('headed'),
+        extraParams: flag('bug') ? { bug: flag('bug') } : undefined,
+      });
+      printScenarios(`Engine (${r.calls} wallet calls)`, r);
+      return r.ok ? 0 : 1;
     }
     case 'rebalance': {
       if (!dir) usage('rebalance needs <math-dir>');
