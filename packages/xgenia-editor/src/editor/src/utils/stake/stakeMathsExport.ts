@@ -38,6 +38,8 @@ import { rgsFunctionsUrl, rgsHeaders } from '@xgenia-utils/rgs/rgsClient';
 import {
   buildStakeExportManifest,
   lookupTableCsv,
+  lookupTableRtp,
+  strataWeightedRows,
   stakeBooksFileName,
   stakeIndexJson,
   stakeLookupFileName,
@@ -103,6 +105,79 @@ export async function fetchStakeExportModes(apiKey: string, deploymentId: string
   };
 }
 
+/**
+ * The request a mode's books are played from (XRGS `stake-auto-setup`, stake-plan.ts — Abel's Stake compiler,
+ * merged 2026-11-09). The platform plays the component under candidate requests until one is a whole paid round
+ * for that mode: the game's own spin request when it is (null), otherwise a trigger + inputs (a buy found on
+ * the Bet Mode's `mode` input, a Mines game's AutoBet + mines count). Its refusals are worded for the author.
+ */
+export async function findStakeRoundRequest(apiKey: string, deploymentId: string, functionSlug: string, mode: string, bet: number, choicePolicy: string): Promise<{ roundRequest: unknown | null; label: string; rtp: number }> {
+  let cursor = 0;
+  let closest: unknown = null;
+  let defaultProblem: string | null = null;
+  for (let calls = 0; calls < 200; calls++) {
+    const d = await postMathsDeployer(
+      apiKey,
+      { action: 'stake-auto-setup', deployment_id: deploymentId, function_slug: functionSlug, mode, bet, choice_policy: choicePolicy, cursor, closest, default_problem: defaultProblem },
+      OUT_OF_DATE
+    );
+    if (d.status === 'found') return { roundRequest: d.round_request ?? null, label: String(d.label || ''), rtp: Number(d.rtp) || 0 };
+    if (d.status === 'refused') {
+      const why = d.code === 'stale_compile' ? 'it was compiled by an older editor — deploy the maths again from this editor, then export' : String(d.message || d.error || 'no request plays a whole round');
+      throw new Error(`Mode ${mode}: ${why}`);
+    }
+    if (!(Number(d.cursor) > cursor)) throw new Error(`Mode ${mode}: the platform's search made no progress — stopping rather than retrying for ever.`);
+    cursor = Number(d.cursor);
+    closest = d.closest ?? null;
+    defaultProblem = d.default_problem ?? null;
+  }
+  throw new Error(`Mode ${mode}: the search for its paid round did not finish.`);
+}
+
+/**
+ * Books written as they arrive, zstd-compressed on the way to disk (2026-11-09): the export held every line in
+ * memory and joined a whole mode into one string, past V8's string limit at ~1M books — a run that failed at
+ * the very end. Falls back to the one-shot compressor (smaller runs) where Node has no streaming zstd.
+ */
+function openBooksWriter(path: string, compressAll: (input: Buffer) => Buffer): { write(lines: string[]): void; close(): Promise<void> } {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const zlib = require('zlib');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require('fs');
+    if (typeof zlib.createZstdCompress === 'function') {
+      const z = zlib.createZstdCompress();
+      const out = fs.createWriteStream(path);
+      z.pipe(out);
+      const done = new Promise<void>((resolve, reject) => {
+        out.on('finish', () => resolve());
+        out.on('error', reject);
+        z.on('error', reject);
+      });
+      return {
+        write(lines: string[]) {
+          if (lines.length) z.write(lines.join('\n') + '\n');
+        },
+        close() {
+          z.end();
+          return done;
+        }
+      };
+    }
+  } catch {
+    /* no node integration: buffer below */
+  }
+  const buffered: string[] = [];
+  return {
+    write(lines: string[]) {
+      for (const l of lines) buffered.push(l);
+    },
+    async close() {
+      await filesystem.writeFileOverride(path, compressAll(Buffer.from(buffered.join('\n') + '\n', 'utf8')));
+    }
+  };
+}
+
 export interface StakeExportProgress {
   mode: string;
   modeIndex: number;
@@ -125,6 +200,12 @@ export interface StakeExportOptions {
   /** Only `base` and the named modes; every mode the component declares when omitted. */
   modes?: string[];
   choicePolicy?: 'default' | 'random';
+  /**
+   * Rounds simulated per book (XRGS I-138): every rare round (win cap, base-game feature, ≥10× the price) is
+   * kept, the rest sampled 1-in-N and weighted back, so rare outcomes are in the package and its RTP is the
+   * simulation's. Default 10; 1 writes the old uniform package.
+   */
+  oversample?: number;
   booksPerChunk?: number;
   onProgress?: (p: StakeExportProgress) => void;
   /** Polled between chunks — the only place a run can stop, and it costs nothing. */
@@ -177,6 +258,8 @@ export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeE
   const booksPerMode = Math.max(1, Math.min(Math.floor(opts.booksPerMode), info.maxBooksPerMode));
   const bet = Math.floor(opts.bet && opts.bet > 0 ? opts.bet : info.defaultBet);
   const choicePolicy = opts.choicePolicy ?? 'default';
+  const oversample = Math.max(1, Math.min(100, Math.floor(opts.oversample ?? 10)));
+  const roundRequests: Record<string, unknown> = {};
 
   const dir = filesystem.join(opts.outputDir, 'math');
   const publishDir = stakePublishDir(opts.outputDir);
@@ -188,7 +271,11 @@ export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeE
 
   for (let mi = 0; mi < wanted.length; mi++) {
     const mode = wanted[mi];
-    const lines: string[] = [];
+    // Which request is this mode's paid round? (A buy is often not the game's own spin request.)
+    const plan = await findStakeRoundRequest(opts.apiKey, opts.deploymentId, opts.functionSlug, mode.name, bet, choicePolicy);
+    if (plan.roundRequest) roundRequests[mode.name] = plan.roundRequest;
+    const writer = openBooksWriter(filesystem.join(publishDir, stakeBooksFileName(mode.name)), compress);
+    const payouts: number[] = [];
     const rows: StakeLutRow[] = [];
     let carry: unknown = undefined;
     let startupState: unknown = undefined;
@@ -199,6 +286,7 @@ export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeE
 
     for (;;) {
       if (opts.shouldCancel?.()) {
+        await writer.close().catch(() => undefined);
         return { dir, publishDir, manifestPath: '', modes: done, info, bet, masterSeed: masterSeed || '', cancelled: true, chunks };
       }
       const d = await postMathsDeployer(
@@ -215,7 +303,9 @@ export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeE
           carry,
           startup_state: startupState,
           books_per_chunk: opts.booksPerChunk,
-          choice_policy: choicePolicy
+          choice_policy: choicePolicy,
+          oversample,
+          ...(plan.roundRequest ? { round_request: plan.roundRequest } : {})
         },
         OUT_OF_DATE
       );
@@ -226,8 +316,12 @@ export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeE
       const got: string[] = Array.isArray(d.lines) ? d.lines : [];
       const gotRows: StakeLutRow[] = Array.isArray(d.rows) ? d.rows : [];
       if (got.length !== gotRows.length) throw new Error('The platform returned books and lookup rows of different lengths.');
-      for (const l of got) jsonlBytes += l.length + 1;
-      lines.push(...got);
+      for (const l of got) {
+        jsonlBytes += l.length + 1;
+        const m = /"payoutMultiplier":\s*(-?\d+)/.exec(l);
+        payouts.push(m ? Number(m[1]) : NaN);
+      }
+      writer.write(got);
       rows.push(...gotRows);
       stats = d.stats ?? stats;
       carry = d.carry;
@@ -237,29 +331,25 @@ export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeE
       // book per call, so this only fires if that contract is broken.
       if (!(Number(d.next_id) > nextId)) throw new Error('The platform returned no progress for this export — stopping rather than retrying for ever.');
       nextId = Number(d.next_id);
-      opts.onProgress?.({ mode: mode.name, modeIndex: mi, modeCount: wanted.length, books: nextId, booksPerMode, chunks });
+      opts.onProgress?.({ mode: mode.name, modeIndex: mi, modeCount: wanted.length, books: Math.floor(nextId / oversample), booksPerMode, chunks });
       lastBooks = nextId;
       if (d.complete) break;
     }
+    await writer.close();
     if (!stats) throw new Error(`No statistics came back for mode ${mode.name}.`);
+    if (lastBooks !== booksPerMode * oversample) throw new Error(`Mode ${mode.name} simulated ${lastBooks} rounds, not the ${booksPerMode * oversample} asked for.`);
 
-    // Refuse before writing what Stake would refuse after uploading.
-    const lut = lookupTableCsv(rows);
-    const payouts = lines.map((l) => {
-      const m = /"payoutMultiplier":\s*(-?\d+)/.exec(l);
-      return m ? Number(m[1]) : NaN;
-    });
+    // Weights from the simulation's own counts; then refuse before writing what Stake would refuse after uploading.
+    const weighted = strataWeightedRows(rows, stats.strata, oversample);
+    const lut = lookupTableCsv(weighted);
     const problems = verifyStakeMode(lut, payouts);
     if (problems.length > 0) {
       throw new Error(`Mode ${mode.name} would be refused by Stake: ${problems.slice(0, 5).join('; ')}${problems.length > 5 ? ` (+${problems.length - 5} more)` : ''}`);
     }
-
-    await filesystem.writeFileOverride(filesystem.join(publishDir, stakeBooksFileName(mode.name)), compress(Buffer.from(lines.join('\n') + '\n', 'utf8')));
     await filesystem.writeFileOverride(filesystem.join(publishDir, stakeLookupFileName(mode.name)), lut);
-    lines.length = 0;
 
-    done.push({ mode, rows, stats, jsonlBytes });
-    if (lastBooks !== booksPerMode) throw new Error(`Mode ${mode.name} wrote ${lastBooks} books, not the ${booksPerMode} asked for.`);
+    // What Stake will pay: the table's own RTP, not the unweighted sample's.
+    done.push({ mode, rows: weighted, stats: { ...stats, rtp: lookupTableRtp(weighted, mode.cost) }, jsonlBytes });
   }
 
   await filesystem.writeFileOverride(filesystem.join(publishDir, 'index.json'), stakeIndexJson(done.map((m) => m.mode)));
@@ -288,6 +378,8 @@ export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeE
         declaredRtp: info.game?.declared_rtp ?? null,
         modes: done,
         skippedOptions: info.skippedOptions,
+        oversample,
+        roundRequests,
         editorVersion
       }),
       null,

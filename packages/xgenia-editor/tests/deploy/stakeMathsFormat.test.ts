@@ -67,3 +67,29 @@ test('the summary says the RTP Stake will pay and flags the rounding, with the r
   assert.match(line, /^base: 10,000 books, RTP 96\.12%, hit 31\.2%/);
   assert.match(line, /37 rounded to Stake's 0\.1× grid \(raw RTP 96\.01%\)/);
 });
+
+// (2026-11-09) Oversampled runs, the editor half of XRGS SYSTEM_MAP I-138: weights from the simulation's counts.
+import { RARE_BOOK_WEIGHT, lookupTableRtp, strataWeightedRows } from '../../src/editor/src/utils/stake/stakeMathsFormat';
+
+test('oversampled: each stratum is weighted back to its simulated share, rare books count once', () => {
+  // 1,000 rounds simulated: 900 "no_win" (paid 0), 98 "win_1x" (paid 1x), 2 rare (paid 50x).
+  // Kept: 90 no_win, 10 win_1x, both rare.
+  const rows = [
+    ...Array.from({ length: 90 }, (_, i) => ({ id: i, payout: 0, stratum: 'no_win' })),
+    ...Array.from({ length: 10 }, (_, i) => ({ id: 90 + i, payout: 100, stratum: 'win_1x' })),
+    { id: 100, payout: 5000, stratum: null },
+    { id: 101, payout: 5000, stratum: null }
+  ];
+  const w = strataWeightedRows(rows, [{ stratum: 'no_win', simulations: 900 }, { stratum: 'win_1x', simulations: 98 }], 10);
+  assert.equal(w[0].weight, RARE_BOOK_WEIGHT * 10);
+  assert.equal(w[90].weight, RARE_BOOK_WEIGHT * 9.8);
+  assert.equal(w[100].weight, RARE_BOOK_WEIGHT);
+  // The simulation paid (98 × 1 + 2 × 50) / 1000 = 0.198 per round.
+  assert.ok(Math.abs(lookupTableRtp(w, 1) - 0.198) < 1e-9, String(lookupTableRtp(w, 1)));
+  assert.ok(w.every((r) => Number.isInteger(r.weight)));
+});
+
+test('oversample 1 is the uniform table; a stratum the platform did not count is refused, not guessed', () => {
+  assert.deepEqual(strataWeightedRows([{ id: 0, payout: 0, stratum: 'no_win' }], [], 1).map((r) => r.weight), [1]);
+  assert.throws(() => strataWeightedRows([{ id: 0, payout: 0, stratum: 'no_win' }], [], 10), /no simulated rounds/);
+});
