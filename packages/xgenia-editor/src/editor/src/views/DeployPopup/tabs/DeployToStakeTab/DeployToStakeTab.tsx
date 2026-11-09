@@ -9,6 +9,7 @@ import { listEdgeDeployments } from '@xgenia-utils/rgs/deployEdgeFunction';
 import { getActiveGame, getRgsSettings } from '@xgenia-utils/rgs/rgsClient';
 import { exportStakeMaths } from '@xgenia-utils/stake/stakeMathsExport';
 import { summariseStakeModes } from '@xgenia-utils/stake/stakeMathsFormat';
+import { declaredStakeModes } from '@xgenia-utils/stake/stakeModes';
 
 import { Checkbox } from '@xgenia-core-ui/components/inputs/Checkbox';
 import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
@@ -21,6 +22,7 @@ import { TextType } from '@xgenia-core-ui/components/typography/Text/Text';
 import { ToastLayer } from '../../../ToastLayer/ToastLayer';
 import { NO_ENVIRONMENT_VALUE } from '../../DeployPopup.constants';
 import { useEnvironmentsAsOptions } from '../../DeployPopup.hooks';
+import { StakeReadinessSection } from './StakeReadinessSection';
 
 /** A deployed Math Component the maths export can be run against. */
 interface ExportableComponent {
@@ -146,6 +148,8 @@ export function DeployToStakeTab() {
         outputDir: direntry,
         booksPerMode: books,
         bet: betMinor,
+        // The buy / ante the game's Bet Mode node offers, so they are exported as Stake modes.
+        stakeModes: declaredStakeModes((ProjectModel.instance as any)?.toJSON?.()),
         onProgress: (p) => {
           ToastLayer.showActivity(
             `Exporting maths for Stake — ${p.mode} (${p.modeIndex + 1}/${p.modeCount}): ` +
@@ -215,6 +219,7 @@ export function DeployToStakeTab() {
 
   return (
     <>
+      <StakeReadinessSection />
       <PopupSection>
         <Text hasBottomSpacing textType={TextType.DefaultContrast}>
           Export your game&apos;s frontend as static files for Stake.com (Pro Nodes).

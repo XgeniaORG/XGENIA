@@ -39,6 +39,7 @@ import { createEdgeDeployment, deployEdgeFunction, listEdgeDeployments } from '.
 import { rgsFunctionsUrl, rgsHeaders } from './rgsClient';
 import { WIN_PORT_PRECEDENCE, platformWarningsFor, winPortFor } from './mathsPorts';
 import { MONEY_SCALE, MONEY_SCALE_FIELD, functionConvertsMoney, withMoneyScale } from './moneyScale';
+import { stakeAggregatorParameters, type StakeConnectorConfig } from '../stake/stakeConnector';
 
 /** Sheet every Math Component lives under. */
 export const MATHS_PREFIX = '/#__maths__/';
@@ -580,6 +581,11 @@ export interface MathsEndpoint {
   url: string;
   /** Set when the deployed script takes its bet and pays its win in cents (moneyScale.ts). */
   money?: { scale: number; betPort: string; winPort: string };
+  /**
+   * Stake Engine build (2026-11-09): no endpoint to call. The Aggregator plays the component from the Stake book
+   * (runtime stake-book-session.js) with this as its Stake Config — see utils/stake/stakeConnector.ts.
+   */
+  stake?: StakeConnectorConfig;
 }
 
 /**
@@ -764,8 +770,11 @@ export function mathsAggregatorParameters(args: {
   targetComponent: string;
   /** The endpoint takes cents (MathsEndpoint.money): the node converts its bet and win. */
   money?: MathsEndpoint['money'];
+  /** A Stake build: the node plays the Stake book instead of calling a URL. */
+  stake?: MathsEndpoint['stake'];
 }): Record<string, string | number> {
   const signalOutputs = args.signalOutputs || [];
+  if (args.stake) return stakeAggregatorParameters({ ...args, stake: args.stake });
   return {
     url: args.url,
     dataInputs: args.dataInputs.join(', '),
@@ -872,7 +881,8 @@ export function swapDeployedMathsInstances(
           outputs: usedOutputs,
           signalOutputs: usedSignals,
           targetComponent: instance.typename,
-          money: endpoint.money
+          money: endpoint.money,
+          stake: endpoint.stake
         }),
         ports: [],
         dynamicports: [

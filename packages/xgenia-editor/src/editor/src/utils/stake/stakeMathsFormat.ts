@@ -24,6 +24,49 @@ export interface StakeLutRow {
   id: number;
   payout: number;
   weight?: number;
+  /** As the platform reports a kept book (stake-books.ts runStakeChunk): its criteria and sampled stratum. */
+  criteria?: string;
+  /** null: a rare book, always kept (win cap, a feature in the base game, a win of 10× the price or more). */
+  stratum?: string | null;
+}
+
+/** A rare book's weight in an oversampled package; a sampled book weighs this × its stratum's 1-in-N. */
+export const RARE_BOOK_WEIGHT = 1000;
+
+/**
+ * The lookup-table weights of an oversampled run (2026-11-09, the editor half of XRGS SYSTEM_MAP I-138).
+ *
+ * With `oversample` N the platform simulates N rounds per book asked for, keeps every rare one and a hash-chosen
+ * 1-in-N of the rest, and reports how many rounds it simulated in each payout stratum. Weighting each stratum's
+ * kept books by (rounds simulated in it ÷ books kept from it) makes the package pay exactly what the simulation
+ * paid — no weight is chosen to fit an RTP. Rare books weigh RARE_BOOK_WEIGHT (one simulated round each).
+ *
+ * Refuses rather than guesses: a sampled book whose stratum has no simulated count would get an invented weight.
+ */
+export function strataWeightedRows(rows: StakeLutRow[], strata: { stratum: string; simulations: number }[] | undefined, oversample: number): StakeLutRow[] {
+  if (!(oversample > 1)) return rows.map((r) => ({ ...r, weight: 1 }));
+  const sims = new Map((strata || []).map((s) => [s.stratum, Number(s.simulations) || 0]));
+  const kept = new Map<string, number>();
+  for (const r of rows) if (r.stratum) kept.set(r.stratum, (kept.get(r.stratum) || 0) + 1);
+  const weightOf = new Map<string, number>();
+  for (const [stratum, n] of kept) {
+    const simulated = sims.get(stratum);
+    if (!simulated) throw new Error(`The platform reported no simulated rounds for stratum "${stratum}" but kept ${n} of its books: cannot weight them.`);
+    weightOf.set(stratum, Math.max(1, Math.round((RARE_BOOK_WEIGHT * simulated) / n)));
+  }
+  return rows.map((r) => ({ ...r, weight: r.stratum ? weightOf.get(r.stratum)! : RARE_BOOK_WEIGHT }));
+}
+
+/** RTP of a weighted table, as Stake computes it: Σ(weight × payout) ÷ Σweight ÷ 100 ÷ cost. */
+export function lookupTableRtp(rows: StakeLutRow[], cost: number): number {
+  let w = 0;
+  let wp = 0;
+  for (const r of rows) {
+    const weight = r.weight ?? 1;
+    w += weight;
+    wp += weight * r.payout;
+  }
+  return w > 0 ? wp / w / 100 / cost : 0;
 }
 
 export function stakeBooksFileName(mode: string): string {
@@ -111,6 +154,10 @@ export interface StakeModeStats {
   capped_books: number;
   max_multiplier: number;
   elapsed_ms: number;
+  /** Oversampled runs (XRGS I-138): every round simulated, what they paid, and the rounds per stratum. */
+  simulations?: number;
+  rtp_simulated?: number;
+  strata?: { stratum: string; simulations: number }[];
 }
 
 /** One mode's finished export, before and after the files are written. */
@@ -135,6 +182,10 @@ export interface StakeExportManifestInput {
   declaredRtp: unknown;
   modes: StakeModeExport[];
   skippedOptions: string[];
+  /** Rounds simulated per book kept (1: a uniform package). */
+  oversample?: number;
+  /** The request each mode was played from, when auto-setup found one other than the game's own. */
+  roundRequests?: Record<string, unknown>;
   editorVersion?: string;
   exportedAt?: string;
 }
@@ -161,6 +212,8 @@ export function buildStakeExportManifest(i: StakeExportManifestInput): Record<st
       bet_minor_units: i.bet,
       max_win_multiplier: i.maxWinMultiplier,
       choice_policy: i.choicePolicy,
+      oversample: i.oversample ?? 1,
+      round_requests: i.roundRequests ?? {},
       rule: 'book i is played from Isaac.fromHex(sha256(master_seed + ":" + i)); the start-up request runs once from index -1 and its state opens every book'
     },
     declared_rtp: i.declaredRtp ?? null,
@@ -170,7 +223,9 @@ export function buildStakeExportManifest(i: StakeExportManifestInput): Record<st
       kind: m.mode.kind,
       option_id: m.mode.optionId,
       files: { events: stakeBooksFileName(m.mode.name), weights: stakeLookupFileName(m.mode.name) },
-      weights: 'uniform (1 per book) — the Math SDK\'s unoptimised table; run its optimizer on the CSV to target an RTP',
+      weights: (i.oversample ?? 1) > 1
+        ? `stratified: rare books ${RARE_BOOK_WEIGHT}, each sampled stratum ${RARE_BOOK_WEIGHT} × (rounds simulated ÷ books kept) — the package pays what the simulation paid`
+        : 'uniform (1 per book): the package pays what this sample of books paid',
       stats: m.stats
     })),
     skipped_options: i.skippedOptions,
@@ -191,6 +246,11 @@ export function summariseStakeModes(modes: StakeModeExport[]): string {
       if (s.rounded_books > 0) flags.push(`${s.rounded_books} rounded to Stake's 0.1× grid (raw RTP ${(s.rtp_raw * 100).toFixed(2)}%)`);
       if (s.truncated_books > 0) flags.push(`${s.truncated_books} cut at the feature backstop`);
       if (s.capped_books > 0) flags.push(`${s.capped_books} hit the max-win cap`);
+      // Oversampled: the package's RTP is an estimate of the simulation's; say how far it landed (2026-11-09:
+      // ~0.1 point on a real slot at 1M rounds, sampling noise in the top payout bands).
+      if (typeof s.rtp_simulated === 'number' && s.simulations && s.simulations > s.books) {
+        flags.push(`simulated ${(s.rtp_simulated * 100).toFixed(2)}% over ${s.simulations.toLocaleString()} rounds (package ${((s.rtp - s.rtp_simulated) * 100 >= 0 ? '+' : '')}${((s.rtp - s.rtp_simulated) * 100).toFixed(2)} points)`);
+      }
       return `${m.mode.name}: ${s.books.toLocaleString()} books, RTP ${(s.rtp * 100).toFixed(2)}%, hit ${(s.hit_rate * 100).toFixed(1)}%` +
         (flags.length ? ` — ${flags.join('; ')}` : '');
     })

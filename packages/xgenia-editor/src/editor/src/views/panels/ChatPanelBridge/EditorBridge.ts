@@ -26,6 +26,7 @@ import { ComponentModel } from '@xgenia-models/componentmodel';
 import { NodeGraphModel, NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 import { NodeLibrary } from '@xgenia-models/nodelibrary';
 import { ProjectModel } from '@xgenia-models/projectmodel';
+import { stakeReadiness } from '@xgenia-utils/stake/stakeReadiness';
 import { takePendingSeed } from '../../../models/lobby/lobbySeed';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { UndoActionGroup, UndoQueue } from '@xgenia-models/undo-queue-model';
@@ -3314,6 +3315,14 @@ export class EditorBridge {
             try { return startPublish(spec); } catch (e: any) { return { error: e?.message || String(e) }; }
         });
         h('publish.job', ([jobId]: [string?]) => publishJob(jobId));
+
+        // --- Stake Engine (2026-11-09) ---
+        // stake.readiness() → ReadinessReport: what in the open project will break on Stake, each issue with the
+        // fix for the user and an instruction for the AI (utils/stake/stakeReadiness.ts). The Stake tab shows the
+        // same report and can hand it to the AI ("Fix with AI" → event `stake-ask-ai`).
+        h('stake.readiness', () => {
+            try { return stakeReadiness((ProjectModel.instance as any)?.toJSON?.()); } catch (e: any) { return { error: e?.message || String(e) }; }
+        });
 
         // --- Filesystem commands ---
         //

@@ -52,6 +52,27 @@
 
 const EdgeTriggeredInput = require('../../../edgetriggeredinput');
 const { getPlayContextFields, getClientId, launchedSessionFromUrl } = require('./rgs-play-context');
+const { stakeBookSessionForPage, parseStakeConfig } = require('./stake-book-session');
+
+// Stake Engine (2026-11-09): with `transport` = "stake" the Aggregator does not POST to an RGS. It hands each
+// trigger to the page's Stake Book Session (stake-book-session.js), which plays one /wallet/play per paid
+// event and answers the free rounds that follow from the same book, locally — same ports, same outputs, so the
+// game graph built for XRGS plays on Stake unchanged. `stakeConfig` (JSON) says how: exportBet, betField,
+// winField, moneyFields, modeField, modes, startupTriggers, gameUnitsPerCurrencyUnit. Extra outputs:
+// stakeInFeature, stakeRoundsLeft, stakeRoundComplete (signal), stakeBetLevels, stakeDefaultBet, stakeCurrency,
+// stakeSocial, stakeReplay, stakeResumePending.
+const STAKE_OUTPUTS = [
+  ['stakeInFeature', 'In Feature'],
+  ['stakeRoundsLeft', 'Rounds Left'],
+  ['stakeRoundComplete', 'Round Complete', 'signal'],
+  ['stakeBetLevels', 'Bet Levels'],
+  ['stakeDefaultBet', 'Default Bet'],
+  ['stakeCurrency', 'Currency'],
+  ['stakeSocial', 'Social Mode'],
+  ['stakeReplay', 'Replay Mode'],
+  ['stakeResumePending', 'Resume Pending'],
+  ['stakeModes', 'Stake Modes']
+];
 
 const DEFAULT_URL = 'http://localhost:54321/functions/v1/aggregator';
 const REQUEST_TIMEOUT_MS = 10000;
@@ -175,6 +196,24 @@ const AggregatorNode = {
         this._internal.signalOutputs = value;
       }
     },
+    transport: {
+      type: { name: 'enum', enums: [{ value: 'http', label: 'XGENIA RGS (HTTP)' }, { value: 'stake', label: 'Stake Engine book' }] },
+      displayName: 'Transport',
+      group: 'General',
+      default: 'http',
+      set: function (value) {
+        this._internal.transport = value;
+        this.scheduleAfterInputsHaveUpdated(this.readStakeInfoOnLoad.bind(this));
+      }
+    },
+    stakeConfig: {
+      type: 'string',
+      displayName: 'Stake Config',
+      group: 'Stake',
+      set: function (value) {
+        this._internal.stakeConfig = value;
+      }
+    },
     moneyScale: {
       type: 'number',
       displayName: 'Money Scale',
@@ -264,6 +303,7 @@ const AggregatorNode = {
       // What the RGS recorded for a staked round: the wallet balance after it, what it paid and its id. A published
       // demo shows THIS balance and win (the RGS owns the money), not what the game's own logic would have said.
       const rgs = body.__rgs && typeof body.__rgs === 'object' ? body.__rgs : null;
+      if (body.__stake && typeof body.__stake === 'object') this.applyStakeOutputs(body.__stake);
       // Cents back to the game's money: only from a script that converted this request (it says so).
       const scale = this.moneyScaleInUse();
       const converted = scale > 1 && Number(body.__moneyScale) === scale;
@@ -281,7 +321,7 @@ const AggregatorNode = {
       }
       for (const field in body) {
         if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
-        if (field === '__rgs' || field === '__moneyScale') continue;
+        if (field === '__rgs' || field === '__moneyScale' || field === '__stake') continue;
         // A Math Component may declare rgsBalance / rgsWin / rgsRoundId outputs so its game can read them; the maths
         // never sets them (it cannot see the wallet), so its own empty value must not overwrite what the RGS recorded.
         if (fromRgs && fromRgs[field] !== undefined) continue;
@@ -305,7 +345,7 @@ const AggregatorNode = {
       const url = this._internal.url || '';
       const match = /^(https?:\/\/[^?#]*\/rgs-fn\/[^/?#]+)\/[^/?#]+/.exec(url);
       const scale = this.moneyScaleInUse();
-      if (!match || scale <= 1 || typeof fetch !== 'function' || launchedSessionFromUrl()) return;
+      if (this._internal.transport === 'stake' || !match || scale <= 1 || typeof fetch !== 'function' || launchedSessionFromUrl()) return;
       this._internal.balanceAsked = true;
       const _this = this;
       let client;
@@ -329,11 +369,85 @@ const AggregatorNode = {
         })
         .catch(function () {});
     },
+    setOutput: function (name, value) {
+      this._internal.outputValues = this._internal.outputValues || {};
+      this._internal.outputValues[name] = value;
+      this.registerOutputIfNeeded('out-' + name);
+      if (this.hasOutput('out-' + name)) this.flagOutputDirty('out-' + name);
+    },
+    applyStakeOutputs: function (st) {
+      if (st.inFeature !== undefined) this.setOutput('stakeInFeature', !!st.inFeature);
+      if (st.roundsLeft !== undefined) this.setOutput('stakeRoundsLeft', st.roundsLeft);
+      if (st.roundComplete) {
+        this.registerOutputIfNeeded('out-stakeRoundComplete');
+        if (this.hasOutput('out-stakeRoundComplete')) this.sendSignalOnOutput('out-stakeRoundComplete');
+      }
+    },
+    stakeSession: function () {
+      if (!this._internal.stake) {
+        this._internal.stake = stakeBookSessionForPage({
+          fetch: typeof fetch === 'function' ? fetch.bind(globalThis) : null,
+          location: typeof location !== 'undefined' ? location : { search: '', protocol: 'https:' }
+        });
+      }
+      return this._internal.stake;
+    },
+    // Bet levels, balance, currency and the modes Stake launched the game in — before the first round, so the
+    // bet selector offers only Stake's levels and a reloaded game knows a round is waiting.
+    readStakeInfoOnLoad: function () {
+      if (this._internal.transport !== 'stake' || this._internal.stakeInfoAsked) return;
+      this._internal.stakeInfoAsked = true;
+      const _this = this;
+      let cfg;
+      try {
+        cfg = parseStakeConfig(this._internal.stakeConfig);
+      } catch (e) {
+        this.setError(e.message);
+        return;
+      }
+      this.stakeSession()
+        .info(cfg)
+        .then(function (info) {
+          for (const k in info) if (info[k] !== undefined) _this.setOutput(k === 'rgsBalance' ? 'rgsBalance' : k, info[k]);
+        })
+        .catch(function (e) {
+          _this.setError((e && e.message) || String(e));
+        });
+    },
+    doSendStake: function () {
+      const _this = this;
+      const data = {};
+      const values = this._internal.dataValues || {};
+      for (const k in values) data[k] = values[k];
+      let cfg;
+      try {
+        cfg = parseStakeConfig(this._internal.stakeConfig);
+      } catch (e) {
+        this.setError(e.message);
+        this.sendSignalOnOutput('failure');
+        return;
+      }
+      this._internal.lastPayload = { trigger: this._internal.activeTrigger, data: data };
+      this.stakeSession()
+        .request(this._internal.activeTrigger, data, cfg)
+        .then(function (body) {
+          _this._internal.lastResponse = body;
+          _this._internal.inspectData = { transport: 'stake', payload: _this._internal.lastPayload, response: body };
+          _this.applyOutputs(body, true);
+          _this.sendSignalOnOutput('success');
+        })
+        .catch(function (e) {
+          console.log('Aggregator (Stake):', e);
+          _this.setError((e && e.message) || String(e));
+          _this.sendSignalOnOutput('failure');
+        });
+    },
     moneyScaleInUse: function () {
       const scale = Number(this._internal.moneyScale) || 1;
       return scale > 1 && this._internal.betField && this._internal.winField ? scale : 1;
     },
     doSend: function () {
+      if (this._internal.transport === 'stake') return this.doSendStake();
       const payload = {};
       const data = this._internal.dataValues || {};
       for (const key in data) payload[key] = data[key];
@@ -473,6 +587,12 @@ function buildPorts(parameters) {
     if (declared.has(pair[0])) return;
     ports.push({ type: { name: '*', allowConnectionsOnly: true }, plug: 'output', group: 'RGS', name: 'out-' + pair[0], displayName: pair[1] });
   });
+  if (parameters.transport === 'stake') {
+    STAKE_OUTPUTS.forEach(function (o) {
+      if (declared.has(o[0])) return;
+      ports.push({ type: o[2] === 'signal' ? 'signal' : { name: '*', allowConnectionsOnly: true }, plug: 'output', group: 'Stake', name: 'out-' + o[0], displayName: o[1] });
+    });
+  }
 
   return ports;
 }
@@ -490,7 +610,7 @@ module.exports = {
     function manage(node) {
       context.editorConnection.sendDynamicPorts(node.id, buildPorts(node.parameters));
       node.on('parameterUpdated', function (event) {
-        if (event.name === 'dataInputs' || event.name === 'triggers' || event.name === 'outputs' || event.name === 'signalOutputs') {
+        if (event.name === 'dataInputs' || event.name === 'triggers' || event.name === 'outputs' || event.name === 'signalOutputs' || event.name === 'transport') {
           context.editorConnection.sendDynamicPorts(node.id, buildPorts(node.parameters));
         }
       });
