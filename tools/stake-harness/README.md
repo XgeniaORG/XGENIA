@@ -124,3 +124,23 @@ Every defect is injected once and must turn a check red. A check that stays gree
 - **Buying in the browser.** A buy needs game-specific clicks. Without `--buy-steps`, buy modes are only tested by the bot.
 - **Moving rules.** Stake's limits are copied from math-sdk at HEAD on 2026-11-02 (`LIMITS` in `lib/validate.mjs`). The docs site still says 90–98 %, and the payout grid (0.1× vs 0.01×) is an open question on math-sdk #121. When Stake changes these, change `LIMITS`.
 - **Rebalancing.** `rebalance` moves RTP by reweighting books below and above the target mean. That also changes the hit rate and the feature frequency, and `validate` reports both. It is not the math-sdk optimiser.
+
+## The Book Connector (runtime side)
+
+`packages/xgenia-runtime/src/nodes/std-library/data/stake-book-session.js` is what makes an XGENIA game play
+Stake books. An Aggregator with `transport` = `stake` (the swap in `utils/stake/stakeConnector.ts` makes one per
+Math Component) hands it every trigger the Math Component used to get:
+
+- **a trigger with no book open** → one `/wallet/play` (bet from `betField`, mode from `modeField`/`modes`), answered with the book's first round;
+- **every trigger after that** → the book's next round, locally, with `/bet/event` saved at each round of a bonus;
+- **the last round** → its answer, then `/wallet/end-round` in the background after `minimumRoundDuration`. The next play waits for it;
+- **reload with an active round** → that book again from its first round, at no charge, then ended;
+- **replay** → `GET /bet/replay/...`, with no wallet call.
+
+Money in a book's data is scaled from `exportBet` to the player's bet, and the win comes from `winMultiplier`.
+Extra outputs: `stakeInFeature`, `stakeRoundsLeft`, `stakeRoundComplete`, `stakeBetLevels`, `stakeDefaultBet`,
+`stakeCurrency`, `stakeSocial`, `stakeReplay`, `stakeResumePending`.
+
+`test/book-session.test.mjs` plays it against the emulator and requires zero contract breaches.
+
+**Not wired yet:** the Deploy → Stake tab does not call the swap. It needs each component's `StakeConnectorConfig` from the maths export, and that export is being reworked. Until then a Stake build still ships the Math Component itself.
