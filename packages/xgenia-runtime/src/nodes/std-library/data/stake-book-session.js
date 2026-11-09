@@ -211,6 +211,12 @@ function createStakeBookSession(deps) {
     const gameMode = cfg.modeField ? payload[cfg.modeField] : null;
     const modes = cfg.modes || {};
     const mode = gameMode != null && gameMode !== '' ? (modes[gameMode] || String(gameMode)) : (modes.default || 'base');
+    // Engine's authenticate lists the modes the uploaded maths has (config.gameModes, seen on rgsd.engine.io
+    // 2026-11-09). An unknown mode is refused there as "invalid amount" — say what is really wrong instead.
+    const offered = (s.config && Array.isArray(s.config.gameModes) ? s.config.gameModes : []).map((m) => String(m && m.mode).toLowerCase());
+    if (offered.length && offered.indexOf(String(mode).toLowerCase()) === -1) {
+      throw new StakeError('UNKNOWN_MODE', 'Bet mode "' + mode + '" is not in the maths uploaded to Stake (it has: ' + offered.join(', ') + '). Offer only those modes.');
+    }
     const r = await call('/wallet/play', { amount, mode });
     if (r.balance) s.balance = r.balance.amount;
     return openBook(r.round, betGame, { mode });
@@ -236,12 +242,17 @@ function createStakeBookSession(deps) {
     book.cursor++;
     const last = book.cursor >= book.positions.length;
     const ratio = Number(cfg.exportBet) > 0 ? book.betGame / Number(cfg.exportBet) : 1;
-    const money = new Set((cfg.moneyFields || []).concat(cfg.winField ? [cfg.winField] : []));
+    const moneyPaths = (cfg.moneyFields || []).concat(cfg.winField ? [cfg.winField] : []);
     const data = ev && ev.data && typeof ev.data === 'object' ? ev.data : {};
-    const body = {};
-    for (const k in data) {
-      if (!Object.prototype.hasOwnProperty.call(data, k)) continue;
-      body[k] = money.has(k) && isMoneyNumber(data[k]) ? data[k] * ratio : data[k];
+    // A copy: the book's own data stays as Stake sent it (resume and replay read it again).
+    const body = JSON.parse(JSON.stringify(data));
+    // Money fields may be nested ("finalResult.totalWinnings", as real book data is): scaled from the export bet.
+    for (const path of moneyPaths) {
+      const keys = String(path).split('.');
+      let at = body;
+      for (let i = 0; i < keys.length - 1 && at && typeof at === 'object'; i++) at = at[keys[i]];
+      const last = keys[keys.length - 1];
+      if (at && typeof at === 'object' && isMoneyNumber(at[last])) at[last] = at[last] * ratio;
     }
     if (cfg.winField && isMoneyNumber(ev && ev.winMultiplier)) body[cfg.winField] = ev.winMultiplier * book.betGame;
 
@@ -319,6 +330,7 @@ function createStakeBookSession(deps) {
         stakeCurrency: s.currency,
         stakeSocial: launch.social,
         stakeReplay: launch.replay,
+        stakeModes: s.config && Array.isArray(s.config.gameModes) ? s.config.gameModes.map((m) => ({ mode: m.mode, cost: m.costMultiplier })) : undefined,
         stakeResumePending: !!s.resumable
       };
     },

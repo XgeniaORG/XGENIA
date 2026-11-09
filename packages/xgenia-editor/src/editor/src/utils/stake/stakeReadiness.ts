@@ -125,7 +125,12 @@ export function stakeReadiness(project: any): ReadinessReport {
   }
 
   // ── Maths ────────────────────────────────────────────────────────────────────────────────────
-  if (!maths.length) {
+  // A project can also drive Stake by hand with the stake.* nodes and play books exported from a Math Component
+  // elsewhere (an RGS test bench, or a frontend-only project) — a real pattern (2026-11-09, RGS-TEST), not an error.
+  const allNodes = comps.flatMap((c) => nodesOf(c).map((n) => ({ comp: c, node: n })));
+  const manual = allNodes.filter(({ node }) => typeOf(node).startsWith('stake.'));
+  const hasManualPlay = manual.some(({ node }) => typeOf(node) === 'stake.RGSPlay');
+  if (!maths.length && !hasManualPlay) {
     add({
       code: 'NO_MATHS_COMPONENT',
       level: 'error',
@@ -256,7 +261,30 @@ export function stakeReadiness(project: any): ReadinessReport {
   if (maths.length && !instances) {
     add({ code: 'MATHS_UNUSED', level: 'error', message: 'No screen uses the Math Component, so the game cannot play a round from it.', fix: 'Place the Math Component in the game screen and wire Spin and the bet into it.', ai: 'Place the /#__maths__/ component in the game\'s main component and wire its Spin trigger and bet input.' });
   }
-  if (stakeNodes) {
+  for (const { comp, node } of manual) {
+    if (String(node.parameters?.protocol || '').toLowerCase() === 'http') {
+      add({ code: 'STAKE_NODE_HTTP', level: 'error', where: where(comp, node), message: `${typeOf(node)} is set to plain http. Stake's RGS answers https only, so on Stake this call fails (http is for a local mock).`, fix: 'Set its Protocol to https (or leave it empty).', ai: `Set the protocol parameter of ${node.label || typeOf(node)} in ${comp.name} to "https".` });
+    }
+  }
+  if (!maths.length && hasManualPlay) {
+    const types = new Set(manual.map(({ node }) => typeOf(node)));
+    const wiredTrigger = (t: string, port: string) =>
+      manual.some(({ comp, node }) => typeOf(node) === t && (comp.graph?.connections || []).some((c) => c.toId === node.id && c.toProperty === port));
+    if (!types.has('stake.RGSAuthenticate') || !wiredTrigger('stake.RGSAuthenticate', 'authenticate')) {
+      add({ code: 'MANUAL_NO_AUTHENTICATE', level: 'error', message: 'stake.RGSPlay is used but nothing triggers stake.RGSAuthenticate: every other Stake call is refused before it.', fix: 'Trigger Authenticate when the game loads (not from a button).', ai: 'Wire the page/app load signal to stake.RGSAuthenticate.authenticate.' });
+    }
+    if (!types.has('stake.RGSEndRound') || !wiredTrigger('stake.RGSEndRound', 'endRound')) {
+      add({ code: 'MANUAL_NO_END_ROUND', level: 'error', message: 'Nothing triggers stake.RGSEndRound: a winning round is never paid and every next bet is refused (the stuck bonus).', fix: 'Trigger End Round when the LAST event of the round has been shown — automatically, not from a button.', ai: 'Wire the "round finished animating" signal (after the last book event) to stake.RGSEndRound.endRound.' });
+    }
+    add({
+      code: 'MANUAL_STAKE_WIRING',
+      level: 'warn',
+      message: 'This project drives Stake by hand with the stake.* nodes. Then the game itself must: authenticate on load; play ONCE per bet; show EVERY event of round.state (a bonus is many rounds in one play — never call Play again for a free spin); end the round after the last one; on load, finish a round Authenticate returns as active; in replay mode (?replay=true) make no wallet calls; offer only the modes the uploaded maths has (an unknown mode is refused, as "invalid amount").',
+      fix: 'For a game, prefer a Math Component played by the Stake build (no hand wiring); keep the stake.* nodes for test benches.',
+      ai: 'Check each of these behaviours in the graph; the safest route is a Math Component and the Stake build, not hand-wired stake.* nodes.'
+    });
+  }
+  if (stakeNodes && maths.length) {
     add({ code: 'HAND_WIRED_STAKE_NODES', level: 'warn', message: `The game has ${stakeNodes} hand-wired Stake RGS node(s) (stake.RGSPlay, stake.RGSEndRound …). A Stake build plays the Math Component from the book by itself (authenticate, play, free rounds, end-round, resume, replay); hand-wired nodes on top of it play and end rounds twice.`, fix: 'Remove the stake.* RGS nodes and let the Stake build connect the Math Component.', ai: 'Delete the stake.RGSAuthenticate / RGSPlay / RGSEndRound / RGSEvent / RGSBalance nodes; the Stake build wires the Math Component to Stake itself. Use the Aggregator outputs stakeBetLevels, rgsBalance and stakeRoundComplete instead.' });
   }
 

@@ -90,3 +90,21 @@ test('while the Stake build does not play books, a game with maths is told so (w
   const r = stakeReadiness(project([n('fs', 'Calculate Free Spins States')]));
   assert.equal(codes(r).includes('STAKE_BUILD_NOT_WIRED'), !STAKE_BUILD_PLAYS_BOOKS);
 });
+
+test('a hand-wired Stake bench (stake.* nodes, no Math Component) is checked as such, not as a broken game', () => {
+  const bench = {
+    components: [{
+      name: '/Start Page',
+      graph: {
+        roots: [n('a', 'stake.RGSAuthenticate'), n('p', 'stake.RGSPlay'), n('e', 'stake.RGSEvent', { protocol: 'http' }), n('end', 'stake.RGSEndRound'), n('b1', 'net.xgenia.controls.button'), n('b2', 'net.xgenia.controls.button')],
+        connections: [c('b1', 'onClick', 'a', 'authenticate'), c('b2', 'onClick', 'p', 'play')]
+      }
+    }]
+  };
+  const r = stakeReadiness(bench);
+  const cs = codes(r);
+  assert.ok(!cs.includes('NO_MATHS_COMPONENT'));
+  assert.ok(!cs.includes('HAND_WIRED_STAKE_NODES'), 'only a problem next to a Math Component (double play)');
+  for (const code of ['STAKE_NODE_HTTP', 'MANUAL_NO_END_ROUND', 'MANUAL_STAKE_WIRING']) assert.ok(cs.includes(code), code);
+  assert.ok(!cs.includes('MANUAL_NO_AUTHENTICATE'));
+});

@@ -70,7 +70,8 @@ const STAKE_OUTPUTS = [
   ['stakeCurrency', 'Currency'],
   ['stakeSocial', 'Social Mode'],
   ['stakeReplay', 'Replay Mode'],
-  ['stakeResumePending', 'Resume Pending']
+  ['stakeResumePending', 'Resume Pending'],
+  ['stakeModes', 'Stake Modes']
 ];
 
 const DEFAULT_URL = 'http://localhost:54321/functions/v1/aggregator';

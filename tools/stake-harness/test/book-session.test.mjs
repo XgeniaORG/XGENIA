@@ -194,3 +194,25 @@ test('one session per page: in-app navigation that drops the query string keeps 
   assert.equal(a, b);
   assert.equal(a, c);
 });
+
+test('a mode the uploaded maths does not have is refused by the connector with the real reason', async () => {
+  await withEmu(async (emu) => {
+    const s = session(emu, 'mode');
+    const info = await s.info(CFG);
+    assert.deepEqual(info.stakeModes.map((m) => m.mode), ['base', 'bonus']);
+    await assert.rejects(s.request('Spin', { bet: 1, mode: 'enhanced_25' }, CFG), (e) => e.code === 'UNKNOWN_MODE' && /base, bonus/.test(e.message));
+    assert.equal(calls(await state(emu), 'mode', '/wallet/play').length, 0);
+  });
+});
+
+test('money fields scale from the export bet to the player\'s bet', async () => {
+  await withEmu(async (emu) => {
+    const s = session(emu, 'nested');
+    await force(emu, { mode: 'base', kind: 'single', sessionID: 'nested' });
+    const a = await s.request('Spin', { bet: 2 }, { ...CFG, winField: undefined, moneyFields: ['totalWin'] });
+    const st = await state(emu);
+    const play = calls(st, 'nested', '/wallet/play')[0];
+    assert.ok(Math.abs(a.totalWin - play.round.payout / 1e6) < 1e-9, 'scaled at bet 2 from export bet 100');
+    await s._state.ending;
+  });
+});

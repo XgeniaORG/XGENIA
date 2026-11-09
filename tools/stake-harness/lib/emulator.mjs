@@ -238,6 +238,8 @@ export function createEmulator(pkg, o = {}) {
             defaultBetLevel: betLevels.includes(API_MULTIPLIER) ? API_MULTIPLIER : betLevels[0],
             betLevels,
             betModes: {},
+            // As Engine's dev RGS answers (rgsd.engine.io, 2026-11-09): the modes the uploaded maths has.
+            gameModes: pkg.modes.map((m) => ({ mode: m.name, costMultiplier: m.cost, maxBet: betLevels[betLevels.length - 1] })),
             jurisdiction,
           },
           round: round ? roundView(round) : null,
@@ -267,7 +269,8 @@ export function createEmulator(pkg, o = {}) {
       const mode = pkg.mode(body.mode ?? 'base');
       if (!mode) {
         violate(s.id, 'UNKNOWN_MODE', `mode "${body.mode}" is not in index.json (${pkg.modes.map((m) => m.name).join(', ')})`);
-        return err(400, 'ERR_VAL', `unknown mode ${body.mode}`);
+        // Engine's dev RGS answers an unknown mode with this misleading message (seen 2026-11-09).
+        return err(400, 'ERR_VAL', 'invalid amount');
       }
       const amount = Number(body.amount);
       if (!Number.isInteger(amount) || amount <= 0) {
