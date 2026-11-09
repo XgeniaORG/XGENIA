@@ -744,7 +744,7 @@ xgeniaRuntime.prototype.getNodeLibrary = function () {
   nodeLibrary.projectsettings = projectSettings;
   // Use JSON.stringify with a replacer to handle potential circular structures if needed
   // For now, stick to simple stringify, but be aware
-  return JSON.stringify(nodeLibrary, null, 3);
+  return JSON.stringify(nodeLibrary);
 };
 
 xgeniaRuntime.prototype.sendNodeLibrary = function () {
