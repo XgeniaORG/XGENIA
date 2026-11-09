@@ -246,6 +246,11 @@ export function summariseStakeModes(modes: StakeModeExport[]): string {
       if (s.rounded_books > 0) flags.push(`${s.rounded_books} rounded to Stake's 0.1× grid (raw RTP ${(s.rtp_raw * 100).toFixed(2)}%)`);
       if (s.truncated_books > 0) flags.push(`${s.truncated_books} cut at the feature backstop`);
       if (s.capped_books > 0) flags.push(`${s.capped_books} hit the max-win cap`);
+      // Oversampled: the package's RTP is an estimate of the simulation's; say how far it landed (2026-11-09:
+      // ~0.1 point on a real slot at 1M rounds, sampling noise in the top payout bands).
+      if (typeof s.rtp_simulated === 'number' && s.simulations && s.simulations > s.books) {
+        flags.push(`simulated ${(s.rtp_simulated * 100).toFixed(2)}% over ${s.simulations.toLocaleString()} rounds (package ${((s.rtp - s.rtp_simulated) * 100 >= 0 ? '+' : '')}${((s.rtp - s.rtp_simulated) * 100).toFixed(2)} points)`);
+      }
       return `${m.mode.name}: ${s.books.toLocaleString()} books, RTP ${(s.rtp * 100).toFixed(2)}%, hit ${(s.hit_rate * 100).toFixed(1)}%` +
         (flags.length ? ` — ${flags.join('; ')}` : '');
     })

@@ -9,6 +9,7 @@ import { listEdgeDeployments } from '@xgenia-utils/rgs/deployEdgeFunction';
 import { getActiveGame, getRgsSettings } from '@xgenia-utils/rgs/rgsClient';
 import { exportStakeMaths } from '@xgenia-utils/stake/stakeMathsExport';
 import { summariseStakeModes } from '@xgenia-utils/stake/stakeMathsFormat';
+import { declaredStakeModes } from '@xgenia-utils/stake/stakeModes';
 
 import { Checkbox } from '@xgenia-core-ui/components/inputs/Checkbox';
 import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
@@ -147,6 +148,8 @@ export function DeployToStakeTab() {
         outputDir: direntry,
         booksPerMode: books,
         bet: betMinor,
+        // The buy / ante the game's Bet Mode node offers, so they are exported as Stake modes.
+        stakeModes: declaredStakeModes((ProjectModel.instance as any)?.toJSON?.()),
         onProgress: (p) => {
           ToastLayer.showActivity(
             `Exporting maths for Stake — ${p.mode} (${p.modeIndex + 1}/${p.modeCount}): ` +

@@ -35,6 +35,8 @@ import { filesystem, platform } from '@xgenia/platform';
 
 import { rgsFunctionsUrl, rgsHeaders } from '@xgenia-utils/rgs/rgsClient';
 
+import type { DeclaredStakeMode } from './stakeModes';
+
 import {
   buildStakeExportManifest,
   lookupTableCsv,
@@ -88,8 +90,12 @@ const OUT_OF_DATE =
   'XGENIA RGS backend is out of date — it cannot export Stake books yet. ' +
   'Try again later; if it keeps happening, contact XGENIA support.';
 
-export async function fetchStakeExportModes(apiKey: string, deploymentId: string, functionSlug: string): Promise<StakeExportModesInfo> {
-  const d = await postMathsDeployer(apiKey, { action: 'stake-export-modes', deployment_id: deploymentId, function_slug: functionSlug }, OUT_OF_DATE);
+export async function fetchStakeExportModes(apiKey: string, deploymentId: string, functionSlug: string, stakeModes: DeclaredStakeMode[] = []): Promise<StakeExportModesInfo> {
+  const d = await postMathsDeployer(
+    apiKey,
+    { action: 'stake-export-modes', deployment_id: deploymentId, function_slug: functionSlug, ...(stakeModes.length ? { stake_modes: stakeModes } : {}) },
+    OUT_OF_DATE
+  );
   return {
     functionSlug: String(d.function_slug || functionSlug),
     functionName: d.function_name ?? null,
@@ -111,14 +117,14 @@ export async function fetchStakeExportModes(apiKey: string, deploymentId: string
  * for that mode: the game's own spin request when it is (null), otherwise a trigger + inputs (a buy found on
  * the Bet Mode's `mode` input, a Mines game's AutoBet + mines count). Its refusals are worded for the author.
  */
-export async function findStakeRoundRequest(apiKey: string, deploymentId: string, functionSlug: string, mode: string, bet: number, choicePolicy: string): Promise<{ roundRequest: unknown | null; label: string; rtp: number }> {
+export async function findStakeRoundRequest(apiKey: string, deploymentId: string, functionSlug: string, mode: string, bet: number, choicePolicy: string, stakeModes: DeclaredStakeMode[] = []): Promise<{ roundRequest: unknown | null; label: string; rtp: number }> {
   let cursor = 0;
   let closest: unknown = null;
   let defaultProblem: string | null = null;
   for (let calls = 0; calls < 200; calls++) {
     const d = await postMathsDeployer(
       apiKey,
-      { action: 'stake-auto-setup', deployment_id: deploymentId, function_slug: functionSlug, mode, bet, choice_policy: choicePolicy, cursor, closest, default_problem: defaultProblem },
+      { action: 'stake-auto-setup', deployment_id: deploymentId, function_slug: functionSlug, mode, bet, choice_policy: choicePolicy, cursor, closest, default_problem: defaultProblem, ...(stakeModes.length ? { stake_modes: stakeModes } : {}) },
       OUT_OF_DATE
     );
     if (d.status === 'found') return { roundRequest: d.round_request ?? null, label: String(d.label || ''), rtp: Number(d.rtp) || 0 };
@@ -206,6 +212,11 @@ export interface StakeExportOptions {
    * simulation's. Default 10; 1 writes the old uniform package.
    */
   oversample?: number;
+  /**
+   * The modes the game's maths declares (stakeModes.ts, read off the Bet Mode node). Used by the platform when
+   * the component has no priced options of its own; without it an editor game exports `base` alone.
+   */
+  stakeModes?: DeclaredStakeMode[];
   booksPerChunk?: number;
   onProgress?: (p: StakeExportProgress) => void;
   /** Polled between chunks — the only place a run can stop, and it costs nothing. */
@@ -252,7 +263,8 @@ export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeE
     );
   }
 
-  const info = await fetchStakeExportModes(opts.apiKey, opts.deploymentId, opts.functionSlug);
+  const stakeModes = opts.stakeModes ?? [];
+  const info = await fetchStakeExportModes(opts.apiKey, opts.deploymentId, opts.functionSlug, stakeModes);
   const wanted = opts.modes && opts.modes.length ? info.modes.filter((m) => opts.modes!.includes(m.name)) : info.modes;
   if (wanted.length === 0) throw new Error('No bet modes to export.');
   const booksPerMode = Math.max(1, Math.min(Math.floor(opts.booksPerMode), info.maxBooksPerMode));
@@ -272,7 +284,7 @@ export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeE
   for (let mi = 0; mi < wanted.length; mi++) {
     const mode = wanted[mi];
     // Which request is this mode's paid round? (A buy is often not the game's own spin request.)
-    const plan = await findStakeRoundRequest(opts.apiKey, opts.deploymentId, opts.functionSlug, mode.name, bet, choicePolicy);
+    const plan = await findStakeRoundRequest(opts.apiKey, opts.deploymentId, opts.functionSlug, mode.name, bet, choicePolicy, stakeModes);
     if (plan.roundRequest) roundRequests[mode.name] = plan.roundRequest;
     const writer = openBooksWriter(filesystem.join(publishDir, stakeBooksFileName(mode.name)), compress);
     const payouts: number[] = [];
@@ -305,6 +317,7 @@ export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeE
           books_per_chunk: opts.booksPerChunk,
           choice_policy: choicePolicy,
           oversample,
+          ...(stakeModes.length ? { stake_modes: stakeModes } : {}),
           ...(plan.roundRequest ? { round_request: plan.roundRequest } : {})
         },
         OUT_OF_DATE

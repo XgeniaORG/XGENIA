@@ -93,3 +93,9 @@ test('oversample 1 is the uniform table; a stratum the platform did not count is
   assert.deepEqual(strataWeightedRows([{ id: 0, payout: 0, stratum: 'no_win' }], [], 1).map((r) => r.weight), [1]);
   assert.throws(() => strataWeightedRows([{ id: 0, payout: 0, stratum: 'no_win' }], [], 10), /no simulated rounds/);
 });
+
+test('an oversampled mode\'s summary shows the simulated RTP and how far the package landed from it', () => {
+  const stats = { books: 113_473, evaluate_calls: 0, rtp: 1.06621, rtp_raw: 1.066, hit_rate: 0.33, feature_books: 0, feature_rounds: 0, choice_books: 0, truncated_books: 0, rounded_books: 0, capped_books: 0, max_multiplier: 51.6, elapsed_ms: 0, simulations: 1_000_000, rtp_simulated: 1.06514 };
+  const line = summariseStakeModes([{ mode: { name: 'base', cost: 1, kind: 'base', optionId: null, label: 'Base' }, rows: [], stats, jsonlBytes: 0 }]);
+  assert.match(line, /simulated 106\.51% over 1,000,000 rounds \(package \+0\.11 points\)/);
+});
