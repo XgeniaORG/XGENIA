@@ -45,6 +45,14 @@ export function useCoversEditor(covers: boolean): void {
     }, [covers, token]);
 }
 
+/**
+ * Whether anything is covering the editor, read once rather than subscribed to. For code outside React
+ * that has to decide, on the spot, whether drawing is worth anything — the node graph's pulse loop.
+ */
+export function isEditorCovered(): boolean {
+    return covering.size > 0;
+}
+
 /** Whether anything is currently covering the editor, for the views that can stop drawing. */
 export function useEditorCovered(): boolean {
     const [covered, setCovered] = useState<boolean>(() => covering.size > 0);
