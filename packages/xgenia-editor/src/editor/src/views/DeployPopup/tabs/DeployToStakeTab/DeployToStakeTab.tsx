@@ -21,6 +21,7 @@ import { TextType } from '@xgenia-core-ui/components/typography/Text/Text';
 import { ToastLayer } from '../../../ToastLayer/ToastLayer';
 import { NO_ENVIRONMENT_VALUE } from '../../DeployPopup.constants';
 import { useEnvironmentsAsOptions } from '../../DeployPopup.hooks';
+import { StakeReadinessSection } from './StakeReadinessSection';
 
 /** A deployed Math Component the maths export can be run against. */
 interface ExportableComponent {
@@ -215,6 +216,7 @@ export function DeployToStakeTab() {
 
   return (
     <>
+      <StakeReadinessSection />
       <PopupSection>
         <Text hasBottomSpacing textType={TextType.DefaultContrast}>
           Export your game&apos;s frontend as static files for Stake.com (Pro Nodes).

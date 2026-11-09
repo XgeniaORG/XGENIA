@@ -35,7 +35,7 @@
     "mock:rgs": "node ./scripts/mock-rgs-server.mjs --port 5050",
     "stake:check": "node ./tools/stake-harness/cli.mjs check",
     "stake:emulate": "node ./tools/stake-harness/cli.mjs emulate",
-    "test:stake-harness": "node --test tools/stake-harness/test/*.test.mjs && cd packages/xgenia-editor && npx tsx --test tests/deploy/stakeConnectorWiring.test.ts",
+    "test:stake-harness": "node --test tools/stake-harness/test/*.test.mjs && cd packages/xgenia-editor && npx tsx --test tests/deploy/stakeConnectorWiring.test.ts tests/deploy/stakeReadiness.test.ts",
     "start:ai": "cd private/xgenia-ai-service && npm install && npm run dev"
   },
   "devDependencies": {
