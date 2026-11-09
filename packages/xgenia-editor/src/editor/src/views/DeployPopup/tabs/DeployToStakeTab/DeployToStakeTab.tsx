@@ -138,7 +138,7 @@ function StakeExportProblem({ diagnosis }: { diagnosis: StakeExportDiagnosis }) 
 }
 
 /** The Stake maths export (books, lookup tables, index.json). Off until it is ready: frontend only for now. */
-const STAKE_MATHS_AVAILABLE = false;
+const STAKE_MATHS_AVAILABLE = true;
 
 export function DeployToStakeTab() {
   const cloudService = useModernModel(CloudService.instance);
