@@ -30,7 +30,12 @@ describe('node library carries the engine version', () => {
 });
 
 describe('node library offer', () => {
-  beforeEach(() => jest.useFakeTimers());
+  // doNotFake performance: Node 22 makes globalThis.performance read-only, and the fake-timers
+  // build jest 29 ships still tries to hijack it. The install then dies half-way through — the
+  // clock is in place but the call threw — so the next useFakeTimers() reports being installed
+  // twice and useRealTimers() has nothing it can undo. The code under test reads its clock from
+  // platform.getCurrentTime, so leaving performance alone costs the test nothing.
+  beforeEach(() => jest.useFakeTimers({ doNotFake: ['performance'] }));
   afterEach(() => jest.useRealTimers());
 
   const fullSends = (sent) => sent.filter((m) => m.cmd === 'nodelibrary');
