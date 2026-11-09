@@ -30,6 +30,9 @@ export interface StakeConnectorConfig {
   startupTriggers?: string[];
   /** Game money units per currency unit (1 when the game counts dollars, 100 for cents). */
   gameUnitsPerCurrencyUnit?: number;
+  /** Pick Bonus: the input carrying the clicked tile, and the output listing revealed tiles ({ index, … }). */
+  pickField?: string;
+  revealedField?: string;
 }
 
 export const STAKE_BOOK_URL = 'stake:book';
@@ -110,6 +113,7 @@ export function stakeConnectorConfigFor(args: {
   exportBet: number;
   modes: DeclaredStakeMode[];
   modeInput: string | null;
+  picks?: { pickField: string; revealedField: string } | null;
   gameUnitsPerCurrencyUnit?: number;
 }): StakeConnectorConfig {
   if (!args.betInputPort) {
@@ -124,6 +128,10 @@ export function stakeConnectorConfigFor(args: {
   if (args.modes.length && args.modeInput) {
     cfg.modeField = args.modeInput;
     cfg.modes = { base: 'base', ...Object.fromEntries(args.modes.map((m) => [m.id, stakeModeNameFor(m)])) };
+  }
+  if (args.picks) {
+    cfg.pickField = args.picks.pickField;
+    cfg.revealedField = args.picks.revealedField;
   }
   return cfg;
 }

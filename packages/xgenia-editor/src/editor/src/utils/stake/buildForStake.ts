@@ -29,7 +29,7 @@ import { swapDeployedMathsInstances } from '@xgenia-utils/rgs/deployMathsCompone
 
 import { leftoverMathsInstances, stakeConnectorConfigFor, stakeMathsEndpoints, type StakeConnectorConfig } from './stakeConnector';
 import { exportStakeMaths, fetchStakeExportModes, type StakeExportResult } from './stakeMathsExport';
-import { declaredStakeModes, stakeModeInput } from './stakeModes';
+import { declaredStakeModes, stakeModeInput, stakePickPorts } from './stakeModes';
 
 export interface BuildForStakeOptions {
   project: any;
@@ -70,7 +70,7 @@ export async function buildForStake(o: BuildForStakeOptions): Promise<BuildForSt
   step('Reading the Math Component from XGENIA RGS…');
   const info = await fetchStakeExportModes(o.apiKey, o.component.deploymentId, o.component.slug, modes);
   const exportBet = Math.floor(o.bet && o.bet > 0 ? o.bet : info.defaultBet);
-  const connector = stakeConnectorConfigFor({ betInputPort: info.betInputPort, winOutputPort: info.winOutputPort, exportBet, modes, modeInput });
+  const connector = stakeConnectorConfigFor({ betInputPort: info.betInputPort, winOutputPort: info.winOutputPort, exportBet, modes, modeInput, picks: stakePickPorts(projectJson) });
 
   step('Preparing a copy of the project…');
   const { copy, destDir } = await duplicateCurrentProject(o.project);

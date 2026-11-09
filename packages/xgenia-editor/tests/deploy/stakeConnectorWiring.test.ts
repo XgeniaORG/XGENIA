@@ -67,3 +67,21 @@ test('the mode input is the Component Inputs port wired into Bet Mode.mode', () 
   assert.equal(stakeModeInput(p), 'betMode');
   assert.equal(stakeModeInput({ components: [] }), null);
 });
+
+import { stakePickPorts } from '../../src/editor/src/utils/stake/stakeModes';
+
+test('a wired Pick Bonus gives the connector its pick and revealed ports', () => {
+  const p = { components: [{ name: '/#__maths__/M', graph: {
+    roots: [{ id: 'in', type: 'Component Inputs' }, { id: 'out', type: 'Component Outputs' }, { id: 'pb', type: 'Pick Bonus' }],
+    connections: [
+      { fromId: 'in', fromProperty: 'tile', toId: 'pb', toProperty: 'pickIndex' },
+      { fromId: 'pb', fromProperty: 'revealed', toId: 'out', toProperty: 'pickReveals' }
+    ]
+  } }] };
+  const picks = stakePickPorts(p);
+  assert.deepEqual(picks, { pickField: 'tile', revealedField: 'pickReveals' });
+  const cfg = stakeConnectorConfigFor({ betInputPort: 'b', winOutputPort: 'w', exportBet: 100, modes: [], modeInput: null, picks });
+  assert.equal(cfg.pickField, 'tile');
+  assert.equal(cfg.revealedField, 'pickReveals');
+  assert.equal(stakePickPorts({ components: [] }), null);
+});

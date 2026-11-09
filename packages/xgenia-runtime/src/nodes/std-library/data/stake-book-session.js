@@ -28,6 +28,13 @@
 // /bet/event at every round of a multi-round book, as Stake's reviewers check for it.
 // Replay (?replay=true): GET /bet/replay/{game}/{version}/{mode}/{event}, played the same way, and NO wallet call.
 //
+// Picks (2026-11-09): on Stake a pick bonus's prizes are fixed when the round is bought — the book holds them in
+// the order its maths revealed them. The player's click only chooses WHERE the next one appears. With
+// `pickField` (the input carrying the clicked tile) and `revealedField` (the output listing revealed tiles as
+// { index, … }), the connector maps the book's k-th revealed tile to the player's k-th click, so the prize shows
+// under the tile the player chose; prizes, totals and the payout are untouched. A tile the book revealed that
+// the player has not clicked keeps its own index unless that index is already taken by a click.
+//
 // One session per page, kept on globalThis and keyed by rgs_url + sessionID read the first time: a game that
 // navigates with pushState loses its query string, and a client keyed by location.href (the old Stake nodes)
 // became a new, unauthenticated client holding no round.
@@ -256,6 +263,8 @@ function createStakeBookSession(deps) {
     }
     if (cfg.winField && isMoneyNumber(ev && ev.winMultiplier)) body[cfg.winField] = ev.winMultiplier * book.betGame;
 
+    if (cfg.revealedField && Array.isArray(body[cfg.revealedField])) remapReveals(book, body[cfg.revealedField]);
+
     const paidGame = toGame(book.round.payout || 0, cfg);
     body.__stake = {
       roundIndex: book.cursor - 1,
@@ -279,9 +288,30 @@ function createStakeBookSession(deps) {
     return { body, pos, last };
   }
 
+  /** Book tile → player tile, built click by click (see "Picks" in the header). */
+  function remapReveals(book, revealed) {
+    book.pickMap = book.pickMap || new Map();
+    const taken = new Set(book.pickMap.values());
+    for (const r of revealed) {
+      if (!r || typeof r !== 'object' || typeof r.index !== 'number') continue;
+      if (!book.pickMap.has(r.index) && book.clicks && book.clicks.length) {
+        const click = book.clicks.shift();
+        if (!taken.has(click)) {
+          book.pickMap.set(r.index, click);
+          taken.add(click);
+        }
+      }
+      if (book.pickMap.has(r.index)) r.index = book.pickMap.get(r.index);
+    }
+  }
+
   async function request(trigger, payload, cfg) {
     cfg = cfg || {};
     payload = payload || {};
+    if (cfg.pickField && s.book && typeof payload[cfg.pickField] === 'number') {
+      s.book.clicks = s.book.clicks || [];
+      s.book.clicks.push(payload[cfg.pickField]);
+    }
     await authenticate();
     if (!s.book && (cfg.startupTriggers || []).indexOf(trigger) !== -1) return { __stake: { startup: true } };
 
