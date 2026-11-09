@@ -50,7 +50,7 @@ export interface ReadinessReport {
  * and a game with a bonus is said not to be ready — rather than a green check over an export that cannot carry it.
  * Flip with the wiring in DeployToStakeTab / deployToFolderStake, and drop STAKE_BUILD_NOT_WIRED with it.
  */
-export const STAKE_BUILD_PLAYS_BOOKS = false;
+export const STAKE_BUILD_PLAYS_BOOKS = true;
 
 const MATHS_PREFIX = '/#__maths__/';
 const CLOUD_PREFIX = '/#__cloud__/';

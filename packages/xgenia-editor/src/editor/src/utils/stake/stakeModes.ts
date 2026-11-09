@@ -74,3 +74,25 @@ export function declaredStakeModes(project: any): DeclaredStakeMode[] {
   }
   return [...out.values()];
 }
+
+/** The Math Component input that feeds a Bet Mode's `mode` (the port the game sends its mode on), or null. */
+export function stakeModeInput(project: any): string | null {
+  for (const comp of project?.components || []) {
+    if (typeof comp?.name !== 'string' || !comp.name.startsWith(MATHS_PREFIX)) continue;
+    const roots: any[] = [];
+    const walk = (ns: any[]) => {
+      for (const n of ns || []) {
+        roots.push(n);
+        walk(n?.children);
+      }
+    };
+    walk(comp.graph?.roots);
+    const inputs = roots.find((n) => (n?.type ?? n?.typename) === 'Component Inputs');
+    if (!inputs) continue;
+    for (const bm of roots.filter((n) => (n?.type ?? n?.typename) === 'Bet Mode')) {
+      const c = (comp.graph?.connections || []).find((x: any) => x.toId === bm.id && x.toProperty === 'mode' && x.fromId === inputs.id);
+      if (c) return String(c.fromProperty);
+    }
+  }
+  return null;
+}

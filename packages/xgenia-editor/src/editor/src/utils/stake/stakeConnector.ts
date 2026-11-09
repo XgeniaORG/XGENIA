@@ -9,6 +9,8 @@
  * Kept free of editor-model imports so it can be tested outside the editor (tests/deploy/stakeConnectorWiring).
  */
 
+import type { DeclaredStakeMode } from './stakeModes';
+
 const MATHS_PREFIX = '/#__maths__/';
 
 /** What the runtime's Stake Book Session needs to answer a Math Component's triggers from a Stake book. */
@@ -89,4 +91,39 @@ export function leftoverMathsInstances(project: any): string[] {
     walk(comp?.graph?.roots);
   }
   return [...left].sort();
+}
+
+/** Stake's mode name for a declared mode (XRGS stake-books.ts stakeModeName). */
+export function stakeModeNameFor(m: Pick<DeclaredStakeMode, 'id' | 'kind'>): string {
+  const slug = m.id.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'option';
+  return `${m.kind}_${slug}`;
+}
+
+/**
+ * The Book Connector's settings for a component: its bet and win ports (from the platform), the bet the books
+ * are played at, and — when the game has a Bet Mode — which input carries the mode and how its values map to
+ * the Stake mode names the export writes.
+ */
+export function stakeConnectorConfigFor(args: {
+  betInputPort: string | null;
+  winOutputPort: string;
+  exportBet: number;
+  modes: DeclaredStakeMode[];
+  modeInput: string | null;
+  gameUnitsPerCurrencyUnit?: number;
+}): StakeConnectorConfig {
+  if (!args.betInputPort) {
+    throw new Error('The Math Component declares no bet input, so the game cannot tell Stake what it bets. Mark its bet input in Maths and deploy it again.');
+  }
+  const cfg: StakeConnectorConfig = {
+    exportBet: args.exportBet,
+    betField: args.betInputPort,
+    winField: args.winOutputPort || undefined,
+    gameUnitsPerCurrencyUnit: args.gameUnitsPerCurrencyUnit ?? 1
+  };
+  if (args.modes.length && args.modeInput) {
+    cfg.modeField = args.modeInput;
+    cfg.modes = { base: 'base', ...Object.fromEntries(args.modes.map((m) => [m.id, stakeModeNameFor(m)])) };
+  }
+  return cfg;
 }

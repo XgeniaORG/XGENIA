@@ -42,3 +42,28 @@ test('a Math Component instance left in a build is found, however deep', () => {
   };
   assert.deepEqual(leftoverMathsInstances(project), ['/#__maths__/SlotMaths'], 'instances inside maths components themselves do not count');
 });
+
+import { stakeConnectorConfigFor, stakeModeNameFor } from '../../src/editor/src/utils/stake/stakeConnector';
+import { stakeModeInput } from '../../src/editor/src/utils/stake/stakeModes';
+
+test('the Book Connector is configured from the component\'s ports, the export bet and the Bet Mode', () => {
+  const modes = [{ id: 'bonus_buy', kind: 'buy' as const, cost: 100, label: 'Bonus buy' }, { id: 'ante', kind: 'special' as const, cost: 1.25, label: 'Ante' }];
+  const cfg = stakeConnectorConfigFor({ betInputPort: 'betAmount', winOutputPort: 'winAmount', exportBet: 100, modes, modeInput: 'mode' });
+  assert.deepEqual(cfg, {
+    exportBet: 100, betField: 'betAmount', winField: 'winAmount', gameUnitsPerCurrencyUnit: 1,
+    modeField: 'mode', modes: { base: 'base', bonus_buy: 'buy_bonus_buy', ante: 'special_ante' }
+  });
+  assert.equal(stakeConnectorConfigFor({ betInputPort: 'b', winOutputPort: 'w', exportBet: 20, modes, modeInput: null }).modeField, undefined, 'no mode input: base only');
+  assert.throws(() => stakeConnectorConfigFor({ betInputPort: null, winOutputPort: 'w', exportBet: 100, modes: [], modeInput: null }), /no bet input/);
+});
+
+test('Stake mode names match the ones XRGS writes (stakeModeName)', () => {
+  assert.equal(stakeModeNameFor({ id: 'bonus_buy', kind: 'buy' }), 'buy_bonus_buy');
+  assert.equal(stakeModeNameFor({ id: 'Super Buy!', kind: 'buy' }), 'buy_super_buy');
+});
+
+test('the mode input is the Component Inputs port wired into Bet Mode.mode', () => {
+  const p = { components: [{ name: '/#__maths__/M', graph: { roots: [{ id: 'in', type: 'Component Inputs' }, { id: 'bm', type: 'Bet Mode' }], connections: [{ fromId: 'in', fromProperty: 'betMode', toId: 'bm', toProperty: 'mode' }] } }] };
+  assert.equal(stakeModeInput(p), 'betMode');
+  assert.equal(stakeModeInput({ components: [] }), null);
+});
