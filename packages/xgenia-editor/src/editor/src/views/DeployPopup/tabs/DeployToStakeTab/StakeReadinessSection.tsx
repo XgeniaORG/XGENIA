@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import { stakeFixRequest, stakeReadiness, type ReadinessReport, type ReadinessIssue } from '@xgenia-utils/stake/stakeReadiness';
 
+import { Checkbox } from '@xgenia-core-ui/components/inputs/Checkbox';
 import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
 import { PopupSection } from '@xgenia-core-ui/components/popups/PopupSection';
 import { Text } from '@xgenia-core-ui/components/typography/Text';
@@ -35,6 +36,13 @@ function openChatPanel() {
 export function StakeReadinessSection() {
   const [report, setReport] = useState<ReadinessReport | null>(null);
   const [sent, setSent] = useState(false);
+  // "This game is for Stake Engine", saved with the project (metadata `target`): the AI reads it through
+  // stake.readiness and follows Stake's rules from the first change, not at export.
+  const [forStake, setForStake] = useState<boolean>(() => (ProjectModel.instance as any)?.getMetaData?.('target') === 'stake');
+  const toggleTarget = (on: boolean) => {
+    (ProjectModel.instance as any)?.setMetaData?.('target', on ? 'stake' : null);
+    setForStake(on);
+  };
 
   const check = useCallback(() => {
     try {
@@ -45,7 +53,7 @@ export function StakeReadinessSection() {
         errors: 1,
         warnings: 0,
         issues: [{ code: 'CHECK_FAILED', level: 'error', message: `The Stake check could not read the project: ${e?.message || e}`, fix: 'Save the project and try again.', ai: 'Run stake readiness again.' }],
-        summary: { mathsComponents: [], freeSpins: 'none', betModes: false, pickBonus: false }
+        summary: { target: null, mathsComponents: [], freeSpins: 'none', betModes: false, pickBonus: false }
       });
     }
     setSent(false);
@@ -74,6 +82,12 @@ export function StakeReadinessSection() {
       <Text hasBottomSpacing textType={TextType.DefaultContrast}>
         Stake readiness
       </Text>
+      <Checkbox
+        label="This game is for Stake Engine (the AI follows Stake's rules while it builds)"
+        isChecked={forStake}
+        onChange={(e) => toggleTarget(e.target.checked)}
+        hasBottomSpacing
+      />
       <Text style={{ fontSize: '12px', color: report.ready ? '#6f6' : COLOURS.error, marginBottom: '8px' }}>{headline}</Text>
       <div style={{ maxHeight: '220px', overflowY: 'auto', marginBottom: '10px' }}>
         {report.issues.map((i, n) => (
