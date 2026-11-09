@@ -99,3 +99,30 @@ test('an oversampled mode\'s summary shows the simulated RTP and how far the pac
   const line = summariseStakeModes([{ mode: { name: 'base', cost: 1, kind: 'base', optionId: null, label: 'Base' }, rows: [], stats, jsonlBytes: 0 }]);
   assert.match(line, /simulated 106\.51% over 1,000,000 rounds \(package \+0\.11 points\)/);
 });
+
+import { replayEventIds, stakeReviewChecklist } from '../../src/editor/src/utils/stake/stakeMathsFormat';
+
+test('replay event ids: a loss, a normal win, the biggest win, a win cap and the best bonus, from the package', () => {
+  const rows = [
+    { id: 0, payout: 0, criteria: '0' },
+    { id: 1, payout: 50, criteria: 'basegame' },
+    { id: 2, payout: 300, criteria: 'basegame' },
+    { id: 3, payout: 2500, criteria: 'freegame' },
+    { id: 4, payout: 9000, criteria: 'freegame' },
+    { id: 5, payout: 500000, criteria: 'wincap' }
+  ];
+  assert.deepEqual(replayEventIds(rows, 1), { loss: 0, normal_win: 2, big_win: 4, wincap: 5, bonus: 4 });
+  assert.deepEqual(replayEventIds([{ id: 9, payout: 0 }], 1), { loss: 9, normal_win: null, big_win: null, wincap: null, bonus: null });
+});
+
+test('the review checklist lists every mode\'s numbers, its replay ids and the manual checks', () => {
+  const stats = { books: 1, evaluate_calls: 0, rtp: 0.9631, rtp_raw: 0.963, hit_rate: 0.3, feature_books: 0, feature_rounds: 0, choice_books: 0, truncated_books: 0, rounded_books: 0, capped_books: 0, max_multiplier: 5000, elapsed_ms: 0 };
+  const md = stakeReviewChecklist({
+    gameName: 'Gremlin Gold',
+    maxWinMultiplier: 5000,
+    modes: [{ mode: { name: 'base', cost: 1, kind: 'base', optionId: null, label: 'Base' }, rows: [{ id: 0, payout: 0 }], stats, jsonlBytes: 0 }]
+  });
+  assert.match(md, /\| base \| 1× \| 96\.31% \| 5000× \| 30\.00% \|/);
+  assert.match(md, /Win cap: — none in this package/);
+  assert.match(md, /Mandatory disclaimer/);
+});

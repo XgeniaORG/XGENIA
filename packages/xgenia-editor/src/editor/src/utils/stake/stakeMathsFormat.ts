@@ -256,3 +256,68 @@ export function summariseStakeModes(modes: StakeModeExport[]): string {
     })
     .join('\n');
 }
+
+// ─── The reviewer pack (2026-11-09) ─────────────────────────────────────────────────────────────────────────
+// Engine's reviewers ask, per mode, for replay event ids of a normal win, a big win, a win cap, a loss and a
+// bonus trigger, and check the rules screen against each mode's RTP, max win and cost. Those numbers are in the
+// export; writing them down here saves the developer hunting through a million-line books file.
+
+export interface ReplayEventIds {
+  loss: number | null;
+  normal_win: number | null;
+  big_win: number | null;
+  wincap: number | null;
+  bonus: number | null;
+}
+
+/** Book ids (the replay URL's `event`) of the outcomes reviewers ask to see; null when the package has none. */
+export function replayEventIds(rows: StakeLutRow[], cost: number): ReplayEventIds {
+  const price = 100 * cost;
+  let loss: number | null = null;
+  let normal: number | null = null;
+  let big: StakeLutRow | null = null;
+  let wincap: number | null = null;
+  let bonus: StakeLutRow | null = null;
+  for (const r of rows) {
+    if (loss === null && r.payout === 0) loss = r.id;
+    if (normal === null && r.payout >= price && r.payout <= 5 * price && r.criteria !== 'freegame' && r.criteria !== 'wincap') normal = r.id;
+    if (wincap === null && r.criteria === 'wincap') wincap = r.id;
+    if (r.criteria === 'freegame' && r.payout > 0 && (!bonus || r.payout > bonus.payout)) bonus = r;
+    if (r.criteria !== 'wincap' && (!big || r.payout > big.payout)) big = r;
+  }
+  return { loss, normal_win: normal, big_win: big && big.payout > 0 ? big.id : null, wincap, bonus: bonus ? bonus.id : null };
+}
+
+/** The checklist to hand in with the upload: numbers per mode, replay ids, and what a person must check by eye. */
+export function stakeReviewChecklist(i: { gameName: string; modes: StakeModeExport[]; maxWinMultiplier: number | null }): string {
+  const pct = (x: number) => `${(x * 100).toFixed(2)}%`;
+  const id = (v: number | null) => (v === null ? '— none in this package' : String(v));
+  const lines: string[] = [`# Stake review pack — ${i.gameName}`, '', '## Modes (put these exact numbers on the rules screen)', ''];
+  lines.push('| Mode | Cost | RTP | Max win | Hit rate |', '|---|---|---|---|---|');
+  for (const m of i.modes) {
+    lines.push(`| ${m.mode.name} | ${m.mode.cost}× | ${pct(m.stats.rtp)} | ${m.stats.max_multiplier}× | ${pct(m.stats.hit_rate)} |`);
+  }
+  const rtps = i.modes.map((m) => m.stats.rtp);
+  const spread = rtps.length ? Math.max(...rtps) - Math.min(...rtps) : 0;
+  lines.push('', `Stake's limits: every mode 96.00–96.70% and within 0.50% of the others (spread here ${pct(spread)}); cheapest mode exactly 1×; max win at most 1,000,000×.`);
+  for (const m of i.modes) {
+    const ids = replayEventIds(m.rows, m.mode.cost);
+    lines.push('', `## Replay event ids — ${m.mode.name}`, '', `- Loss: ${id(ids.loss)}`, `- Normal win: ${id(ids.normal_win)}`, `- Big win: ${id(ids.big_win)}`, `- Win cap: ${id(ids.wincap)}`, `- Bonus trigger: ${id(ids.bonus)}`);
+  }
+  lines.push(
+    '',
+    '## Check by eye before submitting',
+    '',
+    '- [ ] Rules screen: symbol pays, RTP and max win per mode (table above), each mode\'s cost, free-spin trigger and retrigger rules',
+    '- [ ] Mandatory disclaimer on the rules screen ("Malfunction voids all wins and plays… reload the game to finish any uncompleted rounds…")',
+    '- [ ] Social mode (?social=true): no "bet", "buy", "pay", "cash", "gamble" in any text, rule or image; coins shown as GC / SC',
+    '- [ ] Spacebar places a bet; sound toggle; autoplay asks for confirmation',
+    '- [ ] A mode costing more than 2× asks for confirmation',
+    '- [ ] Every bet level Stake offers can be selected; a reload keeps the chosen bet',
+    '- [ ] The win counter counts up to the final payout',
+    '- [ ] Replay (?replay=true&…&event=<id above>) plays with a "Play again" button and shows the real cost (bet × mode cost)',
+    '- [ ] Desktop, mobile and small popout sizes; no console errors',
+    '- [ ] Played on Engine with a test session: `npm run stake:check` and `node tools/stake-harness/cli.mjs engine <build> --session-url "<session URL>"` both pass'
+  );
+  return lines.join('\n') + '\n';
+}
