@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stake reference game</title>
+<!--
+  The smallest frontend that plays Stake Engine books CORRECTLY — the executable spec of what an
+  XGENIA game (and the planned Book Connector) must do, and the control case that proves the browser
+  harness can tell a working game from a broken one.
+
+    authenticate → (resume an active round from round.event) → Space / Bet → /wallet/play →
+    play EVERY event of the book, posting /bet/event at each round start of a multi-round book →
+    wait out minimumRoundDuration → /wallet/end-round if the round is still active → balance.
+    Replay (?replay=true): GET /bet/replay/..., no wallet call at all.
+
+  ?bug=<name> makes it fail the way real games fail, so a test can prove the harness notices:
+    no-end-round    never ends a bonus           (the "stuck bonus": the next bet is refused)
+    end-early       ends the round right after /play, then keeps animating and saving progress
+    no-resume       ignores the active round authenticate hands back
+    replay-wallet   calls /wallet/authenticate in replay mode
+    spin-per-round  calls /wallet/play for every free spin (the XRGS one-request-per-spin habit)
+-->
+<style>
+  :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+  body { margin: 0; padding: 16px; background: #0f1923; color: #e6edf3; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .box { background: #1a2c38; border-radius: 8px; padding: 8px 12px; min-width: 120px; }
+  .label { font-size: 12px; opacity: .7; }
+  .value { font-size: 20px; font-variant-numeric: tabular-nums; }
+  button { font-size: 16px; padding: 10px 18px; border-radius: 8px; border: 0; background: #00e701; color: #05080a; font-weight: 700; cursor: pointer; }
+  button:disabled { opacity: .4; cursor: default; }
+  #board { display: grid; grid-template-columns: repeat(5, 48px); gap: 4px; margin: 12px 0; }
+  #board div { height: 40px; background: #213743; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+  #log { font: 12px ui-monospace, monospace; white-space: pre-wrap; max-height: 40vh; overflow: auto; background: #0b141b; padding: 8px; border-radius: 8px; }
+  #confirm { display: none; background: #213743; padding: 12px; border-radius: 8px; }
+</style>
+</head>
+<body>
+<div class="row">
+  <div class="box"><div class="label">Balance</div><div class="value" id="balance">-</div></div>
+  <div class="box"><div class="label" id="win-label">Win</div><div class="value" id="win">0.00</div></div>
+  <div class="box"><div class="label">Free spins</div><div class="value" id="fs">-</div></div>
+  <div class="box"><div class="label">Status</div><div class="value" id="status">loading</div></div>
+</div>
+<div class="row">
+  <button id="spin" disabled>Bet</button>
+  <button id="buy" disabled>Buy bonus</button>
+  <span id="confirm">Buy for <b id="confirm-cost"></b>? <button id="confirm-yes">Yes</button> <button id="confirm-no">No</button></span>
+  <button id="replay-play" style="display:none">Play</button>
+</div>
+<div id="board"></div>
+<div id="log"></div>
+<script>
+(() => {
+  const q = new URLSearchParams(location.search);
+  const sessionID = q.get('sessionID');
+  const rgs = q.get('rgs_url');
+  const social = q.get('social') === 'true';
+  const replay = q.get('replay') === 'true';
+  const bug = q.get('bug') || '';
+  const stepMs = Number(q.get('step') || 40);
+  const buyMode = q.get('buyMode') || 'bonus';
+  const buyCost = Number(q.get('buyCost') || 100);
+  const proto = location.protocol === 'http:' ? 'http' : 'https';
+  const API = 1e6;
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const state = (window.__stake = { phase: 'loading', error: null, rounds: 0 });
+  let currency = q.get('currency') || 'USD';
+  let bet = API;
+  let minRound = 0;
+  let busy = false;
+
+  const words = social ? { Bet: 'Play', Buy: 'Get', Win: 'Win' } : { Bet: 'Bet', Buy: 'Buy', Win: 'Win' };
+  $('spin').textContent = words.Bet;
+  $('buy').textContent = `${words.Buy} bonus`;
+  const money = (a) => (social ? '' : '$') + (a / API).toFixed(2) + (social ? ' ' + currency : '');
+  const log = (s) => { $('log').textContent += s + '\n'; $('log').scrollTop = 1e9; };
+  const status = (s) => { $('status').textContent = s; state.phase = s; };
+
+  async function call(path, body) {
+    const r = await fetch(`${proto}://${rgs}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionID, ...body }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { const e = new Error(`${j.error || r.status}: ${j.message || ''}`); e.code = j.error; throw e; }
+    return j;
+  }
+
+  /** Same rule as tools/stake-harness/lib/rounds.mjs: a round starts at each reveal (standard) or each XRGS round event. */
+  function roundStarts(events) {
+    if (events.some((e) => e.type === 'reveal')) { const s = []; events.forEach((e, i) => e.type === 'reveal' && s.push(i)); s[0] = 0; return s; }
+    if (events.length && events.every((e) => ['round', 'featureRound', 'choiceRound'].includes(e.type))) return events.map((_, i) => i);
+    return [0];
+  }
+
+  function drawBoard(board) {
+    const el = $('board'); el.innerHTML = '';
+    if (!Array.isArray(board)) return;
+    for (let row = 0; row < (board[0] || []).length; row++) for (let reel = 0; reel < board.length; reel++) {
+      const d = document.createElement('div'); d.textContent = board[reel][row]?.name ?? '?'; el.appendChild(d);
+    }
+  }
+
+  /** Play `events` from array position `from`; returns when every event has been shown. */
+  async function playEvents(round, from, { saveProgress }) {
+    const events = round.state;
+    const starts = new Set(roundStarts(events));
+    const multi = starts.size > 1;
+    let shown = 0;
+    for (let i = from; i < events.length; i++) {
+      const e = events[i];
+      if (starts.has(i)) {
+        state.rounds++;
+        if (multi && saveProgress) await call('/bet/event', { event: String(i) });
+        if (bug === 'spin-per-round' && multi && i > 0) await call('/wallet/play', { amount: bet, mode: round.mode });
+      }
+      if (e.type === 'reveal') drawBoard(e.board);
+      if (e.type === 'round' || e.type === 'featureRound') drawBoard(e.data && e.data.board);
+      if (e.type === 'freeSpinTrigger' || e.type === 'freeSpinRetrigger') $('fs').textContent = `0/${e.totalFs}`;
+      if (e.type === 'updateFreeSpin') $('fs').textContent = `${e.amount + 1}/${e.total}`;
+      if (e.type === 'freeSpinEnd') $('fs').textContent = '-';
+      if (e.type === 'setTotalWin') shown = e.amount;
+      if (typeof e.winMultiplier === 'number') shown += Math.round(e.winMultiplier * 100);
+      $('win').textContent = money(Math.round((shown / 100) * round.amount));
+      log(`#${e.index} ${e.type}`);
+      await sleep(stepMs);
+    }
+    // Count up to what Stake PAYS, not to what the events add up to.
+    $('win').textContent = money(round.payout ?? Math.round(round.payoutMultiplier * round.amount));
+  }
+
+  async function finish(round, startedAt) {
+    if (bug === 'no-end-round' && roundStarts(round.state).length > 1) { status('bonus over (never ended)'); return; }
+    if (round.active) {
+      const wait = minRound - (Date.now() - startedAt);
+      if (wait > 0) await sleep(wait);
+      const r = await call('/wallet/end-round', {});
+      $('balance').textContent = money(r.balance.amount);
+      log(`end-round → balance ${money(r.balance.amount)}`);
+    }
+  }
+
+  async function play(mode) {
+    if (busy) return;
+    busy = true; $('spin').disabled = $('buy').disabled = true;
+    const startedAt = Date.now();
+    try {
+      status('playing');
+      const r = await call('/wallet/play', { amount: bet, mode });
+      const round = r.round;
+      if (!Array.isArray(round.state) || !round.state.length) throw new Error('Empty state in data.round');
+      $('balance').textContent = money(r.balance.amount);
+      log(`play ${mode}: ${round.state.length} events, pays ${round.payoutMultiplier}×`);
+      if (bug === 'end-early' && round.active) await call('/wallet/end-round', {});
+      await playEvents(round, 0, { saveProgress: round.active });
+      if (bug !== 'end-early') await finish(round, startedAt);
+      status('idle');
+    } catch (e) {
+      state.error = String(e.message || e); log('ERROR ' + state.error); status('error');
+    } finally {
+      busy = false; $('spin').disabled = $('buy').disabled = false;
+    }
+  }
+
+  async function startReplay() {
+    const game = q.get('game'), version = q.get('version'), mode = q.get('mode') || 'base', event = q.get('event');
+    const amount = Number(q.get('amount') || API);
+    if (bug === 'replay-wallet') await call('/wallet/authenticate', { language: q.get('lang') || 'en' }).catch(() => {});
+    const r = await fetch(`${proto}://${rgs}/bet/replay/${game}/${version}/${mode}/${event}`);
+    const j = await r.json();
+    if (!r.ok) throw new Error(`${j.error}: ${j.message}`);
+    const btn = $('replay-play');
+    btn.style.display = '';
+    btn.textContent = `Play replay: ${mode.toUpperCase()} ${money(amount)} (real cost ${money(amount * j.costMultiplier)})`;
+    $('spin').style.display = $('buy').style.display = 'none';
+    status('replay ready');
+    btn.onclick = async () => {
+      btn.disabled = true; status('replaying');
+      const round = { state: j.state, amount, payoutMultiplier: j.payoutMultiplier, payout: Math.round(j.payoutMultiplier * amount), mode };
+      await playEvents(round, 0, { saveProgress: false });
+      status('replay done'); btn.textContent = 'Play again'; btn.disabled = false;
+    };
+  }
+
+  async function start() {
+    if (!rgs) throw new Error('missing rgs_url');
+    if (replay) return startReplay();
+    const a = await call('/wallet/authenticate', { language: q.get('lang') || 'en' });
+    currency = a.balance.currency;
+    bet = a.config.defaultBetLevel || a.config.betLevels[0];
+    minRound = (a.config.jurisdiction && a.config.jurisdiction.minimumRoundDuration) || 0;
+    $('balance').textContent = money(a.balance.amount);
+    const round = a.round;
+    if (round && round.active && bug !== 'no-resume') {
+      busy = true;
+      bet = round.amount;
+      const from = Number(round.event || 0); // array position, as the web-sdk does
+      log(`resuming round ${round.betID} at event ${from}`);
+      status('resuming');
+      const startedAt = Date.now();
+      await playEvents(round, from, { saveProgress: true });
+      await finish(round, startedAt);
+      busy = false;
+    }
+    status('idle');
+    $('spin').disabled = $('buy').disabled = false;
+  }
+
+  $('spin').onclick = () => play('base');
+  $('buy').onclick = () => { $('confirm-cost').textContent = money(bet * buyCost); $('confirm').style.display = 'inline'; };
+  $('confirm-no').onclick = () => { $('confirm').style.display = 'none'; };
+  $('confirm-yes').onclick = () => { $('confirm').style.display = 'none'; play(buyMode); };
+  document.addEventListener('keydown', (e) => { if (e.code === 'Space' && !replay) { e.preventDefault(); play('base'); } });
+  start().catch((e) => { state.error = String(e.message || e); log('ERROR ' + state.error); status('error'); });
+})();
+</script>
+</body>
+</html>

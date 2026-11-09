@@ -33,6 +33,9 @@
     "test:platform": "lerna exec --scope @xgenia/platform-node -- npm test",
     "export-cert": "./scripts/export-macos-certificate.sh",
     "mock:rgs": "node ./scripts/mock-rgs-server.mjs --port 5050",
+    "stake:check": "node ./tools/stake-harness/cli.mjs check",
+    "stake:emulate": "node ./tools/stake-harness/cli.mjs emulate",
+    "test:stake-harness": "node --test tools/stake-harness/test/*.test.mjs",
     "start:ai": "cd private/xgenia-ai-service && npm install && npm run dev"
   },
   "devDependencies": {

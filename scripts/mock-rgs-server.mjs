@@ -1,6 +1,10 @@
 /**
  * Local mock of Stake Engine RGS endpoints used by the stake-engine TS client.
  *
+ * NOT FAITHFUL to Stake: random outcomes, one round per play, every round ends cleanly, no resume.
+ * A bonus that is stuck on Stake works here. To test a game for Stake, use tools/stake-harness
+ * (`npm run stake:check`), which serves the real exported books with Stake's round rules.
+ *
  * Goals:
  * - Be "realistic enough" for frontend integration: bet validation, round lifecycle, random outcomes,
  *   minimum round duration, and a stable response shape.
