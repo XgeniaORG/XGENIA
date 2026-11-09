@@ -927,7 +927,7 @@ export function AssetLibrary() {
           ) : total === 0 ? (
             <div className={css.Empty}>
               <div>This project has no assets yet.</div>
-              <div className={css.Meta}>Ask the chat for art, drop files here, or import.</div>
+              <div className={css.Meta}>Ask the AI for art, drop files here, or import.</div>
               <button type="button" className={css.Retry} onClick={() => void doImport()}>
                 Import…
               </button>
@@ -1067,8 +1067,8 @@ export function AssetLibrary() {
             {screen.width}×{screen.height}
           </span>
         )}
-        <span title={`Last scan: ${lastReason}`}>{lastReason}</span>
-        <button type="button" className={css.Retry} onClick={() => refresh('manual')}>
+        {/* Why the list last rescanned ("open", "metadata") is for us, not the reader: tooltip only. */}
+        <button type="button" className={css.Retry} onClick={() => refresh('manual')} title={`Scan the folder again (last scan: ${lastReason})`}>
           Refresh
         </button>
       </div>

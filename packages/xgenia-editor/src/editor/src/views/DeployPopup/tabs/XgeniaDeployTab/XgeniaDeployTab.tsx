@@ -973,7 +973,7 @@ export function XgeniaDeployTab() {
           <div style={{ marginTop: '16px', borderTop: '1px solid #3a3a3a' }}>
             <MenuRow title="My published games" detail="Open, rename or take down your links" onClick={() => { setView('games'); void fetchDeployedDomains(); }} />
             <MenuRow title="Real money" detail="Verify the return to player and go live with a casino" onClick={() => setView('money')} />
-            <MenuRow title="Download or other platforms" detail="Export the game's files, or publish to Stake" onClick={() => setView('export')} />
+            <MenuRow title="Download or other platforms" detail="Export the game's files, or its frontend for Stake (Stake maths coming soon)" onClick={() => setView('export')} />
           </div>
         </>)}
 
@@ -1060,7 +1060,7 @@ export function XgeniaDeployTab() {
           <Tabs
             tabs={[
               { label: 'Download files', content: <DeployToFolderTab />, testId: 'self-hosting-tab-button' },
-              { label: 'Stake', content: <DeployToStakeTab />, testId: 'stake-tab-button' }
+              { label: 'Stake (frontend)', content: <DeployToStakeTab />, testId: 'stake-tab-button' }
             ]}
           />
         </>)}

@@ -167,21 +167,20 @@ rules above: its own branch, PR against `develop`, approval, squash-merge.
 "It's only a pointer bump" is not an exemption — it is precisely the case
 this document exists for.
 
-The exceptions are two workflow pushes, made over the repository's deploy key
+The one exception is a workflow push made over the repository's deploy key
 (`BOT_DEPLOY_KEY`). `develop`'s ruleset lists deploy keys as a bypass actor, so
-they need no PR. Neither is a GitHub App or a person's token.
+it needs no PR. It is not a GitHub App or a person's token.
 
 - **The private pointer bot** (`.github/workflows/private-pointer.yml`). It runs
   the PR checks (`pr-checks.yml`) with `private/` at the latest private `main`,
   and only if they pass, pushes a commit that changes nothing but the `private`
   gitlink. The checks are its gate.
-- **The version bump** (the `bump-version` job in `.github/workflows/release.yml`).
-  After every nightly or release it moves `packages/xgenia-editor/package.json`
-  on by one (`3.0.2-beta.1` → `3.0.2-beta.2`, `3.0.2` → `3.0.3`), in a commit that
-  changes nothing else and carries `[skip ci]`. So don't bump that version by
-  hand.
 
-The exception is for those two only. An agent or a person bumping the pointer by hand still follows the full
+No workflow changes `packages/xgenia-editor/package.json`'s version. It is set
+by hand like any other change (own branch, PR, approval). A manual release
+drafts exactly that version, so raise it before releasing.
+
+The exception is for the pointer bot only. An agent or a person bumping the pointer by hand still follows the full
 branch, PR, approval and squash-merge flow, and should usually not need to: the
 bot moves it within a few hours of a push to private `main`.
 

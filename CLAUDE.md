@@ -96,8 +96,11 @@ the pointer bump to `develop` itself over a deploy key, then starts a nightly
 pre-release (`.github/workflows/nightly.yml`). Nightlies run after every private
 commit (or when started by hand), not on every push to `develop`.
 
-Don't bump `packages/xgenia-editor/package.json`'s version by hand either: every
-nightly and every release moves it on by itself (`scripts/release/next-version.mjs`).
+`packages/xgenia-editor/package.json`'s version is set by hand, through a normal
+PR: no workflow changes it. A manual release (`.github/workflows/release.yml`)
+drafts exactly that version and fails if it already has a release, so raise it
+before releasing. Nightlies start from it and skip versions already taken
+(`scripts/release/next-version.mjs`).
 
-Only those two workflow pushes (pointer bump, version bump) land on `develop`
-without a PR; see `docs/agents/git-workflow.md`.
+Only the pointer bump lands on `develop` without a PR; see
+`docs/agents/git-workflow.md`.

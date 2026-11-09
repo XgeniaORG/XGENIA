@@ -26,6 +26,7 @@ import { tracker } from '../../utils/tracker';
 import { ToastLayer } from '../ToastLayer/ToastLayer';
 import { judgeDrop, type DroppedKind } from '../../models/lobby/lobbyDrop';
 import { setPendingSeed } from '../../models/lobby/lobbySeed';
+import { markNewGame } from '../../models/lobby/newGameArrival';
 import { fetchStarters, pickStarter, starterSeed, starterTemplates, starterTypeOfUrl, starterUrl, type StarterEntry } from './starters';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { ChatPanelIframe_ID } from '../panels/ChatPanelBridge/ChatPanelIframe';
@@ -250,6 +251,8 @@ export async function createGame(args: CreateGameArgs): Promise<ProjectModel | n
       const starterType = starter?.type || starterTypeOfUrl(args.templateUrl);
       setPendingSeed(project.id, starterType ? starterSeed(starterType, args.description) : args.description.trim());
     }
+
+    markNewGame(project.id);
 
     tracker.track('Create New Project', {
       starter: starter?.type,

@@ -179,7 +179,7 @@ test('a new studio signs in by email, creates its game with its own numbers, and
   // Step 3 happens in XGENIA RGS: the box links straight to this game's Versions page.
   assert.equal(
     byText(host, 'a', 'Open Versions').getAttribute('href'),
-    'https://xrgs-studio.vercel.app/project/default/games/crash-space/versions'
+    'https://rgs.xgenia.app/project/default/games/crash-space/versions'
   );
 
   await act(async () => { root.unmount(); });

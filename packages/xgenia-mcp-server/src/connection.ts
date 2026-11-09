@@ -1,3 +1,4 @@
+import { keepWorkersRunning } from './worker-resume.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium, type Browser, type Page, type Frame } from 'playwright-core';
@@ -264,6 +265,7 @@ export async function connect(
     throw err;
   }
 
+  keepWorkersRunning(port);
   cached = { browser, page, target: classifyTarget(page.url()), port };
   return cached;
 }

@@ -326,6 +326,11 @@ describe('classifyEditorReadiness', () => {
 // never settles, not even eventually) hung both calls forever -- including
 // the force:true escape hatch. withReadTimeout is the fix's core primitive.
 describe('withReadTimeout', () => {
+  it('counts a read that rejects (crashed renderer) as timed out, so force can still kill', async () => {
+    const result = await withReadTimeout(Promise.reject(new Error('page.evaluate: Target crashed')), 200);
+    expect(result).toBe(TIMED_OUT);
+  });
+
   it('resolves with the real value when the promise settles before the timeout', async () => {
     const result = await withReadTimeout(Promise.resolve('real value'), 200);
     expect(result).toBe('real value');
