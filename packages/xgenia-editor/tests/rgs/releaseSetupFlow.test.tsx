@@ -287,6 +287,46 @@ test('a studio on its sandbox can switch to an invited real-money account, and S
   localStorage.clear();
 });
 
+// (2026-11-10) Sign out was reachable only under More → Real money once a game was chosen, so a studio could
+// not see which account it was on or sign out to test signing in. It is now always in view in Publish.
+test('Publish always shows the signed-in account with a Sign out button, and a Sign out stays signed out', async () => {
+  const React = (await import('react')).default;
+  const { createRoot } = await import('react-dom/client');
+  const { act } = await import('react');
+  const { RgsReleaseSetup, rgsClient } = await loadComponents();
+  localStorage.clear();
+  localStorage.setItem('sb-pcrghrjikkcmelflwiys-auth-token', JSON.stringify({
+    access_token: 'xgenia-jwt', refresh_token: 'r', token_type: 'bearer', expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: 'u1', email: 'maker@example.com', aud: 'authenticated' }
+  }));
+  const { calls } = installRgs();
+  rgsClient.saveRgsSettings({ apiKey: 'xrgs_invited', rgsUrl: rgsClient.XRGS_URL });
+  rgsClient.setActiveGame({ id: 'g1', slug: 'crash', name: 'Crash' });
+  const host = document.getElementById('root')!;
+  const root = createRoot(host);
+  // The Publish window's main view: quiet once a game is chosen — but the account and Sign out stay.
+  await act(async () => { root.render(React.createElement(RgsReleaseSetup, { projectName: 'Crash Space', isQuietWhenReady: true })); });
+  assert.match(host.textContent || '', /Signed in to XGENIA RGS \(invited account\)/, 'which account is in view');
+
+  await act(async () => { click(byText(host, 'button', 'Sign out')); await tick(30); });
+  assert.equal(rgsClient.getRgsSettings(), null, 'signed out');
+  assert.match(host.textContent || '', /Connect with my XGENIA login/, 'the sign-in choice is offered');
+
+  // Closing and reopening Publish must not reconnect by itself either.
+  await act(async () => { root.unmount(); });
+  const root2 = createRoot(host);
+  await act(async () => { root2.render(React.createElement(RgsReleaseSetup, { projectName: 'Crash Space', isQuietWhenReady: true })); await tick(30); });
+  assert.equal(calls.filter((c) => c.url.endsWith('/rgs-connect')).length, 0, 'Sign out must not reconnect by itself, even in a new window');
+  assert.equal(rgsClient.getRgsSettings(), null);
+
+  // Signing in again (the sandbox) clears it: the next sign-out starts over.
+  await act(async () => { click(byText(host, 'button', 'Connect with my XGENIA login')); await tick(30); });
+  assert.equal(rgsClient.isSandboxConnection(), true, 'signed back in to the sandbox');
+  assert.match(host.textContent || '', /Signed in to your play-money sandbox/);
+  await act(async () => { root2.unmount(); });
+  localStorage.clear();
+});
+
 // (2026-11-03, XRGS SYSTEM_MAP.md I-13) Moving from the sandbox to an invited real-money account means
 // creating the game again on a different RGS. The studio used to retype everything it had declared, on a
 // form that opened on defaults. The declaration is remembered per project across accounts.
