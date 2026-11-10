@@ -682,8 +682,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/aggregatornode.js",
       "category": "Cloud Functions",
       "docs": "https://docsapp.xgenia.com/nodes/cloud-functions/aggregator",
-      "lineCount": 364,
-      "byteSize": 14299,
+      "lineCount": 626,
+      "byteSize": 27216,
       "inputFormatHints": {
         "url": {
           "displayName": "URL",
@@ -713,6 +713,35 @@
           "type": "stringlist",
           "notConnectable": true,
           "group": "Configuration"
+        },
+        "transport": {
+          "displayName": "Transport",
+          "type": "enum",
+          "enums": [
+            "http",
+            "stake"
+          ],
+          "group": "General"
+        },
+        "stakeConfig": {
+          "displayName": "Stake Config",
+          "type": "string",
+          "group": "Stake"
+        },
+        "moneyScale": {
+          "displayName": "Money Scale",
+          "type": "number",
+          "group": "Money"
+        },
+        "betField": {
+          "displayName": "Bet Field",
+          "type": "string",
+          "group": "Money"
+        },
+        "winField": {
+          "displayName": "Win Field",
+          "type": "string",
+          "group": "Money"
         },
         "functionScript": {
           "displayName": "Script",
@@ -762,18 +791,40 @@
           "applyOutputs": [
             "splitList"
           ],
+          "readRgsBalanceOnLoad": [
+            "getClientId",
+            "launchedSessionFromUrl"
+          ],
+          "setOutput": [],
+          "applyStakeOutputs": [],
+          "stakeSession": [
+            "stakeBookSessionForPage"
+          ],
+          "readStakeInfoOnLoad": [
+            "parseStakeConfig"
+          ],
+          "doSendStake": [
+            "parseStakeConfig"
+          ],
+          "moneyScaleInUse": [],
           "doSend": [
             "getPlayContextFields",
             "DEFAULT_URL",
+            "REQUEST_TIMEOUT_MS",
+            "newRequestId",
             "splitList",
             "stringifyPayloadSafe"
           ],
+          "setError": [],
           "splitList": [
             "humanize"
           ],
           "setup": [
             "buildPorts"
           ]
+        },
+        "literals": {
+          "REQUEST_TIMEOUT_MS": "10000"
         }
       }
     },
@@ -12593,8 +12644,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiPuppet.js",
       "category": "Pixi|Animation",
       "docs": null,
-      "lineCount": 987,
-      "byteSize": 39523,
+      "lineCount": 2084,
+      "byteSize": 90782,
       "inputFormatHints": {
         "source": {
           "displayName": "Package URL",
@@ -12647,6 +12698,22 @@
           "type": "number",
           "group": "Animation"
         },
+        "rootMotion": {
+          "displayName": "Root Motion",
+          "type": "boolean",
+          "group": "Animation"
+        },
+        "rootBone": {
+          "displayName": "Root Bone",
+          "type": "string",
+          "group": "Animation"
+        },
+        "resetRoot": {
+          "displayName": "Reset Root",
+          "type": "signal",
+          "group": "Animation",
+          "notSettableAsParameter": true
+        },
         "play": {
           "displayName": "Play",
           "type": "signal",
@@ -12657,6 +12724,110 @@
           "displayName": "Stop",
           "type": "signal",
           "group": "Animation",
+          "notSettableAsParameter": true
+        },
+        "track": {
+          "displayName": "Track",
+          "type": "number",
+          "group": "Tracks"
+        },
+        "trackClip": {
+          "displayName": "Track Clip",
+          "type": "string",
+          "group": "Tracks"
+        },
+        "trackLoop": {
+          "displayName": "Track Loop",
+          "type": "boolean",
+          "group": "Tracks"
+        },
+        "trackMix": {
+          "displayName": "Mix (s)",
+          "type": "number",
+          "group": "Tracks"
+        },
+        "trackDelay": {
+          "displayName": "Queue Delay (s)",
+          "type": "number",
+          "group": "Tracks"
+        },
+        "trackAdditive": {
+          "displayName": "Track Additive",
+          "type": "boolean",
+          "group": "Tracks"
+        },
+        "trackAlpha": {
+          "displayName": "Track Alpha",
+          "type": "number",
+          "group": "Tracks"
+        },
+        "trackSpeed": {
+          "displayName": "Track Speed",
+          "type": "number",
+          "group": "Tracks"
+        },
+        "defaultMix": {
+          "displayName": "Default Mix (s)",
+          "type": "number",
+          "group": "Tracks"
+        },
+        "mixTable": {
+          "displayName": "Mix Table",
+          "type": "object",
+          "group": "Tracks"
+        },
+        "playTrack": {
+          "displayName": "Play Track",
+          "type": "signal",
+          "group": "Tracks",
+          "notSettableAsParameter": true
+        },
+        "queueTrack": {
+          "displayName": "Queue Track",
+          "type": "signal",
+          "group": "Tracks",
+          "notSettableAsParameter": true
+        },
+        "clearTrack": {
+          "displayName": "Clear Track",
+          "type": "signal",
+          "group": "Tracks",
+          "notSettableAsParameter": true
+        },
+        "physicsFollow": {
+          "displayName": "Physics Follow",
+          "type": "number",
+          "group": "Physics"
+        },
+        "physicsTurn": {
+          "displayName": "Physics Turn",
+          "type": "number",
+          "group": "Physics"
+        },
+        "windX": {
+          "displayName": "Wind X",
+          "type": "number",
+          "group": "Physics"
+        },
+        "windY": {
+          "displayName": "Wind Y",
+          "type": "number",
+          "group": "Physics"
+        },
+        "gravityX": {
+          "displayName": "Gravity X",
+          "type": "number",
+          "group": "Physics"
+        },
+        "gravityY": {
+          "displayName": "Gravity Y",
+          "type": "number",
+          "group": "Physics"
+        },
+        "resetPhysics": {
+          "displayName": "Reset Physics",
+          "type": "signal",
+          "group": "Physics",
           "notSettableAsParameter": true
         },
         "lookAt": {
@@ -12695,6 +12866,82 @@
           "type": "signal",
           "group": "Parameters",
           "notSettableAsParameter": true
+        },
+        "paramValues": {
+          "displayName": "Param Values",
+          "type": "object",
+          "group": "Parameters"
+        },
+        "outfit": {
+          "displayName": "Outfit",
+          "type": "string",
+          "group": "Outfit"
+        },
+        "machine": {
+          "displayName": "Machine",
+          "type": "string",
+          "group": "Machine"
+        },
+        "machineInputs": {
+          "displayName": "Machine Inputs",
+          "type": "object",
+          "group": "Machine"
+        },
+        "data": {
+          "displayName": "Data",
+          "type": "object",
+          "group": "Data"
+        },
+        "machineTrigger": {
+          "displayName": "Trigger",
+          "type": "string",
+          "group": "Machine"
+        },
+        "fireTrigger": {
+          "displayName": "Fire Trigger",
+          "type": "signal",
+          "group": "Machine",
+          "notSettableAsParameter": true
+        },
+        "pointer": {
+          "displayName": "Pointer Events",
+          "type": "boolean",
+          "group": "Pointer"
+        },
+        "hoverMode": {
+          "displayName": "Hover By",
+          "type": "enum",
+          "enums": [
+            "character",
+            "part"
+          ],
+          "group": "Pointer"
+        },
+        "dragParam": {
+          "displayName": "Drag Param",
+          "type": "string",
+          "group": "Pointer"
+        },
+        "dragAxis": {
+          "displayName": "Drag Axis",
+          "type": "enum",
+          "enums": [
+            "right",
+            "left",
+            "down",
+            "up"
+          ],
+          "group": "Pointer"
+        },
+        "dragDistance": {
+          "displayName": "Drag Distance",
+          "type": "number",
+          "group": "Pointer"
+        },
+        "dragRelease": {
+          "displayName": "Let Go On Drop",
+          "type": "boolean",
+          "group": "Pointer"
         },
         "market": {
           "displayName": "Market",
@@ -12838,6 +13085,11 @@
           "type": "string",
           "group": "Riding"
         },
+        "followPoint": {
+          "displayName": "Read Point",
+          "type": "string",
+          "group": "Riding"
+        },
         "rideTurn": {
           "displayName": "Turn With Bone",
           "type": "boolean",
@@ -12907,10 +13159,60 @@
           "type": "string",
           "group": "Events"
         },
+        "eventName": {
+          "displayName": "Event Name",
+          "type": "string",
+          "group": "Events"
+        },
+        "eventData": {
+          "displayName": "Event Data",
+          "type": "*",
+          "group": "Events"
+        },
         "clipFinished": {
           "displayName": "Clip Finished",
           "type": "signal",
           "group": "Events"
+        },
+        "rootX": {
+          "displayName": "Root X",
+          "type": "number",
+          "group": "Animation"
+        },
+        "rootY": {
+          "displayName": "Root Y",
+          "type": "number",
+          "group": "Animation"
+        },
+        "eventTrack": {
+          "displayName": "Event Track",
+          "type": "number",
+          "group": "Events"
+        },
+        "clipStarted": {
+          "displayName": "Clip Started",
+          "type": "signal",
+          "group": "Tracks"
+        },
+        "clipCompleted": {
+          "displayName": "Clip Completed",
+          "type": "signal",
+          "group": "Tracks"
+        },
+        "startedClip": {
+          "displayName": "Started Clip",
+          "type": "string",
+          "group": "Tracks"
+        },
+        "completedClip": {
+          "displayName": "Completed Clip",
+          "type": "string",
+          "group": "Tracks"
+        },
+        "trackNumber": {
+          "displayName": "Track Number",
+          "type": "number",
+          "group": "Tracks"
         },
         "tapped": {
           "displayName": "Tapped",
@@ -12922,10 +13224,100 @@
           "type": "string",
           "group": "Events"
         },
+        "tappedShape": {
+          "displayName": "Tapped Shape",
+          "type": "string",
+          "group": "Events"
+        },
+        "tappedBox": {
+          "displayName": "Tapped Box",
+          "type": "string",
+          "group": "Events"
+        },
+        "pointX": {
+          "displayName": "Point X",
+          "type": "number",
+          "group": "Riding"
+        },
+        "pointY": {
+          "displayName": "Point Y",
+          "type": "number",
+          "group": "Riding"
+        },
+        "pointRotation": {
+          "displayName": "Point Rotation",
+          "type": "number",
+          "group": "Riding"
+        },
         "finishedClip": {
           "displayName": "Finished Clip",
           "type": "string",
           "group": "Events"
+        },
+        "hoverEnter": {
+          "displayName": "Hover Enter",
+          "type": "signal",
+          "group": "Pointer"
+        },
+        "hoverLeave": {
+          "displayName": "Hover Leave",
+          "type": "signal",
+          "group": "Pointer"
+        },
+        "hovering": {
+          "displayName": "Hovering",
+          "type": "boolean",
+          "group": "Pointer"
+        },
+        "hoverPart": {
+          "displayName": "Hover Part",
+          "type": "string",
+          "group": "Pointer"
+        },
+        "dragStart": {
+          "displayName": "Drag Start",
+          "type": "signal",
+          "group": "Pointer"
+        },
+        "dragMove": {
+          "displayName": "Drag Move",
+          "type": "signal",
+          "group": "Pointer"
+        },
+        "dragEnd": {
+          "displayName": "Drag End",
+          "type": "signal",
+          "group": "Pointer"
+        },
+        "dragging": {
+          "displayName": "Dragging",
+          "type": "boolean",
+          "group": "Pointer"
+        },
+        "dragPart": {
+          "displayName": "Drag Part",
+          "type": "string",
+          "group": "Pointer"
+        },
+        "dragX": {
+          "displayName": "Drag X",
+          "type": "number",
+          "group": "Pointer"
+        },
+        "dragY": {
+          "displayName": "Drag Y",
+          "type": "number",
+          "group": "Pointer"
+        },
+        "dragDX": {
+          "displayName": "Drag Delta X",
+          "type": "number",
+          "group": "Pointer"
+        },
+        "dragDY": {
+          "displayName": "Drag Delta Y",
+          "type": "number",
+          "group": "Pointer"
         },
         "isReady": {
           "displayName": "Is Ready",
@@ -12951,6 +13343,36 @@
           "displayName": "Params",
           "type": "array",
           "group": "Info"
+        },
+        "outfits": {
+          "displayName": "Outfits",
+          "type": "array",
+          "group": "Info"
+        },
+        "dataProps": {
+          "displayName": "Data Props",
+          "type": "array",
+          "group": "Data"
+        },
+        "machines": {
+          "displayName": "Machines",
+          "type": "array",
+          "group": "Machine"
+        },
+        "machineState": {
+          "displayName": "Machine State",
+          "type": "string",
+          "group": "Machine"
+        },
+        "machineStates": {
+          "displayName": "Layer States",
+          "type": "object",
+          "group": "Machine"
+        },
+        "stateChanged": {
+          "displayName": "State Changed",
+          "type": "signal",
+          "group": "Machine"
         },
         "behaviourState": {
           "displayName": "State",
@@ -13012,11 +13434,15 @@
           ],
           "set": [
             "finite",
+            "optionalText",
             "MARKETS"
           ],
-          "valueChangedToTrue": [],
+          "valueChangedToTrue": [
+            "MACHINE_DRIVES"
+          ],
           "getPuppet": [],
           "getBehaviour": [],
+          "getMachine": [],
           "registerPixiContainerRef": [],
           "_dispose": [
             "ALL_PUPPETS"
@@ -13034,24 +13460,86 @@
           "_tick": [],
           "_advanceHidden": [],
           "_hiddenNow": [],
+          "_setTrackNumber": [],
+          "_trackBlocked": [
+            "MACHINE_DRIVES"
+          ],
+          "_trackCommand": [
+            "errorText"
+          ],
+          "_onTrackNote": [],
+          "_applyMixes": [
+            "finite",
+            "errorText"
+          ],
+          "_applyPhysicsDirs": [],
+          "_feedPhysicsMovement": [],
           "_step": [
             "errorText"
           ],
           "_applyLookAt": [
             "errorText"
           ],
-          "_playClip": [],
+          "_playClip": [
+            "MACHINE_DRIVES"
+          ],
           "_applyParam": [],
           "_sendParam": [],
           "_buildBehaviour": [
             "errorText"
           ],
           "_ensureBehaviour": [],
-          "_runBehaviour": [],
+          "_runBehaviour": [
+            "MACHINE_DRIVES"
+          ],
           "_roundEvent": [
             "ALL_PUPPETS"
           ],
           "_onPointerTap": [],
+          "_setBoundParams": [
+            "errorText"
+          ],
+          "_checkBoundParams": [],
+          "_applyBoundParams": [],
+          "_clampParam": [],
+          "_releaseHeld": [],
+          "_applyOutfit": [],
+          "_updatePointerMode": [],
+          "_pointerHit": [],
+          "_machinePointer": [],
+          "_parentPoint": [],
+          "_onPointerMove": [],
+          "_setHover": [],
+          "_onPointerDown": [],
+          "_moveDrag": [],
+          "_setDragPoint": [],
+          "_endDrag": [],
+          "_resetPointer": [],
+          "_applyMachine": [
+            "MACHINE_DRIVES"
+          ],
+          "_buildMachine": [],
+          "_buildMachineOnly": [
+            "errorText"
+          ],
+          "_setDataSource": [
+            "errorText"
+          ],
+          "_applyData": [
+            "errorText"
+          ],
+          "_updateMachine": [],
+          "_setMachineInputs": [
+            "errorText"
+          ],
+          "_resetMachineInput": [],
+          "_checkMachineInputs": [],
+          "_machineInputList": [],
+          "_applyMachineInputs": [
+            "truthy"
+          ],
+          "_fireTrigger": [],
+          "_setMachineStates": [],
           "_triggerState": [],
           "_setBehaviourState": [],
           "_setBlocked": [],
@@ -13064,14 +13552,23 @@
           "_setPuppetName": [
             "RIDE_TARGETS"
           ],
+          "_updatePointOutputs": [],
           "_applyRide": [
             "RIDE_TARGETS"
           ],
+          "_applyRootMotion": [
+            "errorText"
+          ],
+          "_moveByRoot": [],
+          "_setRootOffset": [],
           "_applyTransform": [],
           "_setReady": [],
           "_setLoading": [],
           "_setError": [],
           "_clearError": []
+        },
+        "literals": {
+          "MACHINE_DRIVES": "'machine-drives: the state machine drives this character'"
         }
       }
     },
@@ -13081,8 +13578,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelCell.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-cell",
-      "lineCount": 779,
-      "byteSize": 33018,
+      "lineCount": 882,
+      "byteSize": 38198,
       "inputFormatHints": {
         "width": {
           "displayName": "Width",
@@ -13295,6 +13792,16 @@
           "type": "signal",
           "group": "Events"
         },
+        "onReelStop": {
+          "displayName": "On Reel Stop",
+          "type": "signal",
+          "group": "Events"
+        },
+        "rigClip": {
+          "displayName": "Rig Clip Playing",
+          "type": "string",
+          "group": "State"
+        },
         "onHighlighted": {
           "displayName": "On Highlighted",
           "type": "signal",
@@ -13388,6 +13895,12 @@
           "_stopTicker": [],
           "_onTick": [],
           "_onNodeDeleted": [],
+          "_rigHost": [],
+          "setSymbolRig": [],
+          "playSymbolRig": [],
+          "stopSymbolRig": [],
+          "_endRigLoop": [],
+          "reelLanded": [],
           "setSymbolId": [],
           "setSymbolImage": [],
           "setHighlighted": [],
@@ -13414,8 +13927,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelColumn.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-column",
-      "lineCount": 2356,
-      "byteSize": 113275,
+      "lineCount": 2559,
+      "byteSize": 123742,
       "inputFormatHints": {
         "visibleRows": {
           "displayName": "Visible Rows",
@@ -13485,6 +13998,18 @@
         "symbolImages": {
           "displayName": "Symbol Images",
           "type": "array",
+          "group": "Data"
+        },
+        "symbolRigs": {
+          "displayName": "Symbol Rigs",
+          "tooltip": "Per symbol (same order as Symbol Images), an animated rig: its character.xgc.json (made in the Character Studio or by the icon pipeline; the folder works too, except in a Stake build). While the reel spins the symbol shows its still frame; it plays \"land\" when the reel stops, \"win\" while highlighted and \"anticipation\" while a scatter teases. Leave an entry empty for a picture-only symbol.",
+          "type": "array",
+          "group": "Data"
+        },
+        "idleOnRigs": {
+          "displayName": "Idle On Rigs",
+          "tooltip": "After landing (or a win), symbol rigs loop their \"idle\" clip instead of returning to the still frame. Every idle symbol is then a live rig: keep it off on big grids.",
+          "type": "boolean",
           "group": "Data"
         },
         "targetSymbols": {
@@ -13778,6 +14303,11 @@
           "type": "signal",
           "group": "Events"
         },
+        "onLanded": {
+          "displayName": "On Landed",
+          "type": "signal",
+          "group": "Events"
+        },
         "onCascadeComplete": {
           "displayName": "On Cascade Complete",
           "type": "signal",
@@ -13917,6 +14447,17 @@
           "_drainPendingCascade": [],
           "_onNodeDeleted": [],
           "getDynamicPorts": [],
+          "_symbolImageList": [],
+          "_prepareSymbolRigs": [],
+          "_refreshStillImages": [],
+          "_applyCellRig": [],
+          "_cellLanded": [],
+          "_reelLanded": [],
+          "_landCascadedCells": [],
+          "setSymbolRigs": [],
+          "setIdleOnRigs": [],
+          "playRigClipOnSymbol": [],
+          "endRigClip": [],
           "setSymbolVideos": [],
           "setVideoReplaceImage": [],
           "setVideoSpeed": [],
@@ -14014,8 +14555,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiRevoltFX.js",
       "category": "Pixi|Effects",
       "docs": "https://github.com/bma73/revolt-fx-examples",
-      "lineCount": 768,
-      "byteSize": 26860,
+      "lineCount": 754,
+      "byteSize": 26272,
       "inputFormatHints": {
         "mode": {
           "displayName": "Load Mode",
@@ -17625,8 +18166,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 3057,
-      "byteSize": 167321,
+      "lineCount": 3096,
+      "byteSize": 169986,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
@@ -17646,6 +18187,18 @@
         "symbolVideos": {
           "displayName": "Symbol Videos",
           "type": "array",
+          "group": "Data"
+        },
+        "symbolRigs": {
+          "displayName": "Symbol Rigs",
+          "tooltip": "Per symbol (same order as Symbol Images), an animated rig: its character.xgc.json (made in the Character Studio or by the icon pipeline; the folder works too, except in a Stake build). Spinning reels show its still frame; it plays \"land\" when its reel stops, \"win\" while the cell is highlighted, and \"anticipation\" on landed scatters while a later reel teases. Leave an entry empty for a picture-o...",
+          "type": "array",
+          "group": "Data"
+        },
+        "idleOnRigs": {
+          "displayName": "Idle On Rigs",
+          "tooltip": "After landing or a win, symbol rigs loop their \"idle\" clip instead of holding the still frame. Every idle symbol is then a live rig: keep it off on big grids.",
+          "type": "boolean",
           "group": "Data"
         },
         "videoReplaceImage": {
@@ -32090,8 +32643,8 @@
       "relativePath": "controls/options.ts",
       "category": "Visual",
       "docs": "https://docsapp.xgenia.com/nodes/ui-controls/dropdown",
-      "lineCount": 263,
-      "byteSize": 7442,
+      "lineCount": 401,
+      "byteSize": 11449,
       "inputFormatHints": {
         "items": {
           "displayName": "Items",
@@ -32117,6 +32670,128 @@
           "displayName": "Placeholder opacity",
           "type": "number",
           "group": "Placeholder"
+        },
+        "listBackgroundColor": {
+          "displayName": "Background Color",
+          "type": "color",
+          "group": "Dropdown List"
+        },
+        "listBorderColor": {
+          "displayName": "Border Color",
+          "type": "color",
+          "group": "Dropdown List"
+        },
+        "listBorderWidth": {
+          "displayName": "Border Width",
+          "type": "number",
+          "units": [
+            "px"
+          ],
+          "defaultUnit": "px",
+          "group": "Dropdown List"
+        },
+        "listCornerRadius": {
+          "displayName": "Corner Radius",
+          "type": "number",
+          "units": [
+            "px"
+          ],
+          "defaultUnit": "px",
+          "group": "Dropdown List"
+        },
+        "listShadowColor": {
+          "displayName": "Shadow Color",
+          "type": "color",
+          "group": "Dropdown List"
+        },
+        "listPadding": {
+          "displayName": "Padding",
+          "type": "number",
+          "units": [
+            "px"
+          ],
+          "defaultUnit": "px",
+          "group": "Dropdown List"
+        },
+        "listMaxHeight": {
+          "displayName": "Max Height",
+          "type": "number",
+          "units": [
+            "px"
+          ],
+          "defaultUnit": "px",
+          "group": "Dropdown List"
+        },
+        "listOffset": {
+          "displayName": "Gap",
+          "tooltip": "Space between the field and the list",
+          "type": "number",
+          "units": [
+            "px"
+          ],
+          "defaultUnit": "px",
+          "group": "Dropdown List"
+        },
+        "optionTextColor": {
+          "displayName": "Text Color",
+          "type": "color",
+          "group": "Dropdown Options"
+        },
+        "optionFontSize": {
+          "displayName": "Font Size",
+          "type": "number",
+          "units": [
+            "px"
+          ],
+          "defaultUnit": "px",
+          "group": "Dropdown Options"
+        },
+        "optionPaddingHorizontal": {
+          "displayName": "Horizontal Padding",
+          "type": "number",
+          "units": [
+            "px"
+          ],
+          "defaultUnit": "px",
+          "group": "Dropdown Options"
+        },
+        "optionPaddingVertical": {
+          "displayName": "Vertical Padding",
+          "type": "number",
+          "units": [
+            "px"
+          ],
+          "defaultUnit": "px",
+          "group": "Dropdown Options"
+        },
+        "optionCornerRadius": {
+          "displayName": "Corner Radius",
+          "type": "number",
+          "units": [
+            "px"
+          ],
+          "defaultUnit": "px",
+          "group": "Dropdown Options"
+        },
+        "optionHoverBackgroundColor": {
+          "displayName": "Hover Background",
+          "type": "color",
+          "group": "Dropdown Options"
+        },
+        "optionHoverTextColor": {
+          "displayName": "Hover Text Color",
+          "type": "color",
+          "group": "Dropdown Options"
+        },
+        "optionSelectedBackgroundColor": {
+          "displayName": "Selected Background",
+          "type": "color",
+          "group": "Dropdown Options"
+        },
+        "optionSelectedTextColor": {
+          "displayName": "Selected Text Color",
+          "type": "color",
+          "group": "Dropdown Options"
         },
         "enabled": {
           "displayName": "Enabled",
@@ -62149,6 +62824,10 @@
         "direction": "input"
       },
       {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      },
+      {
         "node": "Object Viewer",
         "direction": "input"
       }
@@ -62282,6 +62961,36 @@
       }
     ],
     "signalOutputs": [
+      {
+        "node": "Aggregator",
+        "direction": "input"
+      }
+    ],
+    "transport": [
+      {
+        "node": "Aggregator",
+        "direction": "input"
+      }
+    ],
+    "stakeConfig": [
+      {
+        "node": "Aggregator",
+        "direction": "input"
+      }
+    ],
+    "moneyScale": [
+      {
+        "node": "Aggregator",
+        "direction": "input"
+      }
+    ],
+    "betField": [
+      {
+        "node": "Aggregator",
+        "direction": "input"
+      }
+    ],
+    "winField": [
       {
         "node": "Aggregator",
         "direction": "input"
@@ -76205,6 +76914,144 @@
         "direction": "input"
       }
     ],
+    "rootMotion": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "rootBone": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "resetRoot": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "track": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "trackClip": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "trackLoop": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "trackMix": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "trackDelay": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "trackAdditive": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "trackAlpha": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "trackSpeed": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "defaultMix": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "mixTable": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "playTrack": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "queueTrack": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "clearTrack": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "physicsFollow": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "physicsTurn": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "windX": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "windY": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "gravityX": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "gravityY": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "resetPhysics": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
     "lookAt": [
       {
         "node": "pixi.Puppet",
@@ -76242,6 +77089,78 @@
       }
     ],
     "releaseParam": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "paramValues": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "outfit": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "machine": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "machineInputs": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "machineTrigger": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "fireTrigger": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "pointer": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "hoverMode": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "dragParam": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "dragAxis": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "dragDistance": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
+    "dragRelease": [
       {
         "node": "pixi.Puppet",
         "direction": "input"
@@ -76361,6 +77280,12 @@
         "direction": "input"
       }
     ],
+    "followPoint": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
     "rideTurn": [
       {
         "node": "pixi.Puppet",
@@ -76415,7 +77340,67 @@
         "direction": "output"
       }
     ],
+    "eventName": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "eventData": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
     "clipFinished": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "rootX": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "rootY": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "eventTrack": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "clipStarted": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "clipCompleted": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "startedClip": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "completedClip": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "trackNumber": [
       {
         "node": "pixi.Puppet",
         "direction": "output"
@@ -76433,7 +77418,115 @@
         "direction": "output"
       }
     ],
+    "tappedShape": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "tappedBox": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "pointX": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "pointY": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "pointRotation": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
     "finishedClip": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "hoverEnter": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "hoverLeave": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "hovering": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "hoverPart": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "dragStart": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "dragMove": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "dragEnd": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "dragging": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "dragPart": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "dragX": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "dragY": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "dragDX": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "dragDY": [
       {
         "node": "pixi.Puppet",
         "direction": "output"
@@ -76485,6 +77578,46 @@
       {
         "node": "xgenia.cloud.response",
         "direction": "input"
+      }
+    ],
+    "outfits": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "dataProps": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "machines": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "machineState": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "machineStates": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      }
+    ],
+    "stateChanged": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "output"
+      },
+      {
+        "node": "States",
+        "direction": "output"
       }
     ],
     "behaviourState": [
@@ -76615,6 +77748,18 @@
         "direction": "output"
       }
     ],
+    "onReelStop": [
+      {
+        "node": "pixi.ReelCell",
+        "direction": "output"
+      }
+    ],
+    "rigClip": [
+      {
+        "node": "pixi.ReelCell",
+        "direction": "output"
+      }
+    ],
     "onHighlighted": [
       {
         "node": "pixi.ReelCell",
@@ -76670,6 +77815,26 @@
       }
     ],
     "symbolImages": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "symbolRigs": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "idleOnRigs": [
       {
         "node": "pixi.ReelColumn",
         "direction": "input"
@@ -76928,6 +78093,12 @@
       }
     ],
     "onImpact": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "output"
+      }
+    ],
+    "onLanded": [
       {
         "node": "pixi.ReelColumn",
         "direction": "output"
@@ -84005,6 +85176,108 @@
         "direction": "input"
       }
     ],
+    "listBackgroundColor": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
+    "listBorderColor": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
+    "listBorderWidth": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
+    "listCornerRadius": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
+    "listShadowColor": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
+    "listPadding": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
+    "listMaxHeight": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
+    "listOffset": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
+    "optionTextColor": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
+    "optionFontSize": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
+    "optionPaddingHorizontal": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
+    "optionPaddingVertical": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
+    "optionCornerRadius": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
+    "optionHoverBackgroundColor": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
+    "optionHoverTextColor": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
+    "optionSelectedBackgroundColor": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
+    "optionSelectedTextColor": [
+      {
+        "node": "net.xgenia.controls.options",
+        "direction": "input"
+      }
+    ],
     "fillSpacing": [
       {
         "node": "net.xgenia.controls.radiobutton",
@@ -86176,12 +87449,6 @@
       }
     ],
     "currentState": [
-      {
-        "node": "States",
-        "direction": "output"
-      }
-    ],
-    "stateChanged": [
       {
         "node": "States",
         "direction": "output"
