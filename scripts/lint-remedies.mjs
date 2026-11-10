@@ -681,6 +681,16 @@ function buildHandlerMap(indexSource, unparsed) {
     handlerMap.set(am[1], am[2]);
   }
 
+  // Gated tools: `installGatedTool(streamlinedToolHandlers, 'character', character_tool, ...)`
+  // installs a non-enumerable entry that is real whenever its gate is open, so a remedy naming
+  // it can be followed. Without this every call to a gated tool read as a phantom tool.
+  const gatedRe = /installGatedTool\(\s*streamlinedToolHandlers\s*,\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*,\s*([A-Za-z_][A-Za-z0-9_]*)/g;
+  let gm;
+  while ((gm = gatedRe.exec(indexSource))) {
+    if (kind[gm.index] !== 0) continue;
+    handlerMap.set(gm[1], gm[2]);
+  }
+
   return { handlerMap, inlineBlocks };
 }
 
