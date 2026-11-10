@@ -63,6 +63,9 @@ node tools/stake-harness/cli.mjs browser <math-dir> --game <build-dir> --tls \
 # Run a Stake RGS to play by hand
 node tools/stake-harness/cli.mjs emulate <math-dir> --port 5050 [--game <build-dir>] [--tls]
 
+# A real build against Engine's real RGS, with a session from Engine's dashboard ("Start game session")
+node tools/stake-harness/cli.mjs engine <build-dir> --session-url "<the session URL>" [--rounds 10]
+
 # Put every mode's RTP on target (see the caveat below)
 node tools/stake-harness/cli.mjs rebalance <math-dir> --rtp 0.963 [--into <dir>]
 

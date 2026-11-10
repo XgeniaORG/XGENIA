@@ -7,9 +7,8 @@ import { ProjectModel } from '@xgenia-models/projectmodel';
 import { createEditorCompilation } from '@xgenia-utils/compilation/compilation.editor';
 import { listEdgeDeployments } from '@xgenia-utils/rgs/deployEdgeFunction';
 import { getActiveGame, getRgsSettings } from '@xgenia-utils/rgs/rgsClient';
-import { exportStakeMaths } from '@xgenia-utils/stake/stakeMathsExport';
+import { buildForStake } from '@xgenia-utils/stake/buildForStake';
 import { summariseStakeModes } from '@xgenia-utils/stake/stakeMathsFormat';
-import { declaredStakeModes } from '@xgenia-utils/stake/stakeModes';
 
 import { Checkbox } from '@xgenia-core-ui/components/inputs/Checkbox';
 import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
@@ -59,8 +58,11 @@ export async function listExportableComponents(apiKey: string, gameId: string): 
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** The Stake maths export (books, lookup tables, index.json). Off until it is ready: frontend only for now. */
-const STAKE_MATHS_AVAILABLE = false;
+/**
+ * The Stake build: frontend with the Book Connector + the maths as Stake books (utils/stake/buildForStake.ts).
+ * On since 2026-11-09 — the merged Stake compiler (XRGS I-137..I-140) and the Book Connector are in place.
+ */
+const STAKE_MATHS_AVAILABLE = true;
 
 export function DeployToStakeTab() {
   const cloudService = useModernModel(CloudService.instance);
@@ -75,8 +77,8 @@ export function DeployToStakeTab() {
   // it never had. These are produced by the platform from the deployed component (see
   // utils/stake/stakeMathsExport.ts) and written into `<folder>/math/` after the front end.
   //
-  // Switched off for now (2026-11-05): only the frontend export ships; the maths export is
-  // "coming soon". Set STAKE_MATHS_AVAILABLE to true and restore the commented-out section below.
+  // Switched off 2026-11-05 while the maths export was finished.
+  // On since 2026-11-09 (STAKE_MATHS_AVAILABLE): the maths and the frontend are built together (buildForStake).
   const rgs = getRgsSettings();
   const game = getActiveGame();
   const canExportMaths = STAKE_MATHS_AVAILABLE && !!rgs?.apiKey && !!game?.id;
@@ -112,108 +114,93 @@ export function DeployToStakeTab() {
 
   const selected = components.find((c) => `${c.deploymentId}|${c.slug}` === componentKey) || null;
 
-  /**
-   * The maths half of the export. Runs AFTER the front end has been written, into
-   * `<folder>/math/`, so a failure here leaves a complete front-end export and a message
-   * rather than half of each.
-   */
-  async function exportMathsTo(direntry: string) {
-    const activityId = 'exporting-stake-maths';
+  /** Whole Stake build: frontend with the Book Connector, and the maths as books (buildForStake.ts). */
+  async function buildFullStake(direntry: string) {
+    const activityId = 'building-for-stake';
     const books = Math.floor(Number(booksPerMode));
     if (!(books > 0)) {
       ToastLayer.showError('Books per mode must be a positive number.');
-      setSuccessMessage('Frontend exported. Maths not exported: books per mode must be a positive number.');
       return;
     }
     const betMinor = bet.trim() ? Math.floor(Number(bet)) : undefined;
     if (bet.trim() && !(betMinor! > 0)) {
       ToastLayer.showError('Bet must be a positive whole number of minor units (cents).');
-      setSuccessMessage('Frontend exported. Maths not exported: the bet must be a positive whole number of minor units.');
       return;
     }
     if (!selected) {
-      ToastLayer.showError('Pick the Math Component to export.');
-      setSuccessMessage('Frontend exported. Maths not exported: pick the Math Component to export.');
+      ToastLayer.showError('Pick the Math Component the game plays.');
       return;
     }
-
     setIsExporting(true);
-    ToastLayer.showActivity('Exporting maths for Stake…', activityId);
+    setSuccessMessage('');
+    ToastLayer.showActivity('Building for Stake…', activityId);
     try {
-      const result = await exportStakeMaths({
+      const environment = cloudService.backend.items.find((x) => x.id === environmentId);
+      const result = await buildForStake({
+        project: ProjectModel.instance,
+        direntry,
         apiKey: rgs!.apiKey,
-        game: game ? { id: game.id, slug: game.slug, name: game.name } : null,
-        deploymentId: selected.deploymentId,
-        functionSlug: selected.slug,
-        outputDir: direntry,
+        game: { id: game!.id, slug: game!.slug, name: game!.name },
+        component: { deploymentId: selected.deploymentId, slug: selected.slug, name: selected.name },
         booksPerMode: books,
         bet: betMinor,
-        // The buy / ante the game's Bet Mode node offers, so they are exported as Stake modes.
-        stakeModes: declaredStakeModes((ProjectModel.instance as any)?.toJSON?.()),
-        onProgress: (p) => {
+        environment,
+        onStep: (step) => ToastLayer.showActivity(step, activityId),
+        onMathsProgress: (p) =>
           ToastLayer.showActivity(
-            `Exporting maths for Stake — ${p.mode} (${p.modeIndex + 1}/${p.modeCount}): ` +
-              `${p.books.toLocaleString()} / ${p.booksPerMode.toLocaleString()} books`,
+            `Stake books — ${p.mode} (${p.modeIndex + 1}/${p.modeCount}): ${p.books.toLocaleString()} / ${p.booksPerMode.toLocaleString()}`,
             activityId
-          );
-        }
+          )
       });
       ToastLayer.hideActivity(activityId);
-      ToastLayer.showSuccess(`Stake maths exported to ${result.publishDir}`);
+      ToastLayer.showSuccess('Built for Stake.');
+      const m = result.maths;
       setSuccessMessage(
-        `Stake export successful!\n` +
-          `Maths: ${selected.name}, bet ${result.bet} minor units, seed ${result.masterSeed.slice(0, 12)}…\n` +
-          `${summariseStakeModes(result.modes)}\n` +
-          `Upload ${result.publishDir} as the game's math. ${result.manifestPath} holds the seed and statistics — keep it, do not upload it.`
+        `Built for Stake.\n` +
+          `Frontend: ${direntry} — ${selected.name} is played from the Stake books (${result.swapped} instance${result.swapped === 1 ? '' : 's'}).\n` +
+          `Maths: bet ${m.bet} minor units, seed ${m.masterSeed.slice(0, 12)}…\n${summariseStakeModes(m.modes)}\n` +
+          `Upload the frontend folder and ${m.publishDir} on Engine. ${m.manifestPath} holds the seed and statistics — keep it, do not upload it.\n` +
+          `Check it first: npm run stake:check -- "${m.publishDir}" --game "${direntry}" --tls --expect-feature`
       );
     } catch (e: any) {
       ToastLayer.hideActivity(activityId);
       const message = e?.message || String(e);
-      ToastLayer.showError(`Stake maths export failed: ${message}`);
-      setSuccessMessage(`Frontend exported. Maths export failed: ${message}`);
+      ToastLayer.showError(`Stake build failed: ${message}`);
+      setSuccessMessage(`Stake build failed: ${message}`);
     } finally {
       setIsExporting(false);
     }
   }
 
-  function onPickFolderClicked() {
+  /** Frontend only, as before: its Math Component still runs in the browser — for looks, never for submission. */
+  function exportFrontendOnly(direntry: string) {
     const activityId = 'deploying-project-to-stake';
-
-    filesystem
-      .openDialog({
-        allowCreateDirectory: true
-      })
-      .then((direntry) => {
-        const compilation = createEditorCompilation(ProjectModel.instance)
-          .addProjectBuildScripts()
-          .addBuildScript({
-            async onPreBuild() {
-              ToastLayer.showActivity('Exporting for Stake...', activityId);
-              setSuccessMessage('');
-            },
-            async onPostBuild({ status }) {
-              ToastLayer.hideActivity(activityId);
-              if (status === 'success') {
-                ToastLayer.showSuccess('Stake export successful!');
-                setSuccessMessage('Stake export successful!');
-                if (exportMaths && canExportMaths) {
-                  await exportMathsTo(direntry);
-                }
-              } else {
-                ToastLayer.showError('Stake export failed.');
-              }
-            }
-          });
-
-        const environment = cloudService.backend.items.find((x) => x.id === environmentId);
-
-        // NOTE: Fire-n-forget
-        compilation.deployToFolder(direntry, {
-          environment,
-          runtimeType: 'stake'
-        });
+    const compilation = createEditorCompilation(ProjectModel.instance)
+      .addProjectBuildScripts()
+      .addBuildScript({
+        async onPreBuild() {
+          ToastLayer.showActivity('Exporting for Stake...', activityId);
+          setSuccessMessage('');
+        },
+        async onPostBuild({ status }) {
+          ToastLayer.hideActivity(activityId);
+          if (status === 'success') {
+            ToastLayer.showSuccess('Frontend exported.');
+            setSuccessMessage('Frontend exported without maths: its outcomes are decided in the browser. Not for submitting to Stake.');
+          } else {
+            ToastLayer.showError('Stake export failed.');
+          }
+        }
       });
+    const environment = cloudService.backend.items.find((x) => x.id === environmentId);
+    compilation.deployToFolder(direntry, { environment, runtimeType: 'stake' });
+  }
 
+  function onPickFolderClicked() {
+    filesystem.openDialog({ allowCreateDirectory: true }).then((direntry) => {
+      if (exportMaths && canExportMaths) void buildFullStake(direntry);
+      else exportFrontendOnly(direntry);
+    });
     // Keep popup open so the confirmation message is visible
   }
 
@@ -222,10 +209,8 @@ export function DeployToStakeTab() {
       <StakeReadinessSection />
       <PopupSection>
         <Text hasBottomSpacing textType={TextType.DefaultContrast}>
-          Export your game&apos;s frontend as static files for Stake.com (Pro Nodes).
-        </Text>
-        <Text style={{ fontSize: '12px', color: '#f5c26b', marginBottom: '10px', lineHeight: '1.45' }}>
-          Only the frontend can be exported for now. Exporting the maths for Stake Engine is coming soon.
+          Build the game for Stake Engine: the frontend, with its Math Component played from Stake&apos;s books, and the
+          maths as those books — one folder to upload.
         </Text>
 
         {successMessage && (
@@ -246,10 +231,9 @@ export function DeployToStakeTab() {
         <PrimaryButton label="Pick folder" onClick={onPickFolderClicked} isDisabled={isExporting} />
       </PopupSection>
 
-      {/* Stake maths export: coming soon (STAKE_MATHS_AVAILABLE). Restore this section with the flag.
       <PopupSection>
         <Text hasBottomSpacing textType={TextType.DefaultContrast}>
-          Maths — Stake Engine books, played on XGENIA RGS
+          Maths — Stake Engine books, played by XGENIA RGS from the deployed component
         </Text>
         {!canExportMaths ? (
           <Text style={{ fontSize: '12px' }}>
@@ -259,7 +243,7 @@ export function DeployToStakeTab() {
         ) : (
           <>
             <Checkbox
-              label={`Export maths for ${game!.name || game!.slug} into <folder>/math/`}
+              label={`Build with maths (${game!.name || game!.slug}): the Stake books go into <folder>/math/`}
               isChecked={exportMaths}
               onChange={(e) => setExportMaths(e.target.checked)}
               hasBottomSpacing
@@ -301,7 +285,6 @@ export function DeployToStakeTab() {
           </>
         )}
       </PopupSection>
-      */}
     </>
   );
 }

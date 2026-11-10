@@ -62,7 +62,8 @@
   const stepMs = Number(q.get('step') || 40);
   const buyMode = q.get('buyMode') || 'bonus';
   const buyCost = Number(q.get('buyCost') || 100);
-  const proto = location.protocol === 'http:' ? 'http' : 'https';
+  // Stake's RGS is https only; plain http only for a local emulator on an http page.
+  const proto = location.protocol === 'http:' && /^(localhost|127\.0\.0\.1)(:|$)/.test(rgs || '') ? 'http' : 'https';
   const API = 1e6;
   const $ = (id) => document.getElementById(id);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

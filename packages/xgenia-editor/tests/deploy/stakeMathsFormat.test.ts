@@ -99,3 +99,56 @@ test('an oversampled mode\'s summary shows the simulated RTP and how far the pac
   const line = summariseStakeModes([{ mode: { name: 'base', cost: 1, kind: 'base', optionId: null, label: 'Base' }, rows: [], stats, jsonlBytes: 0 }]);
   assert.match(line, /simulated 106\.51% over 1,000,000 rounds \(package \+0\.11 points\)/);
 });
+
+import { replayEventIds, stakeReviewChecklist } from '../../src/editor/src/utils/stake/stakeMathsFormat';
+
+test('replay event ids: a loss, a normal win, the biggest win, a win cap and the best bonus, from the package', () => {
+  const rows = [
+    { id: 0, payout: 0, criteria: '0' },
+    { id: 1, payout: 50, criteria: 'basegame' },
+    { id: 2, payout: 300, criteria: 'basegame' },
+    { id: 3, payout: 2500, criteria: 'freegame' },
+    { id: 4, payout: 9000, criteria: 'freegame' },
+    { id: 5, payout: 500000, criteria: 'wincap' }
+  ];
+  assert.deepEqual(replayEventIds(rows, 1), { loss: 0, normal_win: 2, big_win: 4, wincap: 5, bonus: 4 });
+  assert.deepEqual(replayEventIds([{ id: 9, payout: 0 }], 1), { loss: 9, normal_win: null, big_win: null, wincap: null, bonus: null });
+});
+
+test('the review checklist lists every mode\'s numbers, its replay ids and the manual checks', () => {
+  const stats = { books: 1, evaluate_calls: 0, rtp: 0.9631, rtp_raw: 0.963, hit_rate: 0.3, feature_books: 0, feature_rounds: 0, choice_books: 0, truncated_books: 0, rounded_books: 0, capped_books: 0, max_multiplier: 5000, elapsed_ms: 0 };
+  const md = stakeReviewChecklist({
+    gameName: 'Gremlin Gold',
+    maxWinMultiplier: 5000,
+    modes: [{ mode: { name: 'base', cost: 1, kind: 'base', optionId: null, label: 'Base' }, rows: [{ id: 0, payout: 0 }], stats, jsonlBytes: 0 }]
+  });
+  assert.match(md, /\| base \| 1× \| 96\.31% \| 5000× \| 30\.00% \|/);
+  assert.match(md, /Win cap: — none in this package/);
+  assert.match(md, /Mandatory disclaimer/);
+});
+
+import { stakeLimitsCheck } from '../../src/editor/src/utils/stake/stakeMathsFormat';
+
+function modeOf(name: string, cost: number, kind: any, rows: any[]) {
+  return { mode: { name, cost, kind, optionId: null, label: name }, rows, stats: { books: rows.length, evaluate_calls: 0, rtp: 0, rtp_raw: 0, hit_rate: 0, feature_books: 0, feature_rounds: 0, choice_books: 0, truncated_books: 0, rounded_books: 0, capped_books: 0, max_multiplier: 0, elapsed_ms: 0 }, jsonlBytes: 0 };
+}
+/** n books paying p (hundredths of the base bet) with weight w and criteria c. */
+const many = (n: number, p: number, w = 1, c = p ? 'basegame' : '0') => Array.from({ length: n }, (_, i) => ({ id: i, payout: p, weight: w, criteria: c }));
+
+test('limits: a base game at 96.3% with enough volatility passes; one at 99% is told which way to move', () => {
+  // 963 in 10,000 books pay 10×: RTP 96.3%, std ~2.9
+  const ok = stakeLimitsCheck([modeOf('base', 1, 'base', [...many(963, 1000), ...many(9037, 0)])], { maxWinMultiplier: 5000, minBooks: 10 });
+  assert.equal(ok.ok, true, JSON.stringify(ok.problems));
+  const hot = stakeLimitsCheck([modeOf('base', 1, 'base', [...many(990, 1000), ...many(9010, 0)])], { maxWinMultiplier: 5000, minBooks: 10 });
+  const p = hot.problems.find((x) => x.code === 'RTP_OUT_OF_BAND')!;
+  assert.match(p.fix, /^Lower the base mode's RTP by about 2\.65%/);
+});
+
+test('limits: a buy that does not open its feature, a mode too far from base, and no cap are all reported', () => {
+  const base = modeOf('base', 1, 'base', [...many(963, 1000), ...many(9037, 0)]);
+  const buy = modeOf('buy_bonus_buy', 100, 'buy', [...many(100, 9800, 1, 'basegame')]);
+  const r = stakeLimitsCheck([base, buy], { maxWinMultiplier: null, minBooks: 10 });
+  const codes = r.problems.map((x) => x.code);
+  for (const c of ['BUY_NOT_IN_FEATURE', 'RTP_MODE_SPREAD', 'BASE_NEVER_TRIGGERS_FEATURE', 'NO_MAX_WIN_CAP']) assert.ok(codes.includes(c), c);
+  assert.equal(r.ok, false);
+});

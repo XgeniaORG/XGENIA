@@ -256,3 +256,140 @@ export function summariseStakeModes(modes: StakeModeExport[]): string {
     })
     .join('\n');
 }
+
+// ─── The reviewer pack (2026-11-09) ─────────────────────────────────────────────────────────────────────────
+// Engine's reviewers ask, per mode, for replay event ids of a normal win, a big win, a win cap, a loss and a
+// bonus trigger, and check the rules screen against each mode's RTP, max win and cost. Those numbers are in the
+// export; writing them down here saves the developer hunting through a million-line books file.
+
+export interface ReplayEventIds {
+  loss: number | null;
+  normal_win: number | null;
+  big_win: number | null;
+  wincap: number | null;
+  bonus: number | null;
+}
+
+/** Book ids (the replay URL's `event`) of the outcomes reviewers ask to see; null when the package has none. */
+export function replayEventIds(rows: StakeLutRow[], cost: number): ReplayEventIds {
+  const price = 100 * cost;
+  let loss: number | null = null;
+  let normal: number | null = null;
+  let big: StakeLutRow | null = null;
+  let wincap: number | null = null;
+  let bonus: StakeLutRow | null = null;
+  for (const r of rows) {
+    if (loss === null && r.payout === 0) loss = r.id;
+    if (normal === null && r.payout >= price && r.payout <= 5 * price && r.criteria !== 'freegame' && r.criteria !== 'wincap') normal = r.id;
+    if (wincap === null && r.criteria === 'wincap') wincap = r.id;
+    if (r.criteria === 'freegame' && r.payout > 0 && (!bonus || r.payout > bonus.payout)) bonus = r;
+    if (r.criteria !== 'wincap' && (!big || r.payout > big.payout)) big = r;
+  }
+  return { loss, normal_win: normal, big_win: big && big.payout > 0 ? big.id : null, wincap, bonus: bonus ? bonus.id : null };
+}
+
+/** The checklist to hand in with the upload: numbers per mode, replay ids, and what a person must check by eye. */
+export function stakeReviewChecklist(i: { gameName: string; modes: StakeModeExport[]; maxWinMultiplier: number | null }): string {
+  const pct = (x: number) => `${(x * 100).toFixed(2)}%`;
+  const id = (v: number | null) => (v === null ? '— none in this package' : String(v));
+  const lines: string[] = [`# Stake review pack — ${i.gameName}`, '', '## Modes (put these exact numbers on the rules screen)', ''];
+  lines.push('| Mode | Cost | RTP | Max win | Hit rate |', '|---|---|---|---|---|');
+  for (const m of i.modes) {
+    lines.push(`| ${m.mode.name} | ${m.mode.cost}× | ${pct(m.stats.rtp)} | ${m.stats.max_multiplier}× | ${pct(m.stats.hit_rate)} |`);
+  }
+  const rtps = i.modes.map((m) => m.stats.rtp);
+  const spread = rtps.length ? Math.max(...rtps) - Math.min(...rtps) : 0;
+  lines.push('', `Stake's limits: every mode 96.00–96.70% and within 0.50% of the others (spread here ${pct(spread)}); cheapest mode exactly 1×; max win at most 1,000,000×.`);
+  for (const m of i.modes) {
+    const ids = replayEventIds(m.rows, m.mode.cost);
+    lines.push('', `## Replay event ids — ${m.mode.name}`, '', `- Loss: ${id(ids.loss)}`, `- Normal win: ${id(ids.normal_win)}`, `- Big win: ${id(ids.big_win)}`, `- Win cap: ${id(ids.wincap)}`, `- Bonus trigger: ${id(ids.bonus)}`);
+  }
+  lines.push(
+    '',
+    '## Check by eye before submitting',
+    '',
+    '- [ ] Rules screen: symbol pays, RTP and max win per mode (table above), each mode\'s cost, free-spin trigger and retrigger rules',
+    '- [ ] Mandatory disclaimer on the rules screen ("Malfunction voids all wins and plays… reload the game to finish any uncompleted rounds…")',
+    '- [ ] Social mode (?social=true): no "bet", "buy", "pay", "cash", "gamble" in any text, rule or image; coins shown as GC / SC',
+    '- [ ] Spacebar places a bet; sound toggle; autoplay asks for confirmation',
+    '- [ ] A mode costing more than 2× asks for confirmation',
+    '- [ ] Every bet level Stake offers can be selected; a reload keeps the chosen bet',
+    '- [ ] The win counter counts up to the final payout',
+    '- [ ] Replay (?replay=true&…&event=<id above>) plays with a "Play again" button and shows the real cost (bet × mode cost)',
+    '- [ ] Desktop, mobile and small popout sizes; no console errors',
+    '- [ ] Played on Engine with a test session: `npm run stake:check` and `node tools/stake-harness/cli.mjs engine <build> --session-url "<session URL>"` both pass'
+  );
+  return lines.join('\n') + '\n';
+}
+
+// ─── Stake's limits, checked on the export itself (2026-11-09) ──────────────────────────────────────────────
+// What Studio refuses on upload (math-sdk utils/rgs_verification.py SUBMISSION_LIMITS, HEAD 2026-11-02) and what
+// breaks a bonus without Studio noticing, from the weighted lookup table the export just wrote. Every problem
+// carries `fix`, worded for the AI: the Stake job hands these back and the AI changes the maths and measures again.
+
+export const STAKE_LIMITS = { minRtp: 0.96, maxRtp: 0.967, modeSpread: 0.005, maxCost: 50_000, maxWin: 1_000_000, minBaseStd: 0.6, minBooks: 100_000, maxWinOdds: 20_000_000 };
+
+export interface StakeLimitProblem {
+  level: 'error' | 'warn';
+  code: string;
+  mode: string | null;
+  message: string;
+  fix: string;
+}
+
+export interface StakeLimitsReport {
+  ok: boolean;
+  problems: StakeLimitProblem[];
+  modes: { name: string; cost: number; rtp: number; std: number; maxWin: number; maxWinOdds: number | null; featureShare: number; books: number }[];
+}
+
+const pctOf = (x: number) => `${(x * 100).toFixed(2)}%`;
+
+export function stakeLimitsCheck(modes: StakeModeExport[], opts: { maxWinMultiplier?: number | null; minBooks?: number } = {}): StakeLimitsReport {
+  const L = { ...STAKE_LIMITS, ...(opts.minBooks ? { minBooks: opts.minBooks } : {}) };
+  const problems: StakeLimitProblem[] = [];
+  const add = (p: StakeLimitProblem) => problems.push(p);
+  const per: StakeLimitsReport['modes'] = [];
+  for (const m of modes) {
+    let w = 0, x1 = 0, x2 = 0, feat = 0, maxP = 0, maxW = 0;
+    for (const r of m.rows) {
+      const weight = r.weight ?? 1;
+      const x = r.payout / 100 / m.mode.cost;
+      w += weight;
+      x1 += weight * x;
+      x2 += weight * x * x;
+      if (r.criteria === 'freegame' || r.criteria === 'wincap') feat += weight;
+      if (r.payout > maxP) {
+        maxP = r.payout;
+        maxW = weight;
+      } else if (r.payout === maxP) maxW += weight;
+    }
+    const rtp = w ? x1 / w : 0;
+    per.push({ name: m.mode.name, cost: m.mode.cost, rtp, std: w ? Math.sqrt(Math.max(0, x2 / w - rtp * rtp)) : 0, maxWin: maxP / 100, maxWinOdds: maxW ? w / maxW : null, featureShare: w ? feat / w : 0, books: m.rows.length });
+  }
+  if (!per.length) add({ level: 'error', code: 'NO_MODES', mode: null, message: 'Nothing was exported.', fix: 'Export again and read the error it gives.' });
+  const cheapest = Math.min(...per.map((p) => p.cost));
+  if (per.length && cheapest !== 1) add({ level: 'error', code: 'NO_BASE_COST_MODE', mode: null, message: `The cheapest mode costs ${cheapest}×; Stake needs one mode at exactly 1×.`, fix: 'Keep the base game at 1× the bet.' });
+  const base = per.find((p) => p.cost === 1) || null;
+  const anyBuy = modes.some((m) => m.mode.kind === 'buy');
+  for (const p of per) {
+    const kind = modes.find((m) => m.mode.name === p.name)!.mode.kind;
+    if (p.rtp < L.minRtp || p.rtp > L.maxRtp) {
+      const dir = p.rtp > L.maxRtp ? 'lower' : 'raise';
+      add({ level: 'error', code: 'RTP_OUT_OF_BAND', mode: p.name, message: `${p.name}: RTP ${pctOf(p.rtp)}, outside Stake's ${pctOf(L.minRtp)}–${pctOf(L.maxRtp)}.`, fix: `${dir === 'lower' ? 'Lower' : 'Raise'} the ${p.name} mode's RTP by about ${pctOf(Math.abs(p.rtp - 0.9635))} toward 96.35%: ${kind === 'buy' ? 'change the bonus\'s payouts (free-spin multipliers or paytable during the feature)' : kind === 'special' ? 'change the ante\'s trigger boost or cost' : 'change symbol weights or base-game pays (not the feature, which the buy shares)'}; then measure again.` });
+    }
+    if (base && p !== base && Math.abs(p.rtp - base.rtp) > L.modeSpread) {
+      add({ level: 'error', code: 'RTP_MODE_SPREAD', mode: p.name, message: `${p.name}: RTP ${pctOf(p.rtp)} is ${pctOf(Math.abs(p.rtp - base.rtp))} from base (${pctOf(base.rtp)}); Stake allows ${pctOf(L.modeSpread)}.`, fix: `Bring ${p.name} within 0.5% of the base game's RTP.` });
+    }
+    if (p.cost > L.maxCost) add({ level: 'error', code: 'COST_TOO_HIGH', mode: p.name, message: `${p.name} costs ${p.cost}×; Stake's limit is ${L.maxCost}×.`, fix: 'Lower the mode\'s price.' });
+    if (p.maxWin > L.maxWin) add({ level: 'error', code: 'MAX_WIN_TOO_HIGH', mode: p.name, message: `${p.name} can pay ${p.maxWin}×; Stake's limit is ${L.maxWin.toLocaleString()}×.`, fix: 'Set the game\'s max win (cap) at or below 1,000,000×.' });
+    if (p.maxWinOdds && p.maxWinOdds > L.maxWinOdds) add({ level: 'warn', code: 'MAX_WIN_UNREACHABLE', mode: p.name, message: `${p.name}: the top win (${p.maxWin}×) comes 1 in ${Math.round(p.maxWinOdds).toLocaleString()}; reviewers want it reachable (1 in 20,000,000 or better).`, fix: 'Lower the max win cap to what the maths actually reaches, or make the top outcomes less rare.' });
+    if (kind === 'buy' && p.featureShare < 0.99) add({ level: 'error', code: 'BUY_NOT_IN_FEATURE', mode: p.name, message: `${p.name}: only ${pctOf(p.featureShare)} of bought rounds open the bonus — the rest are ordinary spins at the buy price.`, fix: 'Make the bought mode force the feature (Bet Mode.forceFeature into the scatter / trigger) and redeploy the maths.' });
+    if (p.books < L.minBooks) add({ level: 'warn', code: 'FEW_BOOKS', mode: p.name, message: `${p.name}: ${p.books.toLocaleString()} books; Stake asks for 100,000–1,000,000.`, fix: 'For the final build export at least 100,000 books per mode.' });
+  }
+  if (base && base.std < L.minBaseStd) add({ level: 'error', code: 'BASE_STD_LOW', mode: base.name, message: `Base-game volatility (std ${base.std.toFixed(2)}) is under Stake's ${L.minBaseStd}.`, fix: 'Make the base game more volatile (bigger top pays, rarer wins).' });
+  if (base && anyBuy && base.featureShare === 0) add({ level: 'error', code: 'BASE_NEVER_TRIGGERS_FEATURE', mode: base.name, message: 'The base game never reaches its bonus in the books, though a buy mode shows it has one.', fix: 'Use Calculate Free Spins States (or variables in_feature + feature_rounds_remaining) so the exporter sees the free spins, and check the natural trigger fires.' });
+  if (opts.maxWinMultiplier == null) add({ level: 'warn', code: 'NO_MAX_WIN_CAP', mode: null, message: 'The game has no max win cap on XGENIA RGS, so books are uncapped.', fix: 'Set the game\'s max win (the export\'s maxWin, or the game\'s settings on XGENIA RGS).' });
+  for (const m of modes) if (m.stats.truncated_books > 0) add({ level: 'warn', code: 'BOOK_TRUNCATED', mode: m.mode.name, message: `${m.mode.name}: ${m.stats.truncated_books} books were cut mid-feature (a feature that never ended).`, fix: 'Make sure the feature always ends (spins left reaches 0).' });
+  return { ok: !problems.some((p) => p.level === 'error'), problems, modes: per };
+}

@@ -27,6 +27,7 @@ import { NodeGraphModel, NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 import { NodeLibrary } from '@xgenia-models/nodelibrary';
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import { stakeReadiness } from '@xgenia-utils/stake/stakeReadiness';
+import { startStakeJob, stakeJob } from '@xgenia-utils/stake/stakeCommands';
 import { takePendingSeed } from '../../../models/lobby/lobbySeed';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { UndoActionGroup, UndoQueue } from '@xgenia-models/undo-queue-model';
@@ -3323,6 +3324,15 @@ export class EditorBridge {
         h('stake.readiness', () => {
             try { return stakeReadiness((ProjectModel.instance as any)?.toJSON?.()); } catch (e: any) { return { error: e?.message || String(e) }; }
         });
+        // stake.start([{ kind: 'measure' | 'build', component?, booksPerMode?, oversample?, bet?, folder? }]) → { jobId } | { error, issues? }
+        // stake.job([jobId?]) → { state, step, steps, result?: { modes, withinLimits, problems, … }, error? }
+        // measure: books only, in a scratch folder, then Stake's limits per mode (RTP band, spread, max win, buys).
+        // build: the whole game for upload (frontend on the Book Connector + books + review checklist), then limits.
+        // utils/stake/stakeCommands.ts. Long work: start returns at once, the AI polls job.
+        h('stake.start', ([spec]: [any]) => {
+            try { return startStakeJob(spec); } catch (e: any) { return { error: e?.message || String(e) }; }
+        });
+        h('stake.job', ([jobId]: [string?]) => stakeJob(jobId));
 
         // --- Filesystem commands ---
         //

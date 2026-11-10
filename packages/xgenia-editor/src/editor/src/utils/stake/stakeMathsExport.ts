@@ -41,6 +41,7 @@ import {
   buildStakeExportManifest,
   lookupTableCsv,
   lookupTableRtp,
+  stakeReviewChecklist,
   strataWeightedRows,
   stakeBooksFileName,
   stakeIndexJson,
@@ -398,6 +399,12 @@ export async function exportStakeMaths(opts: StakeExportOptions): Promise<StakeE
       null,
       2
     )
+  );
+
+  // The reviewer pack: per-mode numbers, replay event ids, and what to check by eye. Outside the upload folder.
+  await filesystem.writeFileOverride(
+    filesystem.join(dir, 'stake-review-checklist.md'),
+    stakeReviewChecklist({ gameName: opts.game?.name || info.game?.name || info.functionSlug, modes: done, maxWinMultiplier: info.maxWinMultiplier })
   );
 
   return { dir, publishDir, manifestPath, modes: done, info, bet, masterSeed: masterSeed || '', cancelled: false, chunks };
