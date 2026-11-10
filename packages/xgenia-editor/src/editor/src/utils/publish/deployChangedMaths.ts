@@ -18,6 +18,7 @@ import { listEdgeDeployments } from '@xgenia-utils/rgs/deployEdgeFunction';
 import {
   createEmptyServerVersion,
   deployMathsComponents,
+  deriveBetWinPorts,
   listMathsComponents
 } from '@xgenia-utils/rgs/deployMathsComponents';
 import { loadMathsStatus, MathsComponentStatus } from '@xgenia-utils/rgs/mathsComponentStatus';
@@ -142,11 +143,23 @@ export async function deployChangedMathsComponents(
   }
 
   const status = await loadMathsStatus(rgs.apiKey, target.deploymentId, project);
+  // (2026-11-05) "Unchanged" is judged by the GRAPH, so a component an older editor deployed WITHOUT a
+  // bet/win mapping stayed that way for good — playing every round at a stake of 0 and missing from the
+  // Stake export (Wheel Game Test Math: its stake input is `Bet`, which the old rule did not read). One
+  // whose own stored ports this editor's rules DO map is redeployed, so it gets the mapping; once mapped
+  // it is unchanged again, so this never repeats.
+  const unmapped = (c: MathsComponentStatus) => {
+    const d = status.deployedBySlug.get(c.slug);
+    if (!d || d.betInputPort || d.winOutputPort) return false;
+    const derived = deriveBetWinPorts({ payloadExample: d.payloadExample, responseExample: d.responseExample });
+    return !!derived.betInputPort && !!derived.winOutputPort;
+  };
   const toDeploy = opts.redeployAll
     ? status.all.filter((c) => c.kind !== 'deleted' && !!c.componentName)
-    : status.changed.filter((c) => c.kind === 'added' || c.kind === 'modified');
+    : status.all.filter((c) => c.kind === 'added' || c.kind === 'modified' || (c.kind === 'unchanged' && !!c.componentName && unmapped(c)));
   const notDeleted = status.changed.filter((c) => c.kind === 'deleted').map(refOf);
-  const unchanged = opts.redeployAll ? [] : status.all.filter((c) => c.kind === 'unchanged').map(refOf);
+  const redeploying = new Set(toDeploy.map((c) => c.slug));
+  const unchanged = opts.redeployAll ? [] : status.all.filter((c) => c.kind === 'unchanged' && !redeploying.has(c.slug)).map(refOf);
   const warnings: string[] = [];
   if (notDeleted.length > 0) {
     warnings.push(`${notDeleted.map((c) => c.name).join(', ')}: ${NOT_DELETED_NOTE}`);

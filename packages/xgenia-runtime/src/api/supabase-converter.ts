@@ -2117,6 +2117,11 @@ ${originalComponentStructure}
     if (declared === 'signal') return true;
     const t = String(node.typename || '');
     if (t === 'JavaScriptFunction') return port === 'run';
+    // (2026-11-03) A Javascript2 signal input is whatever its code assigns a Script.Signals handler
+    // to — the editor runtime decides the same way. Its port list said nothing reliable: MinesEngine's
+    // `Bet` read as type "*", which the fallback below takes as data, so `Bet: config.Bet` was passed
+    // as a value, the engine never ran, and the Stake export answered "no outputs at all".
+    if (t === 'Javascript2') return this.javascript2SignalNames(node).includes(port);
     if (t === 'stateManager') return port === 'update' || port === 'reset';
     if (this.isSetVariable(node)) return port === 'do';
     if (this.isVariable2(node)) return port === 'fetch';
@@ -2922,12 +2927,7 @@ ${originalComponentStructure}
             return `// Maths Logic component not found: ${node.typename}`;
           }
         } else if (node.typename === 'Javascript2') {
-          // Javascript2 nodes use Script.Signals pattern (signal flow control).
-          // In the synchronous RGS context, these are essentially passthrough/no-op.
-          const funcName = this.getFunctionName(node);
-          const rawOutputs = (node.parameters.scriptOutputs as Array<{name?: string}>) || [];
-          const outputNames = rawOutputs.filter(o => o && o.name).map(o => this.sanitizeParameterName(o.name!));
-          return `function ${funcName}(inputs) {\n  // Javascript2 signal flow node (passthrough in RGS)\n  return { ${outputNames.map(n => `${n}: true`).join(', ')} };\n}\n`;
+          return this.generateJavascript2FunctionDefinition(node);
         } else if (node.typename === 'stateManager') {
           // (2026-10-05) The editor node (runtime nodes/std-library/stateManager.js) has inputs
           // input0..N-1 and outputs output0..N-1 — `aliasN` only names a pair for display and for
@@ -2958,6 +2958,91 @@ ${originalComponentStructure}
   /**
    * Generate JavaScript function definition
    */
+  /**
+   * A Javascript2 node — the `Script.Inputs` / `Script.Outputs` / `Script.Signals` script — run as
+   * the editor runs it. (2026-10-29)
+   *
+   * WHY: this compiled to `return { <each output>: true }` on the theory that such nodes only route
+   * signals. A maths whose engine IS one of these therefore deployed with no maths at all: every round
+   * returned nothing and paid 0, deploy and stress test passed, and the first thing to notice was Stake
+   * Engine refusing an all-zero lookup table (KenoMaths, ERR_MATH_OUTSIDE_RANGE).
+   *
+   * Now the node's code runs against a `Script` object shaped like the editor's: `Inputs` is the call's
+   * input object, writes to `Outputs` are the result, `Signals.<name>` runs when that signal input
+   * arrives, `OnInit` once (the first request this node ever sees), `OnInputsChanged` when a data input
+   * differs from the last request's. Signal outputs are functions, as in the editor; one the code calls
+   * reads `true` in the result, which is how the request engine fires a native node's signal port.
+   *
+   * Two rewrites, both forced by the XRGS sandbox, which rejects the script text outright otherwise:
+   *  - `globalThis` → the node's own `this` (request engine: kept across requests in
+   *    ctx.state.__engine.t). A script that parks its state on globalThis keeps it per player session,
+   *    which is what the editor's single-player globalThis amounts to. Rebuilt from its saved form on
+   *    every call (BigInt included, see below), so a mutation never reaches the previous round's state.
+   *  - `crypto` → undefined. Randomness must come from ctx.rng (rgsRandom); code that guards with
+   *    `typeof crypto` falls through to that, code that does not fails loudly at round time.
+   * Code reaching any other host global still trips the sandbox's own denylist at deploy — loud, which
+   * is the point.
+   *
+   * Every top-level statement re-runs on every request (functions cannot persist through JSON state);
+   * a script whose top level has side effects beyond definitions repeats them each request.
+   */
+  /** The signal inputs a Javascript2 node's code handles: `Script.Signals.X = …` / `Script.Signals["X"] = …`. */
+  private javascript2SignalNames(node: Node): string[] {
+    const code = String((node.parameters as any)?.code || '');
+    const names = [
+      ...Array.from(code.matchAll(/\bScript\.Signals\.([A-Za-z_$][\w$]*)\s*=(?!=)/g), (m) => m[1]),
+      ...Array.from(code.matchAll(/\bScript\.Signals\[\s*["']([^"']+)["']\s*\]\s*=(?!=)/g), (m) => m[1]),
+    ];
+    return Array.from(new Set(names));
+  }
+
+  private generateJavascript2FunctionDefinition(node: Node): string {
+    const funcName = this.getFunctionName(node);
+    const code = String((node.parameters as any)?.code || '');
+    if (!code.trim()) return `function ${funcName}(inputs) {\n  return {};\n}\n`;
+    this._jsUsesThis.add(node.id);
+    const J = (v: unknown) => JSON.stringify(v);
+    const portSignals = [...(((node as any).ports as any[]) || []), ...(node.dynamicports || [])]
+      .filter((p: any) => p && p.plug === 'output' && (p.type === 'signal' || p.type?.name === 'signal'))
+      .map((p: any) => String(p.name));
+    const calledOutputs = Array.from(code.matchAll(/\bScript\.Outputs\.([A-Za-z_$][\w$]*)\s*\(/g), (m) => m[1]);
+    const signalOuts = Array.from(new Set([...portSignals, ...calledOutputs]));
+    const body = code.replace(/\bglobalThis\b/g, '__xgGlobal').replace(/\bcrypto\b/g, '__xgCrypto');
+    // (2026-11-03) State the code keeps is saved as JSON (ctx.state), and JSON has no BigInt: MinesEngine
+    // keeps its balance and stake as BigInt, so the second request of every session threw "Do not know
+    // how to serialize a BigInt". A BigInt is stored as {"$bigint": "<digits>"} and revived on the next
+    // call; decoding builds fresh objects, which is also what keeps a round off the previous round's state.
+    return [
+      `function ${funcName}(inputs) {`,
+      `  function __xgEnc(v) { if (typeof v === "bigint") return { $bigint: v.toString() }; if (Array.isArray(v)) return v.map(__xgEnc); if (v && typeof v === "object") { var o = {}; for (var k in v) o[k] = __xgEnc(v[k]); return o; } return v; }`,
+      `  function __xgDec(v) { if (Array.isArray(v)) return v.map(__xgDec); if (v && typeof v === "object") { var ks = Object.keys(v); if (ks.length === 1 && ks[0] === "$bigint" && typeof v.$bigint === "string") return BigInt(v.$bigint); var o = {}; for (var k in v) o[k] = __xgDec(v[k]); return o; } return v; }`,
+      `  var __xgGlobal = (this && typeof this === "object") ? this : {};`,
+      `  for (var __xgK in __xgGlobal) __xgGlobal[__xgK] = __xgDec(__xgGlobal[__xgK]);`,
+      `  var __xgCrypto = undefined;`,
+      `  var __xgOut = {}, __xgFired = {}, __xgSig = ${J(signalOuts)};`,
+      `  __xgSig.forEach(function (n) { __xgOut[n] = function () { __xgFired[n] = true; }; });`,
+      `  var Script = { Inputs: inputs || {}, Outputs: __xgOut, Signals: {}, OnInit: null, OnInputsChanged: null, OnDestroy: null };`,
+      `  var __xgFirst = !__xgGlobal.__xgStarted;`,
+      `  (function () {`,
+      body,
+      `  }).call(__xgGlobal);`,
+      `  var __xgData = {};`,
+      `  for (var __xgI in Script.Inputs) { if (!(__xgI in Script.Signals) && __xgI !== "label" && __xgI !== "name" && __xgI !== "nodeLabel") __xgData[__xgI] = Script.Inputs[__xgI]; }`,
+      `  var __xgKey; try { __xgKey = JSON.stringify(__xgData); } catch (_e) { __xgKey = "unserialisable#" + (__xgGlobal.__xgN = (__xgGlobal.__xgN || 0) + 1); }`,
+      `  var __xgChanged = !__xgFirst && __xgKey !== __xgGlobal.__xgPrev;`,
+      `  __xgGlobal.__xgPrev = __xgKey;`,
+      `  if (__xgFirst) { __xgGlobal.__xgStarted = true; if (typeof Script.OnInit === "function") Script.OnInit(); }`,
+      `  if (__xgChanged && typeof Script.OnInputsChanged === "function") Script.OnInputsChanged();`,
+      `  for (var __xgS in Script.Signals) { if (Script.Inputs[__xgS] === true && typeof Script.Signals[__xgS] === "function") Script.Signals[__xgS](); }`,
+      `  var __xgR = {};`,
+      `  for (var __xgO in __xgOut) { __xgR[__xgO] = typeof __xgOut[__xgO] === "function" ? __xgFired[__xgO] === true : __xgEnc(__xgOut[__xgO]); }`,
+      `  for (var __xgK2 in __xgGlobal) __xgGlobal[__xgK2] = __xgEnc(__xgGlobal[__xgK2]);`,
+      `  return __xgR;`,
+      `}`,
+      '',
+    ].join('\n');
+  }
+
   private generateJavaScriptFunctionDefinition(node: Node): string {
     const functionName = this.getFunctionName(node);
     const script = node.parameters.functionScript || '';

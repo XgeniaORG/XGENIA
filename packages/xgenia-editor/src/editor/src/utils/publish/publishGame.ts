@@ -45,7 +45,7 @@ import {
 import { ConnectionStore } from '@xgenia-services/ConnectionStore';
 
 import { DOMAIN_NAME_REQUIRED, DomainAvailability, getFullDomain } from './deployDomain';
-import { choosePublishRoute, PublishRoute } from './publishRoute';
+import { choosePublishRoute, isLocalRgsUrl, PublishRoute } from './publishRoute';
 import { BuiltFile, publishFilesViaRgs } from './webPublishClient';
 import {
   checkDomainAvailability,
@@ -136,6 +136,12 @@ export async function resolvePublishRoute(rgs?: RgsSettings | null): Promise<{ r
     await rgsKeyReady();
     rgs = getRgsSettings();
   }
+  // A local XGENIA RGS has no web hosting (its /web-publish needs Vercel credentials a local stack
+  // does not hold): the site is built into a folder instead, and the rest of the publish is real.
+  if (isLocalRgsUrl(rgsFunctionsUrl())) {
+    if (!rgs?.apiKey) return { route: null, error: 'Not connected to XGENIA RGS. Sign in under Publish first.' };
+    return { route: { kind: 'local', outputDir: filesystem.join(os.homedir(), 'xgenia-local-publish') }, error: '' };
+  }
   return choosePublishRoute({
     functionsUrl: rgsFunctionsUrl(),
     anonKey: rgsAnonKey(),
@@ -158,6 +164,8 @@ export function vercelFor(route: PublishRoute): VercelSDKWrapper | null {
  * studio's" — and says why in `message`.
  */
 export async function checkPublishDomain(route: PublishRoute, name: string): Promise<DomainAvailability> {
+  // A local publish writes a folder of this name; publishing again replaces it.
+  if (route.kind === 'local') return { available: true, republish: true };
   if (route.kind === 'token') return checkDomainAvailability(vercelFor(route)!, name);
   const a = await route.client.checkDomain(name.trim());
   return {
@@ -205,6 +213,21 @@ async function deployBuiltFiles(
   onProgress?: (step: string) => void,
   onWarning?: (message: string) => void
 ): Promise<DeployedBuild> {
+  if (route.kind === 'local') {
+    const site = name.trim();
+    const dir = filesystem.join(route.outputDir, site);
+    onProgress?.(`Writing the site to ${dir}...`);
+    for (const f of toBuiltFiles(files)) {
+      const target = filesystem.join(dir, f.path);
+      await filesystem.makeDirectory(target.replace(/[\\/][^\\/]*$/, ''));
+      await filesystem.writeFileOverride(target, f.bytes as any);
+    }
+    const url = `file:///${filesystem.join(dir, 'index.html').replace(/\\/g, '/').replace(/^\/+/, '')}`;
+    onWarning?.(
+      `Local XGENIA RGS: the site was written to ${dir}, not hosted. Serve that folder (e.g. npx serve "${dir}") to play it against the local RGS.`
+    );
+    return { deploymentId: `local-${Date.now()}`, deploymentUrl: url, aliasUrl: url, project: site, site, domain: dir };
+  }
   if (route.kind === 'rgs') {
     const done = await publishFilesViaRgs(route.client, route.info, name.trim(), toBuiltFiles(files), {
       sha1: sha1Hex,

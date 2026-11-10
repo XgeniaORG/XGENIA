@@ -29,6 +29,7 @@ import { swapDeployedMathsInstances } from '@xgenia-utils/rgs/deployMathsCompone
 
 import { leftoverMathsInstances, stakeConnectorConfigFor, stakeMathsEndpoints, type StakeConnectorConfig } from './stakeConnector';
 import { exportStakeMaths, fetchStakeExportModes, type StakeExportResult } from './stakeMathsExport';
+import type { StakePlaySetup } from './stakeMathsFormat';
 import { declaredStakeModes, stakeModeInput, stakePickPorts } from './stakeModes';
 
 export interface BuildForStakeOptions {
@@ -43,6 +44,8 @@ export interface BuildForStakeOptions {
   /** Minor units; the platform's default for the game when omitted. */
   bet?: number;
   oversample?: number;
+  /** Named rounds to export as modes (Stake tab's Play setups; stakeMathsFormat PLAY SETUPS). */
+  playSetups?: StakePlaySetup[];
   environment?: any;
   onStep?: (step: string) => void;
   onMathsProgress?: Parameters<typeof exportStakeMaths>[0]['onProgress'];
@@ -103,6 +106,7 @@ export async function buildForStake(o: BuildForStakeOptions): Promise<BuildForSt
       bet: exportBet,
       oversample: o.oversample,
       stakeModes: modes,
+      playSetups: o.playSetups,
       onProgress: o.onMathsProgress
     });
     // The connector settings travel with the export, for support and for the Stake harness.
