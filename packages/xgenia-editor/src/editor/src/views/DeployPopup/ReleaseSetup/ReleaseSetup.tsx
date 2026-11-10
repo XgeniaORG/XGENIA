@@ -344,12 +344,44 @@ function GameStep({ projectName, onChosen }: { projectName: string; onChosen: ()
  * summary once nothing is. `onChanged` lets the popup re-read the connection
  * (deploy credentials depend on it) after a sign-in.
  */
+// After an explicit Sign out the editor must stay signed out, wherever that Sign out was pressed: the sign-in
+// form's 'auto' start would otherwise reconnect to the sandbox at once and Sign out would do nothing (see
+// RgsSignInForm `start`). Module-level so every mounted RgsReleaseSetup (main view, Real money view) agrees;
+// cleared by the next connection.
+let startAfterSignOut: 'choose' | 'email' | null = null;
+const SIGN_OUT_GROUP = { name: 'rgs-sign-out' };
+EventDispatcher.instance.on('rgs.connected', () => { startAfterSignOut = null; }, SIGN_OUT_GROUP);
+
+/** Leave the XGENIA RGS connection on purpose. 'choose' offers both sign-ins; 'email' opens on the invited one. */
+export function signOutOfRgs(then: 'choose' | 'email' = 'choose'): void {
+  startAfterSignOut = then;
+  clearRgsSettings(); // emits rgs.gameSelected, which re-renders every RgsReleaseSetup
+}
+
+/**
+ * Which XGENIA RGS account this editor is signed in to, with Sign out — always visible in Publish while
+ * connected (2026-11-10: it used to be reachable only under More → Real money once a game was chosen, so a
+ * studio could not see which account it was on, or sign out to test signing in).
+ */
+function RgsAccountBar({ onLeft }: { onLeft: (then: 'choose' | 'email') => void }) {
+  const sandbox = isSandboxConnection();
+  return (
+    <div data-testid="rgs-account-bar" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontSize: '12px', color: '#999' }}>
+      <span style={{ flex: 1 }}>
+        Signed in to {sandbox ? 'your play-money sandbox (test RGS)' : 'XGENIA RGS (invited account)'}
+      </span>
+      {sandbox && (
+        <span style={LINK} onClick={() => onLeft('email')}>Use an invited RGS account</span>
+      )}
+      <PrimaryButton label="Sign out" variant={PrimaryButtonVariant.Ghost} size={PrimaryButtonSize.Small} onClick={() => onLeft('choose')} />
+    </div>
+  );
+}
+
 export function RgsReleaseSetup({ projectName, onChanged, isQuietWhenReady = false }: { projectName: string; onChanged?: () => void; isQuietWhenReady?: boolean }) {
   const [, rerender] = useState(0);
   const refresh = useCallback(() => { rerender((n) => n + 1); onChanged?.(); }, [onChanged]);
-  // How the sign-in opens after the user left a connection on purpose (see RgsSignInForm `start`).
-  const [nextStart, setNextStart] = useState<'auto' | 'choose' | 'email'>('auto');
-  const leave = (then: 'choose' | 'email') => { clearRgsSettings(); setNextStart(then); refresh(); };
+  const leave = (then: 'choose' | 'email') => { signOutOfRgs(then); refresh(); };
 
   useEffect(() => {
     const tick = () => rerender((n) => n + 1);
@@ -361,10 +393,15 @@ export function RgsReleaseSetup({ projectName, onChanged, isQuietWhenReady = fal
   const settings = getRgsSettings();
   const game: SelectedGame | null = settings ? getActiveGame() : null;
 
-  if (!settings?.apiKey) return <RgsSignInForm key={nextStart} start={nextStart} onSignedIn={refresh} />;
-  if (!game?.id) return <GameStep projectName={projectName} onChosen={refresh} />;
-  // The Publish window shows the game and account under More once both are known (isQuietWhenReady).
-  if (isQuietWhenReady) return null;
+  if (!settings?.apiKey) {
+    // How the sign-in opens: by itself the first time, never by itself after a Sign out.
+    const start = startAfterSignOut ?? 'auto';
+    return <RgsSignInForm key={start} start={start} onSignedIn={refresh} />;
+  }
+  if (!game?.id) return (<><RgsAccountBar onLeft={leave} /><GameStep projectName={projectName} onChosen={refresh} /></>);
+  // The Publish window shows the game under More once both are known (isQuietWhenReady); the account and
+  // Sign out stay in view.
+  if (isQuietWhenReady) return <RgsAccountBar onLeft={leave} />;
 
   return (
     <Text style={{ marginBottom: '12px', fontSize: '12px', color: '#999' }}>
