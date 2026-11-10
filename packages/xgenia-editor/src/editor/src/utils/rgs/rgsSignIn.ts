@@ -1,4 +1,14 @@
-// Sign in to XGENIA RGS with an email code, and come back with an operator key.
+// Sign in to XGENIA RGS, and come back with an operator key.
+//
+// Two ways in:
+//   - "Sign in with XGENIA" (the customer path, 2026-11-10): startXgeniaRgsSignIn + redeemEditorCode
+//     below, the system browser and a loopback redirect. See the section at the bottom of this file.
+//   - The emailed 6-digit code (sendSignInCode / verifySignInCode): kept for XGENIA staff, and as the
+//     way in when an RGS does not offer Sign in with XGENIA yet.
+//
+// The play-money sandbox connection (rgs-connect `xgenia-connect` on the test RGS) is gone: there
+// are no free XGENIA accounts, every customer is on a paid plan, and the test RGS takes no new
+// connections (XRGS docs/XGENIA_RGS_CONTRACT.md §9).
 //
 // ── Why this exists ──────────────────────────────────────────────────────────
 // The Maths RGS panel's self-serve route was "Create operator & get key", which
@@ -40,15 +50,14 @@ export interface RgsSignInEndpoints {
 export interface RgsSignInResult {
   apiKey: string;
   operatorSlug: string;
-  /** True when this sign-in created the studio's organisation and operator. */
-  created: boolean;
+  /** True when this sign-in created the studio's organisation and operator (the email-code path reports it). */
+  created?: boolean;
 }
 
 type FetchLike = (url: string, init?: any) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 
 /** Plain-English messages, exported so the panel and the tests agree on them. */
 export const SIGN_IN_MESSAGES = {
-  xgeniaSignedOut: 'Your XGENIA sign-in has expired. Sign in to XGENIA again, then press Publish.',
   emailRequired: 'Enter your email address.',
   emailInvalid: 'That does not look like an email address.',
   codeRequired: 'Enter the 6-digit code from the email.',
@@ -171,32 +180,187 @@ export async function verifySignInCode(
   };
 }
 
+// ─── Sign in with XGENIA (the system browser + a loopback redirect) ───────────
+//
+// Owner decision 2026-11-10: one RGS for customers (the production XGENIA RGS), one login (the
+// XGENIA account). The editor connects the way desktop apps do OAuth (RFC 8252, loopback redirect;
+// XRGS docs/XGENIA_RGS_CONTRACT.md §9):
+//
+//   1. the main process listens on http://127.0.0.1:<free port>/xgenia-rgs for one request
+//      (src/main/src/xgenia-rgs-loopback.js). Its redirect carries `?state=<128 random bits>`, which
+//      the RGS keeps when it adds the code; an answer without that state is refused there, so a web
+//      page that finds the port cannot hand the editor a code for an account of its own choosing;
+//   2. POST {fn}/xgenia-auth { action: 'start', purpose: 'editor', editor_redirect, install_label }
+//      → { authorize_url }                                           — startXgeniaRgsSignIn
+//   3. the person signs in at XGENIA in their own browser, which comes back to the loopback with
+//      ?code=<one-time code> or ?error=<CODE>&message=<text>;
+//   4. POST {fn}/xgenia-auth { action: 'editor-redeem', code, studio_slug? }
+//      → { api_key, operator_slug, studio }                           — redeemEditorCode
+//
+// Only the code travels through the browser; the key comes back over HTTPS to the editor.
+// A person in several studios gets 409 CHOOSE_STUDIO with the list, and the code is NOT spent: the
+// editor asks them and redeems again with their choice. It never guesses.
+
+/** XGENIA RGS's edge functions, and the publishable key that passes its gateway. */
+export interface XgeniaRgsEndpoints {
+  functionsUrl: string;
+  anonKey: string;
+}
+
+export interface RgsStudio {
+  name: string;
+  slug: string;
+}
+
+export interface XgeniaRgsSignInResult extends RgsSignInResult {
+  studio: RgsStudio | null;
+}
+
+export type EditorRedeemOutcome =
+  | { kind: 'connected'; result: XgeniaRgsSignInResult }
+  | { kind: 'choose-studio'; studios: RgsStudio[] };
+
+/** Where XGENIA's plans are, for a person with none. */
+export const XGENIA_PRICING_URL = 'https://primora.xgenia.com/pricing';
+
 /**
- * Every XGENIA login is a play-money RGS sandbox (2026-11-02): the test RGS checks the XGENIA access token with
- * XGENIA's own auth service and makes or reuses this account's sandbox, then issues a key for this install. No
- * second account, no invite, no email code.
+ * What each refusal means for the person, by the code XGENIA RGS (or the loopback) answers with.
+ * Exported so the panel and the tests agree on them.
  */
-export async function connectWithXgeniaToken(
-  xgeniaToken: string,
-  ep: { functionsUrl: string; anonKey: string },
-  fetchFn: FetchLike = fetch as any
-): Promise<RgsSignInResult> {
-  if (!xgeniaToken) throw new Error(SIGN_IN_MESSAGES.xgeniaSignedOut);
-  const keyed = await post(
-    fetchFn,
-    `${ep.functionsUrl}/rgs-connect`,
-    { action: 'xgenia-connect', xgenia_token: xgeniaToken },
-    { apikey: ep.anonKey, Authorization: `Bearer ${ep.anonKey}` }
-  );
-  if (keyed.res.status === 401) throw new Error(SIGN_IN_MESSAGES.xgeniaSignedOut);
-  if (!keyed.res.ok) {
-    throw new Error(serverMessage(keyed.body, keyed.text) || `The play-money RGS refused the sign-in (HTTP ${keyed.res.status}).`);
+export const XGENIA_RGS_MESSAGES = {
+  // This RGS has no Sign in with XGENIA yet (xgenia-auth not deployed: 404, or 503 NOT_CONFIGURED).
+  NOT_AVAILABLE: 'Sign in with XGENIA is not available on this RGS yet. XGENIA staff can sign in with email below.',
+  // Always ours, never the server's text: the RGS is part of every paid plan, there is no free use.
+  NO_PLAN: `XGENIA RGS comes with every paid XGENIA plan, and this XGENIA account has none right now. Upgrade at ${XGENIA_PRICING_URL}, then press Sign in with XGENIA again.`,
+  ASK_STUDIO_ADMIN: "Your company's XGENIA RGS studio is already open. Ask its admin to invite you from the studio's Team page, then sign in again.",
+  OWNER_FIRST: "Your company's XGENIA RGS studio has not been opened yet. Your XGENIA account owner opens it by signing in with XGENIA, then invites you.",
+  LINK_FROM_ACCOUNT: 'This email already has an XGENIA RGS account. Sign in with email, then choose "Link XGENIA" in the RGS, so only you can connect it.',
+  EMAIL_UNVERIFIED: 'Confirm your email address in XGENIA first, then sign in again.',
+  SIGN_IN_REFUSED: 'XGENIA RGS refused this sign-in. Contact XGENIA support.',
+  XGENIA_UNAVAILABLE: 'XGENIA could not confirm your sign-in just now. Wait a minute, then try again.',
+  CODE_INVALID: 'This sign-in expired or was already used. Press Sign in with XGENIA again.',
+  VIEWER_ONLY: "Your role in this studio can view it but not publish. Ask your studio's admin for a role that can.",
+  NO_STUDIO: "Your account is not in an XGENIA RGS studio yet. Ask your studio's admin to invite you.",
+  STUDIO_FROZEN: 'This studio is frozen, or its plan has ended. Contact XGENIA support.',
+  NO_CONNECTION: 'Your studio has no XGENIA RGS connection for the editor yet. Contact XGENIA support.',
+  NOT_YOUR_STUDIO: 'You are not a member of that studio. Pick one of your own studios.',
+  TIMEOUT: 'The sign-in was not finished within 5 minutes. Press Sign in with XGENIA to try again.',
+  CANCELLED: 'Sign-in cancelled.',
+  LOOPBACK_FAILED: 'The editor could not receive the answer from your browser. Press Sign in with XGENIA to try again.',
+  NOT_DESKTOP: 'Sign in with XGENIA needs the XGENIA desktop app.',
+  BROWSER_FAILED: 'Could not open your browser. Check that a default browser is set, then try again.',
+  NO_SIGN_IN_URL: 'XGENIA RGS did not return a sign-in page. Try again in a moment.',
+  NO_STUDIO_CHOSEN: 'XGENIA RGS asked again which studio to use. Press Sign in with XGENIA and pick one.'
+} as const;
+
+export type XgeniaRgsErrorCode = keyof typeof XGENIA_RGS_MESSAGES | string;
+
+/** A refusal with the code it came with, so the panel can act on it (e.g. offer email, link to plans). */
+export class XgeniaRgsSignInError extends Error {
+  readonly code: XgeniaRgsErrorCode;
+  constructor(code: XgeniaRgsErrorCode, message: string) {
+    super(message);
+    this.name = 'XgeniaRgsSignInError';
+    this.code = code;
   }
-  const apiKey = keyed.body?.api_key;
+}
+
+/**
+ * The words for a refusal. The server's own message is shown verbatim when it gave one (it can name
+ * the studio, its admin, or why a studio is frozen), except NO_PLAN, which is always ours: it must
+ * say the RGS comes with every paid plan and where to upgrade.
+ */
+export function xgeniaRgsRefusalMessage(code: string, serverText?: string): string {
+  const own = (XGENIA_RGS_MESSAGES as Record<string, string>)[code];
+  if (code === 'NO_PLAN') return XGENIA_RGS_MESSAGES.NO_PLAN;
+  const said = String(serverText || '').trim();
+  if (said) return said;
+  return own || `XGENIA RGS refused the sign-in (${code || 'unknown reason'}).`;
+}
+
+function refusal(code: string, serverText?: string): XgeniaRgsSignInError {
+  return new XgeniaRgsSignInError(code, xgeniaRgsRefusalMessage(code, serverText));
+}
+
+const LOOPBACK_REDIRECT_RE = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):\d{1,5}\/\S*$/;
+
+function gatewayHeaders(ep: XgeniaRgsEndpoints): Record<string, string> {
+  return ep.anonKey ? { apikey: ep.anonKey, Authorization: `Bearer ${ep.anonKey}` } : {};
+}
+
+/** Step 2: ask XGENIA RGS for the page the person signs in on. */
+export async function startXgeniaRgsSignIn(
+  req: { editorRedirect: string; installLabel: string },
+  ep: XgeniaRgsEndpoints,
+  fetchFn: FetchLike = fetch as any
+): Promise<{ authorizeUrl: string }> {
+  if (!LOOPBACK_REDIRECT_RE.test(String(req.editorRedirect || ''))) {
+    // Only a loopback address can receive the code; the RGS refuses anything else anyway.
+    throw new XgeniaRgsSignInError('LOOPBACK_FAILED', XGENIA_RGS_MESSAGES.LOOPBACK_FAILED);
+  }
+  const { res, body, text } = await post(
+    fetchFn,
+    `${ep.functionsUrl}/xgenia-auth`,
+    {
+      action: 'start',
+      purpose: 'editor',
+      editor_redirect: req.editorRedirect,
+      install_label: String(req.installLabel || '').slice(0, 200)
+    },
+    gatewayHeaders(ep)
+  );
+  // Not deployed on this RGS (404), or deployed but not set up (503 NOT_CONFIGURED): not the person's fault,
+  // and the email sign-in is the way in until it is.
+  if (res.status === 404 || body?.code === 'NOT_CONFIGURED') {
+    throw new XgeniaRgsSignInError('NOT_AVAILABLE', XGENIA_RGS_MESSAGES.NOT_AVAILABLE);
+  }
+  if (!res.ok) {
+    const code = String(body?.code || '');
+    if (code) throw refusal(code, body?.error || body?.message);
+    throw new XgeniaRgsSignInError('START_FAILED', serverMessage(body, text) || `XGENIA RGS could not start the sign-in (HTTP ${res.status}).`);
+  }
+  const authorizeUrl = String(body?.authorize_url || '');
+  if (!/^https?:\/\//i.test(authorizeUrl)) throw new XgeniaRgsSignInError('NO_SIGN_IN_URL', XGENIA_RGS_MESSAGES.NO_SIGN_IN_URL);
+  return { authorizeUrl };
+}
+
+/**
+ * Step 4: exchange the one-time code for this install's key. With several studios and no
+ * `studioSlug`, answers 'choose-studio' with the list (the code is not spent): ask, then call again.
+ */
+export async function redeemEditorCode(
+  code: string,
+  ep: XgeniaRgsEndpoints,
+  fetchFn: FetchLike = fetch as any,
+  studioSlug?: string
+): Promise<EditorRedeemOutcome> {
+  const oneTime = String(code || '').trim();
+  if (!oneTime) throw refusal('CODE_INVALID');
+  const payload: Record<string, string> = { action: 'editor-redeem', code: oneTime };
+  if (studioSlug) payload.studio_slug = studioSlug;
+  const { res, body, text } = await post(fetchFn, `${ep.functionsUrl}/xgenia-auth`, payload, gatewayHeaders(ep));
+
+  if (res.status === 409 && body?.code === 'CHOOSE_STUDIO') {
+    const studios: RgsStudio[] = (Array.isArray(body?.studios) ? body.studios : [])
+      .filter((s: any) => s && typeof s.slug === 'string' && s.slug)
+      .map((s: any) => ({ name: String(s.name || s.slug), slug: String(s.slug) }));
+    // Asked to choose with nothing to choose from: refuse rather than guess.
+    if (studios.length === 0) throw refusal('NO_STUDIO', body?.error);
+    return { kind: 'choose-studio', studios };
+  }
+  if (res.status === 404) throw new XgeniaRgsSignInError('NOT_AVAILABLE', XGENIA_RGS_MESSAGES.NOT_AVAILABLE);
+  if (!res.ok) {
+    const refusedCode = String(body?.code || '');
+    if (refusedCode) throw refusal(refusedCode, body?.error || body?.message);
+    throw new XgeniaRgsSignInError('REDEEM_FAILED', serverMessage(body, text) || `XGENIA RGS refused the sign-in (HTTP ${res.status}).`);
+  }
+  const apiKey = body?.api_key;
   if (!apiKey) throw new Error(SIGN_IN_MESSAGES.noKey);
+  const studio = body?.studio && typeof body.studio.slug === 'string'
+    ? { name: String(body.studio.name || body.studio.slug), slug: String(body.studio.slug) }
+    : null;
   return {
-    apiKey,
-    operatorSlug: String(keyed.body?.operator_slug || ''),
-    created: /is ready/i.test(String(keyed.body?.message || ''))
+    kind: 'connected',
+    result: { apiKey: String(apiKey), operatorSlug: String(body?.operator_slug || ''), studio }
   };
 }

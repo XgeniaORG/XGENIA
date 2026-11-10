@@ -485,6 +485,10 @@ function launchApp() {
     // Electron 44 puts the preview iframe in its own process; the renderer scripts it through here.
     require('./src/preview-frame').registerPreviewFrameHandlers(ipcMain);
 
+    // "Sign in with XGENIA" for XGENIA RGS: a one-request loopback listener on 127.0.0.1 that the
+    // system browser hands the one-time code back to (RFC 8252; utils/rgs/rgsLoopback.ts drives it).
+    require('./src/xgenia-rgs-loopback').registerXgeniaRgsLoopbackHandlers(ipcMain, { shell });
+
     // Electron 44 took `clipboard` out of renderer processes. Renderers use navigator.clipboard
     // (utils/systemClipboard.ts) and fall back to these when the W3C API refuses, e.g. the
     // document isn't focused. `clipboard.readText()` returns a Promise from Electron 44 on.

@@ -1,5 +1,5 @@
 // The release flow a studio sees in Publish, rendered for real and driven like a
-// person would: sign in with an email code, create the game, then certify it.
+// person would: Sign in with XGENIA, create the game, then certify it.
 // XGENIA RGS is a fake fetch that answers exactly the contract the editor calls.
 //   TSX_TSCONFIG_PATH=packages/xgenia-editor/tsconfig.json npx tsx --test --test-force-exit packages/xgenia-editor/tests/rgs/releaseSetupFlow.test.tsx
 import { test } from 'node:test';
@@ -26,7 +26,8 @@ async function loadComponents() {
   try {
     return {
       ...(await import('../../src/editor/src/views/DeployPopup/ReleaseSetup/ReleaseSetup')),
-      rgsClient: await import('../../src/editor/src/utils/rgs/rgsClient')
+      rgsClient: await import('../../src/editor/src/utils/rgs/rgsClient'),
+      rgsLoopback: await import('../../src/editor/src/utils/rgs/rgsLoopback')
     };
   } finally {
     delete fp.context;
@@ -49,8 +50,29 @@ g.ProjectModel = { instance: { id: 'crash-project', name: 'Crash Space' } };
 
 type Call = { url: string; body: any };
 
-/** A fake XGENIA RGS + Supabase Auth. */
-function installRgs() {
+/**
+ * The main process's loopback, faked: the "browser" answers with `answer` as soon as the sign-in page is opened.
+ * Records what was opened and whether the listener was closed.
+ */
+function fakeLoopback(answer: { code: string } | { error: string; message?: string } = { code: 'one-time-1' }) {
+  const opened: string[] = [];
+  const cancelled: string[] = [];
+  let answered: ((a: any) => void) | null = null;
+  const result = new Promise<any>((r) => { answered = r; });
+  return {
+    opened,
+    cancelled,
+    loopback: {
+      listen: async () => ({ id: 'L1', redirectUri: 'http://127.0.0.1:53111/xgenia-rgs?state=s-128-bits', installLabel: 'studio-mac' }),
+      openBrowser: async (_id: string, url: string) => { opened.push(url); answered!(answer); },
+      wait: async () => result,
+      cancel: async (id: string) => { cancelled.push(id); answered!({ error: 'CANCELLED' }); }
+    }
+  };
+}
+
+/** A fake XGENIA RGS + Supabase Auth. `xgeniaAuth` answers xgenia-auth (Sign in with XGENIA). */
+function installRgs(xgeniaAuth?: (body: any) => { status: number; body: any }) {
   const calls: Call[] = [];
   const games: any[] = [];
   let certifyPolls = 0;
@@ -67,6 +89,15 @@ function installRgs() {
     if (url.endsWith('/auth/v1/otp')) return json(200, {});
     if (url.endsWith('/auth/v1/verify')) return body.token === '123456' ? json(200, { access_token: 'jwt' }) : json(403, { msg: 'Token has expired or is invalid' });
     if (url.endsWith('/rgs-connect')) return json(200, { connected: true, operator_slug: 'studio-1', api_key: 'xrgs_test', message: 'New RGS connection created.' });
+    if (url.endsWith('/xgenia-auth')) {
+      if (xgeniaAuth) { const a = xgeniaAuth(body); return json(a.status, a.body); }
+      if (body.action === 'start') return json(200, { authorize_url: 'https://rgs.xgenia.app/auth/xgenia?state=s1' });
+      if (body.action === 'editor-redeem') {
+        return body.code === 'one-time-1'
+          ? json(200, { api_key: 'xrgs_test', operator_slug: 'studio-1', studio: { name: 'Acme Games', slug: 'acme' } })
+          : json(400, { result: false, code: 'CODE_INVALID', error: 'This code has expired or was already used. Connect again.' });
+      }
+    }
     if (url.endsWith('/maths-deployer')) {
       if (body.action === 'list-games') return json(200, { games });
       if (body.action === 'operator-info') return json(200, { operator: { operator_id: 'o1', operator_slug: 'studio-1', name: 'Studio', mode: 'demo', wallet_balance: 0, currency: 'EUR', supported_currencies: ['EUR'], max_bet: null, max_win: null } });
@@ -107,13 +138,15 @@ function click(el: HTMLElement) {
   el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 }
 
-test('a new studio signs in by email, creates its game with its own numbers, and certifies — no key, no Maths panel', async () => {
+test('a new studio signs in with XGENIA, creates its game with its own numbers, and certifies — no key, no Maths panel', async () => {
   const React = (await import('react')).default;
   const { createRoot } = await import('react-dom/client');
   const { act } = await import('react');
-  const { RgsReleaseSetup, RgsCertifyPanel, rgsClient } = await loadComponents();
+  const { RgsReleaseSetup, RgsCertifyPanel, rgsClient, rgsLoopback } = await loadComponents();
   localStorage.clear();
   const { calls } = installRgs();
+  const browser = fakeLoopback({ code: 'one-time-1' });
+  rgsLoopback.setXgeniaRgsLoopback(browser.loopback);
 
   const host = document.getElementById('root')!;
   const root = createRoot(host);
@@ -121,24 +154,25 @@ test('a new studio signs in by email, creates its game with its own numbers, and
     React.createElement('div', null, React.createElement(RgsReleaseSetup, { projectName: 'Crash Space' }), React.createElement(RgsCertifyPanel));
   await act(async () => { root.render(React.createElement(App)); });
 
-  // ── 1. Sign in ── (no XGENIA session here, so the automatic sandbox connect fails and the studio uses its invite)
+  // ── 1. Sign in ── nothing happens by itself: opening a browser takes a click.
   await act(async () => { await tick(20); });
-  await act(async () => { click(byText(host, 'div', 'Use an invited RGS account instead')); });
+  assert.equal(calls.length, 0, 'no request before the person asks');
+  assert.equal(browser.opened.length, 0);
   assert.match(host.textContent || '', /Sign in to XGENIA RGS/);
+  assert.match(host.textContent || '', /Sign in with email \(XGENIA staff\)/, 'the email sign-in is only a small link');
   assert.doesNotMatch(host.textContent || '', /API key|operator key/i, 'nobody is asked for a key');
-  await act(async () => { type(host.querySelector('input')!, 'studio@example.com'); });
-  await act(async () => { click(byText(host, 'button', 'Email me a code')); await tick(); });
-  assert.match(host.textContent || '', /Enter the code sent to studio@example\.com/);
+  assert.equal(host.querySelectorAll('input').length, 0, 'nothing to type');
 
-  // A wrong code is explained and changes nothing.
-  await act(async () => { type(host.querySelector('input')!, '000000'); });
-  await act(async () => { click(byText(host, 'button', 'Sign in')); await tick(); });
-  assert.match(host.textContent || '', /That code is wrong or has expired/);
-  assert.equal(rgsClient.isRgsConnected(), false);
-
-  await act(async () => { type(host.querySelector('input')!, '123456'); });
-  await act(async () => { click(byText(host, 'button', 'Sign in')); await tick(); await tick(); });
+  await act(async () => { click(byText(host, 'button', 'Sign in with XGENIA')); await tick(); await tick(); await tick(); });
+  const start = calls.find((c) => c.body.action === 'start')!;
+  assert.equal(start.url, `${rgsClient.XRGS_URL}/xgenia-auth`, 'the main (production) RGS');
+  assert.deepEqual(start.body, { action: 'start', purpose: 'editor', editor_redirect: 'http://127.0.0.1:53111/xgenia-rgs?state=s-128-bits', install_label: 'studio-mac' });
+  assert.deepEqual(browser.opened, ['https://rgs.xgenia.app/auth/xgenia?state=s1'], 'the sign-in page opens in the browser');
+  assert.deepEqual(calls.find((c) => c.body.action === 'editor-redeem')!.body, { action: 'editor-redeem', code: 'one-time-1' });
+  assert.ok(!calls.some((c) => c.url.endsWith('/rgs-connect')), 'no sandbox, no email code');
   assert.equal(rgsClient.getRgsSettings()?.apiKey, 'xrgs_test', 'the studio key is stored as the connection');
+  assert.equal(rgsClient.rgsFunctionsUrl(), rgsClient.XRGS_URL);
+  rgsLoopback.setXgeniaRgsLoopback(null);
 
   // ── 2. Game: none yet, so the create form opens with the project name and defaults ──
   await act(async () => { await tick(); await tick(); });
@@ -196,7 +230,7 @@ test('an address that is not invited is told what to do, not shown a database er
   const root = createRoot(host);
   await act(async () => { root.render(React.createElement(RgsSignInForm)); });
   await act(async () => { await tick(20); });
-  await act(async () => { click(byText(host, 'div', 'Use an invited RGS account instead')); });
+  await act(async () => { click(byText(host, 'div', 'Sign in with email (XGENIA staff)')); });
   await act(async () => { type(host.querySelector('input')!, 'stranger@example.com'); });
   await act(async () => { click(byText(host, 'button', 'Email me a code')); await tick(); });
   assert.match(host.textContent || '', /has not been invited to XGENIA RGS yet/);
@@ -205,62 +239,97 @@ test('an address that is not invited is told what to do, not shown a database er
 });
 
 
-// (2026-11-02) Every XGENIA login is a play-money RGS sandbox: Publish connects with the XGENIA sign-in by itself —
-// no email, no code, no invite — and every later RGS call of that connection goes to the test RGS.
-test('a signed-in XGENIA user is connected to their play-money sandbox with nothing to type', async () => {
+// (2026-11-10) A person in several studios is asked which one; the code is redeemed again with their choice.
+// Nothing is guessed, and a Cancel leaves the editor signed out.
+test('several studios: the person picks one, and the same code is redeemed with it', async () => {
   const React = (await import('react')).default;
   const { createRoot } = await import('react-dom/client');
   const { act } = await import('react');
-  const { RgsSignInForm, rgsClient } = await loadComponents();
+  const { RgsSignInForm, rgsClient, rgsLoopback } = await loadComponents();
   localStorage.clear();
-  // A persisted XGENIA session, as the editor keeps it.
-  localStorage.setItem('sb-pcrghrjikkcmelflwiys-auth-token', JSON.stringify({
-    access_token: 'xgenia-jwt', refresh_token: 'r', token_type: 'bearer', expires_in: 3600,
-    expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: 'u1', email: 'maker@example.com', aud: 'authenticated' }
-  }));
-  const calls: Array<{ url: string; body: any }> = [];
-  g.fetch = async (url: string, init: any) => {
-    const body = init?.body ? JSON.parse(init.body) : {};
-    calls.push({ url, body });
-    return { ok: true, status: 200, text: async () => JSON.stringify({ connected: true, sandbox: true, operator_slug: 'sandbox-1', api_key: 'xrgs_sandbox', message: 'Your play-money RGS sandbox is ready.' }) };
-  };
+  const { calls } = installRgs((body) => {
+    if (body.action === 'start') return { status: 200, body: { authorize_url: 'https://rgs.xgenia.app/auth/xgenia' } };
+    if (!body.studio_slug) return { status: 409, body: { result: false, code: 'CHOOSE_STUDIO', studios: [{ name: 'Alpha Slots', slug: 'alpha' }, { name: 'Beta Crash', slug: 'beta' }] } };
+    return { status: 200, body: { api_key: `xrgs_${body.studio_slug}`, operator_slug: `op-${body.studio_slug}`, studio: { name: 'Beta Crash', slug: body.studio_slug } } };
+  });
+  rgsLoopback.setXgeniaRgsLoopback(fakeLoopback({ code: 'c-9' }).loopback);
   let signedIn = 0;
   const host = document.getElementById('root')!;
   const root = createRoot(host);
   await act(async () => { root.render(React.createElement(RgsSignInForm, { onSignedIn: () => { signedIn++; } })); });
-  await act(async () => { await tick(30); });
+  await act(async () => { click(byText(host, 'button', 'Sign in with XGENIA')); await tick(); await tick(); await tick(); });
 
-  assert.equal(signedIn, 1, 'connected with no input');
-  const connect = calls.find((c) => c.url.endsWith('/rgs-connect'))!;
-  assert.equal(connect.url, `${rgsClient.XRGS_SANDBOX_URL}/rgs-connect`, 'the test RGS, never the real-money one');
-  assert.deepEqual(connect.body, { action: 'xgenia-connect', xgenia_token: 'xgenia-jwt' });
-  assert.equal(rgsClient.rgsFunctionsUrl(), rgsClient.XRGS_SANDBOX_URL, 'later calls go to the test RGS');
-  assert.equal(rgsClient.isSandboxConnection(), true);
-  assert.equal(rgsClient.gameVersionsUrl('crash-space'), null, 'the back office shows real money only: no link from a sandbox');
-  assert.equal(rgsClient.rgsHeaders('k').apikey, rgsClient.XRGS_SANDBOX_ANON_KEY);
-  assert.doesNotMatch(host.textContent || '', /Email me a code/);
+  assert.match(host.textContent || '', /more than one studio/);
+  assert.equal(rgsClient.isRgsConnected(), false, 'not connected to any studio before the person picks');
+  assert.equal(calls.filter((c) => c.body.action === 'editor-redeem').length, 1);
+
+  await act(async () => { click(byText(host, 'button', 'Beta Crash')); await tick(); await tick(); });
+  const redeems = calls.filter((c) => c.body.action === 'editor-redeem').map((c) => c.body);
+  assert.deepEqual(redeems, [{ action: 'editor-redeem', code: 'c-9' }, { action: 'editor-redeem', code: 'c-9', studio_slug: 'beta' }]);
+  assert.equal(rgsClient.getRgsSettings()?.apiKey, 'xrgs_beta');
+  assert.equal(signedIn, 1);
   await act(async () => { root.unmount(); });
-
-  // An invited studio signing in by email afterwards is back on the real-money RGS.
-  rgsClient.saveRgsSettings({ apiKey: 'xrgs_studio', rgsUrl: rgsClient.XRGS_URL });
-  assert.equal(rgsClient.rgsFunctionsUrl(), rgsClient.XRGS_URL);
+  rgsLoopback.setXgeniaRgsLoopback(null);
   localStorage.clear();
 });
 
-
-// (2026-11-02) An invited studio already on its sandbox must be able to reach the real-money RGS. Sign out used to
-// remount the sign-in, which reconnected to the sandbox by itself before the invited-account link could be clicked,
-// and the connected line never said which RGS it was on.
-test('a studio on its sandbox can switch to an invited real-money account, and Sign out does not reconnect by itself', async () => {
+test('a person with no paid plan is told the RGS comes with every paid plan, with a link to upgrade', async () => {
   const React = (await import('react')).default;
   const { createRoot } = await import('react-dom/client');
   const { act } = await import('react');
-  const { RgsReleaseSetup, rgsClient } = await loadComponents();
+  const { RgsSignInForm, rgsClient, rgsLoopback } = await loadComponents();
   localStorage.clear();
-  localStorage.setItem('sb-pcrghrjikkcmelflwiys-auth-token', JSON.stringify({
-    access_token: 'xgenia-jwt', refresh_token: 'r', token_type: 'bearer', expires_in: 3600,
-    expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: 'u1', email: 'maker@example.com', aud: 'authenticated' }
-  }));
+  const { calls } = installRgs();
+  rgsLoopback.setXgeniaRgsLoopback(fakeLoopback({ error: 'NO_PLAN', message: 'The play-money sandbox in the editor stays free.' }).loopback);
+  const host = document.getElementById('root')!;
+  const root = createRoot(host);
+  await act(async () => { root.render(React.createElement(RgsSignInForm)); });
+  await act(async () => { click(byText(host, 'button', 'Sign in with XGENIA')); await tick(); await tick(); });
+  assert.match(host.textContent || '', /XGENIA RGS comes with every paid XGENIA plan/);
+  assert.doesNotMatch(host.textContent || '', /stays free/, 'never the stale "free sandbox" wording');
+  assert.equal(byText(host, 'a', 'See XGENIA plans').getAttribute('href'), 'https://primora.xgenia.com/pricing');
+  assert.equal(calls.filter((c) => c.body.action === 'editor-redeem').length, 0, 'nothing to redeem');
+  assert.equal(rgsClient.isRgsConnected(), false);
+  // Trying again is one click.
+  assert.ok(byText(host, 'button', 'Sign in with XGENIA'));
+  await act(async () => { root.unmount(); });
+  rgsLoopback.setXgeniaRgsLoopback(null);
+  localStorage.clear();
+});
+
+test('an RGS without Sign in with XGENIA yet says so and leads to the email sign-in; the loopback is closed', async () => {
+  const React = (await import('react')).default;
+  const { createRoot } = await import('react-dom/client');
+  const { act } = await import('react');
+  const { RgsSignInForm, rgsLoopback } = await loadComponents();
+  localStorage.clear();
+  installRgs((body) => (body.action === 'start'
+    ? { status: 503, body: { result: false, code: 'NOT_CONFIGURED', error: 'Sign in with XGENIA is not configured on this RGS yet.' } }
+    : { status: 500, body: {} }));
+  const browser = fakeLoopback();
+  rgsLoopback.setXgeniaRgsLoopback(browser.loopback);
+  const host = document.getElementById('root')!;
+  const root = createRoot(host);
+  await act(async () => { root.render(React.createElement(RgsSignInForm)); });
+  await act(async () => { click(byText(host, 'button', 'Sign in with XGENIA')); await tick(); await tick(); });
+  assert.match(host.textContent || '', /Sign in with XGENIA is not available on this RGS yet/);
+  assert.equal(browser.opened.length, 0, 'no browser for an RGS that cannot sign anyone in');
+  assert.ok(browser.cancelled.includes('L1'), 'the loopback listener is closed');
+  await act(async () => { click(byText(host, 'div', 'Sign in with email (XGENIA staff)')); });
+  assert.match(host.textContent || '', /Email me a code/);
+  await act(async () => { root.unmount(); });
+  rgsLoopback.setXgeniaRgsLoopback(null);
+  localStorage.clear();
+});
+
+// (2026-11-10) The play-money sandbox takes no new connections. A studio still holding a sandbox key sees that it is
+// play money and moves to XGENIA RGS by signing in with XGENIA; nothing connects by itself after a Sign out.
+test('a studio on its old sandbox moves to XGENIA RGS with Sign in with XGENIA, and Sign out does not reconnect by itself', async () => {
+  const React = (await import('react')).default;
+  const { createRoot } = await import('react-dom/client');
+  const { act } = await import('react');
+  const { RgsReleaseSetup, rgsClient, rgsLoopback } = await loadComponents();
+  localStorage.clear();
   const { calls } = installRgs();
   rgsClient.saveRgsSettings({ apiKey: 'xrgs_sandbox', rgsUrl: rgsClient.XRGS_SANDBOX_URL });
   rgsClient.setActiveGame({ id: 'g1', slug: 'crash', name: 'Crash' });
@@ -268,22 +337,20 @@ test('a studio on its sandbox can switch to an invited real-money account, and S
   const root = createRoot(host);
   await act(async () => { root.render(React.createElement(RgsReleaseSetup, { projectName: 'Crash Space' })); });
   assert.match(host.textContent || '', /play-money sandbox/, 'the connected line says it is play money');
-  assert.match(host.textContent || '', /Real money needs an invited RGS account/, 'the sandbox says what real money takes');
+  assert.match(host.textContent || '', /Sign in with XGENIA to move to XGENIA RGS/);
 
-  await act(async () => { click(byText(host, 'span', 'Sign out')); await tick(30); });
+  await act(async () => { click(byText(host, 'span', 'Move to XGENIA RGS')); await tick(30); });
   assert.equal(rgsClient.getRgsSettings(), null, 'signed out');
-  assert.equal(calls.filter((c) => c.url.endsWith('/rgs-connect')).length, 0, 'Sign out must not reconnect by itself');
-  assert.match(host.textContent || '', /Connect with my XGENIA login/);
+  assert.equal(calls.length, 0, 'Sign out must not reconnect by itself');
 
-  await act(async () => { click(byText(host, 'div', 'Use an invited RGS account instead')); });
-  await act(async () => { type(host.querySelector('input')!, 'studio@example.com'); });
-  await act(async () => { click(byText(host, 'button', 'Email me a code')); await tick(); });
-  await act(async () => { type(host.querySelector('input')!, '123456'); });
-  await act(async () => { click(byText(host, 'button', 'Sign in')); await tick(30); });
-  const connect = calls.find((c) => c.url.endsWith('/rgs-connect'))!;
-  assert.equal(connect.url, `${rgsClient.XRGS_URL}/rgs-connect`, 'the invited account signs in on the real-money RGS');
+  rgsLoopback.setXgeniaRgsLoopback(fakeLoopback().loopback);
+  await act(async () => { click(byText(host, 'button', 'Sign in with XGENIA')); await tick(30); });
+  assert.ok(calls.every((c) => c.url.startsWith(rgsClient.XRGS_URL)), 'every call goes to the main RGS');
+  assert.ok(!calls.some((c) => c.body.action === 'xgenia-connect'), 'never the sandbox connection');
   assert.equal(rgsClient.isSandboxConnection(), false);
+  assert.equal(rgsClient.getRgsSettings()?.apiKey, 'xrgs_test');
   await act(async () => { root.unmount(); });
+  rgsLoopback.setXgeniaRgsLoopback(null);
   localStorage.clear();
 });
 
@@ -293,37 +360,34 @@ test('Publish always shows the signed-in account with a Sign out button, and a S
   const React = (await import('react')).default;
   const { createRoot } = await import('react-dom/client');
   const { act } = await import('react');
-  const { RgsReleaseSetup, rgsClient } = await loadComponents();
+  const { RgsReleaseSetup, rgsClient, rgsLoopback } = await loadComponents();
   localStorage.clear();
-  localStorage.setItem('sb-pcrghrjikkcmelflwiys-auth-token', JSON.stringify({
-    access_token: 'xgenia-jwt', refresh_token: 'r', token_type: 'bearer', expires_in: 3600,
-    expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: 'u1', email: 'maker@example.com', aud: 'authenticated' }
-  }));
   const { calls } = installRgs();
-  rgsClient.saveRgsSettings({ apiKey: 'xrgs_invited', rgsUrl: rgsClient.XRGS_URL });
+  rgsClient.saveRgsSettings({ apiKey: 'xrgs_main', rgsUrl: rgsClient.XRGS_URL });
   rgsClient.setActiveGame({ id: 'g1', slug: 'crash', name: 'Crash' });
   const host = document.getElementById('root')!;
   const root = createRoot(host);
   // The Publish window's main view: quiet once a game is chosen — but the account and Sign out stay.
   await act(async () => { root.render(React.createElement(RgsReleaseSetup, { projectName: 'Crash Space', isQuietWhenReady: true })); });
-  assert.match(host.textContent || '', /Signed in to XGENIA RGS \(invited account\)/, 'which account is in view');
+  assert.match(host.textContent || '', /Signed in to XGENIA RGS/, 'which account is in view');
 
   await act(async () => { click(byText(host, 'button', 'Sign out')); await tick(30); });
   assert.equal(rgsClient.getRgsSettings(), null, 'signed out');
-  assert.match(host.textContent || '', /Connect with my XGENIA login/, 'the sign-in choice is offered');
+  assert.ok(byText(host, 'button', 'Sign in with XGENIA'), 'the sign-in is offered');
 
   // Closing and reopening Publish must not reconnect by itself either.
   await act(async () => { root.unmount(); });
   const root2 = createRoot(host);
   await act(async () => { root2.render(React.createElement(RgsReleaseSetup, { projectName: 'Crash Space', isQuietWhenReady: true })); await tick(30); });
-  assert.equal(calls.filter((c) => c.url.endsWith('/rgs-connect')).length, 0, 'Sign out must not reconnect by itself, even in a new window');
+  assert.equal(calls.length, 0, 'Sign out must not reconnect by itself, even in a new window');
   assert.equal(rgsClient.getRgsSettings(), null);
 
-  // Signing in again (the sandbox) clears it: the next sign-out starts over.
-  await act(async () => { click(byText(host, 'button', 'Connect with my XGENIA login')); await tick(30); });
-  assert.equal(rgsClient.isSandboxConnection(), true, 'signed back in to the sandbox');
-  assert.match(host.textContent || '', /Signed in to your play-money sandbox/);
+  rgsLoopback.setXgeniaRgsLoopback(fakeLoopback().loopback);
+  await act(async () => { click(byText(host, 'button', 'Sign in with XGENIA')); await tick(30); });
+  assert.equal(rgsClient.getRgsSettings()?.apiKey, 'xrgs_test', 'signed back in');
+  assert.match(host.textContent || '', /Signed in to XGENIA RGS/);
   await act(async () => { root2.unmount(); });
+  rgsLoopback.setXgeniaRgsLoopback(null);
   localStorage.clear();
 });
 

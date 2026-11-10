@@ -3,9 +3,14 @@ import assert from 'node:assert/strict';
 import {
   codeProblem,
   emailProblem,
+  redeemEditorCode,
   sendSignInCode,
   SIGN_IN_MESSAGES,
-  verifySignInCode
+  startXgeniaRgsSignIn,
+  verifySignInCode,
+  XGENIA_PRICING_URL,
+  XGENIA_RGS_MESSAGES,
+  xgeniaRgsRefusalMessage
 } from '../../src/editor/src/utils/rgs/rgsSignIn';
 
 const EP = { authUrl: 'https://x.test/auth/v1', functionsUrl: 'https://x.test/functions/v1', anonKey: 'anon' };
@@ -98,4 +103,123 @@ test('rgs-connect refusing or returning no key is surfaced, never treated as con
     '/rgs-connect': { status: 200, body: { connected: true } }
   });
   await assert.rejects(verifySignInCode('a@b.co', '123456', EP, empty), { message: SIGN_IN_MESSAGES.noKey });
+});
+
+// ─── Sign in with XGENIA (XRGS docs/XGENIA_RGS_CONTRACT.md §9, 2026-11-10) ───
+
+const RGS = { functionsUrl: 'https://x.test/functions/v1', anonKey: 'anon' };
+// The listener's state rides on the redirect; the RGS keeps it when it adds the code.
+const REDIRECT = 'http://127.0.0.1:53111/xgenia-rgs?state=Zm9yZ2VkLWNvZGUtZ2FwLTEyOA';
+
+/** A fetch answering /xgenia-auth by action, recording every call. */
+function fakeAuth(answer: (body: any) => { status: number; body: any }, calls: Call[] = []) {
+  return async (url: string, init: any) => {
+    const body = JSON.parse(init.body);
+    calls.push({ url, body, headers: init.headers });
+    if (!url.endsWith('/xgenia-auth')) throw new Error('network down');
+    const a = answer(body);
+    return { ok: a.status >= 200 && a.status < 300, status: a.status, text: async () => JSON.stringify(a.body) };
+  };
+}
+
+test('start asks xgenia-auth for an editor sign-in with the loopback redirect and this computer\'s name', async () => {
+  const calls: Call[] = [];
+  const f = fakeAuth(() => ({ status: 200, body: { authorize_url: 'https://rgs.xgenia.app/auth/xgenia?s=1' } }), calls);
+  const r = await startXgeniaRgsSignIn({ editorRedirect: REDIRECT, installLabel: 'studio-mac' }, RGS, f);
+  assert.deepEqual(r, { authorizeUrl: 'https://rgs.xgenia.app/auth/xgenia?s=1' });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://x.test/functions/v1/xgenia-auth');
+  assert.deepEqual(calls[0].body, { action: 'start', purpose: 'editor', editor_redirect: REDIRECT, install_label: 'studio-mac' });
+});
+
+test('start refuses a redirect that is not a loopback address before anything is sent', async () => {
+  const calls: Call[] = [];
+  const f = fakeAuth(() => ({ status: 200, body: { authorize_url: 'https://x' } }), calls);
+  await assert.rejects(startXgeniaRgsSignIn({ editorRedirect: 'https://evil.example/xgenia-rgs', installLabel: 'x' }, RGS, f), { code: 'LOOPBACK_FAILED' });
+  assert.equal(calls.length, 0);
+});
+
+test('an RGS without Sign in with XGENIA (404, or 503 NOT_CONFIGURED) points to the email sign-in', async () => {
+  const notDeployed = fakeAuth(() => ({ status: 404, body: { code: 'NOT_FOUND', message: 'Requested function was not found' } }));
+  await assert.rejects(startXgeniaRgsSignIn({ editorRedirect: REDIRECT, installLabel: 'x' }, RGS, notDeployed), {
+    code: 'NOT_AVAILABLE',
+    message: XGENIA_RGS_MESSAGES.NOT_AVAILABLE
+  });
+  const notConfigured = fakeAuth(() => ({ status: 503, body: { result: false, code: 'NOT_CONFIGURED', error: 'Sign in with XGENIA is not configured on this RGS yet.' } }));
+  await assert.rejects(startXgeniaRgsSignIn({ editorRedirect: REDIRECT, installLabel: 'x' }, RGS, notConfigured), { code: 'NOT_AVAILABLE' });
+  assert.match(XGENIA_RGS_MESSAGES.NOT_AVAILABLE, /^Sign in with XGENIA is not available on this RGS yet/);
+});
+
+test('start with no sign-in page in the answer, or no network, is explained', async () => {
+  const empty = fakeAuth(() => ({ status: 200, body: {} }));
+  await assert.rejects(startXgeniaRgsSignIn({ editorRedirect: REDIRECT, installLabel: 'x' }, RGS, empty), { code: 'NO_SIGN_IN_URL' });
+  const notWeb = fakeAuth(() => ({ status: 200, body: { authorize_url: 'file:///etc/passwd' } }));
+  await assert.rejects(startXgeniaRgsSignIn({ editorRedirect: REDIRECT, installLabel: 'x' }, RGS, notWeb), { code: 'NO_SIGN_IN_URL' });
+  await assert.rejects(startXgeniaRgsSignIn({ editorRedirect: REDIRECT, installLabel: 'x' }, RGS, fakeFetch({})), { message: SIGN_IN_MESSAGES.unreachable });
+});
+
+test('redeeming the one-time code returns the studio key', async () => {
+  const calls: Call[] = [];
+  const f = fakeAuth(
+    () => ({ status: 200, body: { api_key: 'xrgs_editor', operator_slug: 'studio-ab12', studio: { name: 'Acme Games', slug: 'acme' } } }),
+    calls
+  );
+  const r = await redeemEditorCode('one-time-1', RGS, f);
+  assert.deepEqual(r, { kind: 'connected', result: { apiKey: 'xrgs_editor', operatorSlug: 'studio-ab12', studio: { name: 'Acme Games', slug: 'acme' } } });
+  assert.deepEqual(calls[0].body, { action: 'editor-redeem', code: 'one-time-1' });
+});
+
+test('an expired or used code (CODE_INVALID) is a refusal, never a connection', async () => {
+  const f = fakeAuth(() => ({ status: 400, body: { result: false, code: 'CODE_INVALID', error: 'This code has expired or was already used. Connect again.' } }));
+  await assert.rejects(redeemEditorCode('stale', RGS, f), { code: 'CODE_INVALID', message: 'This code has expired or was already used. Connect again.' });
+  const noText = fakeAuth(() => ({ status: 400, body: { result: false, code: 'CODE_INVALID' } }));
+  await assert.rejects(redeemEditorCode('stale', RGS, noText), { code: 'CODE_INVALID', message: XGENIA_RGS_MESSAGES.CODE_INVALID });
+  await assert.rejects(redeemEditorCode('  ', RGS, noText), { code: 'CODE_INVALID' });
+});
+
+test('several studios: CHOOSE_STUDIO lists them, and the same code is redeemed again with the chosen slug', async () => {
+  const calls: Call[] = [];
+  const f = fakeAuth(
+    (body) =>
+      body.studio_slug
+        ? { status: 200, body: { api_key: 'xrgs_b', operator_slug: 'op-b', studio: { name: 'Beta', slug: body.studio_slug } } }
+        : { status: 409, body: { result: false, code: 'CHOOSE_STUDIO', studios: [{ name: 'Alpha', slug: 'alpha' }, { name: 'Beta', slug: 'beta' }] } },
+    calls
+  );
+  const first = await redeemEditorCode('c-1', RGS, f);
+  assert.deepEqual(first, { kind: 'choose-studio', studios: [{ name: 'Alpha', slug: 'alpha' }, { name: 'Beta', slug: 'beta' }] });
+  const second = await redeemEditorCode('c-1', RGS, f, 'beta');
+  assert.equal(second.kind, 'connected');
+  assert.deepEqual(calls.map((c) => c.body), [
+    { action: 'editor-redeem', code: 'c-1' },
+    { action: 'editor-redeem', code: 'c-1', studio_slug: 'beta' }
+  ]);
+  // Asked to choose from nothing: refused, not guessed.
+  const none = fakeAuth(() => ({ status: 409, body: { code: 'CHOOSE_STUDIO', studios: [] } }));
+  await assert.rejects(redeemEditorCode('c-2', RGS, none), { code: 'NO_STUDIO' });
+});
+
+test('NO_PLAN says the RGS comes with every paid plan and where to upgrade, whatever the server said', () => {
+  const m = xgeniaRgsRefusalMessage('NO_PLAN', 'The play-money sandbox in the editor stays free.');
+  assert.equal(m, XGENIA_RGS_MESSAGES.NO_PLAN);
+  assert.match(m, /comes with every paid XGENIA plan/);
+  assert.ok(m.includes(XGENIA_PRICING_URL));
+  assert.equal(XGENIA_PRICING_URL, 'https://primora.xgenia.com/pricing');
+  assert.doesNotMatch(m, /free/i);
+});
+
+test('other refusals show the server\'s own words (a frozen studio says why), else the plain-English fallback', async () => {
+  const frozen = fakeAuth(() => ({ status: 403, body: { result: false, code: 'STUDIO_FROZEN', error: 'Acme Games\'s plan ended on 2026-11-01. Renew it to publish again.' } }));
+  await assert.rejects(redeemEditorCode('c', RGS, frozen), { code: 'STUDIO_FROZEN', message: 'Acme Games\'s plan ended on 2026-11-01. Renew it to publish again.' });
+  for (const code of ['VIEWER_ONLY', 'NO_STUDIO', 'NO_CONNECTION', 'NOT_YOUR_STUDIO', 'SIGN_IN_REFUSED'] as const) {
+    const f = fakeAuth(() => ({ status: code === 'NO_CONNECTION' ? 409 : 403, body: { result: false, code } }));
+    await assert.rejects(redeemEditorCode('c', RGS, f), { code, message: XGENIA_RGS_MESSAGES[code] });
+  }
+  assert.equal(xgeniaRgsRefusalMessage('ASK_STUDIO_ADMIN', ''), XGENIA_RGS_MESSAGES.ASK_STUDIO_ADMIN);
+  assert.equal(xgeniaRgsRefusalMessage('SOMETHING_NEW', ''), 'XGENIA RGS refused the sign-in (SOMETHING_NEW).');
+});
+
+test('a redeem answer without a key is never treated as connected', async () => {
+  const f = fakeAuth(() => ({ status: 200, body: { operator_slug: 'x' } }));
+  await assert.rejects(redeemEditorCode('c', RGS, f), { message: SIGN_IN_MESSAGES.noKey });
 });
