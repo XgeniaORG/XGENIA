@@ -399,8 +399,9 @@ async function runStakeExport(opts: StakeExportOptions, onInfo: (info: StakeExpo
   }
   wanted = wanted.map((m) => (autoSetups[m.name] ? { ...m, roundRequest: autoSetups[m.name].roundRequest } : m));
   const booksPerMode = Math.max(1, Math.min(Math.floor(opts.booksPerMode), info.maxBooksPerMode));
-  // An RGS that reports its limits (max_oversample) is held to them. One that does not (XRGS I-138 before
-  // the limits were reported) still oversamples, capped at 100 as before.
+  // Oversample only on an RGS that says it can (max_oversample). (2026-11-10) One that does not — production
+  // before the Stake compiler ships — ignores `oversample` and plays book_count rounds, and the check below
+  // (rounds played = books × oversample) then failed EVERY export: "simulated N rounds, not the 10N asked for".
   const asked = Math.floor(opts.oversample ?? STAKE_DEFAULT_OVERSAMPLE);
   const oversample =
     info.maxOversample > 0
@@ -412,7 +413,7 @@ async function runStakeExport(opts: StakeExportOptions, onInfo: (info: StakeExpo
             info.maxSimulationsPerMode > 0 ? Math.floor(info.maxSimulationsPerMode / booksPerMode) : Infinity
           )
         )
-      : Math.max(1, Math.min(100, asked));
+      : 1;
   const sampling = oversample > 1 ? { oversample } : {};
   const roundsPerMode = booksPerMode * oversample;
   const roundRequests: Record<string, unknown> = {};
