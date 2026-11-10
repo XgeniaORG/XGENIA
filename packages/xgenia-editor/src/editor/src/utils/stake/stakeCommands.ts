@@ -88,7 +88,12 @@ export function startStakeJob(spec: StakeJobSpec | null | undefined): Record<str
           oversample: spec?.oversample ?? 10,
           bet: spec?.bet,
           stakeModes,
-          onProgress: (p) => progress(`Measuring ${p.mode} (${p.modeIndex + 1}/${p.modeCount}): ${p.books.toLocaleString()} / ${p.booksPerMode.toLocaleString()} books`)
+          onProgress: (p) =>
+            progress(
+              (p as any).phase === 'setup'
+                ? `Finding ${p.mode}'s paid round (${p.books} tried)`
+                : `Measuring ${p.mode} (${p.modeIndex + 1}/${p.modeCount}): ${p.books.toLocaleString()} / ${p.booksPerMode.toLocaleString()} rounds`
+            )
         });
         const limits = stakeLimitsCheck(maths.modes, { maxWinMultiplier: maths.info.maxWinMultiplier, minBooks: 1 });
         return {
@@ -123,7 +128,12 @@ export function startStakeJob(spec: StakeJobSpec | null | undefined): Record<str
       bet: spec?.bet,
       oversample: spec?.oversample,
       onStep: progress,
-      onMathsProgress: (p) => progress(`Stake books ${p.mode} (${p.modeIndex + 1}/${p.modeCount}): ${p.books.toLocaleString()} / ${p.booksPerMode.toLocaleString()}`)
+      onMathsProgress: (p) =>
+        progress(
+          (p as any).phase === 'setup'
+            ? `Finding ${p.mode}'s paid round (${p.books} tried)`
+            : `Stake books ${p.mode} (${p.modeIndex + 1}/${p.modeCount}): ${p.books.toLocaleString()} / ${p.booksPerMode.toLocaleString()} rounds`
+        )
     });
     const limits = stakeLimitsCheck(built.maths.modes, { maxWinMultiplier: built.maths.info.maxWinMultiplier });
     return {
