@@ -108,7 +108,8 @@ test('rgs-connect refusing or returning no key is surfaced, never treated as con
 // ─── Sign in with XGENIA (XRGS docs/XGENIA_RGS_CONTRACT.md §9, 2026-11-10) ───
 
 const RGS = { functionsUrl: 'https://x.test/functions/v1', anonKey: 'anon' };
-const REDIRECT = 'http://127.0.0.1:53111/xgenia-rgs';
+// The listener's state rides on the redirect; the RGS keeps it when it adds the code.
+const REDIRECT = 'http://127.0.0.1:53111/xgenia-rgs?state=Zm9yZ2VkLWNvZGUtZ2FwLTEyOA';
 
 /** A fetch answering /xgenia-auth by action, recording every call. */
 function fakeAuth(answer: (body: any) => { status: number; body: any }, calls: Call[] = []) {

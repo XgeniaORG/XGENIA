@@ -187,7 +187,9 @@ export async function verifySignInCode(
 // XRGS docs/XGENIA_RGS_CONTRACT.md §9):
 //
 //   1. the main process listens on http://127.0.0.1:<free port>/xgenia-rgs for one request
-//      (src/main/src/xgenia-rgs-loopback.js);
+//      (src/main/src/xgenia-rgs-loopback.js). Its redirect carries `?state=<128 random bits>`, which
+//      the RGS keeps when it adds the code; an answer without that state is refused there, so a web
+//      page that finds the port cannot hand the editor a code for an account of its own choosing;
 //   2. POST {fn}/xgenia-auth { action: 'start', purpose: 'editor', editor_redirect, install_label }
 //      → { authorize_url }                                           — startXgeniaRgsSignIn
 //   3. the person signs in at XGENIA in their own browser, which comes back to the loopback with

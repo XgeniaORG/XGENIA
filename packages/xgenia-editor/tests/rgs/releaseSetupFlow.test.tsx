@@ -63,7 +63,7 @@ function fakeLoopback(answer: { code: string } | { error: string; message?: stri
     opened,
     cancelled,
     loopback: {
-      listen: async () => ({ id: 'L1', redirectUri: 'http://127.0.0.1:53111/xgenia-rgs', installLabel: 'studio-mac' }),
+      listen: async () => ({ id: 'L1', redirectUri: 'http://127.0.0.1:53111/xgenia-rgs?state=s-128-bits', installLabel: 'studio-mac' }),
       openBrowser: async (_id: string, url: string) => { opened.push(url); answered!(answer); },
       wait: async () => result,
       cancel: async (id: string) => { cancelled.push(id); answered!({ error: 'CANCELLED' }); }
@@ -166,7 +166,7 @@ test('a new studio signs in with XGENIA, creates its game with its own numbers, 
   await act(async () => { click(byText(host, 'button', 'Sign in with XGENIA')); await tick(); await tick(); await tick(); });
   const start = calls.find((c) => c.body.action === 'start')!;
   assert.equal(start.url, `${rgsClient.XRGS_URL}/xgenia-auth`, 'the main (production) RGS');
-  assert.deepEqual(start.body, { action: 'start', purpose: 'editor', editor_redirect: 'http://127.0.0.1:53111/xgenia-rgs', install_label: 'studio-mac' });
+  assert.deepEqual(start.body, { action: 'start', purpose: 'editor', editor_redirect: 'http://127.0.0.1:53111/xgenia-rgs?state=s-128-bits', install_label: 'studio-mac' });
   assert.deepEqual(browser.opened, ['https://rgs.xgenia.app/auth/xgenia?state=s1'], 'the sign-in page opens in the browser');
   assert.deepEqual(calls.find((c) => c.body.action === 'editor-redeem')!.body, { action: 'editor-redeem', code: 'one-time-1' });
   assert.ok(!calls.some((c) => c.url.endsWith('/rgs-connect')), 'no sandbox, no email code');

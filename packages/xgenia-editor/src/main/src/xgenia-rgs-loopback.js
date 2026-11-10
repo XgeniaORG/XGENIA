@@ -18,12 +18,17 @@
 //   - accepts exactly one answer on exactly `/xgenia-rgs` (a favicon request or any other path is
 //     a 404 and changes nothing), and refuses a Host header that is not this loopback address, so a
 //     DNS-rebinding page cannot post a code of its own choosing;
+//   - accepts that answer only when it carries the `state` this listener made (128 random bits, on
+//     the redirect it gives the RGS; the RGS keeps a redirect's query when it adds `code`). Without
+//     it, any web page that found the port could send the editor a code for an account of ITS
+//     choosing (a forged sign-in), or a fake refusal. A wrong or missing state is a 400 and the
+//     listener keeps waiting for the real answer;
 //   - closes after that one answer, on cancel, or after 5 minutes, whichever comes first.
 // Only the code crosses the browser; the renderer redeems it for the key over HTTPS
 // (utils/rgs/rgsSignIn.ts redeemEditorCode), so the key never does.
 //
 // The renderer drives it over IPC (registerXgeniaRgsLoopbackHandlers, wired in main.js):
-//   xgenia-rgs:listen        → { id, redirectUri, installLabel }
+//   xgenia-rgs:listen        → { id, redirectUri (…/xgenia-rgs?state=…), installLabel }
 //   xgenia-rgs:open-browser  (id, authorizeUrl) → opens the system browser (https only, or a local stack)
 //   xgenia-rgs:wait          (id) → { code } | { error, message }   (never rejects)
 //   xgenia-rgs:cancel        (id)
@@ -34,6 +39,8 @@ const os = require('os');
 const crypto = require('crypto');
 
 const LOOPBACK_PATH = '/xgenia-rgs';
+/** Bytes of randomness in the state (128 bits), sent as base64url. */
+const STATE_BYTES = 16;
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 /** A one-time code is short; anything longer than this is not one. */
 const MAX_PARAM_LENGTH = 2048;
@@ -67,6 +74,18 @@ function hostIsThisLoopback(hostHeader, port) {
   return host === `127.0.0.1:${port}` || host === `localhost:${port}`;
 }
 
+function newState() {
+  return crypto.randomBytes(STATE_BYTES).toString('base64url');
+}
+
+/** Constant-time: does `given` equal the state this listener made? Missing or another length is no. */
+function stateMatches(expected, given) {
+  if (typeof given !== 'string' || !given) return false;
+  const a = Buffer.from(expected, 'utf8');
+  const b = Buffer.from(given, 'utf8');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 function cleanParam(value) {
   if (typeof value !== 'string') return '';
   const v = value.trim();
@@ -85,6 +104,7 @@ function listenForXgeniaRgsAnswer({ timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
     const result = new Promise((resolve) => { settle = resolve; });
     let timer = null;
     let port = 0;
+    const state = newState();
 
     const sockets = new Set();
     const server = http.createServer((req, res) => {
@@ -110,6 +130,14 @@ function listenForXgeniaRgsAnswer({ timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
       if (!hostIsThisLoopback(req.headers.host, port)) return send(403, 'Forbidden', 'text/plain; charset=utf-8');
       if (settled) {
         return send(410, answerPage({ ok: false, title: 'Already used', message: 'This sign-in has already finished. Return to XGENIA.' }));
+      }
+      // Before anything else, codes and refusals alike: is this the answer to THIS editor's sign-in?
+      if (!stateMatches(state, url.searchParams.get('state'))) {
+        return send(400, answerPage({
+          ok: false,
+          title: 'Not your sign-in',
+          message: 'This sign-in did not come from this editor. Return to XGENIA and press Sign in with XGENIA there.'
+        }));
       }
 
       const code = cleanParam(url.searchParams.get('code'));
@@ -166,7 +194,7 @@ function listenForXgeniaRgsAnswer({ timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
       timer.unref?.();
       resolveListening({
         port,
-        redirectUri: `http://127.0.0.1:${port}${LOOPBACK_PATH}`,
+        redirectUri: `http://127.0.0.1:${port}${LOOPBACK_PATH}?state=${state}`,
         result,
         cancel: () => finish({ error: 'CANCELLED', message: '' })
       });
@@ -235,6 +263,7 @@ function registerXgeniaRgsLoopbackHandlers(ipcMain, { shell, timeoutMs } = {}) {
 module.exports = {
   LOOPBACK_PATH,
   DEFAULT_TIMEOUT_MS,
+  stateMatches,
   escapeHtml,
   answerPage,
   isOpenableAuthorizeUrl,
