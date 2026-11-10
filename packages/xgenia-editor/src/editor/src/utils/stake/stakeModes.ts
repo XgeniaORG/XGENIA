@@ -74,3 +74,55 @@ export function declaredStakeModes(project: any): DeclaredStakeMode[] {
   }
   return [...out.values()];
 }
+
+/** The Math Component input that feeds a Bet Mode's `mode` (the port the game sends its mode on), or null. */
+export function stakeModeInput(project: any): string | null {
+  for (const comp of project?.components || []) {
+    if (typeof comp?.name !== 'string' || !comp.name.startsWith(MATHS_PREFIX)) continue;
+    const roots: any[] = [];
+    const walk = (ns: any[]) => {
+      for (const n of ns || []) {
+        roots.push(n);
+        walk(n?.children);
+      }
+    };
+    walk(comp.graph?.roots);
+    const inputs = roots.find((n) => (n?.type ?? n?.typename) === 'Component Inputs');
+    if (!inputs) continue;
+    for (const bm of roots.filter((n) => (n?.type ?? n?.typename) === 'Bet Mode')) {
+      const c = (comp.graph?.connections || []).find((x: any) => x.toId === bm.id && x.toProperty === 'mode' && x.fromId === inputs.id);
+      if (c) return String(c.fromProperty);
+    }
+  }
+  return null;
+}
+
+/**
+ * The Math Component ports a Pick Bonus uses (2026-11-09): the input that carries the clicked tile into
+ * `pickIndex` and the output `revealed` is shown on. The Book Connector needs both to show each prize under the
+ * tile the player clicked (stake-book-session.js, "Picks"). null when the game has no wired Pick Bonus.
+ */
+export function stakePickPorts(project: any): { pickField: string; revealedField: string } | null {
+  for (const comp of project?.components || []) {
+    if (typeof comp?.name !== 'string' || !comp.name.startsWith(MATHS_PREFIX)) continue;
+    const roots: any[] = [];
+    const walk = (ns: any[]) => {
+      for (const n of ns || []) {
+        roots.push(n);
+        walk(n?.children);
+      }
+    };
+    walk(comp.graph?.roots);
+    const typeOf = (n: any) => n?.type ?? n?.typename;
+    const inputs = roots.find((n) => typeOf(n) === 'Component Inputs');
+    const outputs = roots.find((n) => typeOf(n) === 'Component Outputs');
+    if (!inputs || !outputs) continue;
+    const conns: any[] = comp.graph?.connections || [];
+    for (const pb of roots.filter((n) => typeOf(n) === 'Pick Bonus')) {
+      const pick = conns.find((c) => c.toId === pb.id && c.toProperty === 'pickIndex' && c.fromId === inputs.id);
+      const shown = conns.find((c) => c.fromId === pb.id && c.fromProperty === 'revealed' && c.toId === outputs.id);
+      if (pick && shown) return { pickField: String(pick.fromProperty), revealedField: String(shown.toProperty) };
+    }
+  }
+  return null;
+}

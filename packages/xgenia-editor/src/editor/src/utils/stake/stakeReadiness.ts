@@ -37,6 +37,8 @@ export interface ReadinessReport {
   issues: ReadinessIssue[];
   /** What was found, for the tab and the AI to show. */
   summary: {
+    /** The project's target (project metadata `target`): "stake" when the game is declared for Stake Engine. */
+    target: string | null;
     mathsComponents: string[];
     freeSpins: 'library' | 'declared' | 'suspected-undeclared' | 'none';
     betModes: boolean;
@@ -50,7 +52,7 @@ export interface ReadinessReport {
  * and a game with a bonus is said not to be ready — rather than a green check over an export that cannot carry it.
  * Flip with the wiring in DeployToStakeTab / deployToFolderStake, and drop STAKE_BUILD_NOT_WIRED with it.
  */
-export const STAKE_BUILD_PLAYS_BOOKS = false;
+export const STAKE_BUILD_PLAYS_BOOKS = true;
 
 const MATHS_PREFIX = '/#__maths__/';
 const CLOUD_PREFIX = '/#__cloud__/';
@@ -117,7 +119,8 @@ export function stakeReadiness(project: any): ReadinessReport {
   const comps: Comp[] = Array.isArray(project?.components) ? project.components : [];
   const maths = comps.filter((c) => typeof c?.name === 'string' && c.name.startsWith(MATHS_PREFIX));
   const frontend = comps.filter((c) => typeof c?.name === 'string' && !c.name.startsWith(MATHS_PREFIX) && !c.name.startsWith(CLOUD_PREFIX));
-  const summary: ReadinessReport['summary'] = { mathsComponents: maths.map((c) => c.name), freeSpins: 'none', betModes: false, pickBonus: false };
+  const target = typeof project?.metadata?.target === 'string' ? project.metadata.target : null;
+  const summary: ReadinessReport['summary'] = { target, mathsComponents: maths.map((c) => c.name), freeSpins: 'none', betModes: false, pickBonus: false };
 
   if (!comps.length) {
     add({ code: 'NO_PROJECT', level: 'error', message: 'No project is open (or it has no components).', fix: 'Open the game project.', ai: 'Ask the user to open the game project, then run stake readiness again.' });

@@ -108,3 +108,10 @@ test('a hand-wired Stake bench (stake.* nodes, no Math Component) is checked as 
   for (const code of ['STAKE_NODE_HTTP', 'MANUAL_NO_END_ROUND', 'MANUAL_STAKE_WIRING']) assert.ok(cs.includes(code), code);
   assert.ok(!cs.includes('MANUAL_NO_AUTHENTICATE'));
 });
+
+test('the project\'s Stake target is reported, for the AI to act on', () => {
+  const p: any = project([n('fs', 'Calculate Free Spins States')]);
+  assert.equal(stakeReadiness(p).summary.target, null);
+  p.metadata = { target: 'stake' };
+  assert.equal(stakeReadiness(p).summary.target, 'stake');
+});

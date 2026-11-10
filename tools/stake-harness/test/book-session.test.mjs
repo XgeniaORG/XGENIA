@@ -216,3 +216,34 @@ test('money fields scale from the export bet to the player\'s bet', async () => 
     await s._state.ending;
   });
 });
+
+test('a pick bonus shows each prize under the tile the player clicked; prizes and payout are the book\'s', async () => {
+  // One book: the paid round, then three pick rounds whose maths revealed tiles 7, 2, 4 with prizes 10, 50, 0.
+  const rev = (list) => list.map(([index, prize]) => ({ index, prize }));
+  const events = [
+    { index: 0, type: 'round', winMultiplier: 0, data: { totalWin: 0, revealed: [] } },
+    { index: 1, type: 'featureRound', winMultiplier: 0.1, data: { totalWin: 10, revealed: rev([[7, 10]]) } },
+    { index: 2, type: 'featureRound', winMultiplier: 0.5, data: { totalWin: 50, revealed: rev([[7, 10], [2, 50]]) } },
+    { index: 3, type: 'featureRound', winMultiplier: 0, data: { totalWin: 0, revealed: rev([[7, 10], [2, 50], [4, 0]]) } },
+    { index: 4, type: 'finalWin', amount: 60 },
+  ];
+  const dir = path.join(TMP, 'picks');
+  writePackage(dir, [{ name: 'base', cost: 1, books: [{ id: 1, payoutMultiplier: 60, events }], lut: [{ id: 1, weight: 1n, payout: 60 }] }]);
+  const emu = await createEmulator(loadPackage(dir)).listen();
+  try {
+    const s = session(emu, 'picks');
+    const cfg = { ...CFG, pickField: 'pickIndex', revealedField: 'revealed' };
+    await s.request('Spin', { bet: 1 }, cfg);
+    const a = await s.request('Pick', { bet: 1, pickIndex: 0 }, cfg);
+    const b = await s.request('Pick', { bet: 1, pickIndex: 5 }, cfg);
+    const c = await s.request('Pick', { bet: 1, pickIndex: 3 }, cfg);
+    assert.deepEqual(a.revealed, [{ index: 0, prize: 10 }]);
+    assert.deepEqual(b.revealed, [{ index: 0, prize: 10 }, { index: 5, prize: 50 }]);
+    assert.deepEqual(c.revealed, [{ index: 0, prize: 10 }, { index: 5, prize: 50 }, { index: 3, prize: 0 }]);
+    assert.equal(c.__rgs.win_amount, 0.6, 'the book\'s payout, whatever was clicked');
+    await s._state.ending;
+    assert.deepEqual((await state(emu)).violations, []);
+  } finally {
+    await emu.close();
+  }
+});

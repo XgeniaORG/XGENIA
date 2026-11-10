@@ -24,7 +24,18 @@ import {
 
 export type PublishRoute =
   | { kind: 'rgs'; client: WebPublishClient; info: WebPublishInfo; vercelToken?: undefined }
-  | { kind: 'token'; vercelToken: string; client?: undefined; info?: undefined };
+  | { kind: 'token'; vercelToken: string; client?: undefined; info?: undefined }
+  /**
+   * A local XGENIA RGS (127.0.0.1 / localhost): there is no hosting to publish to, so the built site
+   * is written to `outputDir/<name>` and everything else a publish does — the maths deploy, the wiring
+   * to its endpoints, the Deployed Games listing — runs against that local RGS as it would anywhere.
+   */
+  | { kind: 'local'; outputDir: string; vercelToken?: undefined; client?: undefined; info?: undefined };
+
+/** True for an RGS on this machine — the local stack, never a hosted one. */
+export function isLocalRgsUrl(functionsUrl: string): boolean {
+  return /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/i.test(functionsUrl);
+}
 
 export interface ChoosePublishRouteDeps {
   functionsUrl: string;
