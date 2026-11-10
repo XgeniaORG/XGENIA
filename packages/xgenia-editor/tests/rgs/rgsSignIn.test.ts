@@ -46,6 +46,15 @@ test('an address that is not invited gets told so, not "Database error saving ne
   await assert.rejects(sendSignInCode('new@studio.com', EP, f), { message: SIGN_IN_MESSAGES.notInvited });
 });
 
+// (2026-11-10) Every 5xx used to read "not invited": an invited account whose code email failed to send was
+// told to go and get invited.
+test('a server error that is not an invitation refusal is not reported as "not invited"', async () => {
+  const f = fakeFetch({ '/otp': { status: 500, body: { msg: 'Error sending magic link email' } } });
+  await assert.rejects(sendSignInCode('mark@studio.com', EP, f), { message: SIGN_IN_MESSAGES.sendFailed });
+  const g = fakeFetch({ '/otp': { status: 422, body: { msg: 'Signups not allowed for otp' } } });
+  await assert.rejects(sendSignInCode('new@studio.com', EP, g), { message: SIGN_IN_MESSAGES.notInvited });
+});
+
 test('rate limiting is explained', async () => {
   const f = fakeFetch({ '/otp': { status: 429, body: { msg: 'For security purposes…' } } });
   await assert.rejects(sendSignInCode('a@b.co', EP, f), { message: SIGN_IN_MESSAGES.tooMany });
