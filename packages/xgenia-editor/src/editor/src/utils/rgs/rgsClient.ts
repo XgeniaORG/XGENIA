@@ -9,19 +9,17 @@ import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
 import { activeGameFor } from './activeGame';
 import { RgsSignInResult, connectWithXgeniaToken, sendSignInCode, verifySignInCode } from './rgsSignIn';
 
-// LOCAL XRGS TESTING — DO NOT COMMIT. Production values:
-//   XRGS_URL      = 'https://usubzwydrjelmjfkkrhi.supabase.co/functions/v1'
-//   XRGS_AUTH_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/auth/v1'
-//   XRGS_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzdWJ6d3lkcmplbG1qZmtrcmhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4ODA3NDcsImV4cCI6MjA4NzQ1Njc0N30.Hewc7WlLZuufC0trhCKKKc4AhLXk7jy7qG3irBQPykY'
-export const XRGS_URL = 'http://127.0.0.1:54321/functions/v1';
+export const XRGS_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/functions/v1';
 
 // Supabase Auth base for the same project — the email-code sign-in (rgsSignIn.ts).
-export const XRGS_AUTH_URL = 'http://127.0.0.1:54321/auth/v1';
+export const XRGS_AUTH_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/auth/v1';
 
 // Supabase anon key — required by verify_jwt on edge functions.
 // This is NOT a secret; it's the publishable key used to pass gateway auth.
+// (2026-11-10) A local-testing copy of these three, marked DO NOT COMMIT, reached develop in #285 and sent
+// every sign-in to 127.0.0.1. tests/rgs/rgsEndpoints.test.ts now fails on anything but the production project.
 export const XRGS_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzdWJ6d3lkcmplbG1qZmtrcmhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4ODA3NDcsImV4cCI6MjA4NzQ1Njc0N30.Hewc7WlLZuufC0trhCKKKc4AhLXk7jy7qG3irBQPykY';
 
 // The play-money test RGS (2026-11-02): every XGENIA login gets a sandbox there with no invite and no second
 // account (rgs-connect `xgenia-connect`). Its own Supabase project, never the real-money one; a connection made
