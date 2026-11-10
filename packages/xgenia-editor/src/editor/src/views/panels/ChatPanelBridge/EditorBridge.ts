@@ -56,7 +56,7 @@ import {
     startPublish,
     type PublishStartSpec,
 } from '@xgenia-utils/publish/publishCommands';
-import { connectWithXgeniaLogin, getActiveGame, getRgsSettings, setActiveGame } from '@xgenia-utils/rgs/rgsClient';
+import { connectWithXgeniaRgs, getActiveGame, getRgsSettings, setActiveGame } from '@xgenia-utils/rgs/rgsClient';
 import { desktopNotificationService } from '@xgenia-utils/DesktopNotificationService';
 import { resolveInsideProject } from '@xgenia-utils/projectPathGuard';
 import { getActivePreviewHost } from '@xgenia-utils/previewHostRegistry';
@@ -3250,11 +3250,17 @@ export class EditorBridge {
             const s = getRgsSettings();
             return s?.apiKey ? { apiKey: s.apiKey, url: s.rgsUrl || XRGS_DEFAULT_URL } : null;
         });
-        // Connect with the XGENIA login (the play-money sandbox, made the first time), as Publish does by itself:
-        // the AI uses this instead of asking the person to sign in (2026-11-02).
+        // "Sign in with XGENIA" (2026-11-10): opens the person's browser to sign in to XGENIA RGS with their XGENIA
+        // account, as Publish's button does. The play-money sandbox it used to connect to takes no new connections.
+        // A person in several studios is not asked here (the AI cannot pick for them): it refuses with a message
+        // that sends them to Publish, and nothing is spent.
         h('xrgs.connect', async () => {
-            const r = await connectWithXgeniaLogin();
-            return { connected: true, sandbox: true, operatorSlug: r.operatorSlug, created: r.created };
+            const r = await connectWithXgeniaRgs({
+                chooseStudio: async () => {
+                    throw new Error('This XGENIA account is in several RGS studios. Open Publish and press Sign in with XGENIA to choose one.');
+                }
+            });
+            return { connected: true, sandbox: false, operatorSlug: r.operatorSlug, studio: r.studio };
         });
         h('xrgs.getActiveGame', () => getActiveGame());
         // Through rgsClient, not writeRgs: it also emits `rgs.gameSelected`, so the

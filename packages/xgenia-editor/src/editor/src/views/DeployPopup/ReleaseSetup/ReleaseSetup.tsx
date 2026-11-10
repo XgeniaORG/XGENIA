@@ -6,8 +6,10 @@
 // tools". A studio pressing Publish had nowhere to go. Everything a release needs
 // now happens here, in order, and each step disappears once it is done:
 //
-//   1. Sign in   — email → 6-digit code (rgsSignIn.ts). The first sign-in creates
-//                  the studio's own space on XGENIA RGS; there is no key to paste.
+//   1. Sign in   — "Sign in with XGENIA" in the system browser (rgsClient
+//                  connectWithXgeniaRgs). The first sign-in opens the studio's demo
+//                  space on XGENIA RGS; there is no key to paste. The email code stays
+//                  as a small link for XGENIA staff.
 //   2. Game      — pick one of the studio's games, or create one with the numbers
 //                  certification and the stake guard will hold it to (rgsRelease.ts).
 //   3. Publish   — the popup's own Publish button (deploys changed maths first).
@@ -17,7 +19,7 @@
 // This is the only release surface: the Maths panel's old manual tools (paste a
 // key, game picker, Server Versions, Deploy) are gone.
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { PrimaryButton, PrimaryButtonSize, PrimaryButtonVariant } from '@xgenia-core-ui/components/inputs/PrimaryButton';
 import { TextInput } from '@xgenia-core-ui/components/inputs/TextInput';
@@ -26,9 +28,10 @@ import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
 
 import {
   rgsFunctionsUrl,
+  cancelXgeniaRgsSignIn,
   clearRgsSettings,
   completeEmailSignIn,
-  connectWithXgeniaLogin,
+  connectWithXgeniaRgs,
   emailSignInCode,
   fetchOperatorInfo,
   gameVersionsUrl,
@@ -41,9 +44,10 @@ import {
   rgsHeaders,
   setActiveGame,
   SelectedGame,
+  XgeniaRgsSignInStep,
   xgeniaAccessToken
 } from '@xgenia-utils/rgs/rgsClient';
-import { emailProblem, codeProblem } from '@xgenia-utils/rgs/rgsSignIn';
+import { emailProblem, codeProblem, RgsStudio, XGENIA_PRICING_URL } from '@xgenia-utils/rgs/rgsSignIn';
 import {
   CertificationStatus,
   createReleaseGame,
@@ -83,69 +87,129 @@ function base(apiKey: string) {
 // ─── Step 1: sign in ──────────────────────────────────────────────────────────
 
 /**
- * `start`: 'auto' connects with the XGENIA login by itself (first open of Publish). After an explicit sign-out it is
- * 'choose' — reconnecting by itself would make Sign out a no-op and leave an invited studio a split second to click
- * past its sandbox (found 2026-11-02). 'email' opens straight on the invited-account sign-in.
+ * `start`: 'xgenia' opens on "Sign in with XGENIA" (the customer path, 2026-11-10); 'email' opens straight on the
+ * email-code sign-in, which is for XGENIA staff and for an RGS that does not offer Sign in with XGENIA yet.
+ * Nothing connects by itself: Sign in with XGENIA opens the person's browser, which only a click should do.
  */
-export function RgsSignInForm({ onSignedIn, start = 'auto' }: { onSignedIn?: () => void; start?: 'auto' | 'choose' | 'email' }) {
+export function RgsSignInForm({ onSignedIn, start = 'xgenia' }: { onSignedIn?: () => void; start?: 'xgenia' | 'email' }) {
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  // Every XGENIA login is a play-money RGS sandbox (2026-11-02): connect with it first, by itself. The email code
-  // below is only for an invited studio, or when the XGENIA sign-in cannot be used.
-  const [xgenia, setXgenia] = useState<'trying' | 'failed' | 'email' | 'choose'>(
-    start === 'email' ? 'email' : start === 'choose' ? 'choose' : 'trying'
-  );
-  const [xgeniaError, setXgeniaError] = useState('');
-  const connectXgenia = () => {
-    setXgenia('trying');
-    setXgeniaError('');
-    connectWithXgeniaLogin()
-      .then(() => onSignedIn?.())
-      .catch((e: any) => { setXgeniaError(e?.message || String(e)); setXgenia('failed'); });
-  };
+  const [mode, setMode] = useState<'xgenia' | 'email'>(start);
+
+  // Sign in with XGENIA: idle → the browser → (a studio to pick) → connected, or an error to act on.
+  const [step, setStep] = useState<XgeniaRgsSignInStep | 'idle' | 'choose-studio'>('idle');
+  const [xgeniaError, setXgeniaError] = useState<{ code: string; message: string } | null>(null);
+  const [studios, setStudios] = useState<RgsStudio[]>([]);
+  const pickStudio = useRef<((slug: string | null) => void) | null>(null);
+  const live = useRef(true);
+  // Only the form that started a sign-in may stop it: Publish can mount two of these (main view, Real money view).
+  const signingIn = useRef(false);
   useEffect(() => {
-    if (start !== 'auto') return;
-    let live = true;
-    connectWithXgeniaLogin()
-      .then(() => { if (live) onSignedIn?.(); })
-      .catch((e: any) => {
-        if (!live) return;
-        setXgeniaError(e?.message || String(e));
-        setXgenia('failed');
-      });
-    return () => { live = false; };
+    live.current = true;
+    return () => {
+      live.current = false;
+      // Closing Publish mid-sign-in closes the loopback too, and answers a pending studio question.
+      pickStudio.current?.(null);
+      if (signingIn.current) cancelXgeniaRgsSignIn();
+    };
   }, []);
 
-  if (xgenia !== 'email') {
+  const signInWithXgenia = () => {
+    setXgeniaError(null);
+    setStep('opening-browser');
+    signingIn.current = true;
+    connectWithXgeniaRgs({
+      onStep: (s) => { if (live.current) setStep(s); },
+      chooseStudio: (list) =>
+        new Promise<string | null>((resolve) => {
+          if (!live.current) return resolve(null);
+          pickStudio.current = (slug) => { pickStudio.current = null; resolve(slug); };
+          setStudios(list);
+          setStep('choose-studio');
+        })
+    })
+      .then(() => { signingIn.current = false; if (live.current) { setStep('idle'); onSignedIn?.(); } })
+      .catch((e: any) => {
+        signingIn.current = false;
+        if (!live.current) return;
+        setStep('idle');
+        setStudios([]);
+        const code = String(e?.code || '');
+        if (code === 'CANCELLED') return; // the person's own choice: nothing to explain
+        setXgeniaError({ code, message: e?.message || String(e) });
+      });
+  };
+  const cancelXgenia = () => {
+    if (pickStudio.current) pickStudio.current(null);
+    else cancelXgeniaRgsSignIn();
+  };
+
+  if (mode === 'xgenia') {
+    const working = step !== 'idle';
+    const notAvailable = xgeniaError?.code === 'NOT_AVAILABLE';
     return (
       <div style={STEP_STYLE} data-guide="rgs-sign-in">
-        <div style={STEP_TITLE}>1 · Your play-money RGS</div>
-        {xgenia === 'choose' ? (
+        <div style={STEP_TITLE}>1 · Sign in to XGENIA RGS</div>
+        {step === 'choose-studio' ? (
           <>
-            <div style={HINT}>Publish and play with play money, using your XGENIA sign-in. Nothing to type.</div>
-            <div style={ROW}>
-              <PrimaryButton label="Connect with my XGENIA login" size={PrimaryButtonSize.Small} onClick={connectXgenia} />
+            <div style={HINT}>You are in more than one studio. Which one is this editor publishing for?</div>
+            <div style={{ display: 'grid', gap: '6px', marginBottom: '8px' }}>
+              {studios.map((st) => (
+                <PrimaryButton
+                  key={st.slug}
+                  label={st.name}
+                  variant={PrimaryButtonVariant.MutedOnLowBg}
+                  size={PrimaryButtonSize.Small}
+                  onClick={() => pickStudio.current?.(st.slug)}
+                  isGrowing
+                />
+              ))}
             </div>
+            <PrimaryButton label="Cancel" variant={PrimaryButtonVariant.Ghost} size={PrimaryButtonSize.Small} onClick={cancelXgenia} />
           </>
-        ) : xgenia === 'trying' ? (
-          <div style={HINT}>Connecting with your XGENIA sign-in…</div>
+        ) : working ? (
+          <>
+            <div style={HINT}>
+              {step === 'connecting'
+                ? 'Connecting your studio…'
+                : step === 'waiting-for-browser'
+                  ? 'Finish signing in in your browser, then come back here.'
+                  : 'Opening your browser…'}
+            </div>
+            <PrimaryButton label="Cancel" variant={PrimaryButtonVariant.Ghost} size={PrimaryButtonSize.Small} onClick={cancelXgenia} isDisabled={step === 'connecting'} />
+          </>
         ) : (
           <>
-            <div style={ERROR}>{xgeniaError}</div>
+            <div style={HINT}>
+              Sign in with your XGENIA account in your browser. XGENIA RGS comes with every paid XGENIA plan; your
+              studio’s demo space opens the first time you sign in.
+            </div>
             <div style={ROW}>
-              <PrimaryButton
-                label="Try again"
-                size={PrimaryButtonSize.Small}
-                onClick={connectXgenia}
-              />
+              <PrimaryButton label="Sign in with XGENIA" size={PrimaryButtonSize.Small} onClick={signInWithXgenia} />
             </div>
           </>
         )}
-        <div style={{ ...LINK, marginTop: '8px' }} onClick={() => setXgenia('email')}>
-          Use an invited RGS account instead
+        {xgeniaError && (
+          <div style={ERROR}>
+            {xgeniaError.message}
+            {xgeniaError.code === 'NO_PLAN' && (
+              <>
+                {' '}
+                <a href={XGENIA_PRICING_URL} target="_blank" rel="noopener noreferrer" style={{ ...LINK, textDecoration: 'none' }}>
+                  See XGENIA plans
+                </a>
+              </>
+            )}
+          </div>
+        )}
+        <div
+          style={{ ...LINK, marginTop: '8px', fontSize: notAvailable ? '12px' : '11px' }}
+          onClick={() => { if (!working) { setMode('email'); setError(''); } }}
+        >
+          Sign in with email (XGENIA staff)
         </div>
       </div>
     );
@@ -183,10 +247,10 @@ export function RgsSignInForm({ onSignedIn, start = 'auto' }: { onSignedIn?: () 
 
   return (
     <div style={STEP_STYLE} data-guide="rgs-sign-in">
-      <div style={STEP_TITLE}>1 · Sign in to XGENIA RGS</div>
+      <div style={STEP_TITLE}>1 · Sign in to XGENIA RGS with email</div>
       {!codeSent ? (
         <>
-          <div style={HINT}>We email you a 6-digit code. Your studio’s space is created the first time you sign in.</div>
+          <div style={HINT}>For XGENIA staff and invited RGS accounts: we email you a 6-digit code.</div>
           <TextInput
             label="Email"
             value={email}
@@ -223,8 +287,8 @@ export function RgsSignInForm({ onSignedIn, start = 'auto' }: { onSignedIn?: () 
         </>
       )}
       {error && <div style={ERROR}>{error}</div>}
-      <div style={{ ...LINK, marginTop: '8px' }} onClick={() => { if (!busy) connectXgenia(); }}>
-        Use my XGENIA login (play money) instead
+      <div style={{ ...LINK, marginTop: '8px' }} onClick={() => { if (!busy) { setMode('xgenia'); setError(''); } }}>
+        Sign in with XGENIA instead
       </div>
     </div>
   );
@@ -344,16 +408,15 @@ function GameStep({ projectName, onChosen }: { projectName: string; onChosen: ()
  * summary once nothing is. `onChanged` lets the popup re-read the connection
  * (deploy credentials depend on it) after a sign-in.
  */
-// After an explicit Sign out the editor must stay signed out, wherever that Sign out was pressed: the sign-in
-// form's 'auto' start would otherwise reconnect to the sandbox at once and Sign out would do nothing (see
-// RgsSignInForm `start`). Module-level so every mounted RgsReleaseSetup (main view, Real money view) agrees;
-// cleared by the next connection.
-let startAfterSignOut: 'choose' | 'email' | null = null;
+// Which sign-in a Sign out leads to: Sign in with XGENIA, or (for staff) the email one. Module-level so every
+// mounted RgsReleaseSetup (main view, Real money view) agrees; cleared by the next connection. Nothing ever
+// reconnects by itself (RgsSignInForm `start`), so a Sign out always stays signed out.
+let startAfterSignOut: 'xgenia' | 'email' | null = null;
 const SIGN_OUT_GROUP = { name: 'rgs-sign-out' };
 EventDispatcher.instance.on('rgs.connected', () => { startAfterSignOut = null; }, SIGN_OUT_GROUP);
 
-/** Leave the XGENIA RGS connection on purpose. 'choose' offers both sign-ins; 'email' opens on the invited one. */
-export function signOutOfRgs(then: 'choose' | 'email' = 'choose'): void {
+/** Leave the XGENIA RGS connection on purpose. 'xgenia' opens on Sign in with XGENIA; 'email' on the staff one. */
+export function signOutOfRgs(then: 'xgenia' | 'email' = 'xgenia'): void {
   startAfterSignOut = then;
   clearRgsSettings(); // emits rgs.gameSelected, which re-renders every RgsReleaseSetup
 }
@@ -363,17 +426,17 @@ export function signOutOfRgs(then: 'choose' | 'email' = 'choose'): void {
  * connected (2026-11-10: it used to be reachable only under More → Real money once a game was chosen, so a
  * studio could not see which account it was on, or sign out to test signing in).
  */
-function RgsAccountBar({ onLeft }: { onLeft: (then: 'choose' | 'email') => void }) {
+function RgsAccountBar({ onLeft }: { onLeft: (then: 'xgenia' | 'email') => void }) {
   const sandbox = isSandboxConnection();
   return (
     <div data-testid="rgs-account-bar" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontSize: '12px', color: '#999' }}>
       <span style={{ flex: 1 }}>
-        Signed in to {sandbox ? 'your play-money sandbox (test RGS)' : 'XGENIA RGS (invited account)'}
+        Signed in to {sandbox ? 'your play-money sandbox (test RGS)' : 'XGENIA RGS'}
       </span>
       {sandbox && (
-        <span style={LINK} onClick={() => onLeft('email')}>Use an invited RGS account</span>
+        <span style={LINK} onClick={() => onLeft('xgenia')}>Move to XGENIA RGS</span>
       )}
-      <PrimaryButton label="Sign out" variant={PrimaryButtonVariant.Ghost} size={PrimaryButtonSize.Small} onClick={() => onLeft('choose')} />
+      <PrimaryButton label="Sign out" variant={PrimaryButtonVariant.Ghost} size={PrimaryButtonSize.Small} onClick={() => onLeft('xgenia')} />
     </div>
   );
 }
@@ -381,7 +444,7 @@ function RgsAccountBar({ onLeft }: { onLeft: (then: 'choose' | 'email') => void 
 export function RgsReleaseSetup({ projectName, onChanged, isQuietWhenReady = false }: { projectName: string; onChanged?: () => void; isQuietWhenReady?: boolean }) {
   const [, rerender] = useState(0);
   const refresh = useCallback(() => { rerender((n) => n + 1); onChanged?.(); }, [onChanged]);
-  const leave = (then: 'choose' | 'email') => { signOutOfRgs(then); refresh(); };
+  const leave = (then: 'xgenia' | 'email') => { signOutOfRgs(then); refresh(); };
 
   useEffect(() => {
     const tick = () => rerender((n) => n + 1);
@@ -394,8 +457,8 @@ export function RgsReleaseSetup({ projectName, onChanged, isQuietWhenReady = fal
   const game: SelectedGame | null = settings ? getActiveGame() : null;
 
   if (!settings?.apiKey) {
-    // How the sign-in opens: by itself the first time, never by itself after a Sign out.
-    const start = startAfterSignOut ?? 'auto';
+    // Which sign-in opens: Sign in with XGENIA, unless a Sign out asked for the email one.
+    const start = startAfterSignOut ?? 'xgenia';
     return <RgsSignInForm key={start} start={start} onSignedIn={refresh} />;
   }
   if (!game?.id) return (<><RgsAccountBar onLeft={leave} /><GameStep projectName={projectName} onChosen={refresh} /></>);
@@ -411,15 +474,15 @@ export function RgsReleaseSetup({ projectName, onChanged, isQuietWhenReady = fal
       {isSandboxConnection() && (
         <>
           {' · '}
-          <span style={LINK} onClick={() => leave('email')}>Use an invited RGS account</span>
+          <span style={LINK} onClick={() => leave('xgenia')}>Move to XGENIA RGS</span>
         </>
       )}
       {' · '}
-      <span style={LINK} onClick={() => leave('choose')}>Sign out</span>
+      <span style={LINK} onClick={() => leave('xgenia')}>Sign out</span>
       {isSandboxConnection() && (
         <span style={{ display: 'block', marginTop: '4px' }}>
-          Play money only. Real money needs an invited RGS account: there the game is created, published and its RTP
-          verified again, then XGENIA puts it live.
+          Play money only, and the sandbox takes no new games. Sign in with XGENIA to move to XGENIA RGS: there the
+          game is created, published and its RTP verified again, then XGENIA puts it live.
         </span>
       )}
     </Text>

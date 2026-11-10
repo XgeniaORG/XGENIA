@@ -1,13 +1,25 @@
 // Shared XGENIA RGS connection settings + helpers.
 // Single source of truth for Publish, the Maths panel and the AI's bridge.
 //
-// The XRGS endpoint is fixed — the operator key comes from the email sign-in in
-// Publish (rgsSignIn.ts). "XRGS" is the internal identifier; the user-facing
-// name is "XGENIA RGS".
+// The XRGS endpoint is fixed — the operator key comes from "Sign in with XGENIA" in
+// Publish (connectWithXgeniaRgs below; rgsSignIn.ts), or the staff email sign-in.
+// "XRGS" is the internal identifier; the user-facing name is "XGENIA RGS".
 
 import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
 import { activeGameFor } from './activeGame';
-import { RgsSignInResult, connectWithXgeniaToken, sendSignInCode, verifySignInCode } from './rgsSignIn';
+import {
+  RgsSignInResult,
+  RgsStudio,
+  XGENIA_RGS_MESSAGES,
+  XgeniaRgsSignInError,
+  XgeniaRgsSignInResult,
+  redeemEditorCode,
+  sendSignInCode,
+  startXgeniaRgsSignIn,
+  verifySignInCode,
+  xgeniaRgsRefusalMessage
+} from './rgsSignIn';
+import { XgeniaRgsLoopback, xgeniaRgsLoopback } from './rgsLoopback';
 
 export const XRGS_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/functions/v1';
 
@@ -21,9 +33,10 @@ export const XRGS_AUTH_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co/auth/v1';
 export const XRGS_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzdWJ6d3lkcmplbG1qZmtrcmhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4ODA3NDcsImV4cCI6MjA4NzQ1Njc0N30.Hewc7WlLZuufC0trhCKKKc4AhLXk7jy7qG3irBQPykY';
 
-// The play-money test RGS (2026-11-02): every XGENIA login gets a sandbox there with no invite and no second
-// account (rgs-connect `xgenia-connect`). Its own Supabase project, never the real-money one; a connection made
-// there remembers it (settings.rgsUrl), so every request of that connection goes to the test RGS.
+// The play-money test RGS (2026-11-02). Since 2026-11-10 it takes no new connections — there are no free XGENIA
+// accounts, and customers sign in to the main RGS with XGENIA (connectWithXgeniaRgs) — and the editor no longer
+// connects to it. A connection made there before still remembers it (settings.rgsUrl), so every request of that
+// connection keeps going to the test RGS until the person signs out.
 export const XRGS_SANDBOX_URL = 'https://mzbfpxsipkklvxjsedeu.supabase.co/functions/v1';
 // The test RGS's publishable key: public by design, it only passes the gateway.
 export const XRGS_SANDBOX_ANON_KEY = 'sb_publishable_OL5q_b23joomjamFmjoaVg_TiOV4KAP';
@@ -81,8 +94,8 @@ export function rgsHeaders(apiKey: string): Record<string, string> {
 
 /**
  * Sign in to XGENIA RGS with an email code (see rgsSignIn.ts for why this replaced
- * the self-serve create_operator RPC). The first sign-in creates the studio's own
- * organisation and demo operator; later ones find them again.
+ * the self-serve create_operator RPC) — XGENIA staff only since 2026-11-10; customers
+ * use connectWithXgeniaRgs below.
  */
 const SIGN_IN_ENDPOINTS = { authUrl: XRGS_AUTH_URL, functionsUrl: XRGS_URL, anonKey: XRGS_ANON_KEY };
 
@@ -110,18 +123,83 @@ export async function xgeniaAccessToken(): Promise<string> {
   return session?.access_token || '';
 }
 
+// ─── Sign in with XGENIA (the customer path, 2026-11-10) ─────────────────────
+
+/** How the panel follows a sign-in in progress. */
+export type XgeniaRgsSignInStep = 'opening-browser' | 'waiting-for-browser' | 'connecting';
+
+export interface ConnectWithXgeniaRgsOptions {
+  /**
+   * The person belongs to several studios: ask which one (null = they cancelled). Without it, the
+   * sign-in refuses rather than guess (the code is not spent, so nothing is lost).
+   */
+  chooseStudio?: (studios: RgsStudio[]) => Promise<string | null>;
+  onStep?: (step: XgeniaRgsSignInStep) => void;
+  /** Tests inject these; the editor uses the main process's loopback and the real fetch. */
+  loopback?: XgeniaRgsLoopback;
+  fetchFn?: (url: string, init?: any) => Promise<any>;
+}
+
+let currentSignIn: { loopback: XgeniaRgsLoopback; id: string } | null = null;
+
+/** Stop a Sign in with XGENIA that is waiting for the browser (the panel's Cancel, or the panel closing). */
+export function cancelXgeniaRgsSignIn(): void {
+  const s = currentSignIn;
+  currentSignIn = null;
+  if (s) void s.loopback.cancel(s.id).catch(() => { /* already closed */ });
+}
+
 /**
- * Connect with the XGENIA login this editor is already signed in with: the play-money sandbox on the test RGS,
- * made the first time. What Publish does by itself; the email code stays for invited studios.
+ * "Sign in with XGENIA" (XRGS docs/XGENIA_RGS_CONTRACT.md §9): listen on the loopback, ask the RGS
+ * for its sign-in page, open it in the system browser, wait for the one-time code, redeem it, and
+ * store the key exactly as the email sign-in does. Throws XgeniaRgsSignInError with words the
+ * person can act on; code NOT_AVAILABLE means this RGS does not offer it yet (use email).
  */
-export async function connectWithXgeniaLogin(): Promise<RgsSignInResult> {
-  const result = await connectWithXgeniaToken(await xgeniaAccessToken(), {
-    functionsUrl: XRGS_SANDBOX_URL,
-    anonKey: XRGS_SANDBOX_ANON_KEY
-  });
-  saveRgsSettings({ apiKey: result.apiKey, rgsUrl: XRGS_SANDBOX_URL });
-  EventDispatcher.instance.emit('rgs.connected', { operatorSlug: result.operatorSlug, sandbox: true });
-  return result;
+export async function connectWithXgeniaRgs(opts: ConnectWithXgeniaRgsOptions = {}): Promise<XgeniaRgsSignInResult> {
+  const loopback = opts.loopback ?? xgeniaRgsLoopback();
+  if (!loopback) throw new XgeniaRgsSignInError('NOT_DESKTOP', XGENIA_RGS_MESSAGES.NOT_DESKTOP);
+  const fetchFn = (opts.fetchFn ?? ((url: string, init?: any) => fetch(url, init))) as any;
+  const ep = { functionsUrl: XRGS_URL, anonKey: XRGS_ANON_KEY };
+
+  cancelXgeniaRgsSignIn(); // one at a time
+  const { id, redirectUri, installLabel } = await loopback.listen();
+  const mine = { loopback, id };
+  currentSignIn = mine;
+  try {
+    opts.onStep?.('opening-browser');
+    const { authorizeUrl } = await startXgeniaRgsSignIn({ editorRedirect: redirectUri, installLabel }, ep, fetchFn);
+    try {
+      await loopback.openBrowser(id, authorizeUrl);
+    } catch {
+      throw new XgeniaRgsSignInError('BROWSER_FAILED', XGENIA_RGS_MESSAGES.BROWSER_FAILED);
+    }
+    opts.onStep?.('waiting-for-browser');
+    const answer = await loopback.wait(id);
+    if (!('code' in answer) || !answer.code) {
+      const code = ('error' in answer && answer.error) || 'CANCELLED';
+      throw new XgeniaRgsSignInError(code, xgeniaRgsRefusalMessage(code, 'message' in answer ? answer.message : ''));
+    }
+
+    opts.onStep?.('connecting');
+    let redeemed = await redeemEditorCode(answer.code, ep, fetchFn);
+    if (redeemed.kind === 'choose-studio') {
+      const slug = opts.chooseStudio ? await opts.chooseStudio(redeemed.studios) : null;
+      if (!slug) throw new XgeniaRgsSignInError('CANCELLED', XGENIA_RGS_MESSAGES.CANCELLED);
+      opts.onStep?.('connecting');
+      redeemed = await redeemEditorCode(answer.code, ep, fetchFn, slug);
+      if (redeemed.kind === 'choose-studio') throw new XgeniaRgsSignInError('NO_STUDIO_CHOSEN', XGENIA_RGS_MESSAGES.NO_STUDIO_CHOSEN);
+    }
+
+    const result = redeemed.result;
+    // The main RGS: say so, or a sandbox address stored before would stick.
+    saveRgsSettings({ apiKey: result.apiKey, rgsUrl: XRGS_URL });
+    EventDispatcher.instance.emit('rgs.connected', { operatorSlug: result.operatorSlug, studio: result.studio });
+    return result;
+  } finally {
+    if (currentSignIn === mine) currentSignIn = null;
+    // Closed already when the browser answered; this covers every way out before that.
+    void loopback.cancel(id).catch(() => { /* already closed */ });
+  }
 }
 
 /** The operator an API key belongs to, as reported by maths-deployer/operator-info. */
