@@ -57,6 +57,7 @@ export const SIGN_IN_MESSAGES = {
   tooMany: 'Too many codes requested. Wait a minute, then try again.',
   badCode: 'That code is wrong or has expired. Request a new code and try again.',
   noKey: 'Signed in, but XGENIA RGS did not return a key. Try again in a moment.',
+  sendFailed: 'XGENIA RGS could not send the code just now. Wait a minute, then press Email me a code again.',
   unreachable: 'Could not reach XGENIA RGS. Check your internet connection and try again.'
 } as const;
 
@@ -119,9 +120,12 @@ export async function sendSignInCode(email: string, ep: RgsSignInEndpoints, fetc
   if (res.status === 429) throw new Error(SIGN_IN_MESSAGES.tooMany);
   // The invitation trigger refuses the auth.users insert; GoTrue answers 500
   // "Database error saving new user" (sometimes 422 "Signups not allowed").
-  if (res.status >= 500 || /saving new user|signups? not allowed|not allowed/i.test(msg)) {
+  // Only THAT is "not invited". Every other 5xx used to be reported the same way, so an invited,
+  // existing account whose code email failed to send was told it had not been invited (2026-11-10).
+  if (/saving new user|signups? not allowed/i.test(msg)) {
     throw new Error(SIGN_IN_MESSAGES.notInvited);
   }
+  if (res.status >= 500) throw new Error(SIGN_IN_MESSAGES.sendFailed);
   throw new Error(msg || `Could not send a code (HTTP ${res.status}).`);
 }
 
