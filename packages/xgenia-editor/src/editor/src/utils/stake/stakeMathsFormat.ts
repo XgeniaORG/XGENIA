@@ -12,6 +12,8 @@
 // so it must not pull in editor models or the platform layer. The byte-for-byte shapes here
 // mirror the server's helpers; the server's suite proves its books satisfy them.
 
+import { STAKE_RULES } from './stakeRules';
+
 export interface StakeModeInfo {
   name: string;
   cost: number;
@@ -463,7 +465,8 @@ export function stakeReviewChecklist(i: { gameName: string; modes: StakeModeExpo
 // breaks a bonus without Studio noticing, from the weighted lookup table the export just wrote. Every problem
 // carries `fix`, worded for the AI: the Stake job hands these back and the AI changes the maths and measures again.
 
-export const STAKE_LIMITS = { minRtp: 0.96, maxRtp: 0.967, modeSpread: 0.005, maxCost: 50_000, maxWin: 1_000_000, minBaseStd: 0.6, minBooks: 100_000, maxWinOdds: 20_000_000 };
+// Stake's numbers live in stakeRules.ts (one rule set for every layer); this name stays for its callers.
+export const STAKE_LIMITS = STAKE_RULES.limits;
 
 export interface StakeLimitProblem {
   level: 'error' | 'warn';

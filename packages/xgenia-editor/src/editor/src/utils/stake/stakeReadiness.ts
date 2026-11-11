@@ -17,6 +17,7 @@
  * Node type names come from the libraries as of 2026-11-09: xgenia-runtime slot-feature-node-converter.ts
  * (stateful feature nodes), slot-game-node-converter.ts, private/xgenia-pro-nodes (Bet Mode, stake.*).
  */
+import { STAKE_RULES, labelWords } from './stakeRules';
 
 export type ReadinessLevel = 'error' | 'warn' | 'info';
 
@@ -58,17 +59,18 @@ const MATHS_PREFIX = '/#__maths__/';
 const CLOUD_PREFIX = '/#__cloud__/';
 
 /** Feature nodes that keep state (slot-feature-node-converter.ts `stateful: true`) plus the Counter. */
-const STATEFUL = new Set(['Counter', 'Progressive Meter', 'Multiplier Ladder', 'Sticky Symbols', 'Locked Reels', 'Hold And Win Grid', 'Symbol Upgrade', 'Pick Bonus', 'Chapter Branch']);
+// Stake's lists come from the one rule set (stakeRules.ts).
+const STATEFUL = new Set(STAKE_RULES.statefulNodes);
 /** Maths nodes the compiler cannot turn into the server script — no books can come from them. */
 const NOT_COMPILABLE = new Set(['SlotMainEngine', 'Generate Reel Strips']);
 /** Frontend nodes that talk to XGENIA's own RGS or services: nothing answers them on Stake. */
-const XRGS_ONLY = new Set(['RGS Leaderboard', 'RGS Translations', 'Jurisdiction Rules', 'Session Limits', 'Telemetry Event', 'Cloud Function', 'REST2']);
+const XRGS_ONLY = new Set(STAKE_RULES.xrgsOnlyNodes);
 const NAVIGATION = new Set(['Router', 'RouterNavigate', 'Page Stack', 'PageStackNavigate', 'PageStackNavigateToPath', 'PageStackNavigateBack']);
 /** The platform state keys the compiler lifts out of a persisted variable (supabase-converter.ts RGS_PLATFORM_STATE_KEYS). */
 const PLATFORM_KEYS = new Set(['in_feature', 'feature_rounds_remaining', 'awaiting_choice']);
 const FREE_SPIN_WORDS = /free.?spin|freespin|fs.?left|spins.?left|spins.?remaining|respin|bonus.?spin|feature.?round/i;
 /** Stake.US social mode: words that must not appear (docs approval/social; abbreviated to the ones UI text uses). */
-const SOCIAL_WORDS = /\b(bet|bets|betting|buy|bought|purchase|pay|pays|paid|payout|cash|gamble|gambling|wager|stake|deposit|withdraw|money)\b/i;
+const SOCIAL_WORDS = STAKE_RULES.socialWords;
 
 interface Node {
   id: string;
@@ -162,10 +164,10 @@ export function stakeReadiness(project: any): ReadinessReport {
           ai: `Replace the ${t} node in ${comp.name} with compilable library nodes (rgs extract_maths reports unsupported nodes), then run stake readiness again.`
         });
       }
-      if (t === 'RGS Jackpot Pools') {
+      if (STAKE_RULES.blockedNodes.some((b) => b.type === t && b.feature === 'progressive_jackpot')) {
         add({ code: 'JACKPOT_POOL', level: 'error', where: where(comp, n), message: 'Live jackpot pools are not allowed on Stake: every bet must be independent of every other.', fix: 'Remove the jackpot pool. Fixed jackpot tiers paid from the maths (Jackpot Tiers) are fine.', ai: `Remove the RGS Jackpot Pools node from ${comp.name}; keep fixed Jackpot Tiers if the game needs jackpots.` });
       }
-      if (/gamble|cash.?out|double.?up/i.test(t + ' ' + (n.label || ''))) {
+      if (STAKE_RULES.blockedLabel.test(labelWords(t + ' ' + (n.label || '')))) {
         add({ code: 'GAMBLE_FEATURE', level: 'error', where: where(comp, n), message: 'Gamble, double-up and cash-out are not allowed on Stake: a round\'s result is fixed when it is bought, and the player cannot change it.', fix: 'Remove the gamble / cash-out step.', ai: `Remove the gamble or cash-out logic (${n.label || t}) from ${comp.name}.` });
       }
       if (t === 'Calculate Free Spins States') libraryFreeSpins = true;

@@ -13,6 +13,8 @@
  * Pure (no editor imports) so tests/deploy/stakePanel.test.ts can run it.
  */
 
+import { STAKE_RULES } from './stakeRules';
+
 export type PublishDestination = 'xgenia' | 'stake';
 
 /** Where this game is published: Stake when the project says so (metadata `target`), XGENIA otherwise. */
@@ -64,15 +66,7 @@ export interface StakePanelInput {
 }
 
 /** What Stake's reviewers check by hand, shown as a list to go through in the Stake preview. */
-export const STAKE_REVIEW_ITEMS = [
-  'Spacebar places a bet',
-  'A confirmation before any mode costing more than 2×',
-  'Autoplay asks for confirmation',
-  'A sound on/off toggle',
-  'Every bet level can be selected',
-  'The win counts up to the final payout',
-  'Replay mode plays a past round',
-];
+export const STAKE_REVIEW_ITEMS = STAKE_RULES.reviewItems;
 
 export interface StakePanel {
   checks: StakeCheck[];
