@@ -25,13 +25,20 @@ import { getActiveGame, getRgsSettings } from '@xgenia-utils/rgs/rgsClient';
 import { listExportableComponents } from '../../views/DeployPopup/tabs/DeployToStakeTab/DeployToStakeTab';
 
 import { buildForStake } from './buildForStake';
-import { exportStakeMaths } from './stakeMathsExport';
+import { exportStakeMaths, fetchStakeExportModes, findStakeAutoSetup, postMathsDeployer } from './stakeMathsExport';
+import { interpolateDial, rankVariations, type VariationPair } from './stakeVariationsFormat';
 import { stakeLimitsCheck, summariseStakeModes } from './stakeMathsFormat';
 import { declaredStakeModes } from './stakeModes';
 import { stakeReadiness } from './stakeReadiness';
 
 export interface StakeJobSpec {
-  kind: 'measure' | 'build';
+  kind: 'measure' | 'build' | 'variations';
+  /** variations: settings of the maths' inputs to compare, e.g. [{ label: 'x2', inputs: { freeSpinMult: 2 } }]. */
+  variations?: { label?: string; inputs: Record<string, unknown> }[];
+  /** variations: rounds per setting and mode (default 100,000). */
+  rounds?: number;
+  /** variations: only these Stake modes (default all). */
+  modes?: string[];
   /** Deployed component name or slug; the only one when omitted. */
   component?: string;
   booksPerMode?: number;
@@ -50,7 +57,8 @@ function modeSummary(r: ReturnType<typeof stakeLimitsCheck>) {
 
 export function startStakeJob(spec: StakeJobSpec | null | undefined): Record<string, any> {
   const kind = spec?.kind;
-  if (kind !== 'measure' && kind !== 'build') return { error: `Unknown stake job ${JSON.stringify(kind ?? null)} — use "measure" or "build".` };
+  if (kind !== 'measure' && kind !== 'build' && kind !== 'variations') return { error: `Unknown stake job ${JSON.stringify(kind ?? null)} — use "measure", "variations" or "build".` };
+  if (kind === 'variations' && !(Array.isArray(spec?.variations) && spec!.variations!.length)) return { error: 'variations needs a list of settings: [{ label?, inputs: { <input>: <value> } }] (an empty inputs object is the current defaults).' };
   const busy = jobs.running();
   if (busy) return { error: 'A Stake job is already running', jobId: busy.jobId };
   const project: any = ProjectModel.instance;
@@ -73,6 +81,8 @@ export function startStakeJob(spec: StakeJobSpec | null | undefined): Record<str
       throw new Error(list.length === 0 ? `${game!.name || 'This game'} has no deployed Math Component with a win output: deploy the maths first (rgs publish or the Maths panel).` : `Say which component: ${list.map((c) => c.name).join(', ')}`);
     }
     const stakeModes = declaredStakeModes(project.toJSON?.());
+
+    if (kind === 'variations') return runVariations(rgs!.apiKey, comp, spec!, stakeModes, progress);
 
     if (kind === 'measure') {
       const dir = filesystem.join(os.tmpdir(), `xgenia-stake-measure-${Date.now()}`);
@@ -156,4 +166,78 @@ export function startStakeJob(spec: StakeJobSpec | null | undefined): Record<str
 
 export function stakeJob(jobId?: string | null) {
   return jobs.get(jobId) || { error: jobId ? `No Stake job "${jobId}" (finished jobs are kept for the last 10, and none survive an editor reload).` : 'No Stake job has been started in this editor session.' };
+}
+
+const VARIATIONS_OUT_OF_DATE =
+  'XGENIA RGS cannot compare settings yet (stake-variations). Until the platform update ships, compare by changing the input, deploying, and running stake measure.';
+
+/**
+ * Compare settings of the maths' inputs on the same books, every Stake mode (XRGS stake-variations, SYSTEM_MAP
+ * I-173), and rank them against Stake's band. One deploy, many settings, a minute or two — instead of a deploy
+ * and an export per guess.
+ */
+async function runVariations(
+  apiKey: string,
+  comp: { deploymentId: string; slug: string; name: string },
+  spec: StakeJobSpec,
+  stakeModes: ReturnType<typeof declaredStakeModes>,
+  progress: (text: string) => void
+) {
+  const info = await fetchStakeExportModes(apiKey, comp.deploymentId, comp.slug, stakeModes);
+  const bet = Math.floor(spec.bet && spec.bet > 0 ? spec.bet : info.defaultBet);
+  const modes = spec.modes && spec.modes.length ? info.modes.filter((m) => spec.modes!.includes(m.name)) : info.modes;
+  if (!modes.length) throw new Error(`No such modes; this game has: ${info.modes.map((m) => m.name).join(', ')}`);
+  // Each mode's paid round, as the export plays it (a buy is often not the base spin).
+  const roundRequests: Record<string, unknown> = {};
+  for (const m of modes) {
+    progress(`Finding ${m.name}'s paid round…`);
+    const found = await findStakeAutoSetup(apiKey, comp.deploymentId, comp.slug, bet, m.name, undefined, undefined, { stakeModes });
+    if (found) roundRequests[m.name] = found.roundRequest;
+  }
+  const rounds = Math.max(1000, Math.min(500_000, Math.floor(spec.rounds ?? 100_000)));
+  const variations = spec.variations!.map((v, i) => ({ label: v.label || `setting ${i + 1}`, inputs: v.inputs || {} }));
+  let state: any[] | undefined;
+  let masterSeed: string | undefined;
+  let last: any;
+  for (let call = 0; call < 2000; call++) {
+    last = await postMathsDeployer(
+      apiKey,
+      {
+        action: 'stake-variations', deployment_id: comp.deploymentId, function_slug: comp.slug, bet, rounds,
+        variations, modes: modes.map((m) => m.name), round_requests: roundRequests,
+        ...(stakeModes.length ? { stake_modes: stakeModes } : {}),
+        ...(masterSeed ? { master_seed: masterSeed } : {}),
+        ...(state ? { state } : {})
+      },
+      VARIATIONS_OUT_OF_DATE
+    );
+    masterSeed = last.master_seed;
+    state = last.state;
+    const done = (state || []).reduce((a: number, p: any) => a + Math.min(rounds, Number(p.next_id) || 0), 0);
+    progress(`Comparing ${variations.length} setting${variations.length === 1 ? '' : 's'} × ${modes.length} mode${modes.length === 1 ? '' : 's'}: ${Math.round((100 * done) / (rounds * (state || []).length || 1))}%`);
+    if (last.complete) break;
+  }
+  if (!last?.complete) throw new Error('The comparison did not finish.');
+  const pairs: VariationPair[] = (state || []).map((p: any) => ({ variation: p.variation, label: p.label, mode: p.mode, stats: p.stats }));
+  const costs = Object.fromEntries(info.modes.map((m) => [m.name, m.cost]));
+  const { ranked, best } = rankVariations(variations, pairs, costs);
+  // One numeric dial across the settings: where it should land, per mode.
+  const keys = [...new Set(variations.flatMap((v) => Object.keys(v.inputs)))];
+  const numeric = keys.length === 1 && variations.every((v) => typeof v.inputs[keys[0]] === 'number');
+  const suggestion = numeric
+    ? Object.fromEntries(modes.map((m) => [m.name, interpolateDial(ranked.map((r) => ({ value: Number(r.inputs[keys[0]]), rtp: r.modes.find((x) => x.mode === m.name)?.rtp ?? NaN })))]))
+    : null;
+  return {
+    component: comp.name,
+    rounds,
+    seed: masterSeed,
+    settings: ranked.map((r) => ({ label: r.label, inputs: r.inputs, inBand: r.inBand, worstMissPoints: Number((r.worstMiss * 100).toFixed(3)), modes: r.modes.map((m) => ({ mode: m.mode, rtp: Number((m.rtp * 100).toFixed(3)), hitRate: Number((m.hitRate * 100).toFixed(2)), maxWin: m.maxWin })), problems: r.problems })),
+    best: best ? { label: best.label, inputs: best.inputs, inBand: best.inBand } : null,
+    ...(suggestion ? { dial: keys[0], valueForTarget: suggestion } : {}),
+    next: best?.inBand
+      ? `"${best.label}" puts every mode in Stake's band on these books. Set those inputs as the defaults in the Math Component, deploy the maths, then confirm with stake measure.`
+      : suggestion
+        ? `No setting is in band yet. Try values around ${JSON.stringify(suggestion)} for ${keys[0]} and compare again.`
+        : 'No setting is in band yet. Narrow or widen the settings and compare again.'
+  };
 }

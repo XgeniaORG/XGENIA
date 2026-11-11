@@ -3327,8 +3327,17 @@ export class EditorBridge {
         // stake.readiness() → ReadinessReport: what in the open project will break on Stake, each issue with the
         // fix for the user and an instruction for the AI (utils/stake/stakeReadiness.ts). The Stake tab shows the
         // same report and can hand it to the AI ("Fix with AI" → event `stake-ask-ai`).
+        // `rgs` (2026-11-11): measuring RTP and building for Stake run the maths on XGENIA RGS, so the AI is told
+        // up front whether the editor is signed in and has a game — and tells the user to connect, instead of
+        // finding out from a refused measure and carrying on with something else.
         h('stake.readiness', () => {
-            try { return stakeReadiness((ProjectModel.instance as any)?.toJSON?.()); } catch (e: any) { return { error: e?.message || String(e) }; }
+            try {
+                const rgs = getRgsSettings();
+                const game = rgs?.apiKey ? getActiveGame() : null;
+                return { ...stakeReadiness((ProjectModel.instance as any)?.toJSON?.()), rgs: { connected: !!rgs?.apiKey, game: game?.id ? (game.name || game.slug || game.id) : null } };
+            } catch (e: any) {
+                return { error: e?.message || String(e) };
+            }
         });
         // stake.start([{ kind: 'measure' | 'build', component?, booksPerMode?, oversample?, bet?, folder? }]) → { jobId } | { error, issues? }
         // stake.job([jobId?]) → { state, step, steps, result?: { modes, withinLimits, problems, … }, error? }
