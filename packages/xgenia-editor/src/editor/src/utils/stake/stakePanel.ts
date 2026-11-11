@@ -32,7 +32,7 @@ export function setPublishDestination(project: { setMetaData?: (key: string, val
 export type CheckState = 'ok' | 'todo' | 'warn' | 'busy';
 
 export interface StakeCheck {
-  key: 'rgs' | 'maths' | 'rules';
+  key: 'rgs' | 'maths' | 'rules' | 'rtp';
   state: CheckState;
   title: string;
   detail: string;
@@ -56,15 +56,33 @@ export interface StakePanelInput {
   componentsError: string;
   /** The readiness check's issues; null when it could not run. */
   issues: StakeIssueLike[] | null;
+  /**
+   * The last RTP measurement of the component the build plays (stakeMeasureStore), with whether it measured the
+   * deployment now on XGENIA RGS; 'running' while one runs. Absent = never measured.
+   */
+  measure?: 'running' | { current: boolean; ok: boolean; modes: Array<{ name: string; rtp: number; rtpMargin: number }>; problems: Array<{ level: string; code: string; message: string }> } | null;
 }
+
+/** What Stake's reviewers check by hand, shown as a list to go through in the Stake preview. */
+export const STAKE_REVIEW_ITEMS = [
+  'Spacebar places a bet',
+  'A confirmation before any mode costing more than 2×',
+  'Autoplay asks for confirmation',
+  'A sound on/off toggle',
+  'Every bet level can be selected',
+  'The win counts up to the final payout',
+  'Replay mode plays a past round',
+];
 
 export interface StakePanel {
   checks: StakeCheck[];
   /** One line at the top: what state the game is in. */
   headline: string;
   tone: 'ok' | 'warn' | 'todo';
-  /** Whether the primary "Build for Stake" button can run. */
+  /** Whether the "Build for Stake" button can run. */
   canBuild: boolean;
+  /** The one main action: measure the RTP first, then build. */
+  primary: 'measure' | 'build' | 'none';
   /** The issues worth showing, worst first, each with a short title. */
   issues: Array<StakeIssueLike & { title: string }>;
 }
@@ -114,7 +132,8 @@ export function stakePanel(input: StakePanelInput): StakePanel {
         : { key: 'maths', state: 'ok', title: 'Maths deployed', detail: input.components.map((c) => c.name).join(', ') };
 
   const issues = (input.issues || [])
-    .filter((i) => i.level !== 'info' || i.message)
+    // The review checklist is shown as its own list (STAKE_REVIEW_ITEMS), not as a problem.
+    .filter((i) => i.code !== 'REVIEW_CHECKLIST' && (i.level !== 'info' || i.message))
     .slice()
     .sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level])
     .map((i) => ({ ...i, title: STAKE_ISSUE_TITLES[i.code] || i.code.toLowerCase().replace(/_/g, ' ') }));
@@ -128,17 +147,45 @@ export function stakePanel(input: StakePanelInput): StakePanel {
         ? { key: 'rules', state: 'warn', title: 'Stake rules', detail: `${warnings} thing${warnings === 1 ? '' : 's'} Stake's review will flag.` }
         : { key: 'rules', state: 'ok', title: 'Stake rules', detail: 'Nothing found.' };
 
-  const checks = [rgs, maths, rules];
+  // Payout (RTP): Stake refuses a mode outside 96.0–96.7%, so "ready" waits for a measurement of the maths
+  // that is deployed now (2026-11-11: the page said ready with three ticks and no RTP ever measured).
+  const pct = (x: number) => `${(x * 100).toFixed(2)}%`;
+  const m = input.measure;
+  const rtp: StakeCheck = maths.state !== 'ok'
+    ? { key: 'rtp', state: 'todo', title: 'Payout (RTP)', detail: 'Measured once the maths is deployed.' }
+    : m === 'running'
+      ? { key: 'rtp', state: 'busy', title: 'Payout (RTP)', detail: 'Measuring every mode on Stake books…' }
+      : !m
+        ? { key: 'rtp', state: 'todo', title: 'Measure the payout (RTP)', detail: 'Stake needs every mode between 96.0% and 96.7%. Not measured yet.' }
+        : !m.current
+          ? { key: 'rtp', state: 'todo', title: 'Measure the payout again', detail: 'The maths was deployed again since the last measurement.' }
+          : {
+              key: 'rtp',
+              state: m.ok ? 'ok' : 'todo',
+              title: m.ok ? 'Payout in Stake’s band' : m.problems.some((p) => p.code === 'RTP_UNCERTAIN') ? 'Payout not measured closely enough' : 'Payout outside Stake’s limits',
+              detail: m.modes.map((x) => `${x.name} ${pct(x.rtp)}${x.rtpMargin ? ` ± ${pct(x.rtpMargin)}` : ''}`).join(' · ') +
+                (m.ok ? '' : `\n${m.problems.filter((p) => p.level === 'error').map((p) => p.message).join('\n')}`)
+            };
+
+  const checks = [rgs, maths, rules, rtp];
+  const setupReady = rgs.state === 'ok' && maths.state === 'ok' && errors === 0;
+  const canBuild = setupReady && rtp.state === 'ok';
+  const primary: StakePanel['primary'] = canBuild ? 'build' : setupReady && rtp.state === 'todo' && !(m && m !== 'running' && m.current) ? 'measure' : 'none';
   const blocking = checks.find((c) => c.state === 'todo' || c.state === 'busy');
-  const canBuild = rgs.state === 'ok' && maths.state === 'ok' && errors === 0;
   const headline = blocking
     ? blocking.key === 'rgs'
       ? `${rgs.title} to build for Stake.`
       : blocking.key === 'maths'
         ? maths.state === 'busy' ? 'Checking…' : 'Deploy the maths to build for Stake.'
-        : 'Fix the problems below to build for Stake.'
+        : blocking.key === 'rules'
+          ? 'Fix the problems below to build for Stake.'
+          : rtp.state === 'busy'
+            ? 'Measuring the payout…'
+            : primary === 'measure'
+              ? 'Measure the payout, then build.'
+              : 'The payout needs fixing before Stake will take it.'
     : warnings
       ? 'Ready to build. Stake’s review will flag a few things.'
       : 'Ready to build for Stake.';
-  return { checks, headline, tone: blocking ? 'todo' : warnings || rules.state === 'warn' ? 'warn' : 'ok', canBuild, issues };
+  return { checks, headline, tone: blocking ? 'todo' : warnings || rules.state === 'warn' ? 'warn' : 'ok', canBuild, primary, issues };
 }

@@ -29,6 +29,7 @@ import { exportStakeMaths, fetchStakeExportModes, findStakeAutoSetup, postMathsD
 import { interpolateDial, rankVariations, type VariationPair } from './stakeVariationsFormat';
 import { stakeLimitsCheck, summariseStakeModes } from './stakeMathsFormat';
 import { declaredStakeModes } from './stakeModes';
+import { rememberStakeMeasure } from './stakeMeasureStore';
 import { stakeReadiness } from './stakeReadiness';
 
 export interface StakeJobSpec {
@@ -48,6 +49,9 @@ export interface StakeJobSpec {
   /** build: the output folder (default: "<project>-stake" next to the project). */
   folder?: string;
 }
+
+/** Books per mode for a measure: 100,000 is Stake's own minimum, and 20,000 left ±3 points of luck on a volatile game. */
+export const STAKE_MEASURE_BOOKS = 100_000;
 
 const jobs = createPublishJobRegistry({ keepFinished: 10, maxRunMs: 60 * 60_000, newId: () => `stake-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}` });
 
@@ -94,7 +98,7 @@ export function startStakeJob(spec: StakeJobSpec | null | undefined): Record<str
           deploymentId: comp.deploymentId,
           functionSlug: comp.slug,
           outputDir: dir,
-          booksPerMode: Math.max(1000, Math.floor(spec?.booksPerMode ?? 20_000)),
+          booksPerMode: Math.max(1000, Math.floor(spec?.booksPerMode ?? STAKE_MEASURE_BOOKS)),
           oversample: spec?.oversample ?? 10,
           bet: spec?.bet,
           stakeModes,
@@ -105,7 +109,8 @@ export function startStakeJob(spec: StakeJobSpec | null | undefined): Record<str
                 : `Measuring ${p.mode} (${p.modeIndex + 1}/${p.modeCount}): ${p.books.toLocaleString()} / ${p.booksPerMode.toLocaleString()} rounds`
             )
         });
-        const limits = stakeLimitsCheck(maths.modes, { maxWinMultiplier: maths.info.maxWinMultiplier, minBooks: 1 });
+        const limits = stakeLimitsCheck(maths.modes, { maxWinMultiplier: maths.info.maxWinMultiplier, minBooks: 1, purpose: 'measure' });
+        rememberStakeMeasure(game!.id, comp, limits);
         return {
           component: comp.name,
           modes: modeSummary(limits),
@@ -114,7 +119,9 @@ export function startStakeJob(spec: StakeJobSpec | null | undefined): Record<str
           summary: summariseStakeModes(maths.modes),
           next: limits.ok
             ? 'Every mode is inside Stake\'s limits on this sample. Build for upload: stake({action:"build"}).'
-            : 'Change the maths as each problem\'s fix says, deploy the maths again (rgs publish maths), then measure again.'
+            : limits.problems.some((p) => p.code === 'RTP_UNCERTAIN')
+              ? 'The RTP is not known closely enough to change the maths: follow RTP_UNCERTAIN\'s fix first. Fix any other problem as its fix says.'
+              : 'Change the maths as each problem\'s fix says, deploy the maths again (rgs publish maths), then measure again.'
         };
       } finally {
         try {
@@ -146,6 +153,8 @@ export function startStakeJob(spec: StakeJobSpec | null | undefined): Record<str
         )
     });
     const limits = stakeLimitsCheck(built.maths.modes, { maxWinMultiplier: built.maths.info.maxWinMultiplier });
+    // The built package is the most exact measurement there is: the Stake page shows it too.
+    rememberStakeMeasure(game!.id, comp, limits);
     return {
       component: comp.name,
       folder,
