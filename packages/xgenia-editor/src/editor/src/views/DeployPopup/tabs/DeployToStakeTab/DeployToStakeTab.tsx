@@ -13,20 +13,19 @@ import { diagnoseStakeExportError, type StakeExportDiagnosis } from '@xgenia-uti
 import { deployChangedMathsComponents } from '@xgenia-utils/publish/deployChangedMaths';
 import { stakeErrorCode, type StakeExportFailure } from '@xgenia-utils/stake/stakeMathsExport';
 import { parseStakePlaySetups, summariseStakeModes } from '@xgenia-utils/stake/stakeMathsFormat';
+import { stakePanel, type CheckState } from '@xgenia-utils/stake/stakePanel';
+import { stakeFixRequest, stakeReadiness, type ReadinessReport } from '@xgenia-utils/stake/stakeReadiness';
 
-import { Checkbox } from '@xgenia-core-ui/components/inputs/Checkbox';
-import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
+import { PrimaryButton, PrimaryButtonSize, PrimaryButtonVariant } from '@xgenia-core-ui/components/inputs/PrimaryButton';
 import { Select } from '@xgenia-core-ui/components/inputs/Select';
 import { TextArea } from '@xgenia-core-ui/components/inputs/TextArea';
 import { TextInput } from '@xgenia-core-ui/components/inputs/TextInput';
-import { PopupSection } from '@xgenia-core-ui/components/popups/PopupSection';
 import { Text } from '@xgenia-core-ui/components/typography/Text';
-import { TextType } from '@xgenia-core-ui/components/typography/Text/Text';
 
 import { ToastLayer } from '../../../ToastLayer/ToastLayer';
 import { NO_ENVIRONMENT_VALUE } from '../../DeployPopup.constants';
 import { useEnvironmentsAsOptions } from '../../DeployPopup.hooks';
-import { StakeReadinessSection } from './StakeReadinessSection';
+import { editorBridge } from '../../../panels/ChatPanelBridge/EditorBridge';
 
 /** A deployed Math Component the maths export can be run against. */
 interface ExportableComponent {
@@ -145,7 +144,12 @@ function StakeExportProblem({ diagnosis }: { diagnosis: StakeExportDiagnosis }) 
  */
 const STAKE_MATHS_AVAILABLE = true;
 
-export function DeployToStakeTab() {
+export interface DeployToStakeTabProps {
+  /** Sign-in / choose-game, shown on the page while either is missing (the Publish window passes RgsReleaseSetup). */
+  connectSlot?: React.ReactNode;
+}
+
+export function DeployToStakeTab({ connectSlot }: DeployToStakeTabProps = {}) {
   const cloudService = useModernModel(CloudService.instance);
   const environmentOptions = useEnvironmentsAsOptions(cloudService);
 
@@ -163,7 +167,6 @@ export function DeployToStakeTab() {
   const rgs = getRgsSettings();
   const game = getActiveGame();
   const canExportMaths = STAKE_MATHS_AVAILABLE && !!rgs?.apiKey && !!game?.id;
-  const [exportMaths, setExportMaths] = useState(canExportMaths);
   const [components, setComponents] = useState<ExportableComponent[]>([]);
   const [componentsError, setComponentsError] = useState('');
   const [componentKey, setComponentKey] = useState('');
@@ -389,113 +392,193 @@ export function DeployToStakeTab() {
 
   function onPickFolderClicked() {
     filesystem.openDialog({ allowCreateDirectory: true }).then((direntry) => {
-      if (exportMaths && canExportMaths) void buildFullStake(direntry);
+      if (canExportMaths) void buildFullStake(direntry);
       else exportFrontendOnly(direntry);
     });
     // Keep popup open so the confirmation message is visible
   }
 
+  function onFrontendOnlyClicked() {
+    filesystem.openDialog({ allowCreateDirectory: true }).then((direntry) => exportFrontendOnly(direntry));
+  }
+
+  // ── The page: what state the game is in, three checks, one button (utils/stake/stakePanel.ts) ──
+  const [report, setReport] = useState<ReadinessReport | null>(null);
+  const [reportFailed, setReportFailed] = useState(false);
+  const [sentToAi, setSentToAi] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
+  const [openIssue, setOpenIssue] = useState<number | null>(null);
+  const checkReadiness = () => {
+    try {
+      setReport(stakeReadiness((ProjectModel.instance as any)?.toJSON?.()));
+      setReportFailed(false);
+    } catch (e) {
+      console.warn('[Stake] readiness check failed', e);
+      setReport(null);
+      setReportFailed(true);
+    }
+    setSentToAi(false);
+  };
+  useEffect(checkReadiness, []);
+
+  const panel = stakePanel({
+    connected: !!rgs?.apiKey,
+    gameName: game?.id ? game.name || game.slug || 'This game' : null,
+    components: !canExportMaths ? [] : components.length || componentsError ? components : null,
+    componentsError,
+    issues: reportFailed ? null : report ? report.issues : []
+  });
+  const actionable = (report?.issues || []).some((i) => i.level !== 'info');
+  const askAi = () => {
+    if (!report) return;
+    const text = stakeFixRequest(report);
+    if (!text) return;
+    editorBridge.pushEvent('stake-ask-ai', { text, issues: report.issues.length });
+    openChatPanel();
+    setSentToAi(true);
+  };
+
   return (
-    <>
-      <StakeReadinessSection />
-      <PopupSection>
-        <Text hasBottomSpacing textType={TextType.DefaultContrast}>
-          Build the game for Stake Engine: the frontend, with its Math Component played from Stake&apos;s books, and the
-          maths as those books — one folder to upload.
-        </Text>
+    <div data-testid="stake-page">
+      <div style={HEADLINE}>
+        <span style={{ ...DOT, backgroundColor: TONE[panel.tone] }} />
+        {panel.headline}
+      </div>
+      <div style={SUBTITLE}>One folder you upload to Stake Engine: the game, playing its maths from Stake&rsquo;s books.</div>
 
-        {successMessage && (
-          <Text style={{ marginTop: '8px', fontSize: '12px', color: '#6f6', whiteSpace: 'pre-wrap' }}>{successMessage}</Text>
+      {connectSlot}
+
+      <div style={CARD}>
+        {panel.checks.map((c, n) => (
+          <div key={c.key} style={{ ...ROW, borderTop: n ? HAIRLINE : 'none' }}>
+            <CheckMark state={c.state} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={ROW_TITLE}>{c.title}</div>
+              <div style={ROW_DETAIL}>{c.detail}</div>
+              {c.key === 'rules' && panel.issues.length > 0 && (
+                <div style={{ marginTop: '6px' }}>
+                  {panel.issues.map((i, k) => (
+                    <div key={k} style={ISSUE} role="button" onClick={() => setOpenIssue(openIssue === k ? null : k)}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ ...SMALL_DOT, backgroundColor: LEVEL_COLOUR[i.level] }} />
+                        <span style={{ flex: 1, color: '#e6e6e6' }}>{i.title}</span>
+                        <span style={{ color: '#777' }}>{openIssue === k ? '⌃' : '⌄'}</span>
+                      </div>
+                      {openIssue === k && (
+                        <div style={{ margin: '4px 0 2px 12px', color: '#aaa' }}>
+                          <div>{i.message}</div>
+                          {i.fix && <div style={{ marginTop: '4px', color: '#cfcfcf' }}>{i.fix}</div>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* More than one deployed Math Component: which one the game plays is the one choice the build needs. */}
+      {components.length > 1 && (
+        <Select
+          label="Maths the game plays"
+          options={components.map((c) => ({ label: c.name, value: `${c.deploymentId}|${c.slug}` }))}
+          value={componentKey}
+          placeholder="Choose the Math Component"
+          onChange={(value: string) => setComponentKey(value)}
+          hasBottomSpacing
+        />
+      )}
+      <PrimaryButton
+        label={isExporting ? 'Building…' : 'Build for Stake…'}
+        onClick={onPickFolderClicked}
+        isDisabled={isExporting || !panel.canBuild || (canExportMaths && !selected)}
+        isGrowing
+      />
+      <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+        {actionable && (
+          <PrimaryButton label={sentToAi ? 'Sent to the AI' : 'Fix with AI'} variant={PrimaryButtonVariant.Muted} size={PrimaryButtonSize.Small} onClick={askAi} isDisabled={sentToAi} isGrowing />
         )}
-        {diagnosis && <StakeExportProblem diagnosis={diagnosis} />}
+        <PrimaryButton label="Check again" variant={PrimaryButtonVariant.Ghost} size={PrimaryButtonSize.Small} onClick={checkReadiness} isGrowing={!actionable} />
+      </div>
 
-        {/* {Boolean(cloudService.backend.items?.length) && (
-          <Select
-            options={environmentOptions}
-            onChange={(value: string) => setEnvironmentId(value)}
-            placeholder="No cloud services"
-            value={environmentId}
-            label="Connected cloud services"
+      {successMessage && <div style={RESULT}>{successMessage}</div>}
+      {diagnosis && <StakeExportProblem diagnosis={diagnosis} />}
+
+      <div style={{ ...DISCLOSURE, marginTop: '16px' }} role="button" onClick={() => setShowOptions(!showOptions)}>
+        <span style={{ display: 'inline-block', width: '12px' }}>{showOptions ? '▾' : '▸'}</span>Options
+      </div>
+      {showOptions && (
+        <div style={{ paddingTop: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ flex: 1 }}>
+              <TextInput label="Books per mode" value={booksPerMode} onChange={(e) => setBooksPerMode(e.target.value)} placeholder={String(DEFAULT_BOOKS_PER_MODE)} hasBottomSpacing />
+            </div>
+            <div style={{ flex: 1 }}>
+              <TextInput label="Bet (minor units)" value={bet} onChange={(e) => setBet(e.target.value)} placeholder="Minimum" hasBottomSpacing />
+            </div>
+          </div>
+          <TextArea
+            label="Play setups (JSON, optional)"
+            value={playSetupsText}
+            placeholder={PLAY_SETUPS_EXAMPLE}
+            onChange={(e) => {
+              setPlaySetupsText(e.target.value);
+              savePlaySetups(game?.id, e.target.value);
+            }}
             hasBottomSpacing
           />
-        )} */}
-
-        <PrimaryButton label="Pick folder" onClick={onPickFolderClicked} isDisabled={isExporting} />
-      </PopupSection>
-
-      <PopupSection>
-        <Text hasBottomSpacing textType={TextType.DefaultContrast}>
-          Maths — Stake Engine books, played by XGENIA RGS from the deployed component
-        </Text>
-        {!canExportMaths ? (
-          <Text style={{ fontSize: '12px' }}>
-            Connect XGENIA RGS and pick a game under Publish → XGENIA to export the game&apos;s maths (books, lookup
-            tables and index.json) next to the front end.
-          </Text>
-        ) : (
-          <>
-            <Checkbox
-              label={`Build with maths (${game!.name || game!.slug}): the Stake books go into <folder>/math/`}
-              isChecked={exportMaths}
-              onChange={(e) => setExportMaths(e.target.checked)}
-              hasBottomSpacing
-            />
-            {exportMaths && (
-              <>
-                {componentsError && <Text style={{ fontSize: '12px', color: '#f88' }}>{componentsError}</Text>}
-                {components.length > 0 && (
-                  <Select
-                    label="Math Component"
-                    options={components.map((c) => ({ label: c.name, value: `${c.deploymentId}|${c.slug}` }))}
-                    value={componentKey}
-                    placeholder="Pick the deployed component the game plays"
-                    onChange={(value: string) => setComponentKey(value)}
-                    hasBottomSpacing
-                  />
-                )}
-                <TextInput
-                  label="Books per bet mode"
-                  value={booksPerMode}
-                  onChange={(e) => setBooksPerMode(e.target.value)}
-                  placeholder={String(DEFAULT_BOOKS_PER_MODE)}
-                  hasBottomSpacing
-                />
-                <TextInput
-                  label="Bet (minor units; blank = the game's minimum bet)"
-                  value={bet}
-                  onChange={(e) => setBet(e.target.value)}
-                  placeholder="100"
-                  hasBottomSpacing
-                />
-                <TextArea
-                  label="Play setups (optional, JSON — leave blank and the export finds each mode's paid round itself)"
-                  value={playSetupsText}
-                  placeholder={PLAY_SETUPS_EXAMPLE}
-                  onChange={(e) => {
-                    setPlaySetupsText(e.target.value);
-                    savePlaySetups(game?.id, e.target.value);
-                  }}
-                  hasBottomSpacing
-                />
-                {playSetups.error && <Text style={{ fontSize: '12px', color: '#f88' }}>{playSetups.error}</Text>}
-                <Text style={{ fontSize: '12px' }}>
-                  One mode per feature buy / special bet the component declares, plus the base game. Each book is one
-                  paid round and the free rounds it bought, played exactly as /rgs-fn plays them. Payouts land on
-                  Stake&apos;s 0.1× grid; the export reports every book that rounding moved.
-                </Text>
-                <Text style={{ fontSize: '12px', marginTop: '6px' }}>
-                  Play setups: left blank, the export first plays the game in every mode — base, each feature buy,
-                  each special bet, at its own price — and finds the request that is one whole paid round there:
-                  which trigger, which inputs, which seeding steps. A Mines-style game (bet, reveal, cash out) exports
-                  without one. Fill it in only to choose a round yourself: its trigger and fixed inputs. Each setup is its own 1× mode and
-                  replaces the base game; call one &quot;base&quot;. &quot;before&quot; steps run unpaid at the start of
-                  every book — a provably-fair maths mints its seed there, or every book replays the same board.
-                </Text>
-              </>
-            )}
-          </>
-        )}
-      </PopupSection>
-    </>
+          {playSetups.error && <div style={{ ...ROW_DETAIL, color: '#ff8a8a' }}>{playSetups.error}</div>}
+          <div style={ROW_DETAIL}>
+            Left blank, the build plays the game in every mode and finds each mode&rsquo;s paid round itself. Fill it in
+            only to choose a round yourself; &ldquo;before&rdquo; steps run unpaid at the start of every book.
+          </div>
+          <div role="button" style={{ ...LINK, marginTop: '12px' }} onClick={onFrontendOnlyClicked}>
+            Export the frontend only (its maths runs in the browser — for a look, not for Stake)
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
+
+/** A check's mark: done, needs you, worth a look, or still checking. */
+function CheckMark({ state }: { state: CheckState }) {
+  const look = {
+    ok: { bg: '#2f5c3f', fg: '#7be0a0', ch: '✓' },
+    todo: { bg: '#5c2f2f', fg: '#ff9a9a', ch: '!' },
+    warn: { bg: '#5c4a24', fg: '#f5c26b', ch: '!' },
+    busy: { bg: '#3a3a3a', fg: '#aaa', ch: '…' }
+  }[state];
+  return <span style={{ ...MARK, backgroundColor: look.bg, color: look.fg }}>{look.ch}</span>;
+}
+
+function openChatPanel() {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { SidebarModel } = require('@xgenia-models/sidebar');
+    const items = SidebarModel.instance.getItems() || [];
+    const chat = items.find((i: any) => i.id === 'ChatPanel' || i.id === 'chat-panel');
+    if (chat && SidebarModel.instance.getCurrent()?.id !== chat.id) SidebarModel.instance.switch(chat.id);
+  } catch (e) {
+    console.warn('[Stake] could not open the chat panel', e);
+  }
+}
+
+const TONE = { ok: '#67DE92', warn: '#f5c26b', todo: '#ff8a8a' } as const;
+const LEVEL_COLOUR = { error: '#ff8a8a', warn: '#f5c26b', info: '#9fb3c8' } as const;
+const HAIRLINE = '1px solid #474747';
+const HEADLINE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', fontWeight: 600, color: '#f2f2f2', lineHeight: 1.3 };
+const SUBTITLE: React.CSSProperties = { fontSize: '12px', color: '#9a9a9a', margin: '4px 0 14px', lineHeight: 1.4 };
+const DOT: React.CSSProperties = { width: '8px', height: '8px', borderRadius: '50%', flex: 'none' };
+const SMALL_DOT: React.CSSProperties = { width: '6px', height: '6px', borderRadius: '50%', flex: 'none' };
+const CARD: React.CSSProperties = { backgroundColor: '#383838', borderRadius: '10px', padding: '2px 12px', marginBottom: '14px' };
+const ROW: React.CSSProperties = { display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 0' };
+const ROW_TITLE: React.CSSProperties = { fontSize: '13px', color: '#eee', lineHeight: 1.35 };
+const ROW_DETAIL: React.CSSProperties = { fontSize: '11px', color: '#999', marginTop: '2px', lineHeight: 1.4 };
+const MARK: React.CSSProperties = { width: '18px', height: '18px', borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, flex: 'none', marginTop: '1px' };
+const ISSUE: React.CSSProperties = { fontSize: '12px', padding: '4px 0', cursor: 'pointer', lineHeight: 1.4 };
+const RESULT: React.CSSProperties = { marginTop: '12px', padding: '10px 12px', borderRadius: '8px', backgroundColor: '#2c3a31', border: '1px solid #3f6b4f', fontSize: '12px', color: '#cfe9d8', whiteSpace: 'pre-wrap', wordBreak: 'break-word' };
+const DISCLOSURE: React.CSSProperties = { fontSize: '12px', color: '#bbb', cursor: 'pointer', userSelect: 'none' };
+const LINK: React.CSSProperties = { fontSize: '11px', color: '#67DE92', cursor: 'pointer' };

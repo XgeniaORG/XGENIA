@@ -64,9 +64,9 @@ import { DeployTelemetryDialog } from '../../DeployTelemetryDialog';
 import { useAuth } from '../../../../context/AuthContext';
 import { ConnectionStore } from '../../../../services/ConnectionStore';
 import { RgsCertifyPanel, RgsReleaseSetup } from '../../ReleaseSetup/ReleaseSetup';
-import { Tabs } from '@xgenia-core-ui/components/layout/Tabs';
 import { DeployToFolderTab } from '../DeployToFolderTab';
 import { DeployToStakeTab } from '../DeployToStakeTab/DeployToStakeTab';
+import { publishDestinationOf, setPublishDestination, type PublishDestination } from '@xgenia-utils/stake/stakePanel';
 
 // The publish pipeline itself — the GitHub/Vercel calls, the RGS wiring and the
 // Deployed Games listing — lives in utils/publish (publishGameToWeb, webDeploy),
@@ -115,7 +115,17 @@ export function XgeniaDeployTab() {
   // The link this project is live at: from this publish, or the studio's site of the same name.
   const [liveUrl, setLiveUrl] = useState('');
   // Which page of the window is open: the first screen, or one of the pages its rows open.
-  const [view, setView] = useState<'main' | 'games' | 'money' | 'export'>('main');
+  // 'stake' is the Stake Engine page: where Publish opens for a game whose destination is Stake.
+  const [view, setView] = useState<'main' | 'games' | 'money' | 'export' | 'stake'>('main');
+  // Where this game is published (project metadata `target`, utils/stake/stakePanel.ts): chosen once, remembered
+  // with the project, read by the AI too. (2026-11-11: Stake was three clicks deep, under "Download or other
+  // platforms" → a tab.)
+  const [destination, setDestinationState] = useState<PublishDestination>(() => publishDestinationOf(ProjectModel.instance as any));
+  const chooseDestination = (d: PublishDestination) => {
+    setPublishDestination(ProjectModel.instance as any, d);
+    setDestinationState(d);
+    setView(d === 'stake' ? 'stake' : 'main');
+  };
   const [editingLink, setEditingLink] = useState(false);
 
   // ── Pre-deploy telemetry form ─────────────────────────────────────────
@@ -213,7 +223,13 @@ export function XgeniaDeployTab() {
   }, [route, domainName, isVisible]);
 
   // Each opening starts on the first screen.
-  useEffect(() => { if (isVisible) { setView('main'); setEditingLink(false); } }, [isVisible]);
+  useEffect(() => {
+    if (!isVisible) return;
+    const d = publishDestinationOf(ProjectModel.instance as any);
+    setDestinationState(d);
+    setView(d === 'stake' ? 'stake' : 'main');
+    setEditingLink(false);
+  }, [isVisible]);
 
   // The bet / win / bet-button mapping is asked once per project: a publish with
   // a complete saved mapping uses it. This link asks again.
@@ -910,6 +926,26 @@ export function XgeniaDeployTab() {
   return (
     <>
       <PopupSection>
+        {/* Where the game goes — the first choice on Publish's first screen, remembered with the project. */}
+        {(view === 'main' || view === 'stake') && (
+          <DestinationSwitch value={destination} onChange={chooseDestination} />
+        )}
+
+        {view === 'stake' && (
+          <DeployToStakeTab
+            key={`${isVisible}-${rgsGame?.id || ''}`}
+            connectSlot={
+              ready ? null : (
+                <RgsReleaseSetup
+                  projectName={String((ProjectModel.instance as any)?.name || '')}
+                  onChanged={() => { rerenderOnGameSelected(); void reloadCredentials(); }}
+                  isQuietWhenReady
+                />
+              )
+            }
+          />
+        )}
+
         {/* Sign in or choose the game only when one is missing; once both are known this renders nothing. */}
         {view === 'main' && (
           <RgsReleaseSetup
@@ -973,7 +1009,7 @@ export function XgeniaDeployTab() {
           <div style={{ marginTop: '16px', borderTop: '1px solid #3a3a3a' }}>
             <MenuRow title="My published games" detail="Open, rename or take down your links" onClick={() => { setView('games'); void fetchDeployedDomains(); }} />
             <MenuRow title="Real money" detail="Verify the return to player and go live with a casino" onClick={() => setView('money')} />
-            <MenuRow title="Download or other platforms" detail="Export the game's files, or its frontend for Stake (Stake maths coming soon)" onClick={() => setView('export')} />
+            <MenuRow title="Download files" detail="Save the game's files to host it yourself" onClick={() => setView('export')} />
           </div>
         </>)}
 
@@ -1056,13 +1092,8 @@ export function XgeniaDeployTab() {
         </>)}
 
         {view === 'export' && (<>
-          {back('Download or other platforms')}
-          <Tabs
-            tabs={[
-              { label: 'Download files', content: <DeployToFolderTab />, testId: 'self-hosting-tab-button' },
-              { label: 'Stake (frontend)', content: <DeployToStakeTab />, testId: 'stake-tab-button' }
-            ]}
-          />
+          {back('Download files')}
+          <DeployToFolderTab />
         </>)}
       </PopupSection>
 
@@ -1098,6 +1129,34 @@ const LIVE_CARD: React.CSSProperties = { marginTop: '12px', padding: '10px 12px'
 const LIVE_LINK: React.CSSProperties = { fontSize: '14px', color: '#fff', fontWeight: 600, textDecoration: 'none', wordBreak: 'break-all' };
 const SMALL_BUTTON: React.CSSProperties = { padding: '4px 10px', fontSize: '12px', backgroundColor: '#3a3a3a', color: '#eee', border: '1px solid #555', borderRadius: '4px', cursor: 'pointer' };
 const RENAME_INPUT: React.CSSProperties = { flex: 1, padding: '4px 8px', fontSize: '13px', backgroundColor: '#2a2a2a', color: '#fff', border: '1px solid #555', borderRadius: '3px', outline: 'none' };
+
+/**
+ * Where this game is published: XGENIA (a play link, real money through casinos) or Stake Engine. A segmented
+ * control, as macOS puts a choice between two views; the choice is saved with the project.
+ */
+function DestinationSwitch({ value, onChange }: { value: PublishDestination; onChange: (d: PublishDestination) => void }) {
+  const option = (d: PublishDestination, label: string) => (
+    <button
+      type="button"
+      data-testid={`publish-destination-${d}`}
+      aria-pressed={value === d}
+      onClick={() => value !== d && onChange(d)}
+      style={{
+        flex: 1, padding: '6px 0', fontSize: '12px', fontWeight: 500, border: 'none', borderRadius: '6px', cursor: 'pointer',
+        backgroundColor: value === d ? '#5a5a5a' : 'transparent', color: value === d ? '#fff' : '#aaa',
+        boxShadow: value === d ? '0 1px 2px rgba(0,0,0,0.35)' : 'none'
+      }}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div role="group" aria-label="Publish to" style={{ display: 'flex', gap: '2px', padding: '2px', borderRadius: '8px', backgroundColor: '#333', marginBottom: '16px' }}>
+      {option('xgenia', 'XGENIA')}
+      {option('stake', 'Stake Engine')}
+    </div>
+  );
+}
 
 /** A row on the Publish window's first screen: what is behind it, in a line, and an arrow. */
 function MenuRow({ title, detail, onClick }: { title: string; detail: string; onClick: () => void }) {
