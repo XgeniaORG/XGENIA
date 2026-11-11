@@ -14,6 +14,7 @@ const EdgeTriggeredInput = require('./src/edgetriggeredinput');
 const EventEmitter = require('./src/events');
 const asyncPool = require('./src/async-pool');
 const ExternalModuleLoader = require('./src/external-module-loader');
+const RgsReplay = require('./src/nodes/std-library/data/rgs-replay');
 
 function registerNodes(xgeniaRuntime) {
   // eslint-disable-next-line
@@ -128,6 +129,10 @@ function xgeniaRuntime(args) {
   args = args || {};
   args.platform = args.platform || {};
   xgeniaRuntime.instance = this;
+
+  // An XRGS bet replay link (?replay=true): decided before any node exists, so nothing can open a session or
+  // take a bet first. A no-op on every other page. See src/nodes/std-library/data/rgs-replay.js.
+  if (args.runDeployed) RgsReplay.bootReplayMode();
 
   // Single source of truth for runtime discovery. Without this, AI tools
   // (read-viewer-port-value, discoverAndReadViewerPorts) have to guess where the

@@ -43,6 +43,10 @@ var PLAYER_ID_KEY = 'xgenia_rgs_player_id';
 // instead of failing the round.
 var memoryStore = {};
 
+// A replay page (?replay=true, rgs-replay.js) watches a finished round: it has no player, adopts no session and
+// must not make one up, so every id below is empty there and nothing is written to storage.
+var isReplayPage = require('./rgs-replay').isReplayPage;
+
 function storage(kind) {
   try {
     var store = kind === 'local' ? window.localStorage : window.sessionStorage;
@@ -99,6 +103,7 @@ function getOrCreate(kind, key) {
 
 /** Stable per-browser id. Created on first use. */
 function getClientId() {
+  if (isReplayPage()) return '';
   return getOrCreate('local', CLIENT_ID_KEY);
 }
 
@@ -114,6 +119,8 @@ function getClientId() {
  */
 function launchedSessionFromUrl() {
   try {
+    // A replay link is never a launch, whatever else its URL carries.
+    if (isReplayPage()) return '';
     if (typeof window === 'undefined' || !window.location) return '';
     var params = new URLSearchParams(window.location.search || '');
     var token = (params.get('session') || params.get('session_token') || '').trim();
@@ -131,6 +138,7 @@ function launchedSessionFromUrl() {
  * survives in-page navigation that drops the query string.
  */
 function getSessionId() {
+  if (isReplayPage()) return '';
   var launched = launchedSessionFromUrl();
   if (launched) {
     if (readId('session', SESSION_ID_KEY) !== launched) writeId('session', SESSION_ID_KEY, launched);
@@ -148,6 +156,7 @@ function getSessionId() {
  * an unbound or half-typed one would otherwise replace a good id with junk.
  */
 function setCurrentPlayerId(playerId) {
+  if (isReplayPage()) return;
   var id = (playerId === null || playerId === undefined ? '' : String(playerId)).trim();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return;
   writeId('session', PLAYER_ID_KEY, id);
@@ -155,6 +164,7 @@ function setCurrentPlayerId(playerId) {
 
 /** The remembered player id, or '' when the game never identified one. */
 function getCurrentPlayerId() {
+  if (isReplayPage()) return '';
   return readId('session', PLAYER_ID_KEY);
 }
 
@@ -167,6 +177,7 @@ function getCurrentPlayerId() {
  */
 function getPlayContextFields() {
   try {
+    if (isReplayPage()) return {};
     var fields = {
       __client: getClientId(),
       __session: getSessionId()
