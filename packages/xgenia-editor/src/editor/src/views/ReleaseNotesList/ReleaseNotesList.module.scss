@@ -1,0 +1,62 @@
+.Root {
+  overflow-y: auto;
+  user-select: text;
+  color: var(--theme-color-fg-default);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.Release + .Release {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--theme-color-bg-3);
+}
+
+.ReleaseHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.Version {
+  color: var(--theme-color-fg-highlight);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.Link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--theme-color-fg-muted);
+  font-size: 11px;
+  text-decoration: underline;
+
+  &:hover {
+    color: var(--theme-color-fg-highlight);
+  }
+}
+
+.Heading {
+  margin: 10px 0 4px;
+  color: var(--theme-color-fg-highlight);
+  font-weight: 600;
+}
+
+.Item {
+  position: relative;
+  margin: 2px 0;
+}
+
+.Bullet {
+  position: absolute;
+  margin-left: -10px;
+  color: var(--theme-color-fg-muted);
+}
+
+.Text {
+  margin: 4px 0;
+}
