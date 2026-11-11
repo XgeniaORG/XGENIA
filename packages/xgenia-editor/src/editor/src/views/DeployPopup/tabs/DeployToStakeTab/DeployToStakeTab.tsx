@@ -14,6 +14,7 @@ import { deployChangedMathsComponents } from '@xgenia-utils/publish/deployChange
 import { stakeErrorCode, type StakeExportFailure } from '@xgenia-utils/stake/stakeMathsExport';
 import { parseStakePlaySetups, summariseStakeModes } from '@xgenia-utils/stake/stakeMathsFormat';
 import { STAKE_REVIEW_ITEMS, stakePanel, type CheckState } from '@xgenia-utils/stake/stakePanel';
+import { STAKE_RULES } from '@xgenia-utils/stake/stakeRules';
 import { lastStakeMeasure, onStakeMeasure } from '@xgenia-utils/stake/stakeMeasureStore';
 import { startStakeJob, stakeJob } from '@xgenia-utils/stake/stakeCommands';
 import { stakeFixRequest, stakeReadiness, type ReadinessReport } from '@xgenia-utils/stake/stakeReadiness';
@@ -570,13 +571,24 @@ export function DeployToStakeTab({ connectSlot }: DeployToStakeTabProps = {}) {
       {/* What Stake's reviewers try by hand: nothing here can check them, so they are a list to go through. */}
       <div style={{ ...CARD, marginTop: '16px', padding: '10px 12px' }}>
         <div style={ROW_TITLE}>Before you submit</div>
-        <div style={{ ...ROW_DETAIL, marginBottom: '6px' }}>Stake&rsquo;s reviewers try these by hand. Check them in Stake&rsquo;s preview.</div>
-        {STAKE_REVIEW_ITEMS.map((item) => (
-          <div key={item} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#d6d6d6', padding: '3px 0' }}>
-            <span style={{ width: '10px', height: '10px', borderRadius: '50%', border: '1.5px solid #777', flex: 'none' }} />
-            {item}
-          </div>
-        ))}
+        <div style={{ ...ROW_DETAIL, marginBottom: '6px' }}>
+          Stake&rsquo;s reviewers try these by hand. Every Stake build also gets a rules screen with the disclaimer and the
+          measured payouts, and social-mode wording.
+        </div>
+        {STAKE_REVIEW_ITEMS.map((item) => {
+          const added = STAKE_RULES.shellProvides.includes(item);
+          return (
+            <div key={item} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: added ? '#9a9a9a' : '#d6d6d6', padding: '3px 0' }}>
+              {added ? (
+                <span style={{ ...MARK, width: '12px', height: '12px', fontSize: '9px', marginTop: 0, backgroundColor: '#2f5c3f', color: '#7be0a0' }}>✓</span>
+              ) : (
+                <span style={{ width: '10px', height: '10px', borderRadius: '50%', border: '1.5px solid #777', flex: 'none' }} />
+              )}
+              <span style={{ flex: 1 }}>{item}</span>
+              {added ? <span style={{ fontSize: '11px', color: '#7be0a0' }}>added by the build</span> : <span style={{ fontSize: '11px', color: '#888' }}>check it</span>}
+            </div>
+          );
+        })}
       </div>
 
       <div style={{ ...DISCLOSURE, marginTop: '16px' }} role="button" onClick={() => setShowOptions(!showOptions)}>

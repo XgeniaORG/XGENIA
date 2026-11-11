@@ -195,6 +195,8 @@ export const STAKE_RULES = {
     'The win counts up to the final payout',
     'Replay mode plays a past round'
   ],
+  /** Review items the Stake shell adds to every Stake build (stakeShell.ts); the rest stay the game's. */
+  shellProvides: ['Spacebar places a bet', 'A confirmation before any mode costing more than 2×', 'A sound on/off toggle'],
   /** The text every rules screen must carry. */
   disclaimer: 'Malfunction voids all wins and plays. A consistent internet connection is required. In the event of a disconnection, reload the game to finish any uncompleted rounds.'
 };

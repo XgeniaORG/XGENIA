@@ -295,15 +295,19 @@ export function stakeReadiness(project: any): ReadinessReport {
 
   // ── What Stake's reviewers check ────────────────────────────────────────────────────────────
   const all = texts.map((t) => t.text).join('\n');
+  // (2026-11-11) The Stake shell (stakeShell.ts) adds the rules screen with the disclaimer and each mode's
+  // measured payout and top win, the sound toggle, the spacebar, the >2× confirmation and the social-mode wording
+  // to every Stake build. These are no longer the game's to build, so they are information, not work: a warning
+  // here sent the AI off building a rules popup by hand (debug export 1794403218540, 190 calls).
   if (!/uncompleted rounds|reload the game|malfunction voids/i.test(all)) {
-    add({ code: 'NO_DISCLAIMER', level: 'warn', message: 'No game rules text with Stake\'s mandatory disclaimer was found ("Malfunction voids all wins and plays… reload the game to finish any uncompleted rounds…").', fix: 'Add a rules / info screen with symbol pays, RTP and max win per mode, mode costs, trigger rules and the disclaimer.', ai: 'Add a rules screen with the paytable, RTP and max win for every mode, the cost of each mode, the free-spin trigger and retrigger rules, and Stake\'s mandatory disclaimer.' });
+    add({ code: 'NO_DISCLAIMER', level: 'info', message: 'The Stake build adds a rules screen (an "i" button) with Stake\'s mandatory disclaimer and each mode\'s cost, measured payout and top win. It cannot list symbol pays.', fix: 'If the game does not show its paytable and feature rules anywhere, add them to the game; nothing else is needed.', ai: 'Do not build a rules screen or disclaimer: the Stake build adds them. Only if the game shows no paytable at all, offer to add one.' });
   }
   const social = texts.filter((t) => SOCIAL_WORDS.test(t.text));
   if (social.length) {
     const sample = social.slice(0, 5).map((t) => `"${t.text.slice(0, 40)}" (${t.comp.name})`).join(', ');
-    add({ code: 'SOCIAL_MODE_WORDS', level: 'warn', message: `${social.length} text(s) use words Stake.US social mode forbids (bet, buy, pay, cash, …): ${sample}.`, fix: 'When the game is launched with social=true, show the social wording instead (bet→play, buy→play, pay→win, cash→coins).', ai: 'For each listed text, switch to the social-mode wording when the Aggregator output stakeSocial is true (bet→play, buy→play, pays→wins, cash→coins).' });
+    add({ code: 'SOCIAL_MODE_WORDS', level: 'info', message: `${social.length} text(s) use words Stake.US social mode forbids (${sample}). The Stake build swaps them on screen in social mode (bet→play, buy→play, pay→win, cash→coins).`, fix: 'Nothing for page text. Words drawn on a canvas or baked into images are not swapped: check those.', ai: 'Do not change these texts: the Stake build swaps them in social mode. Only words drawn on a canvas or in images need a social-mode version.' });
   }
-  add({ code: 'REVIEW_CHECKLIST', level: 'info', message: 'Stake also checks: the spacebar places a bet, a confirmation before any mode costing more than 2×, autoplay asks for confirmation, a sound toggle, every bet level selectable, the win counts up to the final payout, and replay mode works.', fix: 'Check these in the Stake preview before submitting.', ai: 'Verify spacebar betting, the >2× mode confirmation, autoplay confirmation, sound toggle, bet levels from stakeBetLevels and replay in the Stake preview.' });
+  add({ code: 'REVIEW_CHECKLIST', level: 'info', message: 'Added to every Stake build: rules screen with the disclaimer, sound toggle, spacebar to bet, confirmation before modes over 2×, social-mode wording. Still the game\'s: autoplay asks for confirmation, every bet level selectable (from stakeBetLevels), the win counts up to the final payout, and replay mode looks right.', fix: 'Check those four in the Stake preview before submitting.', ai: 'Verify autoplay confirmation, bet levels from stakeBetLevels, the win count-up and replay in the Stake preview; the rest is added by the Stake build.' });
 
   return finish(issues, summary);
 }

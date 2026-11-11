@@ -14,7 +14,8 @@
  *   3. refuse if any Math Component instance is left (its maths would run in the browser);
  *   4. build the copy into <folder> as a Stake frontend;
  *   5. export the books into <folder>/math (stakeMathsExport.ts);
- *   6. remove the copy.
+ *   6. add the Stake shell (stakeShell.ts) with the numbers measured on those books;
+ *   7. remove the copy.
  *
  * The connector's settings are worked out by stakeConnectorConfigFor (stakeConnector.ts, pure, tested in
  * tests/deploy/stakeConnectorWiring.test.ts). The rest needs the editor and is exercised from the Stake tab.
@@ -29,7 +30,10 @@ import { swapDeployedMathsInstances } from '@xgenia-utils/rgs/deployMathsCompone
 
 import { leftoverMathsInstances, stakeConnectorConfigFor, stakeMathsEndpoints, type StakeConnectorConfig } from './stakeConnector';
 import { exportStakeMaths, fetchStakeExportModes, type StakeExportResult } from './stakeMathsExport';
-import type { StakePlaySetup } from './stakeMathsFormat';
+import { stakeLimitsCheck, type StakePlaySetup } from './stakeMathsFormat';
+import { stakeReadiness } from './stakeReadiness';
+import { STAKE_SHELL_DATA_FILE, STAKE_SHELL_FILE, STAKE_SHELL_JS, findSpinButtonIds, injectStakeShell, stakeShellData, type StakeShellData } from './stakeShell';
+import { storedTelemetryMapping } from '@xgenia-utils/rgs/uiNodeCandidates';
 import { declaredStakeModes, stakeModeInput, stakePickPorts } from './stakeModes';
 
 export interface BuildForStakeOptions {
@@ -55,6 +59,8 @@ export interface BuildForStakeResult {
   maths: StakeExportResult;
   connector: StakeConnectorConfig;
   swapped: number;
+  /** What the Stake shell was given (stake-shell.json). */
+  shell: StakeShellData;
 }
 
 /** The Math Component (by name) whose deployed slug is `slug`. */
@@ -114,7 +120,31 @@ export async function buildForStake(o: BuildForStakeOptions): Promise<BuildForSt
       filesystem.join(maths.dir, 'xgenia-stake-connector.json'),
       JSON.stringify({ component: componentName, connector, swapped }, null, 2)
     );
-    return { maths, connector, swapped };
+    // The Stake shell (stakeShell.ts): rules screen with the measured numbers of THESE books, sound toggle,
+    // spacebar, confirmation over 2×, social wording — loaded first in index.html.
+    step('Adding the Stake shell (rules screen, sound, spacebar, confirmations)…');
+    const limits = stakeLimitsCheck(maths.modes, { maxWinMultiplier: maths.info.maxWinMultiplier });
+    let chosenSpin: string | null = null;
+    try {
+      chosenSpin = (storedTelemetryMapping(o.project) as any)?.betButton?.nodeId ?? null;
+    } catch {
+      chosenSpin = null;
+    }
+    const shell = stakeShellData({
+      game: o.game.name || o.game.slug || o.project?.name || 'Game',
+      modes: maths.modes.map((m) => {
+        const measured = limits.modes.find((x) => x.name === m.mode.name);
+        return { name: m.mode.name, label: m.mode.label, cost: m.mode.cost, rtp: measured?.rtp ?? null, maxWin: measured?.maxWin ?? null };
+      }),
+      summary: stakeReadiness(projectJson).summary,
+      spinNodeIds: findSpinButtonIds(projectJson, chosenSpin)
+    });
+    await filesystem.writeFileOverride(filesystem.join(o.direntry, STAKE_SHELL_FILE), STAKE_SHELL_JS);
+    await filesystem.writeFileOverride(filesystem.join(o.direntry, STAKE_SHELL_DATA_FILE), JSON.stringify(shell, null, 2));
+    const indexPath = filesystem.join(o.direntry, 'index.html');
+    await filesystem.writeFileOverride(indexPath, injectStakeShell(String(await filesystem.readFile(indexPath))));
+    if (!shell.spinNodeIds.length) step('No Spin button found for the spacebar: label the spin button "Spin" so the Stake shell can press it.');
+    return { maths, connector, swapped, shell };
   } finally {
     cleanupCompiledCopy(destDir);
   }

@@ -99,6 +99,7 @@ function isMoneyNumber(v) {
  * @param {{search: string, protocol: string}} deps.location
  * @param {(fn: Function, ms: number) => any} [deps.setTimeout]
  * @param {() => number} [deps.now]
+ * @param {{confirmMode?: (m: {mode: string, cost: number, bet: number}) => Promise<boolean>}} [deps.shell] the Stake shell (default globalThis.__xgeniaStakeShell)
  */
 function createStakeBookSession(deps) {
   const fetchFn = deps.fetch;
@@ -223,6 +224,16 @@ function createStakeBookSession(deps) {
     const offered = (s.config && Array.isArray(s.config.gameModes) ? s.config.gameModes : []).map((m) => String(m && m.mode).toLowerCase());
     if (offered.length && offered.indexOf(String(mode).toLowerCase()) === -1) {
       throw new StakeError('UNKNOWN_MODE', 'Bet mode "' + mode + '" is not in the maths uploaded to Stake (it has: ' + offered.join(', ') + '). Offer only those modes.');
+    }
+    // Stake's reviewers want a confirmation before any mode costing more than 2× the bet. The Stake shell (added to
+    // every Stake build, utils/stake/stakeShell.ts) asks the player; no shell (a test, a game that asks itself)
+    // asks nothing. A "no" plays nothing and charges nothing.
+    const listed = (s.config && Array.isArray(s.config.gameModes) ? s.config.gameModes : []).find((m) => String(m && m.mode).toLowerCase() === String(mode).toLowerCase());
+    const cost = Number(listed && listed.costMultiplier) || 1;
+    const shell = deps.shell || (typeof globalThis !== 'undefined' ? globalThis.__xgeniaStakeShell : null);
+    if (cost > 2 && shell && typeof shell.confirmMode === 'function') {
+      const ok = await shell.confirmMode({ mode: mode, cost: cost, bet: betGame });
+      if (!ok) throw new StakeError('NOT_CONFIRMED', 'The player did not confirm the ' + mode + ' bet (' + cost + '× the bet); nothing was played or charged.');
     }
     const r = await call('/wallet/play', { amount, mode });
     if (r.balance) s.balance = r.balance.amount;
