@@ -141,7 +141,7 @@ function StakeExportProblem({ diagnosis }: { diagnosis: StakeExportDiagnosis }) 
 
 /**
  * The Stake build: frontend with the Book Connector + the maths as Stake books (utils/stake/buildForStake.ts).
- * On since 2026-11-09 — the merged Stake compiler (XRGS I-137..I-140) and the Book Connector are in place.
+ * On since 2026-11-09 — the merged Stake compiler (XRGS SYSTEM_MAP I-169..I-172) and the Book Connector are in place.
  */
 const STAKE_MATHS_AVAILABLE = true;
 
