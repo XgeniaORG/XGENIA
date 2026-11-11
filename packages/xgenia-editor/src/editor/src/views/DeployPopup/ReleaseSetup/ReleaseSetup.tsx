@@ -117,19 +117,40 @@ export function RgsSignInForm({ onSignedIn, start = 'xgenia' }: { onSignedIn?: (
     };
   }, []);
 
+  // Several studios: ask which one, on either sign-in path (XRGS I-191). Resolves null when cancelled.
+  const askWhichStudio = (list: RgsStudio[]) =>
+    new Promise<string | null>((resolve) => {
+      if (!live.current) return resolve(null);
+      pickStudio.current = (slug) => { pickStudio.current = null; resolve(slug); };
+      setStudios(list);
+      setStep('choose-studio');
+    });
+  const studioPicker = (onCancel: () => void) => (
+    <>
+      <div style={HINT}>You are in more than one studio. Which one is this editor publishing for?</div>
+      <div style={{ display: 'grid', gap: '6px', marginBottom: '8px' }}>
+        {studios.map((st) => (
+          <PrimaryButton
+            key={st.slug}
+            label={st.name}
+            variant={PrimaryButtonVariant.MutedOnLowBg}
+            size={PrimaryButtonSize.Small}
+            onClick={() => pickStudio.current?.(st.slug)}
+            isGrowing
+          />
+        ))}
+      </div>
+      <PrimaryButton label="Cancel" variant={PrimaryButtonVariant.Ghost} size={PrimaryButtonSize.Small} onClick={onCancel} />
+    </>
+  );
+
   const signInWithXgenia = () => {
     setXgeniaError(null);
     setStep('opening-browser');
     signingIn.current = true;
     connectWithXgeniaRgs({
       onStep: (s) => { if (live.current) setStep(s); },
-      chooseStudio: (list) =>
-        new Promise<string | null>((resolve) => {
-          if (!live.current) return resolve(null);
-          pickStudio.current = (slug) => { pickStudio.current = null; resolve(slug); };
-          setStudios(list);
-          setStep('choose-studio');
-        })
+      chooseStudio: askWhichStudio
     })
       .then(() => { signingIn.current = false; if (live.current) { setStep('idle'); onSignedIn?.(); } })
       .catch((e: any) => {
@@ -154,22 +175,7 @@ export function RgsSignInForm({ onSignedIn, start = 'xgenia' }: { onSignedIn?: (
       <div style={STEP_STYLE} data-guide="rgs-sign-in">
         <div style={STEP_TITLE}>1 · Sign in to XGENIA RGS</div>
         {step === 'choose-studio' ? (
-          <>
-            <div style={HINT}>You are in more than one studio. Which one is this editor publishing for?</div>
-            <div style={{ display: 'grid', gap: '6px', marginBottom: '8px' }}>
-              {studios.map((st) => (
-                <PrimaryButton
-                  key={st.slug}
-                  label={st.name}
-                  variant={PrimaryButtonVariant.MutedOnLowBg}
-                  size={PrimaryButtonSize.Small}
-                  onClick={() => pickStudio.current?.(st.slug)}
-                  isGrowing
-                />
-              ))}
-            </div>
-            <PrimaryButton label="Cancel" variant={PrimaryButtonVariant.Ghost} size={PrimaryButtonSize.Small} onClick={cancelXgenia} />
-          </>
+          studioPicker(cancelXgenia)
         ) : working ? (
           <>
             <div style={HINT}>
@@ -236,11 +242,13 @@ export function RgsSignInForm({ onSignedIn, start = 'xgenia' }: { onSignedIn?: (
     setBusy(true);
     setError('');
     try {
-      await completeEmailSignIn(email, code);
+      await completeEmailSignIn(email, code, askWhichStudio);
       onSignedIn?.();
     } catch (e: any) {
-      setError(e?.message || String(e));
+      if (String(e?.code || '') !== 'CANCELLED') setError(e?.message || String(e));
     } finally {
+      setStep('idle');
+      setStudios([]);
       setBusy(false);
     }
   };
@@ -248,7 +256,9 @@ export function RgsSignInForm({ onSignedIn, start = 'xgenia' }: { onSignedIn?: (
   return (
     <div style={STEP_STYLE} data-guide="rgs-sign-in">
       <div style={STEP_TITLE}>1 · Sign in to XGENIA RGS with email</div>
-      {!codeSent ? (
+      {step === 'choose-studio' ? (
+        studioPicker(() => pickStudio.current?.(null))
+      ) : !codeSent ? (
         <>
           <div style={HINT}>For XGENIA staff and invited RGS accounts: we email you a 6-digit code.</div>
           <TextInput

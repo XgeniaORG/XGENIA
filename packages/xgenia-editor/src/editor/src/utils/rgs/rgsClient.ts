@@ -103,9 +103,16 @@ export function emailSignInCode(email: string): Promise<void> {
   return sendSignInCode(email, SIGN_IN_ENDPOINTS);
 }
 
-/** Checks the code, stores the returned key as the editor's connection, and returns it. */
-export async function completeEmailSignIn(email: string, code: string): Promise<RgsSignInResult> {
-  const result = await verifySignInCode(email, code, SIGN_IN_ENDPOINTS);
+/**
+ * Checks the code, stores the returned key as the editor's connection, and returns it. In several
+ * studios, `chooseStudio` asks which one this editor publishes to (null = cancelled).
+ */
+export async function completeEmailSignIn(
+  email: string,
+  code: string,
+  chooseStudio?: (studios: RgsStudio[]) => Promise<string | null>
+): Promise<RgsSignInResult> {
+  const result = await verifySignInCode(email, code, SIGN_IN_ENDPOINTS, undefined, chooseStudio);
   // An invited studio's key belongs to the real-money RGS: say so, or a sandbox address stored before would stick.
   saveRgsSettings({ apiKey: result.apiKey, rgsUrl: XRGS_URL });
   EventDispatcher.instance.emit('rgs.connected', { operatorSlug: result.operatorSlug });

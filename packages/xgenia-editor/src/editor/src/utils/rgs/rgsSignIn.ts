@@ -138,12 +138,20 @@ export async function sendSignInCode(email: string, ep: RgsSignInEndpoints, fetc
   throw new Error(msg || `Could not send a code (HTTP ${res.status}).`);
 }
 
-/** Steps 2 + 3: check the code, then exchange the session for the studio's operator key. */
+/**
+ * Steps 2 + 3: check the code, then exchange the session for the studio's operator key.
+ *
+ * A person in several studios gets 409 CHOOSE_STUDIO with the list. `chooseStudio` asks them which one
+ * (null = they cancelled) and the key is asked for again with `studio_slug`, on the same signed-in
+ * session — XRGS I-191. Without it they were told to start over with Sign in with XGENIA: signed in,
+ * and still refused.
+ */
 export async function verifySignInCode(
   email: string,
   code: string,
   ep: RgsSignInEndpoints,
-  fetchFn: FetchLike = fetch as any
+  fetchFn: FetchLike = fetch as any,
+  chooseStudio?: (studios: RgsStudio[]) => Promise<string | null>
 ): Promise<RgsSignInResult> {
   const eProblem = emailProblem(email);
   if (eProblem) throw new Error(eProblem);
@@ -162,12 +170,24 @@ export async function verifySignInCode(
     throw new Error(SIGN_IN_MESSAGES.badCode);
   }
 
-  const keyed = await post(
-    fetchFn,
-    `${ep.functionsUrl}/rgs-connect`,
-    { action: 'get-key', access_token: accessToken },
-    { apikey: ep.anonKey, Authorization: `Bearer ${ep.anonKey}` }
-  );
+  const getKey = (studioSlug?: string) =>
+    post(
+      fetchFn,
+      `${ep.functionsUrl}/rgs-connect`,
+      { action: 'get-key', access_token: accessToken, ...(studioSlug ? { studio_slug: studioSlug } : {}) },
+      { apikey: ep.anonKey, Authorization: `Bearer ${ep.anonKey}` }
+    );
+  let keyed = await getKey();
+  if (keyed.res.status === 409 && keyed.body?.code === 'CHOOSE_STUDIO' && chooseStudio) {
+    const studios: RgsStudio[] = (Array.isArray(keyed.body?.studios) ? keyed.body.studios : [])
+      .filter((s: any) => s && typeof s.slug === 'string' && s.slug)
+      .map((s: any) => ({ slug: String(s.slug), name: String(s.name || s.slug) }));
+    if (studios.length > 0) {
+      const slug = await chooseStudio(studios);
+      if (!slug) throw new XgeniaRgsSignInError('CANCELLED', 'Sign-in cancelled.');
+      keyed = await getKey(slug);
+    }
+  }
   if (!keyed.res.ok) {
     throw new Error(serverMessage(keyed.body, keyed.text) || `XGENIA RGS refused the sign-in (HTTP ${keyed.res.status}).`);
   }

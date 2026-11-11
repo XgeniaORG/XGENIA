@@ -122,6 +122,59 @@ function fakeAuth(answer: (body: any) => { status: number; body: any }, calls: C
   };
 }
 
+/** rgs-connect answering by what was asked: CHOOSE_STUDIO without a studio, a key for the named one. */
+function chooseStudioFetch(calls: Call[]) {
+  return async (url: string, init: any) => {
+    const body = JSON.parse(init.body);
+    calls.push({ url, body, headers: init.headers });
+    const answer = (status: number, b: any) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(b) });
+    if (url.endsWith('/verify')) return answer(200, { access_token: 'jwt-1' });
+    if (url.endsWith('/rgs-connect')) {
+      if (!body.studio_slug) {
+        return answer(409, {
+          code: 'CHOOSE_STUDIO',
+          error: 'You are in more than one RGS studio. Choose which one this editor publishes to.',
+          studios: [{ slug: 'mark-studio', name: 'Mark Studio' }, { slug: 'xgenia', name: 'XGENIA' }]
+        });
+      }
+      return answer(200, { api_key: `key-for-${body.studio_slug}`, operator_slug: `${body.studio_slug}-demo` });
+    }
+    throw new Error('network down');
+  };
+}
+
+test('email sign-in in several studios asks which one, then connects THAT studio on the same session (XRGS I-191)', async () => {
+  const calls: Call[] = [];
+  let offered: Array<{ slug: string; name: string }> = [];
+  const result = await verifySignInCode('mark@example.com', '838663', EP, chooseStudioFetch(calls), async (studios) => {
+    offered = studios;
+    return 'xgenia';
+  });
+  assert.deepEqual(offered, [{ slug: 'mark-studio', name: 'Mark Studio' }, { slug: 'xgenia', name: 'XGENIA' }]);
+  assert.equal(result.apiKey, 'key-for-xgenia');
+  assert.equal(result.operatorSlug, 'xgenia-demo');
+  const keyCalls = calls.filter((c) => c.url.endsWith('/rgs-connect'));
+  assert.equal(keyCalls.length, 2);
+  assert.equal(keyCalls[1].body.studio_slug, 'xgenia');
+  assert.equal(keyCalls[1].body.access_token, 'jwt-1', 'the second ask must reuse the signed-in session, not a new code');
+  assert.equal(calls.filter((c) => c.url.endsWith('/verify')).length, 1, 'the code is checked once');
+});
+
+test('cancelling the studio question connects nothing and says nothing alarming', async () => {
+  const calls: Call[] = [];
+  await assert.rejects(
+    verifySignInCode('mark@example.com', '838663', EP, chooseStudioFetch(calls), async () => null),
+    (e: any) => e.code === 'CANCELLED'
+  );
+  assert.equal(calls.filter((c) => c.url.endsWith('/rgs-connect')).length, 1, 'no key may be asked for after a cancel');
+});
+
+test('without a way to ask (an older caller), CHOOSE_STUDIO is still a refusal with the server\'s words, never a guess', async () => {
+  const calls: Call[] = [];
+  await assert.rejects(verifySignInCode('mark@example.com', '838663', EP, chooseStudioFetch(calls)), /Choose which one/);
+  assert.equal(calls.filter((c) => c.url.endsWith('/rgs-connect')).length, 1);
+});
+
 test('start asks xgenia-auth for an editor sign-in with the loopback redirect and this computer\'s name', async () => {
   const calls: Call[] = [];
   const f = fakeAuth(() => ({ status: 200, body: { authorize_url: 'https://rgs.xgenia.app/auth/xgenia?s=1' } }), calls);
