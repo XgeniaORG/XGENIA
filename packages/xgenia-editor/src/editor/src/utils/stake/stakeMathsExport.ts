@@ -227,7 +227,7 @@ export interface StakeExportOptions {
   playSetups?: StakePlaySetup[];
   booksPerChunk?: number;
   /**
-   * Rounds simulated per book (XRGS I-138): every rare round (win cap, base-game feature, ≥10× the price) is
+   * Rounds simulated per book (XRGS SYSTEM_MAP I-170): every rare round (win cap, base-game feature, ≥10× the price) is
    * kept, the rest sampled 1-in-N and weighted back, so rare outcomes are in the package and its RTP is the
    * simulation's. STAKE_DEFAULT_OVERSAMPLE when omitted; 1 writes the old uniform package.
    */

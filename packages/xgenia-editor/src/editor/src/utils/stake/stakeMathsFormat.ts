@@ -120,33 +120,6 @@ export interface StakeLutRow {
   stratum?: string | null;
 }
 
-/** A rare book's weight in an oversampled package; a sampled book weighs this × its stratum's 1-in-N. */
-export const RARE_BOOK_WEIGHT = 1000;
-
-/**
- * The lookup-table weights of an oversampled run (2026-11-09, the editor half of XRGS SYSTEM_MAP I-138).
- *
- * With `oversample` N the platform simulates N rounds per book asked for, keeps every rare one and a hash-chosen
- * 1-in-N of the rest, and reports how many rounds it simulated in each payout stratum. Weighting each stratum's
- * kept books by (rounds simulated in it ÷ books kept from it) makes the package pay exactly what the simulation
- * paid — no weight is chosen to fit an RTP. Rare books weigh RARE_BOOK_WEIGHT (one simulated round each).
- *
- * Refuses rather than guesses: a sampled book whose stratum has no simulated count would get an invented weight.
- */
-export function strataWeightedRows(rows: StakeLutRow[], strata: { stratum: string; simulations: number }[] | undefined, oversample: number): StakeLutRow[] {
-  if (!(oversample > 1)) return rows.map((r) => ({ ...r, weight: 1 }));
-  const sims = new Map((strata || []).map((s) => [s.stratum, Number(s.simulations) || 0]));
-  const kept = new Map<string, number>();
-  for (const r of rows) if (r.stratum) kept.set(r.stratum, (kept.get(r.stratum) || 0) + 1);
-  const weightOf = new Map<string, number>();
-  for (const [stratum, n] of kept) {
-    const simulated = sims.get(stratum);
-    if (!simulated) throw new Error(`The platform reported no simulated rounds for stratum "${stratum}" but kept ${n} of its books: cannot weight them.`);
-    weightOf.set(stratum, Math.max(1, Math.round((RARE_BOOK_WEIGHT * simulated) / n)));
-  }
-  return rows.map((r) => ({ ...r, weight: r.stratum ? weightOf.get(r.stratum)! : RARE_BOOK_WEIGHT }));
-}
-
 /** RTP of a weighted table, as Stake computes it: Σ(weight × payout) ÷ Σweight ÷ 100 ÷ cost. */
 export function lookupTableRtp(rows: StakeLutRow[], cost: number): number {
   let w = 0;
