@@ -53,6 +53,29 @@
 const EdgeTriggeredInput = require('../../../edgetriggeredinput');
 const { getPlayContextFields, getClientId, launchedSessionFromUrl } = require('./rgs-play-context');
 const { stakeBookSessionForPage, parseStakeConfig } = require('./stake-book-session');
+const { isReplayPage, replaySessionForPage, ReplayRefused, STATES: REPLAY_STATES } = require('./rgs-replay');
+
+// XRGS bet replay (2026-11-11): on a page opened with ?replay=true (rgs-replay.js) an http Aggregator never POSTs.
+// Its triggers are answered from the replay's frames, in order, through the same applyOutputs a live /rgs-fn
+// answer takes — and REFUSED (failure + error) when no replay is playing, so a replay page has no bet path.
+// Extra outputs let a game present the replay: replayMode, replayState, replayPlay (signal: wire it to the spin
+// so Play starts the round with its own animation), replayEnded (signal), replayFrameIndex, replayFrameState
+// (the state that frame's round left), replayBet / replayCost / replayWin / replayCurrency (money as a person
+// reads it) and replayBetText / replayWinText (e.g. "BONUS: €1.00 / REAL COST: €250.00", "WIN: €5.00").
+const REPLAY_OUTPUTS = [
+  ['replayMode', 'Replay Mode'],
+  ['replayState', 'Replay State'],
+  ['replayPlay', 'Replay Play', 'signal'],
+  ['replayEnded', 'Replay Ended', 'signal'],
+  ['replayFrameIndex', 'Replay Frame Index'],
+  ['replayFrameState', 'Replay Frame State'],
+  ['replayBet', 'Replay Bet'],
+  ['replayCost', 'Replay Cost'],
+  ['replayWin', 'Replay Win'],
+  ['replayCurrency', 'Replay Currency'],
+  ['replayBetText', 'Replay Bet Text'],
+  ['replayWinText', 'Replay Win Text']
+];
 
 // Stake Engine (2026-11-09): with `transport` = "stake" the Aggregator does not POST to an RGS. It hands each
 // trigger to the page's Stake Book Session (stake-book-session.js), which plays one /wallet/play per paid
@@ -161,6 +184,7 @@ const AggregatorNode = {
       default: DEFAULT_URL,
       set: function (value) {
         this._internal.url = value;
+        this.scheduleAfterInputsHaveUpdated(this.attachReplay.bind(this));
         this.scheduleAfterInputsHaveUpdated(this.readRgsBalanceOnLoad.bind(this));
       }
     },
@@ -345,7 +369,7 @@ const AggregatorNode = {
       const url = this._internal.url || '';
       const match = /^(https?:\/\/[^?#]*\/rgs-fn\/[^/?#]+)\/[^/?#]+/.exec(url);
       const scale = this.moneyScaleInUse();
-      if (this._internal.transport === 'stake' || !match || scale <= 1 || typeof fetch !== 'function' || launchedSessionFromUrl()) return;
+      if (this._internal.transport === 'stake' || !match || scale <= 1 || typeof fetch !== 'function' || launchedSessionFromUrl() || isReplayPage()) return;
       this._internal.balanceAsked = true;
       const _this = this;
       let client;
@@ -446,8 +470,75 @@ const AggregatorNode = {
       const scale = Number(this._internal.moneyScale) || 1;
       return scale > 1 && this._internal.betField && this._internal.winField ? scale : 1;
     },
+    // ── Replay (see the header) ──
+    attachReplay: function () {
+      if (this._internal.transport === 'stake' || !isReplayPage()) return null;
+      const session = replaySessionForPage();
+      if (!session) return null;
+      if (!this._internal.replayAttached) {
+        this._internal.replayAttached = true;
+        this.setOutput('replayMode', true);
+        session.onChange(this.showReplayState.bind(this));
+        this.showReplayState(session.state, session);
+      }
+      session.attach(this, this._internal.url);
+      return session;
+    },
+    showReplayState: function (state, session) {
+      this.setOutput('replayState', state);
+      const sum = session && session.summary();
+      if (sum) {
+        this.setOutput('replayBet', sum.bet);
+        this.setOutput('replayCost', sum.cost);
+        this.setOutput('replayWin', sum.win);
+        this.setOutput('replayCurrency', sum.currency);
+        this.setOutput('replayBetText', sum.text.bet);
+        this.setOutput('replayWinText', sum.text.win);
+      }
+      if (state === REPLAY_STATES.ERROR && session && session.error) this.setError(session.error.message);
+      if (state === REPLAY_STATES.ENDED) this.fireOutputSignal('replayEnded');
+    },
+    fireOutputSignal: function (name) {
+      this.registerOutputIfNeeded('out-' + name);
+      if (this.hasOutput('out-' + name)) this.sendSignalOnOutput('out-' + name);
+    },
+    /** Play / Play Again was pressed: tell the game, so its spin starts the round. */
+    onReplayPlay: function () {
+      this.fireOutputSignal('replayPlay');
+    },
+    /** The session pushes the first frame in when the game did not ask for it (replayPlay unwired). */
+    presentReplayFrame: function () {
+      this._internal.activeTrigger = null;
+      this.doSendReplay();
+    },
+    doSendReplay: function () {
+      const session = this.attachReplay();
+      let answer;
+      try {
+        if (!session) throw new ReplayRefused('This is a replay: betting is disabled.');
+        answer = session.next();
+      } catch (e) {
+        this.setError((e && e.message) || String(e));
+        this.sendSignalOnOutput('failure');
+        return;
+      }
+      const frame = answer.frame || {};
+      this._internal.lastPayload = { replay: true, trigger: this._internal.activeTrigger || null, frame: frame.index };
+      // Asynchronously, as a live answer arrives: never inside the update that fired the trigger.
+      setTimeout(() => {
+        this._internal.lastResponse = answer.body;
+        this._internal.inspectData = { transport: 'replay', frame: frame.index, response: answer.body };
+        this.setOutput('replayFrameIndex', typeof frame.index === 'number' ? frame.index : null);
+        this.setOutput('replayFrameState', frame.state && typeof frame.state === 'object' ? frame.state : null);
+        this.applyOutputs(answer.body, true);
+        this.sendSignalOnOutput('success');
+        session.frameShown();
+      }, 0);
+    },
     doSend: function () {
       if (this._internal.transport === 'stake') return this.doSendStake();
+      // Never a request from a replay page: the frames answer, or the trigger is refused.
+      if (isReplayPage()) return this.doSendReplay();
       const payload = {};
       const data = this._internal.dataValues || {};
       for (const key in data) payload[key] = data[key];
@@ -587,6 +678,12 @@ function buildPorts(parameters) {
     if (declared.has(pair[0])) return;
     ports.push({ type: { name: '*', allowConnectionsOnly: true }, plug: 'output', group: 'RGS', name: 'out-' + pair[0], displayName: pair[1] });
   });
+  if (parameters.transport !== 'stake') {
+    REPLAY_OUTPUTS.forEach(function (o) {
+      if (declared.has(o[0])) return;
+      ports.push({ type: o[2] === 'signal' ? 'signal' : { name: '*', allowConnectionsOnly: true }, plug: 'output', group: 'Replay', name: 'out-' + o[0], displayName: o[1] });
+    });
+  }
   if (parameters.transport === 'stake') {
     STAKE_OUTPUTS.forEach(function (o) {
       if (declared.has(o[0])) return;
