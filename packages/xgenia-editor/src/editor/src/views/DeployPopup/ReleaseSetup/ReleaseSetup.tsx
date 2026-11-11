@@ -100,7 +100,11 @@ export function RgsSignInForm({ onSignedIn, start = 'xgenia' }: { onSignedIn?: (
   const [mode, setMode] = useState<'xgenia' | 'email'>(start);
 
   // Sign in with XGENIA: idle → the browser → (a studio to pick) → connected, or an error to act on.
-  const [step, setStep] = useState<XgeniaRgsSignInStep | 'idle' | 'choose-studio'>('idle');
+  const [step, setStep] = useState<XgeniaRgsSignInStep | 'idle' | 'choose-studio' | 'second-factor'>('idle');
+  // Two-factor sign-in on the email path: the authenticator code, asked while the sign-in waits.
+  const [factorCode, setFactorCode] = useState('');
+  const [factorProblem, setFactorProblem] = useState<string | null>(null);
+  const giveFactorCode = useRef<((code: string | null) => void) | null>(null);
   const [xgeniaError, setXgeniaError] = useState<{ code: string; message: string } | null>(null);
   const [studios, setStudios] = useState<RgsStudio[]>([]);
   const pickStudio = useRef<((slug: string | null) => void) | null>(null);
@@ -113,9 +117,45 @@ export function RgsSignInForm({ onSignedIn, start = 'xgenia' }: { onSignedIn?: (
       live.current = false;
       // Closing Publish mid-sign-in closes the loopback too, and answers a pending studio question.
       pickStudio.current?.(null);
+      giveFactorCode.current?.(null);
       if (signingIn.current) cancelXgeniaRgsSignIn();
     };
   }, []);
+
+  // Several studios: ask which one, on either sign-in path (XRGS I-191). Resolves null when cancelled.
+  const askWhichStudio = (list: RgsStudio[]) =>
+    new Promise<string | null>((resolve) => {
+      if (!live.current) return resolve(null);
+      pickStudio.current = (slug) => { pickStudio.current = null; resolve(slug); };
+      setStudios(list);
+      setStep('choose-studio');
+    });
+  const askAuthenticatorCode = (problem: string | null) =>
+    new Promise<string | null>((resolve) => {
+      if (!live.current) return resolve(null);
+      giveFactorCode.current = (c) => { giveFactorCode.current = null; resolve(c); };
+      setFactorProblem(problem);
+      setFactorCode('');
+      setStep('second-factor');
+    });
+  const studioPicker = (onCancel: () => void) => (
+    <>
+      <div style={HINT}>You are in more than one studio. Which one is this editor publishing for?</div>
+      <div style={{ display: 'grid', gap: '6px', marginBottom: '8px' }}>
+        {studios.map((st) => (
+          <PrimaryButton
+            key={st.slug}
+            label={st.name}
+            variant={PrimaryButtonVariant.MutedOnLowBg}
+            size={PrimaryButtonSize.Small}
+            onClick={() => pickStudio.current?.(st.slug)}
+            isGrowing
+          />
+        ))}
+      </div>
+      <PrimaryButton label="Cancel" variant={PrimaryButtonVariant.Ghost} size={PrimaryButtonSize.Small} onClick={onCancel} />
+    </>
+  );
 
   const signInWithXgenia = () => {
     setXgeniaError(null);
@@ -123,13 +163,7 @@ export function RgsSignInForm({ onSignedIn, start = 'xgenia' }: { onSignedIn?: (
     signingIn.current = true;
     connectWithXgeniaRgs({
       onStep: (s) => { if (live.current) setStep(s); },
-      chooseStudio: (list) =>
-        new Promise<string | null>((resolve) => {
-          if (!live.current) return resolve(null);
-          pickStudio.current = (slug) => { pickStudio.current = null; resolve(slug); };
-          setStudios(list);
-          setStep('choose-studio');
-        })
+      chooseStudio: askWhichStudio
     })
       .then(() => { signingIn.current = false; if (live.current) { setStep('idle'); onSignedIn?.(); } })
       .catch((e: any) => {
@@ -154,22 +188,7 @@ export function RgsSignInForm({ onSignedIn, start = 'xgenia' }: { onSignedIn?: (
       <div style={STEP_STYLE} data-guide="rgs-sign-in">
         <div style={STEP_TITLE}>1 · Sign in to XGENIA RGS</div>
         {step === 'choose-studio' ? (
-          <>
-            <div style={HINT}>You are in more than one studio. Which one is this editor publishing for?</div>
-            <div style={{ display: 'grid', gap: '6px', marginBottom: '8px' }}>
-              {studios.map((st) => (
-                <PrimaryButton
-                  key={st.slug}
-                  label={st.name}
-                  variant={PrimaryButtonVariant.MutedOnLowBg}
-                  size={PrimaryButtonSize.Small}
-                  onClick={() => pickStudio.current?.(st.slug)}
-                  isGrowing
-                />
-              ))}
-            </div>
-            <PrimaryButton label="Cancel" variant={PrimaryButtonVariant.Ghost} size={PrimaryButtonSize.Small} onClick={cancelXgenia} />
-          </>
+          studioPicker(cancelXgenia)
         ) : working ? (
           <>
             <div style={HINT}>
@@ -236,11 +255,15 @@ export function RgsSignInForm({ onSignedIn, start = 'xgenia' }: { onSignedIn?: (
     setBusy(true);
     setError('');
     try {
-      await completeEmailSignIn(email, code);
+      await completeEmailSignIn(email, code, { chooseStudio: askWhichStudio, askSecondFactor: askAuthenticatorCode });
       onSignedIn?.();
     } catch (e: any) {
-      setError(e?.message || String(e));
+      if (String(e?.code || '') !== 'CANCELLED') setError(e?.message || String(e));
     } finally {
+      setStep('idle');
+      setStudios([]);
+      setFactorCode('');
+      setFactorProblem(null);
       setBusy(false);
     }
   };
@@ -248,7 +271,27 @@ export function RgsSignInForm({ onSignedIn, start = 'xgenia' }: { onSignedIn?: (
   return (
     <div style={STEP_STYLE} data-guide="rgs-sign-in">
       <div style={STEP_TITLE}>1 · Sign in to XGENIA RGS with email</div>
-      {!codeSent ? (
+      {step === 'choose-studio' ? (
+        studioPicker(() => pickStudio.current?.(null))
+      ) : step === 'second-factor' ? (
+        <>
+          <div style={HINT}>Enter the 6-digit code from your authenticator app. XGENIA RGS asks for it on every sign-in.</div>
+          <TextInput
+            label="Authenticator code"
+            value={factorCode}
+            placeholder="123456"
+            onChange={(e) => setFactorCode(e.target.value)}
+            onEnter={() => giveFactorCode.current?.(factorCode)}
+            isAutoFocus
+            hasBottomSpacing
+          />
+          {factorProblem && <div style={ERROR}>{factorProblem}</div>}
+          <div style={ROW}>
+            <PrimaryButton label="Confirm" onClick={() => giveFactorCode.current?.(factorCode)} size={PrimaryButtonSize.Small} />
+            <PrimaryButton label="Cancel" variant={PrimaryButtonVariant.Ghost} size={PrimaryButtonSize.Small} onClick={() => giveFactorCode.current?.(null)} />
+          </div>
+        </>
+      ) : !codeSent ? (
         <>
           <div style={HINT}>For XGENIA staff and invited RGS accounts: we email you a 6-digit code.</div>
           <TextInput

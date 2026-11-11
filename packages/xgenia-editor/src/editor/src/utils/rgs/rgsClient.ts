@@ -10,6 +10,7 @@ import { activeGameFor } from './activeGame';
 import {
   RgsSignInResult,
   RgsStudio,
+  EmailSignInQuestions,
   XGENIA_RGS_MESSAGES,
   XgeniaRgsSignInError,
   XgeniaRgsSignInResult,
@@ -103,9 +104,13 @@ export function emailSignInCode(email: string): Promise<void> {
   return sendSignInCode(email, SIGN_IN_ENDPOINTS);
 }
 
-/** Checks the code, stores the returned key as the editor's connection, and returns it. */
-export async function completeEmailSignIn(email: string, code: string): Promise<RgsSignInResult> {
-  const result = await verifySignInCode(email, code, SIGN_IN_ENDPOINTS);
+/**
+ * Checks the code, stores the returned key as the editor's connection, and returns it. `ask` lets it ask
+ * the person for their authenticator code (two-factor sign-in) and, in several studios, which one this
+ * editor publishes to (each null = cancelled).
+ */
+export async function completeEmailSignIn(email: string, code: string, ask: EmailSignInQuestions = {}): Promise<RgsSignInResult> {
+  const result = await verifySignInCode(email, code, SIGN_IN_ENDPOINTS, undefined, ask);
   // An invited studio's key belongs to the real-money RGS: say so, or a sandbox address stored before would stick.
   saveRgsSettings({ apiKey: result.apiKey, rgsUrl: XRGS_URL });
   EventDispatcher.instance.emit('rgs.connected', { operatorSlug: result.operatorSlug });

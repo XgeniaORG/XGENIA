@@ -138,13 +138,41 @@ export async function sendSignInCode(email: string, ep: RgsSignInEndpoints, fetc
   throw new Error(msg || `Could not send a code (HTTP ${res.status}).`);
 }
 
-/** Steps 2 + 3: check the code, then exchange the session for the studio's operator key. */
+/** What the email sign-in may ask the person while it runs (each resolves null when they cancel). */
+export interface EmailSignInQuestions {
+  /** Several studios: which one this editor publishes to (XRGS I-191). */
+  chooseStudio?: (studios: RgsStudio[]) => Promise<string | null>;
+  /**
+   * Two-factor sign-in (XRGS I-177..I-182): the 6-digit code from their authenticator app. `problem` is
+   * null the first time and says why when asked again (a wrong code).
+   */
+  askSecondFactor?: (problem: string | null) => Promise<string | null>;
+}
+
+export const SECOND_FACTOR_MESSAGES = {
+  enrol:
+    'XGENIA RGS needs two-factor sign-in on every account, and this one has no authenticator app yet. ' +
+    'Add one at https://rgs.xgenia.app/setup-two-factor (sign in there with this email), then sign in here again.',
+  wrongCode: 'That authenticator code is wrong or has expired. Enter the current 6-digit code.',
+  tooManyTries: 'Three wrong authenticator codes. Request a new email code and start again.'
+} as const;
+
+/**
+ * Steps 2 + 3: check the code, then exchange the session for the studio's operator key.
+ *
+ * A person in several studios gets 409 CHOOSE_STUDIO with the list. `chooseStudio` asks them which one
+ * (null = they cancelled) and the key is asked for again with `studio_slug`, on the same signed-in
+ * session — XRGS I-191. Without it they were told to start over with Sign in with XGENIA: signed in,
+ * and still refused.
+ */
 export async function verifySignInCode(
   email: string,
   code: string,
   ep: RgsSignInEndpoints,
-  fetchFn: FetchLike = fetch as any
+  fetchFn: FetchLike = fetch as any,
+  ask: EmailSignInQuestions = {}
 ): Promise<RgsSignInResult> {
+  const { chooseStudio, askSecondFactor } = ask;
   const eProblem = emailProblem(email);
   if (eProblem) throw new Error(eProblem);
   const cProblem = codeProblem(code);
@@ -162,12 +190,32 @@ export async function verifySignInCode(
     throw new Error(SIGN_IN_MESSAGES.badCode);
   }
 
-  const keyed = await post(
-    fetchFn,
-    `${ep.functionsUrl}/rgs-connect`,
-    { action: 'get-key', access_token: accessToken },
-    { apikey: ep.anonKey, Authorization: `Bearer ${ep.anonKey}` }
-  );
+  let token: string = accessToken;
+  const getKey = (studioSlug?: string) =>
+    post(
+      fetchFn,
+      `${ep.functionsUrl}/rgs-connect`,
+      { action: 'get-key', access_token: token, ...(studioSlug ? { studio_slug: studioSlug } : {}) },
+      { apikey: ep.anonKey, Authorization: `Bearer ${ep.anonKey}` }
+    );
+  let keyed = await getKey();
+  // Two-factor sign-in: the emailed code is the first factor; the authenticator app is the second.
+  if (keyed.res.status === 403 && keyed.body?.code === 'MFA_ENROLL_REQUIRED') throw new Error(SECOND_FACTOR_MESSAGES.enrol);
+  if (keyed.res.status === 403 && keyed.body?.code === 'MFA_REQUIRED' && askSecondFactor) {
+    token = await completeSecondFactor(token, ep, fetchFn, askSecondFactor);
+    keyed = await getKey();
+    if (keyed.res.status === 403 && keyed.body?.code === 'MFA_ENROLL_REQUIRED') throw new Error(SECOND_FACTOR_MESSAGES.enrol);
+  }
+  if (keyed.res.status === 409 && keyed.body?.code === 'CHOOSE_STUDIO' && chooseStudio) {
+    const studios: RgsStudio[] = (Array.isArray(keyed.body?.studios) ? keyed.body.studios : [])
+      .filter((s: any) => s && typeof s.slug === 'string' && s.slug)
+      .map((s: any) => ({ slug: String(s.slug), name: String(s.name || s.slug) }));
+    if (studios.length > 0) {
+      const slug = await chooseStudio(studios);
+      if (!slug) throw new XgeniaRgsSignInError('CANCELLED', 'Sign-in cancelled.');
+      keyed = await getKey(slug);
+    }
+  }
   if (!keyed.res.ok) {
     throw new Error(serverMessage(keyed.body, keyed.text) || `XGENIA RGS refused the sign-in (HTTP ${keyed.res.status}).`);
   }
@@ -178,6 +226,49 @@ export async function verifySignInCode(
     operatorSlug: String(keyed.body?.operator_slug || ''),
     created: /new rgs connection/i.test(String(keyed.body?.message || ''))
   };
+}
+
+/**
+ * The second factor, through the RGS's own sign-in service (GoTrue): the account's verified authenticator
+ * factor, a challenge, and the person's 6-digit code. Returns the two-factor session's access token.
+ * Up to three codes; a cancel or a missing factor ends it.
+ */
+async function completeSecondFactor(
+  firstFactorToken: string,
+  ep: RgsSignInEndpoints,
+  fetchFn: FetchLike,
+  askSecondFactor: (problem: string | null) => Promise<string | null>
+): Promise<string> {
+  const auth = { apikey: ep.anonKey, Authorization: `Bearer ${firstFactorToken}` };
+  let userRes;
+  try {
+    userRes = await fetchFn(`${ep.authUrl}/user`, { method: 'GET', headers: auth });
+  } catch {
+    throw new Error(SIGN_IN_MESSAGES.unreachable);
+  }
+  const user = parse(await userRes.text().catch(() => ''));
+  const factor = (Array.isArray(user?.factors) ? user.factors : []).find(
+    (f: any) => f && f.status === 'verified' && (f.factor_type === 'totp' || !f.factor_type)
+  );
+  if (!userRes.ok || !factor?.id) throw new Error(SECOND_FACTOR_MESSAGES.enrol);
+
+  let problem: string | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const code = await askSecondFactor(problem);
+    if (!code) throw new XgeniaRgsSignInError('CANCELLED', 'Sign-in cancelled.');
+    const clean = String(code).replace(/\s+/g, '');
+    if (!/^\d{6}$/.test(clean)) { problem = SECOND_FACTOR_MESSAGES.wrongCode; attempt--; continue; }
+    const challenge = await post(fetchFn, `${ep.authUrl}/factors/${factor.id}/challenge`, {}, auth);
+    if (!challenge.res.ok || !challenge.body?.id) {
+      throw new Error(serverMessage(challenge.body, challenge.text) || 'XGENIA RGS could not start the two-factor check. Try again.');
+    }
+    const verified = await post(fetchFn, `${ep.authUrl}/factors/${factor.id}/verify`, { challenge_id: challenge.body.id, code: clean }, auth);
+    const secondToken = verified.body?.access_token || verified.body?.session?.access_token;
+    if (verified.res.ok && secondToken) return String(secondToken);
+    if (verified.res.status === 429) throw new Error(SIGN_IN_MESSAGES.tooMany);
+    problem = SECOND_FACTOR_MESSAGES.wrongCode;
+  }
+  throw new Error(SECOND_FACTOR_MESSAGES.tooManyTries);
 }
 
 // ─── Sign in with XGENIA (the system browser + a loopback redirect) ───────────

@@ -5,6 +5,7 @@ import {
   emailProblem,
   redeemEditorCode,
   sendSignInCode,
+  SECOND_FACTOR_MESSAGES,
   SIGN_IN_MESSAGES,
   startXgeniaRgsSignIn,
   verifySignInCode,
@@ -121,6 +122,158 @@ function fakeAuth(answer: (body: any) => { status: number; body: any }, calls: C
     return { ok: a.status >= 200 && a.status < 300, status: a.status, text: async () => JSON.stringify(a.body) };
   };
 }
+
+/** rgs-connect answering by what was asked: CHOOSE_STUDIO without a studio, a key for the named one. */
+function chooseStudioFetch(calls: Call[]) {
+  return async (url: string, init: any) => {
+    const body = JSON.parse(init.body);
+    calls.push({ url, body, headers: init.headers });
+    const answer = (status: number, b: any) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(b) });
+    if (url.endsWith('/verify')) return answer(200, { access_token: 'jwt-1' });
+    if (url.endsWith('/rgs-connect')) {
+      if (!body.studio_slug) {
+        return answer(409, {
+          code: 'CHOOSE_STUDIO',
+          error: 'You are in more than one RGS studio. Choose which one this editor publishes to.',
+          studios: [{ slug: 'mark-studio', name: 'Mark Studio' }, { slug: 'xgenia', name: 'XGENIA' }]
+        });
+      }
+      return answer(200, { api_key: `key-for-${body.studio_slug}`, operator_slug: `${body.studio_slug}-demo` });
+    }
+    throw new Error('network down');
+  };
+}
+
+test('email sign-in in several studios asks which one, then connects THAT studio on the same session (XRGS I-191)', async () => {
+  const calls: Call[] = [];
+  let offered: Array<{ slug: string; name: string }> = [];
+  const result = await verifySignInCode('mark@example.com', '838663', EP, chooseStudioFetch(calls), {
+    chooseStudio: async (studios) => {
+      offered = studios;
+      return 'xgenia';
+    }
+  });
+  assert.deepEqual(offered, [{ slug: 'mark-studio', name: 'Mark Studio' }, { slug: 'xgenia', name: 'XGENIA' }]);
+  assert.equal(result.apiKey, 'key-for-xgenia');
+  assert.equal(result.operatorSlug, 'xgenia-demo');
+  const keyCalls = calls.filter((c) => c.url.endsWith('/rgs-connect'));
+  assert.equal(keyCalls.length, 2);
+  assert.equal(keyCalls[1].body.studio_slug, 'xgenia');
+  assert.equal(keyCalls[1].body.access_token, 'jwt-1', 'the second ask must reuse the signed-in session, not a new code');
+  assert.equal(calls.filter((c) => c.url.endsWith('/verify')).length, 1, 'the code is checked once');
+});
+
+test('cancelling the studio question connects nothing and says nothing alarming', async () => {
+  const calls: Call[] = [];
+  await assert.rejects(
+    verifySignInCode('mark@example.com', '838663', EP, chooseStudioFetch(calls), { chooseStudio: async () => null }),
+    (e: any) => e.code === 'CANCELLED'
+  );
+  assert.equal(calls.filter((c) => c.url.endsWith('/rgs-connect')).length, 1, 'no key may be asked for after a cancel');
+});
+
+test('without a way to ask (an older caller), CHOOSE_STUDIO is still a refusal with the server\'s words, never a guess', async () => {
+  const calls: Call[] = [];
+  await assert.rejects(verifySignInCode('mark@example.com', '838663', EP, chooseStudioFetch(calls)), /Choose which one/);
+  assert.equal(calls.filter((c) => c.url.endsWith('/rgs-connect')).length, 1);
+});
+
+/**
+ * An RGS that requires two-factor sign-in (XRGS I-177..I-182): get-key refuses the emailed-code session
+ * with MFA_REQUIRED until it is the authenticator-verified one; GoTrue lists the factor, challenges it and
+ * verifies the code '246810'. Several studios on top, when `studios` is set.
+ */
+function twoFactorFetch(calls: Call[], opts: { factors?: any[]; enrolRequired?: boolean; studios?: boolean } = {}) {
+  const factors = opts.factors ?? [{ id: 'f-1', factor_type: 'totp', status: 'verified' }];
+  return async (url: string, init: any) => {
+    const body = init.body ? JSON.parse(init.body) : null;
+    calls.push({ url, body, headers: init.headers });
+    const answer = (status: number, b: any) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(b) });
+    if (url.endsWith('/verify') && !url.includes('/factors/')) return answer(200, { access_token: 'aal1-token' });
+    if (url.endsWith('/user')) return answer(200, { id: 'u-1', factors });
+    if (url.endsWith('/factors/f-1/challenge')) return answer(200, { id: 'ch-1' });
+    if (url.endsWith('/factors/f-1/verify')) {
+      return body?.code === '246810' && body?.challenge_id === 'ch-1' ? answer(200, { access_token: 'aal2-token' }) : answer(422, { msg: 'Invalid TOTP code entered' });
+    }
+    if (url.endsWith('/rgs-connect')) {
+      if (body.access_token !== 'aal2-token') {
+        return answer(403, { code: opts.enrolRequired ? 'MFA_ENROLL_REQUIRED' : 'MFA_REQUIRED', error: 'two-factor needed' });
+      }
+      if (opts.studios && !body.studio_slug) {
+        return answer(409, { code: 'CHOOSE_STUDIO', error: 'Choose which one', studios: [{ slug: 'a', name: 'A' }, { slug: 'b', name: 'B' }] });
+      }
+      return answer(200, { api_key: `key-${body.studio_slug || 'own'}`, operator_slug: 'op' });
+    }
+    throw new Error('network down');
+  };
+}
+
+test('two-factor: an account with no authenticator is told where to add one; nothing is challenged', async () => {
+  const calls: Call[] = [];
+  await assert.rejects(
+    verifySignInCode('mark@example.com', '838663', EP, twoFactorFetch(calls, { enrolRequired: true }), { askSecondFactor: async () => '246810' }),
+    (e: any) => e.message === SECOND_FACTOR_MESSAGES.enrol
+  );
+  assert.equal(calls.filter((c) => c.url.includes('/factors/')).length, 0);
+});
+
+test('two-factor: no VERIFIED factor (an unfinished enrolment) is the enrol message, never a challenge', async () => {
+  const calls: Call[] = [];
+  await assert.rejects(
+    verifySignInCode('mark@example.com', '838663', EP, twoFactorFetch(calls, { factors: [{ id: 'f-1', factor_type: 'totp', status: 'unverified' }] }), {
+      askSecondFactor: async () => '246810'
+    }),
+    (e: any) => e.message === SECOND_FACTOR_MESSAGES.enrol
+  );
+  assert.equal(calls.filter((c) => c.url.includes('/factors/')).length, 0);
+});
+
+test('two-factor: cancelling the authenticator question connects nothing', async () => {
+  const calls: Call[] = [];
+  await assert.rejects(
+    verifySignInCode('mark@example.com', '838663', EP, twoFactorFetch(calls), { askSecondFactor: async () => null }),
+    (e: any) => e.code === 'CANCELLED'
+  );
+  assert.equal(calls.filter((c) => c.url.endsWith('/rgs-connect')).length, 1);
+});
+
+test('two-factor: a wrong code is asked again with the reason; the right one connects with the authenticator-verified session', async () => {
+  const calls: Call[] = [];
+  const asked: Array<string | null> = [];
+  const codes = ['111111', '246810'];
+  const result = await verifySignInCode('mark@example.com', '838663', EP, twoFactorFetch(calls), {
+    askSecondFactor: async (problem) => {
+      asked.push(problem);
+      return codes.shift() ?? null;
+    }
+  });
+  assert.deepEqual(asked, [null, SECOND_FACTOR_MESSAGES.wrongCode]);
+  assert.equal(result.apiKey, 'key-own');
+  const challenge = calls.find((c) => c.url.endsWith('/factors/f-1/challenge'))!;
+  assert.equal(challenge.headers.Authorization, 'Bearer aal1-token', 'the challenge is made with the emailed-code session');
+  const keyCalls = calls.filter((c) => c.url.endsWith('/rgs-connect'));
+  assert.equal(keyCalls[keyCalls.length - 1].body.access_token, 'aal2-token', 'the key is asked for with the two-factor session');
+});
+
+test('two-factor: three wrong codes end the sign-in', async () => {
+  const calls: Call[] = [];
+  await assert.rejects(
+    verifySignInCode('mark@example.com', '838663', EP, twoFactorFetch(calls), { askSecondFactor: async () => '000000' }),
+    (e: any) => e.message === SECOND_FACTOR_MESSAGES.tooManyTries
+  );
+  assert.equal(calls.filter((c) => c.url.endsWith('/factors/f-1/verify')).length, 3);
+});
+
+test('two-factor, then several studios: the authenticator first, then which studio, all on the two-factor session', async () => {
+  const calls: Call[] = [];
+  const result = await verifySignInCode('mark@example.com', '838663', EP, twoFactorFetch(calls, { studios: true }), {
+    askSecondFactor: async () => '246810',
+    chooseStudio: async () => 'b'
+  });
+  assert.equal(result.apiKey, 'key-b');
+  const last = calls.filter((c) => c.url.endsWith('/rgs-connect')).pop()!;
+  assert.deepEqual([last.body.access_token, last.body.studio_slug], ['aal2-token', 'b']);
+});
 
 test('start asks xgenia-auth for an editor sign-in with the loopback redirect and this computer\'s name', async () => {
   const calls: Call[] = [];
