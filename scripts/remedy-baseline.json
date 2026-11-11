@@ -42,7 +42,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/app-state/get-component-context.ts‖phantom_param‖get_app_xml‖componentPath‖get_app_xml({ scope: \"component\", componentPath: \"...\" })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/app-state/get-component-context.ts",
-    "line": 474,
+    "line": 506,
     "tool": "get_app_xml",
     "param": "componentPath",
     "kind": "phantom_param",
@@ -53,7 +53,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/app-state/get-component-context.ts‖phantom_param‖get_app_xml‖componentPath‖get_app_xml({ scope: \"component\", componentPath: \"...\" })‖2",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/app-state/get-component-context.ts",
-    "line": 480,
+    "line": 512,
     "tool": "get_app_xml",
     "param": "componentPath",
     "kind": "phantom_param",
@@ -154,106 +154,6 @@
     "occurrence": 1
   },
   {
-    "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-knowledge.ts‖phantom_tool‖character‖‖character({action:\"create\", prompt:\"...\", name:\"...\"})‖1",
-    "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-knowledge.ts",
-    "line": 97,
-    "tool": "character",
-    "kind": "phantom_tool",
-    "call": "character({action:\"create\", prompt:\"...\", name:\"...\"})",
-    "snippet": "the user. character({action:\"create\", prompt:\"...\", name:\"...\"}) then shows the USER an approval card wi",
-    "occurrence": 1
-  },
-  {
-    "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-knowledge.ts‖phantom_tool‖character‖‖character({action:\"import\", jobId:\"...\", name:\"...\", place:{parentId:\"<the pixi.Stage or a pixi container>\"}})‖1",
-    "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-knowledge.ts",
-    "line": 99,
-    "tool": "character",
-    "kind": "phantom_tool",
-    "call": "character({action:\"import\", jobId:\"...\", name:\"...\", place:{parentId:\"<the pixi.Stage or a pixi container>\"}})",
-    "snippet": "ucceeded: character({action:\"import\", jobId:\"...\", name:\"...\", place:{parentId:\"<the pixi.Stage or a pixi container>\"...",
-    "occurrence": 1
-  },
-  {
-    "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-knowledge.ts‖phantom_tool‖character‖‖character({action:\"price\"})‖1",
-    "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-knowledge.ts",
-    "line": 97,
-    "tool": "character",
-    "kind": "phantom_tool",
-    "call": "character({action:\"price\"})",
-    "snippet": "1. character({action:\"price\"}) tells you the price and the user s bou",
-    "occurrence": 1
-  },
-  {
-    "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-knowledge.ts‖phantom_tool‖character‖‖character({action:\"status\", jobId:\"...\"})‖1",
-    "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-knowledge.ts",
-    "line": 98,
-    "tool": "character",
-    "kind": "phantom_tool",
-    "call": "character({action:\"status\", jobId:\"...\"})",
-    "snippet": "heck with character({action:\"status\", jobId:\"...\"}) when you next pause (not more than ever",
-    "occurrence": 1
-  },
-  {
-    "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-knowledge.ts‖phantom_tool‖character‖‖character({action:\"status\"})‖1",
-    "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-knowledge.ts",
-    "line": 112,
-    "tool": "character",
-    "kind": "phantom_tool",
-    "call": "character({action:\"status\"})",
-    "snippet": "hed ones: character({action:\"status\"})):",
-    "occurrence": 1
-  },
-  {
-    "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-tool.ts‖phantom_tool‖character‖‖character({action:\"create\", …})‖1",
-    "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-tool.ts",
-    "line": 172,
-    "tool": "character",
-    "kind": "phantom_tool",
-    "call": "character({action:\"create\", …})",
-    "snippet": "{bought}. character({action:\"create\", …}) shows the user an approval card with th",
-    "occurrence": 1
-  },
-  {
-    "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-tool.ts‖phantom_tool‖character‖‖character({action:\"import\", jobId:\"${job.id}\"${name ? `, name:\"${name}\"` : ', name:\"...\"'}, place:{parentId:\"...\"}})‖1",
-    "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-tool.ts",
-    "line": 460,
-    "tool": "character",
-    "kind": "phantom_tool",
-    "call": "character({action:\"import\", jobId:\"${job.id}\"${name ? `, name:\"${name}\"` : ', name:\"...\"'}, place:{parentId:\"...\"}})",
-    "snippet": "mport it: character({action:\"import\", jobId:\"${job.id}\"${name ? `, name:\"${name}\"` : ', name:\"...\"'}, place:{parentId...",
-    "occurrence": 1
-  },
-  {
-    "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-tool.ts‖phantom_tool‖character‖‖character({action:\"status\", jobId:\"${jobId}\"})‖1",
-    "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-tool.ts",
-    "line": 370,
-    "tool": "character",
-    "kind": "phantom_tool",
-    "call": "character({action:\"status\", jobId:\"${jobId}\"})",
-    "snippet": "ater with character({action:\"status\", jobId:\"${jobId}\"}). Do not wait in a loop.",
-    "occurrence": 1
-  },
-  {
-    "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-tool.ts‖phantom_tool‖character‖‖character({action:\"status\"})‖1",
-    "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-tool.ts",
-    "line": 128,
-    "tool": "character",
-    "kind": "phantom_tool",
-    "call": "character({action:\"status\"})",
-    "snippet": "o finish (character({action:\"status\"})) or cancel one.",
-    "occurrence": 1
-  },
-  {
-    "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-tool.ts‖phantom_tool‖character‖‖character({action:\"status\"})‖2",
-    "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/character/character-tool.ts",
-    "line": 137,
-    "tool": "character",
-    "kind": "phantom_tool",
-    "call": "character({action:\"status\"})",
-    "snippet": "ob: check character({action:\"status\"}) before starting another.",
-    "occurrence": 2
-  },
-  {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/code-execution/run-editor-script.ts‖phantom_self_param‖run_editor_script‖position_index‖pass position_index‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/code-execution/run-editor-script.ts",
     "line": 153,
@@ -278,7 +178,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-nodes-batch.ts‖phantom_self_param‖create_nodes_batch‖styleCss‖Pass styleCss‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/create-nodes-batch.ts",
-    "line": 847,
+    "line": 848,
     "tool": "create_nodes_batch",
     "param": "styleCss",
     "kind": "phantom_self_param",
@@ -300,7 +200,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/edit-js-function-node.ts‖phantom_self_param‖edit_js_function_node‖replaceAll‖pass replaceAll‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/creation-tools/edit-js-function-node.ts",
-    "line": 1361,
+    "line": 1362,
     "tool": "edit_js_function_node",
     "param": "replaceAll",
     "kind": "phantom_self_param",
@@ -322,7 +222,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/debugging/simulate-signal.ts‖phantom_self_param‖simulate_signal‖isSpinning‖pass isSpinning‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/debugging/simulate-signal.ts",
-    "line": 564,
+    "line": 565,
     "tool": "simulate_signal",
     "param": "isSpinning",
     "kind": "phantom_self_param",
@@ -333,7 +233,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/debugging/simulate-signal.ts‖phantom_self_param‖simulate_signal‖notEmpty‖pass notEmpty‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/debugging/simulate-signal.ts",
-    "line": 2528,
+    "line": 2557,
     "tool": "simulate_signal",
     "param": "notEmpty",
     "kind": "phantom_self_param",
@@ -344,7 +244,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/debugging/verify-logic-correctness.ts‖phantom_param‖image‖create‖image({create, count:4})‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/debugging/verify-logic-correctness.ts",
-    "line": 6174,
+    "line": 6194,
     "tool": "image",
     "param": "create",
     "kind": "phantom_param",
@@ -355,7 +255,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/image-editing/create-image.ts‖phantom_self_param‖create_image‖skipStyleAnchor‖pass skipStyleAnchor‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/image-editing/create-image.ts",
-    "line": 336,
+    "line": 337,
     "tool": "create_image",
     "param": "skipStyleAnchor",
     "kind": "phantom_self_param",
@@ -366,7 +266,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/image-editing/create-image.ts‖phantom_self_param‖create_image‖skipStyleAnchor‖pass skipStyleAnchor‖2",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/image-editing/create-image.ts",
-    "line": 2996,
+    "line": 3009,
     "tool": "create_image",
     "param": "skipStyleAnchor",
     "kind": "phantom_self_param",
@@ -377,7 +277,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/image-editing/create-image.ts‖phantom_self_param‖create_image‖skipStyleAnchor‖pass skipStyleAnchor‖3",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/image-editing/create-image.ts",
-    "line": 3007,
+    "line": 3020,
     "tool": "create_image",
     "param": "skipStyleAnchor",
     "kind": "phantom_self_param",
@@ -388,7 +288,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/image-editing/create-image.ts‖phantom_self_param‖create_image‖styleMatch‖Pass styleMatch‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/image-editing/create-image.ts",
-    "line": 3059,
+    "line": 3072,
     "tool": "create_image",
     "param": "styleMatch",
     "kind": "phantom_self_param",
@@ -399,7 +299,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/image-editing/video.ts‖phantom_param‖image‖create‖image({create})‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/image-editing/video.ts",
-    "line": 201,
+    "line": 204,
     "tool": "image",
     "param": "create",
     "kind": "phantom_param",
@@ -410,7 +310,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/image-editing/video.ts‖phantom_param‖image‖create‖image({create})‖2",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/image-editing/video.ts",
-    "line": 208,
+    "line": 211,
     "tool": "image",
     "param": "create",
     "kind": "phantom_param",
@@ -421,7 +321,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/image-editing/video.ts‖phantom_param‖image‖create‖image({create})‖3",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/image-editing/video.ts",
-    "line": 523,
+    "line": 526,
     "tool": "image",
     "param": "create",
     "kind": "phantom_param",
@@ -453,7 +353,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/refactoring/extract-to-component.ts‖phantom_param‖delete_node‖confirmed‖delete_node({ node_id, confirmed: true })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/refactoring/extract-to-component.ts",
-    "line": 1115,
+    "line": 1167,
     "tool": "delete_node",
     "param": "confirmed",
     "kind": "phantom_param",
@@ -464,7 +364,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/refactoring/extract-to-component.ts‖phantom_param‖delete_node‖confirmed‖delete_node({ node_id: \"${created.instanceRef}\", confirmed: true })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/refactoring/extract-to-component.ts",
-    "line": 803,
+    "line": 806,
     "tool": "delete_node",
     "param": "confirmed",
     "kind": "phantom_param",
@@ -475,7 +375,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/refactoring/extract-to-component.ts‖phantom_param‖delete_node‖node_id‖delete_node({ node_id, confirmed: true })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/refactoring/extract-to-component.ts",
-    "line": 1115,
+    "line": 1167,
     "tool": "delete_node",
     "param": "node_id",
     "kind": "phantom_param",
@@ -486,7 +386,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/refactoring/extract-to-component.ts‖phantom_param‖delete_node‖node_id‖delete_node({ node_id: \"${created.instanceRef}\", confirmed: true })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/refactoring/extract-to-component.ts",
-    "line": 803,
+    "line": 806,
     "tool": "delete_node",
     "param": "node_id",
     "kind": "phantom_param",
@@ -754,7 +654,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/smart-set-node-parameters.ts‖phantom_param‖query_production_knowledge‖query‖query_production_knowledge({ query: 'grid expansion protocol' })‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/smart-set-node-parameters.ts",
-    "line": 3027,
+    "line": 3047,
     "tool": "query_production_knowledge",
     "param": "query",
     "kind": "phantom_param",
@@ -809,7 +709,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-image.ts‖phantom_param‖image‖create‖image({create})‖1",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-image.ts",
-    "line": 778,
+    "line": 828,
     "tool": "image",
     "param": "create",
     "kind": "phantom_param",
@@ -820,7 +720,7 @@
   {
     "key": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-image.ts‖phantom_param‖image‖create‖image({create})‖2",
     "file": "private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/tools/unified/unified-image.ts",
-    "line": 854,
+    "line": 904,
     "tool": "image",
     "param": "create",
     "kind": "phantom_param",
