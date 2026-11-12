@@ -13,6 +13,10 @@ export interface MergeConflictItem {
   label: string;
   /** Optional short text describing the two sides. */
   preview?: string;
+  /** Blob sha of the other side's version, recorded when the conflict was found. */
+  theirsBlob?: string;
+  /** True when the other side deleted the file (then there is no theirsBlob). */
+  theirsDeleted?: boolean;
 }
 
 /**
@@ -73,17 +77,17 @@ export async function writeConflicts(repoDir: string, items: MergeConflictItem[]
   await fs.promises.writeFile(file, JSON.stringify(items, null, 2));
 }
 
-/** Read a file's bytes at a revision (`rev:path`) or a blob sha. Null if it does not exist. */
-export async function readBlob(repoDir: string, spec: string): Promise<Buffer | null> {
+/** Read a file's bytes at a revision (`rev:path`) or a blob sha. Throws if it does not resolve. */
+export async function readBlob(repoDir: string, spec: string): Promise<Buffer> {
   const { output, exitCode } = await git(['cat-file', 'blob', spec], repoDir, 'readBlob', {
-    successExitCodes: new Set([0, 128]),
+    successExitCodes: new Set([0, 1, 128]),
     spawn: false,
     processCallback: (cb) => {
       // Binary encoding keeps every byte; Buffer.from(..., 'binary') gets them back exactly.
       if (cb.stdout) cb.stdout.setEncoding('binary');
     }
   });
-  if (exitCode !== 0) return null;
+  if (exitCode !== 0) throw new Error(`Could not read ${spec} from the repository`);
   return Buffer.from(output.toString(), 'binary');
 }
 
@@ -106,9 +110,18 @@ export async function settleConflict(
   side: 'ours' | 'theirs'
 ): Promise<void> {
   if (side === 'theirs') {
-    const rev = await otherSideRevision(repoDir);
-    const theirs = await readBlob(repoDir, `${rev}:${item.path}`);
     const absolutePath = path.join(repoDir, item.path);
+    let theirs: Buffer | null;
+    if (item.theirsDeleted) {
+      theirs = null;
+    } else if (item.theirsBlob) {
+      theirs = await readBlob(repoDir, item.theirsBlob);
+    } else {
+      // Items without a recorded side: fall back to the merge in progress or the merge commit.
+      // A lookup that does not resolve throws; it is never read as "deleted on their side".
+      const rev = await otherSideRevision(repoDir);
+      theirs = await readBlob(repoDir, `${rev}:${item.path}`);
+    }
     if (theirs === null) {
       await fs.promises.rm(absolutePath, { force: true });
     } else {

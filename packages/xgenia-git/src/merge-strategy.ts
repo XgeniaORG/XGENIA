@@ -72,7 +72,15 @@ export class MergeStrategy {
     ]);
     const result = await handler.merge(base, ours, theirs, parent.path);
     await this.writeResult(parent.path, result.merged);
-    return result.conflicts;
+    return result.conflicts.map((c) => (c.path === parent.path ? this.withTheirSide(c, entry) : c));
+  }
+
+  private theirSide(entry: IMergeTreeEntry): Pick<MergeConflictItem, 'theirsBlob' | 'theirsDeleted'> {
+    return entry.their ? { theirsBlob: entry.their.sha } : { theirsDeleted: true };
+  }
+
+  private withTheirSide(item: MergeConflictItem, entry: IMergeTreeEntry): MergeConflictItem {
+    return item.theirsBlob || item.theirsDeleted ? item : { ...item, ...this.theirSide(entry) };
   }
 
   private async writeResult(relativePath: string, content: Buffer | null) {
@@ -98,7 +106,8 @@ export class MergeStrategy {
       {
         path: parent.path,
         label: parent.path,
-        preview: `Changed on both sides; kept ${this.strategy === 'our' ? 'your' : 'the other'} version`
+        preview: `Changed on both sides; kept ${this.strategy === 'our' ? 'your' : 'the other'} version`,
+        ...this.theirSide(entry)
       }
     ];
   }

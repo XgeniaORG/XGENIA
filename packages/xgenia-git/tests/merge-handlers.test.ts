@@ -11,6 +11,7 @@ process.env.LOCAL_GIT_DIRECTORY ??= path.resolve(__dirname, '..', '..', '..', 'n
 
 import { ComputedAction } from '../src/core/models/computed-action';
 import { mergeTree } from '../src/core/merge';
+import { parseMergeTreeResult } from '../src/core/merge-tree-parser';
 import { MergeStrategy } from '../src/merge-strategy';
 import { readConflicts, registerMergeHandler, settleConflict } from '../src/merge-handlers';
 
@@ -103,4 +104,74 @@ test('settle theirs restores the other side', async () => {
   fs.writeFileSync(path.join(dir, 'art/face.png'), PNG_B);
   await settleConflict(dir, item, 'theirs');
   assert.ok(fs.readFileSync(path.join(dir, 'art/face.png')).equals(PNG_C));
+});
+
+const face = (dir: string) => path.join(dir, 'art/face.png');
+
+test('settle theirs works with no merge in progress (stash-pop path)', async () => {
+  const dir = makeRepo({ 'art/face.png': [PNG_A, PNG_B, PNG_C] });
+  const ours = run(dir, 'rev-parse', 'HEAD');
+  await mergeIn(dir);
+  const [item] = await readConflicts(dir);
+  assert.ok(item.theirsBlob);
+  run(dir, 'reset', '-q', '--hard', ours); // MERGE_HEAD gone, no second parent
+  assert.throws(() => run(dir, 'rev-parse', '-q', '--verify', 'MERGE_HEAD'));
+  await settleConflict(dir, item, 'theirs');
+  assert.ok(fs.readFileSync(face(dir)).equals(PNG_C));
+});
+
+test('settle theirs after a further commit', async () => {
+  const dir = makeRepo({ 'art/face.png': [PNG_A, PNG_B, PNG_C] });
+  await mergeIn(dir);
+  const [item] = await readConflicts(dir);
+  run(dir, 'commit', '-qm', 'merge');
+  fs.writeFileSync(path.join(dir, 'other.txt'), 'x');
+  run(dir, 'add', '-A');
+  run(dir, 'commit', '-qm', 'later');
+  await settleConflict(dir, item, 'theirs');
+  assert.ok(fs.readFileSync(face(dir)).equals(PNG_C));
+});
+
+test('settle ours keeps the file and forgets the item', async () => {
+  const dir = makeRepo({ 'art/face.png': [PNG_A, PNG_B, PNG_C] });
+  await mergeIn(dir);
+  const [item] = await readConflicts(dir);
+  await settleConflict(dir, item, 'ours');
+  assert.ok(fs.readFileSync(face(dir)).equals(PNG_B));
+  assert.deepEqual(await readConflicts(dir), []);
+});
+
+test('an item whose other side deleted the file removes it on settle theirs', async () => {
+  const dir = makeRepo({ 'art/face.png': [PNG_A, PNG_B, PNG_C] });
+  await mergeIn(dir);
+  const [item] = await readConflicts(dir);
+  await settleConflict(dir, { path: item.path, label: item.label, theirsDeleted: true }, 'theirs');
+  assert.equal(fs.existsSync(face(dir)), false);
+});
+
+test('a side that cannot be found throws and leaves the file alone', async () => {
+  const dir = makeRepo({ 'art/face.png': [PNG_A, PNG_B, PNG_C] });
+  await mergeIn(dir);
+  const [item] = await readConflicts(dir);
+  run(dir, 'commit', '-qm', 'merge');
+  run(dir, 'reset', '-q', '--hard', 'main~1'); // no recorded side, no MERGE_HEAD, no second parent
+  await assert.rejects(settleConflict(dir, { path: item.path, label: item.label }, 'theirs'));
+  assert.ok(fs.readFileSync(face(dir)).equals(PNG_B));
+  await assert.rejects(settleConflict(dir, { ...item, theirsBlob: '0'.repeat(40) }, 'theirs'));
+  assert.ok(fs.readFileSync(face(dir)).equals(PNG_B));
+});
+
+const sha = (c: string) => c.repeat(40);
+const header = (ctx: string) =>
+  `${ctx}\n  base   100644 ${sha('a')} f.txt\n  our    100644 ${sha('b')} f.txt\n  their  100644 ${sha('c')} f.txt\n`;
+
+test('parser: same change on both sides is not a conflict', () => {
+  const text = `changed in both\n  base   100644 ${sha('a')} f.png\n  our    100644 ${sha('b')} f.png\n  their  100644 ${sha('b')} f.png\n`;
+  assert.equal(parseMergeTreeResult(text).kind, ComputedAction.Clean);
+});
+
+test('parser: a clean text merge is not flagged, a binary change on both sides is', () => {
+  const clean = header('changed in both') + '@@ -1,3 +1,4 @@\n 1\n+x\n 2\n';
+  assert.equal(parseMergeTreeResult(clean).kind, ComputedAction.Clean);
+  assert.equal(parseMergeTreeResult(header('changed in both')).kind, ComputedAction.Conflicts);
 });
