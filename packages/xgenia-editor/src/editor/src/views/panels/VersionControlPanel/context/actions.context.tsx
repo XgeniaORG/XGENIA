@@ -5,6 +5,7 @@ import {
   Git,
   GitActionError,
   GitActionErrorCode,
+  readConflicts,
   pull as gitPull,
   push as gitPush
 } from '@xgenia/git';
@@ -20,6 +21,7 @@ import { useConfirmationDialog } from '@xgenia-core-ui/components/popups/Confirm
 
 import { EventDispatcher } from '../../../../../../shared/utils/EventDispatcher';
 import { ToastLayer } from '../../../ToastLayer/ToastLayer';
+import { conflictBlock, syncUnlessBlocked } from '../components/conflictListModel';
 import { IVersionControlActions, IVersionControlContextFetch } from './types';
 
 export interface UseVersionControlActionsArgs {
@@ -252,6 +254,12 @@ export function useVersionControlActions({
   }, [git, repositoryPath, resolveCurrentBranch, localChangesCount, fetchLocal, confirmStashBeforePull]);
 
   const push = useCallback(async (): Promise<boolean> => {
+    const blocked = await conflictBlock(repositoryPath, readConflicts);
+    if (blocked) {
+      ToastLayer.showError(blocked);
+      return false;
+    }
+
     const branch = await resolveCurrentBranch();
     if (!branch) {
       ToastLayer.showError('No branch is checked out, so there is nothing to push.');
@@ -294,15 +302,23 @@ export function useVersionControlActions({
 
   /** Pull, then push — VS Code's "Sync Changes". */
   const sync = useCallback(async () => {
-    const didPull = await pull();
-    if (didPull) {
-      await push();
-    }
-  }, [pull, push]);
+    await syncUnlessBlocked({
+      pull,
+      push,
+      blocked: () => conflictBlock(repositoryPath, readConflicts),
+      onBlocked: (message) => ToastLayer.showError(message)
+    });
+  }, [pull, push, repositoryPath]);
 
   const commit = useCallback(
     async (options?: { amend?: boolean; thenPush?: boolean; thenSync?: boolean }) => {
       const amend = options?.amend === true;
+
+    const blocked = await conflictBlock(repositoryPath, readConflicts);
+    if (blocked) {
+      ToastLayer.showError(blocked);
+      return;
+    }
 
       // Amending a commit that is already on the remote would need a force push.
       if (amend && !fetch.localCommitCount) {

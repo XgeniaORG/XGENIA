@@ -309,6 +309,7 @@ function BaseVersionControlPanel({ openPublishDialogOnMount }: BaseVersionContro
         ) : (
           <>
             <GitStatusButton
+              hasListedConflicts={hasListedConflicts}
               openGitSettingsPopout={openGitSettingsPopout}
               openPublishToGitHubDialog={() => setIsPublishDialogVisible(true)}
             />

@@ -55,3 +55,24 @@ test('a registered preview is found by kind; image paths are recognised', () => 
   assert.equal(isImagePath('X/Y.PNG'), true);
   assert.equal(isImagePath('x.json'), false);
 });
+
+test('a push with listed conflicts is refused; sync stops after the pull', async () => {
+  const { conflictBlock, syncUnlessBlocked } = await import(
+    '../../src/editor/src/views/panels/VersionControlPanel/components/conflictListModel'
+  );
+  assert.match((await conflictBlock('/r', async () => [a])) ?? '', /conflicts/);
+  assert.equal(await conflictBlock('/r', async () => []), null);
+
+  const log: string[] = [];
+  const mk = (items: unknown[]) => ({
+    pull: async () => (log.push('pull'), true),
+    push: async () => (log.push('push'), true),
+    blocked: () => conflictBlock('/r', async () => items as never),
+    onBlocked: (m: string) => log.push('blocked:' + m)
+  });
+  await syncUnlessBlocked(mk([a]));
+  assert.deepEqual(log, ['pull', 'blocked:Resolve the conflicts first.']);
+  log.length = 0;
+  await syncUnlessBlocked(mk([]));
+  assert.deepEqual(log, ['pull', 'push']);
+});

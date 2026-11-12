@@ -55,3 +55,29 @@ export function canCommitWith(a: {
 }): boolean {
   return a.localChangesCount > 0 && !a.hasConflictsInProject && a.listedConflicts === 0 && !a.isBusy;
 }
+
+export const CONFLICTS_BLOCK_MESSAGE = 'Resolve the conflicts first.';
+
+/** The refusal message while listed conflicts remain (read fresh, never from panel state), else null. */
+export async function conflictBlock(
+  repoDir: string,
+  read: (repoDir: string) => Promise<MergeConflictItem[]>
+): Promise<string | null> {
+  return (await read(repoDir)).length > 0 ? CONFLICTS_BLOCK_MESSAGE : null;
+}
+
+/** Pull, then push only when the pull left no listed conflicts. */
+export async function syncUnlessBlocked(a: {
+  pull: () => Promise<boolean>;
+  push: () => Promise<boolean>;
+  blocked: () => Promise<string | null>;
+  onBlocked: (message: string) => void;
+}): Promise<void> {
+  if (!(await a.pull())) return;
+  const message = await a.blocked();
+  if (message) {
+    a.onBlocked(message);
+    return;
+  }
+  await a.push();
+}

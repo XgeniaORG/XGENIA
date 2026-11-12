@@ -8,6 +8,7 @@ import { Section } from '@xgenia-core-ui/components/sidebar/Section';
 import { Label } from '@xgenia-core-ui/components/typography/Label';
 import { Text, TextType } from '@xgenia-core-ui/components/typography/Text';
 
+import { ToastLayer } from '../../../ToastLayer/ToastLayer';
 import { conflictPreviewFor } from '../../../../utils/extensions/conflictPreviews';
 import { ImageDiffDialog } from '../../../documents/ComponentDiffDocument/ImageDiffDialog';
 import { ConflictSide, conflictRows, settleAndReload } from './conflictListModel';
@@ -29,8 +30,8 @@ function toImage(buffer: Buffer, path: string): Image {
 
 /** Mine = the file on disk, theirs = the blob recorded with the item. Either may be missing. */
 async function loadImageDiff(repoDir: string, item: MergeConflictItem): Promise<IImageDiff> {
-  const { promises: fs } = await import('fs');
-  const nodePath = await import('path');
+  const fs = require('fs').promises;
+  const nodePath = require('path');
   let ours: Image | undefined;
   try {
     ours = toImage(await fs.readFile(nodePath.join(repoDir, item.path)), item.path);
@@ -56,8 +57,19 @@ export function useListedConflicts(repoDir: string | null | undefined, reloadKey
     setItems(repoDir ? await readConflicts(repoDir) : []);
   }, [repoDir]);
   useEffect(() => {
-    reload();
-  }, [reload, reloadKey]);
+    let stale = false;
+    (async () => {
+      try {
+        const next = repoDir ? await readConflicts(repoDir) : [];
+        if (!stale) setItems(next);
+      } catch (error) {
+        console.warn('[VersionControl] Could not read the conflict list:', error);
+      }
+    })();
+    return () => {
+      stale = true;
+    };
+  }, [repoDir, reloadKey]);
   return { items, setItems, reload };
 }
 
@@ -87,13 +99,17 @@ export function ConflictList({ repoDir, items, onChange }: ConflictListProps) {
           <Section key={row.key} hasVisibleOverflow hasGutter>
             <Text hasBottomSpacing>{row.label}</Text>
             {Preview && <Preview item={row.item} repoDir={repoDir} />}
-            {row.isImage && (
+            {row.isImage && row.item.theirsBlob && !row.item.theirsDeleted && (
               <PrimaryButton
                 label="Compare"
                 size={PrimaryButtonSize.Small}
                 variant={PrimaryButtonVariant.Muted}
                 isGrowing
-                onClick={async () => setImageDiff(await loadImageDiff(repoDir, row.item))}
+                onClick={async () => {
+                  const diff = await loadImageDiff(repoDir, row.item);
+                  if (diff.modified) setImageDiff(diff);
+                  else ToastLayer.showError('The other side of this image could not be read.');
+                }}
               />
             )}
             <HStack hasSpacing={1}>
