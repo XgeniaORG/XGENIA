@@ -257,6 +257,8 @@ export function VisualCanvas({
           ref={webviewRef}
           className={css.Webview}
           title="Preview"
+          // Matched by name in main/src/preview-frame.js: the Tools modal's iframe shares this origin.
+          name="xgenia-preview"
           style={{ backgroundColor: 'white', border: 0 }}
           allow="clipboard-read; clipboard-write; autoplay; fullscreen"
         />

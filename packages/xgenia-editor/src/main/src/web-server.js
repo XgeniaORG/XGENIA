@@ -4,6 +4,7 @@ const https = require('https');
 const nodePath = require('path');
 const { parseRequestUrl } = require('./request-url');
 const { originAllowed, mayRegisterAs } = require('./relay-guard');
+const { isCaptureUserAgent, captureMayRelay } = require('./offscreen-capture');
 const path = require('path');
 
 const { contentTypeForUrl } = require('./content-type');
@@ -1084,6 +1085,8 @@ function startWebSocketServer(server) {
     };
     var remoteAddress = req && req.socket && req.socket.remoteAddress;
     var origin = req && req.headers && req.headers.origin;
+    // A hidden offscreen capture window (offscreen-capture.js): never "the game" to the editor.
+    handle.capture = isCaptureUserAgent(req && req.headers && req.headers['user-agent']);
     connectedSockets.push(handle);
 
     (function () {
@@ -1111,7 +1114,8 @@ function startWebSocketServer(server) {
               JSON.stringify({
                 cmd: 'registered',
                 type: _handle.type,
-                clientId: _handle.clientId
+                clientId: _handle.clientId,
+                ...(_handle.capture ? { capture: true } : {})
               }),
               _handle.type
             );
@@ -1123,6 +1127,11 @@ function startWebSocketServer(server) {
         // Nothing is relayed for a socket that has not registered: its messages used to be
         // broadcast to every client, viewers included.
         else if (!_handle.type) {
+          return;
+        }
+        // A capture window only fetches the project; anything else it says would be taken for the
+        // user's preview (its warnings, console, eval results).
+        else if (_handle.capture && _handle.type === 'viewer' && !captureMayRelay(request)) {
           return;
         }
         // If this is a request to a service, pass it along to the service

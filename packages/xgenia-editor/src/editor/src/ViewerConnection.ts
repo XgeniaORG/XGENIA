@@ -31,6 +31,16 @@ const port = process.env.XGENIAPORT || 8574;
 export function soleTargetOrBroadcast(clientIds: string[]): string | undefined {
   return clientIds.length === 1 ? clientIds[0] : undefined;
 }
+
+/**
+ * The game viewer's client id: the sole real browser client that is not a hidden capture window.
+ * (2026-11-12) A design capture loads the preview in an offscreen window of its own
+ * (main/src/offscreen-capture.js) that registers as a browser viewer like any other; counted, it
+ * would make two candidates and every eval and signal would broadcast for as long as it lives.
+ */
+export function gameViewerTarget(browserClientIds: string[], captureClientIds: ReadonlySet<string>): string | undefined {
+  return soleTargetOrBroadcast(browserClientIds.filter((id) => !captureClientIds.has(id)));
+}
 // PURE-SELECTORS:END
 
 export class ViewerConnection extends Model {
@@ -38,6 +48,8 @@ export class ViewerConnection extends Model {
   watchModelChangesDisabled: boolean;
   lastExports: object;
   clientsToExportTo: Set<unknown>;
+  /** Viewers that are hidden capture windows (main/src/offscreen-capture.js), by client id. */
+  captureClientIds: Set<string> = new Set();
   registeredRuntimeTypes: Set<unknown>;
   highlightedNode: NodeGraphNode;
   exportTimeout: any;
@@ -106,11 +118,18 @@ export class ViewerConnection extends Model {
 
     // A new viewer is connected
     if (request.cmd === 'registered' && request.type === 'viewer') {
+      // A hidden capture window is not the user's preview: its arrival must not wipe the preview's
+      // warnings, and it is never addressed as the game (gameViewerTarget).
+      if (request.capture === true) {
+        this.captureClientIds.add(request.clientId);
+        return;
+      }
       WarningsModel.instance.clearWarningsForRefMatching((ref) => ref.isFromViewer);
       this.sendDebugInspectorsEnabled();
     }
     //a viewer disconnected
     else if (request.cmd === 'disconnect') {
+      this.captureClientIds.delete(request.clientId);
       this.clientsToExportTo.delete(request.clientId);
       NodeLibraryImporter.instance.onClientDisconnect(request.clientId);
     }
@@ -261,7 +280,7 @@ export class ViewerConnection extends Model {
    */
   private getGameViewerClientId(): string | undefined {
     try {
-      return soleTargetOrBroadcast(NodeLibraryImporter.instance.realClientsWithRuntime(RuntimeType.Browser));
+      return gameViewerTarget(NodeLibraryImporter.instance.realClientsWithRuntime(RuntimeType.Browser), this.captureClientIds);
     } catch (e: any) {
       // Addressing is an optimisation over broadcast — never let it break the send.
       console.warn('[ViewerConnection] Could not resolve the game viewer client:', e?.message || e);
