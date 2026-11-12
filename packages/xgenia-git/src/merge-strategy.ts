@@ -1,5 +1,5 @@
 import { addAll } from './core/add';
-import { getFileContents } from './core/cat-file';
+import { MergeConflictItem, MergeHandler, mergeHandlers, readBlob, readConflicts, writeConflicts } from './merge-handlers';
 import { IMergeTreeEntry, MergeTreeError } from './core/models/merge';
 
 import fs from 'fs';
@@ -31,73 +31,101 @@ export class MergeStrategy {
   ) {}
 
   public async solveConflicts(tree: MergeTreeError) {
-    const projectJsonFiles = new Set<IMergeTreeEntry>(); //handle repos with multiple xgenia projects
-    const otherFiles = new Set<IMergeTreeEntry>();
+    const handlers: MergeHandler[] = [this.projectJsonHandler(), ...mergeHandlers()];
+    const resolved: IMergeTreeEntry[] = [];
+    const found: MergeConflictItem[] = [];
+    const solvedPaths = new Set<string>();
 
     for (const entry of tree.conflictedEntries) {
-      if (entry.hasConflicts) {
-        const parent = entry.base || entry.our || entry.their;
-        if (parent.path === 'project.json' || parent.path.slice(-13) === '/project.json') {
-          projectJsonFiles.add(entry);
-        } else {
-          otherFiles.add(entry);
-        }
-      }
+      if (!entry.hasConflicts) continue;
+      const parent = entry.base || entry.our || entry.their;
+      solvedPaths.add(parent.path);
+      const handler = handlers.find((h) => h.match(parent.path));
+      const items = handler ? await this.resolveWithHandler(handler, entry) : await this.resolveFileConflict(entry);
+      found.push(...items);
+      resolved.push(entry);
     }
-
-    // Resolve conflicts
-    const projectPromises = Array.from(projectJsonFiles).map((x) => this.resolveProjectJsonConflict(x));
-    const otherFilePromises = Array.from(otherFiles).map((x) => this.resolveFileConflict(x));
-
-    const allPromises = [...projectPromises, ...otherFilePromises];
-    await Promise.all(allPromises);
 
     // Mark all the file as resolved resolution
     await addAll(this.repositoryDir);
 
+    // Keep what is still open from earlier merges, replace what this merge decided about.
+    if (solvedPaths.size > 0) {
+      const previous = (await readConflicts(this.repositoryDir)).filter((x) => !solvedPaths.has(x.path));
+      await writeConflicts(this.repositoryDir, [...previous, ...found]);
+    }
+
     // Return all files that were resolved
-    return [...projectJsonFiles, ...otherFiles];
+    return resolved;
   }
 
-  private async resolveFileConflict(entry: IMergeTreeEntry) {
-    const parent = entry.base || entry.our || entry.their;
-    console.log('resolveFileConflict', parent.path);
-
-    const targetEntry = entry[this.strategy];
-    console.log('vcs: resolving file conflict', targetEntry.path, 'using', this.strategy);
-    const ourBlob = await getFileContents(this.repositoryDir, targetEntry.sha);
-
-    const absolutePath = path.join(this.repositoryDir, parent.path);
-    // Write our version of the file
-    await fs.promises.writeFile(absolutePath, ourBlob);
+  private async readSide(side?: { sha: string }): Promise<Buffer | null> {
+    return side ? readBlob(this.repositoryDir, side.sha) : null;
   }
 
-  private async resolveProjectJsonConflict(entry: IMergeTreeEntry) {
+  private async resolveWithHandler(handler: MergeHandler, entry: IMergeTreeEntry): Promise<MergeConflictItem[]> {
     const parent = entry.base || entry.our || entry.their;
-    console.log('resolveProjectJsonConflict', parent.path);
-
-    const results = await Promise.all([
-      entry.base ? getFileContents(this.repositoryDir, entry.base.sha) : Promise.resolve('{}'),
-      entry.our ? getFileContents(this.repositoryDir, entry.our.sha) : Promise.resolve('{}'),
-      entry.their ? getFileContents(this.repositoryDir, entry.their.sha) : Promise.resolve('{}')
+    const [base, ours, theirs] = await Promise.all([
+      this.readSide(entry.base),
+      this.readSide(entry.our),
+      this.readSide(entry.their)
     ]);
+    const result = await handler.merge(base, ours, theirs, parent.path);
+    await this.writeResult(parent.path, result.merged);
+    return result.conflicts;
+  }
 
-    const ancestor = tryParseJson(results[0].toString());
-    const ours = tryParseJson(results[1].toString());
-    const theirs = tryParseJson(results[2].toString());
-
-    if (!ancestor) {
-      throw new Error("Failed to solve project.json conflict. Couldn't parse ancestor: " + results[0].toString());
+  private async writeResult(relativePath: string, content: Buffer | null) {
+    const absolutePath = path.join(this.repositoryDir, relativePath);
+    if (content === null) {
+      await fs.promises.rm(absolutePath, { force: true });
+    } else {
+      await fs.promises.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.promises.writeFile(absolutePath, content);
     }
-    if (!ours) {
-      throw new Error("Failed to solve project.json conflict. Couldn't parse ours: " + results[1].toString());
-    } else if (!theirs) {
-      throw new Error("Failed to solve project.json conflict. Couldn't parse theirs: " + results[2].toString());
-    }
+  }
 
-    const mergedResult = this.mergeProject(ancestor, ours, theirs);
+  /**
+   * No handler wants this file. The kept side stays on disk, but the conflict is
+   * returned so it is listed for the user instead of being lost silently.
+   */
+  private async resolveFileConflict(entry: IMergeTreeEntry): Promise<MergeConflictItem[]> {
+    const parent = entry.base || entry.our || entry.their;
+    const target = entry[this.strategy];
+    console.log('vcs: resolving file conflict', parent.path, 'using', this.strategy);
+    await this.writeResult(parent.path, await this.readSide(target));
+    return [
+      {
+        path: parent.path,
+        label: parent.path,
+        preview: `Changed on both sides; kept ${this.strategy === 'our' ? 'your' : 'the other'} version`
+      }
+    ];
+  }
 
-    const absolutePath = path.join(this.repositoryDir, parent.path);
-    await fs.promises.writeFile(absolutePath, JSON.stringify(mergedResult));
+  /** The built-in handler for project.json files. It always runs before the registered ones. */
+  private projectJsonHandler(): MergeHandler {
+    return {
+      id: 'project.json',
+      match: (p) => p === 'project.json' || p.slice(-13) === '/project.json',
+      merge: async (base, ours, theirs) => {
+        const text = (b: Buffer | null) => (b ? b.toString() : '{}');
+        const ancestor = tryParseJson(text(base));
+        const ourJson = tryParseJson(text(ours));
+        const theirJson = tryParseJson(text(theirs));
+
+        if (!ancestor) {
+          throw new Error("Failed to solve project.json conflict. Couldn't parse ancestor: " + text(base));
+        }
+        if (!ourJson) {
+          throw new Error("Failed to solve project.json conflict. Couldn't parse ours: " + text(ours));
+        } else if (!theirJson) {
+          throw new Error("Failed to solve project.json conflict. Couldn't parse theirs: " + text(theirs));
+        }
+
+        const mergedResult = this.mergeProject(ancestor, ourJson, theirJson);
+        return { merged: Buffer.from(JSON.stringify(mergedResult)), conflicts: [] };
+      }
+    };
   }
 }

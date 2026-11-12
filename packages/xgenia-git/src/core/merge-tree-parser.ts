@@ -179,7 +179,19 @@ export function parseMergeTreeResult(text: string): MergeTreeResult {
     currentMergeEntry = undefined;
   }
 
-  const entriesWithConflicts = entries.filter((e) => e.hasConflicts || false);
+  // Binary files changed on both sides have no text diff at all (a cleanly merged text file does),
+  // so there are no conflict markers to find. Without this they were reported as a clean merge.
+  const markBinaryConflict = (e: IMergeTreeEntry): IMergeTreeEntry =>
+    !e.hasConflicts &&
+    e.diff.trim() === '' &&
+    e.our &&
+    e.their &&
+    e.our.sha !== e.their.sha &&
+    (e.context === 'changed in both' || e.context === 'added in both')
+      ? { ...e, hasConflicts: true }
+      : e;
+
+  const entriesWithConflicts = entries.map(markBinaryConflict).filter((e) => e.hasConflicts || false);
 
   if (entriesWithConflicts.length > 0) {
     return {
