@@ -1582,6 +1582,59 @@ function _pickNodeAt(clientX, clientY) {
   return null;
 }
 
+// --- Click depth (Figma groups) ---
+// A click selects the outermost node at the pointer — the button, not the picture inside it —
+// so a drag moves the whole thing. A double-click goes one level deeper. Once inside a group,
+// a click picks among that group's children, so siblings stay at the same depth. Containers
+// that fill the screen are passed over: a click never grabs the whole screen.
+
+/** [{nodeId, el}] from the hit node out to the outermost node. Locked and hidden nodes are left out. */
+function _nodeChainAt(hit) {
+  const chain = [];
+  const seen = new Set();
+  const start = _nodeElementFor(hit.el, hit.nodeId) || _closestNodeElement(hit.el);
+  for (let cur = start; cur && cur !== document.body; cur = cur.parentElement) {
+    const id = cur.getAttribute && cur.getAttribute('data-xgenia-node-id');
+    if (!id || seen.has(id) || cur.closest(_CHROME_SELECTOR)) continue;
+    seen.add(id);
+    if (_isLocked(id) || _hiddenIds.has(id)) continue;
+    chain.push({ nodeId: id, el: cur });
+  }
+  if (!chain.length || chain[0].nodeId !== hit.nodeId) chain.unshift(hit);
+  return chain;
+}
+
+function _coversScreen(el, screen) {
+  const r = el.getBoundingClientRect();
+  return r.width >= screen.width * 0.9 && r.height >= screen.height * 0.9;
+}
+
+/** Which node a click on `hit` means. `deeper`: a double-click, one level in from the selection. */
+function _resolvePick(hit, deeper) {
+  const chain = _nodeChainAt(hit);
+  if (chain.length <= 1) return chain[0];
+  const screen = chain[chain.length - 1].el.getBoundingClientRect();
+  const sel = _selectedNodeId;
+  const selAt = sel ? chain.findIndex((c) => c.nodeId === sel) : -1;
+  if (selAt !== -1) {
+    if (deeper) return chain[Math.max(0, selAt - 1)];
+    // On the selection, or inside it: keep it (a full-screen selection does not trap clicks).
+    if (!_coversScreen(chain[selAt].el, screen)) return chain[selAt];
+  }
+  // Inside the selection's parent: its child on this chain, a sibling of the selection.
+  if (sel && _selectedElement && _selectedElement.parentElement) {
+    const parentEl = _closestNodeElement(_selectedElement.parentElement);
+    const parentId = parentEl && parentEl.getAttribute('data-xgenia-node-id');
+    const at = parentId ? chain.findIndex((c) => c.nodeId === parentId) : -1;
+    if (at > 0 && !_coversScreen(chain[at - 1].el, screen)) return chain[at - 1];
+  }
+  // Fresh click: the outermost node that does not fill the screen.
+  for (let i = chain.length - 1; i >= 0; i--) {
+    if (!_coversScreen(chain[i].el, screen)) return chain[i];
+  }
+  return chain[0];
+}
+
 // --- pixi / three bridges ---
 // Sprites and 3D objects are not DOM elements: the bridges hit-test, draw and drag them on
 // their own canvas. These are the few questions the DOM overlay needs to ask them.
@@ -3361,7 +3414,8 @@ window.XgeniaEditorInspectorAPI = {
         // No pre-selection highlight: selection chrome appears on click only.
         // The editor is still told what is under the cursor — once per node, not per pixel:
         // every message repaints the node graph.
-        const hovered = _pickNodeAt(e.clientX, e.clientY);
+        const hit = _pickNodeAt(e.clientX, e.clientY);
+        const hovered = hit ? _resolvePick(hit, false) : null;
         const xgeniaNode = hovered ? hovered.nodeId : null;
         if (xgeniaNode === _lastHoverNodeId) return;
         _lastHoverNodeId = xgeniaNode;
@@ -3404,8 +3458,10 @@ window.XgeniaEditorInspectorAPI = {
         // the DOM node under it here (the Stage) overwrote that pick on every click.
         if (_bridgeOwns(e.target)) return;
 
-        // The topmost node under the pointer that is not locked or hidden.
-        const picked = _pickNodeAt(e.clientX, e.clientY);
+        // The outermost node under the pointer (the button, not its picture) that is not locked
+        // or hidden; inside the selection's group, a sibling at the same depth.
+        const raw = _pickNodeAt(e.clientX, e.clientY);
+        const picked = raw ? (e.altKey ? raw : _resolvePick(raw, false)) : null;
         let nodeId = picked ? picked.nodeId : null;
         let foundElement = picked ? picked.el : null;
 
@@ -3481,11 +3537,26 @@ window.XgeniaEditorInspectorAPI = {
         }
       };
 
-      // --- Double-click: add the topmost node to the chat as a reference ---
+      // --- Double-click: one level deeper (the picture inside the selected button). With
+      // nothing deeper, add the selected node to the chat as a reference. ---
       const dblclickHandler = (e) => {
         if (_contextMenu && _contextMenu.contains(e.target)) return;
         const bridgeNodeId = _bridgeOwns(e.target) ? _bridgeSelectedNodeId() : null;
-        const nodeIds = bridgeNodeId ? [bridgeNodeId] : _nodeIdsAtPoint(e.clientX, e.clientY);
+        if (!bridgeNodeId && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+          const raw = _pickNodeAt(e.clientX, e.clientY);
+          const inner = raw && _selectedNodeId ? _resolvePick(raw, true) : null;
+          if (inner && inner.nodeId !== _selectedNodeId) {
+            e.preventDefault();
+            e.stopPropagation();
+            const el = _nodeElementFor(inner.el, inner.nodeId) || inner.el;
+            const label = el.getAttribute('data-xgenia-node-label') || el.getAttribute('data-node-label') || inner.nodeId;
+            _bridgesClearSelection();
+            _showSelection(el, inner.nodeId, label);
+            _announceSelection(inner.nodeId, el, e.clientX, e.clientY, label);
+            return;
+          }
+        }
+        const nodeIds = bridgeNodeId ? [bridgeNodeId] : (_selectedNodeId ? [_selectedNodeId] : _nodeIdsAtPoint(e.clientX, e.clientY));
         if (!nodeIds.length) return;
         e.preventDefault();
         e.stopPropagation();
@@ -3588,9 +3659,13 @@ window.XgeniaEditorInspectorAPI = {
         // A press drags the selection only ON the selection — a label inside the selected
         // button counts, a different node lying over a selected background does not. With the
         // background selected, pressing the spin button used to drag the background.
-        const hit = _pickNodeAt(e.clientX, e.clientY);
+        // A press picks what a click there would (the outermost node: the button, not its
+        // picture), so a drag that follows moves the whole button.
+        const rawHit = _pickNodeAt(e.clientX, e.clientY);
+        const hit = rawHit ? _resolvePick(rawHit, false) : null;
         const onSelection = _isInsideSelection(p.x, p.y) &&
-          (!hit || _members().some((m) => m.nodeId === hit.nodeId || m.el.contains(hit.el)));
+          (!hit || _members().some((m) => m.nodeId === hit.nodeId) ||
+            (_isMulti() && _members().some((m) => m.el.contains(rawHit.el))));
         if (!onSelection && hit && !e.shiftKey && !e.altKey) {
           // Pick the node under the pointer now (Unity) and let a drag that follows move it (Figma).
           _pickAndPress(hit, e);
