@@ -158,6 +158,7 @@
     "passport": "0.7.0",
     "passport-local": "^1.0.0",
     "prettier": "^3.9.10",
+    "pngjs": "^7.0.0",
     "qrcode": "^1.5.4",
     "react": "19.1.1",
     "react-dom": "19.1.1",
