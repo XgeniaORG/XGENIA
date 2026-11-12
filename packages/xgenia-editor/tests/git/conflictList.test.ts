@@ -5,6 +5,7 @@ import {
   canTakeTheirs,
   settleAndReload,
   canCommitWith,
+  conflictRefusal,
   isImagePath
 } from '../../src/editor/src/views/panels/VersionControlPanel/components/conflictListModel';
 import {
@@ -84,4 +85,20 @@ test('an item whose other side could not be recorded only offers keep mine', () 
   assert.deepEqual(conflictRows([unavailable])[0].actions.map((x) => x.label), ['Keep mine']);
   assert.equal(canTakeTheirs({ path: 'c/x.json', label: 'P', theirsDeleted: true }), true);
   assert.equal(canTakeTheirs({ path: 'c/x.json', label: 'P' }), true);
+});
+
+test('the chat bridge guard refuses commit/push while conflicts are listed, reading them fresh', async () => {
+  const reads: string[] = [];
+  let listed: any[] = [a, b];
+  const read = async (dir: string) => {
+    reads.push(dir);
+    return listed;
+  };
+  const refused = await conflictRefusal('/proj', read);
+  assert.equal(refused?.success, false);
+  assert.equal(refused?.conflicts, 2);
+  assert.match(refused!.error, /Resolve the conflicts first/);
+  listed = [];
+  assert.equal(await conflictRefusal('/proj', read), null);
+  assert.deepEqual(reads, ['/proj', '/proj']);
 });

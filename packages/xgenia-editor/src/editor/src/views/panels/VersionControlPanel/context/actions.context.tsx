@@ -316,11 +316,11 @@ export function useVersionControlActions({
     async (options?: { amend?: boolean; thenPush?: boolean; thenSync?: boolean }) => {
       const amend = options?.amend === true;
 
-    const blocked = await conflictBlock(repositoryPath, readConflicts);
-    if (blocked) {
-      ToastLayer.showError(blocked);
-      return;
-    }
+      const blocked = await conflictBlock(repositoryPath, readConflicts);
+      if (blocked) {
+        ToastLayer.showError(blocked);
+        return;
+      }
 
       // Amending a commit that is already on the remote would need a force push.
       if (amend && !fetch.localCommitCount) {
@@ -385,6 +385,7 @@ export function useVersionControlActions({
     },
     [
       git,
+      repositoryPath,
       commitMessage,
       fetch.localCommitCount,
       fetchLocal,

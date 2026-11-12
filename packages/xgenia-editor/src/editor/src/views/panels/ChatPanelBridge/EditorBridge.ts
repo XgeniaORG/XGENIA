@@ -24,6 +24,7 @@ import { RailPresence } from '@xgenia-models/railpresence';
 import { GitStatus } from '@xgenia-models/gitstatus';
 import { emitProjectEvent } from '@xgenia-utils/extensions/projectExtensions';
 import { untrackInProject } from '@xgenia-utils/extensions/gitUntrack';
+import { conflictRefusal } from '../VersionControlPanel/components/conflictListModel';
 import { ComponentModel } from '@xgenia-models/componentmodel';
 import { NodeGraphModel, NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 import { NodeLibrary } from '@xgenia-models/nodelibrary';
@@ -2553,7 +2554,10 @@ export class EditorBridge {
                 if (!message || typeof message !== 'string') {
                     return { success: false, error: 'Commit message required' };
                 }
-                const { Git } = await import('@xgenia/git');
+                const { Git, readConflicts } = await import('@xgenia/git');
+                // the same refusal the Version Control panel gives while merge conflicts are listed
+                const refusal = await conflictRefusal(pm._retainedProjectDirectory, readConflicts);
+                if (refusal) return refusal;
                 const { mergeProject } = await import('@xgenia-utils/projectmerger');
                 const g = new Git(mergeProject);
                 await g.openRepository(pm._retainedProjectDirectory);
@@ -2670,7 +2674,9 @@ export class EditorBridge {
                 // through the bridge has never worked. Use the INSTANCE
                 // methods (g.getRemoteName / g.push) which resolve the
                 // repo from the opened baseDir.
-                const { Git } = await import('@xgenia/git');
+                const { Git, readConflicts } = await import('@xgenia/git');
+                const refusal = await conflictRefusal(pm._retainedProjectDirectory, readConflicts);
+                if (refusal) return refusal;
                 const { mergeProject } = await import('@xgenia-utils/projectmerger');
                 const g = new Git(mergeProject);
                 await g.openRepository(pm._retainedProjectDirectory);

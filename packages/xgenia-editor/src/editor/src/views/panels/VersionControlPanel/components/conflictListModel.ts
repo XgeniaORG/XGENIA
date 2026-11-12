@@ -73,6 +73,25 @@ export async function conflictBlock(
   return (await read(repoDir)).length > 0 ? CONFLICTS_BLOCK_MESSAGE : null;
 }
 
+/**
+ * The same guard for callers outside the panel (the chat bridge's git.commit and git.push):
+ * a failed result to return while listed conflicts remain, else null.
+ */
+export async function conflictRefusal(
+  repoDir: string,
+  read: (repoDir: string) => Promise<MergeConflictItem[]>
+): Promise<{ success: false; error: string; conflicts: number } | null> {
+  const items = await read(repoDir);
+  const blocked = await conflictBlock(repoDir, async () => items);
+  return blocked
+    ? {
+        success: false,
+        error: `${blocked} ${items.length} merge conflict${items.length === 1 ? ' is' : 's are'} listed in the Version Control panel; the user settles them there (keep mine / keep theirs).`,
+        conflicts: items.length
+      }
+    : null;
+}
+
 /** Pull, then push only when the pull left no listed conflicts. */
 export async function syncUnlessBlocked(a: {
   pull: () => Promise<boolean>;
