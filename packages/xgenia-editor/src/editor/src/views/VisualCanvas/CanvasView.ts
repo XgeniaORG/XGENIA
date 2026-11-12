@@ -14,6 +14,7 @@ import type { PreviewHost } from './IframeViewer';
 import { VisualCanvas } from './VisualCanvas';
 import { measureInPlaceSurfaceProof, browserSurfaceProofEnv, sampleOccluders } from './surfaceProof';
 import { waitUntilSettled, letterboxesSettled } from './paintWait';
+import { GUEST_UNSIZED, guestSizeVerdict, guestUnsizedMessage, type Dim } from './guestSize';
 
 /**
  * Chatter from the running preview, off by default.
@@ -114,6 +115,66 @@ export class CanvasView extends View {
       busy: true,
       holder
     };
+  }
+
+  /** The frame's layout box (CSS px, before the fit-scale transform) and what its guest reports. */
+  private async measureGuest(): Promise<{ box: Dim; guest: Dim }> {
+    const el = this.webview?.element;
+    const box = { w: el?.clientWidth || 0, h: el?.clientHeight || 0 };
+    let guest: Dim = { w: 0, h: 0 };
+    try {
+      const g = await this.webview!.executeJavaScript('({ w: window.innerWidth, h: window.innerHeight })');
+      guest = { w: Number(g?.w) || 0, h: Number(g?.h) || 0 };
+    } catch { /* no answer from the guest: it reports nothing */ }
+    return { box, guest };
+  }
+
+  /**
+   * Remount the preview frame in place: take the same <iframe> element out of the document and put
+   * it back, which gives it a new browsing context (and the out-of-process guest a new size) while
+   * React, IframeViewer and every listener keep the element they hold. Resolves once the new page is
+   * dom-ready, or false after `timeoutMs`.
+   */
+  private remountPreviewFrame(timeoutMs = 15000): Promise<boolean> {
+    const host = this.webview;
+    const el = host?.element;
+    const parent = el?.parentNode;
+    if (!host || !el || !parent) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (ok: boolean) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        host.removeEventListener('dom-ready', onReady);
+        resolve(ok);
+      };
+      const onReady = () => finish(true);
+      const timer = setTimeout(() => finish(false), timeoutMs);
+      host.addEventListener('dom-ready', onReady);
+      this.webviewDomReady = false;
+      const next = el.nextSibling;
+      parent.removeChild(el);
+      parent.insertBefore(el, next);
+    });
+  }
+
+  /**
+   * Before an in-place capture: the guest must have its frame's size. On a mismatch or 0x0, remount
+   * the frame once and measure again. Returns null when it is fine, or the fault to reply with.
+   */
+  private async guestSizeFault(what: string): Promise<{ code: typeof GUEST_UNSIZED; message: string; box: Dim; guest: Dim } | null> {
+    if (!this.webview || !this.webview.isConnected) return null;
+    const zoom = this.zoomFactor || 1;
+    let m = await this.measureGuest();
+    if (guestSizeVerdict(m.box, m.guest, zoom) === 'ok') return null;
+    console.warn(`[CanvasView] ${what}: guest ${m.guest.w}x${m.guest.h} vs frame ${m.box.w}x${m.box.h} — remounting the preview once`);
+    if (await this.remountPreviewFrame()) {
+      await new Promise((r) => setTimeout(r, 500));
+      m = await this.measureGuest();
+      if (guestSizeVerdict(m.box, m.guest, zoom) === 'ok') return null;
+    }
+    return { code: GUEST_UNSIZED, message: guestUnsizedMessage(what, m.box, m.guest), box: m.box, guest: m.guest };
   }
 
   private staleFrameMessage(reason: string): string {
@@ -601,6 +662,18 @@ export class CanvasView extends View {
       // capture resize the surface out from under a retry that is still going to run.
       this._activeCapture = 'thumb';
 
+      // (2026-11-12) A guest that lost its size captures as a black frame while the pane still shows
+      // the game: remount once, else refuse with GUEST_UNSIZED rather than send a black image.
+      if (this.webviewDomReady) {
+        let fault: Awaited<ReturnType<CanvasView['guestSizeFault']>> = null;
+        try { fault = await this.guestSizeFault('screenshot'); } catch { fault = null; }
+        if (fault) {
+          this._activeCapture = null;
+          ipcRenderer.send('viewer-capture-thumb-reply', { error: fault.message, code: fault.code, guest: fault.guest, box: fault.box });
+          return;
+        }
+      }
+
       const attemptCapture = async (attemptNumber = 1, maxAttempts = 3) => {
         // A retry scheduled before dispose() must not answer for a view that is gone — the live
         // view's reply is the one the requester should get.
@@ -910,6 +983,16 @@ export class CanvasView extends View {
         // is still atomic — and now every exit, thrown or returned, reaches the finally.
         this._activeCapture = 'design';
 
+        // The guest must have its frame's size before it is resized to the design: a 0x0 guest never
+        // reaches it (remount once, else GUEST_UNSIZED — the bridge then captures offscreen).
+        {
+          const fault = await this.guestSizeFault('design capture');
+          if (fault) {
+            reply({ success: false, code: fault.code, guest: fault.guest, box: fault.box, message: fault.message });
+            return;
+          }
+        }
+
         // Already laid out at that size (device-viewport mode at the declared screen) and wholly on
         // screen: capture it as it is. Nothing moves, nothing re-lays out.
         let seen = await guestSize();
@@ -932,7 +1015,12 @@ export class CanvasView extends View {
             if (atSize(seen)) break;
           }
           if (!atSize(seen)) {
-            reply({ success: false, message: `design capture: the preview did not reach ${width}x${height} (it reports ${seen.w}x${seen.h}) — the image would be the wrong surface, so none was taken` });
+            reply({
+              success: false,
+              ...(!(seen.w > 0) || !(seen.h > 0) ? { code: GUEST_UNSIZED } : {}),
+              guest: seen,
+              message: `design capture: the preview did not reach ${width}x${height} (it reports ${seen.w}x${seen.h}) — the image would be the wrong surface, so none was taken`
+            });
             return;
           }
           // Then for the game's canvas to follow: resized from what it was, or filling the new

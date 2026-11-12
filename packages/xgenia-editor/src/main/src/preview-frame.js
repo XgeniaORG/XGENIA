@@ -29,12 +29,26 @@ function originOf(url) {
   }
 }
 
-/** The sender's sub-frame showing `origin`; the newest one if a reload briefly left two. */
+/**
+ * The name VisualCanvas gives the preview <iframe>. (2026-11-12) Matching on origin alone picked the
+ * LAST frame on localhost:8574, and the Tools modal's iframe is served from the same origin: with it
+ * open, script meant for the game ran in the modal. The name tells them apart.
+ */
+const PREVIEW_FRAME_NAME = 'xgenia-preview';
+
+/**
+ * The sender's preview sub-frame showing `origin`: the one named PREVIEW_FRAME_NAME, the newest if a
+ * reload briefly left two. A renderer built before the name existed names none, and then the newest
+ * frame on that origin is used, as before.
+ */
 function findPreviewFrame(sender, origin) {
   const root = sender && sender.mainFrame;
   if (!root) return null;
   const matches = root.framesInSubtree.filter((f) => f !== root && !f.detached && originOf(f.url) === origin);
-  return matches.length ? matches[matches.length - 1] : null;
+  if (!matches.length) return null;
+  const named = matches.filter((f) => f.name === PREVIEW_FRAME_NAME);
+  const pool = named.length ? named : matches;
+  return pool[pool.length - 1];
 }
 
 function registerPreviewFrameHandlers(ipcMain) {
@@ -50,4 +64,4 @@ function registerPreviewFrameHandlers(ipcMain) {
   });
 }
 
-module.exports = { registerPreviewFrameHandlers, isPreviewOrigin, findPreviewFrame };
+module.exports = { registerPreviewFrameHandlers, isPreviewOrigin, findPreviewFrame, PREVIEW_FRAME_NAME };

@@ -2034,6 +2034,23 @@ function launchApp() {
         }
       });
 
+      // The design-size capture in a hidden offscreen window of its own (offscreen-capture.js):
+      // independent of the editor's layout, focus and window size, and of the preview frame's
+      // guest size. A fresh load of the preview at its current URL.
+      ipcMain.handle('preview-capture:design-offscreen', async (e, args) => {
+        const { width, height, timeoutMs } = args || {};
+        const port = process.env.XGENIAPORT || 8574;
+        const origin = `http://localhost:${port}`;
+        let url = `${origin}/`;
+        try {
+          const frame = require('./src/preview-frame').findPreviewFrame(win && win.webContents, origin);
+          if (frame && /^https?:\/\//.test(frame.url)) url = frame.url;
+        } catch {
+          /* no preview frame: the preview's root */
+        }
+        return require('./src/offscreen-capture').captureDesignOffscreen({ url, width, height, ...(timeoutMs > 0 ? { timeoutMs } : {}) }, { BrowserWindow });
+      });
+
       ipcMain.on('viewer-capture-design-reply', (e, payload) => {
         if (win && win.webContents && !win.webContents.isDestroyed()) {
           win.webContents.send('viewer-capture-design-reply', payload);

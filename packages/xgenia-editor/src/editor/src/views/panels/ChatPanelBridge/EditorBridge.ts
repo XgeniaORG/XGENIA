@@ -60,6 +60,7 @@ import { connectWithXgeniaRgs, getActiveGame, getRgsSettings, setActiveGame } fr
 import { desktopNotificationService } from '@xgenia-utils/DesktopNotificationService';
 import { resolveInsideProject } from '@xgenia-utils/projectPathGuard';
 import { getActivePreviewHost } from '@xgenia-utils/previewHostRegistry';
+import { shouldCaptureOffscreen } from '../../VisualCanvas/guestSize';
 
 interface PluginCommand {
     id: string;
@@ -3764,6 +3765,7 @@ export class EditorBridge {
                                 stale: !!d.stale,
                                 ...(d.busy ? { busy: true, holder: d.holder } : {}),
                                 ...(d.notReady ? { notReady: true } : {}),
+                                ...(d.code ? { code: d.code, guest: d.guest, box: d.box } : {}),
                                 message: d.error
                             }));
                         } else if (typeof data === 'string' && data) {
@@ -3786,26 +3788,53 @@ export class EditorBridge {
         // (the old <webview> trick) does not work now that the preview is an in-process <iframe>,
         // and why the reply's width/height are the MEASURED captured pixels, not an echo of what
         // was asked for.
+        // (2026-11-12) When the in-place capture fails — the preview's guest window lost its size
+        // (GUEST_UNSIZED), the editor window is hidden or minimised, the surface is held — the same
+        // size is captured in a hidden offscreen window instead (main/src/offscreen-capture.js). That
+        // image is a fresh load of the preview, so the reply says `offscreen: true` and keeps the
+        // in-place reason in `inPlaceFailure`.
+        const captureOffscreen = async (width: number, height: number, timeoutMs?: number): Promise<any> => {
+            try {
+                const { ipcRenderer } = require('electron');
+                return await ipcRenderer.invoke('preview-capture:design-offscreen', { width, height, timeoutMs });
+            } catch (e: any) {
+                return { success: false, message: `offscreen capture error: ${e?.message || e}` };
+            }
+        };
+
         h('viewer.captureDesign', ([width, height]: [number, number]) => {
-            return new Promise((resolve) => {
+            return new Promise<any>((resolve) => {
                 try {
                     const { ipcRenderer } = require('electron');
                     ipcRenderer.send('viewer-capture-design', { width, height });
                     const timeout = setTimeout(() => {
                         ipcRenderer.removeListener('viewer-capture-design-reply', handler);
-                        resolve(JSON.stringify({ success: false, message: 'Design-size screenshot timed out after 20s' }));
+                        resolve({ success: false, timedOut: true, message: 'Design-size screenshot timed out after 20s' });
                     }, 20000);
                     const handler = (_event: any, payload: any) => {
                         clearTimeout(timeout);
                         ipcRenderer.removeListener('viewer-capture-design-reply', handler);
-                        resolve(JSON.stringify(payload || { success: false, message: 'Design capture returned no data' }));
+                        resolve(payload || { success: false, message: 'Design capture returned no data' });
                     };
                     ipcRenderer.on('viewer-capture-design-reply', handler);
                 } catch (e: any) {
-                    resolve(JSON.stringify({ success: false, message: `Design capture error: ${e.message}` }));
+                    resolve({ success: false, message: `Design capture error: ${e.message}` });
                 }
+            }).then(async (inPlace) => {
+                if (!shouldCaptureOffscreen(inPlace)) return JSON.stringify(inPlace);
+                const off = await captureOffscreen(width, height, inPlace.timedOut ? 12000 : undefined);
+                if (off && off.success) return JSON.stringify({ ...off, inPlaceFailure: inPlace.message });
+                // Both failed: the in-place reason first (it is about the pane the user sees).
+                return JSON.stringify({
+                    ...inPlace,
+                    message: `${inPlace.message || 'design capture failed'}; offscreen capture also failed: ${off?.message || 'no reply'}`,
+                    offscreenCode: off?.code
+                });
             });
         });
+
+        // The design size in the offscreen window only — a fresh load, independent of the pane.
+        h('viewer.captureDesignOffscreen', async ([width, height]: [number, number]) => JSON.stringify(await captureOffscreen(width, height)));
 
         h('viewer.getFullHtml', () => {
             return new Promise((resolve) => {
