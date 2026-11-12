@@ -16,7 +16,7 @@ export interface CanvasShortcut {
 const GROUP = 'Edit mode canvas';
 
 export const CANVAS_SHORTCUTS: CanvasShortcut[] = [
-  { group: GROUP, action: 'Select the topmost node', mac: 'Click', other: 'Click' },
+  { group: GROUP, action: 'Select the outermost node (a button, not its picture)', mac: 'Click', other: 'Click' },
   { group: GROUP, action: 'Select the node underneath (repeat to go deeper)', mac: '⌥-click', other: 'Alt-click' },
   { group: GROUP, action: 'Add to / remove from the selection', mac: '⇧-click', other: 'Shift-click' },
   { group: GROUP, action: 'Box select', mac: '⌘-drag', other: 'Ctrl-drag' },
@@ -35,6 +35,6 @@ export const CANVAS_SHORTCUTS: CanvasShortcut[] = [
   { group: GROUP, action: 'Frame the selection (or the whole game), from anywhere', mac: 'F', other: 'F' },
   { group: GROUP, action: 'Deselect', mac: 'Esc', other: 'Esc' },
   { group: GROUP, action: 'Node menu: select, add to chat, arrange', mac: 'Right-click', other: 'Right-click' },
-  { group: GROUP, action: 'Add the node to the chat', mac: 'Double-click', other: 'Double-click' },
+  { group: GROUP, action: 'Go one level deeper · with nothing deeper, add to the chat', mac: 'Double-click', other: 'Double-click' },
   { group: GROUP, action: 'This list (anywhere outside a text field; also Help menu)', mac: '?', other: '?' }
 ];
