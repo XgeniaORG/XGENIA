@@ -161,6 +161,47 @@ test('settle theirs after a further commit', async () => {
   assert.ok(fs.readFileSync(face(dir)).equals(PNG_C));
 });
 
+test('settle theirs restores the files that go with the item; ours leaves them', async () => {
+  const mk = () =>
+    makeRepo({ 'art/face.json': ['{"v":0}', '{"v":1}', '{"v":2}'], 'art/face.png': [PNG_A, PNG_A, PNG_C], 'art/face.sdf.png': [PNG_A, PNG_A, PNG_A] });
+  const withAlso = (dir: string, item: any) => ({
+    ...item,
+    alsoRestore: [
+      { path: 'art/face.png', theirsBlob: run(dir, 'rev-parse', 'other:art/face.png') },
+      { path: 'art/face.sdf.png', theirsDeleted: true },
+      { path: 'art/never.png', theirsDeleted: true }
+    ]
+  });
+  // theirs: json and picture both theirs, the deleted one removed and staged
+  let dir = mk();
+  await mergeIn(dir);
+  let [item] = await readConflicts(dir);
+  assert.equal(item.path, 'art/face.json');
+  await settleConflict(dir, withAlso(dir, item), 'theirs');
+  assert.equal(fs.readFileSync(path.join(dir, 'art/face.json'), 'utf8'), '{"v":2}');
+  assert.ok(fs.readFileSync(face(dir)).equals(PNG_C));
+  assert.equal(fs.existsSync(path.join(dir, 'art/face.sdf.png')), false);
+  assert.equal(run(dir, 'diff', '--name-only'), '');
+  assert.deepEqual(await readConflicts(dir), []);
+  // ours: nothing restored
+  dir = mk();
+  await mergeIn(dir);
+  [item] = await readConflicts(dir);
+  const before = fs.readFileSync(face(dir));
+  await settleConflict(dir, withAlso(dir, item), 'ours');
+  assert.ok(fs.readFileSync(face(dir)).equals(before));
+  assert.ok(fs.existsSync(path.join(dir, 'art/face.sdf.png')));
+  // an unresolvable entry writes nothing at all
+  dir = mk();
+  await mergeIn(dir);
+  [item] = await readConflicts(dir);
+  const json = fs.readFileSync(path.join(dir, 'art/face.json'), 'utf8');
+  const bad = { ...item, alsoRestore: [{ path: 'art/face.png', theirsBlob: '0'.repeat(40) }] };
+  await assert.rejects(settleConflict(dir, bad, 'theirs'));
+  assert.equal(fs.readFileSync(path.join(dir, 'art/face.json'), 'utf8'), json);
+  assert.equal((await readConflicts(dir)).length, 1);
+});
+
 test('settle ours keeps the file and forgets the item', async () => {
   const dir = makeRepo({ 'art/face.png': [PNG_A, PNG_B, PNG_C] });
   await mergeIn(dir);

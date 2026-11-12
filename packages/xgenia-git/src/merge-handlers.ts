@@ -17,6 +17,8 @@ export interface MergeConflictItem {
   theirsBlob?: string;
   /** True when the other side deleted the file (then there is no theirsBlob). */
   theirsDeleted?: boolean;
+  /** Other files that go with this one: settling for theirs restores them too (e.g. a picture beside its data). */
+  alsoRestore?: Array<{ path: string; theirsBlob?: string; theirsDeleted?: boolean }>;
 }
 
 /**
@@ -103,9 +105,12 @@ async function otherSideRevision(repoDir: string): Promise<string> {
 }
 
 /**
- * Settle a listed conflict. 'ours' keeps the file as it is and forgets the item.
- * 'theirs' writes the other side's version of the file (the second parent of the
- * merge commit, or MERGE_HEAD while the merge is not committed yet) and stages it.
+ * Settle a listed conflict. 'ours' keeps the files as they are and forgets the item.
+ * 'theirs' writes the other side's version of the file and of every `alsoRestore`
+ * entry (a recorded blob, a recorded delete, else the second parent of the merge
+ * commit or MERGE_HEAD while the merge is not committed yet) and stages them.
+ * Every version is read before anything is written, so a lookup that fails
+ * changes nothing.
  */
 export async function settleConflict(
   repoDir: string,
@@ -113,25 +118,44 @@ export async function settleConflict(
   side: 'ours' | 'theirs'
 ): Promise<void> {
   if (side === 'theirs') {
-    const absolutePath = path.join(repoDir, item.path);
-    let theirs: Buffer | null;
-    if (item.theirsDeleted) {
-      theirs = null;
-    } else if (item.theirsBlob) {
-      theirs = await readBlob(repoDir, item.theirsBlob);
-    } else {
-      // Items without a recorded side: fall back to the merge in progress or the merge commit.
-      // A lookup that does not resolve throws; it is never read as "deleted on their side".
-      const rev = await otherSideRevision(repoDir);
-      theirs = await readBlob(repoDir, `${rev}:${item.path}`);
+    const entries = [
+      { path: item.path, theirsBlob: item.theirsBlob, theirsDeleted: item.theirsDeleted },
+      ...(item.alsoRestore || [])
+    ];
+    const resolved: Array<{ path: string; theirs: Buffer | null }> = [];
+    for (const entry of entries) {
+      let theirs: Buffer | null;
+      if (entry.theirsDeleted) {
+        theirs = null;
+      } else if (entry.theirsBlob) {
+        theirs = await readBlob(repoDir, entry.theirsBlob);
+      } else {
+        // Entries without a recorded side: fall back to the merge in progress or the merge commit.
+        // A lookup that does not resolve throws; it is never read as "deleted on their side".
+        const rev = await otherSideRevision(repoDir);
+        theirs = await readBlob(repoDir, `${rev}:${entry.path}`);
+      }
+      resolved.push({ path: entry.path, theirs });
     }
-    if (theirs === null) {
-      await fs.promises.rm(absolutePath, { force: true });
-    } else {
-      await fs.promises.mkdir(path.dirname(absolutePath), { recursive: true });
-      await fs.promises.writeFile(absolutePath, theirs);
+    for (const { path: relativePath, theirs } of resolved) {
+      const absolutePath = path.join(repoDir, relativePath);
+      if (theirs === null) {
+        await fs.promises.rm(absolutePath, { force: true });
+      } else {
+        await fs.promises.mkdir(path.dirname(absolutePath), { recursive: true });
+        await fs.promises.writeFile(absolutePath, theirs);
+      }
     }
-    await git(['add', '-A', '--', item.path], repoDir, 'settleConflict');
+    // a path that is neither on disk nor tracked (deleted on both sides) has nothing to stage
+    const stage: string[] = [];
+    for (const r of resolved) {
+      if (fs.existsSync(path.join(repoDir, r.path))) stage.push(r.path);
+      else {
+        const { output } = await git(['ls-files', '--', r.path], repoDir, 'settleConflict');
+        if (output.toString().trim()) stage.push(r.path);
+      }
+    }
+    if (stage.length) await git(['add', '-A', '--', ...stage], repoDir, 'settleConflict');
   }
 
   const remaining = (await readConflicts(repoDir)).filter((x) => !(x.path === item.path && x.item === item.item));
