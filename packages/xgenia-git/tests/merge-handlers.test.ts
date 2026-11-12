@@ -37,10 +37,10 @@ function makeRepo(files: Record<string, [Buffer | string, Buffer | string, Buffe
   run(dir, 'commit', '-qm', 'base');
   run(dir, 'checkout', '-qb', 'other');
   write(2);
-  run(dir, 'commit', '-qm', 'theirs');
+  run(dir, 'commit', '-q', '--allow-empty', '-m', 'theirs');
   run(dir, 'checkout', '-q', 'main');
   write(1);
-  run(dir, 'commit', '-qm', 'ours');
+  run(dir, 'commit', '-q', '--allow-empty', '-m', 'ours');
   return dir;
 }
 
@@ -77,8 +77,8 @@ test('a handler gets the repository folder and keeps the other side it records',
   registerMergeHandler({
     id: 'test-sides',
     match: (p) => p.endsWith('.sides'),
-    merge: async (_b, o, _t, p, repoDir) => {
-      seenDir = repoDir;
+    merge: async (_b, o, _t, p, ctx) => {
+      seenDir = ctx.repoDir;
       return {
         merged: o,
         conflicts: [
@@ -101,13 +101,13 @@ test('a handler gets the repository folder and keeps the other side it records',
   assert.equal(by('none').theirsBlob, run(dir, 'rev-parse', 'other:y.sides'));
 });
 
-test('a handler gets the other side\'s commit when the strategy knows it', async () => {
-  let seenRev: string | null | undefined;
+test('a handler gets both sides\' commits when the strategy knows them', async () => {
+  let seen: any;
   registerMergeHandler({
     id: 'test-rev',
     match: (p) => p.endsWith('.rev'),
-    merge: async (_b, o, _t, _p, _d, theirsRev) => {
-      seenRev = theirsRev;
+    merge: async (_b, o, _t, _p, ctx) => {
+      seen = ctx;
       return { merged: o, conflicts: [] };
     }
   });
@@ -119,8 +119,41 @@ test('a handler gets the other side\'s commit when the strategy knows it', async
   }
   const branch = (name: string) => ({ tip: { sha: run(dir, 'rev-parse', name) } }) as any;
   const tree = await mergeTree(dir, branch('main'), branch('other'));
-  await new MergeStrategy(dir, (_a, o) => o, 'our', run(dir, 'rev-parse', 'other')).solveConflicts(tree as any);
-  assert.equal(seenRev, run(dir, 'rev-parse', 'other'));
+  const revs = { oursRev: run(dir, 'rev-parse', 'main'), theirsRev: run(dir, 'rev-parse', 'other') };
+  await new MergeStrategy(dir, (_a, o) => o, 'our', revs).solveConflicts(tree as any);
+  assert.equal(seen.oursRev, revs.oursRev);
+  assert.equal(seen.theirsRev, revs.theirsRev);
+  assert.equal(fs.realpathSync(seen.repoDir), fs.realpathSync(dir));
+});
+
+test('stash pop: handlers get the stash commit as ours and HEAD as theirs', async () => {
+  const { solveStashConflicts } = await import('../src/merge-branch');
+  let seen: any;
+  registerMergeHandler({
+    id: 'test-stash',
+    match: (p) => p.endsWith('.stash'),
+    merge: async (_b, o, _t, _p, ctx) => {
+      seen = ctx;
+      return { merged: o, conflicts: [] };
+    }
+  });
+  const dir = makeRepo({ 's.stash': ['a\n', 'a\n', 'a\n'] });
+  fs.writeFileSync(path.join(dir, 's.stash'), 'a\nlocal change\n');
+  run(dir, 'stash', 'push', '-q');
+  const stashSha = run(dir, 'rev-parse', 'stash@{0}');
+  fs.writeFileSync(path.join(dir, 's.stash'), 'a\nupstream\n');
+  run(dir, 'commit', '-qam', 'upstream');
+  try {
+    run(dir, 'stash', 'pop', '-q');
+  } catch {
+    // conflicts are expected
+  }
+  const head = run(dir, 'rev-parse', 'HEAD');
+  await solveStashConflicts(dir, (_a: any, o: any) => o, stashSha, head);
+  assert.ok(seen, 'the handler ran');
+  assert.equal(seen.oursRev, stashSha);
+  assert.equal(seen.theirsRev, head);
+  assert.equal(fs.readFileSync(path.join(dir, 's.stash'), 'utf8'), 'a\nlocal change\n', 'the stash side is ours');
 });
 
 test('settle theirs refuses an item whose other side could not be recorded, before writing', async () => {
@@ -152,6 +185,104 @@ test('a branch merge from the panel lists conflicts and keeps ours on disk', asy
   assert.equal(run(dir, 'rev-parse', 'HEAD^2'), run(dir, 'rev-parse', 'other'), 'a merge commit');
 });
 
+test('a branch merge fast-forwards and keeps git\'s own message', async () => {
+  const { mergeBranchIntoCurrent } = await import('../src/merge-branch');
+  // fast-forward: main has nothing of its own
+  let dir = makeRepo({ 'a.txt': ['a\n', 'a\n', 'a\nmore\n'] });
+  run(dir, 'reset', '-q', '--hard', 'main~1');
+  await mergeBranchIntoCurrent(dir, 'other', (_a: any, o: any) => o);
+  assert.equal(run(dir, 'rev-parse', 'HEAD'), run(dir, 'rev-parse', 'other'), 'fast-forwarded, no merge commit');
+  // a real merge with no message typed uses git's default message
+  dir = makeRepo({ 'a.txt': ['a\nb\nc\n', 'A\nb\nc\n', 'a\nb\nC\n'] });
+  run(dir, 'config', 'user.name', 't');
+  run(dir, 'config', 'user.email', 't@t');
+  await mergeBranchIntoCurrent(dir, 'other', (_a: any, o: any) => o);
+  assert.equal(run(dir, 'log', '-1', '--format=%s'), "Merge branch 'other'");
+  // a conflicted merge with no message typed also gets git's default message
+  dir = makeRepo({ 'art/face.png': [PNG_A, PNG_B, PNG_C] });
+  run(dir, 'config', 'user.name', 't');
+  run(dir, 'config', 'user.email', 't@t');
+  await mergeBranchIntoCurrent(dir, 'other', (_a: any, o: any) => o);
+  assert.equal(run(dir, 'log', '-1', '--format=%s'), "Merge branch 'other'");
+  assert.equal(run(dir, 'rev-parse', 'HEAD^2'), run(dir, 'rev-parse', 'other'));
+});
+
+test('a branch merge git refuses throws and makes no commit', async () => {
+  const { mergeBranchIntoCurrent } = await import('../src/merge-branch');
+  // local changes in the way
+  let dir = makeRepo({ 't.txt': ['a\nb\nc\n', 'A\nb\nc\n', 'a\nb\nC\n'] });
+  run(dir, 'config', 'user.name', 't');
+  run(dir, 'config', 'user.email', 't@t');
+  let head = run(dir, 'rev-parse', 'HEAD');
+  fs.writeFileSync(path.join(dir, 't.txt'), 'A\nb\nc\nlocal edit\n');
+  await assert.rejects(mergeBranchIntoCurrent(dir, 'other', (_a: any, o: any) => o, 'Merge other'), /local changes/);
+  assert.equal(run(dir, 'rev-parse', 'HEAD'), head, 'no commit made');
+  assert.equal(fs.readFileSync(path.join(dir, 't.txt'), 'utf8'), 'A\nb\nc\nlocal edit\n', 'local change untouched');
+  assert.deepEqual(await readConflicts(dir), []);
+  // an untracked file in the way of a clean merge
+  dir = makeRepo({ 'a.txt': ['a\n', 'a\nours\n', 'a\n'] });
+  run(dir, 'config', 'user.name', 't');
+  run(dir, 'config', 'user.email', 't@t');
+  run(dir, 'checkout', '-q', 'other');
+  fs.writeFileSync(path.join(dir, 'new.txt'), 'theirs');
+  run(dir, 'add', '-A');
+  run(dir, 'commit', '-qm', 'add new');
+  run(dir, 'checkout', '-q', 'main');
+  fs.writeFileSync(path.join(dir, 'new.txt'), 'mine, untracked');
+  head = run(dir, 'rev-parse', 'HEAD');
+  await assert.rejects(mergeBranchIntoCurrent(dir, 'other', (_a: any, o: any) => o), /untracked/);
+  assert.equal(run(dir, 'rev-parse', 'HEAD'), head, 'no commit made');
+  assert.equal(fs.readFileSync(path.join(dir, 'new.txt'), 'utf8'), 'mine, untracked');
+});
+
+test('a file changed on one side and deleted on the other is listed through the real merge path', async () => {
+  const { mergeBranchIntoCurrent } = await import('../src/merge-branch');
+  // ours changed it, theirs deleted it: ours kept, listed, theirs = deleted
+  let dir = makeRepo({ 'doc.txt': ['a\n', 'a\nmine\n', 'a\n'], 'keep.txt': ['k\n', 'k\n', 'k\n'] });
+  run(dir, 'config', 'user.name', 't');
+  run(dir, 'config', 'user.email', 't@t');
+  run(dir, 'checkout', '-q', 'other');
+  run(dir, 'rm', '-q', 'doc.txt');
+  run(dir, 'commit', '-qm', 'delete');
+  run(dir, 'checkout', '-q', 'main');
+  await mergeBranchIntoCurrent(dir, 'other', (_a: any, o: any) => o);
+  assert.equal(fs.readFileSync(path.join(dir, 'doc.txt'), 'utf8'), 'a\nmine\n');
+  let items = await readConflicts(dir);
+  assert.deepEqual(items.map((x) => [x.path, x.theirsDeleted]), [['doc.txt', true]]);
+  assert.throws(() => run(dir, 'rev-parse', '-q', '--verify', 'MERGE_HEAD'), 'the merge is committed, not left half done');
+  assert.equal(run(dir, 'status', '--porcelain'), '');
+  // ours deleted it, theirs changed it: the deletion is kept, listed with their blob
+  dir = makeRepo({ 'doc.txt': ['a\n', 'a\n', 'a\ntheirs\n'] });
+  run(dir, 'config', 'user.name', 't');
+  run(dir, 'config', 'user.email', 't@t');
+  run(dir, 'rm', '-q', 'doc.txt');
+  run(dir, 'commit', '-qm', 'delete');
+  let seen: any = null;
+  registerMergeHandler({
+    id: 'test-md',
+    match: (p) => p.endsWith('.md-doc'),
+    merge: async (b, o, t) => {
+      seen = { b: b?.toString(), o, t: t?.toString() };
+      return { merged: t, conflicts: [] };
+    }
+  });
+  await mergeBranchIntoCurrent(dir, 'other', (_a: any, o: any) => o);
+  assert.equal(fs.existsSync(path.join(dir, 'doc.txt')), false);
+  items = await readConflicts(dir);
+  assert.deepEqual(items.map((x) => [x.path, x.theirsBlob]), [['doc.txt', run(dir, 'rev-parse', 'other:doc.txt')]]);
+  await settleConflict(dir, items[0], 'theirs');
+  assert.equal(fs.readFileSync(path.join(dir, 'doc.txt'), 'utf8'), 'a\ntheirs\n');
+  // a handler gets the delete as null and settles it
+  dir = makeRepo({ 'x.md-doc': ['a\n', 'a\n', 'a\ntheirs\n'] });
+  run(dir, 'config', 'user.name', 't');
+  run(dir, 'config', 'user.email', 't@t');
+  run(dir, 'rm', '-q', 'x.md-doc');
+  run(dir, 'commit', '-qm', 'delete');
+  await mergeBranchIntoCurrent(dir, 'other', (_a: any, o: any) => o);
+  assert.deepEqual(seen, { b: 'a\n', o: null, t: 'a\ntheirs\n' });
+  assert.equal(fs.readFileSync(path.join(dir, 'x.md-doc'), 'utf8'), 'a\ntheirs\n');
+  assert.equal(run(dir, 'status', '--porcelain'), '');
+});
 test('project.json still merges', async () => {
   const j = (o: object) => JSON.stringify(o);
   const dir = makeRepo({ 'project.json': [j({ a: 1 }), j({ a: 1, mine: 2 }), j({ a: 1, theirs: 3 })] });
@@ -295,4 +426,18 @@ test('parser: a clean text merge is not flagged, a binary change on both sides i
   const clean = header('changed in both') + '@@ -1,3 +1,4 @@\n 1\n+x\n 2\n';
   assert.equal(parseMergeTreeResult(clean).kind, ComputedAction.Clean);
   assert.equal(parseMergeTreeResult(header('changed in both')).kind, ComputedAction.Conflicts);
+});
+
+test('parser: a delete of a file the other side changed is a conflict; a delete of an unchanged one is not', () => {
+  const removedRemote = (our: string) => `removed in remote\n  base   100644 ${sha('a')} f.txt\n  our    100644 ${our} f.txt\n@@ -1 +0,0 @@\n-x\n`;
+  const removedLocal = (their: string) => `removed in local\n  base   100644 ${sha('a')} f.txt\n  their  100644 ${their} f.txt\n`;
+  assert.equal(parseMergeTreeResult(removedRemote(sha('a'))).kind, ComputedAction.Clean);
+  assert.equal(parseMergeTreeResult(removedLocal(sha('a'))).kind, ComputedAction.Clean);
+  const r = parseMergeTreeResult(removedRemote(sha('b'))) as any;
+  assert.equal(r.kind, ComputedAction.Conflicts);
+  assert.equal(r.conflictedEntries[0].our.sha, sha('b'));
+  assert.equal(r.conflictedEntries[0].their, undefined);
+  const l = parseMergeTreeResult(removedLocal(sha('c'))) as any;
+  assert.equal(l.kind, ComputedAction.Conflicts);
+  assert.equal(l.conflictedEntries[0].their.sha, sha('c'));
 });

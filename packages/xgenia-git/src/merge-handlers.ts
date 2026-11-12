@@ -24,9 +24,22 @@ export interface MergeConflictItem {
   alsoRestore?: Array<{ path: string; theirsBlob?: string; theirsDeleted?: boolean }>;
 }
 
+/** Where a merge is happening, passed to every handler. */
+export interface MergeContext {
+  /** The repository folder. */
+  repoDir: string;
+  /**
+   * The commit "ours" comes from (the current tip for a merge or pull; the stash commit when
+   * local changes are put back after a pull), or null when not known.
+   */
+  oursRev: string | null;
+  /** The commit "theirs" comes from (the other tip; HEAD when local changes are put back), or null. */
+  theirsRev: string | null;
+}
+
 /**
  * Merges the files whose path it matches. Gets the three versions of the file
- * (null = the file does not exist on that side) and the repository folder, and
+ * (null = the file does not exist on that side) and the merge context, and
  * returns the merged content (`null` = delete the file) plus anything it could
  * not settle. An item that sets its own `theirsBlob` or `theirsDeleted` keeps it;
  * otherwise the other side's whole file is recorded.
@@ -39,9 +52,7 @@ export interface MergeHandler {
     ours: Buffer | null,
     theirs: Buffer | null,
     path: string,
-    repoDir: string,
-    /** The commit the other side's versions come from, or null when not known. */
-    theirsRev: string | null
+    ctx: MergeContext
   ): Promise<{ merged: Buffer | null; conflicts: MergeConflictItem[] }>;
 }
 

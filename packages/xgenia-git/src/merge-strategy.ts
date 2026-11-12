@@ -1,5 +1,5 @@
 import { addAll } from './core/add';
-import { MergeConflictItem, MergeHandler, mergeHandlers, readBlob, readConflicts, writeConflicts } from './merge-handlers';
+import { MergeConflictItem, MergeContext, MergeHandler, mergeHandlers, readBlob, readConflicts, writeConflicts } from './merge-handlers';
 import { IMergeTreeEntry, MergeTreeError } from './core/models/merge';
 
 import fs from 'fs';
@@ -28,9 +28,13 @@ export class MergeStrategy {
     public readonly repositoryDir: string,
     private readonly mergeProject: MergeStrategyFunc,
     public readonly strategy: 'our' | 'their' = 'our',
-    /** The commit the other side ("their" in the merge tree) comes from, passed on to handlers. */
-    private readonly theirsRev: string | null = null
+    /** The commits the two sides ("our" and "their" in the merge tree) come from, passed on to handlers. */
+    private readonly revs: { oursRev?: string | null; theirsRev?: string | null } = {}
   ) {}
+
+  private context(): MergeContext {
+    return { repoDir: this.repositoryDir, oursRev: this.revs.oursRev ?? null, theirsRev: this.revs.theirsRev ?? null };
+  }
 
   public async solveConflicts(tree: MergeTreeError) {
     const handlers: MergeHandler[] = [this.projectJsonHandler(), ...mergeHandlers()];
@@ -72,7 +76,7 @@ export class MergeStrategy {
       this.readSide(entry.our),
       this.readSide(entry.their)
     ]);
-    const result = await handler.merge(base, ours, theirs, parent.path, this.repositoryDir, this.theirsRev);
+    const result = await handler.merge(base, ours, theirs, parent.path, this.context());
     await this.writeResult(parent.path, result.merged);
     return result.conflicts.map((c) => (c.path === parent.path ? this.withTheirSide(c, entry) : c));
   }

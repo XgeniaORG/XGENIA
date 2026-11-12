@@ -191,7 +191,19 @@ export function parseMergeTreeResult(text: string): MergeTreeResult {
       ? { ...e, hasConflicts: true }
       : e;
 
-  const entriesWithConflicts = entries.map(markBinaryConflict).filter((e) => e.hasConflicts || false);
+  // One side deleted a file the other side changed (modify/delete). The legacy merge-tree prints
+  // the surviving side with no conflict markers (`removed in local` has no diff at all), so it read
+  // as clean and never reached the merge strategy. A removal of an unchanged file is a clean delete.
+  const markModifyDelete = (e: IMergeTreeEntry): IMergeTreeEntry => {
+    if (e.hasConflicts || !e.base) return e;
+    const survivor = e.context === 'removed in remote' ? e.our : e.context === 'removed in local' ? e.their : undefined;
+    return survivor && survivor.sha !== e.base.sha ? { ...e, hasConflicts: true } : e;
+  };
+
+  const entriesWithConflicts = entries
+    .map(markBinaryConflict)
+    .map(markModifyDelete)
+    .filter((e) => e.hasConflicts || false);
 
   if (entriesWithConflicts.length > 0) {
     return {

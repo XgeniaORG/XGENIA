@@ -12,4 +12,4 @@ export {
   writeConflicts,
   settleConflict
 } from "./merge-handlers";
-export type { MergeHandler, MergeConflictItem } from "./merge-handlers";
+export type { MergeHandler, MergeConflictItem, MergeContext } from "./merge-handlers";
