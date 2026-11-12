@@ -17,6 +17,11 @@
 // "the game" (ViewerConnection.ts), so a signal or eval meant for the user's preview never lands here.
 
 const CAPTURE_UA_TAG = 'XgeniaCapture/1';
+// A session of its own (in memory). Chromium keeps zoom per HOST, ignoring the port: the editor's
+// UI zoom on localhost:8080 (0.8 by default) also zoomed this window's localhost:8574 page, so a
+// 1920x1080 window laid the game out at 2400x1350 and every capture failed GUEST_UNSIZED (found live
+// 2026-11-12). Zoom lives per session, so here it stays 1 and the editor's zoom is never touched.
+const CAPTURE_PARTITION = 'xgenia-capture';
 const MAX_SIDE = 4096;
 
 /** True for the User-Agent of a capture window (see CAPTURE_UA_TAG). */
@@ -138,6 +143,8 @@ async function captureDesignOffscreen({ url, width, height, timeoutMs = 20000, m
         paintWhenInitiallyHidden: true,
         webPreferences: {
           offscreen: true,
+          partition: CAPTURE_PARTITION,
+          zoomFactor: 1,
           backgroundThrottling: false,
           nodeIntegration: false,
           contextIsolation: true,
@@ -154,6 +161,8 @@ async function captureDesignOffscreen({ url, width, height, timeoutMs = 20000, m
       } catch (e) {
         return { success: false, code: 'LOAD_FAILED', message: `offscreen capture: the preview did not load (${e && e.message ? e.message : e})` };
       }
+      // Belt and braces: in its own session this changes no other page's zoom.
+      try { if (wc.getZoomFactor() !== 1) wc.setZoomFactor(1); } catch { /* no zoom API */ }
 
       const samples = [];
       let settled = false;
@@ -236,5 +245,6 @@ module.exports = {
   isSettled,
   isUniformBitmap,
   CAPTURE_UA_TAG,
+  CAPTURE_PARTITION,
   STATE_JS
 };
