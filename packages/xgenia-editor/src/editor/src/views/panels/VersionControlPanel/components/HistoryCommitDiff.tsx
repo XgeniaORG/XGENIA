@@ -4,6 +4,7 @@ import { GitResetMode, reset } from '@xgenia/git/src/core/reset';
 
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import { copyValueToClipboard } from '@xgenia-utils/copyValueToClipboard';
+import { emitProjectEvent } from '@xgenia-utils/extensions/projectExtensions';
 
 import { useConfirmationDialog } from '@xgenia-core-ui/components/popups/ConfirmationDialog/ConfirmationDialog.hooks';
 import { ContextMenu } from '@xgenia-core-ui/components/popups/ContextMenu';
@@ -39,6 +40,7 @@ export function HistoryCommitDiff({ commit }: HistoryCommitDiffProps) {
   async function performResetToCommit() {
     ProjectModel.setSaveOnModelChange(false);
     await reset(repositoryPath, GitResetMode.Hard, commit.sha);
+    emitProjectEvent({ type: 'reverted', projectDir: repositoryPath });
     EventDispatcher.instance.notifyListeners('projectChangedOnDisk');
     await fetch.fetchLocal();
     ToastLayer.showSuccess('Resetted to commit #' + commit.shortSha);

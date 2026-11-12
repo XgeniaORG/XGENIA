@@ -5,6 +5,7 @@ import { Commit } from '@xgenia/git/src/core/models/snapshot';
 import { GitResetMode, reset } from '@xgenia/git/src/core/reset';
 
 import { ProjectModel } from '@xgenia-models/projectmodel';
+import { emitProjectEvent } from '@xgenia-utils/extensions/projectExtensions';
 
 import { PrimaryButton } from '@xgenia-core-ui/components/inputs/PrimaryButton';
 import { TextArea } from '@xgenia-core-ui/components/inputs/TextArea';
@@ -72,6 +73,7 @@ function BranchMergeChanges() {
 
         setBranchStatus(null);
 
+        emitProjectEvent({ type: 'merged', projectDir: repositoryPath });
         EventDispatcher.instance.notifyListeners('projectChangedOnDisk');
 
         await fetchLocal();

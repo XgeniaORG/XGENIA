@@ -37,6 +37,7 @@ import { NodeLibrary } from './src/models/nodelibrary';
 import { ProjectModel } from './src/models/projectmodel';
 import { AiProviderKeyVault } from './src/services/AiProviderKeyVault';
 import { warmPublishCredentials } from './src/utils/rgs/deployTokens';
+import { loadProjectExtensions } from './src/utils/extensions/projectExtensions';
 import { initRgsKeyVault } from './src/utils/rgs/rgsClient';
 import { decryptString, encryptString, isEncryptionAvailable } from './src/store/_internal/StorageApi';
 
@@ -46,6 +47,10 @@ try {
 } catch {
   // @xgenia/image-editor not available (open-source build)
 }
+
+// Optional project extensions (merge handlers, conflict previews, publish hooks, project events).
+// Builds without the module get a stub that registers nothing.
+loadProjectExtensions();
 
 // CRITICAL FIX: Expose ProjectModel to window immediately for ChatPanel compatibility
 // This ensures ProjectModel is available for chat history persistence

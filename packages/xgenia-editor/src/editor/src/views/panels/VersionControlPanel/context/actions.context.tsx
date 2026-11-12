@@ -16,6 +16,7 @@ import { GitResetMode, reset } from '@xgenia/git/src/core/reset';
 import { createStashEntry, dropStashEntry, popStashEntry, popStashEntryToBranch } from '@xgenia/git/src/core/stash';
 
 import { ProjectModel } from '@xgenia-models/projectmodel';
+import { emitProjectEvent } from '@xgenia-utils/extensions/projectExtensions';
 
 import { useConfirmationDialog } from '@xgenia-core-ui/components/popups/ConfirmationDialog/ConfirmationDialog.hooks';
 
@@ -232,6 +233,7 @@ export function useVersionControlActions({
       }
 
       didPull = true;
+      emitProjectEvent({ type: 'pulled', projectDir: repositoryPath });
       EventDispatcher.instance.notifyListeners('projectChangedOnDisk');
     } catch (error: any) {
       if (error instanceof GitActionError) {
@@ -432,6 +434,7 @@ export function useVersionControlActions({
         await git.resetToHead();
       }
 
+      emitProjectEvent({ type: 'reverted', projectDir: repositoryPath });
       await fetchLocal();
 
       //note: the projectChangedOnDisk listener will enable ProjectModel.setSaveOnModelChange when it's done

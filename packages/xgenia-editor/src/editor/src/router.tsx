@@ -12,6 +12,7 @@ import { platform } from '@xgenia/platform';
 
 
 import { ProjectModel } from '@xgenia-models/projectmodel';
+import { emitProjectEvent } from '@xgenia-utils/extensions/projectExtensions';
 
 import { AppRoute } from './pages/AppRoute';
 import { AppRouteOptions, AppRouter } from './pages/AppRouter';
@@ -163,6 +164,7 @@ export default class Router
     if (args.project && ProjectModel.instance !== args.project) {
       // Set new project
       ProjectModel.instance = args.project;
+      emitProjectEvent({ type: 'opened', projectDir: args.project._retainedProjectDirectory });
       
       // CRITICAL FIX: Expose ProjectModel to window for ChatPanel and other components
       // This was missing after React 19 upgrade and causing chat history persistence issues

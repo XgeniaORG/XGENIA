@@ -22,6 +22,8 @@ import { reconcileGraphAssetRefs } from '../AssetPanel/assetGraphRefs';
 import { AiActivity, isAiWork } from '@xgenia-models/aiactivity';
 import { RailPresence } from '@xgenia-models/railpresence';
 import { GitStatus } from '@xgenia-models/gitstatus';
+import { emitProjectEvent } from '@xgenia-utils/extensions/projectExtensions';
+import { untrackInProject } from '@xgenia-utils/extensions/gitUntrack';
 import { ComponentModel } from '@xgenia-models/componentmodel';
 import { NodeGraphModel, NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 import { NodeLibrary } from '@xgenia-models/nodelibrary';
@@ -2597,6 +2599,7 @@ export class EditorBridge {
                         headAfter,
                     };
                 }
+                emitProjectEvent({ type: 'reverted', projectDir: pm._retainedProjectDirectory });
                 return {
                     success: true,
                     sha,
@@ -2606,6 +2609,15 @@ export class EditorBridge {
             } catch (e: any) {
                 return { success: false, error: e?.message || String(e) };
             }
+        });
+
+        // Stop tracking paths without deleting them (`git rm --cached --ignore-unmatch`), e.g. files
+        // that are generated from others and now git-ignored. Local only, no remote side-effects.
+        h('git.untrack', async ([paths]: [string[]]) => {
+            const pm = ProjectModel.instance as any;
+            const result = await untrackInProject(pm?._retainedProjectDirectory, paths);
+            if (result.success) void GitStatus.refresh();
+            return result;
         });
 
         h('git.getHistory', async ([limit]: [number?]) => {
