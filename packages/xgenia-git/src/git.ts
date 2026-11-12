@@ -17,9 +17,8 @@ import { getBranchesOld } from './core/for-each-ref';
 import { appendGitIgnore } from './core/ignore';
 import { init, installMergeDriver } from './core/init';
 import { getChangedFiles, getCommits } from './core/logs';
-import { getMergeBase, merge, mergeTree } from './core/merge';
+import { getMergeBase, merge } from './core/merge';
 import { BranchType } from './core/models/branch';
-import { ComputedAction } from './core/models/computed-action';
 import { IFetchProgress } from './core/models/progress';
 import { Commit } from './core/models/snapshot';
 import { open } from './core/open';
@@ -33,8 +32,8 @@ import { createStashEntry, getStashes, popStashEntry, popStashEntryToBranch } fr
 import { getStatus } from './core/status';
 import { deleteRef } from './core/update-ref';
 import { cleanMergeDriverOptionsSync, writeMergeDriverOptions } from './merge-driver';
-import { mergeBranchIntoCurrent, solveStashConflicts } from './merge-branch';
-import { MergeStrategy, MergeStrategyFunc } from './merge-strategy';
+import { mergeBranchIntoCurrent, solveMergeConflicts, solveStashConflicts } from './merge-branch';
+import { MergeStrategyFunc } from './merge-strategy';
 import {
     ConvertStatusKindToGitStatus,
     GitBranch,
@@ -892,20 +891,9 @@ export class Git {
       console.info(err);
     }
 
-    // Our custom strategy
-    const tree = await mergeTree(this.baseDir, ours, theirs);
-    if (tree.kind === ComputedAction.Conflicts) {
-      // Run our solve strategy
-      const solver = new MergeStrategy(this.baseDir, this.mergeProject, 'our', {
-        oursRev: ours.tip.sha,
-        theirsRev: theirs.tip.sha
-      });
-      await solver.solveConflicts(tree);
-
-      // Create a merge commit
+    // Our custom strategy, for what git left unmerged; then create the merge commit
+    if (await solveMergeConflicts(this.baseDir, this.mergeProject, ours.tip.sha, theirs.tip.sha)) {
       await createCommit(this.baseDir, message);
-    } else if (tree.kind !== ComputedAction.Clean) {
-      throw new Error('Failed to merge, ' + tree.kind);
     }
   }
 
