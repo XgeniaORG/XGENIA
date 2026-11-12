@@ -12,6 +12,8 @@
 // so it must not pull in editor models or the platform layer. The byte-for-byte shapes here
 // mirror the server's helpers; the server's suite proves its books satisfy them.
 
+import { STAKE_RULES } from './stakeRules';
+
 export interface StakeModeInfo {
   name: string;
   cost: number;
@@ -463,7 +465,8 @@ export function stakeReviewChecklist(i: { gameName: string; modes: StakeModeExpo
 // breaks a bonus without Studio noticing, from the weighted lookup table the export just wrote. Every problem
 // carries `fix`, worded for the AI: the Stake job hands these back and the AI changes the maths and measures again.
 
-export const STAKE_LIMITS = { minRtp: 0.96, maxRtp: 0.967, modeSpread: 0.005, maxCost: 50_000, maxWin: 1_000_000, minBaseStd: 0.6, minBooks: 100_000, maxWinOdds: 20_000_000 };
+// Stake's numbers live in stakeRules.ts (one rule set for every layer); this name stays for its callers.
+export const STAKE_LIMITS = STAKE_RULES.limits;
 
 export interface StakeLimitProblem {
   level: 'error' | 'warn';
@@ -476,22 +479,36 @@ export interface StakeLimitProblem {
 export interface StakeLimitsReport {
   ok: boolean;
   problems: StakeLimitProblem[];
-  modes: { name: string; cost: number; rtp: number; std: number; maxWin: number; maxWinOdds: number | null; featureShare: number; books: number }[];
+  /** rtpMargin: about two standard errors of `rtp` (95%), from the books' spread and how many there are. */
+  modes: { name: string; cost: number; rtp: number; rtpMargin: number; std: number; maxWin: number; maxWinOdds: number | null; featureShare: number; books: number }[];
 }
 
 const pctOf = (x: number) => `${(x * 100).toFixed(2)}%`;
 
-export function stakeLimitsCheck(modes: StakeModeExport[], opts: { maxWinMultiplier?: number | null; minBooks?: number } = {}): StakeLimitsReport {
+/**
+ * `purpose` (2026-11-11, debug export 1794421485474): a MEASURE samples the maths to estimate its RTP; a BUILD
+ * is the package Stake judges. SweetSwirl (std ~3.9) measured 105.28%, 97.49% and 98.74% on three runs of the
+ * same maths — 20,000 books carry about ±2.8 points of luck, 100,000 about ±1.2 — and the AI "fixed" each
+ * number in turn, then asked to cut every payout by 2.4% while a 641,000-spin RGS run said 96.55%. A measured
+ * RTP is now reported with its margin; when Stake's band lies inside that margin the number cannot say which
+ * way to move, so the check says so (RTP_UNCERTAIN) instead of prescribing a change to the maths.
+ */
+export function stakeLimitsCheck(
+  modes: StakeModeExport[],
+  opts: { maxWinMultiplier?: number | null; minBooks?: number; purpose?: 'measure' | 'build' } = {}
+): StakeLimitsReport {
+  const purpose = opts.purpose ?? 'build';
   const L = { ...STAKE_LIMITS, ...(opts.minBooks ? { minBooks: opts.minBooks } : {}) };
   const problems: StakeLimitProblem[] = [];
   const add = (p: StakeLimitProblem) => problems.push(p);
   const per: StakeLimitsReport['modes'] = [];
   for (const m of modes) {
-    let w = 0, x1 = 0, x2 = 0, feat = 0, maxP = 0, maxW = 0;
+    let w = 0, w2 = 0, x1 = 0, x2 = 0, feat = 0, maxP = 0, maxW = 0;
     for (const r of m.rows) {
       const weight = r.weight ?? 1;
       const x = r.payout / 100 / m.mode.cost;
       w += weight;
+      w2 += weight * weight;
       x1 += weight * x;
       x2 += weight * x * x;
       if (r.criteria === 'freegame' || r.criteria === 'wincap') feat += weight;
@@ -501,7 +518,10 @@ export function stakeLimitsCheck(modes: StakeModeExport[], opts: { maxWinMultipl
       } else if (r.payout === maxP) maxW += weight;
     }
     const rtp = w ? x1 / w : 0;
-    per.push({ name: m.mode.name, cost: m.mode.cost, rtp, std: w ? Math.sqrt(Math.max(0, x2 / w - rtp * rtp)) : 0, maxWin: maxP / 100, maxWinOdds: maxW ? w / maxW : null, featureShare: w ? feat / w : 0, books: m.rows.length });
+    const std = w ? Math.sqrt(Math.max(0, x2 / w - rtp * rtp)) : 0;
+    // Weighted books: Kish's effective sample size, (Σw)² / Σw².
+    const nEff = w2 > 0 ? (w * w) / w2 : 0;
+    per.push({ name: m.mode.name, cost: m.mode.cost, rtp, rtpMargin: nEff > 0 ? (2 * std) / Math.sqrt(nEff) : 0, std, maxWin: maxP / 100, maxWinOdds: maxW ? w / maxW : null, featureShare: w ? feat / w : 0, books: m.rows.length });
   }
   if (!per.length) add({ level: 'error', code: 'NO_MODES', mode: null, message: 'Nothing was exported.', fix: 'Export again and read the error it gives.' });
   const cheapest = Math.min(...per.map((p) => p.cost));
@@ -510,9 +530,22 @@ export function stakeLimitsCheck(modes: StakeModeExport[], opts: { maxWinMultipl
   const anyBuy = modes.some((m) => m.mode.kind === 'buy');
   for (const p of per) {
     const kind = modes.find((m) => m.mode.name === p.name)!.mode.kind;
-    if (p.rtp < L.minRtp || p.rtp > L.maxRtp) {
+    const pm = `${pctOf(p.rtp)} ± ${pctOf(p.rtpMargin)}`;
+    const booksFor = (half: number) => Math.ceil(((2 * p.std) / half) ** 2);
+    if ((p.rtp < L.minRtp || p.rtp > L.maxRtp) && purpose === 'measure' && p.rtp - p.rtpMargin <= L.maxRtp && p.rtp + p.rtpMargin >= L.minRtp) {
+      add({
+        level: 'error',
+        code: 'RTP_UNCERTAIN',
+        mode: p.name,
+        message: `${p.name}: RTP ${pm} from ${p.books.toLocaleString()} books — too few to tell whether it is inside Stake's ${pctOf(L.minRtp)}–${pctOf(L.maxRtp)}; the maths may already be in the band.`,
+        fix: `Do NOT change the maths on this number. Measure again with more books (about ${Math.min(booksFor(0.0035), 5_000_000).toLocaleString()} pin it to ±0.35%), or compare settings with stake variations at 1,000,000 rounds, which plays them all on the same books.`
+      });
+    } else if (p.rtp < L.minRtp || p.rtp > L.maxRtp) {
       const dir = p.rtp > L.maxRtp ? 'lower' : 'raise';
-      add({ level: 'error', code: 'RTP_OUT_OF_BAND', mode: p.name, message: `${p.name}: RTP ${pctOf(p.rtp)}, outside Stake's ${pctOf(L.minRtp)}–${pctOf(L.maxRtp)}.`, fix: `${dir === 'lower' ? 'Lower' : 'Raise'} the ${p.name} mode's RTP by about ${pctOf(Math.abs(p.rtp - 0.9635))} toward 96.35%: ${kind === 'buy' ? 'change the bonus\'s payouts (free-spin multipliers or paytable during the feature)' : kind === 'special' ? 'change the ante\'s trigger boost or cost' : 'change symbol weights or base-game pays (not the feature, which the buy shares)'}; then measure again.` });
+      const noisyBuild = purpose === 'build' && p.rtpMargin > L.maxRtp - L.minRtp;
+      add({ level: 'error', code: 'RTP_OUT_OF_BAND', mode: p.name, message: `${p.name}: RTP ${pm}, outside Stake's ${pctOf(L.minRtp)}–${pctOf(L.maxRtp)}.`, fix: noisyBuild
+        ? `These ${p.books.toLocaleString()} books came out at ${pctOf(p.rtp)}, and Stake judges this package by its books. At this game's volatility the luck of the draw alone is ±${pctOf(p.rtpMargin)}, wider than Stake's band: if a large measurement of the maths is inside the band, build again with more books (or with weighted books, when XGENIA RGS offers them) rather than changing the maths.`
+        : `${dir === 'lower' ? 'Lower' : 'Raise'} the ${p.name} mode's RTP by about ${pctOf(Math.abs(p.rtp - 0.9635))} toward 96.35%: ${kind === 'buy' ? 'change the bonus\'s payouts (free-spin multipliers or paytable during the feature)' : kind === 'special' ? 'change the ante\'s trigger boost or cost' : 'change symbol weights or base-game pays (not the feature, which the buy shares)'}; then measure again.` });
     }
     if (base && p !== base && Math.abs(p.rtp - base.rtp) > L.modeSpread) {
       add({ level: 'error', code: 'RTP_MODE_SPREAD', mode: p.name, message: `${p.name}: RTP ${pctOf(p.rtp)} is ${pctOf(Math.abs(p.rtp - base.rtp))} from base (${pctOf(base.rtp)}); Stake allows ${pctOf(L.modeSpread)}.`, fix: `Bring ${p.name} within 0.5% of the base game's RTP.` });

@@ -168,6 +168,26 @@ test('the game\'s bet mode maps to the Stake mode, charged at its cost', async (
   });
 });
 
+test('a mode over 2× the bet is played only after the shell confirms it; a "no" plays and charges nothing', async () => {
+  await withEmu(async (emu) => {
+    const asked = [];
+    let answer = false;
+    const shell = { confirmMode: async (m) => (asked.push(m), answer) };
+    const s = createStakeBookSession({ fetch, shell, location: { search: `?sessionID=confirm&rgs_url=${emu.host}&currency=USD`, protocol: 'http:' } });
+    await assert.rejects(() => s.request('Spin', { bet: 1, mode: 'bonus_buy' }, CFG), (e) => e instanceof StakeError && e.code === 'NOT_CONFIRMED');
+    assert.equal(calls(await state(emu), 'confirm', '/wallet/play').length, 0);
+    assert.equal(asked[0].mode, 'bonus');
+    assert.ok(asked[0].cost > 2);
+    answer = true;
+    await playToEnd(s, { bet: 1, mode: 'bonus_buy' });
+    assert.equal(calls(await state(emu), 'confirm', '/wallet/play').length, 1);
+    // The base game (1×) is never asked about.
+    const before = asked.length;
+    await playToEnd(s, { bet: 1 });
+    assert.equal(asked.length, before);
+  });
+});
+
 test('end-round waits out minimumRoundDuration', async () => {
   await withEmu(async (emu) => {
     const s = session(emu, 'slow');

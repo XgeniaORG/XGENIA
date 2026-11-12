@@ -117,9 +117,26 @@ test('limits: a base game at 96.3% with enough volatility passes; one at 99% is 
   // 963 in 10,000 books pay 10×: RTP 96.3%, std ~2.9
   const ok = stakeLimitsCheck([modeOf('base', 1, 'base', [...many(963, 1000), ...many(9037, 0)])], { maxWinMultiplier: 5000, minBooks: 10 });
   assert.equal(ok.ok, true, JSON.stringify(ok.problems));
-  const hot = stakeLimitsCheck([modeOf('base', 1, 'base', [...many(990, 1000), ...many(9010, 0)])], { maxWinMultiplier: 5000, minBooks: 10 });
+  // 100,000 books: 99.0% ± 1.9%, clearly above the band.
+  const hot = stakeLimitsCheck([modeOf('base', 1, 'base', [...many(9900, 1000), ...many(90100, 0)])], { maxWinMultiplier: 5000, minBooks: 10, purpose: 'measure' });
   const p = hot.problems.find((x) => x.code === 'RTP_OUT_OF_BAND')!;
   assert.match(p.fix, /^Lower the base mode's RTP by about 2\.65%/);
+  assert.match(p.message, /99\.00% ± 1\.89%/);
+});
+
+// (2026-11-11, debug export 1794421485474) Three measures of the same maths read 105.28%, 97.49% and 98.74%; the AI
+// changed the paytable after each.
+test('limits: a measure too small to place the RTP says so, and does not prescribe a change to the maths', () => {
+  // 10,000 books: 99.0% ± 6%, which covers Stake's whole band.
+  const r = stakeLimitsCheck([modeOf('base', 1, 'base', [...many(990, 1000), ...many(9010, 0)])], { maxWinMultiplier: 5000, minBooks: 10, purpose: 'measure' });
+  assert.ok(!r.problems.some((x) => x.code === 'RTP_OUT_OF_BAND'));
+  const u = r.problems.find((x) => x.code === 'RTP_UNCERTAIN')!;
+  assert.equal(u.level, 'error');
+  assert.match(u.fix, /^Do NOT change the maths/);
+  assert.equal(r.ok, false);
+  // The same books as a BUILD: they are the package Stake judges, so out of band is a fact — with what to do.
+  const b = stakeLimitsCheck([modeOf('base', 1, 'base', [...many(990, 1000), ...many(9010, 0)])], { maxWinMultiplier: 5000, minBooks: 10 });
+  assert.match(b.problems.find((x) => x.code === 'RTP_OUT_OF_BAND')!.fix, /build again with more books/);
 });
 
 test('limits: a buy that does not open its feature, a mode too far from base, and no cap are all reported', () => {

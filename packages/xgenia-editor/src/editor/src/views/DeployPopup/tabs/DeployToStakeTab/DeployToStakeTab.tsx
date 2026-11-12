@@ -13,7 +13,10 @@ import { diagnoseStakeExportError, type StakeExportDiagnosis } from '@xgenia-uti
 import { deployChangedMathsComponents } from '@xgenia-utils/publish/deployChangedMaths';
 import { stakeErrorCode, type StakeExportFailure } from '@xgenia-utils/stake/stakeMathsExport';
 import { parseStakePlaySetups, summariseStakeModes } from '@xgenia-utils/stake/stakeMathsFormat';
-import { stakePanel, type CheckState } from '@xgenia-utils/stake/stakePanel';
+import { STAKE_REVIEW_ITEMS, stakePanel, type CheckState } from '@xgenia-utils/stake/stakePanel';
+import { STAKE_RULES } from '@xgenia-utils/stake/stakeRules';
+import { lastStakeMeasure, onStakeMeasure } from '@xgenia-utils/stake/stakeMeasureStore';
+import { startStakeJob, stakeJob } from '@xgenia-utils/stake/stakeCommands';
 import { stakeFixRequest, stakeReadiness, type ReadinessReport } from '@xgenia-utils/stake/stakeReadiness';
 
 import { PrimaryButton, PrimaryButtonSize, PrimaryButtonVariant } from '@xgenia-core-ui/components/inputs/PrimaryButton';
@@ -34,7 +37,8 @@ interface ExportableComponent {
   name: string;
 }
 
-const DEFAULT_BOOKS_PER_MODE = 10_000;
+// Stake asks for 100,000–1,000,000 books per mode; fewer leave the package's RTP to luck on a volatile game.
+const DEFAULT_BOOKS_PER_MODE = 100_000;
 
 const PLAY_SETUPS_EXAMPLE =
   '[{ "name": "base", "trigger": "AutoBet", "inputs": { "mines": 3, "autoTiles": [0, 1, 2, 3, 4] }, "before": [{ "trigger": "Restore" }] }]';
@@ -421,13 +425,60 @@ export function DeployToStakeTab({ connectSlot }: DeployToStakeTabProps = {}) {
   };
   useEffect(checkReadiness, []);
 
+  // The payout check: the last measurement of the component the build plays (stakeMeasureStore — written by this
+  // button and by the AI's `stake measure` alike), and a Measure button that runs the same job.
+  const [, rerender] = useState(0);
+  useEffect(() => onStakeMeasure(() => rerender((n) => n + 1)), []);
+  const [measuring, setMeasuring] = useState<string | null>(null);
+  const [measureError, setMeasureError] = useState('');
+  const last = lastStakeMeasure(game?.id, selected?.slug);
+  async function measure() {
+    if (!selected) return;
+    setMeasureError('');
+    const started = startStakeJob({ kind: 'measure', component: selected.slug, booksPerMode: Math.floor(Number(booksPerMode)) || DEFAULT_BOOKS_PER_MODE } as any);
+    if (!started || started.error) {
+      setMeasureError(started?.error || 'The measurement did not start.');
+      return;
+    }
+    setMeasuring('Starting…');
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const j: any = stakeJob(started.jobId);
+      if (!j || j.error || j.state === 'failed') {
+        setMeasureError(j?.error || 'The measurement stopped.');
+        break;
+      }
+      if (j.state === 'done') break;
+      setMeasuring(j.step || 'Measuring…');
+    }
+    setMeasuring(null);
+  }
+
   const panel = stakePanel({
     connected: !!rgs?.apiKey,
     gameName: game?.id ? game.name || game.slug || 'This game' : null,
     components: !canExportMaths ? [] : components.length || componentsError ? components : null,
     componentsError,
-    issues: reportFailed ? null : report ? report.issues : []
+    issues: reportFailed ? null : report ? report.issues : [],
+    measure: measuring
+      ? 'running'
+      : last && selected
+        ? { current: last.deploymentId === selected.deploymentId, ok: last.ok, modes: last.modes, problems: last.problems }
+        : null
   });
+  // The build waits only on the payout: offer the AI the measurement's problems as the main action.
+  const payoutBlocked =
+    !measuring && !!last && !!selected && last.deploymentId === selected.deploymentId && !last.ok && panel.checks.slice(0, 3).every((c) => c.state !== 'todo' && c.state !== 'busy');
+  const askAiAboutPayout = () => {
+    if (!last) return;
+    const text =
+      `Stake's measure of ${selected?.name || 'the maths'} found:\n` +
+      last.problems.filter((p) => p.level === 'error').map((p, n) => `${n + 1}. [${p.code}] ${p.message}`).join('\n') +
+      `\nFix them with the stake tool (for RTP_UNCERTAIN, measure more closely before changing the maths), then measure again.`;
+    editorBridge.pushEvent('stake-ask-ai', { text, issues: last.problems.length });
+    openChatPanel();
+    setSentToAi(true);
+  };
   const actionable = (report?.issues || []).some((i) => i.level !== 'info');
   const askAi = () => {
     if (!report) return;
@@ -454,7 +505,7 @@ export function DeployToStakeTab({ connectSlot }: DeployToStakeTabProps = {}) {
             <CheckMark state={c.state} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={ROW_TITLE}>{c.title}</div>
-              <div style={ROW_DETAIL}>{c.detail}</div>
+              <div style={{ ...ROW_DETAIL, whiteSpace: 'pre-wrap' }}>{c.key === 'rtp' && measuring ? measuring : c.detail}</div>
               {c.key === 'rules' && panel.issues.length > 0 && (
                 <div style={{ marginTop: '6px' }}>
                   {panel.issues.map((i, k) => (
@@ -490,13 +541,24 @@ export function DeployToStakeTab({ connectSlot }: DeployToStakeTabProps = {}) {
           hasBottomSpacing
         />
       )}
-      <PrimaryButton
-        label={isExporting ? 'Building…' : 'Build for Stake…'}
-        onClick={onPickFolderClicked}
-        isDisabled={isExporting || !panel.canBuild || (canExportMaths && !selected)}
-        isGrowing
-      />
+      {/* One main action: measure the payout until it is in Stake's band, then build. */}
+      {panel.primary === 'measure' ? (
+        <PrimaryButton label="Measure payout" onClick={() => void measure()} isDisabled={!!measuring || !selected} isGrowing />
+      ) : !payoutBlocked ? (
+        <PrimaryButton
+          label={isExporting ? 'Building…' : measuring ? 'Measuring…' : 'Build for Stake…'}
+          onClick={onPickFolderClicked}
+          isDisabled={isExporting || !panel.canBuild || (canExportMaths && !selected)}
+          isGrowing
+        />
+      ) : (
+        <PrimaryButton label={sentToAi ? 'Sent to the AI' : 'Fix the payout with AI'} onClick={askAiAboutPayout} isDisabled={sentToAi} isGrowing />
+      )}
+      {measureError && <div style={{ ...ROW_DETAIL, color: '#ff8a8a', marginTop: '6px' }}>{measureError}</div>}
       <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+        {last && !measuring && panel.primary !== 'measure' && (
+          <PrimaryButton label="Measure again" variant={PrimaryButtonVariant.Ghost} size={PrimaryButtonSize.Small} onClick={() => void measure()} isGrowing />
+        )}
         {actionable && (
           <PrimaryButton label={sentToAi ? 'Sent to the AI' : 'Fix with AI'} variant={PrimaryButtonVariant.Muted} size={PrimaryButtonSize.Small} onClick={askAi} isDisabled={sentToAi} isGrowing />
         )}
@@ -505,6 +567,29 @@ export function DeployToStakeTab({ connectSlot }: DeployToStakeTabProps = {}) {
 
       {successMessage && <div style={RESULT}>{successMessage}</div>}
       {diagnosis && <StakeExportProblem diagnosis={diagnosis} />}
+
+      {/* What Stake's reviewers try by hand: nothing here can check them, so they are a list to go through. */}
+      <div style={{ ...CARD, marginTop: '16px', padding: '10px 12px' }}>
+        <div style={ROW_TITLE}>Before you submit</div>
+        <div style={{ ...ROW_DETAIL, marginBottom: '6px' }}>
+          Stake&rsquo;s reviewers try these by hand. Every Stake build also gets a rules screen with the disclaimer and the
+          measured payouts, and social-mode wording.
+        </div>
+        {STAKE_REVIEW_ITEMS.map((item) => {
+          const added = STAKE_RULES.shellProvides.includes(item);
+          return (
+            <div key={item} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: added ? '#9a9a9a' : '#d6d6d6', padding: '3px 0' }}>
+              {added ? (
+                <span style={{ ...MARK, width: '12px', height: '12px', fontSize: '9px', marginTop: 0, backgroundColor: '#2f5c3f', color: '#7be0a0' }}>✓</span>
+              ) : (
+                <span style={{ width: '10px', height: '10px', borderRadius: '50%', border: '1.5px solid #777', flex: 'none' }} />
+              )}
+              <span style={{ flex: 1 }}>{item}</span>
+              {added ? <span style={{ fontSize: '11px', color: '#7be0a0' }}>added by the build</span> : <span style={{ fontSize: '11px', color: '#888' }}>check it</span>}
+            </div>
+          );
+        })}
+      </div>
 
       <div style={{ ...DISCLOSURE, marginTop: '16px' }} role="button" onClick={() => setShowOptions(!showOptions)}>
         <span style={{ display: 'inline-block', width: '12px' }}>{showOptions ? '▾' : '▸'}</span>Options

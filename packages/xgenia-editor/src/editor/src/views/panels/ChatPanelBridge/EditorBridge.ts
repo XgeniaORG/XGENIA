@@ -31,6 +31,7 @@ import { NodeLibrary } from '@xgenia-models/nodelibrary';
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import { stakeReadiness } from '@xgenia-utils/stake/stakeReadiness';
 import { startStakeJob, stakeJob } from '@xgenia-utils/stake/stakeCommands';
+import { checkStakePlan, stakeRulesForAgent, type StakePlan } from '@xgenia-utils/stake/stakeRules';
 import { takePendingSeed } from '../../../models/lobby/lobbySeed';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { UndoActionGroup, UndoQueue } from '@xgenia-models/undo-queue-model';
@@ -3367,6 +3368,21 @@ export class EditorBridge {
             try { return startStakeJob(spec); } catch (e: any) { return { error: e?.message || String(e) }; }
         });
         h('stake.job', ([jobId]: [string?]) => stakeJob(jobId));
+        // The Stake boundary (2026-11-11, utils/stake/stakeRules.ts — one rule set for every layer):
+        // stake.rules() → { target, version, limits, features (allowed or not, why, alternative), blockedNodeTypes,
+        //   blockedLabelPattern, … } — the agent's tool gate refuses to place a blocked part on a Stake game;
+        // stake.plan([plan]) → { ok, items: [{ item, allowed, note, alternative? }], unknown } — the AI states the
+        //   game it means to build (features in the studio's words, modes, payout, top win) BEFORE building it.
+        h('stake.rules', () => {
+            try {
+                return { target: (ProjectModel.instance as any)?.getMetaData?.('target') ?? null, ...stakeRulesForAgent() };
+            } catch (e: any) {
+                return { error: e?.message || String(e) };
+            }
+        });
+        h('stake.plan', ([plan]: [StakePlan?]) => {
+            try { return checkStakePlan(plan); } catch (e: any) { return { error: e?.message || String(e) }; }
+        });
 
         // --- Filesystem commands ---
         //

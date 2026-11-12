@@ -21,6 +21,7 @@ import { filesystem } from '@xgenia/platform';
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import { createPublishJobRegistry } from '@xgenia-utils/publish/publishJobs';
 import { publishPreconditionError } from '@xgenia-utils/publish/publishGame';
+import { deployChangedMathsComponents } from '@xgenia-utils/publish/deployChangedMaths';
 import { getActiveGame, getRgsSettings } from '@xgenia-utils/rgs/rgsClient';
 import { listExportableComponents } from '../../views/DeployPopup/tabs/DeployToStakeTab/DeployToStakeTab';
 
@@ -29,6 +30,7 @@ import { exportStakeMaths, fetchStakeExportModes, findStakeAutoSetup, postMathsD
 import { interpolateDial, rankVariations, type VariationPair } from './stakeVariationsFormat';
 import { stakeLimitsCheck, summariseStakeModes } from './stakeMathsFormat';
 import { declaredStakeModes } from './stakeModes';
+import { rememberStakeMeasure } from './stakeMeasureStore';
 import { stakeReadiness } from './stakeReadiness';
 
 export interface StakeJobSpec {
@@ -49,10 +51,13 @@ export interface StakeJobSpec {
   folder?: string;
 }
 
+/** Books per mode for a measure: 100,000 is Stake's own minimum, and 20,000 left ±3 points of luck on a volatile game. */
+export const STAKE_MEASURE_BOOKS = 100_000;
+
 const jobs = createPublishJobRegistry({ keepFinished: 10, maxRunMs: 60 * 60_000, newId: () => `stake-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}` });
 
 function modeSummary(r: ReturnType<typeof stakeLimitsCheck>) {
-  return r.modes.map((m) => ({ mode: m.name, cost: m.cost, rtp: Number((m.rtp * 100).toFixed(3)), maxWin: m.maxWin, std: Number(m.std.toFixed(2)), featureShare: Number((m.featureShare * 100).toFixed(1)), books: m.books }));
+  return r.modes.map((m) => ({ mode: m.name, cost: m.cost, rtp: Number((m.rtp * 100).toFixed(3)), rtpMargin: Number((m.rtpMargin * 100).toFixed(2)), maxWin: m.maxWin, std: Number(m.std.toFixed(2)), featureShare: Number((m.featureShare * 100).toFixed(1)), books: m.books }));
 }
 
 export function startStakeJob(spec: StakeJobSpec | null | undefined): Record<string, any> {
@@ -74,11 +79,18 @@ export function startStakeJob(spec: StakeJobSpec | null | undefined): Record<str
   }
 
   return jobs.start((kind === 'measure' ? 'maths' : 'game') as any, async (progress) => {
+    // Every job plays what is DEPLOYED, so the project's maths is deployed first when it changed — the Stake
+    // page's build already did this. (2026-11-11, debug export 1794421485474: measure said "deploy the maths
+    // first (rgs publish …)", and the AI published the game to a public demo link just to get its maths onto
+    // XGENIA RGS. Deploying the Math Components puts nothing in front of players.)
+    progress('Deploying the maths if it changed…');
+    const synced = await deployChangedMathsComponents({ onProgress: progress });
+    const deployedFirst = synced.deployed.map((d) => d.name);
     const list = await listExportableComponents(rgs!.apiKey, game!.id);
     const want = spec?.component ? String(spec.component).toLowerCase() : null;
     const comp = want ? list.find((c) => c.slug.toLowerCase() === want || c.name.toLowerCase() === want || c.name.toLowerCase().endsWith('/' + want)) : list.length === 1 ? list[0] : null;
     if (!comp) {
-      throw new Error(list.length === 0 ? `${game!.name || 'This game'} has no deployed Math Component with a win output: deploy the maths first (rgs publish or the Maths panel).` : `Say which component: ${list.map((c) => c.name).join(', ')}`);
+      throw new Error(list.length === 0 ? `${game!.name || 'This game'} has no deployed Math Component with a win output: the project has no Math Component with a win output to deploy (rgs move_maths moves browser maths into one).` : `Say which component: ${list.map((c) => c.name).join(', ')}`);
     }
     const stakeModes = declaredStakeModes(project.toJSON?.());
 
@@ -94,7 +106,7 @@ export function startStakeJob(spec: StakeJobSpec | null | undefined): Record<str
           deploymentId: comp.deploymentId,
           functionSlug: comp.slug,
           outputDir: dir,
-          booksPerMode: Math.max(1000, Math.floor(spec?.booksPerMode ?? 20_000)),
+          booksPerMode: Math.max(1000, Math.floor(spec?.booksPerMode ?? STAKE_MEASURE_BOOKS)),
           oversample: spec?.oversample ?? 10,
           bet: spec?.bet,
           stakeModes,
@@ -105,16 +117,20 @@ export function startStakeJob(spec: StakeJobSpec | null | undefined): Record<str
                 : `Measuring ${p.mode} (${p.modeIndex + 1}/${p.modeCount}): ${p.books.toLocaleString()} / ${p.booksPerMode.toLocaleString()} rounds`
             )
         });
-        const limits = stakeLimitsCheck(maths.modes, { maxWinMultiplier: maths.info.maxWinMultiplier, minBooks: 1 });
+        const limits = stakeLimitsCheck(maths.modes, { maxWinMultiplier: maths.info.maxWinMultiplier, minBooks: 1, purpose: 'measure' });
+        rememberStakeMeasure(game!.id, comp, limits);
         return {
           component: comp.name,
+          ...(deployedFirst.length ? { deployedFirst } : {}),
           modes: modeSummary(limits),
           withinLimits: limits.ok,
           problems: limits.problems,
           summary: summariseStakeModes(maths.modes),
           next: limits.ok
             ? 'Every mode is inside Stake\'s limits on this sample. Build for upload: stake({action:"build"}).'
-            : 'Change the maths as each problem\'s fix says, deploy the maths again (rgs publish maths), then measure again.'
+            : limits.problems.some((p) => p.code === 'RTP_UNCERTAIN')
+              ? 'The RTP is not known closely enough to change the maths: follow RTP_UNCERTAIN\'s fix first. Fix any other problem as its fix says.'
+              : 'Change the maths as each problem\'s fix says, then measure again (it deploys the changed maths itself).'
         };
       } finally {
         try {
@@ -146,6 +162,8 @@ export function startStakeJob(spec: StakeJobSpec | null | undefined): Record<str
         )
     });
     const limits = stakeLimitsCheck(built.maths.modes, { maxWinMultiplier: built.maths.info.maxWinMultiplier });
+    // The built package is the most exact measurement there is: the Stake page shows it too.
+    rememberStakeMeasure(game!.id, comp, limits);
     return {
       component: comp.name,
       folder,
@@ -159,7 +177,7 @@ export function startStakeJob(spec: StakeJobSpec | null | undefined): Record<str
       check: `npm run stake:check -- "${built.maths.publishDir}" --game "${folder}" --tls --expect-feature`,
       next: limits.ok
         ? 'Ready to upload: the frontend folder and the math/publish_files folder on Engine, with the review checklist. Test it first with a session from Engine (stake harness: engine).'
-        : 'Not ready: fix each problem, deploy the maths again, measure, then build again.'
+        : 'Not ready: fix each problem, measure (it deploys the changed maths), then build again.'
     };
   });
 }

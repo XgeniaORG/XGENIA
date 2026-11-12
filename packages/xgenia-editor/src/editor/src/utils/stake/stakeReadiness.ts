@@ -17,6 +17,7 @@
  * Node type names come from the libraries as of 2026-11-09: xgenia-runtime slot-feature-node-converter.ts
  * (stateful feature nodes), slot-game-node-converter.ts, private/xgenia-pro-nodes (Bet Mode, stake.*).
  */
+import { STAKE_RULES, labelWords } from './stakeRules';
 
 export type ReadinessLevel = 'error' | 'warn' | 'info';
 
@@ -58,17 +59,18 @@ const MATHS_PREFIX = '/#__maths__/';
 const CLOUD_PREFIX = '/#__cloud__/';
 
 /** Feature nodes that keep state (slot-feature-node-converter.ts `stateful: true`) plus the Counter. */
-const STATEFUL = new Set(['Counter', 'Progressive Meter', 'Multiplier Ladder', 'Sticky Symbols', 'Locked Reels', 'Hold And Win Grid', 'Symbol Upgrade', 'Pick Bonus', 'Chapter Branch']);
+// Stake's lists come from the one rule set (stakeRules.ts).
+const STATEFUL = new Set(STAKE_RULES.statefulNodes);
 /** Maths nodes the compiler cannot turn into the server script — no books can come from them. */
 const NOT_COMPILABLE = new Set(['SlotMainEngine', 'Generate Reel Strips']);
 /** Frontend nodes that talk to XGENIA's own RGS or services: nothing answers them on Stake. */
-const XRGS_ONLY = new Set(['RGS Leaderboard', 'RGS Translations', 'Jurisdiction Rules', 'Session Limits', 'Telemetry Event', 'Cloud Function', 'REST2']);
+const XRGS_ONLY = new Set(STAKE_RULES.xrgsOnlyNodes);
 const NAVIGATION = new Set(['Router', 'RouterNavigate', 'Page Stack', 'PageStackNavigate', 'PageStackNavigateToPath', 'PageStackNavigateBack']);
 /** The platform state keys the compiler lifts out of a persisted variable (supabase-converter.ts RGS_PLATFORM_STATE_KEYS). */
 const PLATFORM_KEYS = new Set(['in_feature', 'feature_rounds_remaining', 'awaiting_choice']);
 const FREE_SPIN_WORDS = /free.?spin|freespin|fs.?left|spins.?left|spins.?remaining|respin|bonus.?spin|feature.?round/i;
 /** Stake.US social mode: words that must not appear (docs approval/social; abbreviated to the ones UI text uses). */
-const SOCIAL_WORDS = /\b(bet|bets|betting|buy|bought|purchase|pay|pays|paid|payout|cash|gamble|gambling|wager|stake|deposit|withdraw|money)\b/i;
+const SOCIAL_WORDS = STAKE_RULES.socialWords;
 
 interface Node {
   id: string;
@@ -162,10 +164,10 @@ export function stakeReadiness(project: any): ReadinessReport {
           ai: `Replace the ${t} node in ${comp.name} with compilable library nodes (rgs extract_maths reports unsupported nodes), then run stake readiness again.`
         });
       }
-      if (t === 'RGS Jackpot Pools') {
+      if (STAKE_RULES.blockedNodes.some((b) => b.type === t && b.feature === 'progressive_jackpot')) {
         add({ code: 'JACKPOT_POOL', level: 'error', where: where(comp, n), message: 'Live jackpot pools are not allowed on Stake: every bet must be independent of every other.', fix: 'Remove the jackpot pool. Fixed jackpot tiers paid from the maths (Jackpot Tiers) are fine.', ai: `Remove the RGS Jackpot Pools node from ${comp.name}; keep fixed Jackpot Tiers if the game needs jackpots.` });
       }
-      if (/gamble|cash.?out|double.?up/i.test(t + ' ' + (n.label || ''))) {
+      if (STAKE_RULES.blockedLabel.test(labelWords(t + ' ' + (n.label || '')))) {
         add({ code: 'GAMBLE_FEATURE', level: 'error', where: where(comp, n), message: 'Gamble, double-up and cash-out are not allowed on Stake: a round\'s result is fixed when it is bought, and the player cannot change it.', fix: 'Remove the gamble / cash-out step.', ai: `Remove the gamble or cash-out logic (${n.label || t}) from ${comp.name}.` });
       }
       if (t === 'Calculate Free Spins States') libraryFreeSpins = true;
@@ -293,15 +295,19 @@ export function stakeReadiness(project: any): ReadinessReport {
 
   // ── What Stake's reviewers check ────────────────────────────────────────────────────────────
   const all = texts.map((t) => t.text).join('\n');
+  // (2026-11-11) The Stake shell (stakeShell.ts) adds the rules screen with the disclaimer and each mode's
+  // measured payout and top win, the sound toggle, the spacebar, the >2× confirmation and the social-mode wording
+  // to every Stake build. These are no longer the game's to build, so they are information, not work: a warning
+  // here sent the AI off building a rules popup by hand (debug export 1794403218540, 190 calls).
   if (!/uncompleted rounds|reload the game|malfunction voids/i.test(all)) {
-    add({ code: 'NO_DISCLAIMER', level: 'warn', message: 'No game rules text with Stake\'s mandatory disclaimer was found ("Malfunction voids all wins and plays… reload the game to finish any uncompleted rounds…").', fix: 'Add a rules / info screen with symbol pays, RTP and max win per mode, mode costs, trigger rules and the disclaimer.', ai: 'Add a rules screen with the paytable, RTP and max win for every mode, the cost of each mode, the free-spin trigger and retrigger rules, and Stake\'s mandatory disclaimer.' });
+    add({ code: 'NO_DISCLAIMER', level: 'info', message: 'The Stake build adds a rules screen (an "i" button) with Stake\'s mandatory disclaimer and each mode\'s cost, measured payout and top win. It cannot list symbol pays.', fix: 'If the game does not show its paytable and feature rules anywhere, add them to the game; nothing else is needed.', ai: 'Do not build a rules screen or disclaimer: the Stake build adds them. Only if the game shows no paytable at all, offer to add one.' });
   }
   const social = texts.filter((t) => SOCIAL_WORDS.test(t.text));
   if (social.length) {
     const sample = social.slice(0, 5).map((t) => `"${t.text.slice(0, 40)}" (${t.comp.name})`).join(', ');
-    add({ code: 'SOCIAL_MODE_WORDS', level: 'warn', message: `${social.length} text(s) use words Stake.US social mode forbids (bet, buy, pay, cash, …): ${sample}.`, fix: 'When the game is launched with social=true, show the social wording instead (bet→play, buy→play, pay→win, cash→coins).', ai: 'For each listed text, switch to the social-mode wording when the Aggregator output stakeSocial is true (bet→play, buy→play, pays→wins, cash→coins).' });
+    add({ code: 'SOCIAL_MODE_WORDS', level: 'info', message: `${social.length} text(s) use words Stake.US social mode forbids (${sample}). The Stake build swaps them on screen in social mode (bet→play, buy→play, pay→win, cash→coins).`, fix: 'Nothing for page text. Words drawn on a canvas or baked into images are not swapped: check those.', ai: 'Do not change these texts: the Stake build swaps them in social mode. Only words drawn on a canvas or in images need a social-mode version.' });
   }
-  add({ code: 'REVIEW_CHECKLIST', level: 'info', message: 'Stake also checks: the spacebar places a bet, a confirmation before any mode costing more than 2×, autoplay asks for confirmation, a sound toggle, every bet level selectable, the win counts up to the final payout, and replay mode works.', fix: 'Check these in the Stake preview before submitting.', ai: 'Verify spacebar betting, the >2× mode confirmation, autoplay confirmation, sound toggle, bet levels from stakeBetLevels and replay in the Stake preview.' });
+  add({ code: 'REVIEW_CHECKLIST', level: 'info', message: 'Added to every Stake build: rules screen with the disclaimer, sound toggle, spacebar to bet, confirmation before modes over 2×, social-mode wording. Still the game\'s: autoplay asks for confirmation, every bet level selectable (from stakeBetLevels), the win counts up to the final payout, and replay mode looks right.', fix: 'Check those four in the Stake preview before submitting.', ai: 'Verify autoplay confirmation, bet levels from stakeBetLevels, the win count-up and replay in the Stake preview; the rest is added by the Stake build.' });
 
   return finish(issues, summary);
 }
