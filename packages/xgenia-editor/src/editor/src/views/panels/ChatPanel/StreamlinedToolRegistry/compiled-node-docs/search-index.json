@@ -13953,8 +13953,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelColumn.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-column",
-      "lineCount": 2834,
-      "byteSize": 139701,
+      "lineCount": 2838,
+      "byteSize": 139951,
       "inputFormatHints": {
         "visibleRows": {
           "displayName": "Visible Rows",
