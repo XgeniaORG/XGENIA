@@ -29,10 +29,11 @@ test('a new repository gets only the anchored rule', async () => {
   assert.equal(fs.readFileSync(path.join(dir, '.gitattributes'), 'utf-8'), '/project.json merge=xgenia\r\n');
 });
 
-test('the 24-hour image staging folder is ignored, once', async () => {
+test('image staging and local picture versions are ignored, once', async () => {
   const dir = tmp();
-  await appendGitIgnore(dir, ['.DS_Store', '.xgenia-image-staging/']);
-  await appendGitIgnore(dir, ['.DS_Store', '.xgenia-image-staging/']);
+  const rules = ['.DS_Store', '.xgenia-image-staging/', '.xgenia-versions/'];
+  await appendGitIgnore(dir, rules);
+  await appendGitIgnore(dir, rules);
   const lines = fs.readFileSync(path.join(dir, '.gitignore'), 'utf-8').split(/\r?\n/).filter(Boolean);
-  assert.deepEqual(lines, ['.DS_Store', '.xgenia-image-staging/']);
+  assert.deepEqual(lines, rules);
 });
