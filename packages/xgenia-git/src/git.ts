@@ -5,7 +5,7 @@ import { createErrorFromMessage, fetch, GitActionError, GitActionErrorCode } fro
 import { getRemote, setRemoteURL } from './actions/remote';
 import { DEFAULT_BRANCH } from './constants';
 import { addAll } from './core/add';
-import { appendGitAttributes } from './core/attributes';
+import { appendGitAttributes, replaceGitAttributeLine } from './core/attributes';
 import { createBranch, currentBranchName } from './core/branch';
 import { checkoutBranch } from './core/checkout';
 import { cleanUntrackedFiles } from './core/clean';
@@ -797,11 +797,17 @@ export class Git {
 
     await installMergeDriver(this.baseDir);
 
-    // Ignore these files (these rules are just saved in memory, not to .gitignore)
-    await appendGitIgnore(this.baseDir, ['project-tmp.json*', '.DS_Store', '__MACOSX']);
+    // Ignore these files (appended to the project's .gitignore when missing).
+    // `.xgenia-image-staging/` holds AI image generations for 24 hours before they are saved or
+    // dropped (xgenia-ai utils/image-staging.ts); they were being committed and pushed.
+    await appendGitIgnore(this.baseDir, ['project-tmp.json*', '.DS_Store', '__MACOSX', '.xgenia-image-staging/']);
 
-    // Create or append the .gitattributes file
-    await appendGitAttributes(this.baseDir, ['project.json merge=xgenia']);
+    // Create or append the .gitattributes file.
+    // The XGENIA merge driver is for the project's own project.json at the root. Without the
+    // leading slash the rule also matched image-editor/project.json (the Images panel's canvas),
+    // which the driver does not understand; repositories set up with the old line get it fixed.
+    await replaceGitAttributeLine(this.baseDir, 'project.json merge=xgenia', '/project.json merge=xgenia');
+    await appendGitAttributes(this.baseDir, ['/project.json merge=xgenia']);
 
     const remoteName = await this.getRemoteName();
     if (remoteName) {
