@@ -7,7 +7,12 @@ import { registerConflictPreview } from './conflictPreviews';
 
 export interface PublishHook {
   id: string;
-  /** Runs before the project files are copied for a publish; returns project-relative globs to leave out. */
+  /**
+   * Runs before the project files are copied for a publish; returns globs to leave out.
+   * Globs are relative to the project folder with forward slashes and match whole paths: `**` spans
+   * folders, `*` and `?` stay inside one name. To leave out a folder use `dir/**` (`dir` alone matches
+   * only a file named `dir`). No braces, character classes or negation.
+   */
   prepare(projectDir: string): Promise<{ exclude: string[] }>;
 }
 
@@ -16,7 +21,7 @@ export interface ProjectEvent {
   type: ProjectEventType;
   projectDir: string;
 }
-export type ProjectEventListener = (e: ProjectEvent) => void;
+export type ProjectEventListener = (e: ProjectEvent) => void | Promise<void>;
 
 const publishHooks = new Map<string, PublishHook>();
 const projectListeners = new Set<ProjectEventListener>();
@@ -24,6 +29,12 @@ const projectListeners = new Set<ProjectEventListener>();
 /** Register a hook that runs before every publish. A hook with the same id replaces the earlier one. */
 export function registerPublishHook(hook: PublishHook): void {
   publishHooks.set(hook.id, hook);
+}
+
+/** Tests only: forget every publish hook and project listener. */
+export function resetProjectExtensionsForTests(): void {
+  publishHooks.clear();
+  projectListeners.clear();
 }
 
 /** Run every publish hook in registration order; returns all their exclude globs. A failing hook fails the publish. */
@@ -55,10 +66,11 @@ export function onProjectEvent(fn: ProjectEventListener): () => void {
 export function emitProjectEvent(e: ProjectEvent): void {
   if (!e?.projectDir) return;
   for (const fn of Array.from(projectListeners)) {
+    const warn = (err: unknown) => console.warn(`[projectExtensions] ${e.type} listener failed:`, err);
     try {
-      fn(e);
+      Promise.resolve(fn(e)).catch(warn);
     } catch (err) {
-      console.warn(`[projectExtensions] ${e.type} listener failed:`, err);
+      warn(err);
     }
   }
 }
@@ -112,13 +124,13 @@ export interface ProjectExtensionApi {
 
 interface LoadOptions {
   /** Loads the extension module; defaults to the build-time alias. */
-  load?: () => { register?: (api: ProjectExtensionApi) => void } | undefined;
+  load?: () => { register?: (api: ProjectExtensionApi) => void | Promise<void> } | undefined;
   registerMergeHandler?: ProjectExtensionApi['registerMergeHandler'];
 }
 
 /** Load the optional extension module and let it register. Returns whether a module registered. */
 export function loadProjectExtensions(options: LoadOptions = {}): boolean {
-  let mod: { register?: (api: ProjectExtensionApi) => void } | undefined;
+  let mod: { register?: (api: ProjectExtensionApi) => void | Promise<void> } | undefined;
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     mod = options.load ? options.load() : require('@xgenia/project-extensions');
@@ -135,7 +147,7 @@ export function loadProjectExtensions(options: LoadOptions = {}): boolean {
       registerPublishHook,
       onProjectEvent
     };
-    mod.register(api);
+    Promise.resolve(mod.register(api)).catch((e) => console.warn('[projectExtensions] register failed:', e));
     return true;
   } catch (e) {
     console.warn('[projectExtensions] register failed:', e);

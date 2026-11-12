@@ -164,12 +164,12 @@ export default class Router
     if (args.project && ProjectModel.instance !== args.project) {
       // Set new project
       ProjectModel.instance = args.project;
-      emitProjectEvent({ type: 'opened', projectDir: args.project._retainedProjectDirectory });
       
       // CRITICAL FIX: Expose ProjectModel to window for ChatPanel and other components
       // This was missing after React 19 upgrade and causing chat history persistence issues
       (window as any).ProjectModel = ProjectModel;
       console.log('[Router] Exposed ProjectModel to window for chat history persistence');
+      emitProjectEvent({ type: 'opened', projectDir: args.project._retainedProjectDirectory });
     }
     
     // ADDED: Also ensure ProjectModel is always exposed, even if no project change

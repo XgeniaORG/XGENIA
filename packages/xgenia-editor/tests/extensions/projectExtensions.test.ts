@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -11,12 +11,15 @@ import {
   onProjectEvent,
   emitProjectEvent,
   isPublishExcluded,
-  loadProjectExtensions
+  loadProjectExtensions,
+  resetProjectExtensionsForTests
 } from '../../src/editor/src/utils/extensions/projectExtensions';
 import {
   copyProjectFilesToFolder,
   copyProjectFilesToFlatFolderStake
 } from '../../src/editor/src/utils/compilation/build/copy';
+
+beforeEach(() => resetProjectExtensionsForTests());
 
 function project(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'publish-hooks-'));
@@ -65,7 +68,10 @@ test('a failing publish hook stops the publish and names the hook', async () => 
     }
   });
   await assert.rejects(runPublishHooks('/p'), /test-fails.*boom/);
-  registerPublishHook({ id: 'test-fails', prepare: async () => ({ exclude: [] }) });
+});
+
+test('with no hooks registered there is nothing to exclude', async () => {
+  assert.deepEqual(await runPublishHooks('/p'), []);
 });
 
 test('exclude globs match project-relative paths', () => {
@@ -150,4 +156,41 @@ test('loadProjectExtensions hands the extension its API; a missing extension is 
     }),
     true
   );
+});
+
+test('an async listener that rejects and an async register that rejects are caught', async () => {
+  const warnings: unknown[] = [];
+  const origWarn = console.warn;
+  console.warn = (...a: unknown[]) => warnings.push(a);
+  const unhandled: unknown[] = [];
+  const onUnhandled = (r: unknown) => unhandled.push(r);
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    const got: string[] = [];
+    onProjectEvent(async () => {
+      throw new Error('async listener failure');
+    });
+    onProjectEvent((e) => {
+      got.push(e.type);
+    });
+    emitProjectEvent({ type: 'opened', projectDir: '/p' });
+    assert.deepEqual(got, ['opened']);
+    assert.equal(
+      loadProjectExtensions({
+        load: () => ({
+          register: async () => {
+            throw new Error('async register failure');
+          }
+        }),
+        registerMergeHandler: (() => {}) as any
+      }),
+      true
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(unhandled.length, 0);
+    assert.equal(warnings.length, 2);
+  } finally {
+    console.warn = origWarn;
+    process.off('unhandledRejection', onUnhandled);
+  }
 });

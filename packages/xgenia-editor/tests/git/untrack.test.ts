@@ -36,16 +36,26 @@ function repo(): string {
   return dir;
 }
 
-test('untrack stops tracking files and folders but leaves them on disk; unknown paths are fine', async () => {
+test('untrack stops tracking the listed files but leaves them on disk; unknown files are fine', async () => {
   const { untrack } = await import('../../../xgenia-git/src/core/untrack');
   const dir = repo();
-  await untrack(dir, ['built.json', 'out', 'never-existed.txt']);
-  const tracked = git(dir, 'ls-files').trim().split('\n').sort();
-  assert.deepEqual(tracked, ['keep.txt']);
+  await untrack(dir, ['built.json', 'out/a.png', 'never-existed.txt']);
+  assert.deepEqual(git(dir, 'ls-files').trim().split('\n').sort(), ['keep.txt', 'out/b.png']);
   assert.ok(fs.existsSync(path.join(dir, 'built.json')));
   assert.ok(fs.existsSync(path.join(dir, 'out/a.png')));
-  const staged = git(dir, 'diff', '--cached', '--name-only').trim().split('\n').sort();
-  assert.deepEqual(staged, ['built.json', 'out/a.png', 'out/b.png']);
+  assert.deepEqual(git(dir, 'diff', '--cached', '--name-only').trim().split('\n').sort(), ['built.json', 'out/a.png']);
+});
+
+test('untrack refuses the root, folders, globs, pathspec magic and paths outside the repo; the index is unchanged', async () => {
+  const { untrack } = await import('../../../xgenia-git/src/core/untrack');
+  const dir = repo();
+  const before = git(dir, 'ls-files');
+  const outside = path.join(os.tmpdir(), 'x.txt');
+  for (const bad of [['.'], ['out'], ['*'], [':/'], ['../x'], [outside], [''], ['a/../..'], ['built.json', '.']]) {
+    await assert.rejects(untrack(dir, bad), undefined, JSON.stringify(bad));
+    assert.equal(git(dir, 'ls-files'), before, JSON.stringify(bad));
+    assert.equal(git(dir, 'diff', '--cached', '--name-only').trim(), '', JSON.stringify(bad));
+  }
 });
 
 test('untrack with no paths does nothing', async () => {
