@@ -682,8 +682,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/data/aggregatornode.js",
       "category": "Cloud Functions",
       "docs": "https://docsapp.xgenia.com/nodes/cloud-functions/aggregator",
-      "lineCount": 626,
-      "byteSize": 27216,
+      "lineCount": 723,
+      "byteSize": 32106,
       "inputFormatHints": {
         "url": {
           "displayName": "URL",
@@ -793,7 +793,8 @@
           ],
           "readRgsBalanceOnLoad": [
             "getClientId",
-            "launchedSessionFromUrl"
+            "launchedSessionFromUrl",
+            "isReplayPage"
           ],
           "setOutput": [],
           "applyStakeOutputs": [],
@@ -807,8 +808,22 @@
             "parseStakeConfig"
           ],
           "moneyScaleInUse": [],
+          "attachReplay": [
+            "isReplayPage",
+            "replaySessionForPage"
+          ],
+          "showReplayState": [
+            "REPLAY_STATES"
+          ],
+          "fireOutputSignal": [],
+          "onReplayPlay": [],
+          "presentReplayFrame": [],
+          "doSendReplay": [
+            "ReplayRefused"
+          ],
           "doSend": [
             "getPlayContextFields",
+            "isReplayPage",
             "DEFAULT_URL",
             "REQUEST_TIMEOUT_MS",
             "newRequestId",
@@ -12644,8 +12659,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiPuppet.js",
       "category": "Pixi|Animation",
       "docs": null,
-      "lineCount": 2084,
-      "byteSize": 90782,
+      "lineCount": 2149,
+      "byteSize": 94151,
       "inputFormatHints": {
         "source": {
           "displayName": "Package URL",
@@ -12889,6 +12904,11 @@
         },
         "data": {
           "displayName": "Data",
+          "type": "object",
+          "group": "Data"
+        },
+        "joysticks": {
+          "displayName": "Joysticks",
           "type": "object",
           "group": "Data"
         },
@@ -13522,6 +13542,12 @@
           "_buildMachineOnly": [
             "errorText"
           ],
+          "_setJoystickSource": [
+            "errorText"
+          ],
+          "_applyJoysticks": [
+            "errorText"
+          ],
           "_setDataSource": [
             "errorText"
           ],
@@ -13578,8 +13604,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelCell.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-cell",
-      "lineCount": 882,
-      "byteSize": 38198,
+      "lineCount": 884,
+      "byteSize": 38419,
       "inputFormatHints": {
         "width": {
           "displayName": "Width",
@@ -13927,8 +13953,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelColumn.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-column",
-      "lineCount": 2559,
-      "byteSize": 123742,
+      "lineCount": 2834,
+      "byteSize": 139701,
       "inputFormatHints": {
         "visibleRows": {
           "displayName": "Visible Rows",
@@ -14050,21 +14076,49 @@
         },
         "spinAcceleration": {
           "displayName": "Acceleration",
+          "tooltip": "How fast the reel gets back to Max Speed after an anticipation slow-down, in px per frame per frame.",
+          "type": "number",
+          "group": "Spin"
+        },
+        "windupDistance": {
+          "displayName": "Wind-Up",
+          "tooltip": "Scroll style: how far the reel lifts before it drops into the spin, as a fraction of one cell (0.2 = a fifth of a symbol). 0 = no wind-up, the reel just launches.",
+          "type": "number",
+          "group": "Spin"
+        },
+        "windupDuration": {
+          "displayName": "Wind-Up Time (ms)",
+          "tooltip": "Scroll style: how long the lift takes, in milliseconds.",
+          "type": "number",
+          "group": "Spin"
+        },
+        "launchDuration": {
+          "displayName": "Launch Time (ms)",
+          "tooltip": "Scroll style: how long the reel takes from the top of the wind-up to Max Speed, in milliseconds.",
           "type": "number",
           "group": "Spin"
         },
         "dropDuration": {
           "displayName": "Drop Duration",
+          "tooltip": "Drop style: how long each symbol takes to fall into place, in milliseconds. The old symbols fall out of the bottom in about 70% of this.",
           "type": "number",
           "group": "Drop"
         },
         "dropRowDelay": {
           "displayName": "Row Delay",
+          "tooltip": "Drop style: milliseconds between one row and the next. The bottom row falls first.",
+          "type": "number",
+          "group": "Drop"
+        },
+        "dropBounce": {
+          "displayName": "Landing Hop",
+          "tooltip": "Drop style: how high a symbol hops after it lands, as a fraction of one cell. 0 = it lands dead.",
           "type": "number",
           "group": "Drop"
         },
         "stopStyle": {
           "displayName": "Stop Style",
+          "tooltip": "Scroll style: how the reel lands. Bounce runs past the rows by Bounce Strength and eases back; Slam brakes late and settles fast; Gentle brakes long with no overshoot; None stops dead.",
           "type": "enum",
           "group": "Stop",
           "enums": [
@@ -14076,11 +14130,13 @@
         },
         "bounceStrength": {
           "displayName": "Bounce Strength",
+          "tooltip": "Scroll style: how far the reel runs past its rows before it settles back, in pixels.",
           "type": "number",
           "group": "Stop"
         },
         "bounceDuration": {
           "displayName": "Bounce Duration",
+          "tooltip": "Scroll style: how long the reel takes to settle back onto its rows after the overshoot, in milliseconds.",
           "type": "number",
           "group": "Stop"
         },
@@ -14393,12 +14449,24 @@
           "_updateMask": [],
           "_startSpin": [],
           "_startContinuousScroll": [],
+          "_takePhantom": [],
           "_buildSpinStrip": [],
           "_detachPhantoms": [],
           "_removePhantoms": [],
+          "_scrollStrip": [],
+          "_parkCell": [],
+          "_realCellCount": [],
+          "_allCellsParked": [],
+          "_scrollCellsHidden": [],
+          "_beginScrollLanding": [
+            "SCROLL_STOP_FEEL",
+            "LANDING_SPEED_FLOOR"
+          ],
+          "_dropFallDistance": [],
           "_startDropAnimation": [],
           "_startDropIn": [],
-          "_bounceEaseOut": [],
+          "_placeCell": [],
+          "_landImpact": [],
           "_startStop": [],
           "_completeSpin": [],
           "_forceStopNow": [],
@@ -14419,6 +14487,11 @@
           "_assignRandomSymbolFromStrip": [],
           "_cycleSymbols": [],
           "_handleStopAnimation": [],
+          "_checkScrollImpact": [],
+          "_scrollRest": [],
+          "_finishScrollLanding": [],
+          "_easeOutQuad": [],
+          "_easeInOutSine": [],
           "_snapCellsToGrid": [],
           "_setBlur": [],
           "_applySpinEffect": [],
@@ -14464,6 +14537,7 @@
           "setPlayVideoOnWin": []
         },
         "literals": {
+          "LANDING_SPEED_FLOOR": "0.45",
           "ANTICIPATION_HIGHLIGHT_RADIUS": "10"
         }
       }
@@ -18166,8 +18240,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 3096,
-      "byteSize": 169986,
+      "lineCount": 3136,
+      "byteSize": 172849,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
@@ -18288,6 +18362,13 @@
         },
         "staggerDelay": {
           "displayName": "Stagger Delay",
+          "tooltip": "Milliseconds between one reel stopping and the next, left to right.",
+          "type": "number",
+          "group": "Timing"
+        },
+        "startStagger": {
+          "displayName": "Start Stagger",
+          "tooltip": "Milliseconds between one reel starting and the next, left to right — the ripple across the reels as a spin begins. 0 starts them all together.",
           "type": "number",
           "group": "Timing"
         },
@@ -77118,6 +77199,12 @@
         "direction": "input"
       }
     ],
+    "joysticks": [
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      }
+    ],
     "machineTrigger": [
       {
         "node": "pixi.Puppet",
@@ -77908,6 +77995,24 @@
         "direction": "input"
       }
     ],
+    "windupDistance": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      }
+    ],
+    "windupDuration": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      }
+    ],
+    "launchDuration": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      }
+    ],
     "dropDuration": [
       {
         "node": "pixi.ReelColumn",
@@ -77915,6 +78020,12 @@
       }
     ],
     "dropRowDelay": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      }
+    ],
+    "dropBounce": [
       {
         "node": "pixi.ReelColumn",
         "direction": "input"
@@ -79315,6 +79426,12 @@
       }
     ],
     "staggerDelay": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "startStagger": [
       {
         "node": "PixiReelController",
         "direction": "input"
