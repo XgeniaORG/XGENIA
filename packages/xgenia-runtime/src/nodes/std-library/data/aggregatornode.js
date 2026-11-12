@@ -54,6 +54,7 @@ const EdgeTriggeredInput = require('../../../edgetriggeredinput');
 const { getPlayContextFields, getClientId, launchedSessionFromUrl } = require('./rgs-play-context');
 const { stakeBookSessionForPage, parseStakeConfig } = require('./stake-book-session');
 const { isReplayPage, replaySessionForPage, ReplayRefused, STATES: REPLAY_STATES } = require('./rgs-replay');
+const { withFunctionRegion } = require('./rgs-region');
 
 // XRGS bet replay (2026-11-11): on a page opened with ?replay=true (rgs-replay.js) an http Aggregator never POSTs.
 // Its triggers are answered from the replay's frames, in order, through the same applyOutputs a live /rgs-fn
@@ -379,7 +380,7 @@ const AggregatorNode = {
         return;
       }
       if (!client) return;
-      fetch(match[1] + '/__balance?client=' + encodeURIComponent(client), { method: 'GET' })
+      fetch(withFunctionRegion(match[1] + '/__balance?client=' + encodeURIComponent(client)), { method: 'GET' })
         .then(function (response) {
           return response.ok ? response.json() : null;
         })
@@ -575,7 +576,8 @@ const AggregatorNode = {
 
       this._internal.lastPayload = payload;
 
-      const url = this._internal.url || DEFAULT_URL;
+      // Pinned to the RGS database's region (rgs-region.js): a game published before XRGS pinned its URL has none.
+      const url = withFunctionRegion(this._internal.url || DEFAULT_URL);
       const _this = this;
 
       let body;

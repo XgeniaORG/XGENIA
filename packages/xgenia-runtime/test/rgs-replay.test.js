@@ -10,6 +10,8 @@
 const TOKEN = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde';
 const RGS = 'https://rgs.example.co/functions/v1';
 const AGG_URL = RGS + '/rgs-fn/lucky-slot/SpinMaths';
+// The replay is read pinned to the RGS database's region (rgs-region.js).
+const REPLAY_URL = RGS + '/replay/' + TOKEN + '?forceFunctionRegion=eu-west-1';
 
 function memoryStorage() {
   const m = new Map();
@@ -191,7 +193,7 @@ describe('replay mode: no session, no /rgs-fn', () => {
       await tick();
     }
     expect(calls).toHaveLength(1);
-    expect(calls[0].url).toBe(RGS + '/replay/' + TOKEN);
+    expect(calls[0].url).toBe(REPLAY_URL);
     expect(calls[0].init.method).toBe('GET');
     expect(calls[0].init.credentials).toBe('omit');
     expect(calls[0].init.body).toBeUndefined();
@@ -256,8 +258,9 @@ describe('replay mode: every bet path is refused', () => {
     await expect(fetch(RGS + '/game-launch', { method: 'POST' })).rejects.toThrow(/replay/i);
     await expect(fetch(RGS + '/replay/' + TOKEN, { method: 'POST' })).rejects.toThrow(/replay/i);
     await fetch(RGS + '/replay/' + TOKEN);
+    await fetch(REPLAY_URL);
     await fetch('https://cdn.example.com/assets/reel.png');
-    expect(calls.map((c) => c.url)).toEqual([RGS + '/replay/' + TOKEN, 'https://cdn.example.com/assets/reel.png']);
+    expect(calls.map((c) => c.url)).toEqual([RGS + '/replay/' + TOKEN, REPLAY_URL, 'https://cdn.example.com/assets/reel.png']);
   });
 
   test('the guest wallet is not read on a replay page', async () => {
@@ -265,7 +268,7 @@ describe('replay mode: every bet path is refused', () => {
     session(recordingView());
     const { ctx } = makeAggregator({ outputs: 'spinWinnings' });
     await tick();
-    expect(calls.map((c) => c.url)).toEqual([RGS + '/replay/' + TOKEN]);
+    expect(calls.map((c) => c.url)).toEqual([REPLAY_URL]);
     expect(ctx.getOutputValue('rgsBalance')).toBeUndefined();
   });
 });
@@ -279,17 +282,17 @@ describe("replay mode: the RGS is the game's own", () => {
     makeAggregator({ outputs: 'reels' });
     await tick();
     expect(calls).toHaveLength(1);
-    expect(calls[0].url).toBe(RGS + '/replay/' + TOKEN);
+    expect(calls[0].url).toBe(REPLAY_URL);
     expect(s.ignoredRgsUrl).toBe('evil.example.net/functions/v1/replay');
   });
 
   test('an rgs_url on the same host is accepted, and the read still uses the configured base', () => {
     expect(replay.replayFetchUrl(RGS, TOKEN, 'rgs.example.co/functions/v1/replay')).toEqual({
-      url: RGS + '/replay/' + TOKEN,
+      url: REPLAY_URL,
       ignoredRgsUrl: null
     });
     expect(replay.replayFetchUrl(RGS, TOKEN, 'https://rgs.example.co.evil.net')).toEqual({
-      url: RGS + '/replay/' + TOKEN,
+      url: REPLAY_URL,
       ignoredRgsUrl: 'https://rgs.example.co.evil.net'
     });
   });

@@ -41,6 +41,7 @@
 // Pure apart from the DOM view and the fetch guard, both injectable: test/rgs-replay.test.js drives it with a
 // stubbed fetch and a recording view.
 
+const { withFunctionRegion } = require('./rgs-region');
 const STATES = { LOADING: 'LOADING', READY: 'READY', PLAYING: 'PLAYING', ENDED: 'ENDED', ERROR: 'ERROR' };
 
 const CODES = {
@@ -175,7 +176,7 @@ function replayFetchUrl(base, token, rgsUrl) {
       ignored = rgsUrl;
     }
   }
-  return { url: clean + '/replay/' + encodeURIComponent(token), ignoredRgsUrl: ignored };
+  return { url: withFunctionRegion(clean + '/replay/' + encodeURIComponent(token)), ignoredRgsUrl: ignored };
 }
 
 // ─── Money on screen ───────────────────────────────────────────────────────────
