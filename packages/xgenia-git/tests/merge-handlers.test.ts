@@ -441,3 +441,102 @@ test('parser: a delete of a file the other side changed is a conflict; a delete 
   assert.equal(l.kind, ComputedAction.Conflicts);
   assert.equal(l.conflictedEntries[0].their.sha, sha('c'));
 });
+
+const LONG = 'one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n';
+
+/** A repo where `main` renamed doc.txt to moved.txt and `other` edited doc.txt. */
+function makeRenameRepo(extra: Record<string, [Buffer | string, Buffer | string, Buffer | string]> = {}) {
+  const dir = makeRepo({ 'doc.txt': [LONG, LONG, LONG + 'theirs\n'], ...extra });
+  run(dir, 'config', 'user.name', 't');
+  run(dir, 'config', 'user.email', 't@t');
+  run(dir, 'mv', 'doc.txt', 'moved.txt');
+  run(dir, 'commit', '-qm', 'rename');
+  return dir;
+}
+
+test('a rename on one side and an edit on the other is not a conflict (branch merge)', async () => {
+  const { mergeBranchIntoCurrent } = await import('../src/merge-branch');
+  // a real conflict elsewhere sends the merge through the strategy
+  const dir = makeRenameRepo({ 'art/face.png': [PNG_A, PNG_B, PNG_C] });
+  await mergeBranchIntoCurrent(dir, 'other', (_a: any, o: any) => o);
+  assert.equal(fs.existsSync(path.join(dir, 'doc.txt')), false, 'the old path is not brought back');
+  assert.equal(fs.readFileSync(path.join(dir, 'moved.txt'), 'utf8'), LONG + 'theirs\n', 'the edit follows the rename');
+  assert.deepEqual((await readConflicts(dir)).map((x) => x.path), ['art/face.png']);
+  assert.equal(run(dir, 'status', '--porcelain'), '');
+});
+
+test('a rename on one side and an edit on the other is not a conflict (after a clean git merge)', async () => {
+  // Git._merge runs git's merge and then this; it cannot load outside Electron.
+  const { solveMergeConflicts } = await import('../src/merge-branch');
+  const dir = makeRenameRepo();
+  const ours = run(dir, 'rev-parse', 'main');
+  const theirs = run(dir, 'rev-parse', 'other');
+  run(dir, 'merge', '-q', '--no-ff', '-m', 'Merge other', 'other');
+  const merged = run(dir, 'rev-parse', 'HEAD');
+  assert.equal(await solveMergeConflicts(dir, (_a: any, o: any) => o, ours, theirs), false, 'nothing left to commit');
+  assert.equal(run(dir, 'rev-parse', 'HEAD'), merged, 'no extra commit');
+  assert.equal(fs.existsSync(path.join(dir, 'doc.txt')), false, 'the old path is not brought back');
+  assert.equal(fs.readFileSync(path.join(dir, 'moved.txt'), 'utf8'), LONG + 'theirs\n');
+  assert.deepEqual(await readConflicts(dir), []);
+  assert.equal(run(dir, 'status', '--porcelain'), '');
+});
+
+test('a true modify/delete is still settled and listed after git merge stops', async () => {
+  const { solveMergeConflicts } = await import('../src/merge-branch');
+  const dir = makeRepo({ 'doc.txt': [LONG, LONG + 'mine\n', LONG] });
+  run(dir, 'config', 'user.name', 't');
+  run(dir, 'config', 'user.email', 't@t');
+  run(dir, 'checkout', '-q', 'other');
+  run(dir, 'rm', '-q', 'doc.txt');
+  run(dir, 'commit', '-qm', 'delete');
+  run(dir, 'checkout', '-q', 'main');
+  const ours = run(dir, 'rev-parse', 'main');
+  const theirs = run(dir, 'rev-parse', 'other');
+  assert.throws(() => run(dir, 'merge', '-q', '--no-ff', 'other'));
+  assert.equal(await solveMergeConflicts(dir, (_a: any, o: any) => o, ours, theirs), true);
+  assert.deepEqual((await readConflicts(dir)).map((x) => [x.path, x.theirsDeleted]), [['doc.txt', true]]);
+});
+
+test('a rename on one side and an edit on the other is not a conflict (stash pop)', async () => {
+  const { solveStashConflicts } = await import('../src/merge-branch');
+  const dir = makeRepo({ 'doc.txt': [LONG, LONG, LONG] });
+  fs.writeFileSync(path.join(dir, 'doc.txt'), LONG + 'local\n');
+  run(dir, 'stash', 'push', '-q');
+  const stashSha = run(dir, 'rev-parse', 'stash@{0}');
+  run(dir, 'mv', 'doc.txt', 'moved.txt');
+  run(dir, 'commit', '-qm', 'rename');
+  run(dir, 'stash', 'pop', '-q');
+  const head = run(dir, 'rev-parse', 'HEAD');
+  await solveStashConflicts(dir, (_a: any, o: any) => o, stashSha, head);
+  assert.equal(fs.existsSync(path.join(dir, 'doc.txt')), false, 'the old path is not brought back');
+  assert.equal(fs.readFileSync(path.join(dir, 'moved.txt'), 'utf8'), LONG + 'local\n');
+  assert.deepEqual(await readConflicts(dir), []);
+});
+
+test('a true modify/delete in a stash pop is still listed', async () => {
+  const { solveStashConflicts } = await import('../src/merge-branch');
+  const dir = makeRepo({ 'doc.txt': [LONG, LONG, LONG] });
+  fs.writeFileSync(path.join(dir, 'doc.txt'), LONG + 'local\n');
+  run(dir, 'stash', 'push', '-q');
+  const stashSha = run(dir, 'rev-parse', 'stash@{0}');
+  run(dir, 'rm', '-q', 'doc.txt');
+  run(dir, 'commit', '-qm', 'delete');
+  try {
+    run(dir, 'stash', 'pop', '-q');
+  } catch {
+    // conflicts are expected
+  }
+  const head = run(dir, 'rev-parse', 'HEAD');
+  await solveStashConflicts(dir, (_a: any, o: any) => o, stashSha, head);
+  assert.deepEqual((await readConflicts(dir)).map((x) => [x.path, x.theirsDeleted]), [['doc.txt', true]]);
+});
+
+test('a conflicted merge commit has no comment lines in its message', async () => {
+  const { mergeBranchIntoCurrent } = await import('../src/merge-branch');
+  const dir = makeRepo({ 'art/face.png': [PNG_A, PNG_B, PNG_C] });
+  run(dir, 'config', 'user.name', 't');
+  run(dir, 'config', 'user.email', 't@t');
+  await mergeBranchIntoCurrent(dir, 'other', (_a: any, o: any) => o);
+  const body = run(dir, 'log', '-1', '--format=%B');
+  assert.equal(body.split('\n').filter((l) => l.startsWith('#')).length, 0, body);
+});
