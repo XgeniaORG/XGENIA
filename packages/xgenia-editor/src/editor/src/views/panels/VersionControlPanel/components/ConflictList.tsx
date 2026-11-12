@@ -79,7 +79,7 @@ export function ConflictList({ repoDir, items, onChange }: ConflictListProps) {
     <VStack>
       <Section hasVisibleOverflow hasGutter>
         <Label>Conflicts</Label>
-        <Text variant={TextType.Shy}>Choose which version to keep. You can commit once all are settled.</Text>
+        <Text textType={TextType.Shy}>Choose which version to keep. You can commit once all are settled.</Text>
       </Section>
       {conflictRows(items).map((row) => {
         const Preview = conflictPreviewFor(row.previewKind);
