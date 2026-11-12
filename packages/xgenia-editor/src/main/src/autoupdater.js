@@ -27,6 +27,7 @@ const { autoUpdater } = require('electron-updater');
 const { MAX_MANIFEST_BYTES, manifestName, releaseAssetUrl, verifyUpdateInfo } = require('./update-manifest');
 const { UPDATE_PUBLIC_KEY_PEM } = require('./update-public-key');
 const { updateFitsThisMachine } = require('./update-arch');
+const { toReleaseNotes } = require('./release-notes');
 
 // Where releases are published (packages/xgenia-editor/package.json → build.publish).
 const RELEASE_REPO = 'XgeniaORG/XGENIA';
@@ -43,6 +44,8 @@ const DEFAULT_CHANNEL = 'stable';
  *   lastCheck: { at, result: 'up-to-date' | 'available' | 'error', message? } or null
  *   failure:   { at, version, message } when an update failed while downloading or installing
  *              (BaseWindow shows it once); null otherwise. A failed background check is not one.
+ *   releaseNotes: what changed in every release between the running version and `version`, newest
+ *              first, as plain text blocks (release-notes.js); [] when there is no update or no notes.
  */
 let state = {
   status: 'idle',
@@ -52,7 +55,8 @@ let state = {
   enabled: false,
   checking: false,
   lastCheck: null,
-  failure: null
+  failure: null,
+  releaseNotes: []
 };
 
 function setState(next) {
@@ -154,6 +158,8 @@ function setupAutoUpdate(window) {
   // Download only after the signature check below.
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
+  // Release notes of every release between this version and the update, not only the newest one.
+  autoUpdater.fullChangelog = true;
   applyChannel(channel);
 
   const setProgress = (value) => {
@@ -176,6 +182,7 @@ function setupAutoUpdate(window) {
       status: 'idle',
       version: null,
       percent: 0,
+      releaseNotes: [],
       failure: { at, version: state.version, message },
       lastCheck: { at, result: 'error', message: 'The update could not be installed.' }
     });
@@ -205,6 +212,7 @@ function setupAutoUpdate(window) {
       version: info.version,
       percent: 0,
       failure: null,
+      releaseNotes: notesFor(info),
       lastCheck: { at: new Date().toISOString(), result: 'available' }
     });
     autoUpdater.downloadUpdate().catch((err) => {
@@ -254,15 +262,26 @@ function setupAutoUpdate(window) {
     // The user left Beta while a nightly was downloading: never install it.
     if (!wanted(info.version)) {
       autoUpdater.autoInstallOnAppQuit = false;
-      setState({ status: 'idle', version: null, percent: 0 });
+      setState({ status: 'idle', version: null, percent: 0, releaseNotes: [] });
       return;
     }
     autoUpdater.autoInstallOnAppQuit = true;
     downloaded = info.version;
+    if (!state.releaseNotes.length) setState({ releaseNotes: notesFor(info) });
     log.info('Update downloaded: ' + info.version + (waitsForSquirrel && !squirrelReady ? ' (macOS: waiting for Squirrel to stage it)' : ''));
     if (waitsForSquirrel && !squirrelReady) setState({ status: 'downloading', version: info.version, percent: 100 });
     markReady();
   });
+}
+
+/** The update's release notes, safe to show (never throws: no notes is not a reason to skip an update). */
+function notesFor(info) {
+  try {
+    return toReleaseNotes(info && info.releaseNotes, { version: info && info.version, channel: state.channel });
+  } catch (err) {
+    log.warn('Release notes could not be read: ' + (err?.message || err));
+    return [];
+  }
 }
 
 let checking = null;
@@ -295,7 +314,10 @@ function setChannel(next) {
   // Leaving Beta with a nightly already downloaded: drop it rather than install it on quit.
   if (state.status === 'ready' && !wanted(state.version)) {
     autoUpdater.autoInstallOnAppQuit = false;
-    setState({ status: 'idle', version: null, percent: 0 });
+    setState({ status: 'idle', version: null, percent: 0, releaseNotes: [] });
+  } else if (state.releaseNotes.length) {
+    // Leaving Beta for a stable update: its nightlies' notes are no longer what the user gets.
+    setState({ releaseNotes: state.releaseNotes.filter((r) => wanted(r.version)) });
   }
   log.info('Update channel set to ' + next);
   checkForUpdates();
@@ -305,7 +327,18 @@ function setChannel(next) {
 // TEST_UPDATE_FLOW=true: walk the UI through downloading and ready without touching the network.
 function simulateUpdate() {
   setTimeout(() => {
-    setState({ status: 'downloading', version: '999.0.0', percent: 0 });
+    setState({
+      status: 'downloading',
+      version: '999.0.0',
+      percent: 0,
+      releaseNotes: toReleaseNotes(
+        [
+          { version: '999.0.0', note: '<h2>Highlights</h2><ul><li><strong>Test update.</strong> A simulated release.<ul><li>A nested item.</li></ul></li></ul>' },
+          { version: '998.0.0', note: '<p>The release before it.</p>' }
+        ],
+        { channel: 'stable' }
+      )
+    });
     let percent = 0;
     const interval = setInterval(() => {
       percent += 10;

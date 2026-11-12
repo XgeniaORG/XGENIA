@@ -15,6 +15,8 @@ import { PropertyPanelSelectInput } from '@xgenia-core-ui/components/property-pa
 import { CollapsableSection } from '@xgenia-core-ui/components/sidebar/CollapsableSection';
 import { Text, TextSize, TextType } from '@xgenia-core-ui/components/typography/Text';
 
+import { ReleaseNotesList } from '../../ReleaseNotesList/ReleaseNotesList';
+
 const CHANNEL_OPTIONS = [
   { label: 'Stable', value: 'stable' },
   { label: 'Beta (nightly builds)', value: 'beta' }
@@ -81,6 +83,15 @@ export function UpdatesSection() {
                 {channelError || describeStatus(update)}
               </Text>
             </Box>
+
+            {update.status !== 'idle' && update.releaseNotes.length > 0 && (
+              <Box hasXSpacing>
+                <Text size={TextSize.Medium} textType={TextType.Proud}>
+                  What's new in {update.version}
+                </Text>
+                <ReleaseNotesList releases={update.releaseNotes} maxHeight={280} />
+              </Box>
+            )}
           </>
         ) : (
           <Box hasXSpacing>

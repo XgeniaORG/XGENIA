@@ -174,3 +174,28 @@ test(
     }
   })
 );
+
+test(
+  'the ready update carries its release notes, without nightly notes on Stable',
+  withUpdatableInstall(async () => {
+    const u = load();
+    u.updater.emit('update-downloaded', {
+      version: '3.1.0',
+      releaseNotes: [
+        { version: '3.1.0', note: '<h2>Highlights</h2><ul><li>New thing</li></ul>' },
+        { version: '3.1.0-beta.3', note: '<p>Nightly</p>' },
+        { version: '3.0.9', note: '<p>Older fix</p>' }
+      ]
+    });
+    assert.equal(u.state().status, 'ready');
+    assert.deepEqual(u.state().releaseNotes, [
+      { version: '3.1.0', blocks: [{ type: 'heading', text: 'Highlights' }, { type: 'item', depth: 0, text: 'New thing' }] },
+      { version: '3.0.9', blocks: [{ type: 'text', text: 'Older fix' }] }
+    ]);
+    // Unreadable notes never block the update.
+    const v = load();
+    v.updater.emit('update-downloaded', { version: '3.1.0', releaseNotes: { not: 'notes' } });
+    assert.equal(v.state().status, 'ready');
+    assert.deepEqual(v.state().releaseNotes, []);
+  })
+);

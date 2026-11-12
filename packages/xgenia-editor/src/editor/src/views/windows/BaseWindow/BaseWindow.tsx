@@ -9,6 +9,8 @@ import { TitleBar, TitleBarVariant, TitleBarState } from '@xgenia-core-ui/compon
 import { VStack } from '@xgenia-core-ui/components/layout/Stack';
 import { useConfirmationDialog } from '@xgenia-core-ui/components/popups/ConfirmationDialog/ConfirmationDialog.hooks';
 
+import { UpdateReadyDialog } from './UpdateReadyDialog';
+
 export enum BaseWindowVariant {
     Default = 'default',
     Shallow = 'shallow'
@@ -38,19 +40,11 @@ export function BaseWindow({
 
     const update = useAutoUpdateState();
 
-    const [UpdateDialog, showUpdateDialog] = useConfirmationDialog({
-        title: 'Update ready',
-        message: `XGENIA ${update.version ?? ''} has been downloaded. Restart now to install it, or it installs the next time you quit XGENIA.`,
-        confirmButtonLabel: 'Restart now',
-        cancelButtonLabel: 'Later'
-    });
+    // "Update ready" with the release notes of everything the update brings. Later: it installs on quit.
+    const [isUpdateDialogVisible, setUpdateDialogVisible] = useState(false);
 
     function askToRestart() {
-        showUpdateDialog()
-            .then(() => autoUpdateActions.install())
-            .catch(() => {
-                /* Later: it installs on quit */
-            });
+        setUpdateDialogVisible(true);
     }
 
     // Open the dialog once when an update becomes ready; after "Later", the title bar button stays.
@@ -92,7 +86,16 @@ export function BaseWindow({
         <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 }}>
             {/* Wrap the ENTIRE content in a Fragment */}
             <Fragment>
-                {UpdateDialog()}
+                <UpdateReadyDialog
+                    isVisible={isUpdateDialogVisible && update.status === 'ready'}
+                    version={update.version}
+                    releaseNotes={update.releaseNotes}
+                    onRestart={() => {
+                        setUpdateDialogVisible(false);
+                        autoUpdateActions.install();
+                    }}
+                    onLater={() => setUpdateDialogVisible(false)}
+                />
                 {FailureDialog()}
 
                 <VStack UNSAFE_style={{ height: '100%' }}>
