@@ -12,10 +12,11 @@ function bitmap(w, h, fill, paint) {
 }
 
 /** A BrowserWindow stand-in: the page reports `probe()` and paints `image()`. */
-function fakeElectron({ probe, image, loadFails = false }) {
+function fakeElectron({ probe, image, loadFails = false, hostZoom }) {
   const made = [];
   class BrowserWindow {
     constructor(opts) {
+      opts = { ...opts, initialZoom: hostZoom };
       this.opts = opts;
       this.destroyed = false;
       this.loaded = null;
@@ -24,6 +25,9 @@ function fakeElectron({ probe, image, loadFails = false }) {
         getUserAgent: () => 'Mozilla/5.0 Electron/44.7.2',
         setAudioMuted(v) { self.muted = v; },
         setFrameRate() {},
+        zoom: opts.initialZoom ?? 1,
+        getZoomFactor() { return this.zoom; },
+        setZoomFactor(z) { this.zoom = z; },
         executeJavaScript: async () => probe(self),
         capturePage: async () => image(self)
       };
@@ -140,4 +144,18 @@ test('one capture at a time', async () => {
   const b = await C.captureDesignOffscreen({ url: 'http://localhost:8574/', width: 64, height: 36, ...fast }, fake);
   assert.equal(b.code, 'BUSY');
   assert.equal((await a).success, true);
+});
+
+test('the capture window has its own session at zoom 1, so the editor UI zoom on the same host does not lay it out bigger', async () => {
+  const { BrowserWindow, made } = fakeElectron({
+    hostZoom: 0.8,
+    // The page reports the design size only once its zoom is 1 (1920/0.8 = 2400 otherwise).
+    probe: (w) => (w.webContents.zoom === 1 ? settledPage() : { ...settledPage(), w: 80, h: 45 }),
+    image: () => nativeImage(64, 36, bitmap(64, 36, [0, 0, 0, 255], { x: 2, y: 2, w: 8, h: 8 }))
+  });
+  const r = await C.captureDesignOffscreen({ url: 'http://localhost:8574/', width: 64, height: 36, ...fast }, { BrowserWindow });
+  assert.equal(r.success, true, r.message);
+  assert.equal(made[0].opts.webPreferences.partition, C.CAPTURE_PARTITION);
+  assert.ok(!made[0].opts.webPreferences.partition.startsWith('persist:'), 'in-memory session');
+  assert.equal(made[0].webContents.zoom, 1);
 });
