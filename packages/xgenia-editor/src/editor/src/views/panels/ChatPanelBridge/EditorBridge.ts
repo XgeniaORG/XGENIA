@@ -4347,6 +4347,20 @@ ${autoReturnCode}
             }
         });
 
+        // The Images panel rewrote a project picture it has open (an edit to a linked image). The
+        // running preview caches textures by URL and never re-fetches an overwritten file, so it
+        // is reloaded — once for a burst of writes — and the Assets panel told to refresh.
+        let assetRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+        h('imageEditor.assetUpdated', ([relativePath]: [string]) => {
+            EventDispatcher.instance.emit('project-assets-changed', { path: relativePath });
+            if (assetRefreshTimer) clearTimeout(assetRefreshTimer);
+            assetRefreshTimer = setTimeout(() => {
+                assetRefreshTimer = null;
+                EventDispatcher.instance.emit('viewer-refresh');
+            }, 400);
+            return true;
+        });
+
         h('imageEditor.getFalApiKey', () => {
             try {
                 const { EditorSettings } = require('../../../utils/editorsettings');
