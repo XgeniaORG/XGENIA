@@ -8,6 +8,7 @@ export {
   registerMergeHandler,
   mergeHandlers,
   readConflicts,
+  readBlob,
   writeConflicts,
   settleConflict
 } from "./merge-handlers";

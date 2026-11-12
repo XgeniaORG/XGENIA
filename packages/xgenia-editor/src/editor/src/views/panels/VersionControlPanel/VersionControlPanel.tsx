@@ -30,6 +30,8 @@ import { EditorDocumentProvider } from '../../documents/EditorDocument';
 import PopupLayer from '../../popuplayer';
 import { ToastLayer } from '../../ToastLayer/ToastLayer';
 import { useIsActivePanel } from '../useIsActivePanel';
+import { ConflictList, useListedConflicts } from './components/ConflictList';
+import { canCommitWith } from './components/conflictListModel';
 import { BranchMerge } from './components/BranchMerge';
 import { BranchStatusButton } from './components/BranchStatusButton';
 import { GitProviderPopout } from './components/GitProviderPopout/GitProviderPopout';
@@ -113,6 +115,9 @@ function BaseVersionControlPanel({ openPublishDialogOnMount }: BaseVersionContro
   }, [isActivePanel]);
 
   const hasConflictsInProject = useHasConflictsInProject();
+  // Reloads after a pull/merge (the commit or busy state moves) and after each settle (onChange).
+  const listed = useListedConflicts(git.repositoryPath, `${fetch.currentCommitSha}|${actions.isBusy}`);
+  const hasListedConflicts = listed.items.length > 0;
 
   // NOTE: The keep alive stuff here is a little confusing,
   //       but are designed in a way to be performant.
@@ -152,7 +157,12 @@ function BaseVersionControlPanel({ openPublishDialogOnMount }: BaseVersionContro
 
   const githubRepoUrl = getGitHubRepoUrl(git.OriginUrl);
   const hasRemote = fetch.gitStatus.kind !== 'push-repository' && Boolean(git.OriginUrl);
-  const canCommit = localChangesCount > 0 && !hasConflictsInProject && !actions.isBusy;
+  const canCommit = canCommitWith({
+    localChangesCount,
+    hasConflictsInProject,
+    listedConflicts: listed.items.length,
+    isBusy: actions.isBusy
+  });
 
   /**
    * The commands VS Code keeps behind "Views and More Actions..." in the Source
@@ -168,13 +178,13 @@ function BaseVersionControlPanel({ openPublishDialogOnMount }: BaseVersionContro
     {
       label: 'Push',
       icon: IconName.ArrowUp,
-      isDisabled: !hasRemote || actions.isBusy,
+      isDisabled: !hasRemote || actions.isBusy || hasListedConflicts,
       onClick: () => actions.push()
     },
     {
       label: 'Sync Changes',
       icon: IconName.Refresh,
-      isDisabled: !hasRemote || actions.isBusy,
+      isDisabled: !hasRemote || actions.isBusy || hasListedConflicts,
       endSlot:
         fetch.remoteCommitCount || fetch.localCommitCount
           ? `↓ ${fetch.remoteCommitCount ?? 0}  ↑ ${fetch.localCommitCount ?? 0}`
@@ -212,7 +222,7 @@ function BaseVersionControlPanel({ openPublishDialogOnMount }: BaseVersionContro
     {
       label: 'Stash Changes',
       icon: IconName.Stash,
-      isDisabled: !localChangesCount || hasConflictsInProject,
+      isDisabled: !localChangesCount || hasConflictsInProject || hasListedConflicts,
       onClick: () => actions.stashChanges()
     },
     {
@@ -243,7 +253,7 @@ function BaseVersionControlPanel({ openPublishDialogOnMount }: BaseVersionContro
       title="Versions"
       headerSlot={
         <HStack ref={headerActionsRef} hasSpacing={1} UNSAFE_style={{ height: 'auto' }}>
-          <Tooltip content="Commit" fineType={hasConflictsInProject ? 'Resolve the conflicts first' : undefined}>
+          <Tooltip content="Commit" fineType={hasConflictsInProject || hasListedConflicts ? 'Resolve the conflicts first' : undefined}>
             <IconButton
               icon={IconName.Check}
               size={IconSize.Small}
@@ -307,6 +317,10 @@ function BaseVersionControlPanel({ openPublishDialogOnMount }: BaseVersionContro
           </>
         )}
 
+        {git.repositoryPath && (
+          <ConflictList repoDir={git.repositoryPath} items={listed.items} onChange={listed.setItems} />
+        )}
+
         {viewState !== ViewState.BranchMerge && (
           <Tabs
             variant={TabsVariant.Sidebar}
@@ -317,7 +331,7 @@ function BaseVersionControlPanel({ openPublishDialogOnMount }: BaseVersionContro
               {
                 id: 'changes',
                 label: localChangesCount ? `Changes (${localChangesCount})` : 'Changes',
-                content: <LocalChanges hasConflictsInProject={hasConflictsInProject} />
+                content: <LocalChanges hasConflictsInProject={hasConflictsInProject || hasListedConflicts} />
               },
               {
                 id: 'history',
