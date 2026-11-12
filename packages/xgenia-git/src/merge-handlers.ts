@@ -15,7 +15,10 @@ export interface MergeConflictItem {
   preview?: string;
   /** Blob sha of the other side's version, recorded when the conflict was found. */
   theirsBlob?: string;
-  /** True when the other side deleted the file (then there is no theirsBlob). */
+  /**
+   * True when the other side deleted the file (then there is no theirsBlob). False with no
+   * theirsBlob: the other side could not be recorded, so only "keep mine" is possible.
+   */
   theirsDeleted?: boolean;
   /** Other files that go with this one: settling for theirs restores them too (e.g. a picture beside its data). */
   alsoRestore?: Array<{ path: string; theirsBlob?: string; theirsDeleted?: boolean }>;
@@ -36,7 +39,9 @@ export interface MergeHandler {
     ours: Buffer | null,
     theirs: Buffer | null,
     path: string,
-    repoDir: string
+    repoDir: string,
+    /** The commit the other side's versions come from, or null when not known. */
+    theirsRev: string | null
   ): Promise<{ merged: Buffer | null; conflicts: MergeConflictItem[] }>;
 }
 
@@ -125,7 +130,9 @@ export async function settleConflict(
     const resolved: Array<{ path: string; theirs: Buffer | null }> = [];
     for (const entry of entries) {
       let theirs: Buffer | null;
-      if (entry.theirsDeleted) {
+      if (entry.theirsDeleted === false && !entry.theirsBlob) {
+        throw new Error(`The other side of ${entry.path} is unavailable; keep yours instead`);
+      } else if (entry.theirsDeleted) {
         theirs = null;
       } else if (entry.theirsBlob) {
         theirs = await readBlob(repoDir, entry.theirsBlob);

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   conflictRows,
+  canTakeTheirs,
   settleAndReload,
   canCommitWith,
   isImagePath
@@ -75,4 +76,12 @@ test('a push with listed conflicts is refused; sync stops after the pull', async
   log.length = 0;
   await syncUnlessBlocked(mk([]));
   assert.deepEqual(log, ['pull', 'push']);
+});
+
+test('an item whose other side could not be recorded only offers keep mine', () => {
+  const unavailable = { path: 'c/x.json', item: 'p', label: 'P', theirsDeleted: false };
+  assert.equal(canTakeTheirs(unavailable), false);
+  assert.deepEqual(conflictRows([unavailable])[0].actions.map((x) => x.label), ['Keep mine']);
+  assert.equal(canTakeTheirs({ path: 'c/x.json', label: 'P', theirsDeleted: true }), true);
+  assert.equal(canTakeTheirs({ path: 'c/x.json', label: 'P' }), true);
 });

@@ -1,6 +1,5 @@
 import React, { useEffect, useState, ReactNode } from 'react';
 import { getCommit } from '@xgenia/git/src/core/logs';
-import { merge } from '@xgenia/git/src/core/merge';
 import { Commit } from '@xgenia/git/src/core/models/snapshot';
 import { GitResetMode, reset } from '@xgenia/git/src/core/reset';
 
@@ -32,7 +31,7 @@ export function BranchMerge() {
 
 function BranchMergeChanges() {
   const [commitMessage, setCommitMessage] = useState('');
-  const { repositoryPath, fetch, branchStatus, localChangesCount, setBranchStatus } = useVersionControlContext();
+  const { git, repositoryPath, fetch, branchStatus, localChangesCount, setBranchStatus } = useVersionControlContext();
   const { currentBranch, fetchLocal } = fetch;
   const [ourCommit, setOurCommit] = useState<Commit>(null);
 
@@ -65,11 +64,8 @@ function BranchMergeChanges() {
         ProjectModel.setSaveOnModelChange(false);
         await reset(repositoryPath, GitResetMode.Hard, 'HEAD');
 
-        await merge(repositoryPath, branchStatus.to.nameWithoutRemote, {
-          message: commitMessage,
-          strategy: 'recursive',
-          strategyOption: 'ours'
-        });
+        // conflicts go through the merge strategy and are listed (never settled as ours behind the user's back)
+        await git.mergeBranchIntoCurrent(branchStatus.to.nameWithoutRemote, commitMessage || undefined);
 
         setBranchStatus(null);
 

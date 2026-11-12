@@ -33,6 +33,7 @@ import { createStashEntry, getStashes, popStashEntry, popStashEntryToBranch } fr
 import { getStatus } from './core/status';
 import { deleteRef } from './core/update-ref';
 import { cleanMergeDriverOptionsSync, writeMergeDriverOptions } from './merge-driver';
+import { mergeBranchIntoCurrent } from './merge-branch';
 import { MergeStrategy, MergeStrategyFunc } from './merge-strategy';
 import {
     ConvertStatusKindToGitStatus,
@@ -316,7 +317,8 @@ export class Git {
     if (tree.kind === ComputedAction.Conflicts) {
       // Solve any conflicts if there are any after reapplying the stash
       // NOTE(?): "ours" and "theirs" are reveresed, since our changes are the incoming one from the stash
-      const solver = new MergeStrategy(this.baseDir, this.mergeProject);
+      // (the merge tree's "their" side is HEAD, so that is the other side's commit for handlers)
+      const solver = new MergeStrategy(this.baseDir, this.mergeProject, 'our', headCommitish);
       await solver.solveConflicts(tree);
     } else if (tree.kind !== ComputedAction.Clean) {
       throw new Error('Failed to merge stash, ' + tree.kind);
@@ -335,6 +337,15 @@ export class Git {
       squash,
       message
     });
+  }
+
+  /**
+   * Merge another branch into the current one with a merge commit. Conflicts are
+   * settled by the merge strategy (handlers, project.json) and listed, never
+   * silently resolved for one side.
+   */
+  async mergeBranchIntoCurrent(theirsBranchName: string, message?: string): Promise<void> {
+    await mergeBranchIntoCurrent(this.baseDir, theirsBranchName, this.mergeProject, message);
   }
 
   /**
@@ -894,7 +905,7 @@ export class Git {
     const tree = await mergeTree(this.baseDir, ours, theirs);
     if (tree.kind === ComputedAction.Conflicts) {
       // Run our solve strategy
-      const solver = new MergeStrategy(this.baseDir, this.mergeProject);
+      const solver = new MergeStrategy(this.baseDir, this.mergeProject, 'our', theirs.tip.sha);
       await solver.solveConflicts(tree);
 
       // Create a merge commit

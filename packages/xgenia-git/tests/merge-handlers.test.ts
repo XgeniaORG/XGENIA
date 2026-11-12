@@ -101,6 +101,57 @@ test('a handler gets the repository folder and keeps the other side it records',
   assert.equal(by('none').theirsBlob, run(dir, 'rev-parse', 'other:y.sides'));
 });
 
+test('a handler gets the other side\'s commit when the strategy knows it', async () => {
+  let seenRev: string | null | undefined;
+  registerMergeHandler({
+    id: 'test-rev',
+    match: (p) => p.endsWith('.rev'),
+    merge: async (_b, o, _t, _p, _d, theirsRev) => {
+      seenRev = theirsRev;
+      return { merged: o, conflicts: [] };
+    }
+  });
+  const dir = makeRepo({ 'z.rev': ['a', 'a\nours', 'a\ntheirs'] });
+  try {
+    run(dir, 'merge', '--no-commit', '--no-ff', 'other');
+  } catch {
+    // conflicts are expected
+  }
+  const branch = (name: string) => ({ tip: { sha: run(dir, 'rev-parse', name) } }) as any;
+  const tree = await mergeTree(dir, branch('main'), branch('other'));
+  await new MergeStrategy(dir, (_a, o) => o, 'our', run(dir, 'rev-parse', 'other')).solveConflicts(tree as any);
+  assert.equal(seenRev, run(dir, 'rev-parse', 'other'));
+});
+
+test('settle theirs refuses an item whose other side could not be recorded, before writing', async () => {
+  const dir = makeRepo({ 'art/face.json': ['{"v":0}', '{"v":1}', '{"v":2}'], 'art/face.png': [PNG_A, PNG_B, PNG_C] });
+  await mergeIn(dir);
+  const items = await readConflicts(dir);
+  const json = items.find((x) => x.path === 'art/face.json')!;
+  const before = fs.readFileSync(path.join(dir, 'art/face.json'), 'utf8');
+  const noTheirs = { path: json.path, item: json.item, label: json.label, theirsDeleted: false };
+  await assert.rejects(settleConflict(dir, noTheirs, 'theirs'), /unavailable/);
+  const alsoMissing = { ...json, alsoRestore: [{ path: 'art/face.png', theirsDeleted: false }] };
+  await assert.rejects(settleConflict(dir, alsoMissing, 'theirs'), /unavailable/);
+  assert.equal(fs.readFileSync(path.join(dir, 'art/face.json'), 'utf8'), before);
+  await settleConflict(dir, noTheirs, 'ours');
+  assert.equal(fs.readFileSync(path.join(dir, 'art/face.json'), 'utf8'), before);
+});
+
+test('a branch merge from the panel lists conflicts and keeps ours on disk', async () => {
+  const { mergeBranchIntoCurrent } = await import('../src/merge-branch');
+  const dir = makeRepo({ 'art/face.png': [PNG_A, PNG_B, PNG_C], 'notes.txt': ['a\n', 'a\n', 'a\nmore\n'] });
+  run(dir, 'config', 'user.name', 't');
+  run(dir, 'config', 'user.email', 't@t');
+  await mergeBranchIntoCurrent(dir, 'other', (_a: any, o: any) => o, 'Merge other');
+  assert.ok(fs.readFileSync(face(dir)).equals(PNG_B), 'ours kept on disk');
+  assert.equal(fs.readFileSync(path.join(dir, 'notes.txt'), 'utf8'), 'a\nmore\n', 'clean changes merged');
+  const items = await readConflicts(dir);
+  assert.deepEqual(items.map((x) => x.path), ['art/face.png']);
+  assert.equal(items[0].theirsBlob, run(dir, 'rev-parse', 'other:art/face.png'));
+  assert.equal(run(dir, 'rev-parse', 'HEAD^2'), run(dir, 'rev-parse', 'other'), 'a merge commit');
+});
+
 test('project.json still merges', async () => {
   const j = (o: object) => JSON.stringify(o);
   const dir = makeRepo({ 'project.json': [j({ a: 1 }), j({ a: 1, mine: 2 }), j({ a: 1, theirs: 3 })] });

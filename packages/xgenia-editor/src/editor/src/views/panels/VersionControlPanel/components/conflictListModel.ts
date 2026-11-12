@@ -24,11 +24,18 @@ export function conflictRows(items: readonly MergeConflictItem[]): ConflictRow[]
     label: item.label,
     isImage: isImagePath(item.path),
     previewKind: item.preview,
-    actions: [
-      { label: 'Keep mine', side: 'ours' },
-      { label: 'Keep theirs', side: 'theirs' }
-    ]
+    actions: canTakeTheirs(item)
+      ? [
+          { label: 'Keep mine', side: 'ours' },
+          { label: 'Keep theirs', side: 'theirs' }
+        ]
+      : [{ label: 'Keep mine', side: 'ours' }]
   }));
+}
+
+/** False when the other side could not be recorded (theirsDeleted false and no blob). */
+export function canTakeTheirs(item: MergeConflictItem): boolean {
+  return !(item.theirsDeleted === false && !item.theirsBlob);
 }
 
 export interface ConflictDeps {

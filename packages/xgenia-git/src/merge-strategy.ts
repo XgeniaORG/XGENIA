@@ -27,7 +27,9 @@ export class MergeStrategy {
   constructor(
     public readonly repositoryDir: string,
     private readonly mergeProject: MergeStrategyFunc,
-    public readonly strategy: 'our' | 'their' = 'our'
+    public readonly strategy: 'our' | 'their' = 'our',
+    /** The commit the other side ("their" in the merge tree) comes from, passed on to handlers. */
+    private readonly theirsRev: string | null = null
   ) {}
 
   public async solveConflicts(tree: MergeTreeError) {
@@ -70,7 +72,7 @@ export class MergeStrategy {
       this.readSide(entry.our),
       this.readSide(entry.their)
     ]);
-    const result = await handler.merge(base, ours, theirs, parent.path, this.repositoryDir);
+    const result = await handler.merge(base, ours, theirs, parent.path, this.repositoryDir, this.theirsRev);
     await this.writeResult(parent.path, result.merged);
     return result.conflicts.map((c) => (c.path === parent.path ? this.withTheirSide(c, entry) : c));
   }
