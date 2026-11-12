@@ -70,7 +70,7 @@ export class MergeStrategy {
       this.readSide(entry.our),
       this.readSide(entry.their)
     ]);
-    const result = await handler.merge(base, ours, theirs, parent.path);
+    const result = await handler.merge(base, ours, theirs, parent.path, this.repositoryDir);
     await this.writeResult(parent.path, result.merged);
     return result.conflicts.map((c) => (c.path === parent.path ? this.withTheirSide(c, entry) : c));
   }
@@ -80,7 +80,7 @@ export class MergeStrategy {
   }
 
   private withTheirSide(item: MergeConflictItem, entry: IMergeTreeEntry): MergeConflictItem {
-    return item.theirsBlob || item.theirsDeleted ? item : { ...item, ...this.theirSide(entry) };
+    return item.theirsBlob !== undefined || item.theirsDeleted !== undefined ? item : { ...item, ...this.theirSide(entry) };
   }
 
   private async writeResult(relativePath: string, content: Buffer | null) {

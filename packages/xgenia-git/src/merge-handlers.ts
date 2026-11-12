@@ -21,8 +21,10 @@ export interface MergeConflictItem {
 
 /**
  * Merges the files whose path it matches. Gets the three versions of the file
- * (null = the file does not exist on that side) and returns the merged content
- * (`null` = delete the file) plus anything it could not settle.
+ * (null = the file does not exist on that side) and the repository folder, and
+ * returns the merged content (`null` = delete the file) plus anything it could
+ * not settle. An item that sets its own `theirsBlob` or `theirsDeleted` keeps it;
+ * otherwise the other side's whole file is recorded.
  */
 export interface MergeHandler {
   id: string;
@@ -31,7 +33,8 @@ export interface MergeHandler {
     base: Buffer | null,
     ours: Buffer | null,
     theirs: Buffer | null,
-    path: string
+    path: string,
+    repoDir: string
   ): Promise<{ merged: Buffer | null; conflicts: MergeConflictItem[] }>;
 }
 

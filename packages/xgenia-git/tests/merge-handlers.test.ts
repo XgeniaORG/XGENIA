@@ -72,6 +72,35 @@ test('a registered handler merges its files', async () => {
   assert.deepEqual((await readConflicts(dir)).map((c) => c.item), ['k']);
 });
 
+test('a handler gets the repository folder and keeps the other side it records', async () => {
+  let seenDir = '';
+  registerMergeHandler({
+    id: 'test-sides',
+    match: (p) => p.endsWith('.sides'),
+    merge: async (_b, o, _t, p, repoDir) => {
+      seenDir = repoDir;
+      return {
+        merged: o,
+        conflicts: [
+          { path: p, item: 'own', label: 'own blob', theirsBlob: 'a'.repeat(40) },
+          { path: p, item: 'gone', label: 'own delete', theirsDeleted: true },
+          { path: p, item: 'none', label: 'filled in' }
+        ]
+      };
+    }
+  });
+  const dir = makeRepo({ 'y.sides': ['a', 'a\nours', 'a\ntheirs'] });
+  await mergeIn(dir);
+  assert.equal(fs.realpathSync(seenDir), fs.realpathSync(dir));
+  const items = await readConflicts(dir);
+  const by = (k: string) => items.find((x) => x.item === k)!;
+  assert.equal(by('own').theirsBlob, 'a'.repeat(40));
+  assert.equal(by('own').theirsDeleted, undefined);
+  assert.equal(by('gone').theirsDeleted, true);
+  assert.equal(by('gone').theirsBlob, undefined);
+  assert.equal(by('none').theirsBlob, run(dir, 'rev-parse', 'other:y.sides'));
+});
+
 test('project.json still merges', async () => {
   const j = (o: object) => JSON.stringify(o);
   const dir = makeRepo({ 'project.json': [j({ a: 1 }), j({ a: 1, mine: 2 }), j({ a: 1, theirs: 3 })] });
