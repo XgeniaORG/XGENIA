@@ -455,3 +455,117 @@ export async function redeemEditorCode(
     result: { apiKey: String(apiKey), operatorSlug: String(body?.operator_slug || ''), studio }
   };
 }
+
+// ─── The editor connects by itself, for play money (XRGS contract §10, 2026-11-13) ───
+//
+// WHAT WAS WRONG. The person is already signed in to XGENIA in this editor, and still had to sign in to the RGS:
+// a browser, the XGENIA page again, their authenticator, back here — on every computer.
+//
+// WHAT THIS DOES. With the XGENIA session it already holds, the editor asks XGENIA (Primora) for a TICKET: one
+// minute, one use, good only at the RGS's `editor-connect`. It presents the ticket to the RGS and gets an editor
+// key that works for play money only. No browser.
+//
+// TWO THINGS THAT MUST STAY TRUE (the tests fail if either stops being):
+//   - The XGENIA session goes to XGENIA and NOWHERE else. The RGS gets the ticket, never the session: the session
+//     is a credential for everything in the person's XGENIA account.
+//   - The ticket is useless without the `verifier` made here for this one attempt. XGENIA gets only its SHA-256
+//     (the challenge); the RGS gets the verifier itself, with the ticket. So a ticket lifted from a log or a proxy
+//     opens nothing. The verifier is never stored and never reused.
+//
+// It NEVER throws and never shows anything: connecting by itself is a shortcut. Whatever goes wrong — no plan as
+// far as the RGS knows, a studio with a real-money game (which needs the authenticator), an older RGS, no
+// network — the answer is 'refused' with the server's code, and the caller falls back to Sign in with XGENIA in
+// the browser, which explains each of those properly.
+
+export interface SilentConnectEndpoints extends XgeniaRgsEndpoints {
+  /** XGENIA's (Primora's) functions base and publishable key: where the ticket is minted. */
+  xgeniaFunctionsUrl: string;
+  xgeniaAnonKey: string;
+}
+
+export interface SilentStudio extends RgsStudio {
+  /** False: this studio has a real-money game, so the editor connects to it in the browser, with the authenticator. */
+  playMoneyOnly: boolean;
+}
+
+export type SilentConnectOutcome =
+  | { kind: 'connected'; result: XgeniaRgsSignInResult & { playMoneyOnly: true } }
+  | { kind: 'choose-studio'; studios: SilentStudio[] }
+  | { kind: 'refused'; code: string; message: string };
+
+const b64url = (bytes: Uint8Array): string => {
+  let s = '';
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+
+/** 32 random bytes as 43 base64url characters: this attempt's secret. */
+export function newTicketVerifier(randomBytes: (n: number) => Uint8Array = (n) => crypto.getRandomValues(new Uint8Array(n))): string {
+  return b64url(randomBytes(32));
+}
+
+/** base64url(sha256(verifier)): all XGENIA is told about the verifier. */
+export async function ticketChallenge(verifier: string): Promise<string> {
+  return b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
+}
+
+const refused = (code: string, message = ''): SilentConnectOutcome => ({ kind: 'refused', code, message });
+
+/**
+ * One attempt: a ticket from XGENIA, then the RGS. `xgeniaAccessToken` is the signed-in XGENIA session's access
+ * token ('' = nobody is signed in: refused SIGNED_OUT, and nothing is sent anywhere).
+ */
+export async function silentEditorConnect(
+  xgeniaAccessToken: string,
+  ep: SilentConnectEndpoints,
+  fetchFn: FetchLike = fetch as any,
+  opts: { studioSlug?: string; installLabel?: string; randomBytes?: (n: number) => Uint8Array } = {}
+): Promise<SilentConnectOutcome> {
+  const session = String(xgeniaAccessToken || '').trim();
+  if (!session) return refused('SIGNED_OUT');
+  try {
+    const verifier = newTicketVerifier(opts.randomBytes);
+
+    // 1. The ticket. The session goes HERE and nowhere else.
+    const asked = await post(
+      fetchFn,
+      `${ep.xgeniaFunctionsUrl}/rgs-editor-ticket`,
+      { challenge: await ticketChallenge(verifier) },
+      { ...(ep.xgeniaAnonKey ? { apikey: ep.xgeniaAnonKey } : {}), Authorization: `Bearer ${session}` }
+    );
+    if (!asked.res.ok) {
+      // 404: this XGENIA does not mint tickets yet. 503: not configured. 401/403: the session, or the account.
+      return refused(asked.res.status === 404 || asked.res.status === 503 ? 'NOT_AVAILABLE' : 'TICKET_REFUSED', serverMessage(asked.body, ''));
+    }
+    const ticket = String(asked.body?.ticket || '');
+    if (!ticket) return refused('TICKET_REFUSED');
+
+    // 2. The RGS: the ticket and its verifier — never the session.
+    const payload: Record<string, string> = { action: 'editor-connect', ticket, verifier };
+    if (opts.studioSlug) payload.studio_slug = opts.studioSlug;
+    if (opts.installLabel) payload.install_label = String(opts.installLabel).slice(0, 80);
+    const { res, body } = await post(fetchFn, `${ep.functionsUrl}/xgenia-auth`, payload, gatewayHeaders(ep));
+
+    if (res.status === 409 && body?.code === 'CHOOSE_STUDIO') {
+      const studios: SilentStudio[] = (Array.isArray(body?.studios) ? body.studios : [])
+        .filter((s: any) => s && typeof s.slug === 'string' && s.slug)
+        .map((s: any) => ({ name: String(s.name || s.slug), slug: String(s.slug), playMoneyOnly: s.play_money_only === true }));
+      return studios.length ? { kind: 'choose-studio', studios } : refused('NO_STUDIO', serverMessage(body, ''));
+    }
+    if (!res.ok) {
+      // An RGS without editor-connect answers 400 "action must be …" (no code), or 404: not available there yet.
+      const code = String(body?.code || '');
+      return refused(code || 'NOT_AVAILABLE', code ? String(body?.error || body?.message || '') : '');
+    }
+    const apiKey = String(body?.api_key || '');
+    // Only a key the RGS itself says is play money only is taken this way. Anything else is not this path's.
+    if (!apiKey || body?.play_money_only !== true) return refused('NO_KEY');
+    const studio = body?.studio && typeof body.studio.slug === 'string'
+      ? { name: String(body.studio.name || body.studio.slug), slug: String(body.studio.slug) }
+      : null;
+    return { kind: 'connected', result: { apiKey, operatorSlug: String(body?.operator_slug || ''), studio, playMoneyOnly: true } };
+  } catch {
+    // post() throws only when the network does; nothing else here should, and connecting by itself never shouts.
+    return refused('UNREACHABLE', SIGN_IN_MESSAGES.unreachable);
+  }
+}

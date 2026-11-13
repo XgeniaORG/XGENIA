@@ -46,6 +46,11 @@ const boundedAuthFetch: typeof fetch = (input, init) => {
 };
 
 // Initialize the Supabase client with standard configuration for better compatibility
+/** XGENIA's functions base and publishable key, for the one call the editor makes to them without supabase-js:
+ * the RGS ticket (utils/rgs/rgsSignIn.ts silentEditorConnect). The key is not a secret. */
+export const XGENIA_FUNCTIONS_URL = `${supabaseUrl}/functions/v1`;
+export const XGENIA_ANON_KEY = supabaseAnonKey;
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,

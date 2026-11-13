@@ -16,6 +16,10 @@ import {
   XgeniaRgsSignInResult,
   redeemEditorCode,
   sendSignInCode,
+  silentEditorConnect,
+  SilentConnectEndpoints,
+  SilentConnectOutcome,
+  SilentStudio,
   startXgeniaRgsSignIn,
   verifySignInCode,
   xgeniaRgsRefusalMessage
@@ -75,6 +79,13 @@ export function rgsAnonKey(): string {
 export interface RgsSettings {
   apiKey: string;
   rgsUrl?: string;
+  /** The studio this connection publishes to, as the RGS named it when the key was issued (null: it did not say). */
+  studio?: RgsStudio | null;
+  /**
+   * The key was issued without the authenticator (connected by itself, XRGS contract §10): it works only while
+   * the studio has no real-money game. False for a key from the browser sign-in.
+   */
+  playMoneyOnly?: boolean;
 }
 
 export interface SelectedGame {
@@ -112,7 +123,8 @@ export function emailSignInCode(email: string): Promise<void> {
 export async function completeEmailSignIn(email: string, code: string, ask: EmailSignInQuestions = {}): Promise<RgsSignInResult> {
   const result = await verifySignInCode(email, code, SIGN_IN_ENDPOINTS, undefined, ask);
   // An invited studio's key belongs to the real-money RGS: say so, or a sandbox address stored before would stick.
-  saveRgsSettings({ apiKey: result.apiKey, rgsUrl: XRGS_URL });
+  // It is a full key (this path asks the authenticator), and this path does not say which studio.
+  saveRgsSettings({ apiKey: result.apiKey, rgsUrl: XRGS_URL, studio: null, playMoneyOnly: false });
   EventDispatcher.instance.emit('rgs.connected', { operatorSlug: result.operatorSlug });
   return result;
 }
@@ -143,6 +155,13 @@ export interface ConnectWithXgeniaRgsOptions {
   /** Tests inject these; the editor uses the main process's loopback and the real fetch. */
   loopback?: XgeniaRgsLoopback;
   fetchFn?: (url: string, init?: any) => Promise<any>;
+  /**
+   * Where a connect-by-itself attempt gets the XGENIA session (connectSilently). false: never try it, go
+   * straight to the browser. Left out, the editor's own session is used — once connecting-by-itself has been
+   * turned on (enableSilentRgsConnect: the editor does, at startup), and unless a test injected the loopback or
+   * the fetch. So a build or a test that never turns it on signs in exactly as before.
+   */
+  silent?: SilentConnectSource | false;
 }
 
 let currentSignIn: { loopback: XgeniaRgsLoopback; id: string } | null = null;
@@ -161,6 +180,22 @@ export function cancelXgeniaRgsSignIn(): void {
  * person can act on; code NOT_AVAILABLE means this RGS does not offer it yet (use email).
  */
 export async function connectWithXgeniaRgs(opts: ConnectWithXgeniaRgsOptions = {}): Promise<XgeniaRgsSignInResult> {
+  // First, by itself: the person is signed in to XGENIA in this editor, so no browser is needed for a studio
+  // with nothing live (XRGS contract §10). Anything but "connected" or "they cancelled" falls through to the
+  // browser, which explains every other case (no plan, a studio that needs the authenticator, …) properly.
+  const source = opts.silent === undefined
+    ? (silentEnabled && !opts.loopback && !opts.fetchFn ? silentDefaults.source ?? editorSilentSource : null)
+    : opts.silent || null;
+  let preferredStudio: string | undefined;
+  if (source) {
+    opts.onStep?.('connecting');
+    const silent = await connectSilently({ source, chooseStudio: opts.chooseStudio, fetchFn: opts.fetchFn });
+    if (silent.kind === 'connected') return silent.result;
+    if (silent.kind === 'refused' && silent.code === 'CANCELLED') throw new XgeniaRgsSignInError('CANCELLED', XGENIA_RGS_MESSAGES.CANCELLED);
+    // They already said which studio (one with a real-money game): the browser path is not made to ask again.
+    if (silent.kind === 'refused') preferredStudio = silent.studioSlug;
+  }
+
   const loopback = opts.loopback ?? xgeniaRgsLoopback();
   if (!loopback) throw new XgeniaRgsSignInError('NOT_DESKTOP', XGENIA_RGS_MESSAGES.NOT_DESKTOP);
   const fetchFn = (opts.fetchFn ?? ((url: string, init?: any) => fetch(url, init))) as any;
@@ -186,7 +221,7 @@ export async function connectWithXgeniaRgs(opts: ConnectWithXgeniaRgsOptions = {
     }
 
     opts.onStep?.('connecting');
-    let redeemed = await redeemEditorCode(answer.code, ep, fetchFn);
+    let redeemed = await redeemEditorCode(answer.code, ep, fetchFn, preferredStudio);
     if (redeemed.kind === 'choose-studio') {
       const slug = opts.chooseStudio ? await opts.chooseStudio(redeemed.studios) : null;
       if (!slug) throw new XgeniaRgsSignInError('CANCELLED', XGENIA_RGS_MESSAGES.CANCELLED);
@@ -196,8 +231,10 @@ export async function connectWithXgeniaRgs(opts: ConnectWithXgeniaRgsOptions = {
     }
 
     const result = redeemed.result;
-    // The main RGS: say so, or a sandbox address stored before would stick.
-    saveRgsSettings({ apiKey: result.apiKey, rgsUrl: XRGS_URL });
+    // The main RGS: say so, or a sandbox address stored before would stick. A key from the browser sign-in is a
+    // full one (the authenticator was asked there): say that too, or a "play money" mark stored before would stick.
+    saveRgsSettings({ apiKey: result.apiKey, rgsUrl: XRGS_URL, studio: result.studio, playMoneyOnly: false });
+    rememberStudio(result.studio?.slug);
     EventDispatcher.instance.emit('rgs.connected', { operatorSlug: result.operatorSlug, studio: result.studio });
     return result;
   } finally {
@@ -205,6 +242,209 @@ export async function connectWithXgeniaRgs(opts: ConnectWithXgeniaRgsOptions = {
     // Closed already when the browser answered; this covers every way out before that.
     void loopback.cancel(id).catch(() => { /* already closed */ });
   }
+}
+
+// ─── Connected by itself, for play money (XRGS contract §10, 2026-11-13) ─────
+//
+// The person is signed in to XGENIA in this editor. That used to count for nothing at the RGS: Publish asked
+// them to sign in again, in a browser, with their authenticator, on every computer. Now the editor trades its
+// XGENIA session for a one-minute ticket (at XGENIA) and the ticket for an editor key (at the RGS) — a key that
+// works for play money only, which is everything a studio with no real-money game does. The protocol is
+// rgsSignIn.ts silentEditorConnect; this is when it runs and what it leaves behind.
+//
+//   - Sign in with XGENIA (Publish, the AI's xrgs.connect) tries it FIRST and opens the browser only when it
+//     does not connect: a studio with a real-money game, an RGS or an XGENIA that cannot do it yet, no network.
+//   - autoConnectRgs() tries it with nobody asking: at startup and when someone signs in to XGENIA, if the editor
+//     is not connected. It never opens a browser and never asks a question; with several studios it connects
+//     only to the one this person last used on this computer, and otherwise leaves it to Publish.
+//   - A Sign out of the RGS in Publish stays signed out (disconnectRgsOnPurpose): autoConnectRgs does nothing
+//     for that person until they connect again themselves. A sign-out that reconnects by itself is not one.
+//   - A play-money key STOPS EXISTING when its studio gets a real-money game. The editor would find out at the
+//     next Publish, as "Unauthorized". autoConnectRgs asks at startup instead and drops a dead key, so Publish
+//     shows Sign in with XGENIA — which then goes to the browser, with the authenticator, once.
+
+/** Where a connect-by-itself attempt gets the XGENIA session and the two addresses. Tests inject it. */
+export interface SilentConnectSource {
+  /** The signed-in XGENIA session's access token; '' when nobody is signed in. */
+  accessToken(): Promise<string>;
+  endpoints(): Promise<SilentConnectEndpoints>;
+}
+
+const editorSilentSource: SilentConnectSource = {
+  accessToken: xgeniaAccessToken,
+  endpoints: async () => {
+    const xgenia = await import('../../supabaseInit');
+    return { xgeniaFunctionsUrl: xgenia.XGENIA_FUNCTIONS_URL, xgeniaAnonKey: xgenia.XGENIA_ANON_KEY, functionsUrl: XRGS_URL, anonKey: XRGS_ANON_KEY };
+  }
+};
+
+/** localStorage: the studio each XGENIA account last connected this computer to ({ [userId]: slug }). Not a secret. */
+export const RGS_LAST_STUDIO_KEY = 'xgenia_rgs_last_studio_v1';
+/** localStorage: the XGENIA account that signed out of the RGS on purpose ('-' when nobody was signed in). */
+export const RGS_STAY_SIGNED_OUT_KEY = 'xgenia_rgs_stay_signed_out_v1';
+
+function lastStudios(): Record<string, string> {
+  try {
+    const v = JSON.parse(localStorage.getItem(RGS_LAST_STUDIO_KEY) || '{}');
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+}
+function rememberStudio(slug: string | null | undefined): void {
+  const who = accountUserId || '-';
+  const all = lastStudios();
+  if (slug) all[who] = slug;
+  else delete all[who];
+  localStorage.setItem(RGS_LAST_STUDIO_KEY, JSON.stringify(all));
+}
+function rememberedStudio(): string | undefined {
+  const slug = lastStudios()[accountUserId || '-'];
+  return typeof slug === 'string' && slug ? slug : undefined;
+}
+
+/** Did THIS person sign out of the RGS on purpose? (Another person signing in to XGENIA here is not bound by it.) */
+function staysSignedOut(): boolean {
+  const who = localStorage.getItem(RGS_STAY_SIGNED_OUT_KEY);
+  return !!who && who === (accountUserId || '-');
+}
+
+/**
+ * Sign out of the XGENIA RGS on purpose (Publish → Sign out): the connection is removed AND the editor does not
+ * connect by itself again for this person until they connect themselves. clearRgsSettings alone would be undone
+ * by the next autoConnectRgs.
+ */
+export function disconnectRgsOnPurpose(): void {
+  const who = accountUserId || '-';
+  clearRgsSettings();
+  localStorage.setItem(RGS_STAY_SIGNED_OUT_KEY, who);
+}
+
+/** A connect-by-itself attempt's result; a refusal may carry the studio the person had already picked. */
+export type SilentConnection =
+  | Exclude<SilentConnectOutcome, { kind: 'refused' }>
+  | { kind: 'refused'; code: string; message: string; studioSlug?: string };
+
+/**
+ * One connect-by-itself attempt, storing the key if it gets one. Never throws, never opens a browser. With
+ * several studios it asks `chooseStudio` if given (Publish's picker) and otherwise answers 'choose-studio'.
+ */
+export async function connectSilently(opts: {
+  source?: SilentConnectSource;
+  studioSlug?: string;
+  chooseStudio?: (studios: SilentStudio[]) => Promise<string | null>;
+  fetchFn?: (url: string, init?: any) => Promise<any>;
+} = {}): Promise<SilentConnection> {
+  const source = opts.source ?? editorSilentSource;
+  // The account a key obtained now belongs to is the one signed in NOW: if it changes while the RGS answers,
+  // the key is not stored (it would be stamped with the wrong owner).
+  const asker = accountUserId;
+  let token = '';
+  let ep: SilentConnectEndpoints;
+  try {
+    token = await source.accessToken();
+    ep = await source.endpoints();
+  } catch {
+    return { kind: 'refused', code: 'SIGNED_OUT', message: '' };
+  }
+  let out: SilentConnection = await silentEditorConnect(token, ep, opts.fetchFn as any, { studioSlug: opts.studioSlug });
+  if (out.kind === 'choose-studio' && opts.chooseStudio) {
+    const studios = out.studios;
+    const slug = await opts.chooseStudio(studios);
+    if (!slug) return { kind: 'refused', code: 'CANCELLED', message: '' };
+    const picked = studios.find((st) => st.slug === slug);
+    // A studio with a real-money game: the browser, with the authenticator. No second ticket is spent finding out.
+    if (!picked || !picked.playMoneyOnly) return { kind: 'refused', code: 'SECOND_FACTOR_REQUIRED', message: '', studioSlug: slug };
+    out = await silentEditorConnect(token, ep, opts.fetchFn as any, { studioSlug: slug });
+    if (out.kind === 'choose-studio') return { kind: 'refused', code: 'NO_STUDIO_CHOSEN', message: '' };
+    if (out.kind === 'refused') return { ...out, studioSlug: slug };
+  }
+  if (out.kind !== 'connected') return out;
+  if (accountBound && accountUserId !== asker) return { kind: 'refused', code: 'ACCOUNT_CHANGED', message: '' };
+  saveRgsSettings({ apiKey: out.result.apiKey, rgsUrl: XRGS_URL, studio: out.result.studio, playMoneyOnly: true });
+  rememberStudio(out.result.studio?.slug);
+  EventDispatcher.instance.emit('rgs.connected', { operatorSlug: out.result.operatorSlug, studio: out.result.studio, playMoneyOnly: true, silent: true });
+  return out;
+}
+
+type AutoConnectOptions = { source?: SilentConnectSource; fetchFn?: (url: string, init?: any) => Promise<any> };
+
+let silentEnabled = false;
+let silentDefaults: AutoConnectOptions = {};
+let autoConnecting: Promise<void> | null = null;
+
+/**
+ * Turn connecting-by-itself on (the editor does, at startup; tests and builds without XGENIA sign-in do not).
+ * `defaults` is what the attempts nobody calls by hand use — at startup, when someone signs in; tests pass theirs.
+ */
+export function enableSilentRgsConnect(defaults: AutoConnectOptions = {}): void {
+  silentEnabled = true;
+  silentDefaults = defaults;
+  // The account may already be known (the vault settled first): try now.
+  later(() => { void autoConnectRgs(); });
+}
+
+/** Does this key still open anything? false: the RGS refuses it. null: could not tell (network, a 5xx). */
+async function keyStillWorks(apiKey: string, fetchFn: (url: string, init?: any) => Promise<any>): Promise<boolean | null> {
+  try {
+    const res = await fetchFn(`${rgsFunctionsUrl()}/maths-deployer`, { method: 'POST', headers: rgsHeaders(apiKey), body: JSON.stringify({ action: 'operator-info' }) });
+    if (res.ok) return true;
+    return res.status === 401 || res.status === 403 ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The key only: memory, keychain copy and owner. The game selection and the studio's name stay for the reconnect. */
+function dropKeyKeepSettings(): void {
+  memoryKey = null;
+  localStorage.removeItem(RGS_KEY_CIPHER_KEY);
+  localStorage.removeItem(RGS_KEY_OWNER_KEY);
+  const { apiKey: _gone, ...rest } = readStoredSettings();
+  localStorage.setItem(RGS_SETTINGS_KEY, JSON.stringify(rest));
+}
+
+/**
+ * Connect by itself if it can, with nobody asking (see the section header). One at a time; never throws.
+ * `opts` is for tests.
+ */
+export function autoConnectRgs(opts: AutoConnectOptions = {}): Promise<void> {
+  if (autoConnecting) return autoConnecting;
+  const attempt = (async () => {
+    try {
+      if (!silentEnabled) return;
+      // Somebody must be signed in to XGENIA, and known to be: an owned key is locked until then anyway.
+      if (accountBound && !accountUserId) return;
+      const source = opts.source ?? silentDefaults.source;
+      const given = opts.fetchFn ?? silentDefaults.fetchFn;
+      const fetchFn = given ?? ((url: string, init?: any) => fetch(url, init));
+      const current = getRgsSettings();
+      if (current?.apiKey) {
+        // Connected. A play-money key stops existing when its studio gets a real-money game: find out now.
+        if (!current.playMoneyOnly || isSandboxConnection()) return;
+        if ((await keyStillWorks(current.apiKey, fetchFn)) !== false) return;
+        if (getRgsSettings()?.apiKey !== current.apiKey) return; // replaced while we asked
+        // Dead: it reached its thirty days, or its studio got a real-money game, or it was removed. Drop it and
+        // ask for a new one below — which the RGS gives if the studio is still play money, and refuses if not
+        // (then Publish shows Sign in with XGENIA, which goes to the browser).
+        dropKeyKeepSettings();
+        EventDispatcher.instance.emit('rgs.gameSelected', getActiveGame());
+      }
+      if (staysSignedOut()) return;
+      const studioSlug = current?.studio?.slug || rememberedStudio();
+      const out = await connectSilently({ source, fetchFn: given, studioSlug });
+      // No longer theirs: forget it, so the next attempt asks the RGS which studios they have now.
+      if (out.kind === 'refused' && studioSlug && (out.code === 'NOT_YOUR_STUDIO' || out.code === 'VIEWER_ONLY')) rememberStudio(null);
+    } catch (e) {
+      console.warn('[rgs] Connecting to XGENIA RGS by itself failed:', (e as any)?.message || e);
+    }
+  })();
+  // Cleared in a LATER task, never inside the attempt: one that ends without waiting on anything (nobody signed
+  // in, signed out on purpose) finishes before the line above has even assigned it — a `finally` in there would
+  // run first, and the guard would then hold a finished attempt for ever and nothing would connect again.
+  autoConnecting = attempt;
+  void attempt.then(() => { if (autoConnecting === attempt) autoConnecting = null; });
+  return attempt;
 }
 
 /** The operator an API key belongs to, as reported by maths-deployer/operator-info. */
@@ -409,6 +649,8 @@ function onRgsKeyAccount(userId: string | null): void {
     }
   }
   const connected = isRgsConnected();
+  // Somebody is signed in to XGENIA now: connect by itself if the editor is not connected (or check a play-money key).
+  if (userId && silentEnabled) later(() => { void autoConnectRgs(); });
   if (destroyed) later(() => EventDispatcher.instance.emit('rgs.gameSelected', null));
   else if (connected && !wasConnected) later(() => EventDispatcher.instance.emit('rgs.connected', { restored: true }));
   else if (!connected && wasConnected) later(() => EventDispatcher.instance.emit('rgs.gameSelected', null));
@@ -555,6 +797,9 @@ export function resetRgsKeyVaultForTests(): void {
   accountBound = false;
   accountUserId = undefined;
   accountEventSeen = false;
+  silentEnabled = false;
+  silentDefaults = {};
+  autoConnecting = null;
 }
 
 export function getRgsSettings(): RgsSettings | null {
@@ -576,8 +821,12 @@ export function saveRgsSettings(settings: RgsSettings | string): void {
   const cur = readStoredSettings();
   const patch: any = typeof settings === 'string' ? { apiKey: settings } : { ...settings };
   const vault = keyVault;
-  // A new key is the signed-in account's from this moment (and replaces whoever's was there).
-  if (typeof patch.apiKey === 'string' && patch.apiKey) stampKeyOwner();
+  // A new key is the signed-in account's from this moment (and replaces whoever's was there). Connecting again,
+  // by any path, also ends a "stay signed out" (disconnectRgsOnPurpose).
+  if (typeof patch.apiKey === 'string' && patch.apiKey) {
+    stampKeyOwner();
+    localStorage.removeItem(RGS_STAY_SIGNED_OUT_KEY);
+  }
   if (vault && typeof patch.apiKey === 'string' && patch.apiKey) {
     // The key goes to memory now and to the keychain next; localStorage never sees it.
     const key: string = patch.apiKey;

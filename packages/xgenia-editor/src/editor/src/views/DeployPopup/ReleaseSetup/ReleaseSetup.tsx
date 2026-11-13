@@ -29,9 +29,9 @@ import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
 import {
   rgsFunctionsUrl,
   cancelXgeniaRgsSignIn,
-  clearRgsSettings,
   completeEmailSignIn,
   connectWithXgeniaRgs,
+  disconnectRgsOnPurpose,
   emailSignInCode,
   fetchOperatorInfo,
   gameVersionsUrl,
@@ -461,7 +461,9 @@ EventDispatcher.instance.on('rgs.connected', () => { startAfterSignOut = null; }
 /** Leave the XGENIA RGS connection on purpose. 'xgenia' opens on Sign in with XGENIA; 'email' on the staff one. */
 export function signOutOfRgs(then: 'xgenia' | 'email' = 'xgenia'): void {
   startAfterSignOut = then;
-  clearRgsSettings(); // emits rgs.gameSelected, which re-renders every RgsReleaseSetup
+  // Removes the connection (emits rgs.gameSelected, which re-renders every RgsReleaseSetup) AND keeps the editor
+  // from connecting by itself again for this person: a Sign out that reconnects by itself is not one.
+  disconnectRgsOnPurpose();
 }
 
 /**
@@ -471,10 +473,16 @@ export function signOutOfRgs(then: 'xgenia' | 'email' = 'xgenia'): void {
  */
 function RgsAccountBar({ onLeft }: { onLeft: (then: 'xgenia' | 'email') => void }) {
   const sandbox = isSandboxConnection();
+  // Which studio this editor publishes to, and whether it connected by itself (a play-money connection: the
+  // browser sign-in, with the authenticator, is asked once the studio has a real-money game).
+  const settings = getRgsSettings();
+  const studio = settings?.studio?.name || '';
   return (
     <div data-testid="rgs-account-bar" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontSize: '12px', color: '#999' }}>
       <span style={{ flex: 1 }}>
         Signed in to {sandbox ? 'your play-money sandbox (test RGS)' : 'XGENIA RGS'}
+        {!sandbox && studio && <> · <span style={{ color: '#ddd' }} data-testid="rgs-account-studio">{studio}</span></>}
+        {!sandbox && settings?.playMoneyOnly && <span title="Connected with your XGENIA sign-in. When this studio has a real-money game, the editor asks you to sign in in your browser with your authenticator, once."> · play money</span>}
       </span>
       {sandbox && (
         <span style={LINK} onClick={() => onLeft('xgenia')}>Move to XGENIA RGS</span>

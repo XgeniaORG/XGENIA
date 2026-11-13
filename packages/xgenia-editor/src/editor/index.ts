@@ -38,7 +38,7 @@ import { ProjectModel } from './src/models/projectmodel';
 import { AiProviderKeyVault } from './src/services/AiProviderKeyVault';
 import { warmPublishCredentials } from './src/utils/rgs/deployTokens';
 import { loadProjectExtensions } from './src/utils/extensions/projectExtensions';
-import { initRgsKeyVault } from './src/utils/rgs/rgsClient';
+import { enableSilentRgsConnect, initRgsKeyVault } from './src/utils/rgs/rgsClient';
 import { decryptString, encryptString, isEncryptionAvailable } from './src/store/_internal/StorageApi';
 import { supabase } from './src/supabaseInit';
 
@@ -72,6 +72,9 @@ initRgsKeyVault(
     }
   }
 );
+// Signed in to XGENIA is signed in to XGENIA RGS: the editor connects by itself, for play money (XRGS contract
+// §10), at startup and whenever someone signs in. Never a browser, never a question; Publish handles the rest.
+enableSilentRgsConnect();
 
 // Make Publish ready as early as possible. On a platform with /web-publish this
 // fetches nothing — the Vercel token stays on the server; only an older platform
