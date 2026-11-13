@@ -339,11 +339,48 @@ export function RgsSignInForm({ onSignedIn, start = 'xgenia' }: { onSignedIn?: (
 
 // ─── Step 2: choose or create the game ────────────────────────────────────────
 
+/** The games a project can link to: never the AI's "<Game> RTP tests" measuring copies. */
+function linkable(list: any[]): any[] {
+  return list.filter((g) => g?.id && !isMeasurementTwin(g));
+}
+
+/** A game whose name or slug is this project's name: offered first, one click to link. */
+function suggestedGame(list: any[], projectName: string): any | null {
+  const key = (v: unknown) => String(v ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const want = key(projectName);
+  if (!want) return null;
+  return list.find((g) => key(g.name) === want || key(g.slug) === want) || null;
+}
+
+const CHOICE: React.CSSProperties = {
+  padding: '12px',
+  borderRadius: '8px',
+  border: '1px solid rgba(255,255,255,0.12)',
+  background: 'rgba(255,255,255,0.03)',
+  cursor: 'pointer',
+  userSelect: 'none'
+};
+const CHOICE_ICON: React.CSSProperties = { fontSize: '18px', color: '#67DE92', marginBottom: '4px' };
+const CHOICE_TITLE: React.CSSProperties = { fontSize: '13px', fontWeight: 600, color: '#e8e8ec', marginBottom: '2px' };
+const CHOICE_TEXT: React.CSSProperties = { fontSize: '11px', lineHeight: 1.4, color: '#a0a0b0' };
+const GAME_ROW: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: '8px',
+  padding: '7px 10px',
+  fontSize: '12px',
+  cursor: 'pointer',
+  borderBottom: '1px solid rgba(255,255,255,0.05)'
+};
+
 function GameStep({ projectName, onChosen }: { projectName: string; onChosen: () => void }) {
   const apiKey = getRgsSettings()?.apiKey || '';
   const [games, setGames] = useState<any[] | null>(null);
   const [currency, setCurrency] = useState('EUR');
-  const [creating, setCreating] = useState(false);
+  // (2026-11-13) Two choices first, Apple style: a new game, or link one you already made. The studio's whole
+  // game list used to be the first thing shown, one button per game.
+  const [view, setView] = useState<'choose' | 'new' | 'existing'>('choose');
+  const [query, setQuery] = useState('');
   // The declaration this project already made (e.g. on its sandbox) opens the form, so moving to a
   // real-money account is: check the numbers, Create game, Publish (rgsClient: rememberGameDeclaration).
   const [carried] = useState(() => {
@@ -361,8 +398,8 @@ function GameStep({ projectName, onChosen }: { projectName: string; onChosen: ()
     let alive = true;
     if (!apiKey) return;
     listGames(apiKey)
-      .then((list) => { if (alive) { setGames(list); if (list.length === 0) setCreating(true); } })
-      .catch((e) => { if (alive) { setGames([]); setCreating(true); setError(e?.message || String(e)); } });
+      .then((list) => { if (alive) { setGames(list); if (linkable(list).length === 0) setView('new'); } })
+      .catch((e) => { if (alive) { setGames([]); setView('new'); setError(e?.message || String(e)); } });
     fetchOperatorInfo(apiKey)
       .then((info) => { if (alive && info?.currency) setCurrency(info.currency); })
       .catch(() => { /* EUR is the platform currency; the form still works */ });
@@ -396,20 +433,53 @@ function GameStep({ projectName, onChosen }: { projectName: string; onChosen: ()
     setError('');
   };
 
+  const existing = linkable(games || []);
+  const q = query.trim().toLowerCase();
+  const shownGames = q ? existing.filter((g) => `${g.name || ''} ${g.slug || ''}`.toLowerCase().includes(q)) : existing;
+  const suggested = suggestedGame(existing, projectName);
+
   return (
     <div style={STEP_STYLE} data-guide="rgs-game">
       <div style={STEP_TITLE}>2 · Which game is this?</div>
       {games === null ? (
         <div style={HINT}>Loading your games…</div>
-      ) : !creating ? (
+      ) : view === 'choose' ? (
         <>
-          <div style={HINT}>Pick the game this project publishes, or create a new one.</div>
-          <div style={{ display: 'grid', gap: '6px', marginBottom: '8px' }}>
-            {games.filter((g) => !isMeasurementTwin(g)).map((g) => (
-              <PrimaryButton key={g.id} label={g.name} variant={PrimaryButtonVariant.MutedOnLowBg} size={PrimaryButtonSize.Small} onClick={() => choose(g)} isGrowing />
-            ))}
+          <div style={HINT}>Publishing links this project to one game. It stays linked: you choose once.</div>
+          {suggested && (
+            <div style={{ ...CHOICE, borderColor: '#67DE92', marginBottom: '8px' }} data-testid="rgs-game-suggested" onClick={() => choose(suggested)}>
+              <div style={CHOICE_TITLE}>Link to {suggested.name || suggested.slug}</div>
+              <div style={CHOICE_TEXT}>A game you made with this project&#39;s name.</div>
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div style={CHOICE} data-testid="rgs-game-new" onClick={() => { setView('new'); setError(''); }}>
+              <div style={CHOICE_ICON}>+</div>
+              <div style={CHOICE_TITLE}>New game</div>
+              <div style={CHOICE_TEXT}>Create it with its own RTP, bets and max win.</div>
+            </div>
+            <div style={CHOICE} data-testid="rgs-game-existing" onClick={() => { setView('existing'); setError(''); }}>
+              <div style={CHOICE_ICON}>↺</div>
+              <div style={CHOICE_TITLE}>Existing game</div>
+              <div style={CHOICE_TEXT}>Publish a new version of a game you already made.</div>
+            </div>
           </div>
-          <span style={LINK} onClick={() => setCreating(true)}>+ Create a new game</span>
+        </>
+      ) : view === 'existing' ? (
+        <>
+          {existing.length > 6 && (
+            <TextInput placeholder="Search your games" value={query} onChange={(e) => setQuery(e.target.value)} hasBottomSpacing isAutoFocus />
+          )}
+          <div style={{ maxHeight: '220px', overflowY: 'auto', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', marginBottom: '8px' }}>
+            {shownGames.map((g) => (
+              <div key={g.id} style={GAME_ROW} data-testid="rgs-game-row" onClick={() => choose(g)}>
+                <span style={{ color: '#e8e8ec' }}>{g.name || g.slug}</span>
+                {g.slug && g.slug !== g.name && <span style={{ color: '#777', fontSize: '11px' }}>{g.slug}</span>}
+              </div>
+            ))}
+            {shownGames.length === 0 && <div style={{ ...HINT, padding: '8px 10px', margin: 0 }}>No game matches “{query}”.</div>}
+          </div>
+          <span style={LINK} onClick={() => { setView('choose'); setQuery(''); }}>← Back</span>
         </>
       ) : (
         <>
@@ -433,8 +503,8 @@ function GameStep({ projectName, onChosen }: { projectName: string; onChosen: ()
           </div>
           <div style={ROW}>
             <PrimaryButton label={busy ? 'Creating…' : 'Create game'} onClick={create} isDisabled={busy} size={PrimaryButtonSize.Small} />
-            {games.length > 0 && (
-              <PrimaryButton label="Pick an existing game" variant={PrimaryButtonVariant.Ghost} size={PrimaryButtonSize.Small} onClick={() => setCreating(false)} isDisabled={busy} />
+            {existing.length > 0 && (
+              <PrimaryButton label="Back" variant={PrimaryButtonVariant.Ghost} size={PrimaryButtonSize.Small} onClick={() => { setView('choose'); setError(''); }} isDisabled={busy} />
             )}
           </div>
         </>

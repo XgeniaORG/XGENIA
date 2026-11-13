@@ -6,7 +6,7 @@
 // "XRGS" is the internal identifier; the user-facing name is "XGENIA RGS".
 
 import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
-import { activeGameFor } from './activeGame';
+import { activeGameFor, gameLinkToSave, savedGameLinkFor } from './activeGame';
 import {
   RgsSignInResult,
   RgsStudio,
@@ -526,10 +526,22 @@ export function rememberedGameDeclaration(): RememberedGameDeclaration | null {
 }
 
 export function getActiveGame(): SelectedGame | null {
+  let chosen: SelectedGame | null = null;
   try {
-    return activeGameFor<SelectedGame>(JSON.parse(localStorage.getItem(RGS_SETTINGS_KEY) || '{}'), currentProjectId());
+    chosen = activeGameFor<SelectedGame>(JSON.parse(localStorage.getItem(RGS_SETTINGS_KEY) || '{}'), currentProjectId());
   } catch {
-    return null;
+    chosen = null;
+  }
+  // The link saved in the project survives a Sign out and another machine (activeGame.ts savedGameLinkFor).
+  return chosen || savedGameLinkFor<SelectedGame>(projectMetaData('rgsGame'), rgsFunctionsUrl());
+}
+
+/** The open project's metadata value, or undefined (no project, or a test without one). */
+function projectMetaData(key: string): any {
+  try {
+    return (globalThis as any).ProjectModel?.instance?.getMetaData?.(key);
+  } catch {
+    return undefined;
   }
 }
 
@@ -549,5 +561,16 @@ export function setActiveGame(game: SelectedGame | null): void {
   // The old editor-wide `activeGame` is dropped: it is what leaked one project's game into the next.
   const { activeGame: _dropped, ...rest } = cur;
   localStorage.setItem(RGS_SETTINGS_KEY, JSON.stringify({ ...rest, activeGameByProject: byProject }));
+  // Keep the link in the project too, so it stays linked after a Sign out or on another machine.
+  try {
+    const project = (globalThis as any).ProjectModel?.instance;
+    if (project?.setMetaData) {
+      project.setMetaData('rgsGame', gameLinkToSave(game, rgsFunctionsUrl()) || undefined);
+      // setMetaData alone does not reach the auto-save, which listens for Model.* (ProjectStylesPanel writeMeta).
+      project.notifyListeners?.('metadataChanged');
+    }
+  } catch {
+    /* no open project (tests): the localStorage selection above still holds */
+  }
   EventDispatcher.instance.emit('rgs.gameSelected', game);
 }

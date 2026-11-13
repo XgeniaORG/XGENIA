@@ -21,3 +21,27 @@ export function activeGameFor<T extends SelectedGameRef>(settings: any, projectI
 export function isMeasurementTwin(g: { name?: unknown } | null | undefined): boolean {
   return / RTP tests$/i.test(String(g?.name ?? ''));
 }
+
+/**
+ * (2026-11-13) The game a project is linked to is also saved IN the project (metadata `rgsGame`), so the link
+ * stays when the editor's RGS settings are cleared (Sign out) or the project is opened on another machine.
+ * The saved link names the RGS it was made on: a link made on the play-money sandbox is not this project's game
+ * on XGENIA RGS (the sandbox takes no new games there, and its ids do not exist there).
+ */
+export interface SavedGameLink extends SelectedGameRef {
+  slug?: string;
+  rgsUrl?: string;
+}
+
+/** The project's saved link, when it was made on `rgsUrl`. */
+export function savedGameLinkFor<T extends SelectedGameRef>(saved: any, rgsUrl: string): T | null {
+  if (!saved || typeof saved.id !== 'string' || !saved.id || isMeasurementTwin(saved)) return null;
+  if (saved.rgsUrl && saved.rgsUrl !== rgsUrl) return null;
+  const { rgsUrl: _where, ...game } = saved;
+  return game as T;
+}
+
+/** What the project file keeps for a chosen game (null = unlinked). */
+export function gameLinkToSave(game: (SelectedGameRef & { slug?: string }) | null, rgsUrl: string): SavedGameLink | null {
+  return game?.id ? { id: game.id, slug: game.slug, name: game.name, rgsUrl } : null;
+}
