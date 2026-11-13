@@ -799,8 +799,16 @@ export class Git {
 
     // Ignore these files (appended to the project's .gitignore when missing).
     // `.xgenia-image-staging/` holds AI image generations for 24 hours before they are saved or
-    // dropped (xgenia-ai utils/image-staging.ts); they were being committed and pushed.
-    await appendGitIgnore(this.baseDir, ['project-tmp.json*', '.DS_Store', '__MACOSX', '.xgenia-image-staging/']);
+    // dropped; they were being committed and pushed. `.xgenia-versions/` is the Images panel's
+    // local per-picture history (every edit of a linked picture): git keeps the picture's history
+    // through commits of the file itself, and full-size PNG copies of every edit would bloat it.
+    await appendGitIgnore(this.baseDir, [
+      'project-tmp.json*',
+      '.DS_Store',
+      '__MACOSX',
+      '.xgenia-image-staging/',
+      '.xgenia-versions/'
+    ]);
 
     // Create or append the .gitattributes file.
     // The XGENIA merge driver is for the project's own project.json at the root. Without the
