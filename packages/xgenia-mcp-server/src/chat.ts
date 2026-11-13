@@ -1,6 +1,7 @@
 import type { Frame, Page } from 'playwright-core';
-import { connect, getChatFrame } from './connection.js';
+import { connect, getChatFrame, reconnect } from './connection.js';
 import { SELECTORS } from './selectors.js';
+import { TIMED_OUT, withReadTimeout } from './lifecycle.js';
 import {
   readChatState,
   summariseMessages,
@@ -26,6 +27,7 @@ const DEFAULT_TAIL_LIMIT = 5;
  * primary wait.
  */
 const CHAT_FRAME_RETRY_MS = 6_000;
+const CHAT_IDLE_READ_TIMEOUT_MS = 5_000;
 
 /**
  * Chrome lines the panel prints in and around the transcript.
@@ -746,10 +748,19 @@ export async function openChatPanel(opts: { timeoutMs?: number } = {}): Promise<
   return ensureChatPanelOpen(page, opts);
 }
 
-export async function chatRead(opts: { since?: number; limit?: number } = {}) {
-  const { page } = await connect();
+/** The editor page with its chat panel ready, reconnecting once when the cached connection cannot see it. */
+async function chatPage(timeoutMs = CHAT_FRAME_RETRY_MS) {
+  let { page } = await connect();
+  let readiness = await waitForChatReady(page, timeoutMs);
+  if (!readiness.ready) {
+    ({ page } = await reconnect());
+    readiness = await waitForChatReady(page, timeoutMs);
+  }
+  return { page, readiness };
+}
 
-  const readiness = await waitForChatReady(page, CHAT_FRAME_RETRY_MS);
+export async function chatRead(opts: { since?: number; limit?: number } = {}) {
+  const { page, readiness } = await chatPage();
   if (!readiness.ready) {
     return fail(
       'chat-frame-missing',
@@ -800,12 +811,11 @@ export async function chatRead(opts: { since?: number; limit?: number } = {}) {
 }
 
 export async function chatWaitIdle(timeoutMs = 300_000) {
-  const { page } = await connect();
   const startedAt = Date.now();
 
   // Give the panel the same short retry window as chatRead/chatSend before
   // concluding it is genuinely absent — see CHAT_FRAME_RETRY_MS.
-  const initial = await waitForChatReady(page, CHAT_FRAME_RETRY_MS);
+  const { page, readiness: initial } = await chatPage();
   if (!initial.ready) {
     return fail(
       'chat-frame-missing',
@@ -815,8 +825,13 @@ export async function chatWaitIdle(timeoutMs = 300_000) {
   }
   const before = initial.state.messageCount;
 
+  // Playwright's evaluate has no timeout of its own, so one read on a wedged page would hold this
+  // loop past timeoutMs for good. A read that runs out of time counts as "still busy".
+  const readBounded = () => withReadTimeout(readChatState(page), CHAT_IDLE_READ_TIMEOUT_MS);
+
   while (Date.now() - startedAt < timeoutMs) {
-    const state = await readChatState(page);
+    const state = await readBounded();
+    if (state === TIMED_OUT) continue;
     if (!state.mounted) {
       // Readiness was already established above; a panel that disappears
       // partway through a long wait (project closed, editor reloaded) is a
@@ -838,12 +853,13 @@ export async function chatWaitIdle(timeoutMs = 300_000) {
     await new Promise((r) => setTimeout(r, 1000));
   }
 
-  const final = await readChatState(page);
+  const final = await readBounded();
   return {
     idle: false,
     waitedMs: Date.now() - startedAt,
     timedOut: true,
-    newMessages: final.messageCount - before
+    newMessages: final === TIMED_OUT ? 0 : final.messageCount - before,
+    ...(final === TIMED_OUT ? { pageUnresponsive: true } : {})
   };
 }
 
@@ -860,9 +876,7 @@ export async function chatSend(
   text: string,
   opts: { waitIdle?: boolean; force?: boolean; timeoutMs?: number } = {}
 ) {
-  const { page } = await connect();
-
-  const readiness = await waitForChatReady(page, CHAT_FRAME_RETRY_MS);
+  const { page, readiness } = await chatPage();
   if (!readiness.ready) {
     return fail(
       'chat-frame-missing',

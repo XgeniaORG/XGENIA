@@ -6,6 +6,7 @@ import { GitResetMode, reset } from '@xgenia/git/src/core/reset';
 
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import { copyValueToClipboard } from '@xgenia-utils/copyValueToClipboard';
+import { emitProjectEvent } from '@xgenia-utils/extensions/projectExtensions';
 
 import { IconName, IconSize } from '@xgenia-core-ui/components/common/Icon';
 import { IconButton } from '@xgenia-core-ui/components/inputs/IconButton';
@@ -71,6 +72,7 @@ export function BranchList({ onBranchCheckout, onBranchCreated }: BranchListProp
         commitish: undefined
       });
 
+      emitProjectEvent({ type: 'checkout', projectDir: repositoryPath });
       EventDispatcher.instance.notifyListeners('projectChangedOnDisk');
       ToastLayer.showSuccess(`Checked out ${branch.nameWithoutRemote} branch.`);
       await fetch.fetchLocal();
@@ -218,7 +220,7 @@ interface CreateBranchButtonProps {
 }
 
 function CreateBranchButton({ onBranchCreated }: CreateBranchButtonProps) {
-  const { git, fetch } = useVersionControlContext();
+  const { git, fetch, repositoryPath } = useVersionControlContext();
 
   const addButtonRef = useRef(null);
   const [open, setOpen] = useState(false);
@@ -229,6 +231,7 @@ function CreateBranchButton({ onBranchCreated }: CreateBranchButtonProps) {
       // Create the new branch
       // TODO: Setup expect error for git, status: 128. Invalid characters.
       await git.createAndCheckoutBranch(branchName);
+      emitProjectEvent({ type: 'checkout', projectDir: repositoryPath });
 
       ToastLayer.showSuccess(`Created and checked out branch ${branchName}`);
       onBranchCreated();

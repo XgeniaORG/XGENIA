@@ -192,6 +192,144 @@ const OptionsNode: OptionsNodeType = {
       displayName: 'Placeholder opacity',
       type: 'number',
       default: 0.5
+    },
+
+    // The list that opens under the field. The defaults match the native popup it replaces.
+    listBackgroundColor: {
+      index: 270,
+      group: 'Dropdown List',
+      displayName: 'Background Color',
+      editorName: 'List Background Color',
+      type: 'color',
+      default: '#FFFFFF'
+    },
+    listBorderColor: {
+      index: 271,
+      group: 'Dropdown List',
+      displayName: 'Border Color',
+      editorName: 'List Border Color',
+      type: 'color',
+      default: '#0000001F'
+    },
+    listBorderWidth: {
+      index: 272,
+      group: 'Dropdown List',
+      displayName: 'Border Width',
+      editorName: 'List Border Width',
+      type: { name: 'number', units: ['px'], defaultUnit: 'px' },
+      default: 1
+    },
+    listCornerRadius: {
+      index: 273,
+      group: 'Dropdown List',
+      displayName: 'Corner Radius',
+      editorName: 'List Corner Radius',
+      type: { name: 'number', units: ['px'], defaultUnit: 'px' },
+      default: 6
+    },
+    listShadowColor: {
+      index: 274,
+      group: 'Dropdown List',
+      displayName: 'Shadow Color',
+      editorName: 'List Shadow Color',
+      type: 'color',
+      default: '#00000033'
+    },
+    listPadding: {
+      index: 275,
+      group: 'Dropdown List',
+      displayName: 'Padding',
+      editorName: 'List Padding',
+      type: { name: 'number', units: ['px'], defaultUnit: 'px' },
+      default: 4
+    },
+    listMaxHeight: {
+      index: 276,
+      group: 'Dropdown List',
+      displayName: 'Max Height',
+      editorName: 'List Max Height',
+      type: { name: 'number', units: ['px'], defaultUnit: 'px' },
+      default: 240
+    },
+    listOffset: {
+      index: 277,
+      group: 'Dropdown List',
+      displayName: 'Gap',
+      editorName: 'List Gap',
+      tooltip: 'Space between the field and the list',
+      type: { name: 'number', units: ['px'], defaultUnit: 'px' },
+      default: 4
+    },
+
+    // Each option in the list. Font family, size and case follow the field's text style.
+    optionTextColor: {
+      index: 280,
+      group: 'Dropdown Options',
+      displayName: 'Text Color',
+      editorName: 'Option Text Color',
+      type: 'color',
+      default: '#000000'
+    },
+    optionFontSize: {
+      index: 281,
+      group: 'Dropdown Options',
+      displayName: 'Font Size',
+      editorName: 'Option Font Size',
+      type: { name: 'number', units: ['px'], defaultUnit: 'px' }
+    },
+    optionPaddingHorizontal: {
+      index: 282,
+      group: 'Dropdown Options',
+      displayName: 'Horizontal Padding',
+      editorName: 'Option Horizontal Padding',
+      type: { name: 'number', units: ['px'], defaultUnit: 'px' },
+      default: 10
+    },
+    optionPaddingVertical: {
+      index: 283,
+      group: 'Dropdown Options',
+      displayName: 'Vertical Padding',
+      editorName: 'Option Vertical Padding',
+      type: { name: 'number', units: ['px'], defaultUnit: 'px' },
+      default: 8
+    },
+    optionCornerRadius: {
+      index: 284,
+      group: 'Dropdown Options',
+      displayName: 'Corner Radius',
+      editorName: 'Option Corner Radius',
+      type: { name: 'number', units: ['px'], defaultUnit: 'px' },
+      default: 4
+    },
+    optionHoverBackgroundColor: {
+      index: 285,
+      group: 'Dropdown Options',
+      displayName: 'Hover Background',
+      editorName: 'Option Hover Background',
+      type: 'color',
+      default: '#7F7F7F26'
+    },
+    optionHoverTextColor: {
+      index: 286,
+      group: 'Dropdown Options',
+      displayName: 'Hover Text Color',
+      editorName: 'Option Hover Text Color',
+      type: 'color'
+    },
+    optionSelectedBackgroundColor: {
+      index: 287,
+      group: 'Dropdown Options',
+      displayName: 'Selected Background',
+      editorName: 'Option Selected Background',
+      type: 'color',
+      default: '#7F7F7F40'
+    },
+    optionSelectedTextColor: {
+      index: 288,
+      group: 'Dropdown Options',
+      displayName: 'Selected Text Color',
+      editorName: 'Option Selected Text Color',
+      type: 'color'
     }
   },
   outputs: {

@@ -34,7 +34,7 @@
 // (see deployedGames.ts). The platform builds that subject itself from the
 // source it holds; the editor sends the name and nothing else.
 
-import { XRGS_URL, rgsHeaders } from './rgsClient';
+import { rgsFunctionsUrl, rgsHeaders } from './rgsClient';
 
 /** Whether the model that answered was paid or free — a description of the run, not a choice. */
 export type ComplianceAiTier = 'free' | 'paid';
@@ -255,7 +255,7 @@ async function callComplianceDocs<T>(
 ): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${XRGS_URL}/compliance-docs`, {
+    res = await fetch(`${rgsFunctionsUrl()}/compliance-docs`, {
       method: 'POST',
       headers: rgsHeaders(apiKey),
       body: JSON.stringify(body),
@@ -295,7 +295,7 @@ async function callComplianceDocs<T>(
           ? 'XGENIA RGS backend is out of date — its compliance-docs function cannot document a deployed ' +
               'game yet. Redeploy `compliance-docs` to the RGS project, then try again.'
           : 'XGENIA RGS backend is out of date — its compliance-docs function cannot resolve a component ' +
-              'by server version yet. Redeploy `compliance-docs` to the RGS project, then try again.'
+              'by version yet. Redeploy `compliance-docs` to the RGS project, then try again.'
       );
     }
 
@@ -348,7 +348,7 @@ export function generateComplianceDocument(
     ? { deployed_game_slug: opts.deployedGameSlug }
     : { deployment_id: opts.deploymentId, function_slug: opts.functionSlug };
   if (!opts.deployedGameSlug && (!opts.deploymentId || !opts.functionSlug)) {
-    return Promise.reject(new Error('Nothing to document: name a component (Server Version + slug) or a deployed game.'));
+    return Promise.reject(new Error('Nothing to document: name a component (version + slug) or a published game.'));
   }
   return callComplianceDocs<ComplianceGenerateResult>(
     opts.apiKey,

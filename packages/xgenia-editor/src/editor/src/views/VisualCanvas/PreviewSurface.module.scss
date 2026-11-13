@@ -4,20 +4,32 @@
     height: 7px;
     border-radius: 50%;
     background: var(--theme-color-primary);
+    /* The glow is a fixed size and the pulse is opacity only — see ai-pulse below. */
+    box-shadow: 0 0 8px var(--theme-color-primary);
     animation: ai-pulse 1.8s ease-in-out infinite;
 }
 
+/*
+  Opacity only. This used to animate the box-shadow's blur radius from 4px to 8px, and a
+  box-shadow is visual OVERFLOW: growing it grows the element's painted bounds, so Chromium
+  resized this dot's composited layer on every single frame — measured going 32x32 -> 34 ->
+  36 ... -> 48 and back, 120 times a second. Every one of those is a fresh backing store
+  from the GPU and a new layer tree committed to macOS, for a 7px dot. That churn never
+  stopped while the AI browser surface was up, and it is what the panel flashing rode on.
+
+  Opacity is a compositor property: it re-presents the layer it already has and never
+  resizes it. The glow now sits at its full 8px and dims with the dot, which is what the
+  pulse read as anyway.
+*/
 @keyframes ai-pulse {
 
     0%,
     100% {
         opacity: 1;
-        box-shadow: 0 0 4px var(--theme-color-primary);
     }
 
     50% {
         opacity: 0.5;
-        box-shadow: 0 0 8px var(--theme-color-primary);
     }
 }
 

@@ -1,3 +1,5 @@
+import { useShowAllTools } from '../../Rail/useShowAllTools';
+import { defaultPreviewSize, savedPreviewSize } from './defaultPreviewSize';
 import { useNodeGraphContext } from '@xgenia-contexts/NodeGraphContext/NodeGraphContext';
 import { useKeyboardCommands } from '@xgenia-hooks/useKeyboardCommands';
 import usePrevious from '@xgenia-hooks/usePrevious';
@@ -22,10 +24,11 @@ import { Frame } from '../../common/Frame';
 import { PreviewSurface } from '../../VisualCanvas/PreviewSurface';
 import { clampSize } from '../../VisualCanvas/frameSnap';
 import { EditorTopbar } from '../../EditorTopbar';
+import { DocsChat } from '../../DocsChat/DocsChat';
 import { HelpCenter } from '../../HelpCenter';
 import { NodeGraphEditor } from '../../nodegrapheditor';
-import { NodeGraphEditorNode } from '../../nodegrapheditor/NodeGraphEditorNode';
 import { showContextMenuInPopup } from '../../ShowContextMenuInPopup';
+import { TimelineDockHost, useTimelineDockBindings } from '../../TimelineDock';
 import { useCanvasView } from './hooks/UseCanvasView';
 import { useCaptureThumbnails } from './hooks/UseCaptureThumbnails';
 import { useImportNodeset } from './hooks/UseImportNodeset';
@@ -142,6 +145,9 @@ function EditorDocument() {
   }, []);
 
   const [selectedNodeId, setSelectedNodeId] = useState(null); //The ID of the selected node, as highlighted by the viewer
+  // Bumped on every selection, so re-picking the same node (from the multi-selection list)
+  // still reaches the preview.
+  const [selectionTick, setSelectionTick] = useState(0);
 
   const [hasLoadedEditorSettings, setHasLoadedEditorSettings] = useState(false);
 
@@ -173,8 +179,14 @@ function EditorDocument() {
         });
       },
       keybinding: KeyMod.CtrlCmd | KeyCode.KEY_T
+    },
+    {
+      // F frames the selection in the preview from anywhere in the editor — the Hierarchy, the
+      // graph — as in Unity, not only while the preview itself has focus.
+      handler: () => canvasView?.frameSelection(),
+      keybinding: KeyCode.KEY_F
     }
-  ]);
+  ], [canvasView]);
 
   useImportNodeset(nodeGraph);
 
@@ -192,6 +204,7 @@ function EditorDocument() {
   }, [zoomFactor, viewportSize]);
 
   useSetupNodeGraph(nodeGraph);
+  useTimelineDockBindings();
 
   //track which nodes is currently selected. A hack that relies on the side panel to tell us.
   useEffect(() => {
@@ -200,17 +213,16 @@ function EditorDocument() {
       SidebarModelEvent.nodeSelected,
       (nodeId) => {
         setSelectedNodeId(nodeId);
+        setSelectionTick((t) => t + 1);
       },
       eventGroup
     );
 
     SidebarModel.instance.on(
-      SidebarModelEvent.activeChanged,
-      (activeId) => {
-        const isNodePanel = activeId === 'PropertyEditor' || activeId === 'PortEditor';
-        if (isNodePanel === false) {
-          setSelectedNodeId(null);
-        }
+      SidebarModelEvent.rightPanelChanged,
+      (panelId) => {
+        // The inspector closed; switching the left rail no longer ends a selection.
+        if (panelId === null) setSelectedNodeId(null);
       },
       eventGroup
     );
@@ -250,11 +262,9 @@ function EditorDocument() {
   }, [viewerDetached, canvasView, throttledIpcSend]);
 
   useEffect(() => {
-    // EMERGENCY: Skip if IPC disabled
-    if (ipcThrottleRef.current.totalBlockedEvents > ipcThrottleRef.current.PERMANENT_DISABLE_THRESHOLD) {
-      return;
-    }
-
+    // Not gated on the IPC breaker: the preview is an in-process iframe, so switching its inspector
+    // needs no IPC, and throttledIpcSend already refuses the detached-viewer message on its own.
+    // Gating it here left Edit/Preview dead for the rest of the session once the breaker tripped.
     const inspectMode = previewMode ? false : true;
     console.log(`[EditorDocument] useEffect: previewMode=${previewMode}, inspectMode=${inspectMode}`);
 
@@ -273,11 +283,6 @@ function EditorDocument() {
   }, [previewMode, canvasView, throttledIpcSend]);
 
   useEffect(() => {
-    // EMERGENCY: Skip if IPC disabled
-    if (ipcThrottleRef.current.totalBlockedEvents > ipcThrottleRef.current.PERMANENT_DISABLE_THRESHOLD) {
-      return;
-    }
-
     if (!previewMode) {
       // Add a small delay to ensure webview APIs are ready
       const timeoutId = setTimeout(() => {
@@ -287,7 +292,7 @@ function EditorDocument() {
 
       return () => clearTimeout(timeoutId);
     }
-  }, [selectedNodeId, canvasView, previewMode]);
+  }, [selectedNodeId, selectionTick, canvasView, previewMode]);
 
   const onRouteChanged = useCallback(
     (route) => {
@@ -438,39 +443,38 @@ function EditorDocument() {
       eventGroup
     );
 
+    EventDispatcher.instance.on(
+      'viewportSelectNodes',
+      (args) => {
+        const nodes = (args?.nodeIds || []).map((id) => nodeGraph.findNodeWithId(id)).filter(Boolean);
+        if (nodes.length) nodeGraph.selectNodes(nodes);
+      },
+      eventGroup
+    );
+
     //this is sent by viewers in design mode, and lessons
     EventDispatcher.instance.on(
       'inspectNodes',
       (args) => {
         console.log('[EditorDocument] 🎯 RECEIVED inspectNodes event:', args);
         if (args.nodeIds.length === 1) {
-          // Select node - use the node graph editor's findNodeWithId method which returns NodeGraphEditorNode
+          // Look the node up in the whole project, not only the component open in the graph: the
+          // preview shows every component, so the clicked element is often in another one.
           const nodeId = args.nodeIds[0];
-          console.log('[EditorDocument] Looking for node with ID:', nodeId);
-          const allNodes: NodeGraphEditorNode[] = [];
-          nodeGraph.forEachNode((node) => {
-            allNodes.push(node);
-          });
-          console.log('[EditorDocument] Total nodes in graph:', allNodes.length);
-          console.log('[EditorDocument] First 5 node IDs:', allNodes.slice(0, 5).map(n => n.id));
-          const node = nodeGraph.findNodeWithId(nodeId);
-          console.log('[EditorDocument] Node found:', !!node, 'Node details:', node ? { id: node.id, label: node.model?.label, type: node.model?.type } : 'null');
-
-          if (node) {
-            // Select the node in the current graph
-            nodeGraph.clearSelection();
-            nodeGraph.selectNode(node);
-            console.log('[EditorDocument] Selected node in current graph:', node.id);
-
-            // Show a brief notification that the node was selected
-            console.log(`[Inspector] ✅ Node "${node.model.label || node.id}" selected in editor via visual inspector!`);
-          } else {
-            console.warn('[EditorDocument] Node not found with ID:', args.nodeIds[0]);
-            // Show notification that node was not found
-            setTimeout(() => {
-              console.log(`[Inspector] ❌ Node "${args.nodeIds[0]}" not found in project. Make sure components are properly registered.`);
-            }, 100);
+          const model = ProjectModel.instance.findNodeWithId(nodeId);
+          const component = model?.owner?.owner;
+          if (!model || !component) {
+            console.warn('[EditorDocument] inspectNodes: node not found in project:', nodeId);
+            return;
           }
+
+          // A click arrives twice (inspector-node-selected and the editor API request). Selecting a
+          // node that is already selected is a double click, which dives into it, so skip the repeat.
+          const current = nodeGraph.getActiveComponent() === component ? nodeGraph.findNodeWithId(nodeId) : null;
+          if (current?.selected) return;
+
+          // Open its component, select it, centre the graph on it and show its properties.
+          nodeGraph.switchToComponent(component, { node: model, pushHistory: true });
         } else {
           const nodes = args.nodeIds.map((id) => ProjectModel.instance.findNodeWithId(id)).filter((node) => !!node);
 
@@ -600,8 +604,9 @@ function EditorDocument() {
       }
     }
 
-    if (settings.frameDividerSize) {
-      setFrameDividerSize(settings.frameDividerSize);
+    const savedSize = savedPreviewSize(settings.frameDividerSize);
+    if (savedSize) {
+      setFrameDividerSize(savedSize);
     }
 
     // setEnableAi(settings[AI_ASSISTANT_ENABLED_KEY]);
@@ -684,10 +689,12 @@ function EditorDocument() {
       </div>
 
       <HelpCenter />
+      <DocsChat />
 
     </Container>
   );
 }
+
 
 function ViewComponent({
   canvasViewInstance,
@@ -700,15 +707,23 @@ function ViewComponent({
 
   const horizontal = documentLayout === 'horizontal';
   const totalSize = frameBounds ? (horizontal ? frameBounds.height : frameBounds.width) : undefined;
+  const showAllTools = useShowAllTools();
+  // A game that has never had its split dragged opens game-first: on the simple layout the game
+  // takes nearly all the height and the graph is a strip to drag open; otherwise half and half.
+  // A size the user dragged (saved per project) always wins.
+  const dividerSize = frameDividerSize ?? defaultPreviewSize(totalSize, horizontal, showAllTools);
 
   // Canvas pane: viewport preview or the AI browser, switched from the status pill
   const canvasPane = (
     <PreviewSurface canvasViewInstance={canvasViewInstance} onResize={(bounds) => canvasViewInstance.resize(bounds)} />
   );
 
-  // Node graph pane: plain Frame
+  // Node graph pane: the Frame, with the Timeline dock on the edge facing the preview
+  // (above the graph when the preview is on top, under it otherwise).
   const nodeGraphPane = (
-    <Frame instance={nodeGraphEditorInstance} onResize={(bounds) => nodeGraphEditorInstance.resize(bounds)} />
+    <TimelineDockHost position={horizontal ? 'top' : 'bottom'}>
+      <Frame isAbsolute instance={nodeGraphEditorInstance} onResize={(bounds) => nodeGraphEditorInstance.resize(bounds)} />
+    </TimelineDockHost>
   );
 
   if (documentLayout === 'detachedPreview') {
@@ -725,7 +740,7 @@ function ViewComponent({
         second={second}
         sizeMin={100}
         sizeMax={totalSize ? totalSize - 100 : undefined}
-        size={frameDividerSize}
+        size={dividerSize}
         onSizeChanged={(size) => {
           onSizeUpdated(size);
         }}
@@ -751,6 +766,13 @@ function createKeyboardCommands(nodeGraph: NodeGraphEditor) {
     keybinding: KeyMod.CtrlCmd | KeyCode.KEY_X
   };
 
+  const duplicate: KeyboardCommand = {
+    handler: () => nodeGraph.duplicate(),
+    keybinding: KeyMod.CtrlCmd | KeyCode.KEY_D,
+    title: 'Duplicate the selected nodes',
+    group: 'Node graph'
+  };
+
   const undo: KeyboardCommand = {
     handler: () => nodeGraph.undo(),
     keybinding: KeyMod.CtrlCmd | KeyCode.KEY_Z
@@ -763,17 +785,23 @@ function createKeyboardCommands(nodeGraph: NodeGraphEditor) {
 
   const navBack: KeyboardCommand = {
     handler: () => nodeGraph.navigationHistory.goBack(),
-    keybinding: KeyMod.CtrlCmd | KeyCode.US_OPEN_SQUARE_BRACKET
+    keybinding: KeyMod.CtrlCmd | KeyCode.US_OPEN_SQUARE_BRACKET,
+    title: 'Back to the previous component',
+    group: 'Node graph'
   };
 
   const navForward: KeyboardCommand = {
     handler: () => nodeGraph.navigationHistory.goForward(),
-    keybinding: KeyMod.CtrlCmd | KeyCode.US_CLOSE_SQUARE_BRACKET
+    keybinding: KeyMod.CtrlCmd | KeyCode.US_CLOSE_SQUARE_BRACKET,
+    title: 'Forward to the next component',
+    group: 'Node graph'
   };
 
   const deleteWithBackspace: KeyboardCommand = {
     handler: () => nodeGraph.delete(),
-    keybinding: KeyCode.Backspace
+    keybinding: KeyCode.Backspace,
+    title: 'Delete the selection',
+    group: 'Node graph'
   };
 
   const deleteWithDel: KeyboardCommand = {
@@ -794,10 +822,12 @@ function createKeyboardCommands(nodeGraph: NodeGraphEditor) {
         },
         { undo: true, label: 'add comment', focusComment: true }
       ),
-    keybinding: KeyMod.CtrlCmd | KeyCode.US_SLASH
+    keybinding: KeyMod.CtrlCmd | KeyCode.US_SLASH,
+    title: 'Add a comment at the pointer',
+    group: 'Node graph'
   };
 
-  return [copy, paste, cut, undo, redo, navBack, navForward, deleteWithBackspace, deleteWithDel, createComment];
+  return [copy, paste, cut, duplicate, undo, redo, navBack, navForward, deleteWithBackspace, deleteWithDel, createComment];
 }
 
 export class EditorDocumentProvider implements IDocumentProvider {

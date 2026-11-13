@@ -405,12 +405,10 @@ export function FrameDivider({
   }
 
   useEffect(() => {
-    // Check if the current size is already outside the bounds
-    if (sizeMax) {
-      onSizeChanged(Math.min(Math.max(size, sizeMin), sizeMax));
-    } else {
-      onSizeChanged(Math.max(size, sizeMin));
-    }
+    // Pull a size that is outside the bounds back in. A size already inside is not reported: the
+    // owner would store its own default (or the 343 fallback) as if the user had dragged it.
+    const clamped = sizeMax ? Math.min(Math.max(size, sizeMin), sizeMax) : Math.max(size, sizeMin);
+    if (clamped !== size) onSizeChanged(clamped);
   }, [size, sizeMax, sizeMin, onSizeChanged]);
 
   return (

@@ -15,6 +15,30 @@ import {
   subscribeAssetMeta,
   type AssetMetaEntry
 } from './assetMeta';
+import { loadProjectScreen, type ProjectScreen } from './projectScreen';
+
+/** Size and mtime for each file. Best-effort: a file that cannot be stat'ed simply has none. */
+async function statFiles(root: string, paths: string[]): Promise<Map<string, { size: number; mtime: number }>> {
+  const out = new Map<string, { size: number; mtime: number }>();
+  let fsp: any;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    fsp = require('fs').promises;
+  } catch {
+    return out;
+  }
+  await Promise.all(
+    paths.map(async (p) => {
+      try {
+        const st = await fsp.stat(filesystem.join(root, p));
+        out.set(p, { size: st.size, mtime: st.mtimeMs });
+      } catch {
+        /* vanished between list and stat */
+      }
+    })
+  );
+  return out;
+}
 
 export type AssetIndexStatus = 'loading' | 'ok' | 'error';
 
@@ -25,6 +49,10 @@ export interface AssetIndexState {
   /** Why the last scan ran, shown in the panel so a stale view is explicable. */
   lastReason: string;
   lastRunAt: number;
+  /** Every folder under assets/, including empty ones. */
+  folders: string[];
+  /** The target screen placements resolve against; null when the project has not declared one. */
+  screen: ProjectScreen | null;
   refresh: (reason: string) => void;
 }
 
@@ -45,6 +73,8 @@ export function useAssetIndex(): AssetIndexState {
   const [error, setError] = useState<string | null>(null);
   const [lastReason, setLastReason] = useState('open');
   const [lastRunAt, setLastRunAt] = useState(0);
+  const [folders, setFolders] = useState<string[]>([]);
+  const [screen, setScreen] = useState<ProjectScreen | null>(null);
 
   const runningRef = useRef(false);
   const queuedRef = useRef<string | null>(null);
@@ -80,15 +110,18 @@ export function useAssetIndex(): AssetIndexState {
       await loadAssetMeta();
 
       const rootNorm = root.replace(/\\/g, '/').replace(/\/+$/, '');
+      const folderPaths: string[] = [];
       const filePaths = await new Promise<string[]>((resolve, reject) => {
         try {
           pm.listProjectAssets((files: any[]) => {
             const out: string[] = [];
             for (const f of files || []) {
-              if (!f || !f.fullPath || f.isDirectory) continue;
+              if (!f || !f.fullPath) continue;
               let rel = String(f.fullPath).replace(/\\/g, '/');
               if (rel.startsWith(rootNorm + '/')) rel = rel.slice(rootNorm.length + 1);
-              if (rel) out.push(rel);
+              if (!rel) continue;
+              if (f.isDirectory) folderPaths.push(rel);
+              else out.push(rel);
             }
             resolve(out);
           });
@@ -113,15 +146,24 @@ export function useAssetIndex(): AssetIndexState {
 
       const refs = collectGraphRefs(Array.isArray(pm.components) ? pm.components : []);
 
+      // .trash rows are read too: they carry the placement a re-save used to strip from the live
+      // file, which the index offers back.
       const meta: Record<string, AssetMetaEntry> = {};
       for (const p of filePaths) meta[p] = getAssetMeta(p);
+      for (const n of trashNames) meta[`.trash/${n}`] = getAssetMeta(`.trash/${n}`);
+
+      const [stats, projectScreen] = await Promise.all([
+        statFiles(rootNorm, filePaths),
+        loadProjectScreen().catch(() => null)
+      ]);
 
       const built = buildIndex({
         filePaths,
         trashNames,
         meta,
         referencedPaths: refs.paths,
-        referencedUids: refs.uids
+        referencedUids: refs.uids,
+        stats
       });
 
       // Persist what the scan derived: inferred roles and promoted lineage only. An authored
@@ -141,6 +183,8 @@ export function useAssetIndex(): AssetIndexState {
 
       if (aliveRef.current) {
         setIndex(built);
+        setFolders(folderPaths);
+        setScreen(projectScreen);
         setStatus('ok');
         setError(null);
       }
@@ -207,5 +251,5 @@ export function useAssetIndex(): AssetIndexState {
     };
   }, [run]);
 
-  return { index, status, error, lastReason, lastRunAt, refresh };
+  return { index, status, error, lastReason, lastRunAt, folders, screen, refresh };
 }

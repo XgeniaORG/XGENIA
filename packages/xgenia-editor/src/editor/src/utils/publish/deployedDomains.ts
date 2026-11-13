@@ -49,6 +49,22 @@ export interface DeployedDomain {
    * backend is all of them, and deleting the domain has to clean up all of them.
    */
   rgsBackends?: RgsBackendRef[];
+  /**
+   * Published through XGENIA RGS /web-publish (2026-11-03): the platform owns the
+   * Vercel project on the studio's behalf, so rename and delete go through it with
+   * the operator key — `project` is what it knows the site by (`name` is the same
+   * value, so "<name>.vercel.app" stays the right hostname), `site` the part the
+   * user typed. A record without `project` was published by an older editor with
+   * the shared Vercel token, and XGENIA RGS will not rename or delete it.
+   */
+  project?: string;
+  site?: string;
+}
+
+/** How a domain was published, for saveDeployedDomain. */
+export interface PublishedVia {
+  project: string;
+  site: string;
 }
 
 /** Whose domains these are: the signed-in account, else this device. */
@@ -142,7 +158,8 @@ export function saveDeployedDomain(
   domainName: string,
   deploymentId: string,
   deploymentUrl: string,
-  rgsBackend?: RgsBackendRef
+  rgsBackend?: RgsBackendRef,
+  via?: PublishedVia
 ): void {
   try {
     const deployedDomainsData = readAllDomains();
@@ -172,7 +189,8 @@ export function saveDeployedDomain(
       updatedAt: currentTime,
       deviceId: owner.deviceId,
       accountId: owner.accountId || undefined,
-      ...(rgsBackends.length > 0 ? { rgsBackends } : {})
+      ...(rgsBackends.length > 0 ? { rgsBackends } : {}),
+      ...(via ? { project: via.project, site: via.site } : {})
     };
 
     if (existingIndex >= 0) {
@@ -190,4 +208,49 @@ export function saveDeployedDomain(
   } catch (error: any) {
     console.error('Failed to save deployed domain to local storage:', error);
   }
+}
+
+/** A site as XGENIA RGS /web-publish lists it (webPublishClient WebPublishSite). */
+export interface PublishedSite {
+  site: string;
+  project: string;
+  domain: string;
+  live_url: string;
+  deployment_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/**
+ * The Deployed Domains list when XGENIA RGS hosts publishing: every site the
+ * platform holds for this studio (published from any machine, by any of its
+ * keys), then the local records it does not know — sites an older editor
+ * published with the shared token, kept so they are not silently forgotten.
+ *
+ * A local record of the same project contributes what only this editor knows
+ * (its linked RGS backends); the platform's answer wins for everything else.
+ */
+export function mergePublishedSites(sites: PublishedSite[], local: DeployedDomain[]): DeployedDomain[] {
+  const byProject = new Map<string, DeployedDomain>();
+  for (const d of local) if (d.project) byProject.set(d.project, d);
+  const now = new Date().toISOString();
+  const fromPlatform: DeployedDomain[] = sites.map((s) => {
+    const mine = byProject.get(s.project);
+    return {
+      name: s.project,
+      id: mine?.id || s.deployment_id || s.project,
+      url: s.live_url || `https://${s.domain}`,
+      deployedAt: s.created_at || mine?.deployedAt || now,
+      updatedAt: s.updated_at || mine?.updatedAt || s.created_at || now,
+      project: s.project,
+      site: s.site,
+      ...(mine?.deviceId ? { deviceId: mine.deviceId } : {}),
+      ...(mine?.accountId ? { accountId: mine.accountId } : {}),
+      ...(mine?.rgsBackends?.length ? { rgsBackends: mine.rgsBackends } : {})
+    };
+  });
+  // A local record of an RGS-published site the platform no longer lists was deleted
+  // elsewhere; only token-published records (no project) are carried over.
+  const older = local.filter((d) => !d.project);
+  return [...fromPlatform, ...older];
 }

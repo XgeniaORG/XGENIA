@@ -9,10 +9,12 @@ import { filesystem, platform } from '@xgenia/platform';
 
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import { templateRegistry } from '@xgenia-utils/forge';
+import { keepInCopy, templateSource } from './projectTemplateSource';
 
 import Model from '../../../shared/model';
 import { projectFromDirectory, unzipIntoDirectory } from '../models/projectmodel.editor';
 import { makeTile } from './thumbnails/thumbnail-tile';
+import { isWeakCapture, measureImage } from './thumbnails/thumbnail-weak';
 import { planThumbnailWrite, saveThumbnailFile, type ThumbnailFileIO } from './thumbnails/thumbnail-store';
 import { needsTitleCard, shouldCaptureCanvas, type ThumbnailSource } from './thumbnails/thumbnail-policy';
 import FileSystem from './filesystem';
@@ -149,6 +151,11 @@ export class LocalProjectsModel extends Model {
     // The capture is sized for the AI's vision pass, not for a card on the home screen.
     // Derive the tile once, here, so both storage paths carry the same small image.
     const tile = await makeTile(captured);
+
+    // A capture of nothing (the canvas before the game drew, a black or white frame) is never
+    // stored: it would replace real cover art with an empty picture. The lobby shows a monogram
+    // for a project without one, which is the honest picture of an empty capture (2026-11-02).
+    if (source === 'capture' && isWeakCapture(await measureImage(tile))) return false;
 
     const plan = planThumbnailWrite({
       dataUri: tile,
@@ -297,6 +304,21 @@ export class LocalProjectsModel extends Model {
   // Get all project directories, sorted
   getProjects() {
     return this.projectEntries;
+  }
+
+  /**
+   * How many projects this profile has opened, for the rail's simple-mode default. The loaded
+   * list when there is one; otherwise the stored list as-is (a window that never ran `fetch()`
+   * must not make an experienced user look new). Never throws.
+   */
+  getRecentProjectCount(): number {
+    if (this.projectEntries?.length) return this.projectEntries.length;
+    try {
+      const stored = this.recentProjectsStore.get('recentProjects');
+      return Array.isArray(stored) ? stored.length : 0;
+    } catch {
+      return 0;
+    }
   }
 
   getProjectEntryWithId(id: string): ProjectItem {
@@ -471,18 +493,25 @@ export class LocalProjectsModel extends Model {
     const projectTemplate = options?.projectTemplate;
 
     if (projectTemplate) {
-      const templatePath = await templateRegistry.download({ templateUrl: projectTemplate });
+      // A Duplicate or Remix passes the game's own folder: copy it directly. A template URL is
+      // downloaded and unzipped. Either failing must still answer the caller, or its "Duplicating
+      // game" / "Creating new game" toast never goes away (see projectTemplateSource.ts).
+      try {
+        const source = templateSource(projectTemplate, (p) => filesystem.exists(p));
+        const templatePath =
+          source.kind === 'folder' ? source.path : await templateRegistry.download({ templateUrl: source.url });
 
-      // Copy unzipped project template
-      if (process.env.WEB_MODE) {
-        await filesystem.copyFolder(templatePath, dirEntry);
-      } else {
-        FileSystem.instance.copyRecursiveSync(templatePath, dirEntry, {
-          filter(src) {
-            //ignore all files in .git/
-            return !src.includes(path.sep + '.git' + path.sep);
-          }
-        });
+        if (process.env.WEB_MODE) {
+          await filesystem.copyFolder(templatePath, dirEntry);
+        } else {
+          FileSystem.instance.copyRecursiveSync(templatePath, dirEntry, {
+            filter: (src) => keepInCopy(src, path.sep)
+          });
+        }
+      } catch (e) {
+        console.error('[LocalProjectsModel] Could not copy the project template', projectTemplate, e);
+        fn();
+        return;
       }
 
       // Project extracted successfully, load it

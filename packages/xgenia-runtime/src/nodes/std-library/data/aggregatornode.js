@@ -39,11 +39,71 @@
 //   { "result": 3 }   ->   out-result = 3
 //
 // Phase 1: the request URL is a dummy localhost value supplied at compile time.
+//
+// Money in cents (2026-11-03): an Aggregator Publish points at a Math Component whose deployed script converts
+// (editor utils/rgs/moneyScale.ts) carries `moneyScale` (100), `betField` and `winField`. It sends the bet field
+// × moneyScale with `__moneyScale`, and divides the win field — and the RGS balance and win — by it, so the RGS
+// ledger counts cents while the game's graph keeps the money the player sees. Without `moneyScale` nothing changes.
+//
+// The wallet on load (2026-11-04): rgsBalance used to arrive only with a round's answer, so a reloaded page showed the
+// game's opening balance until the first spin. A published page that converts money now asks the RGS once, on load,
+// for this browser guest's play-money balance (GET /rgs-fn/<game>/__balance) and fills rgsBalance with it. Not for a
+// launched session (a casino's player is not the browser guest), and a round's own answer always wins over it.
 
 const EdgeTriggeredInput = require('../../../edgetriggeredinput');
-const { getPlayContextFields } = require('./rgs-play-context');
+const { getPlayContextFields, getClientId, launchedSessionFromUrl } = require('./rgs-play-context');
+const { stakeBookSessionForPage, parseStakeConfig } = require('./stake-book-session');
+const { isReplayPage, replaySessionForPage, ReplayRefused, STATES: REPLAY_STATES } = require('./rgs-replay');
+
+// XRGS bet replay (2026-11-11): on a page opened with ?replay=true (rgs-replay.js) an http Aggregator never POSTs.
+// Its triggers are answered from the replay's frames, in order, through the same applyOutputs a live /rgs-fn
+// answer takes — and REFUSED (failure + error) when no replay is playing, so a replay page has no bet path.
+// Extra outputs let a game present the replay: replayMode, replayState, replayPlay (signal: wire it to the spin
+// so Play starts the round with its own animation), replayEnded (signal), replayFrameIndex, replayFrameState
+// (the state that frame's round left), replayBet / replayCost / replayWin / replayCurrency (money as a person
+// reads it) and replayBetText / replayWinText (e.g. "BONUS: €1.00 / REAL COST: €250.00", "WIN: €5.00").
+const REPLAY_OUTPUTS = [
+  ['replayMode', 'Replay Mode'],
+  ['replayState', 'Replay State'],
+  ['replayPlay', 'Replay Play', 'signal'],
+  ['replayEnded', 'Replay Ended', 'signal'],
+  ['replayFrameIndex', 'Replay Frame Index'],
+  ['replayFrameState', 'Replay Frame State'],
+  ['replayBet', 'Replay Bet'],
+  ['replayCost', 'Replay Cost'],
+  ['replayWin', 'Replay Win'],
+  ['replayCurrency', 'Replay Currency'],
+  ['replayBetText', 'Replay Bet Text'],
+  ['replayWinText', 'Replay Win Text']
+];
+
+// Stake Engine (2026-11-09): with `transport` = "stake" the Aggregator does not POST to an RGS. It hands each
+// trigger to the page's Stake Book Session (stake-book-session.js), which plays one /wallet/play per paid
+// event and answers the free rounds that follow from the same book, locally — same ports, same outputs, so the
+// game graph built for XRGS plays on Stake unchanged. `stakeConfig` (JSON) says how: exportBet, betField,
+// winField, moneyFields, modeField, modes, startupTriggers, gameUnitsPerCurrencyUnit. Extra outputs:
+// stakeInFeature, stakeRoundsLeft, stakeRoundComplete (signal), stakeBetLevels, stakeDefaultBet, stakeCurrency,
+// stakeSocial, stakeReplay, stakeResumePending.
+const STAKE_OUTPUTS = [
+  ['stakeInFeature', 'In Feature'],
+  ['stakeRoundsLeft', 'Rounds Left'],
+  ['stakeRoundComplete', 'Round Complete', 'signal'],
+  ['stakeBetLevels', 'Bet Levels'],
+  ['stakeDefaultBet', 'Default Bet'],
+  ['stakeCurrency', 'Currency'],
+  ['stakeSocial', 'Social Mode'],
+  ['stakeReplay', 'Replay Mode'],
+  ['stakeResumePending', 'Resume Pending'],
+  ['stakeModes', 'Stake Modes']
+];
 
 const DEFAULT_URL = 'http://localhost:54321/functions/v1/aggregator';
+const REQUEST_TIMEOUT_MS = 10000;
+
+function newRequestId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+}
 
 // "firstNumber" -> "First Number" (used for port display names only)
 function humanize(name) {
@@ -124,6 +184,8 @@ const AggregatorNode = {
       default: DEFAULT_URL,
       set: function (value) {
         this._internal.url = value;
+        this.scheduleAfterInputsHaveUpdated(this.attachReplay.bind(this));
+        this.scheduleAfterInputsHaveUpdated(this.readRgsBalanceOnLoad.bind(this));
       }
     },
     dataInputs: {
@@ -156,6 +218,49 @@ const AggregatorNode = {
       group: 'Configuration',
       set: function (value) {
         this._internal.signalOutputs = value;
+      }
+    },
+    transport: {
+      type: { name: 'enum', enums: [{ value: 'http', label: 'XGENIA RGS (HTTP)' }, { value: 'stake', label: 'Stake Engine book' }] },
+      displayName: 'Transport',
+      group: 'General',
+      default: 'http',
+      set: function (value) {
+        this._internal.transport = value;
+        this.scheduleAfterInputsHaveUpdated(this.readStakeInfoOnLoad.bind(this));
+      }
+    },
+    stakeConfig: {
+      type: 'string',
+      displayName: 'Stake Config',
+      group: 'Stake',
+      set: function (value) {
+        this._internal.stakeConfig = value;
+      }
+    },
+    moneyScale: {
+      type: 'number',
+      displayName: 'Money Scale',
+      group: 'Money',
+      default: 1,
+      set: function (value) {
+        this._internal.moneyScale = Number(value) || 1;
+      }
+    },
+    betField: {
+      type: 'string',
+      displayName: 'Bet Field',
+      group: 'Money',
+      set: function (value) {
+        this._internal.betField = value;
+      }
+    },
+    winField: {
+      type: 'string',
+      displayName: 'Win Field',
+      group: 'Money',
+      set: function (value) {
+        this._internal.winField = value;
       }
     }
   },
@@ -219,14 +324,37 @@ const AggregatorNode = {
       this._internal.outputValues = this._internal.outputValues || {};
       const signals = new Set(splitList(this._internal.signalOutputs));
       const fired = ok === true ? Array.from(signals).filter((s) => !Object.prototype.hasOwnProperty.call(body, s)) : [];
+      // What the RGS recorded for a staked round: the wallet balance after it, what it paid and its id. A published
+      // demo shows THIS balance and win (the RGS owns the money), not what the game's own logic would have said.
+      const rgs = body.__rgs && typeof body.__rgs === 'object' ? body.__rgs : null;
+      if (body.__stake && typeof body.__stake === 'object') this.applyStakeOutputs(body.__stake);
+      // Cents back to the game's money: only from a script that converted this request (it says so).
+      const scale = this.moneyScaleInUse();
+      const converted = scale > 1 && Number(body.__moneyScale) === scale;
+      const money = (v) => (converted && typeof v === 'number' ? v / scale : v);
+      const winField = converted ? this._internal.winField : null;
+      const fromRgs = rgs ? { rgsBalance: money(rgs.balance_after), rgsWin: money(rgs.win_amount), rgsRoundId: rgs.round_id } : null;
+      if (fromRgs) {
+        this._internal.roundAnswered = true;
+        for (const name in fromRgs) {
+          if (fromRgs[name] === undefined) continue;
+          this._internal.outputValues[name] = fromRgs[name];
+          this.registerOutputIfNeeded('out-' + name);
+          if (this.hasOutput('out-' + name)) this.flagOutputDirty('out-' + name);
+        }
+      }
       for (const field in body) {
         if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
+        if (field === '__rgs' || field === '__moneyScale' || field === '__stake') continue;
+        // A Math Component may declare rgsBalance / rgsWin / rgsRoundId outputs so its game can read them; the maths
+        // never sets them (it cannot see the wallet), so its own empty value must not overwrite what the RGS recorded.
+        if (fromRgs && fromRgs[field] !== undefined) continue;
         if (signals.has(field)) {
           // A signal is not a value: fire it (below) when this response says it fired.
           if (body[field] === true) fired.push(field);
           continue;
         }
-        this._internal.outputValues[field] = body[field];
+        this._internal.outputValues[field] = field === winField ? money(body[field]) : body[field];
         this.registerOutputIfNeeded('out-' + field);
         if (this.hasOutput('out-' + field)) this.flagOutputDirty('out-' + field);
       }
@@ -235,10 +363,198 @@ const AggregatorNode = {
         if (this.hasOutput('out-' + field)) this.sendSignalOnOutput('out-' + field);
       }
     },
+    // The wallet before the first round (see the header). Once per node; never throws.
+    readRgsBalanceOnLoad: function () {
+      if (this._internal.balanceAsked) return;
+      const url = this._internal.url || '';
+      const match = /^(https?:\/\/[^?#]*\/rgs-fn\/[^/?#]+)\/[^/?#]+/.exec(url);
+      const scale = this.moneyScaleInUse();
+      if (this._internal.transport === 'stake' || !match || scale <= 1 || typeof fetch !== 'function' || launchedSessionFromUrl() || isReplayPage()) return;
+      this._internal.balanceAsked = true;
+      const _this = this;
+      let client;
+      try {
+        client = getClientId();
+      } catch (e) {
+        return;
+      }
+      if (!client) return;
+      fetch(match[1] + '/__balance?client=' + encodeURIComponent(client), { method: 'GET' })
+        .then(function (response) {
+          return response.ok ? response.json() : null;
+        })
+        .then(function (body) {
+          // A round that answered meanwhile carries the fresher figure.
+          if (!body || typeof body.balance !== 'number' || !isFinite(body.balance) || _this._internal.roundAnswered) return;
+          _this._internal.outputValues = _this._internal.outputValues || {};
+          _this._internal.outputValues.rgsBalance = body.balance / scale;
+          _this.registerOutputIfNeeded('out-rgsBalance');
+          if (_this.hasOutput('out-rgsBalance')) _this.flagOutputDirty('out-rgsBalance');
+        })
+        .catch(function () {});
+    },
+    setOutput: function (name, value) {
+      this._internal.outputValues = this._internal.outputValues || {};
+      this._internal.outputValues[name] = value;
+      this.registerOutputIfNeeded('out-' + name);
+      if (this.hasOutput('out-' + name)) this.flagOutputDirty('out-' + name);
+    },
+    applyStakeOutputs: function (st) {
+      if (st.inFeature !== undefined) this.setOutput('stakeInFeature', !!st.inFeature);
+      if (st.roundsLeft !== undefined) this.setOutput('stakeRoundsLeft', st.roundsLeft);
+      if (st.roundComplete) {
+        this.registerOutputIfNeeded('out-stakeRoundComplete');
+        if (this.hasOutput('out-stakeRoundComplete')) this.sendSignalOnOutput('out-stakeRoundComplete');
+      }
+    },
+    stakeSession: function () {
+      if (!this._internal.stake) {
+        this._internal.stake = stakeBookSessionForPage({
+          fetch: typeof fetch === 'function' ? fetch.bind(globalThis) : null,
+          location: typeof location !== 'undefined' ? location : { search: '', protocol: 'https:' }
+        });
+      }
+      return this._internal.stake;
+    },
+    // Bet levels, balance, currency and the modes Stake launched the game in — before the first round, so the
+    // bet selector offers only Stake's levels and a reloaded game knows a round is waiting.
+    readStakeInfoOnLoad: function () {
+      if (this._internal.transport !== 'stake' || this._internal.stakeInfoAsked) return;
+      this._internal.stakeInfoAsked = true;
+      const _this = this;
+      let cfg;
+      try {
+        cfg = parseStakeConfig(this._internal.stakeConfig);
+      } catch (e) {
+        this.setError(e.message);
+        return;
+      }
+      this.stakeSession()
+        .info(cfg)
+        .then(function (info) {
+          for (const k in info) if (info[k] !== undefined) _this.setOutput(k === 'rgsBalance' ? 'rgsBalance' : k, info[k]);
+        })
+        .catch(function (e) {
+          _this.setError((e && e.message) || String(e));
+        });
+    },
+    doSendStake: function () {
+      const _this = this;
+      const data = {};
+      const values = this._internal.dataValues || {};
+      for (const k in values) data[k] = values[k];
+      let cfg;
+      try {
+        cfg = parseStakeConfig(this._internal.stakeConfig);
+      } catch (e) {
+        this.setError(e.message);
+        this.sendSignalOnOutput('failure');
+        return;
+      }
+      this._internal.lastPayload = { trigger: this._internal.activeTrigger, data: data };
+      this.stakeSession()
+        .request(this._internal.activeTrigger, data, cfg)
+        .then(function (body) {
+          _this._internal.lastResponse = body;
+          _this._internal.inspectData = { transport: 'stake', payload: _this._internal.lastPayload, response: body };
+          _this.applyOutputs(body, true);
+          _this.sendSignalOnOutput('success');
+        })
+        .catch(function (e) {
+          console.log('Aggregator (Stake):', e);
+          _this.setError((e && e.message) || String(e));
+          _this.sendSignalOnOutput('failure');
+        });
+    },
+    moneyScaleInUse: function () {
+      const scale = Number(this._internal.moneyScale) || 1;
+      return scale > 1 && this._internal.betField && this._internal.winField ? scale : 1;
+    },
+    // ── Replay (see the header) ──
+    attachReplay: function () {
+      if (this._internal.transport === 'stake' || !isReplayPage()) return null;
+      const session = replaySessionForPage();
+      if (!session) return null;
+      if (!this._internal.replayAttached) {
+        this._internal.replayAttached = true;
+        this.setOutput('replayMode', true);
+        session.onChange(this.showReplayState.bind(this));
+        this.showReplayState(session.state, session);
+      }
+      session.attach(this, this._internal.url);
+      return session;
+    },
+    showReplayState: function (state, session) {
+      this.setOutput('replayState', state);
+      const sum = session && session.summary();
+      if (sum) {
+        this.setOutput('replayBet', sum.bet);
+        this.setOutput('replayCost', sum.cost);
+        this.setOutput('replayWin', sum.win);
+        this.setOutput('replayCurrency', sum.currency);
+        this.setOutput('replayBetText', sum.text.bet);
+        this.setOutput('replayWinText', sum.text.win);
+      }
+      if (state === REPLAY_STATES.ERROR && session && session.error) this.setError(session.error.message);
+      if (state === REPLAY_STATES.ENDED) this.fireOutputSignal('replayEnded');
+    },
+    fireOutputSignal: function (name) {
+      this.registerOutputIfNeeded('out-' + name);
+      if (this.hasOutput('out-' + name)) this.sendSignalOnOutput('out-' + name);
+    },
+    /** Play / Play Again was pressed: tell the game, so its spin starts the round. */
+    onReplayPlay: function () {
+      this.fireOutputSignal('replayPlay');
+    },
+    /** The session pushes the first frame in when the game did not ask for it (replayPlay unwired). */
+    presentReplayFrame: function () {
+      this._internal.activeTrigger = null;
+      this.doSendReplay();
+    },
+    doSendReplay: function () {
+      const session = this.attachReplay();
+      let answer;
+      try {
+        if (!session) throw new ReplayRefused('This is a replay: betting is disabled.');
+        answer = session.next();
+      } catch (e) {
+        this.setError((e && e.message) || String(e));
+        this.sendSignalOnOutput('failure');
+        return;
+      }
+      const frame = answer.frame || {};
+      this._internal.lastPayload = { replay: true, trigger: this._internal.activeTrigger || null, frame: frame.index };
+      // Asynchronously, as a live answer arrives: never inside the update that fired the trigger.
+      setTimeout(() => {
+        this._internal.lastResponse = answer.body;
+        this._internal.inspectData = { transport: 'replay', frame: frame.index, response: answer.body };
+        this.setOutput('replayFrameIndex', typeof frame.index === 'number' ? frame.index : null);
+        this.setOutput('replayFrameState', frame.state && typeof frame.state === 'object' ? frame.state : null);
+        this.applyOutputs(answer.body, true);
+        this.sendSignalOnOutput('success');
+        session.frameShown();
+      }, 0);
+    },
     doSend: function () {
+      if (this._internal.transport === 'stake') return this.doSendStake();
+      // Never a request from a replay page: the frames answer, or the trigger is refused.
+      if (isReplayPage()) return this.doSendReplay();
       const payload = {};
       const data = this._internal.dataValues || {};
       for (const key in data) payload[key] = data[key];
+
+      // The bet in cents, rounded to a whole cent; the script divides it back before the maths runs.
+      const scale = this.moneyScaleInUse();
+      if (scale > 1) {
+        const betField = this._internal.betField;
+        if (typeof payload[betField] === 'string' && payload[betField].trim() !== '' && isFinite(Number(payload[betField]))) {
+          payload[betField] = Number(payload[betField]);
+        }
+        if (typeof payload[betField] === 'number' && isFinite(payload[betField])) {
+          payload[betField] = Math.round(payload[betField] * scale);
+        }
+        payload.__moneyScale = scale;
+      }
 
       const triggers = splitList(this._internal.triggers);
       for (let i = 0; i < triggers.length; i++) {
@@ -253,6 +569,9 @@ const AggregatorNode = {
       // rgs-play-context.js.
       const context = getPlayContextFields();
       for (const key in context) payload[key] = context[key];
+      // One key per request: the RGS answers a repeat of it with the round it already played, so a request the
+      // network delivered twice can never be charged or paid twice.
+      payload.__idempotency = newRequestId();
 
       this._internal.lastPayload = payload;
 
@@ -271,10 +590,15 @@ const AggregatorNode = {
         return;
       }
 
+      // A request that never answers used to leave the game waiting forever (the reels spun on with no result).
+      // After REQUEST_TIMEOUT_MS it fails like any other failure, with the reason on `error`.
+      const abort = typeof AbortController === 'function' ? new AbortController() : null;
+      const timer = abort ? setTimeout(function () { abort.abort(); }, REQUEST_TIMEOUT_MS) : null;
       fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: body
+        body: body,
+        ...(abort ? { signal: abort.signal } : {})
       })
         .then(function (response) {
           return response
@@ -287,13 +611,24 @@ const AggregatorNode = {
               _this._internal.inspectData = { status: response.status, payload: payload, response: body };
               // Map response fields -> output ports -> connected UI components.
               _this.applyOutputs(body, response.ok);
+              if (!response.ok) _this.setError((body && (body.message || body.error)) || 'HTTP ' + response.status);
               _this.sendSignalOnOutput(response.ok ? 'success' : 'failure');
             });
         })
         .catch(function (e) {
           console.log('Aggregator: failed to POST to', url, e);
+          _this.setError(e && e.name === 'AbortError' ? 'No answer within ' + REQUEST_TIMEOUT_MS / 1000 + ' s' : String((e && e.message) || e));
           _this.sendSignalOnOutput('failure');
+        })
+        .finally(function () {
+          if (timer) clearTimeout(timer);
         });
+    },
+    setError: function (message) {
+      this._internal.outputValues = this._internal.outputValues || {};
+      this._internal.outputValues.error = String(message);
+      this.registerOutputIfNeeded('out-error');
+      if (this.hasOutput('out-error')) this.flagOutputDirty('out-error');
     }
   }
 };
@@ -332,6 +667,30 @@ function buildPorts(parameters) {
     });
   });
 
+  // Always there: what the RGS recorded for a staked round, and why a request failed.
+  const declared = new Set(splitList(parameters.outputs));
+  [
+    ['rgsBalance', 'RGS Balance'],
+    ['rgsWin', 'RGS Win'],
+    ['rgsRoundId', 'RGS Round Id'],
+    ['error', 'Error']
+  ].forEach(function (pair) {
+    if (declared.has(pair[0])) return;
+    ports.push({ type: { name: '*', allowConnectionsOnly: true }, plug: 'output', group: 'RGS', name: 'out-' + pair[0], displayName: pair[1] });
+  });
+  if (parameters.transport !== 'stake') {
+    REPLAY_OUTPUTS.forEach(function (o) {
+      if (declared.has(o[0])) return;
+      ports.push({ type: o[2] === 'signal' ? 'signal' : { name: '*', allowConnectionsOnly: true }, plug: 'output', group: 'Replay', name: 'out-' + o[0], displayName: o[1] });
+    });
+  }
+  if (parameters.transport === 'stake') {
+    STAKE_OUTPUTS.forEach(function (o) {
+      if (declared.has(o[0])) return;
+      ports.push({ type: o[2] === 'signal' ? 'signal' : { name: '*', allowConnectionsOnly: true }, plug: 'output', group: 'Stake', name: 'out-' + o[0], displayName: o[1] });
+    });
+  }
+
   return ports;
 }
 
@@ -348,7 +707,7 @@ module.exports = {
     function manage(node) {
       context.editorConnection.sendDynamicPorts(node.id, buildPorts(node.parameters));
       node.on('parameterUpdated', function (event) {
-        if (event.name === 'dataInputs' || event.name === 'triggers' || event.name === 'outputs' || event.name === 'signalOutputs') {
+        if (event.name === 'dataInputs' || event.name === 'triggers' || event.name === 'outputs' || event.name === 'signalOutputs' || event.name === 'transport') {
           context.editorConnection.sendDynamicPorts(node.id, buildPorts(node.parameters));
         }
       });

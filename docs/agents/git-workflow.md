@@ -35,7 +35,7 @@ work on a single branch:
    ```bash
    git checkout develop
    git pull origin develop
-   git checkout -b feature/<short-description>
+   git checkout -b side/<short-description>
    ```
 2. Keep committing and pushing to **that** branch for everything that belongs
    to this piece of work — follow-up fixes, review feedback, the tidy-up
@@ -56,11 +56,11 @@ when a PR exists for it. Open the PR with the GitHub CLI as the closing step of
 the work on that branch:
 
 ```bash
-git push -u origin feature/<short-description>
+git push -u origin side/<short-description>
 
 gh pr create \
   --base develop \
-  --head feature/<short-description> \
+  --head side/<short-description> \
   --title "<what the change does>" \
   --body "<summary, and anything the reviewer needs to know>"
 ```
@@ -97,6 +97,31 @@ Rules for the PR:
 `main` only moves at a public release, when `develop` is squash-merged into it.
 Never push to `main` directly, and never merge into it outside of a release.
 
+## Clearing out old local branches
+
+The remote deletes a side branch when its PR is merged, but the local copy
+stays behind. Left alone, a checkout fills up with dead `side/…`, `feature/…`
+and `fix/…` branches that nobody will ever return to, and an old branch is
+easy to resume by mistake. So local branches are cleaned up, not collected:
+
+- A local branch is **unwanted** when its PR has been squash-merged (its
+  remote is gone — `git fetch --prune` then `git branch -vv` shows it as
+  `[gone]`), or when it is stale work that has been abandoned.
+- Delete an unwanted branch with:
+  ```bash
+  git branch -D <branch-name>
+  ```
+  `-D` is needed rather than `-d` because a squash-merged branch is never
+  seen as "merged" by git, even though all of its work is in `develop`.
+- **Auto mode vs. ask first.** If the user runs Claude in auto mode, delete
+  old or unwanted local branches without asking — it is routine housekeeping.
+  If not, list the branches you intend to delete, with why each is unwanted,
+  and ask before running the command: `-D` is destructive and discards any
+  commits that only exist on that branch.
+- Never delete `develop` or `main`, and never delete a branch that still
+  carries unpushed or unmerged work the user wants kept. When in doubt
+  whether a branch is finished, ask, regardless of mode.
+
 ## Quick self-check before any git command
 
 - About to `git commit` while `HEAD` is `develop` or `main`? Stop — create a
@@ -110,6 +135,9 @@ Never push to `main` directly, and never merge into it outside of a release.
   already on.
 - Finished the work on a branch? Push it and open the PR — do not leave the
   branch sitting there.
+- Local branches whose PR is merged, or that are stale and unwanted? Delete
+  them with `git branch -D` — straight away in auto mode, after asking
+  otherwise. Never `develop` or `main`.
 
 ## The `private/` submodule
 
@@ -138,6 +166,23 @@ submodule pointer is a change in *this* repo.** The commit that moves
 rules above: its own branch, PR against `develop`, approval, squash-merge.
 "It's only a pointer bump" is not an exemption — it is precisely the case
 this document exists for.
+
+The one exception is a workflow push made over the repository's deploy key
+(`BOT_DEPLOY_KEY`). `develop`'s ruleset lists deploy keys as a bypass actor, so
+it needs no PR. It is not a GitHub App or a person's token.
+
+- **The private pointer bot** (`.github/workflows/private-pointer.yml`). It runs
+  the PR checks (`pr-checks.yml`) with `private/` at the latest private `main`,
+  and only if they pass, pushes a commit that changes nothing but the `private`
+  gitlink. The checks are its gate.
+
+No workflow changes `packages/xgenia-editor/package.json`'s version. It is set
+by hand like any other change (own branch, PR, approval). A manual release
+drafts exactly that version, so raise it before releasing.
+
+The exception is for the pointer bot only. An agent or a person bumping the pointer by hand still follows the full
+branch, PR, approval and squash-merge flow, and should usually not need to: the
+bot moves it within a few hours of a push to private `main`.
 
 ## Relationship to "ask before touching production"
 

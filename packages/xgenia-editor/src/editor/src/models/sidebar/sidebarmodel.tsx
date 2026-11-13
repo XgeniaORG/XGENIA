@@ -11,7 +11,13 @@ import { activePanelId, reduceRailLayout, RailAction, RailLayout } from '../../v
 
 export interface SidebarItem<TProps = Record<string, unknown>> {
   id: string;
+  /** The full name: the rail tooltip and the panel header. */
   name: string;
+  /**
+   * The one-line label under the rail icon, when it should differ from `name`. Built-in
+   * panels get theirs from views/Rail/railGroups.ts; this is for anything registered elsewhere.
+   */
+  shortLabel?: string;
   description?: string;
   fineType?: string;
   /** An IconName or one of the `Side*` wrappers from views/SidePanel/SidebarIcons. */
@@ -27,6 +33,11 @@ export interface SidebarItem<TProps = Record<string, unknown>> {
    * Default: false
    */
   transient?: boolean;
+  /**
+   * A full-screen tool (the image editor takes over the canvas): never reopened by itself. Opened
+   * once, it was where every game opened from then on, the game and the AI hidden (2026-11-01).
+   */
+  opensOnHome?: boolean;
 
   /**
    * Unmount this panel while another one is showing, instead of keeping it
@@ -53,16 +64,15 @@ export interface SidebarItem<TProps = Record<string, unknown>> {
   /**
    * This panel shows AI activity — its rail button gets the "AI working" ring and
    * elapsed-time tooltip, and callers that need to route the user to "wherever the AI
-   * is" (MathsPanel's dispatchCommand) resolve the id through this flag rather than a
+   * is" (the Maths panel's Ask the AI button) resolve the id through this flag rather than a
    * literal id. Declarative, like `isDefaultDocked`: router.setup.ts sets it on whichever
    * chat implementation actually loaded, under either id it may resolve to.
    */
   showsAiActivity?: boolean;
 
   /**
-   * Registered and fully dispatchable (`SidebarModel.switch`, the settings panel's own
-   * "Project settings" menu item, etc.) but not rendered as a rail button — e.g.
-   * Settings, reachable only from the identity chip's project menu.
+   * Registered and fully dispatchable (`SidebarModel.switch`, a menu item, etc.) but not
+   * rendered as a rail button. Nothing uses it today (Settings did until 2026-11-01).
    */
   railHidden?: boolean;
 
@@ -184,7 +194,11 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
   private static readonly SETTINGS_DOCKED_LEGACY = 'rail.docked';
   private static readonly SETTINGS_ACTIVE = 'rail.active';
   private static readonly SETTINGS_OPEN = 'rail.open';
-  private static readonly SETTINGS_ORDER = 'rail.order';
+  /**
+   * `.v2` since the grouped, labelled rail (2026-11-01): an order saved against the old flat
+   * rail would scramble the new groups, so it is left behind rather than migrated.
+   */
+  private static readonly SETTINGS_ORDER = 'rail.order.v2';
 
   private layout: RailLayout = { activeId: 'components', homeId: 'components', open: true };
 
@@ -244,7 +258,7 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
     const storedOpen = EditorSettings.instance.get(SidebarModel.SETTINGS_OPEN);
     const homeId = this.defaultDockedId();
     const stored = typeof storedActive === 'string' ? storedActive : storedDocked;
-    const activeId = typeof stored === 'string' && this.items.some((x) => x.id === stored && !x.transient) ? stored : homeId;
+    const activeId = typeof stored === 'string' && this.items.some((x) => x.id === stored && !x.transient && !x.opensOnHome) ? stored : homeId;
     this.dispatch({ type: 'restore', homeId, activeId, open: storedOpen !== false });
   }
 
@@ -412,7 +426,7 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
   /**
    * The id of the panel that shows AI activity (the chat), if one is registered.
    * Declarative lookup via `showsAiActivity`, mirroring `defaultDockedId()` above — a
-   * caller that needs "the chat panel's id" (MathsPanel's dispatchCommand) must not guess
+   * caller that needs "the chat panel's id" (the Maths panel's Ask the AI button) must not guess
    * a literal id, since it differs between the iframe and shell chat implementations.
    */
   public getAiActivityPanelId(): string | null {
@@ -448,6 +462,25 @@ export class SidebarModel extends Model<SidebarModelEvent, SidebarModelEventEven
       this.items.push(item);
       this.notifyListeners(SidebarModelEvent.itemsChanged);
     }
+  }
+
+  /**
+   * Remove a registered panel (used for panels that come and go with the account's
+   * entitlements). If it is the active one, the card switches to home first (staying open or
+   * closed as it was) so the rail is never left pointing at a panel that no longer exists.
+   */
+  public unregister(id: string): void {
+    const index = this.items.findIndex((x) => x.id === id);
+    const experimentalIndex = this.experimentalItems.findIndex((x) => x.id === id);
+    if (index < 0 && experimentalIndex < 0) return;
+    if (activePanelId(this.layout) === id && this.layout.homeId !== id) {
+      const { homeId, open } = this.layout;
+      this.dispatch({ type: 'restore', homeId, activeId: homeId, open });
+    }
+    if (index >= 0) this.items.splice(index, 1);
+    if (experimentalIndex >= 0) this.experimentalItems.splice(experimentalIndex, 1);
+    delete this.panels[id];
+    this.notifyListeners(SidebarModelEvent.itemsChanged);
   }
 
   /**

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pngSize, jpegSize, imageSize, analyseCapture } from './screenshot.js';
+import { pngSize, jpegSize, imageSize, analyseCapture, designCaptureResult } from './screenshot.js';
 
 // PNG: 8-byte signature, then IHDR length+type, then width/height big-endian.
 function fakePng(w: number, h: number): Buffer {
@@ -181,5 +181,38 @@ describe('it never invents a number it does not have', () => {
     const g = analyseCapture({ width: 704.013671875, height: 704.013671875 }, { width: 704, height: 704 });
     expect(g.scale).toBe(1);
     expect(g.cropped).toBe(false);
+  });
+});
+
+describe('designCaptureResult', () => {
+  const png = fakePng(1920, 1080).toString('base64');
+  it('returns the image, its measured size and the editor note on success', () => {
+    const r = designCaptureResult(
+      { success: true, image: `data:image/png;base64,${png}`, width: 1920, height: 1080, settled: true, message: 'captured offscreen' },
+      1920,
+      1080
+    ) as any;
+    expect(r.error).toBeUndefined();
+    expect(r.mimeType).toBe('image/png');
+    expect(r.image).toBe(png);
+    expect(r.imageSize).toEqual({ width: 1920, height: 1080 });
+    expect(r.region).toBe('design');
+    expect(r.settled).toBe(true);
+    expect(r.note).toBe('captured offscreen');
+  });
+  it('passes the editor code and message through on failure', () => {
+    const r = designCaptureResult({ success: false, code: 'BLANK_CAPTURE', message: 'single colour' }, 1920, 1080) as any;
+    expect(r).toMatchObject({ error: 'BLANK_CAPTURE', hint: 'single colour' });
+  });
+  it('names an editor without the handler as unsupported, not a capture failure', () => {
+    const r = designCaptureResult(
+      { invokeError: "Error invoking remote method 'preview-capture:design-offscreen': Error: No handler registered" },
+      1920,
+      1080
+    ) as any;
+    expect(r.error).toBe('unsupported-editor');
+  });
+  it('rejects a reply whose image is not a data URL', () => {
+    expect((designCaptureResult({ success: true, image: 'nope' }, 10, 10) as any).error).toBe('capture-failed');
   });
 });

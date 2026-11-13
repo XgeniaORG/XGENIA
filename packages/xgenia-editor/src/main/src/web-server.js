@@ -2,9 +2,12 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const nodePath = require('path');
-const URL = require('url');
+const { parseRequestUrl } = require('./request-url');
+const { originAllowed, mayRegisterAs } = require('./relay-guard');
+const { isCaptureUserAgent, captureMayRelay } = require('./offscreen-capture');
 const path = require('path');
 
+const { contentTypeForUrl } = require('./content-type');
 const WebSocket = require('ws');
 const WebSocketServer = WebSocket.Server;
 
@@ -621,7 +624,7 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
   }
 
   function handleRequest(request, response) {
-    var parsedUrl = URL.parse(request.url, true);
+    var parsedUrl = parseRequestUrl(request.url);
     let requestPath;
     try {
       requestPath = decodeURI(parsedUrl.pathname);
@@ -889,7 +892,7 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
         const modulePath = nodePath.join(toolsProjectPath, requestPath);
         console.log(`[WebServer] Serving tools project module from: ${modulePath}`);
 
-        if (fs.existsSync(modulePath)) {
+        if (fs.existsSync(modulePath) && realPathInside(toolsProjectPath, modulePath)) {
           serveFile(modulePath, request, response);
         } else {
           console.error(`[WebServer] Tools project module not found at: ${modulePath}`);
@@ -1003,7 +1006,7 @@ function startServer(app, projectGetSettings, projectGetInfo, projectGetComponen
         // Guard against null or undefined info here as well before accessing projectDirectory
         if (typeof info === 'object' && info !== null && info.projectDirectory) {
           const projectPath = info.projectDirectory + requestPath;
-          if (fs.existsSync(projectPath)) {
+          if (fs.existsSync(projectPath) && realPathInside(info.projectDirectory, projectPath)) {
             serveFile(projectPath, request, response);
           } else {
             serve404(response);
@@ -1071,21 +1074,37 @@ function startWebSocketServer(server) {
   }
 
   var wss = new WebSocketServer({
-    server: server
+    server: server,
+    // Browsers send an Origin and CORS does not cover WebSockets: only our own pages (relay-guard.js).
+    verifyClient: (info) => originAllowed(info.origin)
   });
 
-  wss.on('connection', function (ws) {
+  wss.on('connection', function (ws, req) {
     var handle = {
       ws: ws
     };
+    var remoteAddress = req && req.socket && req.socket.remoteAddress;
+    var origin = req && req.headers && req.headers.origin;
+    // A hidden offscreen capture window (offscreen-capture.js): never "the game" to the editor.
+    handle.capture = isCaptureUserAgent(req && req.headers && req.headers['user-agent']);
     connectedSockets.push(handle);
 
     (function () {
       var _handle = handle;
 
       ws.on('message', function (message) {
-        var request = JSON.parse(message);
+        var request;
+        try {
+          request = JSON.parse(message);
+        } catch (e) {
+          return;
+        }
         if (request.cmd === 'register') {
+          // The editor and service roles drive viewers; only this machine may take them.
+          if (!mayRegisterAs(request.type, remoteAddress, origin)) {
+            ws.close(1008, 'role not allowed from here');
+            return;
+          }
           _handle.type = request.type;
           _handle.clientId = request.clientId;
 
@@ -1095,7 +1114,8 @@ function startWebSocketServer(server) {
               JSON.stringify({
                 cmd: 'registered',
                 type: _handle.type,
-                clientId: _handle.clientId
+                clientId: _handle.clientId,
+                ...(_handle.capture ? { capture: true } : {})
               }),
               _handle.type
             );
@@ -1104,6 +1124,16 @@ function startWebSocketServer(server) {
             // A new serivce is registered
             services[request.service] = handle;
         }
+        // Nothing is relayed for a socket that has not registered: its messages used to be
+        // broadcast to every client, viewers included.
+        else if (!_handle.type) {
+          return;
+        }
+        // A capture window only fetches the project; anything else it says would be taken for the
+        // user's preview (its warnings, console, eval results).
+        else if (_handle.capture && _handle.type === 'viewer' && !captureMayRelay(request)) {
+          return;
+        }
         // If this is a request to a service, pass it along to the service
         else if (request.service) {
           var s = services[request.service];
@@ -1111,6 +1141,8 @@ function startWebSocketServer(server) {
         } else {
           // If there is a target client, send the message to that client
           if (request.target) {
+            // Only the editor and services address one client directly; a viewer talks to editors.
+            if (_handle.type !== 'editor' && _handle.type !== 'service') return;
             for (var i = 0; i < connectedSockets.length; i++)
               if (connectedSockets[i].clientId === request.target) connectedSockets[i].ws.send(message);
           }
@@ -1139,84 +1171,7 @@ function startWebSocketServer(server) {
 }
 
 function getContentType(request) {
-  var extname = nodePath.extname(request.url);
-  var contentType = 'text/html';
-  switch (extname) {
-    case '.js':
-      contentType = 'text/javascript';
-      break;
-    case '.css':
-      contentType = 'text/css';
-      break;
-    case '.json':
-      contentType = 'application/json';
-      break;
-    case '.png':
-      contentType = 'image/png';
-      break;
-    case '.webp':
-      contentType = 'image/webp';
-      break;
-    case '.gif':
-      contentType = 'image/gif';
-      break;
-    case '.jpg':
-      contentType = 'image/jpeg';
-      break;
-    // (2026-08-27, export 1787803023693) THE MISSING CASES WERE SERVING text/html.
-    // A generated reel-dog-win.webm reached the browser with the right bytes (valid EBML
-    // magic, correct length) and content-type text/html — this switch's default — so the
-    // <video> element fired `error` and every transparent-webm win animation "vanished".
-    // Sessions across three days blamed alpha compositing, hide-latches, and the video
-    // model for what was this switch all along; one session started base64-inlining a
-    // 3MB clip into a node parameter to get around it. Sweep, not a one-extension fix:
-    // every asset family the engine actually loads (video, audio for the Sound node,
-    // fonts now that writes fetch them, modern image formats) gets its real type.
-    // The .wav case also fell through into .mp4 (the eslint-disable was masking it),
-    // so wav files were served as video/mp4.
-    case '.wav':
-      contentType = 'audio/wav';
-      break;
-    case '.mp3':
-      contentType = 'audio/mpeg';
-      break;
-    case '.ogg':
-      contentType = 'audio/ogg';
-      break;
-    case '.mp4':
-    case '.m4v':
-      contentType = 'video/mp4';
-      break;
-    case '.webm':
-      contentType = 'video/webm';
-      break;
-    case '.jpeg':
-      contentType = 'image/jpeg';
-      break;
-    case '.avif':
-      contentType = 'image/avif';
-      break;
-    case '.woff':
-      contentType = 'font/woff';
-      break;
-    case '.woff2':
-      contentType = 'font/woff2';
-      break;
-    case '.otf':
-      contentType = 'font/otf';
-      break;
-    case '.wasm':
-      contentType = 'application/wasm';
-      break;
-    case '.svg':
-      contentType = 'image/svg+xml';
-      break;
-    case '.ttf':
-      contentType = 'font/ttf';
-      break;
-  }
-
-  return contentType;
+  return contentTypeForUrl(request.url);
 }
 
 // A file that exists can still fail to open or read (a directory, EACCES/EPERM,
@@ -1249,6 +1204,21 @@ function hasTraversal(rawPath) {
   }
   if (p.includes('\0')) return true;
   return p.split(/[\\/]/).some((segment) => segment === '..');
+}
+
+/**
+ * Whether `filePath`, symlinks resolved, is still inside `base`. hasTraversal() stops ".." in the
+ * URL; this stops a symlink in the project (a cloned or imported project can carry one, git
+ * creates them) from serving a file outside it, e.g. assets/x -> ~/.ssh/id_rsa, to the LAN.
+ */
+function realPathInside(base, filePath) {
+  try {
+    const realBase = fs.realpathSync(base);
+    const real = fs.realpathSync(decodeURI(filePath));
+    return real === realBase || real.startsWith(realBase + nodePath.sep);
+  } catch {
+    return false;
+  }
 }
 
 function serveFile(filePath, request, response) {
