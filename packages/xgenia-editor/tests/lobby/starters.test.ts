@@ -1,24 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fetchStarters, pickStarter, starterSeed, starterUrl, STARTERS_BASE, type StarterEntry } from '../../src/editor/src/views/lobby/starters';
+import { fetchStarters, starterSeed, starterUrl, STARTERS_BASE, type StarterEntry } from '../../src/editor/src/views/lobby/starters';
 
 const STARTERS: StarterEntry[] = [
   { type: 'crash', name: 'Crash starter', file: 'crash-v1.zip', keywords: ['crash', 'cash out', 'cashout', 'rocket'] },
   { type: 'plinko', name: 'Plinko starter', file: 'plinko-v1.zip', keywords: ['plinko', 'pegs', 'ball drop'] },
   { type: 'slot', name: 'Slot starter', file: 'slot-v1.zip', keywords: ['slot', 'reels', 'spin', 'free spins'] }
 ];
-
-test('a description naming a kind of game picks its starter', () => {
-  assert.equal(pickStarter('A candy themed slot with free spins', STARTERS)?.type, 'slot');
-  assert.equal(pickStarter('Rocket crash game where you cash out', STARTERS)?.type, 'crash');
-  assert.equal(pickStarter('Plinko with neon pegs', STARTERS)?.type, 'plinko');
-});
-
-test('no keyword, a part of a word, or a tie starts empty', () => {
-  assert.equal(pickStarter('A blackjack table for two players', STARTERS), null);
-  assert.equal(pickStarter('slotted cars racing', STARTERS), null); // "slotted" is not "slot"
-  assert.equal(pickStarter('a slot and a plinko', STARTERS), null);
-});
 
 test('the seed and URL the lobby uses', () => {
   assert.equal(starterSeed('slot', '  pirate slot  '), 'Make this slot game mine: pirate slot');

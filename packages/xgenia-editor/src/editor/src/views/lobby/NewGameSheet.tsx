@@ -25,7 +25,6 @@ import type { LobbyItem } from '../../models/lobby/lobbyGrouping';
 import { templateTagline } from '../../models/lobby/templateTagline';
 import { resolveThumbSrc } from '../../utils/thumbnails/thumbnail-store';
 import { gameNameFrom } from './gameName';
-import { cachedStarters, pickStarter } from './starters';
 import { monogramFor, monogramHue } from '../../utils/thumbnails/thumbnail-weak';
 import { Icon } from './LobbyIcons';
 import { useShowAllTools } from '../Rail/useShowAllTools';
@@ -61,10 +60,7 @@ export interface NewGameSheetProps {
   onCreate(choice: NewGameChoice): void;
 }
 
-/**
- * Example prompts. Each names a game a playable starter exists for, so an example is never the slow
- * road: the first version plays in seconds and the AI restyles it (starters.ts).
- */
+/** Example prompts. A typed description always starts from a blank canvas; the AI builds the game. */
 const EXAMPLES = [
   'A candy slot with free spins',
   'A space crash game with a rocket',
@@ -145,13 +141,7 @@ export function NewGameSheet({
         ? 'ai'
         : 'blank';
 
-  // Typing a slot, crash or plinko game: say up front that it starts playable (lobbyOperations picks it).
   const nothingChosen = origin === 'blank' && !blankPicked;
-
-  const describedStarter = origin === 'ai' ? pickStarter(description, cachedStarters()) : null;
-  const starterHint = describedStarter
-    ? `Starts from our playable ${describedStarter.type}: you can play it in seconds while the AI makes it yours.`
-    : '';
 
   const effectiveName =
     name.trim() ||
@@ -276,7 +266,6 @@ export function NewGameSheet({
                 </button>
               ))}
             </div>
-            {starterHint && <div className={css.StarterHint}>{starterHint}</div>}
           </div>
 
           <div className={css.Lane}>
