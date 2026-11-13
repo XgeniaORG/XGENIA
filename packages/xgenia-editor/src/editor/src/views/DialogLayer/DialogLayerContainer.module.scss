@@ -1,5 +1,16 @@
 .Root {
   position: absolute;
-  z-index: 666;
+  // Matches .dialog-layer-portal-target in assets/css/style.css: both must clear the
+  // full-window plugin panels at z-index 1000, or a dialog raised while the Character
+  // Studio or the image editor is open never reaches the screen.
+  z-index: 1100;
   inset: 0;
+
+  // Mounted for the whole life of the app, covering the window, and empty
+  // except while a dialog is open. Because it overlaps composited content it
+  // was promoted to its own full-window layer and kept there. Same cost, and
+  // the same macOS flash, as the toast container above it.
+  &:empty {
+    display: none;
+  }
 }

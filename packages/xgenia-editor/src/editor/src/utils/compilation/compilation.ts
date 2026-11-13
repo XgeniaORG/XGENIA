@@ -13,6 +13,8 @@ import { BuildScript, CoreContext, NotifyType } from './build-context';
 import { createIndexPage, deployToFolder } from './build/deployer';
 import { getIndexedPages } from './context/pages';
 import { deployCloudFunctionBuildScript } from './passes/deploy-cloud-functions';
+import { NodeLibrary } from '@xgenia-models/nodelibrary';
+import { waitForBrowserNodeLibrary } from './nodeLibraryReady';
 
 export interface DeployOptions {
   /** Default: true */
@@ -204,6 +206,8 @@ export class Compilation {
    * @param coreContext
    */
   private async deployToFolderWithContext(filePath: string, options: DeployOptions, coreContext: CoreContext) {
+    // Without the browser node library every visual root is dropped and the build is a blank page.
+    await waitForBrowserNodeLibrary((name) => !!NodeLibrary.instance.getNodeTypeWithName(name));
     await this.loadProjectBuildScripts();
 
     const projectSettings = this.project.getSettings();

@@ -5,7 +5,7 @@ import { createErrorFromMessage, fetch, GitActionError, GitActionErrorCode } fro
 import { getRemote, setRemoteURL } from './actions/remote';
 import { DEFAULT_BRANCH } from './constants';
 import { addAll } from './core/add';
-import { appendGitAttributes } from './core/attributes';
+import { appendGitAttributes, replaceGitAttributeLine } from './core/attributes';
 import { createBranch, currentBranchName } from './core/branch';
 import { checkoutBranch } from './core/checkout';
 import { cleanUntrackedFiles } from './core/clean';
@@ -17,9 +17,8 @@ import { getBranchesOld } from './core/for-each-ref';
 import { appendGitIgnore } from './core/ignore';
 import { init, installMergeDriver } from './core/init';
 import { getChangedFiles, getCommits } from './core/logs';
-import { getMergeBase, merge, mergeTree, mergeTreeCommit } from './core/merge';
+import { getMergeBase, merge } from './core/merge';
 import { BranchType } from './core/models/branch';
-import { ComputedAction } from './core/models/computed-action';
 import { IFetchProgress } from './core/models/progress';
 import { Commit } from './core/models/snapshot';
 import { open } from './core/open';
@@ -33,7 +32,8 @@ import { createStashEntry, getStashes, popStashEntry, popStashEntryToBranch } fr
 import { getStatus } from './core/status';
 import { deleteRef } from './core/update-ref';
 import { cleanMergeDriverOptionsSync, writeMergeDriverOptions } from './merge-driver';
-import { MergeStrategy, MergeStrategyFunc } from './merge-strategy';
+import { mergeBranchIntoCurrent, solveMergeConflicts, solveStashConflicts } from './merge-branch';
+import { MergeStrategyFunc } from './merge-strategy';
 import {
     ConvertStatusKindToGitStatus,
     GitBranch,
@@ -310,17 +310,9 @@ export class Git {
 
     // Get merge information
     const headCommitish = await this.getHeadCommitId();
-    const tree = await mergeTreeCommit(this.baseDir, stash.sha, headCommitish);
-
-    // Check if there is a merge conflict
-    if (tree.kind === ComputedAction.Conflicts) {
-      // Solve any conflicts if there are any after reapplying the stash
-      // NOTE(?): "ours" and "theirs" are reveresed, since our changes are the incoming one from the stash
-      const solver = new MergeStrategy(this.baseDir, this.mergeProject);
-      await solver.solveConflicts(tree);
-    } else if (tree.kind !== ComputedAction.Clean) {
-      throw new Error('Failed to merge stash, ' + tree.kind);
-    }
+    // Solve any conflicts if there are any after reapplying the stash
+    // NOTE(?): "ours" and "theirs" are reveresed, since our changes are the incoming one from the stash
+    await solveStashConflicts(this.baseDir, this.mergeProject, stash.sha, headCommitish);
 
     return true;
   }
@@ -335,6 +327,15 @@ export class Git {
       squash,
       message
     });
+  }
+
+  /**
+   * Merge another branch into the current one with a merge commit. Conflicts are
+   * settled by the merge strategy (handlers, project.json) and listed, never
+   * silently resolved for one side.
+   */
+  async mergeBranchIntoCurrent(theirsBranchName: string, message?: string): Promise<void> {
+    await mergeBranchIntoCurrent(this.baseDir, theirsBranchName, this.mergeProject, message);
   }
 
   /**
@@ -796,11 +797,25 @@ export class Git {
 
     await installMergeDriver(this.baseDir);
 
-    // Ignore these files (these rules are just saved in memory, not to .gitignore)
-    await appendGitIgnore(this.baseDir, ['project-tmp.json*', '.DS_Store', '__MACOSX']);
+    // Ignore these files (appended to the project's .gitignore when missing).
+    // `.xgenia-image-staging/` holds AI image generations for 24 hours before they are saved or
+    // dropped; they were being committed and pushed. `.xgenia-versions/` is the Images panel's
+    // local per-picture history (every edit of a linked picture): git keeps the picture's history
+    // through commits of the file itself, and full-size PNG copies of every edit would bloat it.
+    await appendGitIgnore(this.baseDir, [
+      'project-tmp.json*',
+      '.DS_Store',
+      '__MACOSX',
+      '.xgenia-image-staging/',
+      '.xgenia-versions/'
+    ]);
 
-    // Create or append the .gitattributes file
-    await appendGitAttributes(this.baseDir, ['project.json merge=xgenia']);
+    // Create or append the .gitattributes file.
+    // The XGENIA merge driver is for the project's own project.json at the root. Without the
+    // leading slash the rule also matched image-editor/project.json (the Images panel's canvas),
+    // which the driver does not understand; repositories set up with the old line get it fixed.
+    await replaceGitAttributeLine(this.baseDir, 'project.json merge=xgenia', '/project.json merge=xgenia');
+    await appendGitAttributes(this.baseDir, ['/project.json merge=xgenia']);
 
     const remoteName = await this.getRemoteName();
     if (remoteName) {
@@ -890,17 +905,9 @@ export class Git {
       console.info(err);
     }
 
-    // Our custom strategy
-    const tree = await mergeTree(this.baseDir, ours, theirs);
-    if (tree.kind === ComputedAction.Conflicts) {
-      // Run our solve strategy
-      const solver = new MergeStrategy(this.baseDir, this.mergeProject);
-      await solver.solveConflicts(tree);
-
-      // Create a merge commit
+    // Our custom strategy, for what git left unmerged; then create the merge commit
+    if (await solveMergeConflicts(this.baseDir, this.mergeProject, ours.tip.sha, theirs.tip.sha)) {
       await createCommit(this.baseDir, message);
-    } else if (tree.kind !== ComputedAction.Clean) {
-      throw new Error('Failed to merge, ' + tree.kind);
     }
   }
 

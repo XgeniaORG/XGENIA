@@ -11,6 +11,7 @@
 
 import React, { useRef, useState } from 'react';
 
+import { acceleratorLabel } from '../ShortcutSheet/shortcutLabel';
 import { Icon } from './LobbyIcons';
 import { useMenuLayer } from './useMenuLayer';
 import css from './LobbyBar.module.scss';
@@ -41,9 +42,9 @@ export interface LobbyBarProps {
 const HELP_LINKS: Array<{ label: string; url: string }> = [
   { label: 'Documentation', url: 'https://docsapp.xgenia.com' },
   { label: 'Community', url: 'https://discord.com/invite/n4P5zkpvFE' },
-  { label: "What's New", url: 'https://xgenia.com/news' },
+  { label: "What's New", url: 'https://xgenia.com/news?utm_source=app&utm_medium=editor&utm_campaign=lobby' },
   { label: 'Release Notes', url: 'https://github.com/XgeniaORG/XGENIA/releases' },
-  { label: 'Help', url: 'https://xgenia.com/faq' }
+  { label: 'Help', url: 'https://xgenia.com/faq?utm_source=app&utm_medium=editor&utm_campaign=lobby' }
 ];
 
 export function LobbyBar({
@@ -88,7 +89,7 @@ export function LobbyBar({
         <button type="button" className={css.Search} onClick={onOpenOmnibox}>
           <Icon name="search" />
           <span className={css.SearchLabel}>Search, or describe a game to build</span>
-          <kbd>⌘K</kbd>
+          <kbd>{acceleratorLabel('CmdOrCtrl+K')}</kbd>
         </button>
 
         {/* Appears as the hero folds away on scroll, so the game you were last in stays one

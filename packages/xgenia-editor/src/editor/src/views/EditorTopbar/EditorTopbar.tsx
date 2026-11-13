@@ -17,7 +17,10 @@ import { PublishSnapshot } from '@xgenia-models/publishStore';
 import { PublishState, wirePublishState } from '@xgenia-models/publishstate';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { SidebarModelEvent } from '@xgenia-models/sidebar/sidebarmodel';
+import { UndoQueue } from '@xgenia-models/undo-queue-model';
 import { WarningsModel } from '@xgenia-models/warningsmodel';
+import { KeyCode, KeyMod } from '@xgenia-utils/keyboard/KeyCode';
+import KeyboardHandler from '@xgenia-utils/keyboardhandler';
 
 import { IconName, IconSize } from '@xgenia-core-ui/components/common/Icon';
 import { IconButton, IconButtonVariant } from '@xgenia-core-ui/components/inputs/IconButton';
@@ -28,7 +31,10 @@ import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import { DeployPopup } from '../DeployPopup/DeployPopup';
 import { TitleBar } from '../documents/EditorDocument/titlebar';
 import { NodeGraphEditor } from '../nodegrapheditor';
-import { TopbarPanelClose, TopbarPanelOpen } from '../SidePanel/SidebarIcons';
+import { keybindingLabel } from '../ShortcutSheet/shortcutLabel';
+import { TopbarPanelClose, TopbarPanelOpen, TopbarRedo, TopbarUndo } from '../SidePanel/SidebarIcons';
+import { TimelineToggle } from '../TimelineDock/TimelineToggle';
+import { PreviewTimeControls } from './topbar/PreviewTimeControls';
 import css from './EditorTopbar.module.scss';
 import { returnWarningItems } from './EditorTopbar.returnWarningItems';
 import { FigmaImportDialog } from './FigmaImportDialog';
@@ -128,6 +134,9 @@ export function EditorTopbar({
       (snapshot: AiActivitySnapshot) => setAiSnap(snapshot),
       eventGroup
     );
+    // Anything that wants to start a release (the Maths panel's "Release your
+    // game") opens the same Publish popup the top-bar button does.
+    EventDispatcher.instance.on('publish.open', () => setIsDeployVisible(true), eventGroup);
 
     wirePublishState();
 
@@ -197,29 +206,49 @@ export function EditorTopbar({
 
   useKeyboardCommands(
     () => [
-      { keybinding: Keybindings.FOCUS_TOPBAR.hash, handler: () => pillFocusRef.current?.() },
+      {
+        keybinding: Keybindings.FOCUS_TOPBAR.hash,
+        handler: () => pillFocusRef.current?.(),
+        title: 'Go to a page or command (top bar)',
+        group: 'Editor'
+      },
       {
         keybinding: Keybindings.PREVIEW_PRESET_PHONE.hash,
-        handler: () => runTopbarCommand({ kind: 'command', id: 'preset', group: 'Mobile', label: '' })
+        handler: () => runTopbarCommand({ kind: 'command', id: 'preset', group: 'Mobile', label: '' }),
+        title: 'Preview size: mobile',
+        group: 'Preview'
       },
       {
         keybinding: Keybindings.PREVIEW_PRESET_TABLET.hash,
-        handler: () => runTopbarCommand({ kind: 'command', id: 'preset', group: 'Tablet', label: '' })
+        handler: () => runTopbarCommand({ kind: 'command', id: 'preset', group: 'Tablet', label: '' }),
+        title: 'Preview size: tablet',
+        group: 'Preview'
       },
       {
         keybinding: Keybindings.PREVIEW_PRESET_DESKTOP.hash,
-        handler: () => runTopbarCommand({ kind: 'command', id: 'preset', group: 'Desktop', label: '' })
+        handler: () => runTopbarCommand({ kind: 'command', id: 'preset', group: 'Desktop', label: '' }),
+        title: 'Preview size: desktop',
+        group: 'Preview'
       },
-      { keybinding: Keybindings.PREVIEW_FIT.hash, handler: () => runTopbarCommand({ kind: 'command', id: 'fit', label: '' }) },
+      {
+        keybinding: Keybindings.PREVIEW_FIT.hash,
+        handler: () => runTopbarCommand({ kind: 'command', id: 'fit', label: '' }),
+        title: 'Fit the preview to the window',
+        group: 'Preview'
+      },
       {
         keybinding: Keybindings.DETACH_PREVIEW.hash,
-        handler: () => runTopbarCommand({ kind: 'command', id: 'detach', label: '' })
+        handler: () => runTopbarCommand({ kind: 'command', id: 'detach', label: '' }),
+        title: 'Detach the preview into its own window',
+        group: 'Preview'
       },
       {
         keybinding: Keybindings.PUBLISH.hash,
         handler: () => {
           if (!deployIsDisabled) setIsDeployVisible(true);
-        }
+        },
+        title: 'Publish',
+        group: 'Editor'
       }
     ],
     [runTopbarCommand, deployIsDisabled]
@@ -291,12 +320,14 @@ export function EditorTopbar({
             isDisabled={!navigationState.canGoForward}
           />
         </Tooltip>
+        <UndoRedoButtons />
         <Tooltip content="Refresh preview" fineType={Keybindings.REFRESH_PREVIEW.label}>
           <IconButton
             icon={IconName.Refresh}
             variant={IconButtonVariant.Transparent}
             size={IconSize.Small}
             onClick={() => EventDispatcher.instance.emit('viewer-refresh')}
+            data-guide="topbar.refresh"
           />
         </Tooltip>
       </div>
@@ -323,6 +354,8 @@ export function EditorTopbar({
           onPreviewSizeChanged={onPreviewSizeChanged}
           setZoomFactor={setZoomFactor}
         />
+        <TimelineToggle />
+        <PreviewTimeControls />
         <ModeSegment previewMode={previewMode} onChange={onPreviewModeChanged} />
         <OverflowMenu
           documentLayout={documentLayout}
@@ -355,5 +388,59 @@ export function EditorTopbar({
         width={MenuDialogWidth.Large}
       />
     </div>
+  );
+}
+
+const UNDO = KeyMod.CtrlCmd | KeyCode.KEY_Z;
+const REDO = KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_Z;
+
+/**
+ * Undo / Redo, named after the step they would take. They run the same command as ⌘Z / ⇧⌘Z, so
+ * the graph's selection handling comes along, and grey out when the history has nothing that way.
+ */
+function UndoRedoButtons() {
+  const read = () => {
+    const history = UndoQueue.instance.getHistory();
+    const at = UndoQueue.instance.getHistoryLocation();
+    return { undo: at > 0 ? history[at - 1].label : null, redo: at < history.length ? history[at].label : null };
+  };
+  const [state, setState] = useState(read);
+
+  useEffect(() => {
+    const group = {};
+    const update = () => setState(read());
+    for (const event of ['undoHistoryChanged', 'undo', 'redo']) UndoQueue.instance.on(event, update, group);
+    update();
+    return () => {
+      UndoQueue.instance.off(group);
+    };
+  }, []);
+
+  const name = (verb: string, label: string | null) =>
+    label ? `${verb} ${label}` : `Nothing to ${verb.toLowerCase()}`;
+
+  return (
+    <>
+      <Tooltip content={name('Undo', state.undo)} fineType={keybindingLabel(UNDO)}>
+        <IconButton
+          icon={TopbarUndo}
+          variant={IconButtonVariant.Transparent}
+          size={IconSize.Small}
+          onClick={() => KeyboardHandler.instance.run(UNDO)}
+          data-guide="topbar.undo"
+          isDisabled={state.undo === null}
+        />
+      </Tooltip>
+      <Tooltip content={name('Redo', state.redo)} fineType={keybindingLabel(REDO)}>
+        <IconButton
+          icon={TopbarRedo}
+          variant={IconButtonVariant.Transparent}
+          size={IconSize.Small}
+          onClick={() => KeyboardHandler.instance.run(REDO)}
+          data-guide="topbar.redo"
+          isDisabled={state.redo === null}
+        />
+      </Tooltip>
+    </>
   );
 }

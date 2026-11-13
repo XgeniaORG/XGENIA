@@ -58,3 +58,9 @@
     color: var(--theme-color-primary);
   }
 }
+
+// Icon-only buttons in a segment (preview time controls).
+.IconBtn {
+  padding: 0 7px;
+  justify-content: center;
+}

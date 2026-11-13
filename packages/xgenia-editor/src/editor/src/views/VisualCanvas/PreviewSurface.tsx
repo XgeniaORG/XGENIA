@@ -8,6 +8,7 @@ import { AiBrowserManager, AiBrowserState } from '@xgenia-ai/ChatPanel/AiBrowser
 
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import { Frame, FrameProps } from '../common/Frame/Frame';
+import { useEditorCovered } from '../panels/editorCovered';
 import css from './PreviewSurface.module.scss';
 
 type Surface = 'viewport' | 'browser';
@@ -33,6 +34,10 @@ interface PreviewSurfaceProps {
  * into this component while the browser surface is shown.
  */
 export function PreviewSurface({ canvasViewInstance, onResize }: PreviewSurfaceProps) {
+    // A full-window plugin panel (the Character Studio, the image editor) is over the top of
+    // this frame: the preview it hides was still running its loop at the display rate, which is
+    // what made those panels flash. See editorCovered.
+    const covered = useEditorCovered();
     const [surface, setSurfaceState] = useState<Surface>('viewport');
     const [browserState, setBrowserState] = useState<AiBrowserState>(AiBrowserManager.getState());
     const browserContainerRef = useRef<HTMLDivElement>(null);
@@ -106,7 +111,7 @@ export function PreviewSurface({ canvasViewInstance, onResize }: PreviewSurfaceP
     return (
         <div className={css.ContentArea}>
             {/* Viewport surface — always mounted, hidden when not showing */}
-            <div className={css.FrameWrapper} style={{ display: surface === 'viewport' ? 'block' : 'none' }}>
+            <div className={css.FrameWrapper} style={{ display: surface === 'viewport' && !covered ? 'block' : 'none' }} data-guide="preview.frame">
                 <Frame instance={canvasViewInstance} onResize={onResize} />
             </div>
 

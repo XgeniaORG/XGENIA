@@ -4,13 +4,10 @@ import { ProjectModel } from '@xgenia-models/projectmodel';
 
 import { ActivityIndicator } from '@xgenia-core-ui/components/common/ActivityIndicator';
 import { BaseDialog } from '@xgenia-core-ui/components/layout/BaseDialog';
-import { Tabs } from '@xgenia-core-ui/components/layout/Tabs';
 import { PopupSection } from '@xgenia-core-ui/components/popups/PopupSection';
 
 import { DeployContextProvider, useDeployContext } from './DeployPopup.context';
-import { DeployToFolderTab } from './tabs/DeployToFolderTab';
 import { XgeniaDeployTab } from './tabs/XgeniaDeployTab';
-import { DeployToStakeTab } from './tabs/DeployToStakeTab/DeployToStakeTab';
 
 function DeployPopupChild() {
   const { hasActivity } = useDeployContext();
@@ -26,15 +23,10 @@ function DeployPopupChild() {
           overflowX: 'hidden'
         }}
       >
-        <PopupSection title="Publish options" />
+        <PopupSection title="Publish" />
 
-        <Tabs
-          tabs={[
-            { label: 'XGENIA', content: <XgeniaDeployTab />, testId: 'xgenia-tab-button' },
-            { label: 'Self Hosting', content: <DeployToFolderTab />, testId: 'self-hosting-tab-button' },
-            { label: 'Deploy to Stake', content: <DeployToStakeTab />, testId: 'stake-tab-button' }
-          ]}
-        />
+        {/* Other ways to ship the game (download, Stake) are a page inside the Publish window. */}
+        <XgeniaDeployTab />
 
         {hasActivity && <ActivityIndicator isOverlay />}
       </div>
@@ -50,7 +42,7 @@ export interface DeployPopupProps {
 
 export function DeployPopup(props: DeployPopupProps) {
   return (
-    <DeployContextProvider onClose={props.onClose}>
+    <DeployContextProvider onClose={props.onClose} isVisible={props.isVisible}>
       <BaseDialog
         triggerRef={props.triggerRef}
         isVisible={props.isVisible}

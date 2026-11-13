@@ -34,6 +34,7 @@ module.exports = merge(
         react: path.resolve(__dirname, '../../../../node_modules/react'),
         'react-dom': path.resolve(__dirname, '../../../../node_modules/react-dom'),
         '@xgenia/image-editor': path.resolve(rootPath, 'private/xgenia-image-editor/src'),
+        '@xgenia/coach': path.resolve(rootPath, 'private/xgenia-coach/src'),
       },
       fallback: {
         path: require.resolve('path-browserify'),

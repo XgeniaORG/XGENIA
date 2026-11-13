@@ -158,6 +158,27 @@ test('an engine built for an older app shell is not used by a newer app', async 
   assert.equal(pick(s, { shellApi: 2 }).source, 'builtin');
 });
 
+// ── app updates carry the newest engine (2026-10-06) ──
+test('after an app update the built-in engine runs, not one downloaded under the old app', async () => {
+  const store = newStore();
+  await installed(store, 'v1');
+  await installed(store, 'v2');
+  store.writeState({ ...store.readState(), active: 'v1', pending: 'v2', appVersion: '3.0.1-beta.9' });
+  const r = pick(store, { appVersion: '3.0.1-beta.9.nightly.202610070200' });
+  assert.equal(r.source, 'builtin');
+  const s = store.readState();
+  assert.equal(s.active, null);
+  assert.equal(s.pending, null);
+  assert.equal(s.appVersion, '3.0.1-beta.9.nightly.202610070200');
+});
+
+test('the same app version keeps its live engine', async () => {
+  const store = newStore();
+  await installed(store, 'v1');
+  store.writeState({ ...store.readState(), active: 'v1', appVersion: '3.0.1' });
+  assert.equal(pick(store, { appVersion: '3.0.1' }).version, 'v1');
+});
+
 test('a live choice carries the size and time of every engine file, to check them later', async () => {
   const store = newStore();
   const m = await installed(store, 'v1');

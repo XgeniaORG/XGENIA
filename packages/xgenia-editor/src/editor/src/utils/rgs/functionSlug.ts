@@ -1,10 +1,8 @@
 // The one rule that turns a component's display name into the routing slug it
 // deploys under on XGENIA RGS.
 //
-// Lives here, next to the deploy helpers, because both callers need it: the
-// post-compile setup card (where the user names a compiled cloud component) and
-// the Math Components deploy (where the name is the component's own leaf name).
-// The RGS backend applies the identical rule as a backstop (`toRouteSlug` in
+// Lives here, next to the deploy helpers, for the Math Components deploy (where
+// the name is the component's own path below the maths sheet). The RGS backend applies the identical rule as a backstop (`toRouteSlug` in
 // maths-deployer), and the composition is idempotent, so the slug the editor
 // previews is the slug that gets deployed.
 

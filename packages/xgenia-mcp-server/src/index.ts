@@ -4,7 +4,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { health, probe, projectStatus } from './editor-state.js';
 import { chatSend, chatRead, chatWaitIdle, openChatPanel } from './chat.js';
-import { screenshot } from './screenshot.js';
+import { screenshot, designScreenshot } from './screenshot.js';
 import { openProject, newProject, closeProject } from './project.js';
 import { launch, restart, quit } from './lifecycle.js';
 import { debugExport, debugQuery, runtimeLogs } from './debug-export.js';
@@ -215,15 +215,23 @@ server.registerTool(
       'Convert any coordinate you read off the image through `scale` before using it with page.mouse or anything else expecting CSS pixels. ' +
       'IMAGE PIXELS ARE NOT ALL PAGE: `imageSize` is the whole buffer, `contentSize` is the part of it the editor is actually drawn in, anchored top-left. ' +
       'The editor runs at an Electron zoom factor, and the capture surface is allocated at the display backing scale rather than the zoomed one, so with zoom 0.8 the buffer comes back 25% wider than the page and the last 20% of it is blank. ' +
-      'When `note` says the image is padded, treat anything beyond contentSize as empty space, not as editor UI with nothing in it. When `note` says it is cropped (zoomed in past the surface), the right and bottom of the page are missing from the image entirely.',
+      'When `note` says the image is padded, treat anything beyond contentSize as empty space, not as editor UI with nothing in it. When `note` says it is cropped (zoomed in past the surface), the right and bottom of the page are missing from the image entirely. ' +
+      "region 'design' + width + height (the game's design size, e.g. 1920x1080) captures the game at exactly that size in a hidden offscreen window the editor opens for it: it works whatever the editor's layout, focus or window size (pane collapsed, editor minimised), always PNG. " +
+      "It is a fresh load of the preview, so it shows the game as it starts, not the state you clicked it into — use 'canvas' for what the pane shows now.",
     inputSchema: {
-      region: z.enum(['full', 'chat', 'canvas']).optional(),
-      format: z.enum(['jpeg', 'png']).optional()
+      region: z.enum(['full', 'chat', 'canvas', 'design']).optional(),
+      format: z.enum(['jpeg', 'png']).optional(),
+      width: z.number().optional(),
+      height: z.number().optional(),
+      timeoutMs: z.number().optional()
     }
   },
-  async ({ region, format }) => {
+  async ({ region, format, width, height, timeoutMs }) => {
     try {
-      const result = await screenshot({ region, format });
+      const result =
+        region === 'design'
+          ? await designScreenshot({ width: width ?? 0, height: height ?? 0, timeoutMs })
+          : await screenshot({ region, format });
       if ('error' in result) return text(result);
       return {
         content: [
@@ -241,6 +249,7 @@ server.registerTool(
                 // used to be computed by screenshot() and then dropped here.
                 contentSize: result.contentSize,
                 ...(result.note ? { note: result.note } : {}),
+                ...('settled' in result ? { settled: result.settled } : {}),
                 bytes: result.bytes
               },
               null,

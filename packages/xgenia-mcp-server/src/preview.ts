@@ -20,8 +20,22 @@ export function isPreviewFrameUrl(url: string): boolean {
   );
 }
 
+/**
+ * The editor names its preview <iframe> (VisualCanvas.tsx). The tools modal is served from the same
+ * origin, so a URL match alone can land on it; the name decides when the editor sets one.
+ */
+export const PREVIEW_FRAME_NAME = 'xgenia-preview';
+
 export function findPreviewFrame(page: Page): Frame | null {
-  return page.frames().find((f) => isPreviewFrameUrl(f.url())) ?? null;
+  const candidates = page.frames().filter((f) => isPreviewFrameUrl(f.url()));
+  const named = candidates.find((f) => {
+    try {
+      return typeof f.name === 'function' && f.name() === PREVIEW_FRAME_NAME;
+    } catch {
+      return false;
+    }
+  });
+  return named ?? candidates[0] ?? null;
 }
 
 function fail(code: string, tried: string, hint: string, extra: Record<string, unknown> = {}) {

@@ -144,3 +144,14 @@ test('a project with no UI says so', () => {
   assert.match(r.error!, /The project has no visual UI nodes to choose from\./);
   assert.deepEqual(r.candidates, []);
 });
+
+test('a node named the way the AI names it everywhere else, "@Label" or "@Label.port", resolves (2026-11-03)', () => {
+  const r = resolveTelemetryRequest(
+    { betInput: '@Bet Amount', winOutput: '@Win', betButton: '@Spin.onClick' },
+    { candidates, stored: null }
+  );
+  assert.equal(r.error, undefined);
+  assert.equal(r.mapping!.betInput.nodeId, 'n-bet');
+  assert.equal(r.mapping!.winOutput.nodeId, 'n-win');
+  assert.equal(r.mapping!.betButton.nodeId, 'n-spin');
+});
