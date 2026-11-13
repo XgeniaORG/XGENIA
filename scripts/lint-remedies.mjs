@@ -19,9 +19,9 @@
  *   2. A self-referential bare mention inside a tool's OWN advice text: "pass componentPath"
  *      or "retry with nodeId", with no call wrapper. Because this prose is emitted from
  *      inside that tool's own handler, it is implicitly advice to retry THAT SAME tool, so
- *      the named identifier is checked against that tool's own schema. This is what catches
- *      `get_node_script`'s `componentPath` (get-node-script.ts:449) — the schema has no such
- *      field, and the sentence never wraps itself in `get_node_script({...})`.
+ *      the named identifier is checked against that tool's own schema. This is what caught
+ *      `get_node_script`'s `componentPath` remedy (handler at get-node-script.ts:744) while the
+ *      schema had no such field, and the sentence never wraps itself in `get_node_script({...})`.
  *
  * FAIL CLOSED: anything this script cannot parse (unbalanced braces in a call site, a
  * handler-map entry whose tool definition or schema cannot be located) is reported under
@@ -679,6 +679,16 @@ function buildHandlerMap(indexSource, unparsed) {
   while ((am = assignRe.exec(indexSource))) {
     if (kind[am.index] !== 0) continue; // inside a comment or string — not live code
     handlerMap.set(am[1], am[2]);
+  }
+
+  // Gated tools: `installGatedTool(streamlinedToolHandlers, 'character', character_tool, ...)`
+  // installs a non-enumerable entry that is real whenever its gate is open, so a remedy naming
+  // it can be followed. Without this every call to a gated tool read as a phantom tool.
+  const gatedRe = /installGatedTool\(\s*streamlinedToolHandlers\s*,\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*,\s*([A-Za-z_][A-Za-z0-9_]*)/g;
+  let gm;
+  while ((gm = gatedRe.exec(indexSource))) {
+    if (kind[gm.index] !== 0) continue;
+    handlerMap.set(gm[1], gm[2]);
   }
 
   return { handlerMap, inlineBlocks };

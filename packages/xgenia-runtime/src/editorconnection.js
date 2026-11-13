@@ -83,6 +83,10 @@ EditorConnection.prototype.connect = function (address) {
 
     if (message.cmd === 'registered') {
       //ignore
+    } else if (message.cmd === 'nodelibraryKnown' || message.cmd === 'nodelibraryNeeded') {
+      if (message.target === this.clientId) {
+        self._settleNodeLibraryOffer(message.hash, message.cmd === 'nodelibraryNeeded');
+      }
     } else if (message.cmd === 'export') {
       content = JSON.parse(message.content);
       if (message.type === 'full' && message.target === this.clientId) {
@@ -464,16 +468,68 @@ EditorConnection.prototype.close = function () {
   this.socket.close();
 };
 
+// An editor build without the offer never answers it, so the full library goes after this long.
+EditorConnection.NODE_LIBRARY_OFFER_TIMEOUT_MS = 1500;
+
+// 53-bit string hash (cyrb53). The library is about 10 MB, so this has to stay a plain loop.
+function hashNodeLibrary(text) {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return text.length + ':' + (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
+// Offers the library by hash first: a preview reload produces the same 10 MB every time, and the
+// editor already has it. The editor answers nodelibraryKnown or nodelibraryNeeded.
 EditorConnection.prototype.sendNodeLibrary = function (nodelibrary) {
+  // (2026-10-03) Which engine build this is (live-engine pack version, 'local' for a dev build).
+  const engineVersion = typeof __XGENIA_ENGINE_VERSION__ !== 'undefined' ? __XGENIA_ENGINE_VERSION__ : 'unknown';
+  const hash = hashNodeLibrary(nodelibrary);
+  const clientId = this.clientId;
+
+  this._clearNodeLibraryOffer();
+  this._nodeLibraryOffer = {
+    hash,
+    sendFull: () => {
+      this.send({
+        cmd: 'nodelibrary',
+        type: 'viewer',
+        runtimeType: this.runtimeType,
+        content: nodelibrary,
+        clientId,
+        hash,
+        engineVersion
+      });
+    },
+    timer: setTimeout(() => this._settleNodeLibraryOffer(hash, true), EditorConnection.NODE_LIBRARY_OFFER_TIMEOUT_MS)
+  };
+
   this.send({
-    cmd: 'nodelibrary',
+    cmd: 'nodelibraryOffer',
     type: 'viewer',
     runtimeType: this.runtimeType,
-    content: nodelibrary,
-    clientId: this.clientId,
-    // (2026-10-03) Which engine build this is (live-engine pack version, 'local' for a dev build).
-    engineVersion: typeof __XGENIA_ENGINE_VERSION__ !== 'undefined' ? __XGENIA_ENGINE_VERSION__ : 'unknown'
+    clientId,
+    hash,
+    engineVersion
   });
+};
+
+EditorConnection.prototype._clearNodeLibraryOffer = function () {
+  if (this._nodeLibraryOffer) clearTimeout(this._nodeLibraryOffer.timer);
+  this._nodeLibraryOffer = undefined;
+};
+
+EditorConnection.prototype._settleNodeLibraryOffer = function (hash, needsFull) {
+  const offer = this._nodeLibraryOffer;
+  if (!offer || offer.hash !== hash) return;
+  this._clearNodeLibraryOffer();
+  if (needsFull) offer.sendFull();
 };
 
 EditorConnection.prototype.sendComponentMetadata = function (componentName, key, data) {

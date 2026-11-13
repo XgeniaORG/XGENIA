@@ -33,18 +33,22 @@ export class LessonLayer {
     private _root: Root | null = null; // Use Root type
 
     constructor() {
+        // weight 1: while a lesson runs, its ⇧⌘R wins over the editor's own (cloud runtime devtools).
         this.keyboardCommands = [
             {
                 handler: () => this.reload(),
-                keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_R
+                keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_R,
+                weight: 1
             },
             {
                 handler: () => this.restart(),
-                keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_T
+                keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_T,
+                weight: 1
             },
             {
                 handler: () => this.model.next(),
-                keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_N
+                keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_N,
+                weight: 1
             }
         ];
 

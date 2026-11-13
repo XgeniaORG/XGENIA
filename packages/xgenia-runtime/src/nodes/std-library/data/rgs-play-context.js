@@ -43,6 +43,10 @@ var PLAYER_ID_KEY = 'xgenia_rgs_player_id';
 // instead of failing the round.
 var memoryStore = {};
 
+// A replay page (?replay=true, rgs-replay.js) watches a finished round: it has no player, adopts no session and
+// must not make one up, so every id below is empty there and nothing is written to storage.
+var isReplayPage = require('./rgs-replay').isReplayPage;
+
 function storage(kind) {
   try {
     var store = kind === 'local' ? window.localStorage : window.sessionStorage;
@@ -99,11 +103,47 @@ function getOrCreate(kind, key) {
 
 /** Stable per-browser id. Created on first use. */
 function getClientId() {
+  if (isReplayPage()) return '';
   return getOrCreate('local', CLIENT_ID_KEY);
 }
 
-/** Per-tab id, so one sitting is one session row. Created on first use. */
+/**
+ * The session a casino launched this page with: `?session=<token>` (or
+ * `?session_token=`), as /game-launch's `play_url` hands it out.
+ *
+ * Without this a published game could never take real money: the page made up
+ * its own per-tab session id, /rgs-fn found no launched session behind it, and
+ * every real-money stake was refused ("A valid session is required for
+ * real-money play"). The launch token is what identifies the player, their
+ * limits and their wallet; it must be the session every call of this tab sends.
+ */
+function launchedSessionFromUrl() {
+  try {
+    // A replay link is never a launch, whatever else its URL carries.
+    if (isReplayPage()) return '';
+    if (typeof window === 'undefined' || !window.location) return '';
+    var params = new URLSearchParams(window.location.search || '');
+    var token = (params.get('session') || params.get('session_token') || '').trim();
+    // An opaque token, not free text: bounded, and never something with spaces in it.
+    if (!token || token.length > 128 || /\s/.test(token)) return '';
+    return token;
+  } catch (e) {
+    return '';
+  }
+}
+
+/**
+ * Per-tab id, so one sitting is one session row. A launched session (from the
+ * page URL) wins over a made-up one and is remembered for the tab, so it
+ * survives in-page navigation that drops the query string.
+ */
 function getSessionId() {
+  if (isReplayPage()) return '';
+  var launched = launchedSessionFromUrl();
+  if (launched) {
+    if (readId('session', SESSION_ID_KEY) !== launched) writeId('session', SESSION_ID_KEY, launched);
+    return launched;
+  }
   return getOrCreate('session', SESSION_ID_KEY);
 }
 
@@ -116,6 +156,7 @@ function getSessionId() {
  * an unbound or half-typed one would otherwise replace a good id with junk.
  */
 function setCurrentPlayerId(playerId) {
+  if (isReplayPage()) return;
   var id = (playerId === null || playerId === undefined ? '' : String(playerId)).trim();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return;
   writeId('session', PLAYER_ID_KEY, id);
@@ -123,6 +164,7 @@ function setCurrentPlayerId(playerId) {
 
 /** The remembered player id, or '' when the game never identified one. */
 function getCurrentPlayerId() {
+  if (isReplayPage()) return '';
   return readId('session', PLAYER_ID_KEY);
 }
 
@@ -135,6 +177,7 @@ function getCurrentPlayerId() {
  */
 function getPlayContextFields() {
   try {
+    if (isReplayPage()) return {};
     var fields = {
       __client: getClientId(),
       __session: getSessionId()
@@ -150,6 +193,7 @@ function getPlayContextFields() {
 module.exports = {
   getClientId: getClientId,
   getSessionId: getSessionId,
+  launchedSessionFromUrl: launchedSessionFromUrl,
   setCurrentPlayerId: setCurrentPlayerId,
   getCurrentPlayerId: getCurrentPlayerId,
   getPlayContextFields: getPlayContextFields

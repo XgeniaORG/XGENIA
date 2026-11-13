@@ -1,0 +1,215 @@
+// The Hierarchy panel. Colours resolve to the tokens in colors.css / glass.css so the panel
+// matches the rail, the components panel and the cards around it.
+
+.Root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.Toolbar {
+  flex: none;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--theme-color-bg-1);
+}
+
+.Chip {
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 11px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: var(--glass-ctrl-bg);
+  color: var(--theme-color-fg-default-shy);
+  font: 500 11px/1 var(--font-family-regular, inherit);
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover {
+    background: var(--glass-ctrl-bg-hover);
+    color: var(--theme-color-fg-default);
+  }
+}
+
+.ChipActive {
+  background: var(--glass-seg-bg-active);
+  color: var(--theme-color-fg-highlight);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.List {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+  outline: none;
+}
+
+.Spacer {
+  position: relative;
+  width: 100%;
+}
+
+.Empty {
+  padding: 16px;
+  color: var(--theme-color-fg-default-shy);
+  font: 400 12px/1.4 var(--font-family-regular, inherit);
+}
+
+.Row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 6px;
+  box-sizing: border-box;
+  color: var(--theme-color-fg-default);
+  font: 400 12px/1 var(--font-family-regular, inherit);
+  cursor: default;
+  user-select: none;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  &.isSelected {
+    background: var(--theme-color-secondary);
+    color: var(--theme-color-on-secondary);
+
+    &:hover {
+      background: var(--theme-color-secondary-highlight);
+    }
+
+    .Type {
+      color: inherit;
+      opacity: 0.7;
+    }
+  }
+
+  // Hidden in the editor: the row itself, or under a hidden parent.
+  &.isDimmed .Label,
+  &.isDimmed .Type,
+  &.isDimmed .Caret {
+    opacity: 0.4;
+  }
+
+  // While searching: an ancestor shown only for context, not a match.
+  &.isContext .Label {
+    color: var(--theme-color-fg-default-shy);
+  }
+
+  &.isDropInside {
+    box-shadow: inset 0 0 0 1px var(--theme-color-publish);
+    background: rgba(52, 211, 153, 0.1);
+  }
+
+  &.isDropBefore::before,
+  &.isDropAfter::after {
+    content: '';
+    position: absolute;
+    left: var(--indent, 4px);
+    right: 4px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--theme-color-publish);
+    pointer-events: none;
+  }
+
+  &.isDropBefore::before {
+    top: -1px;
+  }
+
+  &.isDropAfter::after {
+    bottom: -1px;
+  }
+}
+
+.Caret {
+  flex: none;
+  width: 14px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--theme-color-fg-default-shy);
+
+  svg {
+    transition: transform var(--speed-turbo, 80ms) var(--easing-base, ease);
+  }
+
+  &.hasChildren {
+    cursor: pointer;
+
+    &:hover {
+      color: var(--theme-color-fg-highlight);
+    }
+  }
+
+  &.isExpanded svg {
+    transform: rotate(90deg);
+  }
+}
+
+.Label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.Type {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--theme-color-fg-default-shy);
+  font-size: 11px;
+}
+
+.Toggles {
+  flex: none;
+  margin-left: auto;
+  display: flex;
+  gap: 1px;
+}
+
+// The eye and lock show on row hover, and stay visible while they are on.
+.Toggle {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--speed-turbo, 80ms) var(--easing-base, ease);
+
+  .Row:hover & {
+    opacity: 0.55;
+  }
+
+  &:hover,
+  .Row:hover &:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  &.isOn {
+    opacity: 0.9;
+    color: var(--theme-color-fg-highlight);
+  }
+
+  .Row.isSelected &.isOn {
+    color: inherit;
+  }
+}

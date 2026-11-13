@@ -59,6 +59,7 @@ export interface ComponentsPanelOptions {
   hideSheets?: string[];
   /** Change the title of the component header */
   componentTitle?: string;
+  panelTitle?: string;
 }
 
 export class ComponentsPanelView extends View {
@@ -106,6 +107,8 @@ export class ComponentsPanelView extends View {
 
   protected showSheetList = false;
   protected componentTitle = 'Components';
+  /** The panel's heading: the rail calls the main one Parts (2026-11-01). */
+  protected panelTitle = 'Components';
 
   private _lockCurrentSheetName: string = undefined;
   private _hideSheets: string[] = [];
@@ -120,6 +123,7 @@ export class ComponentsPanelView extends View {
     this.currentSheetName = this._lockCurrentSheetName;
     if (args.hideSheets) this._hideSheets = args.hideSheets;
     if (args.componentTitle) this.componentTitle = args.componentTitle;
+    if (args.panelTitle) this.panelTitle = args.panelTitle;
 
     this.componentScopes = {}; // A place to store component scopes (view models) so we can find them later by component name
     this.folderScopes = {};

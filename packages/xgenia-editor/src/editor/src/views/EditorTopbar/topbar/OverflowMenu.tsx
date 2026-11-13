@@ -8,6 +8,8 @@ import { MenuDialog, MenuDialogWidth } from '@xgenia-core-ui/components/popups/M
 import { Tooltip } from '@xgenia-core-ui/components/popups/Tooltip';
 
 import { EventDispatcher } from '../../../../../shared/utils/EventDispatcher';
+import { useShowAllTools } from '../../Rail/useShowAllTools';
+import { toggleShortcutSheet } from '../../ShortcutSheet';
 
 export type OverflowLayout = 'vertical' | 'horizontal' | 'detachedPreview';
 
@@ -28,12 +30,13 @@ export interface OverflowMenuProps {
  */
 export function OverflowMenu({ documentLayout, setDocumentLayout, onImport, anchorRef }: OverflowMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const showAllTools = useShowAllTools();
 
   // Layout-only inline style on the wrapper: Tooltip renders its trigger as a block,
   // which would knock the button off the bar's centre line. Task 8 creates no
   // OverflowMenu.module.scss, so there is nowhere else to put three layout rules.
   return (
-    <div ref={anchorRef} style={{ display: 'flex', alignItems: 'center', flex: 'none' }}>
+    <div ref={anchorRef} style={{ display: 'flex', alignItems: 'center', flex: 'none' }} data-guide="topbar.overflow">
       <Tooltip content="More">
         <IconButton
           icon={IconName.DotsThreeHorizontal}
@@ -64,11 +67,9 @@ export function OverflowMenu({ documentLayout, setDocumentLayout, onImport, anch
           },
           {
             label: 'Detach preview',
-            // MenuDialog's `endSlot` renders UNDER the label (it adds bottom spacing to
-            // the label row), so it is a subtitle slot, not a right-aligned hint. Used
-            // consistently on every item that has a shortcut, a stacked shortcut reads
-            // as deliberate; used on one item only it reads as a layout bug.
-            endSlot: Keybindings.DETACH_PREVIEW.label,
+            // Shortcuts sit at the right of the row, as in a macOS menu (endSlot stacked
+            // them under the label, which read as a layout bug).
+            shortcut: Keybindings.DETACH_PREVIEW.label,
             icon: IconName.Cards,
             isHighlighted: documentLayout === 'detachedPreview',
             onClick: () => {
@@ -80,13 +81,22 @@ export function OverflowMenu({ documentLayout, setDocumentLayout, onImport, anch
           {
             label: 'Open dev tools',
             icon: IconName.Bug,
-            endSlot: Keybindings.OPEN_DEVTOOLS.label,
+            shortcut: Keybindings.OPEN_DEVTOOLS.label,
+            // A developer tool: only with Settings › Editor › "Show all tools".
+            isHidden: !showAllTools,
             onClick: () => EventDispatcher.instance.emit('viewer-open-devtools')
           },
           {
             label: 'Import design (HTML / Figma)…',
             icon: IconName.ImportDown,
             onClick: onImport
+          },
+          'divider',
+          {
+            label: 'Keyboard shortcuts',
+            icon: IconName.Question,
+            shortcut: '?',
+            onClick: () => toggleShortcutSheet()
           }
         ]}
       />

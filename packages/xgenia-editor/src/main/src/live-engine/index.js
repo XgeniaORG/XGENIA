@@ -1,6 +1,6 @@
 // Live engine: the preview engine, the export runtime and the RGS compiler come from a signed pack
 // CI publishes, instead of only from the app build. Design:
-// docs/superpowers/specs/2026-10-03-live-engine-design.md
+// private/docs/live-engine/2026-10-03-live-engine-design.md
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -88,7 +88,7 @@ function setupLiveEngine({
   const store = new EngineStore(path.join(app.getPath('userData'), 'engine'));
   let info;
   try {
-    info = selectEngine({ appPath: app.getAppPath(), isPackaged: app.isPackaged, env, store, publicKeyPem, shellApi });
+    info = selectEngine({ appPath: app.getAppPath(), appVersion: app.getVersion?.(), isPackaged: app.isPackaged, env, store, publicKeyPem, shellApi });
   } catch (e) {
     const root = path.join(app.getAppPath(), 'src/external');
     info = { root, builtinRoot: root, version: 'builtin', source: 'builtin', reason: 'engine selection failed: ' + e.message, allowUpdates: false, trial: false };

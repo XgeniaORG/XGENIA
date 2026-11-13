@@ -2,7 +2,9 @@ const fs = require('fs');
 const path = require('path');
 
 module.exports = async function (params) {
-  if (process.platform !== 'darwin') {
+  // The platform being built, not the machine building it: a Mac cross-building Windows or Linux
+  // has nothing to notarize.
+  if ((params && params.electronPlatformName) !== 'darwin' || process.platform !== 'darwin') {
     return;
   }
 
@@ -47,17 +49,6 @@ module.exports = async function (params) {
   } catch (notarytoolError) {
     console.error('❌ Notarization failed:', notarytoolError);
     throw notarytoolError;
-    // console.log('⚠️  notarytool failed, falling back to legacy notarization...');
-
-    // // Fallback to legacy electron-notarize
-    // const electron_notarize = require('electron-notarize');
-    // await electron_notarize.notarize({
-    //   appBundleId: appId,
-    //   appPath: appPath,
-    //   appleId: process.env.appleId,
-    //   appleIdPassword: process.env.appleIdPassword
-    // });
-    // console.log(`✅ Successfully notarized ${appId} using legacy method`);
   }
 
   console.log(`Done notarizing ${appId}`);

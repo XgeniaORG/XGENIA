@@ -24,4 +24,4 @@ well-defined plugin interfaces.
 ## Licensing Enquiries
 
 For licensing enquiries regarding proprietary components, contact:
-**licensing@xgenia.ai**
+**licensing@xgenia.com**

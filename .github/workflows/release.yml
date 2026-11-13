@@ -1,16 +1,57 @@
 name: Release (draft)
 
 # Builds every platform with the macOS update zip included, merges the per-arch macOS update
-# manifests, and opens a DRAFT GitHub release tagged v<packages/xgenia-editor version>.
-# The auto-updater ignores drafts: check the assets, then press Publish. A version with a
-# pre-release part (3.1.0-beta.1) is marked as a pre-release, which only beta installs pick up.
-# Run it on main, after develop is squash-merged there: GitHub only offers a workflow_dispatch
-# workflow that exists on the default branch.
+# manifests, and opens a DRAFT GitHub release. The auto-updater ignores drafts: check the assets,
+# then press Publish. Run it on main, after develop is squash-merged there: GitHub only offers a
+# workflow_dispatch workflow that exists on the default branch.
+#
+# Run by hand it releases exactly the version in packages/xgenia-editor/package.json (3.0.3 → v3.0.3,
+# 3.0.3-beta.5 → v3.0.3-beta.5, marked pre-release). It never picks or bumps a version: change
+# package.json yourself before running it. If that version already has a release, the run fails.
+#
+# nightly.yml calls it with its own pre-release version and nightly: true; that one is published
+# straight away, so installs on the Beta channel update to it without anyone pressing Publish.
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Release this version instead of the one in packages/xgenia-editor/package.json'
+        type: string
+        default: ''
+      nightly:
+        description: 'Publish as a nightly pre-release instead of a draft'
+        type: boolean
+        default: false
+      ref:
+        description: 'Commit to build and release (default: the one that triggered the run). nightly.yml passes develop''s.'
+        type: string
+        default: ''
 
 jobs:
+  # The version this run releases: the one nightly.yml passed in, or packages/xgenia-editor/package.json
+  # as it is for a run by hand. Every build job is stamped with it.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || '' }}
+
+      - name: Read the version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          VERSION="${INPUT_VERSION:-$(jq -r .version packages/xgenia-editor/package.json)}"
+          test -n "$VERSION" && test "$VERSION" != "null" || { echo "::error::no version in packages/xgenia-editor/package.json"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$VERSION"
+
   build:
+    needs: plan
     uses: ./.github/workflows/nightly-builds.yml
     # A called workflow's jobs can't have more than this; notify-teams reads the run's job list.
     permissions:
@@ -18,17 +59,21 @@ jobs:
       actions: read
     with:
       release: true
+      version: ${{ needs.plan.outputs.version }}
+      ref: ${{ inputs.ref || '' }}
     secrets: inherit
 
   draft-release:
     name: Draft GitHub release
-    needs: build
+    needs: [plan, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || '' }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -37,10 +82,9 @@ jobs:
 
       - name: Read version
         id: version
-        run: |
-          VERSION=$(node -p "require('./packages/xgenia-editor/package.json').version")
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Releasing v$VERSION"
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Refuse a version that already has a release
         env:
@@ -48,7 +92,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           if gh release view "v$VERSION" >/dev/null 2>&1; then
-            echo "::error::v$VERSION already has a release. Bump packages/xgenia-editor/package.json first."
+            echo "::error::v$VERSION already has a release. Raise the version in packages/xgenia-editor/package.json, or delete that release, and run again."
             exit 1
           fi
 
@@ -61,17 +105,60 @@ jobs:
       - name: Collect assets and merge the macOS update manifests
         run: node scripts/release/collect-release-assets.mjs release-assets release-dist
 
-      - name: Create draft release
+      # Installs refuse an update whose latest*.yml has no valid signature (update-manifest.js).
+      # This job installs no npm packages, so only the repo's own dependency-free scripts see the key.
+      - name: Sign the update manifests
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: node scripts/release/sign-update-manifests.mjs release-dist
+
+      - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
+          NIGHTLY: ${{ inputs.nightly && '1' || '' }}
         run: |
           # Lowercase v: electron-updater reads the channel (beta, alpha) from the tag with semver,
           # and semver cannot parse the old "V2.1.0" style.
           PRERELEASE=""
           case "$VERSION" in *-*) PRERELEASE="--prerelease" ;; esac
+          if [ -n "$NIGHTLY" ]; then
+            test -n "$PRERELEASE" || { echo "::error::a nightly version must be a pre-release, got $VERSION"; exit 1; }
+            TITLE="XGENIA Nightly v$VERSION"
+          else
+            TITLE="XGENIA v$VERSION"
+          fi
+          # Always a draft first: no install sees a release while its files are still uploading.
+          # The tag goes on the commit that was built (the checkout above), which for a scheduled
+          # nightly is develop's, not the main commit the run started from.
           gh release create "v$VERSION" release-dist/* \
             --draft $PRERELEASE \
-            --target "$GITHUB_SHA" \
-            --title "XGENIA v$VERSION" \
+            --target "$(git rev-parse HEAD)" \
+            --title "$TITLE" \
             --generate-notes
+
+      # Read back what GitHub actually holds, the way an install will use it: every manifest signed
+      # with the key the app trusts, every listed file uploaded at the size the manifest says.
+      - name: Verify the draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: node scripts/release/verify-release.mjs "v$VERSION" --draft
+
+      # Nightly: no human step, so it is published here, then checked once more from the public URLs
+      # an install downloads from. If that fails it goes back to a draft, so no install takes it.
+      - name: Publish the nightly
+        if: inputs.nightly
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release edit "v$VERSION" --draft=false
+          for i in 1 2 3 4 5; do
+            node scripts/release/verify-release.mjs "v$VERSION" --public && exit 0
+            echo "Public check failed (try $i), retrying in 30s"
+            sleep 30
+          done
+          echo "::error::v$VERSION failed the public check; turning it back into a draft"
+          gh release edit "v$VERSION" --draft=true
+          exit 1

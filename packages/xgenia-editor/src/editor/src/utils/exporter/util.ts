@@ -39,6 +39,11 @@ export function exportNode(node: NodeGraphNode) {
   const json = {
     id: node.id,
     type: node.type.name,
+    // The authored label (as NodeGraphNode.toJSON has it), so a node added live — Duplicate,
+    // paste, the AI — reaches the preview with its name; the runtime keeps it (nodemodel.js
+    // createFromExportData) for data-xgenia-node-label. Without it a duplicate showed nothing
+    // or a stale name until the next full reload.
+    label: (node as any)._label,
     version: node.version,
     variant: node.variant ? node.variant.name : undefined,
     parameters: clone(node.parameters),

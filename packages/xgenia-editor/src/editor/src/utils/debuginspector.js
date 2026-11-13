@@ -4,12 +4,15 @@ const Model = require('../../../shared/model');
 const { EventDispatcher } = require('../../../shared/utils/EventDispatcher');
 const JSONStorage = require('../../../shared/utils/jsonstorage');
 const { ProjectModel } = require('../models/projectmodel');
+const { isEditorCovered } = require('../views/panels/editorCovered');
 
 // --------------------------------------------------------------------
 // DebugInspector
 // --------------------------------------------------------------------
 function DebugInspector() {
   this.connectionsToPulseState = {};
+  this.pulseVisibleAt = 0;
+  this.pulseVisibleWas = true;
 
   //Object.keys version of connectionsToPulseState.
   //It's needed every frame when animating so keeping it cached saves some GC cycles
@@ -25,14 +28,76 @@ function DebugInspector() {
 // (121/s on a ProMotion Mac), so a 100 ms game tick loop cost the editor process 76-88% CPU and
 // swung its memory between 0.3 and 1.2 GB (peaks near 2.9 GB); with the pulse repaint
 // suppressed the same game ran at 34% CPU and 0.2-0.4 GB. The pulse animation is time-based
-// (offset/opacity come from performance.now()), so 30 repaints a second look the same.
-const PULSE_REPAINT_INTERVAL_MS = 33;
+// (offset/opacity come from performance.now()), so fewer repaints a second look the same.
+//
+// (2026-11-09) That throttle fixed the CPU but not the flashing. A repaint of the node graph is a
+// paint of the window, and every paint hands macOS a CoreAnimation transaction for every layer in
+// it, so 30 notifications a second is 30 whole-window presents a second for as long as a game runs
+// — which is what the blinking rides on (same cause as the panel flashing, 2026-11-03). Measured in
+// the running editor while a test game played: 30 commits a second with nothing painting anywhere
+// but the graph, against 0.2 a second with the game stopped.
+//
+// So two things changed. The interval went to 100 ms, which still reads as flowing (the dash moves
+// 5 px a step) at a third of the transactions. And the loop does not run at all while the graph is
+// not on screen: there is nothing to animate behind a full-window panel, on another tab of the
+// panel stack, or in a hidden window.
+const PULSE_REPAINT_INTERVAL_MS = 100;
+
+/** How long a look at the graph's own geometry is trusted: the check runs on every pulse. */
+const PULSE_VISIBILITY_CACHE_MS = 250;
+
+/**
+ * Turns the wire animation off outright: `localStorage.xgeniaNoWirePulse = '1'`, then reload. The flow
+ * on the wires is the only thing lost, and a running game then costs the window no presents at all.
+ * Same shape as `xgeniaDebugWebview` in CanvasView.ts.
+ */
+function wirePulseTurnedOff() {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem('xgeniaNoWirePulse') === '1';
+  } catch (e) {
+    return false;
+  }
+}
 
 function generateIdFromConnection(con) {
   return con.fromId + con.fromProperty + con.toId + con.toProperty;
 }
 
+/**
+ * Whether animating the wires can be seen at all: the window is showing, no full-window plugin panel
+ * is over the editor, and the graph canvas has a box on screen. Cached briefly, because a running game
+ * asks this as often as it pulses and the answer costs a layout read.
+ */
+DebugInspector.prototype.isPulseVisible = function () {
+  const now = window.performance.now();
+  if (now - this.pulseVisibleAt < PULSE_VISIBILITY_CACHE_MS) return this.pulseVisibleWas;
+  this.pulseVisibleAt = now;
+  this.pulseVisibleWas = (() => {
+    if (typeof document === 'undefined') return false;
+    if (wirePulseTurnedOff()) return false;
+    if (document.visibilityState === 'hidden') return false;
+    if (isEditorCovered()) return false;
+    const canvas = document.getElementById('nodegraphcanvas');
+    if (!canvas) return false;
+    // getClientRects() is empty for anything display:none, itself or above it.
+    if (canvas.getClientRects().length === 0) return false;
+    const rect = canvas.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  })();
+  return this.pulseVisibleWas;
+};
+
 DebugInspector.prototype.onAnimationFrame = function () {
+  // Nothing to look at: drop the animation rather than keep presenting the window for it. The next
+  // pulse from a running game starts it again as soon as the graph is back on screen.
+  if (!this.isPulseVisible()) {
+    this.playPulseAnimation = false;
+    this.connectionsToPulseState = {};
+    this.connectionsToPulseIDs = [];
+    EventDispatcher.instance.notifyListeners('DebugInspectorConnectionPulseChanged');
+    return;
+  }
+
   const now = window.performance.now();
   var connectionsRemoved = false;
 
@@ -73,6 +138,10 @@ DebugInspector.prototype.onAnimationFrame = function () {
 
 DebugInspector.prototype.startPulseAnimations = function () {
   if (this.playPulseAnimation) {
+    return;
+  }
+
+  if (!this.isPulseVisible()) {
     return;
   }
 

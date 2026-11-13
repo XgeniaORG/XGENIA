@@ -94,7 +94,13 @@ export const SERVICE_METADATA: Record<ServiceName, {
 export const DEFAULT_CONNECTED_SERVICES: ServiceName[] = ['vercel', 'github'];
 
 /**
- * Resolve the access token for a default-connected service. Two sources, in order:
+ * Resolve the access token for a default-connected service. Two sources, in order.
+ *
+ * (2026-11-03) Publishing no longer needs either on an up-to-date XGENIA RGS: it goes
+ * through /web-publish, which keeps the Vercel token on the server
+ * (utils/publish/publishRoute.ts). The shared token below is fetched only when the
+ * platform predates that.
+ *
  *   1. window.__XGENIA_DEFAULT_TOKENS__ — the shared team tokens, fetched at editor
  *      startup from the RGS database via the get_deploy_tokens RPC (see
  *      utils/rgs/deployTokens.ts). This is the primary source and is what lets every

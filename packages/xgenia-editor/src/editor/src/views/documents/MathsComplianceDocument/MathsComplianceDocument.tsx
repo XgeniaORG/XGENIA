@@ -529,8 +529,8 @@ function MathsComplianceDocument({
                         </span>
                         {notConnected && (
                             <span style={{ fontSize: '11px', color: ERROR_COLOR }}>
-                                Not connected to XGENIA RGS — connect in the Maths RGS panel, then open this again from
-                                {deployedGame ? ' Publish → deployed domains.' : ' the Deployed tab of the Maths RGS panel.'}
+                                Not connected to XGENIA RGS. Open Publish to connect, then open this again from
+                                {deployedGame ? ' Publish → Previously Deployed Domains.' : ' the Maths panel\'s Deployed list.'}
                             </span>
                         )}
                         <span style={{ marginLeft: 'auto' }}>
@@ -573,17 +573,13 @@ function MathsComplianceDocument({
                         <div style={{ ...HINT_STYLE, marginBottom: '12px' }}>
                             {deployedGame ? (
                                 <>
-                                    Every document below describes the entire uploaded source of this deployed game — its
-                                    project.json, identified by the SHA-256 of the stored source, together with every maths
-                                    component that source calls on XGENIA RGS. The AI screening analyses that whole codebase,
-                                    not one component. Nothing to select: the game is the domain you opened this from.
+                                    Pick a document to generate. Each one covers this whole published game: its screens and
+                                    the maths it plays on XGENIA RGS.
                                 </>
                             ) : (
                                 <>
-                                    Every document below describes this one deployed build — {fn?.function_name} in{' '}
-                                    {version != null ? `v${version}` : 'this server version'} — identified by the SHA-256 of
-                                    its source. Nothing to select: the component and the version are the row you opened this
-                                    from.
+                                    Pick a document to generate. Each one covers {fn?.function_name} in{' '}
+                                    {version != null ? `version ${version}` : 'this version'}.
                                 </>
                             )}
                         </div>
@@ -594,9 +590,7 @@ function MathsComplianceDocument({
                             <div style={NOTICE_STYLE}>
                                 <span style={{ color: WARN_COLOR }}>!</span>
                                 <span>
-                                    Documents can be generated and downloaded, but not emailed: the platform has no email
-                                    provider configured
-                                    {mailer.missing.length > 0 ? ` (missing ${mailer.missing.join(', ')})` : ''}.
+                                    Documents can be downloaded. Emailing them is not switched on yet.
                                 </span>
                             </div>
                         )}
@@ -609,101 +603,41 @@ function MathsComplianceDocument({
                             <div style={NOTICE_STYLE}>
                                 <span style={{ color: WARN_COLOR }}>!</span>
                                 <span>
-                                    Automated AI screening is not configured on the platform (missing{' '}
-                                    {ai.missing.join(', ')}). Documents still generate without it
-                                    {ai.caller_key_supported
-                                        ? ' — or enter your own OpenRouter key below and screen on it.'
-                                        : '.'}
+                                    The AI review is not switched on yet, so documents generate without it
+                                    {ai.caller_key_supported ? ', unless you add your own OpenRouter key under Advanced.' : '.'}
                                 </span>
                             </div>
                         )}
 
-                        {/* ─── AI screening: the policy, and the key that pays ───
-                            The model is not a choice here. The platform picks the
-                            strongest OpenRouter model the credential can afford —
-                            ranked per document type by the Artificial Analysis index
-                            OpenRouter republishes per model, costed against the live
-                            catalogue and the key's remaining spend, tried
-                            strongest-first — and falls back to a free model only
-                            when nothing paid is affordable. The model that wins runs
-                            twice: analyse, then draft from that analysis. The
-                            document names the index, the model that answered and
-                            every candidate's score.
-
-                            The key column is shown whenever the endpoint says it reads
-                            the field: a credential typed into a box that quietly
-                            discards it is worse than no box. */}
+                        {/* AI review: one line for the person generating. Which model runs and how it is ranked is the
+                            platform's business (it is named inside the document). A creator's own OpenRouter key stays
+                            available, folded away, because a key typed into a box must never be quietly discarded. */}
                         {ai && (
-                            <div style={{ display: 'flex', gap: '18px', flexWrap: 'wrap', alignItems: 'flex-start', marginBottom: '12px' }}>
-                                <div style={{ flex: 1, minWidth: '280px', maxWidth: '460px' }}>
-                                    <label style={FIELD_LABEL_STYLE}>AI screening on generation</label>
-                                    <div style={HINT_STYLE}>
-                                        Picks the strongest OpenRouter model the credential can afford — ranked for this
-                                        document type and costed against the key&#39;s remaining spend — and falls back to a
-                                        free model only when nothing paid is affordable
-                                        {ai.pinned_model ? (
-                                            <>
-                                                {' '}(pinned by the platform to <code style={TYPE_CHIP_STYLE}>{ai.pinned_model}</code>)
-                                            </>
-                                        ) : null}
-                                        {typeof ai.max_spend_usd === 'number' ? (
-                                            <>; one screening is capped at ${ai.max_spend_usd.toFixed(2)}</>
-                                        ) : null}
-                                        . Last resort: <code style={TYPE_CHIP_STYLE}>{ai.floor_model ?? ai.model}</code>.
-                                    </div>
-                                    {/* Conditional on the endpoint saying so: a
-                                        backend deployed before either of these
-                                        existed reports neither, and promising
-                                        behaviour the platform does not have is
-                                        the one thing this view must never do. */}
-                                    {ai.ranking === 'artificial-analysis-index' && (
-                                        <div style={{ ...HINT_STYLE, marginTop: '4px' }}>
-                                            &quot;Strongest&quot; is the Artificial Analysis index OpenRouter republishes per
-                                            model, read live at generation time — the Coding Index for documents whose analysis
-                                            reads the deployed source, the Intelligence Index for those that read records and
-                                            figures.
-                                        </div>
-                                    )}
-                                    {ai.screening === 'two-pass' && (
-                                        <div style={{ ...HINT_STYLE, marginTop: '4px' }}>
-                                            The chosen model then runs twice: once to analyse the material, once to draft the
-                                            screening from that analysis alone.
-                                        </div>
-                                    )}
-                                </div>
-
+                            <div style={{ ...HINT_STYLE, marginBottom: '12px' }}>
+                                Each document includes an AI review of the game&#39;s code and figures.
                                 {ai.caller_key_supported && (
-                                    <div style={{ flex: 1, minWidth: '260px' }}>
-                                        <label style={FIELD_LABEL_STYLE} htmlFor="openrouter-api-key">
-                                            OpenRouter API Key
-                                        </label>
-                                        <input
-                                            id="openrouter-api-key"
-                                            type="password"
-                                            autoComplete="off"
-                                            spellCheck={false}
-                                            placeholder="sk-or-v1-… (optional)"
-                                            value={openRouterKey}
-                                            onChange={(e) => setOpenRouterKey(e.target.value)}
-                                            disabled={generating !== null}
-                                            style={{ ...INPUT_STYLE, width: '100%', boxSizing: 'border-box' }}
-                                        />
-                                        <div style={{ ...HINT_STYLE, marginTop: '4px' }}>
-                                            {openRouterKey.trim() ? (
-                                                <>
-                                                    This generation runs on your key — the strongest model it can afford,
-                                                    billed to it. It is not saved anywhere — enter it again after reopening
-                                                    this view.
-                                                </>
-                                            ) : (
-                                                <>
-                                                    Optional. Leave empty to use the platform&#39;s key
-                                                    {ai.configured ? '' : ', which is not configured — screening would be skipped'}.
-                                                    Keys come from openrouter.ai/keys.
-                                                </>
-                                            )}
+                                    <details style={{ marginTop: '8px' }}>
+                                        <summary style={{ cursor: 'pointer', color: '#9a9aaa' }}>Advanced: use your own OpenRouter key</summary>
+                                        <div style={{ marginTop: '8px', maxWidth: '460px' }}>
+                                            <input
+                                                id="openrouter-api-key"
+                                                aria-label="OpenRouter API key"
+                                                type="password"
+                                                autoComplete="off"
+                                                spellCheck={false}
+                                                placeholder="sk-or-v1-…"
+                                                value={openRouterKey}
+                                                onChange={(e) => setOpenRouterKey(e.target.value)}
+                                                disabled={generating !== null}
+                                                style={{ ...INPUT_STYLE, width: '100%', boxSizing: 'border-box' }}
+                                            />
+                                            <div style={{ ...HINT_STYLE, marginTop: '4px' }}>
+                                                {openRouterKey.trim()
+                                                    ? 'The review runs on your key and is billed to it. The key is not saved.'
+                                                    : 'Leave empty to use XGENIA\'s.'}
+                                            </div>
                                         </div>
-                                    </div>
+                                    </details>
                                 )}
                             </div>
                         )}
@@ -715,7 +649,7 @@ function MathsComplianceDocument({
                         {groups.length === 0 ? (
                             <div style={{ ...HINT_STYLE, fontStyle: 'italic' }}>
                                 {notConnected
-                                    ? 'Connect to XGENIA RGS from the Maths RGS panel to see what can be generated.'
+                                    ? 'Sign in to XGENIA RGS under Publish → XGENIA to see what can be generated.'
                                     : loading
                                       ? 'Reading the compliance catalogue…'
                                       : loadError

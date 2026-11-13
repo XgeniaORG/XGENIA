@@ -1,11 +1,13 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import { NodeGraphContextTmp } from '@xgenia-contexts/NodeGraphContext/NodeGraphContext';
 import { NodeGraphNode } from '@xgenia-models/nodegraphmodel';
+import { ComponentOverride } from '@xgenia-utils/componentOverrides';
 
 import { DescribedRow } from './model/portRowMeta';
 import { AI_SWEEP_WINDOW_MS, ParamAuthors, isFreshWrite } from './paramAuthors';
 import { LegacyPortHost } from './LegacyPortHost';
+import { RowOverrideMenu } from './OverridesMenu';
 
 import css from './Inspector.module.scss';
 
@@ -13,6 +15,22 @@ export interface PortRowProps {
   row: DescribedRow;
   /** The real node, not the proxy — connections live on the graph, not on a state. */
   node: NodeGraphNode;
+  /** A component instance's overridden inputs, by port name. Empty for any other node. */
+  overrideByName?: ReadonlyMap<string, ComponentOverride>;
+  /** Structural refresh, after an override is applied or reverted from this row. */
+  onChanged?: () => void;
+}
+
+const NO_OVERRIDES: ComponentOverride[] = [];
+
+/** Right-clicks inside a text field keep the native menu (copy, paste, spelling). */
+function isEditableTarget(target: EventTarget | null) {
+  const element = target as HTMLElement | null;
+  return Boolean(
+    element &&
+      typeof element.closest === 'function' &&
+      element.closest('input, textarea, select, [contenteditable="true"], .monaco-editor')
+  );
 }
 
 interface ConnectionSource {
@@ -61,7 +79,7 @@ function jumpToSource(nodeId: string) {
  * button the design asks for. A second reset path in React would be a second set of
  * undo semantics to keep in step with the first.
  */
-export function PortRow({ row, node }: PortRowProps) {
+export function PortRow({ row, node, overrideByName, onChanged }: PortRowProps) {
   const source = useMemo(
     () => (row.isConnected && !row.isGroupLike ? findConnectionSource(node, row.name) : null),
     // `row` is rebuilt whenever connections change, so this is as live as the row is.
@@ -72,6 +90,20 @@ export function PortRow({ row, node }: PortRowProps) {
   const isAiAuthored = write !== undefined && write.author === 'ai';
   const isFresh = isAiAuthored && isFreshWrite(write);
 
+  // Prefab-style override: this row edits a component input the instance sets for
+  // itself. A row can own nested ports, so it is an override when any of them is.
+  const overrides = useMemo(() => {
+    if (!overrideByName || overrideByName.size === 0 || row.isGroupLike) return NO_OVERRIDES;
+    const owned = row.portNames.map((name) => overrideByName.get(name)).filter(Boolean) as ComponentOverride[];
+    return owned.length > 0 ? owned : NO_OVERRIDES;
+  }, [overrideByName, row]);
+  const isOverride = overrides.length > 0;
+  const [isOverrideMenuOpen, setIsOverrideMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isOverride) setIsOverrideMenuOpen(false);
+  }, [isOverride]);
+
   return (
     <div
       className={css.Row}
@@ -80,7 +112,17 @@ export function PortRow({ row, node }: PortRowProps) {
       data-connected={row.isConnected || undefined}
       data-ai={isAiAuthored || undefined}
       data-group-like={row.isGroupLike || undefined}
+      data-override={isOverride || undefined}
       style={isFresh ? ({ ['--sweep-duration' as TSFixme]: `${AI_SWEEP_WINDOW_MS}ms` } as React.CSSProperties) : undefined}
+      onContextMenu={
+        isOverride
+          ? (event) => {
+              if (isEditableTarget(event.target)) return;
+              event.preventDefault();
+              setIsOverrideMenuOpen(true);
+            }
+          : undefined
+      }
     >
       {isAiAuthored && (
         <span
@@ -96,6 +138,16 @@ export function PortRow({ row, node }: PortRowProps) {
       )}
 
       <LegacyPortHost view={row.view} />
+
+      {isOverride && (
+        <RowOverrideMenu
+          node={node}
+          overrides={overrides}
+          onChanged={onChanged || (() => undefined)}
+          isOpen={isOverrideMenuOpen}
+          onOpenChange={setIsOverrideMenuOpen}
+        />
+      )}
 
       {source !== null && (
         <button

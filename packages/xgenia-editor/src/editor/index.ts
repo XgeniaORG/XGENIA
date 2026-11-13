@@ -36,7 +36,10 @@ import { EventDispatcher } from '../shared/utils/EventDispatcher';
 import { NodeLibrary } from './src/models/nodelibrary';
 import { ProjectModel } from './src/models/projectmodel';
 import { AiProviderKeyVault } from './src/services/AiProviderKeyVault';
-import { loadSharedDeployTokens } from './src/utils/rgs/deployTokens';
+import { warmPublishCredentials } from './src/utils/rgs/deployTokens';
+import { loadProjectExtensions } from './src/utils/extensions/projectExtensions';
+import { initRgsKeyVault } from './src/utils/rgs/rgsClient';
+import { decryptString, encryptString, isEncryptionAvailable } from './src/store/_internal/StorageApi';
 
 try {
   const { falService } = require('@xgenia/image-editor');
@@ -45,15 +48,24 @@ try {
   // @xgenia/image-editor not available (open-source build)
 }
 
+// Optional project extensions (merge handlers, conflict previews, publish hooks, project events).
+// Builds without the module get a stub that registers nothing.
+loadProjectExtensions();
+
 // CRITICAL FIX: Expose ProjectModel to window immediately for ChatPanel compatibility
 // This ensures ProjectModel is available for chat history persistence
 (window as any).ProjectModel = ProjectModel;
 console.log('[Editor] ProjectModel exposed to window at startup for chat history compatibility');
 
-// Warm the shared deploy tokens (Vercel/GitHub) from the RGS DB as early as possible,
-// so ConnectionStore has them installed on window.__XGENIA_DEFAULT_TOKENS__ before the
-// user can open the Publish/Deploy panel. Fire-and-forget; the panel also awaits it.
-loadSharedDeployTokens();
+// The XGENIA RGS operator key lives in the OS keychain (Electron safeStorage via the
+// StorageApi bridge, G1-S14): decrypt it once into memory before anything reads it,
+// and move a plaintext key left by an older editor into the keychain.
+initRgsKeyVault({ isAvailable: isEncryptionAvailable, encrypt: encryptString, decrypt: decryptString });
+
+// Make Publish ready as early as possible. On a platform with /web-publish this
+// fetches nothing — the Vercel token stays on the server; only an older platform
+// gets the shared token warmed (deployTokens.ts). Fire-and-forget.
+void warmPublishCredentials();
 
 // The OpenRouter key belongs to the user's Primora account, not to this machine.
 // Starting here (rather than from a React effect) means the pull is already in

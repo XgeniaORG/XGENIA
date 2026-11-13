@@ -199,7 +199,7 @@ export function PublishButton({ snapshot, onOpenDeploy, anchorRef, isDisabled }:
         : `Publish (${SHORTCUT_HINT})`;
 
   return (
-    <div ref={anchorRef} className={css.Wrap}>
+    <div ref={anchorRef} className={css.Wrap} data-guide="topbar.publish">
       {showLive ? (
         <Tooltip content={`Published ${agoPhrase} · v${snapshot.publishCount}`}>
           <div

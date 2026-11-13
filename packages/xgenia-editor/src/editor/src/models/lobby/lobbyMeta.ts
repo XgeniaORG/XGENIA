@@ -21,7 +21,7 @@ import { filesystem } from '@xgenia/platform';
 
 import Model from '../../../../shared/model';
 import type { LobbyMeta } from './lobbyGrouping';
-import { summariseChatIndex } from './lobbyMeta.core';
+import { mergeRead, summariseChatIndex } from './lobbyMeta.core';
 
 export { taglineFromTitle, summariseChatIndex, TAGLINE_MAX } from './lobbyMeta.core';
 
@@ -104,15 +104,16 @@ export class LobbyMetaModel extends Model {
   }
 
   private async read(job: { id: string; dir: string; wantComponents: boolean }): Promise<void> {
-    const meta: LobbyMeta = { ...(this.cache.get(job.id) || {}) };
+    const meta: LobbyMeta = this.cache.get(job.id) || {};
+    const found: LobbyMeta = {};
     let changed = false;
 
     if (meta.tagline === undefined && meta.messageCount === undefined) {
       const chatIndex = await readJsonOrNull(filesystem.join(job.dir, '.xgenia', 'chat', 'index.json'));
       const summary = summariseChatIndex(chatIndex);
 
-      meta.messageCount = summary.messageCount;
-      if (summary.tagline) meta.tagline = summary.tagline;
+      found.messageCount = summary.messageCount;
+      if (summary.tagline) found.tagline = summary.tagline;
       changed = true;
     }
 
@@ -120,14 +121,15 @@ export class LobbyMetaModel extends Model {
       const project = await readJsonOrNull(filesystem.join(job.dir, 'project.json'));
       const components = (project as any)?.components;
       if (Array.isArray(components)) {
-        meta.componentCount = components.length;
+        found.componentCount = components.length;
         changed = true;
       }
     }
 
     if (!changed) return;
 
-    this.cache.set(job.id, meta);
+    // Over what is cached now, not `meta`: fields patched in during the read must survive it.
+    this.cache.set(job.id, mergeRead(this.cache.get(job.id), found));
     this.notifyListeners('lobby-meta-changed', { id: job.id });
   }
 }
