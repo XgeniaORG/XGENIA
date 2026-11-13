@@ -13604,8 +13604,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelCell.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-cell",
-      "lineCount": 906,
-      "byteSize": 39766,
+      "lineCount": 908,
+      "byteSize": 39895,
       "inputFormatHints": {
         "width": {
           "displayName": "Width",

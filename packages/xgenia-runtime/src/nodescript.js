@@ -613,14 +613,43 @@ function memberHash(text) {
  * Shared members of every React-based node (initialize, the generic methods) are
  * recorded under the type "*".
  */
+/**
+ * (2026-11-13) The form an engine-history lookup hashes: canonical text with what changes from
+ * one bundle BUILD to the next taken out. A Script saved as a full copy carries the names of the
+ * build it was read from — the pixi.js namespace as `lib_namespaceObject` in one build and `lib`
+ * in the next, an import out of scope as `symbol_rigs/* symbolRig *\/.xS` with a per-build export
+ * id — so a stale copy from an older build matched no recorded version, ran as if hand-edited,
+ * and failed ("lib is not defined — falling back to the built-in implementation"). Here every
+ * named import reference is its name, `(0,name)` is `name`, and the pixi.js namespace is PIXI,
+ * whatever that build called it. Used only to match history; nothing runs this text.
+ */
+const BUILD_IDENT = '[A-Za-z_$][\\w$]*';
+const BUILD_NAMED_REF = new RegExp(
+  BUILD_IDENT + '\\s*\\/\\*\\s*(?:\\.(' + BUILD_IDENT + ')|\\[\\s*"(' + BUILD_IDENT + ')"\\s*\\]|(' + BUILD_IDENT + '))\\s*\\*\\/\\s*\\.\\s*' + BUILD_IDENT,
+  'g'
+);
+function historyForm(canonicalText) {
+  if (typeof canonicalText !== 'string' || !canonicalText) return canonicalText;
+  let t = canonicalText.replace(BUILD_NAMED_REF, (m, a, b, c) => a || b || c);
+  t = t.replace(/\bpixi_js__WEBPACK_IMPORTED_MODULE_\d+__\b/g, 'PIXI');
+  t = t.replace(/\b[A-Za-z_$][\w$]*__WEBPACK_IMPORTED_MODULE_\d+__\s*\.\s*([A-Za-z_$][\w$]*)/g, '$1');
+  t = t.replace(/(^|[^\w$.])(?:lib_namespaceObject|lib)(?=\s*[.,)\]])/g, '$1PIXI');
+  // `(0,utils.getAbsoluteUrl)(…)` is webpack calling an import without its `this`: the call itself
+  // is `getAbsoluteUrl(…)`, whatever the namespace object is called in that build.
+  // Only the wrapper itself: not an argument list (`f(0, x)`), and always called at once.
+  t = t.replace(/(^|[^\w$)\]])\(\s*0\s*,\s*(?:[A-Za-z_$][\w$]*\s*\.\s*)*([A-Za-z_$][\w$]*)\s*\)(?=\s*\()/g, '$1$2');
+  return t;
+}
+
 function isPastEngineVersion(fn, baselineMember, typeName, key) {
   if (!baselineMember || typeof fn !== 'function') return false;
+  // (baselineMember may be a stand-in carrying only scopeNames: a member the engine has since removed.)
   const types = engineHistory().types || {};
   const lists = [typeName && types[typeName] && types[typeName][key], types['*'] && types['*'][key]].filter(Boolean);
   if (!lists.length) return false;
   const text = canonicalFunctionText(fn, baselineMember.scopeNames);
   if (!text) return false;
-  const hash = memberHash(text);
+  const hash = memberHash(historyForm(text));
   return lists.some((list) => list.indexOf(hash) !== -1);
 }
 
@@ -1214,9 +1243,17 @@ function applyDefinitionOverride(node, definition, baseline) {
   let changedCount = 0;
   const staleCopies = [];
   // Untouched: the same as the current engine, or a copy of an earlier engine version.
+  // (2026-11-13) A member the engine no longer has is still a stale copy when it matches one of
+  // its past versions — the engine removed it, and installing it would add dead weight (or a
+  // method that throws on a name only its old build had).
+  const anyScope = (() => {
+    const m = baseline.methods || {};
+    for (const k of Object.keys(m)) if (m[k] && m[k].scopeNames) return m[k].scopeNames;
+    return baseline.initialize && baseline.initialize.scopeNames;
+  })();
   const untouched = (fn, base, key) => {
-    if (isUnchanged(fn, base)) return true;
-    if (isPastEngineVersion(fn, base, baseline.typeName, key)) {
+    if (base && isUnchanged(fn, base)) return true;
+    if (isPastEngineVersion(fn, base || { scopeNames: anyScope }, baseline.typeName, key)) {
       staleCopies.push(key);
       return true;
     }
@@ -1437,6 +1474,7 @@ module.exports = {
   isUnchanged,
   isPastEngineVersion,
   memberHash,
+  historyForm,
   setEngineHistory,
   unmangleImports,
   WARNING_KEY
