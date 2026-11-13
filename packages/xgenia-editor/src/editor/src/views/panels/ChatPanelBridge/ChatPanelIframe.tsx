@@ -299,7 +299,7 @@ export function ChatPanelIframe() {
                                 width: '100%', height: '100%',
                                 border: 'none', background: '#1a1a1a',
                             }}
-                            allow="clipboard-read; clipboard-write; microphone"
+                            allow="clipboard-read; clipboard-write; microphone; fullscreen"
                             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-storage-access-by-user-activation allow-downloads"
                         />
                     );
