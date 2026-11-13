@@ -429,3 +429,70 @@ test('a game declared on the sandbox opens the real-money account\'s game form w
   await act(async () => { root.unmount(); });
   localStorage.clear();
 });
+
+// (2026-11-13) Publish listed every game the studio had, one button each, as the first thing on screen. It now
+// offers two choices — New game or Existing game — and the chosen game stays linked: the link is saved in the
+// project, so a Sign out (or another machine) does not ask again.
+test('choose New game or Existing game once; the link is saved in the project and survives a Sign out', async () => {
+  const React = (await import('react')).default;
+  const { createRoot } = await import('react-dom/client');
+  const { act } = await import('react');
+  const { RgsReleaseSetup, rgsClient } = await loadComponents();
+  localStorage.clear();
+  const { games } = installRgs();
+  for (let i = 1; i <= 9; i++) games.push({ id: `g${i}`, slug: `game-${i}`, name: `Game ${i}` });
+  games.push({ id: 'cs', slug: 'crash-space', name: 'Crash Space' });
+  games.push({ id: 'twin', slug: 'crash-space-rtp', name: 'Crash Space RTP tests' });
+  const meta: Record<string, any> = {};
+  const saved: string[] = [];
+  const project = g.ProjectModel.instance;
+  Object.assign(project, {
+    getMetaData: (k: string) => meta[k],
+    setMetaData: (k: string, v: any) => { meta[k] = v; },
+    notifyListeners: (e: string) => { saved.push(e); }
+  });
+  rgsClient.saveRgsSettings({ apiKey: 'xrgs_main', rgsUrl: rgsClient.XRGS_URL });
+
+  const host = document.getElementById('root')!;
+  const root = createRoot(host);
+  await act(async () => { root.render(React.createElement(RgsReleaseSetup, { projectName: 'Crash Space' })); await tick(30); });
+
+  // Two choices first, not the list.
+  assert.ok(host.querySelector('[data-testid="rgs-game-new"]'));
+  assert.ok(host.querySelector('[data-testid="rgs-game-existing"]'));
+  assert.equal(host.querySelectorAll('[data-testid="rgs-game-row"]').length, 0, 'no game list until asked');
+  assert.doesNotMatch(host.textContent || '', /Game 7/);
+  // The game named like the project is offered as a one-click link.
+  assert.match(host.querySelector('[data-testid="rgs-game-suggested"]')!.textContent || '', /Link to Crash Space/);
+
+  // Existing game: a searchable list, without the AI's measuring copy.
+  await act(async () => { click(host.querySelector('[data-testid="rgs-game-existing"]') as HTMLElement); await tick(); });
+  assert.equal(host.querySelectorAll('[data-testid="rgs-game-row"]').length, 10);
+  assert.doesNotMatch(host.textContent || '', /RTP tests/);
+  await act(async () => { type(host.querySelector('input') as HTMLInputElement, 'game 7'); await tick(); });
+  const rows = [...host.querySelectorAll('[data-testid="rgs-game-row"]')] as HTMLElement[];
+  assert.deepEqual(rows.map((r) => r.textContent), ['Game 7game-7']);
+
+  await act(async () => { click(rows[0]); await tick(20); });
+  assert.equal(rgsClient.getActiveGame()?.id, 'g7');
+  assert.deepEqual(meta.rgsGame, { id: 'g7', slug: 'game-7', name: 'Game 7', rgsUrl: rgsClient.XRGS_URL }, 'saved in the project');
+  assert.ok(saved.includes('metadataChanged'), 'the project auto-saves the link');
+  assert.match(host.textContent || '', /Publishing Game 7/);
+
+  // A Sign out clears the editor's RGS settings; signing in again finds the project still linked.
+  rgsClient.clearRgsSettings();
+  rgsClient.saveRgsSettings({ apiKey: 'xrgs_main', rgsUrl: rgsClient.XRGS_URL });
+  assert.equal(rgsClient.getActiveGame()?.id, 'g7', 'still linked after signing in again');
+  // A link made on another RGS (the play-money sandbox) is not this project's game here.
+  meta.rgsGame = { id: 'sb1', slug: 'x', name: 'X', rgsUrl: 'https://sandbox.example' };
+  assert.equal(rgsClient.getActiveGame(), null);
+
+  // Change game unlinks, in the project too.
+  meta.rgsGame = { id: 'g7', slug: 'game-7', name: 'Game 7', rgsUrl: rgsClient.XRGS_URL };
+  rgsClient.setActiveGame(null);
+  assert.equal(meta.rgsGame, undefined);
+
+  await act(async () => { root.unmount(); });
+  delete project.getMetaData; delete project.setMetaData; delete project.notifyListeners;
+  localStorage.clear();
+});
