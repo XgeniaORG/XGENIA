@@ -13604,8 +13604,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelCell.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-cell",
-      "lineCount": 884,
-      "byteSize": 38419,
+      "lineCount": 906,
+      "byteSize": 39766,
       "inputFormatHints": {
         "width": {
           "displayName": "Width",
@@ -13657,6 +13657,12 @@
             "stretch",
             "none"
           ]
+        },
+        "trimEdges": {
+          "displayName": "Trim Transparent Edges",
+          "tooltip": "Fit the symbol to the cell by its visible pixels, ignoring the transparent border around it in the image. On by default: a border is what makes reel symbols look widely spaced. Turn off only for art whose empty border is meant to show.",
+          "type": "boolean",
+          "group": "Symbol"
         },
         "playVideoOnWin": {
           "displayName": "Play Video On Win",
@@ -13930,6 +13936,7 @@
           "setSymbolId": [],
           "setSymbolImage": [],
           "setHighlighted": [],
+          "_symbolRestCentre": [],
           "clearHighlight": [],
           "setPayoutText": [],
           "setPayoutFontFamily": [],
@@ -13953,8 +13960,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelColumn.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-column",
-      "lineCount": 2838,
-      "byteSize": 139951,
+      "lineCount": 3345,
+      "byteSize": 168127,
       "inputFormatHints": {
         "visibleRows": {
           "displayName": "Visible Rows",
@@ -13978,6 +13985,12 @@
         },
         "maskPadding": {
           "displayName": "Mask Padding",
+          "type": "number",
+          "group": "Grid"
+        },
+        "peek": {
+          "displayName": "Peek",
+          "tooltip": "Scroll style: pixels of the neighbouring symbols left visible above and below the rows, the slivers of the reel strip a cabinet shows. They are the real strip neighbours of the stop. 0 = none.",
           "type": "number",
           "group": "Grid"
         },
@@ -14142,13 +14155,15 @@
         },
         "spinEffect": {
           "displayName": "Spin Effect",
+          "tooltip": "How a moving reel looks. motion (default): each symbol fades to a pre-blurred copy of itself and stretches a little as the reel speeds up, and sharpens as it brakes. directional: one blur filter over the whole reel. gaussian: the same on both axes. alpha: symbols fade. none: always sharp. Blur Strength sets how blurred.",
           "type": "enum",
           "group": "Effects",
           "enums": [
             "none",
             "directional",
             "gaussian",
-            "alpha"
+            "alpha",
+            "motion"
           ]
         },
         "blurStrength": {
@@ -14276,7 +14291,13 @@
         },
         "cascadeDuration": {
           "displayName": "Cascade Duration",
-          "tooltip": "Whole pass in ms: 40% burn, 60% fall/settle.",
+          "tooltip": "Whole pass in ms: 40% burn, 60% fall/settle. In the gravity style the 60% is the longest fall; shorter falls land sooner, the way things fall, and each lands with the Landing Hop.",
+          "type": "number",
+          "group": "Cascade"
+        },
+        "cascadeRowDelay": {
+          "displayName": "Cascade Ripple (ms)",
+          "tooltip": "gravity style: milliseconds between one falling symbol and the next, bottom first, so a tumble ripples up the reel instead of moving as one block. 0 = all at once.",
           "type": "number",
           "group": "Cascade"
         },
@@ -14450,6 +14471,8 @@
           "_startSpin": [],
           "_startContinuousScroll": [],
           "_takePhantom": [],
+          "_symbolCentre": [],
+          "_symbolBox": [],
           "_buildSpinStrip": [],
           "_detachPhantoms": [],
           "_removePhantoms": [],
@@ -14459,13 +14482,17 @@
           "_allCellsParked": [],
           "_scrollCellsHidden": [],
           "_beginScrollLanding": [
+            "FAST_FEEL",
             "SCROLL_STOP_FEEL",
             "LANDING_SPEED_FLOOR"
           ],
           "_dropFallDistance": [],
           "_startDropAnimation": [],
-          "_startDropIn": [],
+          "_startDropIn": [
+            "FAST_FEEL"
+          ],
           "_placeCell": [],
+          "_teaseLostReaction": [],
           "_landImpact": [],
           "_startStop": [],
           "_completeSpin": [],
@@ -14479,11 +14506,14 @@
           "_stopTicker": [],
           "_onTick": [],
           "_assignInitialSymbols": [],
+          "_scheduleMotionBlurWarm": [],
           "_assignRandomSymbol": [],
           "_assignRandomSymbolFast": [],
           "_assignRandomSymbolToPhantom": [],
+          "_setPhantomSymbol": [],
           "_ensureTextureCache": [],
           "_getPreloadedTexture": [],
+          "_getPreloadedTextureRaw": [],
           "_assignRandomSymbolFromStrip": [],
           "_cycleSymbols": [],
           "_handleStopAnimation": [],
@@ -14492,6 +14522,19 @@
           "_finishScrollLanding": [],
           "_easeOutQuad": [],
           "_easeInOutSine": [],
+          "_timeScale": [
+            "FAST_FEEL"
+          ],
+          "_stripNeighbourSource": [],
+          "_landingNeighbour": [],
+          "_showRestNeighbours": [],
+          "_motionBlurTexture": [
+            "MOTION_BLUR_CACHE"
+          ],
+          "_warmMotionBlur": [],
+          "_prepareCellBlur": [],
+          "_updateMotionBlur": [],
+          "_clearMotionBlur": [],
           "_snapCellsToGrid": [],
           "_setBlur": [],
           "_applySpinEffect": [],
@@ -18240,8 +18283,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 3136,
-      "byteSize": 172849,
+      "lineCount": 3509,
+      "byteSize": 195479,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
@@ -18374,6 +18417,31 @@
         },
         "spinDuration": {
           "displayName": "Min Spin Duration",
+          "tooltip": "Milliseconds from the spin start until the first reel starts landing (0 =",
+          "type": "number",
+          "group": "Timing"
+        },
+        "minSpinIntervalMs": {
+          "displayName": "Min Time Between Spins (ms)",
+          "tooltip": "A jurisdiction rule (Jurisdiction Rules.minSpinIntervalMs): the least time from one spin start to the next. Spins are lengthened to last it, a spin asked for sooner waits, and quick stop is off while it applies. 0 = no rule.",
+          "type": "number",
+          "group": "Timing"
+        },
+        "startOrder": {
+          "displayName": "Start Order",
+          "tooltip": "Which reel starts first. Empty = left to right. \"right-to-left\", \"center-out\", or the 0-based reel numbers in order, e.g. \"2,1,3,0,4\".",
+          "type": "string",
+          "group": "Timing"
+        },
+        "stopOrder": {
+          "displayName": "Stop Order",
+          "tooltip": "Which reel lands first, same forms as Start Order. Anticipation follows it: a reel teases on the scatters landed by the reels that stopped before it.",
+          "type": "string",
+          "group": "Timing"
+        },
+        "cascadeStagger": {
+          "displayName": "Cascade Stagger",
+          "tooltip": "Gravity-style cascades: milliseconds between one reel tumbling and the next, in stop order, so a tumble sweeps across the grid. 0 = all reels at once.",
           "type": "number",
           "group": "Timing"
         },
@@ -18611,8 +18679,55 @@
         },
         "turboMode": {
           "displayName": "Turbo Mode",
+          "tooltip": "Faster spins. What it does is Turbo Style.",
           "type": "boolean",
           "group": "Mode"
+        },
+        "turboStyle": {
+          "displayName": "Turbo Style",
+          "tooltip": "fast: the reels still spin, every part of the motion is shorter, there is no anticipation, and all reels land together. instant: no spin at all, the result is shown at once (the only turbo before 2026-11-13).",
+          "type": "enum",
+          "enums": [
+            "fast",
+            "instant"
+          ],
+          "group": "Mode"
+        },
+        "freeSpinsMode": {
+          "displayName": "Free Spins Mode",
+          "tooltip": "Set while free spins play: the reels run at Free Spins Tempo.",
+          "type": "boolean",
+          "group": "Mode"
+        },
+        "freeSpinsTempo": {
+          "displayName": "Free Spins Tempo",
+          "tooltip": "How much faster the whole spin is while Free Spins Mode is on: every delay and duration is divided by it. 1 = the same as the base game.",
+          "type": "number",
+          "group": "Mode"
+        },
+        "keyboardSpin": {
+          "displayName": "Space To Spin",
+          "tooltip": "Space or Enter fires On Spin Request (wire it where your spin button goes); held for 0.8 s it keeps spinning (Continuous Spin) until released. Off by default: the game decides.",
+          "type": "boolean",
+          "group": "Actions"
+        },
+        "spinHeld": {
+          "displayName": "Spin Button Held",
+          "tooltip": "Wire the spin button's pressed state here: held for 0.8 s it turns on Continuous Spin, which fires On Spin Request again each time the reels stop, until released.",
+          "type": "boolean",
+          "group": "Actions"
+        },
+        "allowContinuousSpin": {
+          "displayName": "Allow Continuous Spin",
+          "tooltip": "Whether holding spin (key or button) may keep spinning. Turn off where autoplay is not allowed (Jurisdiction Rules.autoplayAllowed).",
+          "type": "boolean",
+          "group": "Actions"
+        },
+        "spinSoundVariants": {
+          "displayName": "Spin Sound Variants",
+          "tooltip": "How many spin-loop sounds you have. Each spin, Spin Sound Index picks one, never the same twice in a row.",
+          "type": "number",
+          "group": "Sound"
         },
         "autoLayout": {
           "displayName": "Auto Layout",
@@ -18864,6 +18979,63 @@
           "type": "signal",
           "group": "Events"
         },
+        "onStopSound": {
+          "displayName": "On Stop Sound",
+          "tooltip": "Play the reel-stop sound here: once per reel as each one hits, and ONCE in total when the reels land together (quick stop, turbo).",
+          "type": "signal",
+          "group": "Sound"
+        },
+        "onScatterLanded": {
+          "displayName": "On Scatter Landed",
+          "tooltip": "A reel hit with the scatter on it AND the feature can still be reached. Scatter Landed Count says how many so far, for a rising sound.",
+          "type": "signal",
+          "group": "Sound"
+        },
+        "scatterLandedCount": {
+          "displayName": "Scatter Landed Count",
+          "type": "number",
+          "group": "Sound"
+        },
+        "onTeaseWon": {
+          "displayName": "On Tease Won",
+          "tooltip": "The reels stopped after an anticipation and the scatters reached the trigger.",
+          "type": "signal",
+          "group": "Sound"
+        },
+        "onTeaseLost": {
+          "displayName": "On Tease Lost",
+          "tooltip": "The reels stopped after an anticipation and the trigger was missed. The landed scatters play their \"tease-lost\" rig clip, or a short sag.",
+          "type": "signal",
+          "group": "Sound"
+        },
+        "onSpinEndWin": {
+          "displayName": "On Spin End Win",
+          "tooltip": "The reels stopped on winning cells or lines — ANY win, including a return at or under the stake. A win chime belongs only to a round paying more than the bet (the win-tiers wiring), never here.",
+          "type": "signal",
+          "group": "Sound"
+        },
+        "onSpinEndNoWin": {
+          "displayName": "On Spin End No Win",
+          "tooltip": "The reels stopped with nothing winning: the place for a soft \"no win\" sound.",
+          "type": "signal",
+          "group": "Sound"
+        },
+        "spinSoundIndex": {
+          "displayName": "Spin Sound Index",
+          "type": "number",
+          "group": "Sound"
+        },
+        "onSpinRequest": {
+          "displayName": "On Spin Request",
+          "tooltip": "Space To Spin was pressed, or Continuous Spin wants the next spin. Wire it where the spin button goes, so bets and balance run as usual.",
+          "type": "signal",
+          "group": "Actions"
+        },
+        "continuousSpin": {
+          "displayName": "Continuous Spin",
+          "type": "boolean",
+          "group": "Actions"
+        },
         "onCascadeComplete": {
           "displayName": "On Cascade Complete",
           "type": "signal",
@@ -19012,7 +19184,9 @@
           "_applyAnticipationDim": [],
           "_clearAnticipationDim": [],
           "_cancelAllAnticipation": [],
-          "_scheduleStaggerStops": [],
+          "_scheduleStaggerStops": [
+            "MIN_AFTER_RESULT_MS"
+          ],
           "_checkAllColumnsStopped": [],
           "_signalColumnStopped": [],
           "_finalizeAllStopped": [],
@@ -19036,14 +19210,36 @@
           "_collectSymbolUrls": [],
           "_preloadTextures": [],
           "_getAllCurrentSymbols": [],
-          "_onNodeDeleted": []
+          "_onNodeDeleted": [],
+          "_firstStopMs": [
+            "DEFAULT_FIRST_STOP_MS",
+            "FAST_FIRST_STOP_MS"
+          ],
+          "_reelOrder": [],
+          "_reelRanks": [],
+          "_pickSpinSound": [],
+          "_onReelHit": [],
+          "_afterSpinCues": [],
+          "_syncKeyboardListener": [],
+          "_setHold": [
+            "HOLD_TO_SPIN_MS"
+          ],
+          "_setContinuous": [],
+          "_requestNextSpin": [
+            "CONTINUOUS_GAP_MS"
+          ]
         },
         "literals": {
           "MAX_COLUMNS": "12",
           "STOP_ARM_TIMEOUT_MS": "250",
           "CELEBRATION_ARM_TIMEOUT_MS": "2000",
           "STOP_LATCH_MAX_MS": "1000",
-          "DEFAULT_MAX_ANTICIPATING_REELS": "3"
+          "DEFAULT_MAX_ANTICIPATING_REELS": "3",
+          "DEFAULT_FIRST_STOP_MS": "800",
+          "FAST_FIRST_STOP_MS": "350",
+          "MIN_AFTER_RESULT_MS": "120",
+          "HOLD_TO_SPIN_MS": "800",
+          "CONTINUOUS_GAP_MS": "150"
         }
       }
     },
@@ -77745,6 +77941,12 @@
         "direction": "input"
       }
     ],
+    "trimEdges": [
+      {
+        "node": "pixi.ReelCell",
+        "direction": "input"
+      }
+    ],
     "playVideoOnWin": [
       {
         "node": "pixi.ReelCell",
@@ -77872,6 +78074,12 @@
       }
     ],
     "maskPadding": [
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      }
+    ],
+    "peek": [
       {
         "node": "pixi.ReelColumn",
         "direction": "input"
@@ -78194,6 +78402,12 @@
       },
       {
         "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "cascadeRowDelay": [
+      {
+        "node": "pixi.ReelColumn",
         "direction": "input"
       }
     ],
@@ -79443,6 +79657,34 @@
         "direction": "input"
       }
     ],
+    "minSpinIntervalMs": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      },
+      {
+        "node": "Jurisdiction Rules",
+        "direction": "output"
+      }
+    ],
+    "startOrder": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "stopOrder": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "cascadeStagger": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
     "anticipation": [
       {
         "node": "PixiReelController",
@@ -79588,6 +79830,48 @@
       }
     ],
     "turboMode": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "turboStyle": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "freeSpinsMode": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "freeSpinsTempo": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "keyboardSpin": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "spinHeld": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "allowContinuousSpin": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "spinSoundVariants": [
       {
         "node": "PixiReelController",
         "direction": "input"
@@ -79808,6 +80092,66 @@
       }
     ],
     "onAnticipationEnd": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "onStopSound": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "onScatterLanded": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "scatterLandedCount": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "onTeaseWon": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "onTeaseLost": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "onSpinEndWin": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "onSpinEndNoWin": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "spinSoundIndex": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "onSpinRequest": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "continuousSpin": [
       {
         "node": "PixiReelController",
         "direction": "output"
@@ -81786,12 +82130,6 @@
       }
     ],
     "maxStake": [
-      {
-        "node": "Jurisdiction Rules",
-        "direction": "output"
-      }
-    ],
-    "minSpinIntervalMs": [
       {
         "node": "Jurisdiction Rules",
         "direction": "output"
