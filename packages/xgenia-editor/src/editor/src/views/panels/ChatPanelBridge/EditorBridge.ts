@@ -1214,8 +1214,25 @@ export class EditorBridge {
                  * <project>/assets, depth-capped, hidden/heavy dirs skipped, and
                  * the same set the AI's own asset tool reports.
                  */
+                // (2026-11-13) Windows showed "Failed to reach editor asset service": this promise
+                // either rejected (a throw from the walk) or never settled (the panel's 30 s timeout).
+                // It now always answers — with what was found by 20 s, or an explicit error.
+                let settled = false;
+                const finish = (value: any) => {
+                    if (settled) return;
+                    settled = true;
+                    resolve(value);
+                };
+                const partial: any[] = [];
+                setTimeout(() => {
+                    if (!settled) console.warn('[EditorBridge] project.listImages: walk still running after 20s; answering empty.');
+                    finish(partial);
+                }, 20000);
+                const resolveList = finish;
+                try {
                 project.listProjectAssets(
                     (files: any[]) => {
+                        const resolve = resolveList;
                         try {
                             const results = (files || []).map(f => {
                                 const relativePath = (f.fullPath && f.fullPath.startsWith(projectDir))
@@ -1236,6 +1253,10 @@ export class EditorBridge {
                     },
                     { types: ['png', 'jpeg', 'jpg', 'svg', 'gif', 'webp'] }
                 );
+                } catch (e) {
+                    console.error('[EditorBridge] project.listImages failed:', e);
+                    finish([]);
+                }
             });
         });
 
