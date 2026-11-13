@@ -13604,8 +13604,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelCell.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-cell",
-      "lineCount": 908,
-      "byteSize": 39895,
+      "lineCount": 912,
+      "byteSize": 40266,
       "inputFormatHints": {
         "width": {
           "displayName": "Width",
@@ -13960,31 +13960,36 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelColumn.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-column",
-      "lineCount": 3345,
-      "byteSize": 168127,
+      "lineCount": 3364,
+      "byteSize": 170248,
       "inputFormatHints": {
         "visibleRows": {
           "displayName": "Visible Rows",
+          "tooltip": "How many rows of this reel show through its window. The Reel Controller writes it from Rows when Auto Layout is on.",
           "type": "number",
           "group": "Grid"
         },
         "cellHeight": {
           "displayName": "Cell Height",
+          "tooltip": "Height of one cell in pixels (the Reel Controller sets it when Auto Layout is on).",
           "type": "number",
           "group": "Grid"
         },
         "cellWidth": {
           "displayName": "Cell Width",
+          "tooltip": "Width of one cell in pixels (the Reel Controller sets it when Auto Layout is on).",
           "type": "number",
           "group": "Grid"
         },
         "cellPadding": {
           "displayName": "Cell Padding",
+          "tooltip": "Space around each symbol inside its cell, in pixels; also the gap between rows.",
           "type": "number",
           "group": "Grid"
         },
         "maskPadding": {
           "displayName": "Mask Padding",
+          "tooltip": "Pixels the reel window extends past the rows on every side, so a symbol's glow or overshoot is not cut off.",
           "type": "number",
           "group": "Grid"
         },
@@ -13996,11 +14001,13 @@
         },
         "autoCenter": {
           "displayName": "Auto Center",
+          "tooltip": "Centre this reel in its parent.",
           "type": "boolean",
           "group": "Layout"
         },
         "anchorX": {
           "displayName": "Anchor X",
+          "tooltip": "Which edge of the reel its X position refers to.",
           "type": "enum",
           "enums": [
             "left",
@@ -14011,6 +14018,7 @@
         },
         "anchorY": {
           "displayName": "Anchor Y",
+          "tooltip": "Which edge of the reel its Y position refers to.",
           "type": "enum",
           "enums": [
             "top",
@@ -14021,21 +14029,25 @@
         },
         "propagateSizeToChildren": {
           "displayName": "Propagate Size",
+          "tooltip": "Give every cell this reel's Cell Width / Height / Padding.",
           "type": "boolean",
           "group": "Layout"
         },
         "reelStrip": {
           "displayName": "Reel Strip",
+          "tooltip": "This reel's strip of symbol ids (the Reel Controller fills it from Reel Strips).",
           "type": "array",
           "group": "Data"
         },
         "stopPosition": {
           "displayName": "Stop Position",
+          "tooltip": "Where this reel stops on its strip: the top row shows strip[stop] (from the controller's Stop Positions).",
           "type": "number",
           "group": "Data"
         },
         "symbolImages": {
           "displayName": "Symbol Images",
+          "tooltip": "One picture per symbol id, id 1 first (the Reel Controller fills it).",
           "type": "array",
           "group": "Data"
         },
@@ -14053,11 +14065,13 @@
         },
         "targetSymbols": {
           "displayName": "Target Symbols",
+          "tooltip": "The exact symbols to land, top row first. Overrides Reel Strip + Stop Position (the controller fills it from a result that names symbols).",
           "type": "array",
           "group": "Data"
         },
         "spinStyle": {
           "displayName": "Spin Style",
+          "tooltip": "scroll: the reel spins and the result scrolls in from above. drop: the old symbols fall out and the new ones fall in (falling-symbol games).",
           "type": "enum",
           "group": "Spin",
           "enums": [
@@ -14067,23 +14081,27 @@
         },
         "spin": {
           "displayName": "Spin",
+          "tooltip": "Spin this reel on its own (a Reel Controller does this for you).",
           "type": "signal",
           "group": "Spin",
           "notSettableAsParameter": true
         },
         "stop": {
           "displayName": "Stop",
+          "tooltip": "Land this reel on its own (a Reel Controller does this for you).",
           "type": "signal",
           "group": "Spin",
           "notSettableAsParameter": true
         },
         "spinSpeed": {
-          "displayName": "Spin Speed",
+          "displayName": "Tease Base Speed",
+          "tooltip": "Base speed in px per frame that the anticipation speeds are a multiple of, and the slowest a reel delivers its result at (× 0.45). The reel spins at Spin Speed (Max).",
           "type": "number",
           "group": "Spin"
         },
         "maxSpinSpeed": {
-          "displayName": "Max Speed",
+          "displayName": "Spin Speed (Max)",
+          "tooltip": "How fast the reel spins, in px per frame at 60 fps (60 by default).",
           "type": "number",
           "group": "Spin"
         },
@@ -14168,6 +14186,7 @@
         },
         "blurStrength": {
           "displayName": "Blur Strength",
+          "tooltip": "How blurred a symbol gets at full speed (Spin Effect motion, directional or gaussian).",
           "type": "number",
           "group": "Effects"
         },
@@ -18283,26 +18302,30 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 3509,
-      "byteSize": 195479,
+      "lineCount": 3714,
+      "byteSize": 209795,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
+          "tooltip": "One array of symbol ids per reel: the reel strips the stop positions index into. Usually from the maths (Generate Reel Strips).",
           "type": "array",
           "group": "Data"
         },
         "stopPositions": {
           "displayName": "Stop Positions",
+          "tooltip": "Where each reel stops on its strip (one index per reel). The top row shows strip[stop]. Wire the maths result here; the reels wait for it before landing.",
           "type": "array",
           "group": "Data"
         },
         "symbolImages": {
           "displayName": "Symbol Images",
+          "tooltip": "One picture per symbol id, id 1 first (entry 0 is symbol 1). Shared with every reel.",
           "type": "array",
           "group": "Data"
         },
         "symbolVideos": {
           "displayName": "Symbol Videos",
+          "tooltip": "Optional video per symbol id (same order as Symbol Images), played on a win when Play Video On Win is on. Empty entry = no video.",
           "type": "array",
           "group": "Data"
         },
@@ -18320,28 +18343,33 @@
         },
         "videoReplaceImage": {
           "displayName": "Video Replace Image",
+          "tooltip": "When a symbol video plays, hide the picture underneath (on) or play over it (off).",
           "type": "boolean",
           "group": "Data"
         },
         "videoSpeed": {
           "displayName": "Video Speed",
+          "tooltip": "Playback speed of symbol videos: 1 = normal.",
           "type": "number",
           "group": "Data"
         },
         "playVideoOnWin": {
           "displayName": "Play Video On Win",
+          "tooltip": "Play a symbol's video while it is highlighted in a win.",
           "type": "boolean",
           "group": "Data"
         },
         "spinResult": {
           "displayName": "Spin Result",
+          "tooltip": "A whole maths result object: stop positions, symbols and wins are taken from it. Use it instead of wiring Stop Positions and Winning Cells separately.",
           "type": "object",
           "group": "Data"
         },
         "numberOfSymbols": {
-          "displayName": "Number Of Symbols",
+          "displayName": "Number Of Symbols (unused)",
+          "tooltip": "Unused: stored but read nowhere. The symbol count comes from Symbol Images. Kept so older projects still load.",
           "type": "number",
-          "group": "Data"
+          "group": "Legacy"
         },
         "column0": {
           "displayName": "Column 0",
@@ -18404,13 +18432,13 @@
           "group": "Columns"
         },
         "staggerDelay": {
-          "displayName": "Stagger Delay",
+          "displayName": "Stop Stagger (ms)",
           "tooltip": "Milliseconds between one reel stopping and the next, left to right.",
           "type": "number",
           "group": "Timing"
         },
         "startStagger": {
-          "displayName": "Start Stagger",
+          "displayName": "Start Stagger (ms)",
           "tooltip": "Milliseconds between one reel starting and the next, left to right — the ripple across the reels as a spin begins. 0 starts them all together.",
           "type": "number",
           "group": "Timing"
@@ -18440,7 +18468,7 @@
           "group": "Timing"
         },
         "cascadeStagger": {
-          "displayName": "Cascade Stagger",
+          "displayName": "Cascade Stagger (ms)",
           "tooltip": "Gravity-style cascades: milliseconds between one reel tumbling and the next, in stop order, so a tumble sweeps across the grid. 0 = all reels at once.",
           "type": "number",
           "group": "Timing"
@@ -18644,35 +18672,41 @@
         },
         "spin": {
           "displayName": "Spin",
+          "tooltip": "Start a spin. Sent again while the reels spin it is a quick stop (Can Quick Spin).",
           "type": "signal",
           "group": "Actions",
           "notSettableAsParameter": true
         },
         "canQuickSpin": {
           "displayName": "Can Quick Spin",
+          "tooltip": "Whether a second Spin during a spin stops the reels at once. A quick stop asked for while this is off waits until it is turned on.",
           "type": "boolean",
           "group": "Actions"
         },
         "stop": {
           "displayName": "Stop",
+          "tooltip": "Land the reels. Usually wired from the maths Done. A stop that arrives before the result waits for it.",
           "type": "signal",
           "group": "Actions",
           "notSettableAsParameter": true
         },
         "cascade": {
           "displayName": "Cascade",
+          "tooltip": "Run one tumble on every reel from the winning cells (Cascade Mode decides the new symbols).",
           "type": "signal",
           "group": "Actions",
           "notSettableAsParameter": true
         },
         "preloadTextures": {
           "displayName": "Preload Textures",
+          "tooltip": "Load every symbol picture now, so the first spin does not wait for them. Fires Textures Loaded.",
           "type": "signal",
           "group": "Actions",
           "notSettableAsParameter": true
         },
         "initialize": {
-          "displayName": "Initialize",
+          "displayName": "Initialize (same as Preload)",
+          "tooltip": "Same as Preload Textures (kept for older graphs).",
           "type": "signal",
           "group": "Actions",
           "notSettableAsParameter": true
@@ -18709,19 +18743,19 @@
           "displayName": "Space To Spin",
           "tooltip": "Space or Enter fires On Spin Request (wire it where your spin button goes); held for 0.8 s it keeps spinning (Continuous Spin) until released. Off by default: the game decides.",
           "type": "boolean",
-          "group": "Actions"
+          "group": "Spin Input"
         },
         "spinHeld": {
           "displayName": "Spin Button Held",
           "tooltip": "Wire the spin button's pressed state here: held for 0.8 s it turns on Continuous Spin, which fires On Spin Request again each time the reels stop, until released.",
           "type": "boolean",
-          "group": "Actions"
+          "group": "Spin Input"
         },
         "allowContinuousSpin": {
           "displayName": "Allow Continuous Spin",
           "tooltip": "Whether holding spin (key or button) may keep spinning. Turn off where autoplay is not allowed (Jurisdiction Rules.autoplayAllowed).",
           "type": "boolean",
-          "group": "Actions"
+          "group": "Spin Input"
         },
         "spinSoundVariants": {
           "displayName": "Spin Sound Variants",
@@ -18731,26 +18765,31 @@
         },
         "autoLayout": {
           "displayName": "Auto Layout",
+          "tooltip": "Let this node size and place every reel and cell from Columns, Rows, Cell Width/Height and the paddings. Off: the reels keep their own sizes.",
           "type": "boolean",
           "group": "Auto Layout"
         },
         "columnCount": {
           "displayName": "Columns",
+          "tooltip": "Auto Layout: how many reels the grid is laid out for (the wired Column 0..11 are the real reels).",
           "type": "number",
           "group": "Auto Layout"
         },
         "rowCount": {
           "displayName": "Rows",
+          "tooltip": "Auto Layout: rows per reel. Written to every reel's Visible Rows.",
           "type": "number",
           "group": "Auto Layout"
         },
         "cellWidth": {
           "displayName": "Cell Width",
+          "tooltip": "Auto Layout: width of one symbol cell, in pixels.",
           "type": "number",
           "group": "Auto Layout"
         },
         "cellHeight": {
           "displayName": "Cell Height",
+          "tooltip": "Auto Layout: height of one symbol cell, in pixels.",
           "type": "number",
           "group": "Auto Layout"
         },
@@ -18768,11 +18807,13 @@
         },
         "centerGrid": {
           "displayName": "Center Grid",
+          "tooltip": "Auto Layout: centre the whole grid in its stage.",
           "type": "boolean",
           "group": "Auto Layout"
         },
         "fitMode": {
           "displayName": "Fit Mode",
+          "tooltip": "Auto Layout: scale the grid to its stage. none = as sized; fit = fit inside; fill = fill it. For a responsive game prefer the Stage's own Fit Mode and leave this none.",
           "type": "enum",
           "enums": [
             "none",
@@ -18783,33 +18824,69 @@
         },
         "fitPadding": {
           "displayName": "Fit Padding",
+          "tooltip": "Auto Layout: margin left around the grid when it is fitted, as a share of the stage (0.05 = 5%).",
           "type": "number",
           "group": "Auto Layout"
         },
         "celebrateWin": {
           "displayName": "Celebrate Win",
+          "tooltip": "Show the win on the reels (Winning Cells / Winning Lines) in the Celebration Style. If the reels are still spinning it waits for them.",
           "type": "signal",
           "group": "Win Celebration",
           "notSettableAsParameter": true
         },
         "clearWin": {
           "displayName": "Clear Win",
+          "tooltip": "Stop showing the win: highlights off, dimmed symbols back to full.",
           "type": "signal",
           "group": "Win Celebration",
           "notSettableAsParameter": true
         },
         "celebrationStyle": {
           "displayName": "Celebration Style",
+          "tooltip": "How a win is shown. All Wins, Then Each Line (default): every winning symbol lights together for All Wins Time, then each paying line in turn for Line Time, with its amount. Each Line: the lines in turn only. All Wins Together: one flash of every winner. Cell By Cell: the winning symbols one after another.",
           "type": "enum",
           "enums": [
+            "all-then-lines",
+            "per-line",
             "all-at-once",
-            "sequential",
-            "per-line"
+            "sequential"
           ],
+          "group": "Win Celebration"
+        },
+        "allWinsDuration": {
+          "displayName": "All Wins Time (ms)",
+          "tooltip": "All Wins, Then Each Line: how long every winning symbol shows together before the lines take turns.",
+          "type": "number",
+          "group": "Win Celebration"
+        },
+        "lineDuration": {
+          "displayName": "Line Time (ms)",
+          "tooltip": "Each Line and All Wins, Then Each Line: how long each paying line shows before the next.",
+          "type": "number",
+          "group": "Win Celebration"
+        },
+        "dimNonWinners": {
+          "displayName": "Dim Non-Winners",
+          "tooltip": "While a win shows, every symbol that is not part of it fades back (Dim Amount), so the winners stand out. Back to full as the next spin starts or the win is cleared.",
+          "type": "boolean",
+          "group": "Win Celebration"
+        },
+        "dimAmount": {
+          "displayName": "Dim Amount",
+          "tooltip": "How visible a non-winning symbol stays while a win shows: 0 = hidden, 1 = not dimmed. 0.4 by default.",
+          "type": "number",
+          "group": "Win Celebration"
+        },
+        "dimFadeMs": {
+          "displayName": "Dim Fade (ms)",
+          "tooltip": "How long symbols take to fade back or return to full. 0 = at once.",
+          "type": "number",
           "group": "Win Celebration"
         },
         "celebrationLoopMode": {
           "displayName": "Final State",
+          "tooltip": "What happens after the win has been shown once: Loop repeats it, Stay On Last keeps the last step lit, Clear After One Cycle switches it off. Ends with On Celebration End (not when looping).",
           "type": "enum",
           "enums": [
             "loop",
@@ -18819,42 +18896,50 @@
           "group": "Win Celebration"
         },
         "celebrationDuration": {
-          "displayName": "Duration (ms)",
+          "displayName": "Flash Time (ms)",
+          "tooltip": "All Wins Together: how long the winners stay lit per flash.",
           "type": "number",
           "group": "Win Celebration"
         },
         "celebrationDelay": {
-          "displayName": "Stagger Delay (ms)",
+          "displayName": "Cell Step (ms)",
+          "tooltip": "Cell By Cell: milliseconds between one winning symbol lighting and the next.",
           "type": "number",
           "group": "Win Celebration"
         },
         "loopCelebration": {
-          "displayName": "Loop (Legacy)",
+          "displayName": "Loop (unused)",
+          "tooltip": "Unused: Final State decides whether a win repeats. Kept so older projects still load.",
           "type": "boolean",
-          "group": "Win Celebration"
+          "group": "Legacy"
         },
         "enablePayoutText": {
           "displayName": "Enable Payout Text",
+          "tooltip": "Show each line's amount on its middle symbol while that line is lit.",
           "type": "boolean",
           "group": "Win Celebration: Payout"
         },
         "payoutFontFamily": {
           "displayName": "Font Family",
+          "tooltip": "Font of the line amount.",
           "type": "string",
           "group": "Win Celebration: Payout"
         },
         "payoutFontSize": {
           "displayName": "Font Size",
+          "tooltip": "Size of the line amount, in pixels.",
           "type": "number",
           "group": "Win Celebration: Payout"
         },
         "payoutTextColor": {
           "displayName": "Text Color",
+          "tooltip": "Colour of the line amount.",
           "type": "color",
           "group": "Win Celebration: Payout"
         },
         "payoutAnimation1": {
           "displayName": "Text Animation 1",
+          "tooltip": "First animation of the line amount (count-up rolls the number up).",
           "type": "enum",
           "enums": [
             "none",
@@ -18866,6 +18951,7 @@
         },
         "payoutAnimation2": {
           "displayName": "Text Animation 2",
+          "tooltip": "Second animation of the line amount, after the first.",
           "type": "enum",
           "enums": [
             "none",
@@ -18877,16 +18963,19 @@
         },
         "winningCells": {
           "displayName": "Winning Cells",
+          "tooltip": "The winning positions: [row, col] pairs (see Position Order / Is 1-Based) or objects { row, col, line, payout }. A line number groups cells into lines.",
           "type": "array",
           "group": "Win Celebration: Data"
         },
         "winningLines": {
           "displayName": "Winning Lines",
+          "tooltip": "The paying lines: [{ lineIndex, payout, positions: [[row, col], …] }]. Turned into Winning Cells, with each line's amount on its middle symbol.",
           "type": "array",
           "group": "Win Celebration: Data"
         },
         "positionOrder": {
           "displayName": "Position Order",
+          "tooltip": "How a [a, b] winning position reads: row-col = [row, col], col-row = [col, row].",
           "type": "enum",
           "enums": [
             "row-col",
@@ -18896,16 +18985,19 @@
         },
         "isOneBased": {
           "displayName": "Is 1-Based",
+          "tooltip": "Winning positions count from 1 instead of 0.",
           "type": "boolean",
           "group": "Win Celebration: Data"
         },
         "enableCascade": {
           "displayName": "Enable Cascade",
+          "tooltip": "Allow tumbles. Off: a Cascade signal does nothing but fire On Cascade Complete.",
           "type": "boolean",
           "group": "Cascade"
         },
         "cascadeMode": {
           "displayName": "Cascade Mode",
+          "tooltip": "Where the new symbols of a tumble come from: From Maths Grid (Cascade Reels, required) or the reel strip above the stop.",
           "type": "enum",
           "enums": [
             "random",
@@ -18933,11 +19025,13 @@
         },
         "cascadeDuration": {
           "displayName": "Cascade Duration (ms)",
+          "tooltip": "Length of one tumble pass in ms: 40% the winners burn, 60% the rest fall (see the reel's Cascade Style).",
           "type": "number",
           "group": "Cascade"
         },
         "autoCascade": {
           "displayName": "Auto Cascade after Win",
+          "tooltip": "Run a tumble by itself each time a win has finished showing.",
           "type": "boolean",
           "group": "Cascade"
         },
@@ -19115,6 +19209,28 @@
           "type": "signal",
           "group": "Events"
         },
+        "onAllWinsShown": {
+          "displayName": "On All Wins Shown",
+          "tooltip": "Every winning symbol has just lit together (All Wins, Then Each Line, or All Wins Together): the moment for the total-win sound.",
+          "type": "signal",
+          "group": "Events"
+        },
+        "onLineShown": {
+          "displayName": "On Line Shown",
+          "tooltip": "A paying line has just lit on its own. Current Line Index / Current Line Payout say which and how much: the moment for a per-line sound or text.",
+          "type": "signal",
+          "group": "Events"
+        },
+        "currentLineIndex": {
+          "displayName": "Current Line Index",
+          "type": "number",
+          "group": "Events"
+        },
+        "currentLinePayout": {
+          "displayName": "Current Line Payout",
+          "type": "*",
+          "group": "Events"
+        },
         "onNextAnimation": {
           "displayName": "On Next Animation",
           "type": "signal",
@@ -19201,6 +19317,14 @@
           "_celebrateAllAtOnce": [],
           "_celebrateSequential": [],
           "_celebratePerLine": [],
+          "_celebrateAllThenLines": [],
+          "_groupCellsByLine": [],
+          "_runLineCycle": [],
+          "_finishCelebration": [],
+          "_refreshWinDim": [],
+          "_clearWinDim": [],
+          "_eachSymbolContainer": [],
+          "_fadeSymbol": [],
           "_highlightCell": [],
           "_clearCelebration": [],
           "_onCelebrationEnd": [],
@@ -79937,6 +80061,36 @@
         "direction": "input"
       }
     ],
+    "allWinsDuration": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "lineDuration": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "dimNonWinners": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "dimAmount": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
+    "dimFadeMs": [
+      {
+        "node": "PixiReelController",
+        "direction": "input"
+      }
+    ],
     "celebrationLoopMode": [
       {
         "node": "PixiReelController",
@@ -80228,6 +80382,30 @@
       }
     ],
     "onCelebrationEnd": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "onAllWinsShown": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "onLineShown": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "currentLineIndex": [
+      {
+        "node": "PixiReelController",
+        "direction": "output"
+      }
+    ],
+    "currentLinePayout": [
       {
         "node": "PixiReelController",
         "direction": "output"
