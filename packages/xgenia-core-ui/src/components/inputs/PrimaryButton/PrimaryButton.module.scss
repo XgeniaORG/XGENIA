@@ -172,4 +172,14 @@
     opacity: 1;
     transform: translateY(-50%) translateX(-50%);
   }
+
+  // Every PrimaryButton keeps a spinner mounted at opacity 0, and its three dots run a
+  // `transform: scale()` keyframe animation that never ends. A CSS animation does not stop
+  // because the thing it is on is invisible, and a transform animation is driven by the
+  // COMPOSITOR — so each of these made Chromium commit a new layer tree on every display
+  // frame. An idle editor was doing 119 of those a second with nothing on screen changing,
+  // which is the churn the macOS panel flashing rides on. Not loading, nothing to animate.
+  &:not(.is-loading) * {
+    animation-play-state: paused;
+  }
 }

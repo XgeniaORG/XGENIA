@@ -1,8 +1,19 @@
 import { filesystem, FileInfo } from '@xgenia/platform';
 
+import { isPublishExcluded } from '../../extensions/projectExtensions';
 import { clearFolders } from './cleanup';
 
-export async function copyProjectFilesToFolder(projectPath: string, direntry: string): Promise<void> {
+/** The file's path inside the project, with forward slashes. */
+function projectRelative(projectPath: string, fullPath: string): string {
+  return fullPath.substring(projectPath.length).replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+/** `exclude`: project-relative globs to leave out (from the publish hooks). */
+export async function copyProjectFilesToFolder(
+  projectPath: string,
+  direntry: string,
+  exclude: ReadonlyArray<string> = []
+): Promise<void> {
   // TODO: Load something like .xgeniaignore file list
   const ignoreFiles = ['.DS_Store', '.gitignore', '.gitattributes', 'project.json', 'Dockerfile'];
 
@@ -19,6 +30,7 @@ export async function copyProjectFilesToFolder(projectPath: string, direntry: st
     // TODO: Make this easier to access
     if (f.fullPath.indexOf('.git') !== -1) return false; // Ignore git files
     if (f.fullPath.indexOf('.xgenia') !== -1) return false; // Ignore xgenia files
+    if (isPublishExcluded(projectRelative(projectPath, f.fullPath), exclude)) return false;
 
     return true;
   });
@@ -77,7 +89,8 @@ export async function copyProjectFilesToFolder(projectPath: string, direntry: st
  */
 export async function copyProjectFilesToFlatFolderStake(
   projectPath: string,
-  direntry: string
+  direntry: string,
+  exclude: ReadonlyArray<string> = []
 ): Promise<Record<string, string>> {
   // TODO: Load something like .xgeniaignore file list
   const ignoreFiles = ['.DS_Store', '.gitignore', '.gitattributes', 'project.json', 'Dockerfile'];
@@ -93,6 +106,7 @@ export async function copyProjectFilesToFlatFolderStake(
     if (ignoreFiles.indexOf(f.name) !== -1) return false;
     if (f.fullPath.indexOf('.git') !== -1) return false;
     if (f.fullPath.indexOf('.xgenia') !== -1) return false;
+    if (isPublishExcluded(projectRelative(projectPath, f.fullPath), exclude)) return false;
 
     return true;
   });
@@ -233,6 +247,29 @@ export async function copyProjectFilesToFlatFolderStake(
     return content;
   };
 
+  // A character rig (`*.xgc.json`) names its atlas pages relative to itself in `atlases[].file` and
+  // `atlases[].sdf`. Two characters both ship `atlas_0.png`, so once flattened one page is renamed; a rig left
+  // pointing at the old name loads the other character's page.
+  const rewriteXgcRig = (content: string, localPath: string): string => {
+    let rig: any;
+    try {
+      rig = JSON.parse(content);
+    } catch {
+      return content; // not JSON: leave it for the loader to report
+    }
+    if (!rig || !Array.isArray(rig.atlases)) return content;
+    const baseDir = dirnamePosix(localPath);
+    for (const atlas of rig.atlases) {
+      if (!atlas || typeof atlas !== 'object') continue;
+      for (const key of ['file', 'sdf']) {
+        if (typeof atlas[key] !== 'string') continue;
+        const mapped = mapRefPath(atlas[key], baseDir);
+        if (mapped) atlas[key] = mapped;
+      }
+    }
+    return JSON.stringify(rig);
+  };
+
   function getUniqueFlatName(fullPath: string, baseName: string): string {
     const sanitizedBase = sanitizeStakeFileName(baseName);
 
@@ -291,6 +328,7 @@ export async function copyProjectFilesToFlatFolderStake(
       if (isTextLike(f.name)) {
         let content = await filesystem.readFile(f.fullPath);
         content = rewriteTextContent(content, localPath);
+        if (f.name.toLowerCase().endsWith('.xgc.json')) content = rewriteXgcRig(content, localPath);
         await filesystem.writeFileOverride(targetPath, content);
       } else {
         await filesystem.copyFile(f.fullPath, targetPath);

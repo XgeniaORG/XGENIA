@@ -25,6 +25,14 @@ describe('findPreviewFrame', () => {
     const page = { frames: () => frames } as unknown as Page;
     expect(findPreviewFrame(page)?.url()).toBe('http://localhost:8574/?t=1');
   });
+  it('prefers the frame the editor named over another frame on the same origin (the tools modal)', () => {
+    const frames = [
+      { url: () => 'http://localhost:8574/tools.html', name: () => '' },
+      { url: () => 'http://localhost:8574/?t=2', name: () => 'xgenia-preview' }
+    ];
+    const page = { frames: () => frames } as unknown as Page;
+    expect(findPreviewFrame(page)?.url()).toBe('http://localhost:8574/?t=2');
+  });
   it('returns null when no preview is mounted', () => {
     const page = { frames: () => [{ url: () => 'http://localhost:8080/src/editor/index.html' }] } as unknown as Page;
     expect(findPreviewFrame(page)).toBeNull();

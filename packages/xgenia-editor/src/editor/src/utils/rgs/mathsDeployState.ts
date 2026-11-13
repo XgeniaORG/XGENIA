@@ -7,8 +7,8 @@
 // event — one small store rather than threading React state through a jQuery
 // view.
 //
-// Owned by the Maths RGS panel: it is the only writer, and it writes after every
-// refresh, deploy and Server Version switch. Everything else reads.
+// Owned by the Maths panel: it is the only writer, and it writes after every
+// read of what is deployed and every local edit. Everything else reads.
 
 import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
 
@@ -18,9 +18,9 @@ import { emptyMathsStatus, MathsComponentStatus, MathsStatus } from './mathsComp
 export const MATHS_DEPLOY_STATE_CHANGED = 'mathsDeployState.changed';
 
 /**
- * Fired when Math Components were deployed by something other than the Maths RGS
- * panel (the AI's publish commands), so the panel re-reads versions, what is
- * deployed and the commit history. Payload: `{ gameId, deploymentId }`.
+ * Fired when Math Components were deployed (Publish, or the AI's publish
+ * commands), so the Maths panel re-reads what is deployed and Publish re-reads
+ * its release state. Payload: `{ gameId, deploymentId }`.
  */
 export const MATHS_DEPLOYED_ELSEWHERE = 'rgs.mathsDeployedElsewhere';
 

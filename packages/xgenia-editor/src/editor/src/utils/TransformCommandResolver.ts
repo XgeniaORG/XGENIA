@@ -196,6 +196,21 @@ function resolveGesture(target: any, nodeSnapshot: any) {
       };
     }
 
+    case 'anchor': {
+      // Unity's anchor presets: alignX/alignY ARE the nine anchors (group.js). Only a freely
+      // placed node has an anchor to move; the preload measures the jump the new anchor causes
+      // and folds a compensating move into the same undo entry, so the node stays put.
+      if (isPixi(target)) return { writes: [], blocked: 'unsupported-gesture' };
+      const position = String(params.position || 'relative').toLowerCase();
+      if (nodeSnapshot.parentLayout !== 'none' && IN_FLOW.has(position)) return { writes: [], blocked: 'in-flow' };
+      const X = ['left', 'center', 'right'];
+      const Y = ['top', 'center', 'bottom'];
+      const writes: any[] = [];
+      if (X.includes(target.alignX) && target.alignX !== (params.alignX || 'left')) writes.push({ param: 'alignX', value: target.alignX });
+      if (Y.includes(target.alignY) && target.alignY !== (params.alignY || 'top')) writes.push({ param: 'alignY', value: target.alignY });
+      return { writes };
+    }
+
     default:
       return { writes: [], blocked: 'unknown-gesture' };
   }

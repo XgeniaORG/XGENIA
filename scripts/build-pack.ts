@@ -39,7 +39,9 @@ async function copyFilesMatchingRegex(
 
     console.log('Copy operation completed.');
   } catch (error) {
+    // Fail the CI step: a pack that silently copied nothing used to upload an empty artifact.
     console.error('Error:', error.message);
+    process.exitCode = 1;
   }
 }
 
@@ -83,4 +85,9 @@ const regexList: RegExp[] = [
 
 fs.mkdirSync(destinationFolder, { recursive: true });
 
-copyFilesMatchingRegex(sourceFolder, destinationFolder, regexList);
+copyFilesMatchingRegex(sourceFolder, destinationFolder, regexList).then(() => {
+  if (!fs.readdirSync(destinationFolder).length) {
+    console.error(`Nothing to pack: no file in ${sourceFolder} matched.`);
+    process.exitCode = 1;
+  }
+});

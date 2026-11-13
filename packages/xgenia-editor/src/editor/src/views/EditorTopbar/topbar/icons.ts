@@ -49,13 +49,22 @@ import Layers01Icon from '@hugeicons/core-free-icons/Layers01Icon';
 import LayoutLeftIcon from '@hugeicons/core-free-icons/LayoutLeftIcon';
 // @ts-ignore
 import LayoutTopIcon from '@hugeicons/core-free-icons/LayoutTopIcon';
+// @ts-ignore
+import PauseIcon from '@hugeicons/core-free-icons/PauseIcon';
+// @ts-ignore
+import NextIcon from '@hugeicons/core-free-icons/NextIcon';
+// @ts-ignore
+import KeyframesMultipleIcon from '@hugeicons/core-free-icons/KeyframesMultipleIcon';
+// @ts-ignore
+import DashboardSpeed02Icon from '@hugeicons/core-free-icons/DashboardSpeed02Icon';
 
 export const I = {
   monitor: ComputerIcon, globe: GlobeIcon, more: MoreHorizontalIcon, copy: Copy01Icon, external: LinkSquare02Icon,
   sparkle: SparklesIcon, check: Tick02Icon, arrowUp: ArrowUp02Icon, warning: Alert02Icon, pencil: PencilEdit02Icon,
   play: PlayIcon, home: Home01Icon, caret: ArrowDown01Icon, chevRight: ArrowRight01Icon, phone: SmartPhone01Icon,
   tablet: Tablet01Icon, bug: Bug01Icon, download: Download04Icon, layers: Layers01Icon,
-  splitVertical: LayoutLeftIcon, splitHorizontal: LayoutTopIcon
+  splitVertical: LayoutLeftIcon, splitHorizontal: LayoutTopIcon,
+  pause: PauseIcon, next: NextIcon, keyframes: KeyframesMultipleIcon, speed: DashboardSpeed02Icon
 } as const;
 
 export type IconKey = keyof typeof I;

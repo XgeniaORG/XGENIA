@@ -12,12 +12,14 @@ import { platform } from '@xgenia/platform';
 
 
 import { ProjectModel } from '@xgenia-models/projectmodel';
+import { emitProjectEvent } from '@xgenia-utils/extensions/projectExtensions';
 
 import { AppRoute } from './pages/AppRoute';
 import { AppRouteOptions, AppRouter } from './pages/AppRouter';
 import { EditorPage } from './pages/EditorPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { DialogLayerContainer } from './views/DialogLayer';
+import { installShortcutSheet } from './views/ShortcutSheet';
 import { ToastLayerContainer } from './views/ToastLayer';
 
 //
@@ -57,6 +59,7 @@ function createDialogLayer() {
   // Create a root for dialogLayer and render the DialogLayerContainer.
   const dialogRoot = createRoot(dialogLayer);
   dialogRoot.render(React.createElement(DialogLayerContainer));
+  installShortcutSheet();
 
   if (import.meta.webpackHot) {
     import.meta.webpackHot.accept('./views/DialogLayer', () => {
@@ -166,6 +169,7 @@ export default class Router
       // This was missing after React 19 upgrade and causing chat history persistence issues
       (window as any).ProjectModel = ProjectModel;
       console.log('[Router] Exposed ProjectModel to window for chat history persistence');
+      emitProjectEvent({ type: 'opened', projectDir: args.project._retainedProjectDirectory });
     }
     
     // ADDED: Also ensure ProjectModel is always exposed, even if no project change

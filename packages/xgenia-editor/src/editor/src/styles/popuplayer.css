@@ -14,6 +14,14 @@
   left: 0;
 }
 
+/* Nothing in it: leave the compositor rather than sit there as a top-most window-sized layer.
+   A layer that size is carried by every transaction the window hands macOS, and presenting it
+   blank is what the whole-window flashing looks like (same reason the dialog and toast layers
+   do this, 2026-11-03). It comes back the moment a popup is put in it. */
+.popup-layer:empty {
+  display: none;
+}
+
 .popup-layer.dim {
   background-color: #0000007f;
   transition: background-color 0.2s linear;

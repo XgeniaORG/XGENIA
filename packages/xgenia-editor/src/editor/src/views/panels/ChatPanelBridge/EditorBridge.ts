@@ -14,17 +14,24 @@
 // setProjectBaseStyle / setProjectGlobalStylePrompt from the ProjectStylesPanel import — both are
 // still called below, which is why tsc reported them as undefined names.
 import ThumbnailCache from '@xgenia-utils/thumbnailcache';
+import { collapseConsoleLogs, consoleOutputHeader } from './collapseConsoleLogs';
 import { LocalProjectsModel } from '@xgenia-utils/LocalProjectsModel';
 import { serializeNodeParameters } from './serialize-param-guard';
 import { mergeAssetMeta, loadAssetMeta, migrateAssetMeta, flushAssetMeta, type AssetMetaEntry } from '../AssetPanel/assetMeta';
 import { reconcileGraphAssetRefs } from '../AssetPanel/assetGraphRefs';
-import { AiActivity } from '@xgenia-models/aiactivity';
+import { AiActivity, isAiWork } from '@xgenia-models/aiactivity';
 import { RailPresence } from '@xgenia-models/railpresence';
 import { GitStatus } from '@xgenia-models/gitstatus';
+import { emitProjectEvent } from '@xgenia-utils/extensions/projectExtensions';
+import { untrackInProject } from '@xgenia-utils/extensions/gitUntrack';
+import { conflictRefusal } from '../VersionControlPanel/components/conflictListModel';
 import { ComponentModel } from '@xgenia-models/componentmodel';
 import { NodeGraphModel, NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 import { NodeLibrary } from '@xgenia-models/nodelibrary';
 import { ProjectModel } from '@xgenia-models/projectmodel';
+import { stakeReadiness } from '@xgenia-utils/stake/stakeReadiness';
+import { startStakeJob, stakeJob } from '@xgenia-utils/stake/stakeCommands';
+import { checkStakePlan, stakeRulesForAgent, type StakePlan } from '@xgenia-utils/stake/stakeRules';
 import { takePendingSeed } from '../../../models/lobby/lobbySeed';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { UndoActionGroup, UndoQueue } from '@xgenia-models/undo-queue-model';
@@ -45,7 +52,7 @@ import {
     setProjectBaseStyle,
     setProjectGlobalStylePrompt,
 } from '../ProjectStylesPanel/ProjectStylesPanel';
-import { PluginLoader } from './PluginLoader';
+import { PluginLoader, pluginOrigin, webPanelPlugins, WEB_PLUGIN_FRAME_ATTR } from './PluginLoader';
 import {
     checkPublishName,
     publishJob,
@@ -53,7 +60,11 @@ import {
     startPublish,
     type PublishStartSpec,
 } from '@xgenia-utils/publish/publishCommands';
-import { setActiveGame } from '@xgenia-utils/rgs/rgsClient';
+import { connectWithXgeniaRgs, getActiveGame, getRgsSettings, setActiveGame } from '@xgenia-utils/rgs/rgsClient';
+import { desktopNotificationService } from '@xgenia-utils/DesktopNotificationService';
+import { resolveInsideProject } from '@xgenia-utils/projectPathGuard';
+import { getActivePreviewHost } from '@xgenia-utils/previewHostRegistry';
+import { shouldCaptureOffscreen } from '../../VisualCanvas/guestSize';
 
 interface PluginCommand {
     id: string;
@@ -218,6 +229,9 @@ export class EditorBridge {
     private aiUndoTimer: ReturnType<typeof setTimeout> | null = null;
     /** Quiet period that ends a burst. Tool calls within a turn arrive far closer
      *  together than this; a new user prompt is far further apart. */
+    /** The AI chat panel's frames (from its handshake), so only its commands light "AI working". */
+    private static _chatWindows = new WeakSet<object>();
+
     private static readonly AI_UNDO_IDLE_MS = 1500;
 
     /**
@@ -273,10 +287,20 @@ export class EditorBridge {
     // before it and the duplicate-id guard started from an empty set: each hot update of this file left one
     // more live listener, and every AI command ran once per listener — one scaffold call built six screens
     // and six reel grids. Kept on window, every evaluation of this module shares one registry.
-    private static get _registry(): { active: EditorBridge | null; handledIdsBySource: WeakMap<Window, Set<string>>; constructed: number } {
+    private static get _registry(): { active: EditorBridge | null; handledIdsBySource: WeakMap<Window, Set<string>>; constructed: number; webPluginHandshakes?: WeakMap<HTMLIFrameElement, string> } {
         const w = window as any;
         if (!w.__xgeniaEditorBridgeRegistry) w.__xgeniaEditorBridgeRegistry = { active: null, handledIdsBySource: new WeakMap<Window, Set<string>>(), constructed: 0 };
         return w.__xgeniaEditorBridgeRegistry;
+    }
+    /**
+     * Web-panel frames whose handshake was accepted, and the plugin id it was accepted for. On the
+     * window registry like the others, so a hot update does not make a live panel re-handshake.
+     * Created lazily: a registry made by an older evaluation of this module may not have it.
+     */
+    private static get _webPluginHandshakes(): WeakMap<HTMLIFrameElement, string> {
+        const r = EditorBridge._registry;
+        if (!r.webPluginHandshakes) r.webPluginHandshakes = new WeakMap<HTMLIFrameElement, string>();
+        return r.webPluginHandshakes;
     }
     /** Command ids already dispatched, per source window (a WeakMap: a closed iframe's entry goes with it). */
     private static get _handledIdsBySource(): WeakMap<Window, Set<string>> { return EditorBridge._registry.handledIdsBySource; }
@@ -324,6 +348,9 @@ export class EditorBridge {
         window.addEventListener('message', this.handleMessage);
         // Listen for active component changes from the NodeGraphEditor
         this.listenForComponentChanges();
+        // Setting changes reach the panel as they happen (the OpenRouter key, Show all tools, ...).
+        // Lost in a refactor (#37): nothing called it, so the panel never heard of a change (2026-11-01).
+        this.listenForSettingChanges();
         // Forward viewer console output into the plugin iframe
         this.forwardViewerConsole();
     }
@@ -371,12 +398,14 @@ export class EditorBridge {
             'chat-add-node-reference',
             (data: any) => {
                 if (!data || !data.nodeId) return;
+                // One queue slot per node: "Ask AI" on a multi-selection sends several, and
+                // a panel still mounting must receive all of them, not just the last.
                 this.pushEvent('nodeReferenced', {
                     nodeId: data.nodeId,
                     nodeLabel: data.nodeLabel || 'Element',
                     nodeType: data.nodeType,
                     component: data.component
-                });
+                }, 'nodeReferenced:' + data.nodeId);
             },
             this
         );
@@ -427,6 +456,13 @@ export class EditorBridge {
             const { EditorSettings } = require('../../../utils/editorsettings');
             if (EditorSettings?.instance?.on) {
                 EditorSettings.instance.on('updated', ({ key }: any) => {
+                    // "Show all tools" decides whether the panel shows model choice: push the value the
+                    // rail itself uses (a profile with no stored choice gets its default).
+                    if (key === 'rail.showAllTools') {
+                        const { readShowAllTools } = require('../../Rail/useShowAllTools');
+                        this.pushEvent('settingChanged', { key, value: readShowAllTools() }, `settingChanged:${key}`);
+                        return;
+                    }
                     if (EditorBridge.PUSHED_SETTING_KEYS.includes(key)) {
                         const value = EditorSettings.instance.get(key);
                         console.log(`[EditorBridge] Setting updated: ${key}, pushing to plugins`);
@@ -467,9 +503,14 @@ export class EditorBridge {
 
     /** Set the iframe reference (called when iframe mounts) */
     setIframe(iframe: HTMLIFrameElement, pluginId: string = 'xgenia-ai') {
-        this.iframe = iframe; // Legacy compatibility
+        // Only the chat is the primary frame pushEvent writes to. The image editor registering here
+        // replaced it, and from then on settingChanged, componentSwitched and the rest went to the
+        // image editor: the AI chat stopped hearing the editor once Images had been opened (2026-11-01).
+        if (pluginId === 'xgenia-ai') {
+            this.iframe = iframe;
+            this.flushPendingEvents();
+        }
         this.iframes.set(pluginId, iframe);
-        this.flushPendingEvents();
     }
 
     /**
@@ -628,11 +669,109 @@ export class EditorBridge {
             const src = event.source as Window | null;
             if (!src) return false;
             if (src === window) return true;   // same-document postMessage (our own plumbing)
-            const frames = Array.from(document.querySelectorAll('iframe')) as HTMLIFrameElement[];
-            return frames.some((f) => {
-                try { return f.contentWindow === src; } catch { return false; }
-            });
+            return this.frameForSource(src) !== null;
         } catch { return false; }
+    }
+
+    /** The iframe element (in this document) whose window is `src`, if any. */
+    private frameForSource(src: Window | null): HTMLIFrameElement | null {
+        if (!src) return null;
+        try {
+            const frames = Array.from(document.querySelectorAll('iframe')) as HTMLIFrameElement[];
+            return frames.find((f) => {
+                try { return f.contentWindow === src; } catch { return false; }
+            }) ?? null;
+        } catch { return null; }
+    }
+
+    /** Ids already warned about, so a misbehaving plugin logs once rather than per message. */
+    private _warnedWebPlugin = new Set<string>();
+    private warnWebPluginOnce(key: string, message: string) {
+        if (this._warnedWebPlugin.has(key)) return;
+        this._warnedWebPlugin.add(key);
+        console.warn(message);
+    }
+
+    /** The entitled web-panel plugin with this id and the origin its URL loads from, if any. */
+    private webPanelOrigin(pluginId: string): string | null {
+        try {
+            const plugin = webPanelPlugins(PluginLoader.instance.getCurrent()).find((p) => p.id === pluginId);
+            return plugin ? pluginOrigin(plugin.url) : null;
+        } catch { return null; }
+    }
+
+    /** The plugin id of the web-panel frame that sent this message, or null for any other source. */
+    private webPanelIdOf(event: MessageEvent): string | null {
+        const frame = this.frameForSource(event.source as Window | null);
+        return frame ? frame.getAttribute(WEB_PLUGIN_FRAME_ATTR) : null;
+    }
+
+    /**
+     * May this command / event be handled? Only web-panel frames (WebPluginPanel's iframe, marked
+     * with WEB_PLUGIN_FRAME_ATTR) are gated; every other source keeps the rule it always had.
+     *
+     * A web panel's message is handled only when its frame completed an accepted handshake for the
+     * id it was given AND the message comes from the origin of that plugin's URL right now. So a
+     * frame whose handshake was refused, a frame that navigated itself to another origin, and a
+     * plugin no longer entitled cannot reach the command surface (fs, graph, git) or the event bus.
+     */
+    private webPanelMessageAllowed(event: MessageEvent, kind: 'command' | 'event'): boolean {
+        const frame = this.frameForSource(event.source as Window | null);
+        const pluginId = frame?.getAttribute(WEB_PLUGIN_FRAME_ATTR);
+        if (!frame || pluginId === null || pluginId === undefined) return true;
+        const accepted = EditorBridge._webPluginHandshakes.get(frame) === pluginId;
+        const expected = this.webPanelOrigin(pluginId);
+        if (accepted && expected && event.origin === expected) return true;
+        this.warnWebPluginOnce(`${kind}:${pluginId}`,
+            `[EditorBridge] Dropping ${kind}s from web plugin '${pluginId}': `
+            + (!accepted ? 'no accepted handshake.' : `origin ${event.origin} does not match its plugin URL.`));
+        return false;
+    }
+
+    /**
+     * Handshake from a generic web-panel plugin (WebPluginPanel).
+     *
+     * Unlike the two built-in plugins, the origin is never taken from the message. The plugin's
+     * `plugin` id must be in the current entitlements as a web panel, and BOTH the message's
+     * origin and the src of the iframe that sent it must match the origin of the URL the server
+     * gave for that id. Anything else is ignored without a reply. The ack goes to that exact
+     * origin — never '*', and with no '*' fallback.
+     *
+     * Deliberately does NOT touch `pluginOrigin`, `connected` or the legacy `iframe`: those
+     * belong to the chat panel, and rewriting them here would send the chat's events to the
+     * wrong origin (where postMessage silently drops them). Command replies need nothing extra:
+     * executeCommand already answers each command at its own event.origin.
+     */
+    private handleWebPluginHandshake(pluginId: string, event: MessageEvent) {
+        const frame = this.frameForSource(event.source as Window | null);
+        // A refused handshake also withdraws an earlier acceptance for this frame.
+        if (frame) EditorBridge._webPluginHandshakes.delete(frame);
+        const expected = this.webPanelOrigin(pluginId);
+        if (!expected) {
+            this.warnWebPluginOnce(`handshake:${pluginId}`, `[EditorBridge] Ignoring a handshake from '${pluginId}': not an entitled web panel.`);
+            return;
+        }
+        // The frame must be the one WebPluginPanel mounted for THIS id, loaded from its URL.
+        const frameOrigin = frame ? pluginOrigin(frame.src) : null;
+        if (!frame || frame.getAttribute(WEB_PLUGIN_FRAME_ATTR) !== pluginId
+            || event.origin !== expected || frameOrigin !== expected) {
+            this.warnWebPluginOnce(`handshake:${pluginId}`, `[EditorBridge] Ignoring a handshake from '${pluginId}': origin ${event.origin} or its frame does not match its plugin URL.`);
+            return;
+        }
+        let entitled = false;
+        let tier = 'unknown';
+        try {
+            entitled = PluginLoader.instance.isEntitled(pluginId);
+            tier = PluginLoader.instance.getTier();
+        } catch (e) {
+            console.warn('[EditorBridge] Could not read entitlement for handshake-ack:', e);
+        }
+        EditorBridge._webPluginHandshakes.set(frame, pluginId);
+        try {
+            (event.source as WindowProxy).postMessage({ type: 'handshake-ack', entitled, tier }, expected);
+        } catch (err) {
+            console.warn(`[EditorBridge] Could not send handshake-ack to '${pluginId}':`, err);
+        }
     }
 
     private handleMessage = (event: MessageEvent) => {
@@ -649,11 +788,30 @@ export class EditorBridge {
             return;
         }
 
+        // Handshake from a generic web-panel plugin (any entitled plugin the server marked
+        // `kind: 'web-panel'`). The two built-in plugin names below keep their own path.
+        if (msg.type === 'handshake' && typeof msg.plugin === 'string'
+            && msg.plugin !== 'xgenia-ai' && msg.plugin !== 'xgenia-image-editor') {
+            this.handleWebPluginHandshake(msg.plugin, event);
+            return;
+        }
+
         // Handshake from plugin (AI chat or Image Editor)
         if (msg.type === 'handshake' && (msg.plugin === 'xgenia-ai' || msg.plugin === 'xgenia-image-editor')) {
+            // A web-panel frame may not claim a built-in plugin's name: this branch rewrites the
+            // chat's pluginOrigin and connection state and acks with the chat's entitlement.
+            const webPanelId = this.webPanelIdOf(event);
+            if (webPanelId !== null) {
+                this.warnWebPluginOnce(`legacy-handshake:${webPanelId}`,
+                    `[EditorBridge] Ignoring a '${msg.plugin}' handshake from web plugin '${webPanelId}'.`);
+                return;
+            }
             console.log(`[EditorBridge] Plugin handshake received from '${msg.plugin}':`, msg.version);
             this.connected = true;
-            this.pluginOrigin = event.origin || '*';
+            // The chat's origin only: pushEvent posts to the chat frame with this origin, and the
+            // image editor's handshake (another origin) set it too, so every push after Images had
+            // loaded was silently dropped by postMessage (2026-11-01).
+            if (msg.plugin === 'xgenia-ai') this.pluginOrigin = event.origin || '*';
 
             // Send handshake acknowledgment to the source iframe.
             //
@@ -671,6 +829,8 @@ export class EditorBridge {
             // type-the-URL-and-use-it-free path. Real protection means not
             // serving the bundle unauthenticated; that is a hosting change.
             const sourceWindow = event.source as WindowProxy;
+            // Only the chat's commands are the AI at work (see the AiActivity call below).
+            if (sourceWindow && msg.plugin === 'xgenia-ai') EditorBridge._chatWindows.add(sourceWindow);
             if (sourceWindow) {
                 const pluginId = msg.plugin === 'xgenia-image-editor' ? 'ai-image-editor' : 'ai-chat';
                 let entitled = false;
@@ -684,7 +844,7 @@ export class EditorBridge {
                 this.safePostMessage(
                     sourceWindow,
                     { type: 'handshake-ack', entitled, tier },
-                    this.pluginOrigin
+                    event.origin || '*'
                 );
             }
 
@@ -695,6 +855,8 @@ export class EditorBridge {
 
         // Command from plugin
         if (msg.type === 'command' && msg.id && msg.command) {
+            // A web-panel frame must have an accepted handshake and its plugin's origin.
+            if (!this.webPanelMessageAllowed(event, 'command')) return;
             // EXACTLY-ONCE. A command id must never execute twice.
             //
             // (2026-09-12, export 1789204750104) Every node the AI created that session was
@@ -749,15 +911,21 @@ export class EditorBridge {
             // Every command is a sign the AI is working, read-only ones included. Tying
             // this to undo bursts alone meant a turn made entirely of inspection tools
             // never lit the top bar at all. AiActivity ends itself on an idle window,
-            // so there is no matching end() to place here.
-            AiActivity.begin();
-            RailPresence.noteCommand(msg.command);
+            // so there is no matching end() to place here. Coach commands are not the AI.
+            // Only the AI chat's commands: the image editor and web plugins load with every game
+            // and their start-up reads lit "AI working" on each open (2026-11-01).
+            const fromChat = !src || EditorBridge._chatWindows.has(src);
+            if (fromChat && isAiWork(msg.command, (msg as any).args, (msg as any).quiet)) {
+                AiActivity.begin();
+                RailPresence.noteCommand(msg.command);
+            }
             this.executeCommand(msg as PluginCommand, event);
             return;
         }
 
         // Event from plugin
         if (msg.type === 'event' && msg.event) {
+            if (!this.webPanelMessageAllowed(event, 'event')) return;
             this.dispatchEvent(msg.event, msg.data);
             return;
         }
@@ -903,6 +1071,17 @@ export class EditorBridge {
         h('aiBrowser.getState', () => ({ state: AiBrowserManager.getState(), logs: AiBrowserManager.getConsoleLogs(false) }));
         h('aiBrowser.getConsoleLogs', ([clear]: [boolean]) => AiBrowserManager.getConsoleLogs(!!clear));
 
+        // --- Coach layer: the panel's lessons draw a spotlight, card and pointer over the editor and
+        // hear back what the user clicked. Proprietary (private/xgenia-coach): open-source builds
+        // have no coach.* commands, and the panel then keeps lessons off. ---
+        try {
+            require('@xgenia/coach').registerCoachCommands(h, (event: string, data: unknown) => this.pushEvent(event, data), {
+                previewFrame: () => getActivePreviewHost()?.element
+            });
+        } catch {
+            // @xgenia/coach not available (open-source build)
+        }
+
         // --- Project commands ---
         h('project.getComponents', () => {
             const components = (ProjectModel.instance as any)?.getComponents?.() || [];
@@ -933,6 +1112,16 @@ export class EditorBridge {
         // the real handler further down (search "Project directory") is registered later and
         // therefore won this key anyway, and it wraps the same read in a try/catch. Removed
         // rather than left as a second definition of the same route.
+
+        // (2026-10-16) "The AI finished" while XGENIA is in the background. The chat is a remote iframe,
+        // which may not ask for notification permission itself, so it asks the editor. Nothing shows
+        // while the user is in the app.
+        h('notify.aiTaskComplete', ([message]: [string?]) =>
+            desktopNotificationService.notifyAITaskComplete(typeof message === 'string' ? message.slice(0, 200) : undefined)
+        );
+        h('notify.aiError', ([message]: [string?]) =>
+            desktopNotificationService.notifyAIError(typeof message === 'string' ? message.slice(0, 200) : undefined)
+        );
 
         h('project.getName', () => {
             return (ProjectModel.instance as any)?.name || null;
@@ -1025,8 +1214,25 @@ export class EditorBridge {
                  * <project>/assets, depth-capped, hidden/heavy dirs skipped, and
                  * the same set the AI's own asset tool reports.
                  */
+                // (2026-11-13) Windows showed "Failed to reach editor asset service": this promise
+                // either rejected (a throw from the walk) or never settled (the panel's 30 s timeout).
+                // It now always answers — with what was found by 20 s, or an explicit error.
+                let settled = false;
+                const finish = (value: any) => {
+                    if (settled) return;
+                    settled = true;
+                    resolve(value);
+                };
+                const partial: any[] = [];
+                setTimeout(() => {
+                    if (!settled) console.warn('[EditorBridge] project.listImages: walk still running after 20s; answering empty.');
+                    finish(partial);
+                }, 20000);
+                const resolveList = finish;
+                try {
                 project.listProjectAssets(
                     (files: any[]) => {
+                        const resolve = resolveList;
                         try {
                             const results = (files || []).map(f => {
                                 const relativePath = (f.fullPath && f.fullPath.startsWith(projectDir))
@@ -1047,6 +1253,10 @@ export class EditorBridge {
                     },
                     { types: ['png', 'jpeg', 'jpg', 'svg', 'gif', 'webp'] }
                 );
+                } catch (e) {
+                    console.error('[EditorBridge] project.listImages failed:', e);
+                    finish([]);
+                }
             });
         });
 
@@ -2366,7 +2576,10 @@ export class EditorBridge {
                 if (!message || typeof message !== 'string') {
                     return { success: false, error: 'Commit message required' };
                 }
-                const { Git } = await import('@xgenia/git');
+                const { Git, readConflicts } = await import('@xgenia/git');
+                // the same refusal the Version Control panel gives while merge conflicts are listed
+                const refusal = await conflictRefusal(pm._retainedProjectDirectory, readConflicts);
+                if (refusal) return refusal;
                 const { mergeProject } = await import('@xgenia-utils/projectmerger');
                 const g = new Git(mergeProject);
                 await g.openRepository(pm._retainedProjectDirectory);
@@ -2412,6 +2625,7 @@ export class EditorBridge {
                         headAfter,
                     };
                 }
+                emitProjectEvent({ type: 'reverted', projectDir: pm._retainedProjectDirectory });
                 return {
                     success: true,
                     sha,
@@ -2421,6 +2635,15 @@ export class EditorBridge {
             } catch (e: any) {
                 return { success: false, error: e?.message || String(e) };
             }
+        });
+
+        // Stop tracking paths without deleting them (`git rm --cached --ignore-unmatch`), e.g. files
+        // that are generated from others and now git-ignored. Local only, no remote side-effects.
+        h('git.untrack', async ([paths]: [string[]]) => {
+            const pm = ProjectModel.instance as any;
+            const result = await untrackInProject(pm?._retainedProjectDirectory, paths);
+            if (result.success) void GitStatus.refresh();
+            return result;
         });
 
         h('git.getHistory', async ([limit]: [number?]) => {
@@ -2473,7 +2696,9 @@ export class EditorBridge {
                 // through the bridge has never worked. Use the INSTANCE
                 // methods (g.getRemoteName / g.push) which resolve the
                 // repo from the opened baseDir.
-                const { Git } = await import('@xgenia/git');
+                const { Git, readConflicts } = await import('@xgenia/git');
+                const refusal = await conflictRefusal(pm._retainedProjectDirectory, readConflicts);
+                if (refusal) return refusal;
                 const { mergeProject } = await import('@xgenia-utils/projectmerger');
                 const g = new Git(mergeProject);
                 await g.openRepository(pm._retainedProjectDirectory);
@@ -2868,6 +3093,16 @@ export class EditorBridge {
         //
         // Waiting is bounded: a storage layer that never answers must not hang
         // the bridge, so after 5s we answer with what we have and say so.
+        // The chat panel's turn signal (start, a beat every TURN_BEAT_MS, end) for the status pill.
+        h('editor.aiTurn', ([on]: [unknown]) => {
+            AiActivity.turn(on === true);
+            return true;
+        });
+        // Whether the user has "Show all tools" on, resolved as the rail resolves it.
+        h('editor.showAllTools', async () => {
+            const { readShowAllTools } = require('../../Rail/useShowAllTools');
+            return readShowAllTools();
+        });
         h('settings.get', async ([key]: [string]) => {
             try {
                 const { EditorSettings } = require('../../../utils/editorsettings');
@@ -3050,11 +3285,25 @@ export class EditorBridge {
         const writeRgs = (patch: Record<string, any>): void => {
             try { localStorage.setItem('xgenia_rgs_settings', JSON.stringify({ ...readRgs(), ...patch })); } catch { /* ignore */ }
         };
+        // The key is NOT in localStorage any more (it is in the OS keychain, decrypted
+        // into memory by rgsClient — G1-S14): read it through getRgsSettings.
         h('xrgs.getSettings', () => {
-            const s = readRgs();
-            return s.apiKey ? { apiKey: s.apiKey, url: s.rgsUrl || XRGS_DEFAULT_URL } : null;
+            const s = getRgsSettings();
+            return s?.apiKey ? { apiKey: s.apiKey, url: s.rgsUrl || XRGS_DEFAULT_URL } : null;
         });
-        h('xrgs.getActiveGame', () => readRgs().activeGame ?? null);
+        // "Sign in with XGENIA" (2026-11-10): opens the person's browser to sign in to XGENIA RGS with their XGENIA
+        // account, as Publish's button does. The play-money sandbox it used to connect to takes no new connections.
+        // A person in several studios is not asked here (the AI cannot pick for them): it refuses with a message
+        // that sends them to Publish, and nothing is spent.
+        h('xrgs.connect', async () => {
+            const r = await connectWithXgeniaRgs({
+                chooseStudio: async () => {
+                    throw new Error('This XGENIA account is in several RGS studios. Open Publish and press Sign in with XGENIA to choose one.');
+                }
+            });
+            return { connected: true, sandbox: false, operatorSlug: r.operatorSlug, studio: r.studio };
+        });
+        h('xrgs.getActiveGame', () => getActiveGame());
         // Through rgsClient, not writeRgs: it also emits `rgs.gameSelected`, so the
         // Publish popup follows a game the AI picks instead of showing the old one.
         h('xrgs.setActiveGame', ([game]: [any]) => { setActiveGame(game ?? null); return true; });
@@ -3080,11 +3329,10 @@ export class EditorBridge {
 
         // --- Publish (2026-10-05) ---
         // Publishing the open game as a playable demo with a shareable link — the same thing the
-        // user gets from Publish → Deploy (XGENIA tab), and the Maths RGS panel's Math Components →
-        // Deploy that the published game's backend calls come from. Before this, both pipelines
-        // lived inside React components and the AI could not run either. They are plain modules
-        // now (utils/publish), the popup and the panel call them, and these commands call the SAME
-        // modules — no second pipeline. See utils/publish/publishCommands.ts.
+        // user gets from Publish → XGENIA, including the Math Components deploy that the published
+        // game's backend calls come from. Both are plain modules (utils/publish): the popup calls
+        // them, and these commands call the SAME modules — no second pipeline. See
+        // utils/publish/publishCommands.ts.
         //
         // WHY START-AND-POLL. A game publish takes minutes (UI build, GitHub push, then up to 2 min
         // of Vercel polling), and the panel forwards each command with a hard 30 s timeout. So
@@ -3100,7 +3348,7 @@ export class EditorBridge {
         //                                               deployedDomains[{name, url, deploymentId, …}], … }
         //   publish.checkName([name])               → { valid, available (null = could not tell), url, reason?,
         //                                               republish? (this editor's own earlier publish of it) }
-        //   publish.start([{ kind: 'maths', commitMessage? }])
+        //   publish.start([{ kind: 'maths', redeployAll? }])
         //   publish.start([{ kind: 'game', name, telemetry?: { betInput?, winOutput?, betButton? }, isPrivate? }])
         //                                           → { jobId, kind, startedAt } | { error, unresolved?, candidates? }
         //   publish.job([jobId?])                   → { jobId, kind, state, step, steps, startedAt, finishedAt?,
@@ -3115,6 +3363,47 @@ export class EditorBridge {
             try { return startPublish(spec); } catch (e: any) { return { error: e?.message || String(e) }; }
         });
         h('publish.job', ([jobId]: [string?]) => publishJob(jobId));
+
+        // --- Stake Engine (2026-11-09) ---
+        // stake.readiness() → ReadinessReport: what in the open project will break on Stake, each issue with the
+        // fix for the user and an instruction for the AI (utils/stake/stakeReadiness.ts). The Stake tab shows the
+        // same report and can hand it to the AI ("Fix with AI" → event `stake-ask-ai`).
+        // `rgs` (2026-11-11): measuring RTP and building for Stake run the maths on XGENIA RGS, so the AI is told
+        // up front whether the editor is signed in and has a game — and tells the user to connect, instead of
+        // finding out from a refused measure and carrying on with something else.
+        h('stake.readiness', () => {
+            try {
+                const rgs = getRgsSettings();
+                const game = rgs?.apiKey ? getActiveGame() : null;
+                return { ...stakeReadiness((ProjectModel.instance as any)?.toJSON?.()), rgs: { connected: !!rgs?.apiKey, game: game?.id ? (game.name || game.slug || game.id) : null } };
+            } catch (e: any) {
+                return { error: e?.message || String(e) };
+            }
+        });
+        // stake.start([{ kind: 'measure' | 'build', component?, booksPerMode?, oversample?, bet?, folder? }]) → { jobId } | { error, issues? }
+        // stake.job([jobId?]) → { state, step, steps, result?: { modes, withinLimits, problems, … }, error? }
+        // measure: books only, in a scratch folder, then Stake's limits per mode (RTP band, spread, max win, buys).
+        // build: the whole game for upload (frontend on the Book Connector + books + review checklist), then limits.
+        // utils/stake/stakeCommands.ts. Long work: start returns at once, the AI polls job.
+        h('stake.start', ([spec]: [any]) => {
+            try { return startStakeJob(spec); } catch (e: any) { return { error: e?.message || String(e) }; }
+        });
+        h('stake.job', ([jobId]: [string?]) => stakeJob(jobId));
+        // The Stake boundary (2026-11-11, utils/stake/stakeRules.ts — one rule set for every layer):
+        // stake.rules() → { target, version, limits, features (allowed or not, why, alternative), blockedNodeTypes,
+        //   blockedLabelPattern, … } — the agent's tool gate refuses to place a blocked part on a Stake game;
+        // stake.plan([plan]) → { ok, items: [{ item, allowed, note, alternative? }], unknown } — the AI states the
+        //   game it means to build (features in the studio's words, modes, payout, top win) BEFORE building it.
+        h('stake.rules', () => {
+            try {
+                return { target: (ProjectModel.instance as any)?.getMetaData?.('target') ?? null, ...stakeRulesForAgent() };
+            } catch (e: any) {
+                return { error: e?.message || String(e) };
+            }
+        });
+        h('stake.plan', ([plan]: [StakePlan?]) => {
+            try { return checkStakePlan(plan); } catch (e: any) { return { error: e?.message || String(e) }; }
+        });
 
         // --- Filesystem commands ---
         //
@@ -3131,27 +3420,8 @@ export class EditorBridge {
         // Containment cannot live in a text classifier — it belongs here, where the real path is.
         // resolve() collapses `..`; realpath (best-effort) closes the symlink escape. A path that
         // does not exist yet is checked at its resolved location, which is what a create needs.
-        const assertInsideProject = (p: string, op: string): string => {
-            const path = require('path');
-            const fs = require('fs');
-            const projectDir = ProjectModel.instance._retainedProjectDirectory;
-            if (!projectDir) throw new Error(`FileSystem.${op} refused: no project is open, so nothing can be resolved safely.`);
-            const root = path.resolve(projectDir);
-            const resolved = path.resolve(root, p || '');
-            const within = (candidate: string) => candidate === root || candidate.startsWith(root + path.sep);
-            let check = resolved;
-            try {
-                // realpath the deepest EXISTING ancestor, so a symlinked parent cannot smuggle us out.
-                let probe = resolved;
-                while (probe !== path.dirname(probe) && !fs.existsSync(probe)) probe = path.dirname(probe);
-                const realProbe = fs.realpathSync(probe);
-                check = path.resolve(realProbe, path.relative(probe, resolved));
-            } catch { /* unreadable ancestor — fall back to the lexical check below */ }
-            if (!within(check) || !within(resolved)) {
-                throw new Error(`FileSystem.${op} refused: "${p}" resolves outside the project directory. The AI bridge may only touch files inside the open project.`);
-            }
-            return resolved;
-        };
+        const assertInsideProject = (p: string, op: string): string =>
+            resolveInsideProject(ProjectModel.instance._retainedProjectDirectory, p, op);
 
         h('fs.readFile', async ([filePath, encoding]: [string, string?]) => {
             filePath = assertInsideProject(filePath, 'readFile');
@@ -3519,7 +3789,7 @@ export class EditorBridge {
         });
 
         // --- Viewer commands (screenshots, HTML) ---
-        h('viewer.captureScreenshot', ([fullPage]: [boolean]) => {
+        h('viewer.captureScreenshot', ([fullPage, encoding]: [boolean, { format?: 'png' | 'jpeg'; quality?: number }?]) => {
             return new Promise((resolve) => {
                 try {
                     const { ipcRenderer } = require('electron');
@@ -3527,7 +3797,10 @@ export class EditorBridge {
                     const replyChannel = fullPage ? 'viewer-capture-fullpage-reply' : 'viewer-capture-thumb-reply';
                     const timeoutMs = fullPage ? 30000 : 10000;
 
-                    ipcRenderer.send(requestChannel);
+                    // (2026-10-07) A motion frame may ask for JPEG (captureEncoding.ts); the main process
+                    // forwards the argument to the preview view as it is. No argument = the old PNG.
+                    if (encoding && typeof encoding === 'object') ipcRenderer.send(requestChannel, { format: encoding.format, quality: encoding.quality });
+                    else ipcRenderer.send(requestChannel);
 
                     const timeout = setTimeout(() => {
                         ipcRenderer.removeListener(replyChannel, handler);
@@ -3547,6 +3820,7 @@ export class EditorBridge {
                                 stale: !!d.stale,
                                 ...(d.busy ? { busy: true, holder: d.holder } : {}),
                                 ...(d.notReady ? { notReady: true } : {}),
+                                ...(d.code ? { code: d.code, guest: d.guest, box: d.box } : {}),
                                 message: d.error
                             }));
                         } else if (typeof data === 'string' && data) {
@@ -3569,26 +3843,53 @@ export class EditorBridge {
         // (the old <webview> trick) does not work now that the preview is an in-process <iframe>,
         // and why the reply's width/height are the MEASURED captured pixels, not an echo of what
         // was asked for.
+        // (2026-11-12) When the in-place capture fails — the preview's guest window lost its size
+        // (GUEST_UNSIZED), the editor window is hidden or minimised, the surface is held — the same
+        // size is captured in a hidden offscreen window instead (main/src/offscreen-capture.js). That
+        // image is a fresh load of the preview, so the reply says `offscreen: true` and keeps the
+        // in-place reason in `inPlaceFailure`.
+        const captureOffscreen = async (width: number, height: number, timeoutMs?: number): Promise<any> => {
+            try {
+                const { ipcRenderer } = require('electron');
+                return await ipcRenderer.invoke('preview-capture:design-offscreen', { width, height, timeoutMs });
+            } catch (e: any) {
+                return { success: false, message: `offscreen capture error: ${e?.message || e}` };
+            }
+        };
+
         h('viewer.captureDesign', ([width, height]: [number, number]) => {
-            return new Promise((resolve) => {
+            return new Promise<any>((resolve) => {
                 try {
                     const { ipcRenderer } = require('electron');
                     ipcRenderer.send('viewer-capture-design', { width, height });
                     const timeout = setTimeout(() => {
                         ipcRenderer.removeListener('viewer-capture-design-reply', handler);
-                        resolve(JSON.stringify({ success: false, message: 'Design-size screenshot timed out after 20s' }));
+                        resolve({ success: false, timedOut: true, message: 'Design-size screenshot timed out after 20s' });
                     }, 20000);
                     const handler = (_event: any, payload: any) => {
                         clearTimeout(timeout);
                         ipcRenderer.removeListener('viewer-capture-design-reply', handler);
-                        resolve(JSON.stringify(payload || { success: false, message: 'Design capture returned no data' }));
+                        resolve(payload || { success: false, message: 'Design capture returned no data' });
                     };
                     ipcRenderer.on('viewer-capture-design-reply', handler);
                 } catch (e: any) {
-                    resolve(JSON.stringify({ success: false, message: `Design capture error: ${e.message}` }));
+                    resolve({ success: false, message: `Design capture error: ${e.message}` });
                 }
+            }).then(async (inPlace) => {
+                if (!shouldCaptureOffscreen(inPlace)) return JSON.stringify(inPlace);
+                const off = await captureOffscreen(width, height, inPlace.timedOut ? 12000 : undefined);
+                if (off && off.success) return JSON.stringify({ ...off, inPlaceFailure: inPlace.message });
+                // Both failed: the in-place reason first (it is about the pane the user sees).
+                return JSON.stringify({
+                    ...inPlace,
+                    message: `${inPlace.message || 'design capture failed'}; offscreen capture also failed: ${off?.message || 'no reply'}`,
+                    offscreenCode: off?.code
+                });
             });
         });
+
+        // The design size in the offscreen window only — a fresh load, independent of the pane.
+        h('viewer.captureDesignOffscreen', async ([width, height]: [number, number]) => JSON.stringify(await captureOffscreen(width, height)));
 
         h('viewer.getFullHtml', () => {
             return new Promise((resolve) => {
@@ -3868,12 +4169,18 @@ export class EditorBridge {
                         const parts: string[] = [];
                         if (logs.length > 0) {
                             const MAX_LOGS = 20, MAX_LEN = 240, MAX_TOTAL = 2400;
-                            parts.push(`Console output (${logs.length}${logs.length > MAX_LOGS ? `, first ${MAX_LOGS} shown` : ''}):`);
+                            // (2026-10-09, export 1791536143029) COLLAPSE REPEATS BEFORE CAPPING.
+                            // The cap takes the FIRST 20 lines, and a node that logs every frame
+                            // fills them — see collapseConsoleLogs for the probe this cost.
+                            const collapsed = collapseConsoleLogs(logs);
+                            const shown = Math.min(collapsed.length, MAX_LOGS);
+                            parts.push(consoleOutputHeader(logs.length, collapsed.length, MAX_LOGS));
                             let used = 0;
-                            for (const entry of logs.slice(0, MAX_LOGS)) {
+                            for (const entry of collapsed.slice(0, shown)) {
                                 const prefix = entry.level === 'log' ? '' : `[${entry.level.toUpperCase()}] `;
-                                const text = String(entry.message);
-                                const line = `  ${prefix}${text.length > MAX_LEN ? text.slice(0, MAX_LEN) + '…' : text}`;
+                                const text = entry.message;
+                                const body = text.length > MAX_LEN ? text.slice(0, MAX_LEN) + '…' : text;
+                                const line = `  ${prefix}${body}${entry.repeats > 1 ? ` (×${entry.repeats})` : ''}`;
                                 if (used + line.length > MAX_TOTAL) { parts.push('  … (console output capped)'); break; }
                                 used += line.length;
                                 parts.push(line);
@@ -4059,6 +4366,20 @@ ${autoReturnCode}
             } catch (e: any) {
                 console.warn('[EditorBridge] Toast error:', e);
             }
+        });
+
+        // The Images panel rewrote a project picture it has open (an edit to a linked image). The
+        // running preview caches textures by URL and never re-fetches an overwritten file, so it
+        // is reloaded — once for a burst of writes — and the Assets panel told to refresh.
+        let assetRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+        h('imageEditor.assetUpdated', ([relativePath]: [string]) => {
+            EventDispatcher.instance.emit('project-assets-changed', { path: relativePath });
+            if (assetRefreshTimer) clearTimeout(assetRefreshTimer);
+            assetRefreshTimer = setTimeout(() => {
+                assetRefreshTimer = null;
+                EventDispatcher.instance.emit('viewer-refresh');
+            }, 400);
+            return true;
         });
 
         h('imageEditor.getFalApiKey', () => {

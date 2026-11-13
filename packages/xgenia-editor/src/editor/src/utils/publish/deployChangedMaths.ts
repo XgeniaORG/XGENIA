@@ -1,31 +1,29 @@
-// Math Components → Deploy, for a caller without the Maths RGS panel (the AI's
-// `publish.start` with kind 'maths').
+// Math Components → Deploy: the one way maths reaches XGENIA RGS from the editor.
+// Publish runs it before every publish, and the AI's `publish.start` with kind
+// 'maths' runs it on its own.
 //
-// Same building blocks as the panel's Deploy (MathsPanel
-// handleDeployMathsComponents): compare the project against what is deployed
-// (loadMathsStatus), deploy only what changed (deployMathsComponents with
-// onlySlugs), then record the commit (commitFilesForDeploy + createComponentCommit).
+// Compare the project against what is deployed (loadMathsStatus) and deploy only
+// what changed (deployMathsComponents with onlySlugs).
 //
-// Two deliberate differences:
-//   * The target is the active game's NEWEST Server Version — the panel's own
-//     default — because there is no row for the AI to click. A game with no
-//     version yet gets one, named after the project, as "＋ New version" would.
+//   * The target is the active game's NEWEST Server Version. A game with no
+//     version yet gets one, named after the project.
 //   * It NEVER deletes. A component removed from the project stays live on RGS
 //     and is reported in `notDeleted`: taking an endpoint offline can break a
-//     game already in the wild, so that stays a human action in the panel.
+//     game already in the wild, so that stays a deliberate human action in the
+//     XRGS back office.
 
 import { ProjectModel } from '@xgenia-models/projectmodel';
 import { EventDispatcher } from '@xgenia-shared/utils/EventDispatcher';
-import { commitFilesForDeploy, createComponentCommit } from '@xgenia-utils/rgs/componentCommits';
 import { listEdgeDeployments } from '@xgenia-utils/rgs/deployEdgeFunction';
 import {
   createEmptyServerVersion,
   deployMathsComponents,
+  deriveBetWinPorts,
   listMathsComponents
 } from '@xgenia-utils/rgs/deployMathsComponents';
 import { loadMathsStatus, MathsComponentStatus } from '@xgenia-utils/rgs/mathsComponentStatus';
 import { MATHS_DEPLOYED_ELSEWHERE } from '@xgenia-utils/rgs/mathsDeployState';
-import { fetchOperatorInfo, getActiveGame, getRgsSettings } from '@xgenia-utils/rgs/rgsClient';
+import { getActiveGame, getRgsSettings } from '@xgenia-utils/rgs/rgsClient';
 
 import { publishPreconditionError } from './publishGame';
 
@@ -37,8 +35,8 @@ export interface ServerVersionRef {
 }
 
 /**
- * The game's newest Server Version, or null when it has none — the one the
- * Maths RGS panel's Deploy targets until the user clicks another row.
+ * The game's newest Server Version, or null when it has none — the one a deploy
+ * targets and the Maths panel's Deployed tab shows.
  */
 export async function newestServerVersion(apiKey: string, gameId: string): Promise<ServerVersionRef | null> {
   const deployments = await listEdgeDeployments(apiKey, gameId);
@@ -76,16 +74,14 @@ export interface ChangedMathsDeployResult {
   unchanged: MathsComponentRef[];
   /** Removed from the project but still live on RGS — deleting is left to the user. */
   notDeleted: MathsComponentRef[];
-  /** Null when nothing was deployed, so there was nothing to record. */
-  commit: { recorded: boolean; commitId?: string; message?: string; error?: string } | null;
   warnings: string[];
   /** One sentence for a toast or a reply. */
   message: string;
 }
 
 const NOT_DELETED_NOTE =
-  'removed from the project but still live on XGENIA RGS — deleting a deployed component is left to you: ' +
-  'Maths RGS panel → Math Components → Deploy applies removals.';
+  'removed from the project but still live on XGENIA RGS — deleting a deployed component is left to you, ' +
+  'in XGENIA RGS (the game’s Versions).';
 
 function refOf(status: MathsComponentStatus): MathsComponentRef {
   return { name: status.displayName, slug: status.slug, ...(status.url ? { endpoint: status.url } : {}) };
@@ -93,7 +89,7 @@ function refOf(status: MathsComponentStatus): MathsComponentRef {
 
 /**
  * Deploy the open project's ADDED and MODIFIED Math Components into the active
- * game's newest Server Version, and record the commit.
+ * game's newest Server Version.
  *
  * Nothing to deploy — everything already matches, or the project has no Math
  * Components at all (its maths then runs in the page) — is an answer, not an
@@ -101,12 +97,9 @@ function refOf(status: MathsComponentStatus): MathsComponentRef {
  *
  * Throws with a plain-language message when deploying fails (not connected, no
  * game, a component that will not compile, an RGS error).
- * A commit that cannot be recorded does NOT fail it — the components are live by
- * then — and comes back as `commit.recorded: false` plus a warning.
  */
 export async function deployChangedMathsComponents(
   opts: {
-    commitMessage?: string;
     onProgress?: (step: string) => void;
     /**
      * Recompile and redeploy every component, unchanged ones included. (2026-10-05) A component
@@ -132,7 +125,6 @@ export async function deployChangedMathsComponents(
       deployed: [],
       unchanged: [],
       notDeleted: [],
-      commit: null,
       warnings: [],
       message: 'Nothing to deploy — this project has no Math Components.'
     };
@@ -142,20 +134,32 @@ export async function deployChangedMathsComponents(
   let target = await newestServerVersion(rgs.apiKey, game.id);
   let created = false;
   if (!target) {
-    progress('Creating a server version…');
-    // Named after the open project, same as the panel's "＋ New version", so
-    // the version is recognisable in the RGS studio's Versions tab.
+    progress('Creating the game’s first version on XGENIA RGS…');
+    // Named after the open project, so the version is recognisable in the RGS
+    // studio's Versions tab.
     const fresh = await createEmptyServerVersion(rgs.apiKey, game.id, project.name || game.name || 'Server Version');
     target = { deploymentId: fresh.deploymentId, version: fresh.version };
     created = true;
   }
 
   const status = await loadMathsStatus(rgs.apiKey, target.deploymentId, project);
+  // (2026-11-05) "Unchanged" is judged by the GRAPH, so a component an older editor deployed WITHOUT a
+  // bet/win mapping stayed that way for good — playing every round at a stake of 0 and missing from the
+  // Stake export (Wheel Game Test Math: its stake input is `Bet`, which the old rule did not read). One
+  // whose own stored ports this editor's rules DO map is redeployed, so it gets the mapping; once mapped
+  // it is unchanged again, so this never repeats.
+  const unmapped = (c: MathsComponentStatus) => {
+    const d = status.deployedBySlug.get(c.slug);
+    if (!d || d.betInputPort || d.winOutputPort) return false;
+    const derived = deriveBetWinPorts({ payloadExample: d.payloadExample, responseExample: d.responseExample });
+    return !!derived.betInputPort && !!derived.winOutputPort;
+  };
   const toDeploy = opts.redeployAll
     ? status.all.filter((c) => c.kind !== 'deleted' && !!c.componentName)
-    : status.changed.filter((c) => c.kind === 'added' || c.kind === 'modified');
+    : status.all.filter((c) => c.kind === 'added' || c.kind === 'modified' || (c.kind === 'unchanged' && !!c.componentName && unmapped(c)));
   const notDeleted = status.changed.filter((c) => c.kind === 'deleted').map(refOf);
-  const unchanged = opts.redeployAll ? [] : status.all.filter((c) => c.kind === 'unchanged').map(refOf);
+  const redeploying = new Set(toDeploy.map((c) => c.slug));
+  const unchanged = opts.redeployAll ? [] : status.all.filter((c) => c.kind === 'unchanged' && !redeploying.has(c.slug)).map(refOf);
   const warnings: string[] = [];
   if (notDeleted.length > 0) {
     warnings.push(`${notDeleted.map((c) => c.name).join(', ')}: ${NOT_DELETED_NOTE}`);
@@ -173,7 +177,6 @@ export async function deployChangedMathsComponents(
     return {
       ...base,
       deployed: [],
-      commit: null,
       warnings,
       message: 'Nothing to deploy — every component matches what is already deployed.'
     };
@@ -188,47 +191,20 @@ export async function deployChangedMathsComponents(
     onProgress: progress
   });
 
-  // Record what just happened. AFTER the deploy, never before: a commit written
-  // up front would claim a deploy that might still fail. Never with deletions —
-  // this path makes none.
   const kindBySlug = new Map(toDeploy.map((c) => [c.slug, c.kind]));
   const names = results.map((r) => r.functionName);
-  const commitMessage =
-    (opts.commitMessage && String(opts.commitMessage).trim()) ||
-    `Deploy ${names.join(', ')}`.slice(0, 200);
-  let commit: ChangedMathsDeployResult['commit'];
-  try {
-    progress('Recording commit…');
-    // The panel credits the connected operator; so does this, when it can say who that is.
-    const author = await fetchOperatorInfo(rgs.apiKey)
-      .then((info) => info?.name || undefined)
-      .catch((): undefined => undefined);
-    const recorded = await createComponentCommit(
-      rgs.apiKey,
-      game.id,
-      target.deploymentId,
-      commitMessage,
-      commitFilesForDeploy(results, status),
-      author
-    );
-    commit = { recorded: true, commitId: recorded.commitId, message: commitMessage };
-  } catch (e: any) {
-    const error = e?.message || 'the commit could not be recorded';
-    console.error('[MathsComponents] commit failed:', e);
-    commit = { recorded: false, message: commitMessage, error };
-    warnings.push(`The components are live, but ${error} — only the history entry is missing.`);
-  }
 
-  // Said out loud for the same reasons the panel says them: a live backend with
-  // no readable graph stored, one that sees a stake of 0 until its bet/win
-  // mapping is set, and nodes that do nothing on the server.
+  // Said out loud: a live backend with no readable graph stored, one that sees
+  // a stake of 0 until its bet/win mapping is set, and nodes that do nothing on
+  // the server.
   results.forEach((r) => {
     if (!r.projectUploaded) warnings.push(`${r.functionName}: project.json upload failed: ${r.projectError || 'unknown error'}`);
     if (r.betWinWarning) warnings.push(r.betWinWarning);
     if (r.unsupportedNodeWarning) warnings.push(r.unsupportedNodeWarning);
+    (r.platformWarnings || []).forEach((w) => warnings.push(w));
   });
 
-  // The Maths RGS panel re-reads versions, what is deployed and the commits.
+  // The Maths panel re-reads what is deployed; Publish re-reads its state.
   EventDispatcher.instance.emit(MATHS_DEPLOYED_ELSEWHERE, { gameId: game.id, deploymentId: target.deploymentId });
 
   return {
@@ -244,11 +220,9 @@ export async function deployChangedMathsComponents(
       betInputPort: r.betInputPort,
       winOutputPort: r.winOutputPort
     })),
-    commit,
     warnings,
     message:
       `v${target.version}: ${results.length} component${results.length === 1 ? '' : 's'} deployed ` +
-      `(${names.join(', ')})` +
-      (commit?.recorded ? ' and committed.' : '.')
+      `(${names.join(', ')}).`
   };
 }

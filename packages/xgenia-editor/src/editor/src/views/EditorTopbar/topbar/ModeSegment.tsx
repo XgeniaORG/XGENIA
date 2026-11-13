@@ -29,6 +29,7 @@ export function ModeSegment({ previewMode, onChange }: ModeSegmentProps) {
           type="button"
           className={classNames(css.SegBtn, !previewMode && css.isActive)}
           onClick={() => onChange(false)}
+          data-guide="topbar.edit"
                     aria-pressed={!previewMode}
         >
           <Hi icon="pencil" size={12} />
@@ -38,6 +39,7 @@ export function ModeSegment({ previewMode, onChange }: ModeSegmentProps) {
           type="button"
           className={classNames(css.SegBtn, previewMode && css.isPreview)}
           onClick={() => onChange(true)}
+          data-guide="topbar.preview"
                     aria-pressed={previewMode}
         >
           <Hi icon="play" size={12} />

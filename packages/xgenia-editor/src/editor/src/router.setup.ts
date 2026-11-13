@@ -6,13 +6,13 @@ import { SidebarModel } from '@xgenia-models/sidebar';
 
 import {
   SideComponents, SideSearch, SideVersionControl, SideSettings, SideChatPanel, SideProjectStyles,
-  SideNodeReferences, SideImageEditor, SideMaths, SideAssets, SideAddNode
+  SideNodeReferences, SideImageEditor, SideMaths, SideAssets, SideAddNode, SideCloudFunctions, SideCloud,
+  SideHierarchy, SideHistory
 } from './views/SidePanel/SidebarIcons';
 
 import { ComponentDiffDocumentProvider } from './views/documents/ComponentDiffDocument';
 import { EditorDocumentProvider } from './views/documents/EditorDocument';
 import { MathsComplianceDocumentProvider } from './views/documents/MathsComplianceDocument';
-import { MathsComponentDocumentProvider } from './views/documents/MathsComponentDocument';
 import { MathsSimulateDocumentProvider } from './views/documents/MathsSimulateDocument';
 import { NodePickerPanel } from './views/NodePicker/NodePickerPanel';
 // ChatPanel: proprietary AI module loaded via iframe (GPL-isolated) or symlink (legacy).
@@ -42,10 +42,8 @@ if (AI_LOAD_STRATEGY === 'iframe') {
 } else {
   console.log('[XGENIA] AI Chat panel running in open-source mode (shell)');
 }
-// Cloud Functions panel disabled — see the commented-out register() call below.
-// import { CloudFunctionsPanel } from './views/panels/CloudFunctionsPanel/CloudFunctionsPanel';
-// Cloud Services panel disabled — see the commented-out register() call below.
-// import { CloudServicePanel } from './views/panels/CloudServicePanel/CloudServicePanel';
+import { CloudFunctionsPanel } from './views/panels/CloudFunctionsPanel/CloudFunctionsPanel';
+import { CloudServicePanel } from './views/panels/CloudServicePanel/CloudServicePanel';
 import { ComponentPortsComponent } from './views/panels/componentports';
 import { ComponentsPanel } from './views/panels/componentspanel';
 import MemoryPanel from './views/panels/MemoryPanel/MemoryPanel';
@@ -57,9 +55,12 @@ import { SettingsPanel, SettingsPanel_ID } from './views/panels/SettingsPanel/Se
 import { VersionControlPanel_ID } from './views/panels/VersionControlPanel';
 import { VersionControlPanel } from './views/panels/VersionControlPanel/VersionControlPanel';
 import { ImageEditorPanel } from './views/panels/ImageEditorPanel';
+import { installWebPluginPanels } from './views/panels/WebPluginPanel';
 import { ProjectStylesPanel } from './views/panels/ProjectStylesPanel/ProjectStylesPanel';
 import { MathsPanel, MathsPanel_ID } from './views/panels/MathsPanel';
 import { AssetPanel } from './views/panels/AssetPanel';
+import { HierarchyPanel, HierarchyPanel_ID } from './views/panels/HierarchyPanel';
+import { HistoryPanel, HistoryPanel_ID } from './views/panels/HistoryPanel';
 
 
 
@@ -67,11 +68,6 @@ export interface SetupEditorOptions {
   isLesson: boolean;
 }
 
-// `isLesson` currently has no live reader: its only two uses were the
-// `isDisabled` flags on the Cloud Services and Cloud Functions registrations,
-// both commented out below. Kept destructured so uncommenting either one
-// compiles as-is.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function installSidePanel({ isLesson }: SetupEditorOptions) {
   const appRegistry = AppRegistry.instance;
 
@@ -114,10 +110,34 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
       // This is a temporary solution so we can keep the state of open folder etc
       options: {
         showSheetList: true,
-        hideSheets: ['__cloud__', '__maths__']
+        hideSheets: ['__cloud__', '__maths__'],
+        // The rail calls this panel Parts; its heading says the same (2026-11-01).
+        panelTitle: 'Parts',
+        componentTitle: 'All parts'
       }
     },
     panel: ComponentsPanel
+  });
+
+  // Unity-style tree of the active component's nodes: selection mirrors the graph, eye/lock
+  // drive EditorSceneVisibility, drag to reparent. Sits right under Components.
+  SidebarModel.instance.register({
+    id: HierarchyPanel_ID,
+    name: 'Hierarchy',
+    order: 21,
+    icon: SideHierarchy,
+    panel: HierarchyPanel
+  });
+
+  // The undo queue as a clickable list (jump back or forward to any step). Bottom cluster,
+  // first of the four (History, Versions, Cloud, Settings): a utility, not somewhere you author.
+  SidebarModel.instance.register({
+    id: HistoryPanel_ID,
+    name: 'History',
+    order: 5,
+    placement: 'bottom',
+    icon: SideHistory,
+    panel: HistoryPanel
   });
 
   SidebarModel.instance.register({
@@ -159,7 +179,8 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     name: 'AI Image Editor',
     order: 70,
     icon: SideImageEditor,
-    panel: ImageEditorPanel
+    panel: ImageEditorPanel,
+    opensOnHome: true
   });
 
   SidebarModel.instance.register({
@@ -180,86 +201,61 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
   //   panel: MemoryPanel
   // });
 
-  // Cloud Services - Commented out (2026-08-06), together with Cloud Functions
-  // below. The two go together: the environment this panel connects (a Supabase
-  // cloud service) was what Cloud Functions deployed `/#__cloud__/` components
-  // to, and the Maths RGS panel reaches the RGS backend by its own route
-  // (operator key + maths-deployer), not through a cloud-service environment.
+  // Cloud Services - lists, creates (CloudServiceCreateModal) and activates the
+  // project's cloud-service environments (a Supabase cloud service). The active one
+  // is what Cloud Functions (below) deploys `/#__cloud__/` components to and what
+  // the deploy-supabase-edge-functions compile pass targets; the two panels go
+  // together. Maths reaches the RGS backend by its own route (operator key +
+  // maths-deployer, signed in through Publish), not through a cloud-service
+  // environment.
   //
-  // Nothing else in the editor navigates here — no `SidebarModel.switch(
-  // 'cloudservice')` anywhere — so withdrawing the sidebar entry is the whole
-  // change. `'cloudservice'` is left in SidePanel.tsx's `bottomIds` set and
-  // `iconMap`; both are keyed lookups over registered items, so a stale entry is
-  // inert.
+  // Withdrawn 2026-08-06 (#37) together with Cloud Functions, restored with it
+  // 2026-10-29. Bottom cluster, as before the rail redesign: it manages a setting,
+  // it is not somewhere you author.
   //
-  // What is no longer reachable while this is off: listing, creating (
-  // CloudServiceCreateModal) and activating environments. Environments already
-  // stored in a project still exist and are still listed by the "Connected cloud
-  // services" dropdowns on DeployToFolderTab / DeployToStakeTab, and the
-  // deploy-supabase-edge-functions compile pass still fires for whichever one is
-  // active — this hides the management UI, it does not clear the setting.
-  //
-  // Publish (XgeniaDeployTab) is unaffected: its own "Connected cloud services"
-  // picker was commented out earlier and its state pinned to
-  // RGS_ENVIRONMENT_VALUE, so Publish takes the RGS path regardless of what any
-  // cloud service says. Do not "fix" that pinning by restoring
-  // NO_ENVIRONMENT_VALUE without also restoring that picker — see the comment at
-  // XgeniaDeployTab.tsx:1887.
-  //
-  // SidebarModel.instance.register({
-  //   id: 'cloudservice',
-  //   name: 'Cloud Services',
-  //   isDisabled: isLesson === true,
-  //   order: 6,
-  //   placement: 'bottom',
-  //   icon: IconName.CloudData,
-  //   panel: CloudServicePanel
-  // });
+  // Publish (XgeniaDeployTab) is unaffected either way: it always publishes
+  // through XGENIA RGS, whichever environment is active here.
+  SidebarModel.instance.register({
+    id: 'cloudservice',
+    name: 'Cloud Services',
+    isDisabled: isLesson === true,
+    order: 20,
+    placement: 'bottom',
+    icon: SideCloud,
+    panel: CloudServicePanel
+  });
 
-  // Cloud Functions - Commented out (2026-08-06).
+  // Cloud Functions - the `/#__cloud__/` sheet's own panel. It owns that sheet the
+  // way Maths RGS owns `/#__maths__/`, which is why '__cloud__' is in the
+  // Components panel's `hideSheets` above. NodeGraphContext.tsx swaps
+  // Components <-> Cloud Functions as the active component crosses the sheet
+  // boundary, so keep this id in step with it.
   //
-  // Superseded by the Maths RGS panel: maths is authored in `/#__maths__/` and
-  // shipped to the RGS from there, so the `/#__cloud__/` authoring surface this
-  // panel provided is no longer part of the workflow. The panel itself
-  // (CloudFunctionsPanel.tsx) and every `__cloud__` code path — the compile
-  // passes, the converter, the search-panel labelling — are left intact; only
-  // the sidebar entry is withdrawn, so re-enabling is a matter of uncommenting
-  // this block (plus the import above and the switch in NodeGraphContext.tsx).
-  //
-  // Consequence while this is off: '__cloud__' stays in the `hideSheets` list of
-  // the general Components panel above, and no other panel locks to that sheet,
-  // so `/#__cloud__/` components have no UI surface at all. That is intended
-  // here (the sheet is unused, and Publish's machine-generated
-  // `/#__cloud__/__Component_N__` entries were never meant to be browsed), but
-  // it is exactly the condition maths-sheet-mount.test.ts test 1 exists to
-  // catch — that test reads source text, so it keeps passing on the
-  // still-uncommented `lockCurrentSheetName: '__cloud__'` in the panel file. If
-  // `/#__cloud__/` ever needs to be reachable again, either uncomment this
-  // registration or drop '__cloud__' from that hideSheets list.
-  //
-  // SidebarModel.instance.register({
-  //   id: 'cloud-functions',
-  //   name: 'Cloud Functions',
-  //   isDisabled: isLesson === true,
-  //   order: 7,
-  //   placement: 'bottom',
-  //   icon: IconName.CloudFunction,
-  //   panel: CloudFunctionsPanel
-  // });
+  // Withdrawn 2026-08-06 (#37) as superseded by Maths RGS, restored 2026-10-29.
+  // While it was off, `/#__cloud__/` components had no UI surface at all. It sat
+  // in the bottom cluster before the rail redesign; it is an authoring panel, so
+  // it now sits in the top cluster next to Maths RGS.
+  SidebarModel.instance.register({
+    id: 'cloud-functions',
+    name: 'Cloud Functions',
+    isDisabled: isLesson === true,
+    order: 65,
+    icon: SideCloudFunctions,
+    panel: CloudFunctionsPanel
+  });
 
   // "Project settings" and "Editor settings" were merged into one entry
   // (2026-08-12). The two scopes live on as the panel's Project/Editor tabs —
   // see SettingsPanel for why they are tabs and not one flat section list.
-  // Not rendered as a rail button — reachable only from the identity chip's project menu
-  // (ProjectMenu.tsx). Still fully registered and dispatchable: `railHidden` only affects
-  // the rail's own rendering (see Rail.tsx), not `SidebarModel.switch`/`dispatch`.
+  // Last item of the rail's bottom cluster (2026-11-01: back on the rail, labelled, so a new
+  // user finds it without knowing the project menu), and still in the identity chip's
+  // project menu (ProjectMenu.tsx).
   SidebarModel.instance.register({
     id: SettingsPanel_ID,
     name: 'Settings',
     order: 30,
     placement: 'bottom',
     icon: SideSettings,
-    railHidden: true,
     panel: SettingsPanel
   });
 
@@ -300,6 +296,11 @@ export function installSidePanel({ isLesson }: SetupEditorOptions) {
     panel: AssetPanel
   });
 
+  // Web plugins the server marks `kind: 'web-panel'` in plugin-entitlements: one entry each,
+  // added and removed as the account's entitlements change. Plugins without that marker,
+  // and the two above with dedicated panels, are never touched.
+  installWebPluginPanels();
+
   // TODO: Register MCP Server Browser panel via iframe bridge when available
 }
 
@@ -311,7 +312,6 @@ export function installDocuments() {
   appRegistry.openDocument(EditorDocumentProvider.ID);
 
   appRegistry.registerDocumentProvider(ComponentDiffDocumentProvider.ID, new ComponentDiffDocumentProvider());
-  appRegistry.registerDocumentProvider(MathsComponentDocumentProvider.ID, new MathsComponentDocumentProvider());
   appRegistry.registerDocumentProvider(MathsSimulateDocumentProvider.ID, new MathsSimulateDocumentProvider());
   appRegistry.registerDocumentProvider(MathsComplianceDocumentProvider.ID, new MathsComplianceDocumentProvider());
 
@@ -323,12 +323,6 @@ export function installDocuments() {
       AppRegistry.instance.registerDocumentProvider(
         ComponentDiffDocumentProvider.ID,
         new ComponentDiffDocumentProvider()
-      );
-    });
-    import.meta.webpackHot.accept('./views/documents/MathsComponentDocument', () => {
-      AppRegistry.instance.registerDocumentProvider(
-        MathsComponentDocumentProvider.ID,
-        new MathsComponentDocumentProvider()
       );
     });
     import.meta.webpackHot.accept('./views/documents/MathsSimulateDocument', () => {

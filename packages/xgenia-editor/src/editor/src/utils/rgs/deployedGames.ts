@@ -7,7 +7,7 @@
 // listing that could not be written is something to tell the user about, not a
 // reason to report the publish as failed.
 
-import { XRGS_URL, rgsHeaders } from './rgsClient';
+import { rgsFunctionsUrl, rgsHeaders } from './rgsClient';
 
 export interface RegisterDeployedGameInput {
   /** The project's name as the editor shows it. */
@@ -49,7 +49,7 @@ export async function registerDeployedGame(
 ): Promise<RegisterDeployedGameResult> {
   let res: Response;
   try {
-    res = await fetch(`${XRGS_URL}/deployed-games`, {
+    res = await fetch(`${rgsFunctionsUrl()}/deployed-games`, {
       method: 'POST',
       headers: rgsHeaders(apiKey),
       body: JSON.stringify({

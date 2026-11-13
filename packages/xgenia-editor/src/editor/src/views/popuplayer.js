@@ -11,6 +11,7 @@ const { ToastLayer } = require('./ToastLayer/ToastLayer');
 
 const utils = require('../utils/utils');
 const { platform, PlatformOS } = require('@xgenia/platform');
+const { getPathForFile } = require('@xgenia-utils/filePath');
 
 // Styles
 require('../styles/popuplayer.css');
@@ -188,10 +189,11 @@ PopupLayer.prototype.render = function () {
         let skippedFiles = 0;
         for (var i = 0; i < files.length; i++) {
           // Check if path exists and is a string before processing
-          if (typeof files[i].path === 'string' && files[i].path.length > 0) {
-             // Pass null instead of trying to get directory name from potentially undefined file.path
+          const filePath = getPathForFile(files[i]);
+          if (filePath) {
+             // Pass null instead of trying to get directory name from a missing path
              collectFiles(
-                { fullPath: files[i].path, name: files[i].name },
+                { fullPath: filePath, name: files[i].name },
                  null
               );
           } else {
@@ -628,7 +630,6 @@ PopupLayer.prototype.hidePopout = function (popout) {
   }
 
   popout.resizeObserver.disconnect();
-  popout.onClose && popout.onClose();
 
   const close = () => {
     popout.el.detach();
@@ -638,13 +639,19 @@ PopupLayer.prototype.hidePopout = function (popout) {
     }
   };
 
-  if (popout.animate) {
-    popout.el.css({ transition: 'all 200ms ease-out', transform: 'translateY(10px)', opacity: 0 });
-    setTimeout(() => {
+  try {
+    popout.onClose && popout.onClose();
+  } finally {
+    // The popout is already out of this.popouts, so if a throwing onClose skipped
+    // this nothing would ever remove it: it stayed on screen for good.
+    if (popout.animate) {
+      popout.el.css({ transition: 'all 200ms ease-out', transform: 'translateY(10px)', opacity: 0 });
+      setTimeout(() => {
+        close();
+      }, 250);
+    } else {
       close();
-    }, 250);
-  } else {
-    close();
+    }
   }
 };
 

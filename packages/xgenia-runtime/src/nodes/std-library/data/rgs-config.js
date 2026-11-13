@@ -22,6 +22,8 @@
 // project with a `/functions/v1` suffix; here we need the bare project URL
 // because the data nodes append `/rest/v1/rpc/...`).
 
+const { isReplayPage } = require('./rgs-replay');
+
 const RGS_FALLBACK_URL = 'https://usubzwydrjelmjfkkrhi.supabase.co';
 const RGS_FALLBACK_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzdWJ6d3lkcmplbG1qZmtrcmhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4ODA3NDcsImV4cCI6MjA4NzQ1Njc0N30.Hewc7WlLZuufC0trhCKKKc4AhLXk7jy7qG3irBQPykY';
@@ -47,7 +49,14 @@ function readProjectMetaData(node, key) {
 
 // Resolves { url, anonKey } for the given node, preferring connected
 // cloudservices metadata and falling back to the XGENIA RGS project.
+//
+// On a replay page (?replay=true, rgs-replay.js) it throws instead: those nodes are the cashier, the player and
+// the saved-session nodes, every one an authenticated call a replay must never make. Each calls this inside its
+// own try, so the throw becomes that node's ordinary failure, with this message.
 function resolveSupabaseConfig(node) {
+  if (isReplayPage()) {
+    throw new Error('This is a replay: player, wallet and session calls are disabled while watching one.');
+  }
   const cloudServices = readProjectMetaData(node, 'cloudservices');
 
   const supabaseConfig = cloudServices && cloudServices.supabase;

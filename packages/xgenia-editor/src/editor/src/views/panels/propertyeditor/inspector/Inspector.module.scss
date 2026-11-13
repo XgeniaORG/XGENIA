@@ -704,3 +704,290 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* ---------------------------------------------------- component overrides */
+
+/* Prefab-style overrides on a component instance. Unity marks an overridden property
+   with a bar in the margin and a bold label; the bar takes the changed-row marker's
+   slot, in its own blue so "this instance differs from its component" reads apart
+   from the plain "this has a value" marker on every other node. The popovers render
+   in a portal outside `.Inspector`, so the colour is a fallback, not an inherited var. */
+
+.Row[data-override]::before {
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  background: var(--inspector-override, #4aa3ff);
+  opacity: 1;
+}
+
+.Row[data-override] :global(.property-label) {
+  font-weight: 600;
+  color: var(--theme-color-fg-highlight);
+  /* Room for the row's override button, which sits at the right end of the label column. */
+  padding-right: 24px;
+}
+
+.RowOverrideButton {
+  all: unset;
+  position: absolute;
+  top: 9px;
+  left: 96px;
+  z-index: 1;
+  width: 18px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--inspector-override, #4aa3ff);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity var(--speed-snap, 180ms) ease, background var(--speed-snap, 180ms) ease;
+
+  &:hover,
+  &[aria-expanded='true'] {
+    opacity: 1;
+    background: color-mix(in srgb, var(--inspector-override, #4aa3ff) 24%, transparent);
+  }
+
+  &:focus-visible {
+    opacity: 1;
+    outline: 1px solid var(--inspector-override, #4aa3ff);
+  }
+}
+
+.Row:hover .RowOverrideButton,
+.Row:focus-within .RowOverrideButton {
+  opacity: 0.85;
+}
+
+/* Header control — "Overrides (N)". */
+.OverridesButton {
+  all: unset;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 4px 0 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--theme-color-fg-highlight);
+  background: color-mix(in srgb, var(--inspector-override, #4aa3ff) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--inspector-override, #4aa3ff) 38%, transparent);
+  cursor: pointer;
+  transition: background var(--speed-snap, 180ms) ease;
+
+  &:hover,
+  &[aria-expanded='true'] {
+    background: color-mix(in srgb, var(--inspector-override, #4aa3ff) 28%, transparent);
+  }
+
+  &:focus-visible {
+    outline: 1px solid var(--inspector-override, #4aa3ff);
+    outline-offset: 1px;
+  }
+}
+
+.OverridesCount {
+  box-sizing: border-box;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #0b1220;
+  background: var(--inspector-override, #4aa3ff);
+}
+
+.OverridesPanel {
+  display: flex;
+  flex-direction: column;
+  max-height: 420px;
+  padding: 8px 4px 4px;
+}
+
+.OverridesTitle {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 8px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--theme-color-fg-highlight);
+  border-bottom: 1px solid var(--glass-divider, rgba(255, 255, 255, 0.12));
+}
+
+.OverridesPath {
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.OverridesList {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.OverrideItem {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 14px;
+  border-radius: 6px;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 7px;
+    bottom: 7px;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--inspector-override, #4aa3ff);
+  }
+
+  &:not([data-applicable])::before {
+    opacity: 0.35;
+  }
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
+}
+
+.OverrideText {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.OverrideName,
+.OverrideValue {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.OverrideName {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--theme-color-fg-highlight);
+}
+
+.OverrideValue {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--theme-color-fg-default);
+}
+
+.OverrideFrom {
+  opacity: 0.55;
+}
+
+.OverrideNote {
+  font-size: 10px;
+  line-height: 13px;
+  color: var(--theme-color-fg-default);
+  opacity: 0.65;
+}
+
+.OverrideItemActions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+}
+
+.OverrideItemButton,
+.OverridesFooterButton {
+  all: unset;
+  border-radius: 5px;
+  color: var(--theme-color-fg-highlight);
+  background: rgba(255, 255, 255, 0.07);
+  cursor: pointer;
+  transition: background var(--speed-snap, 180ms) ease;
+
+  &:hover:not([disabled]) {
+    background: rgba(255, 255, 255, 0.13);
+  }
+
+  &:focus-visible {
+    outline: 1px solid var(--inspector-override, #4aa3ff);
+  }
+
+  &[disabled] {
+    opacity: 0.35;
+    cursor: default;
+  }
+}
+
+.OverrideItemButton {
+  padding: 3px 7px;
+  font-size: 11px;
+
+  &[data-primary='true'] {
+    background: color-mix(in srgb, var(--inspector-override, #4aa3ff) 26%, transparent);
+
+    &:hover:not([disabled]) {
+      background: color-mix(in srgb, var(--inspector-override, #4aa3ff) 40%, transparent);
+    }
+  }
+}
+
+.OverridesFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 8px 4px 4px;
+  border-top: 1px solid var(--glass-divider, rgba(255, 255, 255, 0.12));
+}
+
+.OverridesFooterButton {
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+
+  &[data-primary='true'] {
+    font-weight: 600;
+    color: #0b1220;
+    background: var(--inspector-override, #4aa3ff);
+
+    &:hover:not([disabled]) {
+      background: color-mix(in srgb, var(--inspector-override, #4aa3ff) 82%, white);
+    }
+  }
+}
+
+/* Row menu extras: a long component path ellipsises rather than pushing the hint out. */
+.MenuItemText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.MenuNote {
+  padding: 4px 9px 6px;
+  font-size: 10px;
+  line-height: 13px;
+  color: var(--theme-color-fg-default);
+  opacity: 0.65;
+}

@@ -73,19 +73,6 @@ if (process.platform === 'linux' && app.getName() !== 'XGENIA') {
 }
 
 const axios = require('axios');
-// Ensure fetch is available in the main process (older Electron/Node may lack global fetch)
-try {
-  if (typeof fetch === 'undefined') {
-    const { fetch: undiciFetch, Headers, Request, Response } = require('undici');
-    global.fetch = undiciFetch;
-    global.Headers = Headers;
-    global.Request = Request;
-    global.Response = Response;
-    console.log('[Main Process] Installed undici fetch polyfill');
-  }
-} catch (e) {
-  console.warn('[Main Process] Unable to polyfill fetch:', e?.message);
-}
 
 const AutoUpdater = require('./src/autoupdater');
 const FloatingWindow = require('./src/floating-window');
@@ -98,16 +85,33 @@ const { getOAuthServer } = require('./src/oauth-callback-server');
 const CrashTelemetry = require('./src/crash-telemetry');
 const MemoryTelemetry = require('./src/memory-telemetry');
 const { ensureLinuxDesktopEntry } = require('./src/linux-desktop-entry');
+const { rememberDialogFolder } = require('./src/dialog-last-folder');
+
+/** http(s) and mailto only: what a link in page content may hand to the OS. */
+function isWebOrMailLink(url) {
+  try {
+    return ['http:', 'https:', 'mailto:'].includes(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
 
 // (debug-export 1783408275898) Local-only minidump collection + crash-log.jsonl.
 // Must start before any window is created so Crashpad covers all renderers.
 CrashTelemetry.start();
+
+// Electron 43+: dialogs without a defaultPath would open in Downloads every time.
+rememberDialogFolder(dialog);
 
 const { handleProjectMerge } = require('./src/merge-driver');
 
 //fixes problem with reloading the viewer when it's
 //running in a separate browser window (file:// cross origin warning)
 app.commandLine.appendSwitch('disable-site-isolation-trials');
+
+// Remote panels (AI chat, plugins) get their own process; see src/frame-isolation.js.
+const frameIsolation = require('./src/frame-isolation');
+app.commandLine.appendSwitch('isolate-origins', frameIsolation.isolateOriginsValue(app.getPath('userData')));
 
 // Add more robust GPU and network flags to prevent crashes
 app.commandLine.appendSwitch('disable-gpu-process-crash-limit');
@@ -173,14 +177,14 @@ app.commandLine.appendSwitch('--preserve-symlinks-main');
 // are exactly the two with it off. `cpu-composite` is the half of `software` that stays
 // usable: WebGL and canvas keep the GPU, so the preview still ticks at 119fps.
 // macOS only — the flash has never been reported on Windows or Linux, and those platforms
-// should not pay for CPU compositing. Opt out with XGENIA_GPU_MODE=default.
-// REMOVE THIS DEFAULT when Electron is bumped: it is a workaround for Chromium 126 (mid-2024)
-// compositing onto macOS 26 on an M5, and the upgrade is the real fix.
-const gpuMode = process.env.XGENIA_GPU_MODE || (process.platform === 'darwin' ? 'cpu-composite' : '');
+// should not pay for CPU compositing.
+// (2026-10-15) Default removed with the Electron 31 → 44 bump (Chromium 126 → 152): the
+// default was a workaround for Chromium 126 compositing onto macOS 26 on an M5, and the
+// upgrade is the real fix. If the flash comes back, XGENIA_GPU_MODE=cpu-composite restores it;
+// re-default it only on a measured flash, as above.
+const gpuMode = process.env.XGENIA_GPU_MODE || '';
 if (gpuMode) {
-  console.log(
-    `[Main Process] XGENIA_GPU_MODE=${gpuMode}${process.env.XGENIA_GPU_MODE ? '' : ' (macOS default)'}`
-  );
+  console.log(`[Main Process] XGENIA_GPU_MODE=${gpuMode}`);
   if (gpuMode === 'raster') {
     app.commandLine.appendSwitch('disable-gpu-rasterization');
   } else if (gpuMode === 'angle-gl') {
@@ -476,6 +480,21 @@ function launchApp() {
       if (!_editorAPICallbacks[token]) return;
       _editorAPICallbacks[token](args);
       delete _editorAPICallbacks[token];
+    });
+
+    // Electron 44 puts the preview iframe in its own process; the renderer scripts it through here.
+    require('./src/preview-frame').registerPreviewFrameHandlers(ipcMain);
+
+    // "Sign in with XGENIA" for XGENIA RGS: a one-request loopback listener on 127.0.0.1 that the
+    // system browser hands the one-time code back to (RFC 8252; utils/rgs/rgsLoopback.ts drives it).
+    require('./src/xgenia-rgs-loopback').registerXgeniaRgsLoopbackHandlers(ipcMain, { shell });
+
+    // Electron 44 took `clipboard` out of renderer processes. Renderers use navigator.clipboard
+    // (utils/systemClipboard.ts) and fall back to these when the W3C API refuses, e.g. the
+    // document isn't focused. `clipboard.readText()` returns a Promise from Electron 44 on.
+    ipcMain.handle('clipboard:read-text', async () => (await electron.clipboard.readText()) || '');
+    ipcMain.handle('clipboard:write-text', async (event, text) => {
+      await electron.clipboard.writeText(String(text ?? ''));
     });
 
     ipcMain.handle('image-editor:write-file', async (event, { filePath, dataBase64 }) => {
@@ -782,6 +801,192 @@ function launchApp() {
     process.env.exePath = app.getPath('exe');
     let reopenWindow = false;
 
+    // ---- Docs AI chat ("Ask the docs") ------------------------------------------
+    // The renderer shows the docs site's chat page (/embed/chat/) in a <webview>
+    // (views/DocsChat). The editor renderer has Node integration and web security
+    // off, so this page must never run with those powers: these guards force the
+    // webview into a locked-down, separate session no matter what the renderer
+    // asks for. It is deliberately separate from the builder AI (its own
+    // partition, no bridge, no preload).
+    const { DOCS_CHAT_PARTITION, AI_BROWSER_PARTITION, webviewKind, lockDown } = require('./src/webview-policy');
+    const DOCS_CHAT_PATH = '/embed/chat/';
+
+    /** Origins the docs chat may load from: production, local docs, or an XGENIA_DOCS_CHAT_URL override. */
+    function docsChatOrigins() {
+      const origins = ['https://docsapp.xgenia.com'];
+      if (global.useLocalDocs) origins.push('http://localhost:3000');
+      const override = process.env.XGENIA_DOCS_CHAT_URL;
+      if (override) {
+        try {
+          origins.push(new URL(override).origin);
+        } catch { }
+      }
+      return origins;
+    }
+
+    function isDocsChatUrl(url) {
+      try {
+        const parsed = new URL(url);
+        return docsChatOrigins().includes(parsed.origin) && parsed.pathname.startsWith(DOCS_CHAT_PATH);
+      } catch {
+        return false;
+      }
+    }
+
+    let docsChatSessionReady = false;
+    function installDocsChatWebviewGuards(win) {
+      if (!docsChatSessionReady) {
+        docsChatSessionReady = true;
+        const docsSession = electron.session.fromPartition(DOCS_CHAT_PARTITION);
+        // Electron grants every permission by default; the chat needs none beyond copying text.
+        const allowed = (permission) => permission === 'clipboard-sanitized-write';
+        docsSession.setPermissionRequestHandler((_wc, permission, callback) => callback(allowed(permission)));
+        docsSession.setPermissionCheckHandler((_wc, permission) => allowed(permission));
+      }
+
+      win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+        // Two <webview>s exist (the preview is an iframe since 2026-09-07): the docs chat and the AI
+        // browser, each in its own session (webview-policy.js). Any other one, whichever frame asked for
+        // it, is refused rather than attached with the settings it chose.
+        if (!webviewKind(params, isDocsChatUrl)) {
+          console.warn('[Main Process] Blocked a webview:', params.partition, params.src);
+          event.preventDefault();
+          return;
+        }
+        lockDown(webPreferences);
+      });
+
+      win.webContents.on('did-attach-webview', (_event, contents) => {
+        if (contents.session === electron.session.fromPartition(AI_BROWSER_PARTITION)) {
+          // Pages the AI opens get no new windows and no permissions.
+          contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+          contents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+          return;
+        }
+        if (contents.session !== electron.session.fromPartition(DOCS_CHAT_PARTITION)) return;
+        // Links in answers (target=_blank) open in the user's browser, never in a new Electron window.
+        contents.setWindowOpenHandler(({ url }) => {
+          if (/^https?:\/\//.test(url)) shell.openExternal(url);
+          return { action: 'deny' };
+        });
+        // The chat page itself never navigates; anything else goes to the browser.
+        contents.on('will-navigate', (event, url) => {
+          if (isDocsChatUrl(url)) return;
+          event.preventDefault();
+          if (/^https?:\/\//.test(url)) shell.openExternal(url);
+        });
+      });
+    }
+
+    // ── "Ask the docs" in a window of its own (2026-11-01) ────────────────────────────────────────
+    // It used to be a <webview> floating over the editor. Under the editor's UI zoom a <webview>
+    // stops repainting: the chat showed a stale, cut-off frame and nothing typed appeared. A child
+    // window is always above the editor, can be moved and resized, and keeps the same isolation:
+    // its own session (DOCS_CHAT_PARTITION), sandboxed, no preload, no Node, no editor bridge.
+    let docsChatWin = null;
+    let docsChatQuitting = false;
+    electron.app.on('before-quit', () => {
+      docsChatQuitting = true;
+    });
+
+    function openDocsChatWindow(url) {
+      if (!isDocsChatUrl(url)) return false;
+      if (docsChatWin && !docsChatWin.isDestroyed()) {
+        docsChatWin.show();
+        docsChatWin.focus();
+        return true;
+      }
+      const parent = win && !win.isDestroyed() ? win : undefined;
+      const pb = parent ? parent.getBounds() : { x: 120, y: 120, width: 1400, height: 900 };
+      const width = 420;
+      const height = Math.min(660, Math.max(420, pb.height - 140));
+      docsChatWin = new BrowserWindow({
+        parent,
+        x: Math.round(pb.x + pb.width - width - 24),
+        y: Math.round(pb.y + pb.height - height - 72),
+        width,
+        height,
+        minWidth: 320,
+        minHeight: 360,
+        title: 'Ask the docs',
+        backgroundColor: '#1c1c1e',
+        show: false,
+        fullscreenable: false,
+        webPreferences: {
+          partition: DOCS_CHAT_PARTITION,
+          sandbox: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+          nodeIntegrationInSubFrames: false,
+          webviewTag: false,
+          webSecurity: true
+        }
+      });
+      const contents = docsChatWin.webContents;
+      // "Show me" in an answer (xgenia://show/<area id>): the editor opens and spotlights that area.
+      // Only an area id goes across, checked by shape here and against the area map in the editor.
+      const showInEditor = (target) => {
+        const m = /^xgenia:\/\/show\/([A-Za-z0-9.:_-]{1,60})$/.exec(String(target || ''));
+        if (!m) return false;
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('docs-chat:show', m[1]);
+          win.focus();
+        }
+        return true;
+      };
+      // Links in answers open in the user's browser, never in another Electron window.
+      contents.setWindowOpenHandler(({ url: target }) => {
+        if (showInEditor(target)) return { action: 'deny' };
+        if (/^https?:\/\//.test(target)) shell.openExternal(target);
+        return { action: 'deny' };
+      });
+      contents.on('will-navigate', (event, target) => {
+        if (isDocsChatUrl(target)) return;
+        event.preventDefault();
+        if (showInEditor(target)) return;
+        if (/^https?:\/\//.test(target)) shell.openExternal(target);
+      });
+      // Closing hides it, so the conversation is still there next time; quitting really closes it.
+      docsChatWin.on('close', (event) => {
+        if (docsChatQuitting || !parent || parent.isDestroyed()) return;
+        event.preventDefault();
+        docsChatWin.hide();
+      });
+      if (parent) {
+        parent.once('closed', () => {
+          if (docsChatWin && !docsChatWin.isDestroyed()) docsChatWin.destroy();
+          docsChatWin = null;
+        });
+      }
+      docsChatWin.once('ready-to-show', () => {
+        if (docsChatWin && !docsChatWin.isDestroyed()) docsChatWin.show();
+      });
+      docsChatWin.loadURL(url);
+      return true;
+    }
+
+    ipcMain.handle('docs-chat:open', (event, url) => {
+      if (!win || win.isDestroyed() || event.sender !== win.webContents) return false;
+      return openDocsChatWindow(String(url || ''));
+    });
+
+    // Which docs page the selected node has: plain data, one way, so "what does this node do?" works.
+    ipcMain.handle('docs-chat:context', (event, context) => {
+      if (!win || win.isDestroyed() || event.sender !== win.webContents) return false;
+      if (!docsChatWin || docsChatWin.isDestroyed()) return false;
+      const value = {
+        path: typeof context?.path === 'string' ? context.path.slice(0, 300) : '/',
+        title: typeof context?.title === 'string' ? context.title.slice(0, 150) : ''
+      };
+      const json = JSON.stringify(value);
+      docsChatWin.webContents
+        .executeJavaScript(
+          `window.__xgeniaDocsContext=${json};window.dispatchEvent(new CustomEvent('xgenia:docs-context',{detail:window.__xgeniaDocsContext}));`
+        )
+        .catch(() => undefined);
+      return true;
+    });
+
     function createWindow() {
       console.log('[Main Process] *** ENTERING createWindow() function ***');
       // Check if preload script exists before using it
@@ -858,6 +1063,12 @@ function launchApp() {
 
       require('@electron/remote/main').enable(win.webContents);
 
+      win.webContents.on('did-frame-navigate', (_event, url, _code, _status, isMainFrame) => {
+        if (!isMainFrame && frameIsolation.rememberFrameOrigin(app.getPath('userData'), url)) {
+          console.warn('[FrameIsolation] New embedded origin, isolated from the next launch:', new URL(url).origin);
+        }
+      });
+
       // Register main-process memory profiling IPC once window is ready
       try {
         if (!ipcMain._memprofHandlersInstalled) {
@@ -917,6 +1128,8 @@ function launchApp() {
 
       if (Config.enableAutoUpdate) {
         AutoUpdater.setupAutoUpdate(win);
+      } else {
+        AutoUpdater.setupDisabledAutoUpdate();
       }
 
       // Load the main HTML file with enhanced debugging
@@ -963,11 +1176,16 @@ function launchApp() {
         }
       }
 
-      // Make sure <a href target="_blank"> and window.open opens in external browser
+      // Make sure <a href target="_blank"> and window.open opens in external browser — web and mail
+      // links only: the URL comes from page content (a game in the preview, a plugin panel), and
+      // openExternal also launches file://, smb:// and app protocols.
       win.webContents.setWindowOpenHandler(({ url }) => {
-        shell.openExternal(url);
+        if (isWebOrMailLink(url)) shell.openExternal(url);
+        else console.warn('[Main Process] Not opening a non-web link from page content:', String(url).slice(0, 200));
         return { action: 'deny' }; //deny a new electron window
       });
+
+      installDocsChatWebviewGuards(win);
 
       // A file dropped anywhere the page does not handle makes Chromium navigate
       // to that file:// URL — which throws away the whole editor, unsaved work
@@ -1026,7 +1244,8 @@ function launchApp() {
           });
           items.push({
             label: 'Open Link in Browser',
-            click: () => shell.openExternal(params.linkURL)
+            enabled: isWebOrMailLink(params.linkURL),
+            click: () => isWebOrMailLink(params.linkURL) && shell.openExternal(params.linkURL)
           });
         }
 
@@ -1077,24 +1296,30 @@ function launchApp() {
         }
       });
 
-      win.webContents.on('crashed', (event, killed) => {
-        console.error('[Main Process] WebContents crashed. Killed:', killed);
-      });
-
       win.webContents.on('unresponsive', () => {
         console.error('[Main Process] WebContents became unresponsive');
       });
 
-      win.webContents.on('console-message', (event, level, message, line, sourceId) => {
+      win.webContents.on('console-message', ({ level, message, sourceId, lineNumber }) => {
         if (message.includes('[Preload]')) {
           console.log(`[Main Process] Preload log: ${message}`);
         }
 
-        // Detect hot reload related errors
-        if (message.includes('module hot update') || message.includes('Cannot read properties of undefined')) {
+        if (message.includes('module hot update')) {
           console.warn('[Main Process] Hot reload related error detected:', message);
+        } else if (level === 'error') {
+          // Every renderer error, with where it came from: this used to keep only messages that
+          // contained "Cannot read properties of undefined", labelled as hot-reload trouble, and
+          // without the file and line that make one findable.
+          console.error(`[Renderer error] ${String(message).slice(0, 2000)} (${sourceId || '?'}:${lineNumber ?? '?'})`);
         }
       });
+
+      // CI launch smoke test (.github/workflows/nightly-builds.yml): exits once the editor
+      // has rendered, or fails the build if it never does.
+      if (process.env.XGENIA_SMOKE_TEST === '1') {
+        require('./src/smoke-test').watchSmokeTest(app, win);
+      }
 
       // Enhanced debugging for window visibility
       console.log('[Main Process] Attempting to show window...');
@@ -1235,52 +1460,6 @@ function launchApp() {
       viewerWindow.openDevTools();
     }
 
-    var floatingWindows = {};
-    function closeFloatingWindow(options) {
-      if (!floatingWindows[options.id]) return;
-
-      floatingWindows[options.id].close();
-      if (options.sendCloseEvent) {
-        win && win.webContents.send('floating-window-closed', { id: options.id });
-      }
-    }
-
-    function openFloatingWindow(options) {
-      if (!floatingWindows[options.id]) floatingWindows[options.id] = new FloatingWindow();
-      const floatingWindow = floatingWindows[options.id];
-
-      const parentBounds = win.getBounds();
-
-      const width = options.width || 800;
-      const height = options.height || 600;
-
-      floatingWindow.open({
-        x: parentBounds.width - width - 50,
-        y: 80,
-        width,
-        height,
-        parent: win,
-        minWidth: options.minWidth || 120,
-        minHeight: options.minHeight || 175,
-        url: options.url.replace('{{appPath}}', appPath)
-      });
-
-      // floatingWindow.openDevTools();
-
-      floatingWindow.window.webContents.once('did-finish-load', () => {
-        floatingWindow.send('floating-window-options', options.id, options.options);
-
-        // Floating windows are editor chrome - keep them on the same zoom.
-        try {
-          floatingWindow.window.webContents.setZoomFactor(uiZoomFactor);
-        } catch { }
-      });
-
-      floatingWindow.forwardIpcEvents(['editor-api-response']);
-
-      return floatingWindow;
-    }
-
     let saveWindowSettingsTimeout;
     function onMainWindowBoundsChanged() {
       clearTimeout(saveWindowSettingsTimeout);
@@ -1329,11 +1508,16 @@ function launchApp() {
       {
         label: 'About Application',
         click: () => {
-          require('about-window').default({
-            icon_path: appPath + '/src/assets/images/icon.png',
-            copyright: 'Copyright (c) 2024 XGENIA LLC',
-            description: buildNumber ? 'Build ' + buildNumber : undefined
+          // Electron's own about panel (macOS, Windows, Linux) replaces the unmaintained
+          // about-window package.
+          app.setAboutPanelOptions({
+            applicationName: app.getName(),
+            applicationVersion: app.getVersion(),
+            version: buildNumber ? 'Build ' + buildNumber : '',
+            copyright: 'Copyright (c) 2022-2026 XGENIA LLC',
+            iconPath: appPath + '/src/assets/images/icon.png'
           });
+          app.showAboutPanel();
         }
       },
       { type: 'separator' }
@@ -1385,15 +1569,6 @@ function launchApp() {
         console.warn('[Main Process] Failed to apply UI zoom:', e && e.message ? e.message : e);
       }
 
-      // Floating windows are editor chrome too.
-      try {
-        Object.keys(floatingWindows).forEach((id) => {
-          const fw = floatingWindows[id];
-          const wc = fw && fw.window && !fw.window.isDestroyed() ? fw.window.webContents : null;
-          if (wc) wc.setZoomFactor(clamped);
-        });
-      } catch { }
-
       if (!options || options.persist !== false) {
         try {
           jsonstorage.set('uiZoom', { factor: clamped });
@@ -1435,6 +1610,40 @@ function launchApp() {
       }
     });
 
+    function sendEditMenuCommand(focused, command) {
+      const target = focused || BrowserWindow.getFocusedWindow() || win;
+      if (target && target.webContents && !target.webContents.isDestroyed()) {
+        target.webContents.send('editor-menu-command', { command });
+      }
+    }
+
+    // View > Zoom: in the editor window the renderer decides — the preview canvas while it has
+    // focus in Edit mode, otherwise the UI zoom (it answers with 'editor-ui-zoom'). Elsewhere
+    // (floating windows) it is always the UI zoom.
+    function applyUiZoomCommand(command) {
+      if (command === 'zoomIn') stepUiZoom(1);
+      else if (command === 'zoomOut') stepUiZoom(-1);
+      else if (command === 'zoomReset') applyUiZoom(1);
+    }
+
+    function routeZoomCommand(focused, command) {
+      const target = focused || BrowserWindow.getFocusedWindow() || win;
+      if (target && target === win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+        win.webContents.send('editor-menu-command', { command });
+        return;
+      }
+      applyUiZoomCommand(command);
+    }
+
+    ipcMain.on('editor-ui-zoom', (_e, command) => applyUiZoomCommand(command));
+
+    // The renderer hands text-field undo/redo back: only the webContents can run the native
+    // editing command in whichever frame has focus.
+    ipcMain.on('editor-native-edit', (e, command) => {
+      if (command === 'undo') e.sender.undo();
+      else if (command === 'redo') e.sender.redo();
+    });
+
     function setupMenu() {
       var template = [
         {
@@ -1444,8 +1653,11 @@ function launchApp() {
         {
           label: 'Edit',
           submenu: [
-            { label: 'Undo', accelerator: 'CmdOrCtrl+Z', selector: 'undo:' },
-            { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', selector: 'redo:' },
+            // The editor decides what Undo means (keyboardhandler.ts listenForMenuCommands): its
+            // own history, or the native text undo when a text field has focus. The `undo:`
+            // selector this replaced only ever ran the text undo, and only on macOS.
+            { label: 'Undo', accelerator: 'CmdOrCtrl+Z', click: (_item, focused) => sendEditMenuCommand(focused, 'undo') },
+            { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', click: (_item, focused) => sendEditMenuCommand(focused, 'redo') },
             { type: 'separator' },
             // `role` rather than `selector`: the selector form is a macOS-only
             // ObjC message, so on Windows and Linux these entries were dead.
@@ -1466,7 +1678,7 @@ function launchApp() {
             {
               label: 'Zoom In',
               accelerator: 'CmdOrCtrl+Plus',
-              click: () => stepUiZoom(1)
+              click: (_item, focused) => routeZoomCommand(focused, 'zoomIn')
             },
             {
               // Same command on the unshifted key, which is what people
@@ -1476,17 +1688,29 @@ function launchApp() {
               accelerator: 'CmdOrCtrl+=',
               visible: false,
               acceleratorWorksWhenHidden: true,
-              click: () => stepUiZoom(1)
+              click: (_item, focused) => routeZoomCommand(focused, 'zoomIn')
             },
             {
               label: 'Zoom Out',
               accelerator: 'CmdOrCtrl+-',
-              click: () => stepUiZoom(-1)
+              click: (_item, focused) => routeZoomCommand(focused, 'zoomOut')
             },
             {
               label: 'Actual Size',
               accelerator: 'CmdOrCtrl+0',
-              click: () => applyUiZoom(1)
+              click: (_item, focused) => routeZoomCommand(focused, 'zoomReset')
+            },
+            { type: 'separator' },
+            {
+              // A menu accelerator, so it works wherever focus is. As a page-only shortcut it
+              // died as soon as a click put focus in the preview or the chat panel.
+              label: 'Toggle Edit / Preview',
+              accelerator: 'CmdOrCtrl+T',
+              click: () => {
+                if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+                  win.webContents.send('editor-menu-command', { command: 'togglePreviewMode' });
+                }
+              }
             }
           ]
         }
@@ -1553,6 +1777,24 @@ function launchApp() {
       template.push({
         label: 'Help',
         submenu: [
+          {
+            // No accelerator: ⌘/ adds a node-graph comment, and ⌘? is macOS's Help search.
+            // The sheet also opens with ? anywhere outside a text field.
+            label: 'Keyboard Shortcuts',
+            click: () => {
+              if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+                win.webContents.send('editor-menu-command', { command: 'showShortcuts' });
+              }
+            }
+          },
+          {
+            label: 'Ask the Docs (AI)',
+            click: () => {
+              if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+                win.webContents.send('editor-menu-command', { command: 'openDocsChat' });
+              }
+            }
+          },
           {
             label: 'XGENIA Documentation',
             click: () => {
@@ -1792,6 +2034,23 @@ function launchApp() {
         }
       });
 
+      // The design-size capture in a hidden offscreen window of its own (offscreen-capture.js):
+      // independent of the editor's layout, focus and window size, and of the preview frame's
+      // guest size. A fresh load of the preview at its current URL.
+      ipcMain.handle('preview-capture:design-offscreen', async (e, args) => {
+        const { width, height, timeoutMs } = args || {};
+        const port = process.env.XGENIAPORT || 8574;
+        const origin = `http://localhost:${port}`;
+        let url = `${origin}/`;
+        try {
+          const frame = require('./src/preview-frame').findPreviewFrame(win && win.webContents, origin);
+          if (frame && /^https?:\/\//.test(frame.url)) url = frame.url;
+        } catch {
+          /* no preview frame: the preview's root */
+        }
+        return require('./src/offscreen-capture').captureDesignOffscreen({ url, width, height, ...(timeoutMs > 0 ? { timeoutMs } : {}) }, { BrowserWindow });
+      });
+
       ipcMain.on('viewer-capture-design-reply', (e, payload) => {
         if (win && win.webContents && !win.webContents.isDestroyed()) {
           win.webContents.send('viewer-capture-design-reply', payload);
@@ -1862,8 +2121,6 @@ function launchApp() {
       setupAskForMediaAccessIpc();
 
       setupEditorApiRouting();
-
-      setupFloatingWindowIpc();
 
       setupMainWindowControlIpc();
 
@@ -1936,18 +2193,6 @@ function launchApp() {
     });
 
     // --------------------------------------------------------------------------------------------------------------------
-    // Floating windows
-    // --------------------------------------------------------------------------------------------------------------------
-    function setupFloatingWindowIpc() {
-      ipcMain.on('floating-window-close', function (event, options) {
-        closeFloatingWindow(options);
-      });
-      ipcMain.on('floating-window-open', function (event, options) {
-        openFloatingWindow(options);
-      });
-    }
-
-    // --------------------------------------------------------------------------------------------------------------------
     // Main window control
     // --------------------------------------------------------------------------------------------------------------------
     function setupMainWindowControlIpc() {
@@ -2016,7 +2261,7 @@ function startUDPMulticast() {
     const hostname = os.hostname();
 
     if (hostname) {
-      const message = new Buffer(
+      const message = Buffer.from(
         jsToArrayBuffer({ https: process.env.ssl ? true : false, hostname, status: 'closed' })
       );
       server.send(message, 0, message.length, 8575, '225.0.0.100');
@@ -2028,7 +2273,7 @@ function startUDPMulticast() {
     const httpPort = process.env.XGENIAPORT || 8574;
 
     if (hostname) {
-      const message = new Buffer(
+      const message = Buffer.from(
         jsToArrayBuffer({ https: process.env.ssl ? true : false, hostname, httpPort, projectName, status: 'active' })
       );
       server.send(message, 0, message.length, 8575, '225.0.0.100');

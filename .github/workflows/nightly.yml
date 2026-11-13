@@ -1,0 +1,122 @@
+name: Nightly
+
+# Turns develop into a versioned pre-release that installs on the Beta update channel update to
+# (opt-in, Settings → Editor → Updates; Stable installs never see pre-releases). release.yml does the
+# build, the checks on the assets and the publish; this workflow decides whether to run and which
+# version to publish. Nothing is committed back to develop.
+#
+# When (2026-10-16):
+#   - after every private pointer bump: private-pointer.yml starts it once it has pushed the new
+#     private/ commit to develop, so every private commit becomes a nightly;
+#   - once a day (02:00 UTC), which picks up everything else merged into develop: PAUSED, see
+#     the commented-out schedule below;
+#   - by hand (Actions → Nightly → Run workflow).
+# Not on every push to develop. A scheduled or manual run builds develop's newest commit, and does
+# nothing if that commit already has a release (nothing changed since the last nightly). schedule
+# and workflow_dispatch only run the copy of this file on the default branch (main).
+# The concurrency group keeps one build running and at most one waiting: GitHub drops an older
+# waiting run when a newer one queues, so a burst of private commits collapses into the newest.
+#
+# Version (scripts/release/next-version.mjs): packages/xgenia-editor/package.json is the starting
+# point, set by hand; the nightly publishes the first version from there with no release yet
+# (drafts included), and package.json is not changed.
+#   3.0.2-beta.1 -> v3.0.2-beta.1, then v3.0.2-beta.2, v3.0.2-beta.3, ... on later nightlies
+#   3.0.3        -> v3.0.3-beta.1 (never a release version: that would reach Stable), then beta.2, ...
+on:
+  # Daily run paused (2026-10-16): nightlies only come from private commits and manual runs for now.
+  # Uncomment to build develop once a day again.
+  # schedule:
+  #   - cron: '0 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+# Called workflows can only narrow these: release.yml writes the release, and nightly-builds.yml's
+# Teams job reads the run's job list.
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      version: ${{ steps.plan.outputs.version }}
+      sha: ${{ steps.plan.outputs.sha }}
+    steps:
+      # Always develop's newest commit: scheduled and manual runs start on main.
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+
+      - name: Plan
+        id: plan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA=$(git rev-parse HEAD)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          # Nothing merged since the last nightly (or a re-run): nothing to ship.
+          if git ls-remote --tags origin | awk '{print $1}' | grep -qx "$SHA"; then
+            echo "develop's $SHA already has a release; nothing new to build."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh release list -R "$GITHUB_REPOSITORY" --limit 300 --json tagName --jq '.[].tagName' > "$RUNNER_TEMP/released.txt"
+          PACKAGE=$(jq -r .version packages/xgenia-editor/package.json)
+          VERSION=$(node scripts/release/next-version.mjs nightly "$PACKAGE" "$RUNNER_TEMP/released.txt")
+          echo "Nightly v$VERSION (package.json $PACKAGE) from develop $SHA, private at $(git ls-tree HEAD private | awk '{print $3}')"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=true" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+      nightly: true
+      ref: ${{ needs.plan.outputs.sha }}
+    secrets: inherit
+
+  # Any failure, from a build to the final public check, reaches the team. nightly-builds.yml reports
+  # the per-platform builds; this also covers collecting, signing, verifying and publishing.
+  notify-failure:
+    needs: [plan, release]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+      - uses: ./.github/actions/teams-notification
+        with:
+          webhook-url: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          msg-title: 'XGENIA nightly failed'
+          msg-text: |
+            Version: v${{ needs.plan.outputs.version }}
+            Commit: ${{ needs.plan.outputs.sha }} (develop)
+            A release that failed after it was created is left as a draft for inspection; nothing a draft holds reaches an install.
+          status: failure
+          workflow-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  # Keep the newest nightlies only (release.yml titles them "XGENIA Nightly v…"); releases made by
+  # hand are never touched.
+  prune:
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      KEEP: ${{ vars.NIGHTLY_KEEP || '10' }}
+    steps:
+      - name: Delete old nightly releases
+        run: |
+          gh release list -R "$GITHUB_REPOSITORY" --limit 300 --json tagName,name,createdAt \
+            --jq "[.[] | select(.name | startswith(\"XGENIA Nightly \"))] | sort_by(.createdAt) | reverse | .[$KEEP:] | .[].tagName" |
+          while read -r TAG; do
+            echo "Deleting $TAG"
+            gh release delete "$TAG" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          done

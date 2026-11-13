@@ -93,7 +93,7 @@ export function FrameChip({ previewSize, zoomFactor, onPreviewSizeChanged, setZo
   return (
     <>
       <Tooltip content="Preview frame: device, size and zoom">
-        <div ref={ref} className={css.Chip} onClick={() => setOpen(true)}>
+        <div ref={ref} className={css.Chip} onClick={() => setOpen(true)} data-guide="topbar.device">
           <Icon size={IconSize.Tiny} icon={getIconFromScreenSizeGroupName(current.group)} />
           <span className={css.ChipStrong}>{deviceLabel}</span>
           <span className={css.ChipShy}>·</span>

@@ -22,7 +22,15 @@
   }
 
   &.is-hidden {
-    visibility: hidden;
+    // `display: none`, not `visibility: hidden`: a hidden dialog that stays mounted (alwaysMounted,
+    // which the Deploy popup uses) is a full-window `position: fixed` box, and `visibility: hidden`
+    // leaves that box in the compositor as a top-most window-sized layer. Every transaction macOS is
+    // handed then carries it, and presenting it blank is what a whole-window flash looks like
+    // (measured 2026-11-03 on the panels, again 2026-11-09 with the node graph pulsing).
+    //
+    // The placement measurement is safe: it runs in a useLayoutEffect keyed on `isVisible`, so it
+    // re-measures after this class comes off and before the dialog is painted.
+    display: none;
     pointer-events: none;
   }
 

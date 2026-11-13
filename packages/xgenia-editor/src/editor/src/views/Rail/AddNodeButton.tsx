@@ -1,41 +1,37 @@
 import React from 'react';
 
-import { IconSize } from '@xgenia-core-ui/components/common/Icon';
-import { IconButton, IconButtonVariant } from '@xgenia-core-ui/components/inputs/IconButton';
-import { DialogRenderDirection } from '@xgenia-core-ui/components/layout/BaseDialog';
-import { Tooltip } from '@xgenia-core-ui/components/popups/Tooltip';
 import { SidebarModel } from '@xgenia-models/sidebar';
 
 import { SideAddNode } from '../SidePanel/SidebarIcons';
-import css from './Rail.module.scss';
+import { RailButton } from './RailButton';
+import { ADD_LABEL } from './railGroups';
 
 interface Props {
+  isActive: boolean;
   showAfterMs: number;
   onTooltipClosed?: () => void;
 }
 
 /**
- * The green + that used to sit at the very top of the sidebar strip, before this redesign
- * briefly moved it into the panel card's header as `headerAction` (Components' only
- * consumer of that slot). Deleting the header took the only way to reach the node picker
- * with it — this restores it to its original home, directly under the identity chip and
- * above the top cluster. Opens the node picker exactly as
- * views/panels/componentspanel/AddNodeAction.tsx does.
+ * "Add": opens the node picker, exactly as views/panels/componentspanel/AddNodeAction.tsx
+ * does. Second item of the rail's "make" group, under AI. Not a sidebar item itself (the node
+ * picker is a transient panel), so it carries its own data-guide (`rail.add`) and test id.
+ * The accent tint on the plus is what is left of the green button it used to be.
  */
-export function AddNodeButton({ showAfterMs, onTooltipClosed }: Props) {
+export function AddNodeButton({ isActive, showAfterMs, onTooltipClosed }: Props) {
   return (
-    <div className={css.Item} onMouseLeave={onTooltipClosed}>
-      <Tooltip content="Add node" renderDirection={DialogRenderDirection.Horizontal} showAfterMs={showAfterMs}>
-        <IconButton
-          icon={SideAddNode}
-          size={IconSize.Small}
-          variant={IconButtonVariant.Transparent}
-          onClick={() => SidebarModel.instance.switch('node-picker')}
-          testId="add-node-action"
-          aria-label="Add node"
-          UNSAFE_className={css.AddNodeButton}
-        />
-      </Tooltip>
-    </div>
+    <RailButton
+      id="node-picker"
+      name="Add node"
+      label={ADD_LABEL}
+      icon={SideAddNode}
+      guideId="rail.add"
+      testId="add-node-action"
+      isAccent
+      isActive={isActive}
+      showAfterMs={showAfterMs}
+      onTooltipClosed={onTooltipClosed}
+      onClick={() => SidebarModel.instance.switch('node-picker')}
+    />
   );
 }

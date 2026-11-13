@@ -206,7 +206,7 @@ function nodeNameToIconName(itemName: INodeType['name']) {
 }
 
 function fallbackIconByCategory(category?: string): IconName {
-  if (!category) return IconName.CircleOpen; // Default fallback
+  if (!category) return IconName.CircleDot; // Default fallback
   const c = category.toLowerCase();
   if (/(ui|visual|component|view)/.test(c)) return IconName.Components;
   if (/(data|cloud|store|db|variable|model)/.test(c)) return IconName.CloudData;
@@ -220,7 +220,7 @@ function fallbackIconByCategory(category?: string): IconName {
   if (/(game|slot|casino)/.test(c)) return IconName.Roll;
   if (/(user|auth|account)/.test(c)) return IconName.User;
   if (/(file|import|export)/.test(c)) return IconName.File;
-  return IconName.CircleOpen; // Ultimate fallback
+  return IconName.CircleDot; // Ultimate fallback
 }
 
 function getCategoryColor(category?: string): string {
@@ -240,8 +240,14 @@ function getCategoryColor(category?: string): string {
   return '#8B9AAF'; // Gray fallback
 }
 
+/** One of the game's own components (a ComponentModel: it has a graph, its name a "/" path). */
+function isProjectComponent(item: INodeType): boolean {
+  return Boolean((item as any)?.graph) || String(item?.name || '').startsWith('/');
+}
+
 export function EditorNode({ item, colors, isHighlighted }: EditorNodeProps) {
-  const explicitIcon = nodeNameToIconName(item.name);
+  // A game's own parts had no category, so they fell to the open circle, which reads as a loading spinner.
+  const explicitIcon = isProjectComponent(item) ? IconName.Component : nodeNameToIconName(item.name);
   const fallbackIcon = fallbackIconByCategory((item as any)?.category);
   const iconName = explicitIcon || fallbackIcon;
   const categoryColor = getCategoryColor((item as any)?.category);

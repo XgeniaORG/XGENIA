@@ -23,7 +23,7 @@
 // concatenates the series arrays and keeps the last response's `stats`, which is
 // already cumulative over every chunk.
 
-import { XRGS_URL, rgsHeaders } from './rgsClient';
+import { rgsFunctionsUrl, rgsHeaders } from './rgsClient';
 
 /** Ceiling the platform enforces on one run. Mirrored here to bound the UI's input. */
 export const MAX_SIMULATION_ROUNDS = 10_000_000;
@@ -166,7 +166,7 @@ export async function simulateDeployedComponent(
       return { ...toResult(last, series, chunks), cancelled: true };
     }
 
-    const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+    const res = await fetch(`${rgsFunctionsUrl()}/maths-deployer`, {
       method: 'POST',
       headers: rgsHeaders(opts.apiKey),
       body: JSON.stringify({ ...request, carry })
@@ -181,7 +181,7 @@ export async function simulateDeployedComponent(
       if (res.status === 400 && /invalid action/i.test(serverError) && !serverError.includes('simulate-component')) {
         throw new Error(
           'XGENIA RGS backend is out of date — it cannot simulate components yet. ' +
-            'Redeploy the `maths-deployer` function to the RGS project, then try again.'
+            'Try again later; if it keeps happening, contact XGENIA support.'
         );
       }
       throw new Error(serverError || `Simulation failed (HTTP ${res.status})`);

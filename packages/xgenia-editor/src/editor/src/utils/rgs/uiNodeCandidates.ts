@@ -29,8 +29,8 @@ import {
   UiNodeCandidate
 } from './telemetryMapping';
 
-// Machine-made components: the old compile output and the Math Components the
-// Maths RGS panel deploys. Neither renders anything a player could click.
+// Machine-made components: the old compile output and the Math Components
+// Publish deploys. Neither renders anything a player could click.
 const NON_UI_COMPONENT_PREFIXES = ['/#__cloud__/', '/#__maths__/'];
 
 function isUiComponent(comp: any): boolean {

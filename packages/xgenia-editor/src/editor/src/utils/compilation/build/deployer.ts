@@ -5,6 +5,7 @@ import { ProjectModel } from '@xgenia-models/projectmodel';
 
 import * as Exporter from '../../exporter';
 import { copyProjectFilesToFolder, copyProjectFilesToFlatFolderStake } from './copy';
+import { runPublishHooks } from '../../extensions/projectExtensions';
 import { loadDeployIndex, copyDeployFilesToFolder, copyDeployFilesToStakeFolder } from './deploy-index';
 import { resolveExternalPath } from '@xgenia-utils/liveEngine';
 import { HtmlProcessor, HtmlProcessorParameters } from './processors/html-processor';
@@ -163,8 +164,9 @@ async function deployToFolderDefault({
     // noop; file doesn't exist
   }
 
-  // Start by copying all files from the project folder to the deploy directory
-  await copyProjectFilesToFolder(project._retainedProjectDirectory, direntry);
+  // Let the publish hooks prepare the project, then copy all files from the project folder to the deploy directory
+  const exclude = await runPublishHooks(project._retainedProjectDirectory);
+  await copyProjectFilesToFolder(project._retainedProjectDirectory, direntry, exclude);
 
   // Export project
   const exportJson = Exporter.exportToJSON(project, {
@@ -239,7 +241,8 @@ async function deployToFolderStake({
   baseUrl = './';
 
   // Copy all project files into a flat folder + keep a mapping so we can rewrite references.
-  const flatMap = await copyProjectFilesToFlatFolderStake(project._retainedProjectDirectory, direntry);
+  const exclude = await runPublishHooks(project._retainedProjectDirectory);
+  const flatMap = await copyProjectFilesToFlatFolderStake(project._retainedProjectDirectory, direntry, exclude);
 
   // Export project
   const exportJson = Exporter.exportToJSON(project, {

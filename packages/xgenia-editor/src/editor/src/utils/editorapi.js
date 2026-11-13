@@ -6,7 +6,11 @@ const { CloudService } = require('@xgenia-models/CloudServices');
 const KeyboardHandler = require('@xgenia-utils/keyboardhandler');
 const { resolveGesture, getCapabilities } = require('./TransformCommandResolver');
 const { parentLayoutOf } = require('../../../../../../private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/utils/layout-intent-resolver');
+const { GestureUndoGroups } = require('./gestureUndoGroups');
+const { recordingParamsFor, recordWrites } = require('./timelineRecord');
 const { UndoActionGroup, UndoQueue } = require('../models/undo-queue-model');
+
+const gestureGroups = new GestureUndoGroups();
 
 class EditorAPI {
   keyDown(evt, cb) {
@@ -14,8 +18,41 @@ class EditorAPI {
     cb();
   }
 
+  /**
+   * A shortcut pressed while the preview frame has focus. Clicking in the preview moves focus
+   * into it, and the editor's keydown listener never sees keys pressed there — which is why
+   * Cmd+Z did nothing after moving an element. The preload has already decided the key is not
+   * text editing, so this runs the editor command directly, without the focus check (the
+   * focused element, from here, is the frame itself).
+   */
+  viewportKey(evt, cb) {
+    const handled = !!evt && KeyboardHandler.default.instance.executeCommandMatchingKeyEvent(
+      {
+        key: evt.key,
+        code: evt.code,
+        metaKey: !!evt.metaKey,
+        ctrlKey: !!evt.ctrlKey,
+        shiftKey: !!evt.shiftKey,
+        altKey: !!evt.altKey
+      },
+      'down',
+      'viewport'
+    );
+    cb({ handled });
+  }
+
   inspectNodes(evt, cb) {
     EventDispatcher.instance.emit('inspectNodes', { nodeIds: evt.nodeIds });
+    cb();
+  }
+
+  /**
+   * Several nodes selected in the viewport (Shift-click, box select). The node graph selects the
+   * same set, so Delete, Copy and Duplicate act on all of them. Not 'inspectNodes': with more than
+   * one id that event means "show these across components" and navigates the graph.
+   */
+  selectNodes(evt, cb) {
+    EventDispatcher.instance.emit('viewportSelectNodes', { nodeIds: (evt && evt.nodeIds) || [] });
     cb();
   }
 
@@ -36,12 +73,49 @@ class EditorAPI {
       cb({ error: 'not-found' });
       return;
     }
-    cb(getCapabilities(
-      evt.kind,
+    const caps = getCapabilities(
+      evt.kind || 'dom',
       node.parameters || {},
-      evt.ancestorTransformed,
+      !!evt.ancestorTransformed,
       parentLayoutOf(node)
-    ));
+    );
+    // The anchor picker shows the node's current anchor (alignX/alignY; unset = left/top).
+    const p = node.parameters || {};
+    caps.align = { x: p.alignX || 'left', y: p.alignY || 'top' };
+    cb(caps);
+  }
+
+  /**
+   * Move a node within its parent's children: drag-to-reorder in a flex layout, and Bring to
+   * front / Send to back (paint order follows child order among freely placed siblings).
+   * evt: { nodeId, beforeNodeId?, toStart?, toEnd?, label? }. One undo entry; the same
+   * detachNode + attachNode pair the node graph's own drag makes.
+   */
+  viewportReorder(evt, cb) {
+    const node = ProjectModel.instance && evt && ProjectModel.instance.findNodeWithId(evt.nodeId);
+    const parent = node && node.parent;
+    const graph = node && node.owner;
+    if (!node || !parent || !graph || typeof graph.detachNode !== 'function') {
+      cb({ error: 'not-reorderable' });
+      return;
+    }
+    const others = parent.children.filter((c) => c !== node);
+    let index;
+    if (evt.toStart) index = 0;
+    else if (evt.toEnd) index = others.length;
+    else if (evt.beforeNodeId) {
+      const at = others.findIndex((c) => c.id === evt.beforeNodeId);
+      index = at === -1 ? others.length : at;
+    } else index = others.length;
+    if (index === parent.children.indexOf(node)) {
+      cb({ applied: 0 });
+      return;
+    }
+    const undo = new UndoActionGroup({ label: evt.label || 'Reorder' });
+    graph.detachNode(node, { undo });
+    graph.attachNode(parent, node, Math.max(0, Math.min(index, parent.children.length)), { undo });
+    UndoQueue.instance.push(undo);
+    cb({ applied: 1 });
   }
 
   viewportGesture(evt, cb) {
@@ -51,7 +125,9 @@ class EditorAPI {
     }
 
     const label = evt.label || 'Edit in viewport';
-    const group = new UndoActionGroup({ label });
+    // One user action, one undo entry: a follow-up correction of the same gesture (amendGroupId)
+    // or a run of arrow-key nudges (coalesce) joins the entry already on top of the history.
+    const { group, reused } = gestureGroups.begin(evt);
     const blocked = [];
     let applied = 0;
 
@@ -61,8 +137,10 @@ class EditorAPI {
         blocked.push({ nodeId: target.nodeId, reason: 'not-found' });
         continue;
       }
+      // Timeline Record mode: resolve against where the node is ON SCREEN at the playhead,
+      // and turn the result into keys instead of base values (timelineRecord.ts).
       const result = resolveGesture(target, {
-        parameters: node.parameters || {},
+        parameters: recordingParamsFor(node) || node.parameters || {},
         typename: node.typename || node.type,
         parentLayout: parentLayoutOf(node),
         ancestorTransformed: target.ancestorTransformed
@@ -71,27 +149,20 @@ class EditorAPI {
         blocked.push({ nodeId: target.nodeId, reason: result.blocked });
         continue;
       }
+      if (recordWrites(node, result.writes, group, { label })) {
+        applied++;
+        continue;
+      }
       for (const w of result.writes) {
+        // A write of the value already there is no change, and no undo step.
+        if (JSON.stringify(node.parameters[w.param]) === JSON.stringify(w.value)) continue;
         node.setParameter(w.param, w.value, { undo: group, label });
       }
       applied++;
     }
 
-    if (!group.isEmpty()) UndoQueue.instance.push(group);
-    cb({ applied, blocked });
-  }
-
-  viewportCapabilities(evt, cb) {
-    if (!ProjectModel.instance || !evt || !evt.nodeId) {
-      cb({ error: 'No project or nodeId' });
-      return;
-    }
-    const node = ProjectModel.instance.findNodeWithId(evt.nodeId);
-    if (!node) {
-      cb({ error: 'Node not found' });
-      return;
-    }
-    cb(getCapabilities(evt.kind || 'dom', node.parameters || {}, !!evt.ancestorTransformed, parentLayoutOf(node)));
+    const groupId = gestureGroups.end(group, reused, evt);
+    cb({ applied, blocked, groupId });
   }
 
   viewportNodeInfo(evt, cb) {

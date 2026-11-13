@@ -1,7 +1,11 @@
 import React from 'react';
-import { Toaster } from 'react-hot-toast';
+import { Toaster as HotToaster, ToasterProps } from 'react-hot-toast';
 
 import css from './ToastLayerContainer.module.scss';
+
+// react-hot-toast is typed against the root @types/react, the editor against its own pinned
+// copy; TypeScript 5.1+ checks JSX element types strictly enough to tell the two apart.
+const Toaster = HotToaster as unknown as React.FC<ToasterProps>;
 
 export function ToastLayerContainer() {
   return (

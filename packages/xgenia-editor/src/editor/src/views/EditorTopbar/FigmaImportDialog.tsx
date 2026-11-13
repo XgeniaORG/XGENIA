@@ -5,6 +5,7 @@ import {
 } from '@xgenia-ai/ChatPanel/StreamlinedToolRegistry/tools/ui-tools/figma-translator';
 import { translateHtmlToXgeniaXml, detectExternalDependencies, DetectedDependency } from './html-translator';
 import { ProjectModel } from '@xgenia-models/projectmodel';
+import { writeClipboardText } from '@xgenia-utils/systemClipboard';
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -277,17 +278,10 @@ export function FigmaImportDialog({ isVisible, onClose, triggerRef }: FigmaImpor
     };
 
     const handleCopyXml = () => {
-        navigator.clipboard.writeText(xml).then(() => {
+        writeClipboardText(xml).then(() => {
             setProgress('✓ Copied to clipboard!');
         }).catch(() => {
-            // Fallback for Electron clipboard
-            try {
-                const { clipboard } = require('electron');
-                clipboard.writeText(xml);
-                setProgress('✓ Copied to clipboard!');
-            } catch {
-                setError('Failed to copy to clipboard');
-            }
+            setError('Failed to copy to clipboard');
         });
     };
 

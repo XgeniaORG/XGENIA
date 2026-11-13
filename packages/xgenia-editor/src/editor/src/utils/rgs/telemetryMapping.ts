@@ -286,6 +286,16 @@ export interface TelemetrySources {
   refForNodeId?: (nodeId: string) => TelemetryElementRef | null;
 }
 
+/**
+ * A node as the AI names it everywhere else: "@SpinButton", or "@SpinButton.onClick" with the port. The
+ * mapping is about the node, so both mean SpinButton (2026-11-03: a crash publish was refused twice for "@UI_bet_value").
+ */
+function asNodeName(raw: string): string {
+  const name = raw.trim().replace(/^@+/, '');
+  const dot = name.lastIndexOf('.');
+  return raw.trim().startsWith('@') && dot > 0 ? name.slice(0, dot) : name;
+}
+
 /** Cap on how many candidates a refusal carries — a large project has hundreds of visual nodes. */
 const MAX_CANDIDATES = 100;
 const MAX_CANDIDATES_IN_TEXT = 12;
@@ -326,7 +336,7 @@ export function resolveTelemetryRequest(request: TelemetryRequest | null | undef
 
   for (const spec of TELEMETRY_FIELDS) {
     const raw = request ? request[spec.key] : undefined;
-    const asked = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+    const asked = typeof raw === 'string' && raw.trim() ? asNodeName(raw) : null;
 
     if (!asked) {
       const saved = sources.stored ? sources.stored[spec.key] : null;

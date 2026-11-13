@@ -27,12 +27,14 @@ export function ImageDiffDialog({ diff, onClose }: ImageDiffDialogProps) {
             <img src={diff.original.dataSource} style={{ width: '100%' }} />
           </div>
         )}
-        <div style={{ width: '50%', padding: '8px' }}>
-          <div style={{ textAlign: 'center', paddingBottom: '8px' }}>
-            <Label size={LabelSize.Big}>Current</Label>
+        {Boolean(diff.modified) && (
+          <div style={{ width: '50%', padding: '8px' }}>
+            <div style={{ textAlign: 'center', paddingBottom: '8px' }}>
+              <Label size={LabelSize.Big}>Current</Label>
+            </div>
+            <img src={diff.modified.dataSource} style={{ width: '100%' }} />
           </div>
-          <img src={diff.modified.dataSource} style={{ width: '100%' }} />
-        </div>
+        )}
       </Container>
     </BaseDialog>
   );

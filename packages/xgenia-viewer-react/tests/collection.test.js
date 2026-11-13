@@ -1,4 +1,4 @@
-const Collection = require('../src/nodes/std-library/data/collection');
+const Collection = require('@xgenia/runtime/src/collection');
 
 //Collection.set is "smart" and is doing an delta update
 //TODO: check that the correct events are sent

@@ -1,0 +1,483 @@
+// The Timeline dock. Colours resolve to the tokens in colors.css / glass.css, like the
+// Hierarchy panel and the top bar, so the strip reads as part of the same editor.
+
+$label-width: 200px;
+$ruler-height: 24px;
+$row-height: 26px;
+$record: var(--theme-color-danger, #e5484d);
+
+.Host {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.HostMain {
+  flex: 1 1 0;
+  min-height: 0;
+  position: relative;
+}
+
+.Resize {
+  flex: none;
+  height: 5px;
+  cursor: row-resize;
+  background: var(--theme-color-bg-1);
+  position: relative;
+  z-index: 2;
+
+  &::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 1px;
+    width: 32px;
+    height: 3px;
+    margin-left: -16px;
+    border-radius: 2px;
+    background: var(--glass-ctrl-border);
+    opacity: 0;
+    transition: opacity var(--speed-turbo, 80ms) var(--easing-base, ease);
+  }
+
+  &:hover::after,
+  &.isDragging::after {
+    opacity: 1;
+  }
+}
+
+.Root {
+  // Shrinks below its set height when the pane is shorter, instead of overflowing it.
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--theme-color-bg-2);
+  color: var(--theme-color-fg-default);
+  font: 400 12px/1 var(--font-family-regular, inherit);
+  outline: none;
+  box-shadow: inset 0 1px 0 var(--theme-color-bg-1), inset 0 -1px 0 var(--theme-color-bg-1);
+
+  &.isRecording {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, #{$record} 55%, transparent);
+  }
+}
+
+.Toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--theme-color-bg-1);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.Sep {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--glass-divider, var(--theme-color-bg-3));
+}
+
+.Spacer {
+  flex: 1;
+  min-width: 8px;
+}
+
+.IconBtn {
+  flex: none;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--theme-color-fg-default-shy);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--glass-ctrl-bg-hover);
+    color: var(--theme-color-fg-highlight);
+  }
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  &.isOn {
+    background: var(--glass-seg-bg-active);
+    color: var(--theme-color-fg-highlight);
+  }
+}
+
+.Record {
+  color: color-mix(in srgb, #{$record} 60%, var(--theme-color-fg-default-shy));
+
+  &.isRecording {
+    background: color-mix(in srgb, #{$record} 22%, transparent);
+    border-color: color-mix(in srgb, #{$record} 60%, transparent);
+    color: $record;
+  }
+}
+
+.Time {
+  flex: none;
+  min-width: 52px;
+  padding: 0 6px;
+  font: 500 11px/1 var(--font-family-code, monospace);
+  color: var(--theme-color-fg-highlight);
+  text-align: right;
+}
+
+.Field {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--theme-color-fg-default-shy);
+  font-size: 11px;
+}
+
+.Input {
+  width: 54px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 5px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: var(--glass-ctrl-bg);
+  color: var(--theme-color-fg-default);
+  font: 400 11px/1 var(--font-family-code, monospace);
+  outline: none;
+
+  &:focus {
+    border-color: var(--theme-color-primary);
+  }
+}
+
+.Chip {
+  flex: none;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 11px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: var(--glass-ctrl-bg);
+  color: var(--theme-color-fg-default-shy);
+  font: 500 11px/1 var(--font-family-regular, inherit);
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover:not(:disabled) {
+    background: var(--glass-ctrl-bg-hover);
+    color: var(--theme-color-fg-default);
+  }
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+}
+
+.ChipActive {
+  background: var(--glass-seg-bg-active);
+  color: var(--theme-color-fg-highlight);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.Name {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 0;
+  background: transparent;
+  color: var(--theme-color-fg-default-shy);
+  font: 500 11px/1 var(--font-family-regular, inherit);
+  cursor: pointer;
+
+  &:hover {
+    color: var(--theme-color-fg-highlight);
+  }
+}
+
+.Empty {
+  padding: 16px;
+  color: var(--theme-color-fg-default-shy);
+  line-height: 1.4;
+}
+
+.Scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+}
+
+.Content {
+  position: relative;
+  min-height: 100%;
+}
+
+.RulerRow {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  height: $ruler-height;
+  background: var(--theme-color-bg-2);
+  border-bottom: 1px solid var(--theme-color-bg-1);
+}
+
+.Corner {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  box-sizing: border-box;
+  background: var(--theme-color-bg-2);
+  border-right: 1px solid var(--theme-color-bg-1);
+  color: var(--theme-color-fg-default-shy);
+  font-size: 11px;
+}
+
+.Ruler {
+  position: relative;
+  flex: none;
+  height: 100%;
+  cursor: ew-resize;
+  user-select: none;
+}
+
+.Tick {
+  position: absolute;
+  bottom: 0;
+  width: 1px;
+  height: 5px;
+  background: var(--theme-color-fg-default-shy);
+  opacity: 0.35;
+  pointer-events: none;
+
+  span {
+    position: absolute;
+    bottom: 9px;
+    left: 3px;
+    font: 400 10px/1 var(--font-family-code, monospace);
+    color: var(--theme-color-fg-default-shy);
+    white-space: nowrap;
+  }
+}
+
+.TickMajor {
+  height: 10px;
+  opacity: 0.7;
+}
+
+.PastEnd {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.22);
+  border-left: 1px solid var(--glass-ctrl-border);
+  pointer-events: none;
+}
+
+.PlayheadHandle {
+  position: absolute;
+  bottom: 0;
+  width: 11px;
+  height: 12px;
+  margin-left: -5px;
+  background: var(--theme-color-primary);
+  clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%);
+  pointer-events: none;
+
+  .isRecording & {
+    background: $record;
+  }
+}
+
+.Playhead {
+  position: absolute;
+  top: $ruler-height;
+  bottom: 0;
+  width: 1px;
+  background: var(--theme-color-primary);
+  pointer-events: none;
+  z-index: 2;
+
+  .isRecording & {
+    background: $record;
+  }
+}
+
+.Row {
+  display: flex;
+  height: $row-height;
+  border-bottom: 1px solid color-mix(in srgb, var(--theme-color-bg-1) 60%, transparent);
+}
+
+.Label {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 0 10px;
+  box-sizing: border-box;
+  background: var(--theme-color-bg-2);
+  border-right: 1px solid var(--theme-color-bg-1);
+
+  &.isMissing .LabelText {
+    color: var(--theme-color-fg-default-shy);
+    font-style: italic;
+  }
+}
+
+.LabelText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--theme-color-fg-default);
+  font: 400 12px/1 var(--font-family-regular, inherit);
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--theme-color-fg-highlight);
+  }
+}
+
+.RemoveTrack {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--theme-color-fg-default-shy);
+  cursor: pointer;
+  opacity: 0;
+
+  .Row:hover & {
+    opacity: 0.7;
+  }
+
+  &:hover {
+    opacity: 1 !important;
+    background: var(--glass-ctrl-bg-hover);
+    color: var(--theme-color-danger, inherit);
+  }
+}
+
+.Lane {
+  position: relative;
+  flex: none;
+  height: 100%;
+
+  .Row:hover & {
+    background: rgba(255, 255, 255, 0.03);
+  }
+}
+
+.Key {
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin: -5px 0 0 -5px;
+  transform: rotate(45deg);
+  border-radius: 1.5px;
+  background: var(--theme-color-fg-default);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+  cursor: grab;
+  z-index: 1;
+
+  &:hover {
+    background: var(--theme-color-fg-highlight);
+  }
+
+  &.isStep {
+    border-radius: 0;
+  }
+
+  &.isSelected {
+    background: var(--theme-color-primary);
+    box-shadow: 0 0 0 1px var(--theme-color-primary-highlight, #fff);
+  }
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+
+.EmptyRows {
+  padding-top: 14px;
+  padding-right: 16px;
+  color: var(--theme-color-fg-default-shy);
+  line-height: 1.4;
+  position: sticky;
+  left: 0;
+  max-width: 640px;
+}
+
+// Top-bar toggle, sized like the Edit | Preview segment beside it.
+.Toggle {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 7px;
+  border: 1px solid var(--glass-ctrl-border);
+  background: var(--glass-ctrl-bg);
+  box-shadow: var(--glass-ctrl-shadow);
+  color: var(--glass-seg-fg, var(--theme-color-fg-default-shy));
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover {
+    color: var(--theme-color-fg-highlight);
+    background: var(--glass-ctrl-bg-hover);
+  }
+
+  &.isActive {
+    background: var(--glass-seg-bg-active);
+    color: var(--glass-seg-fg-active, var(--theme-color-fg-highlight));
+  }
+
+  &.isRecording {
+    color: $record;
+  }
+}

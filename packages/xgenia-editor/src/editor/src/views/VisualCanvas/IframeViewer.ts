@@ -32,6 +32,12 @@
  * webContents (main.js setupEditorApiRouting); with the frame in-process the requester is
  * the editor window itself, so replies arrive on our ipcRenderer and are handed to the
  * injected preload's own token table. Nothing in main changes.
+ *
+ * (2026-11-06) Electron 44 broke the "in-process" half: the preview now always gets a process
+ * of its own, so contentWindow is cross-origin and every eval threw. The preload was never
+ * injected and Edit mode did nothing. Script now runs through the main process
+ * (main/src/preview-frame.js, WebFrameMain.executeJavaScript), and the preload's ipcRenderer is
+ * a postMessage shim relayed here. Both work whichever process the frame lands in.
  */
 
 import { ipcRenderer } from 'electron';
@@ -85,6 +91,54 @@ try {
 
 let preloadSourceCache: { path: string; text: string } | null = null;
 
+/** IPC the viewer preload may send through the bridge, and the replies it may listen for. */
+const FRAME_SEND_CHANNELS = new Set(['editor-api-request', 'request-media-access']);
+const FRAME_LISTEN_CHANNELS = new Set(['editor-api-response', 'request-media-access-reply']);
+
+/**
+ * The script evaluated inside the preview frame: an ipcRenderer that speaks postMessage to the
+ * editor (which relays it to real IPC), a require that hands the preload exactly what it asks
+ * for, then the preload itself.
+ */
+function bridgeSource(preload: string, csp: unknown, nodeEnv: string): string {
+  return [
+    '(function () {',
+    "  if (window.__xgPreviewBridgeInstalled) return 'already';",
+    '  window.__xgPreviewBridgeInstalled = true;',
+    '  var host = window.parent;',
+    '  var subs = Object.create(null);',
+    "  function post(m) { m.__xgPreviewBridge = 1; host.postMessage(m, '*'); }",
+    "  window.addEventListener('message', function (e) {",
+    '    var d = e.data;',
+    "    if (e.source !== host || !d || d.__xgPreviewHost !== 1 || d.type !== 'ipc') return;",
+    '    var fns = (subs[d.channel] || []).slice();',
+    '    for (var i = 0; i < fns.length; i++) {',
+    "      try { fns[i].apply(null, [{ sender: null }].concat(d.args || [])); } catch (err) { console.error('[preview bridge]', err); }",
+    '    }',
+    '  });',
+    '  var ipcRenderer = {',
+    "    send: function (c) { post({ type: 'send', channel: c, args: [].slice.call(arguments, 1) }); },",
+    "    sendToHost: function (c) { post({ type: 'host', channel: c, args: [].slice.call(arguments, 1) }); },",
+    "    on: function (c, fn) { if (!subs[c]) { subs[c] = []; post({ type: 'sub', channel: c }); } subs[c].push(fn); return ipcRenderer; },",
+    '    once: function (c, fn) { var w = function () { ipcRenderer.removeListener(c, w); return fn.apply(null, arguments); }; return ipcRenderer.on(c, w); },',
+    '    removeListener: function (c, fn) { var l = subs[c]; if (l) { var i = l.indexOf(fn); if (i >= 0) l.splice(i, 1); } return ipcRenderer; }',
+    '  };',
+    '  var csp = ' + JSON.stringify(csp ?? {}) + ';',
+    '  function req(id) {',
+    "    if (id === 'electron') return { ipcRenderer: ipcRenderer, contextBridge: { exposeInMainWorld: function () {} } };",
+    "    if (id === 'path') return {};",
+    "    if (/webview-csp-config(\\.js)?$/.test(id)) return csp;",
+    "    throw new Error('preview bridge: cannot require ' + id);",
+    '  }',
+    '  var module = { exports: {} };',
+    '  (function (require, module, exports, process, __dirname, __filename) {',
+    preload,
+    "  })(req, module, module.exports, { env: { NODE_ENV: " + JSON.stringify(nodeEnv) + " } }, '', '');",
+    "  return 'ok';",
+    '})()'
+  ].join('\n');
+}
+
 /**
  * Node's real `require`, not webpack's. Inside this bundle `require` is webpack's module
  * resolver, which only knows what was bundled — asking it for the preload's sibling CSP
@@ -113,16 +167,20 @@ export class IframeViewer implements PreviewHost {
   private lastUrl = '';
   private ipcSubscriptions: Array<{ channel: string; fn: (...a: any[]) => void }> = [];
   private disposed = false;
+  private loadGeneration = 0;
+  private historyLength = 0;
 
   constructor(element: HTMLIFrameElement, preloadPath: string) {
     this.element = element;
     this.preloadPath = preloadPath;
     element.addEventListener('load', this.onLoad);
+    window.addEventListener('message', this.onFrameMessage);
   }
 
   dispose(): void {
     this.disposed = true;
     this.element.removeEventListener('load', this.onLoad);
+    window.removeEventListener('message', this.onFrameMessage);
     this.dropIpcSubscriptions();
     this.listeners.clear();
   }
@@ -181,19 +239,67 @@ export class IframeViewer implements PreviewHost {
       /* cross-origin without webSecurity off — then nothing below works either */
     }
     this.emit('load-commit', { url, isMainFrame: true });
-    this.injectPreload();
+    void this.finishLoad();
+  };
+
+  /** The preload must be in the frame before dom-ready: listeners call its APIs right away. */
+  private async finishLoad(): Promise<void> {
+    const generation = ++this.loadGeneration;
+    await this.injectPreload();
+    if (this.disposed || generation !== this.loadGeneration) return;
     this.applyZoom();
     this.emit('dom-ready');
     this.emit('did-stop-loading');
     this.emit('did-finish-load');
+    this.executeJavaScript('history.length').then(
+      (n) => {
+        this.historyLength = Number(n) || 0;
+      },
+      () => {
+        this.historyLength = 0;
+      }
+    );
+  }
+
+  /** Messages from the bridge running inside the preview frame (see bridgeSource). */
+  private onFrameMessage = (e: MessageEvent): void => {
+    if (this.disposed || !e.source || e.source !== this.element.contentWindow) return;
+    const d = e.data;
+    if (!d || d.__xgPreviewBridge !== 1) return;
+    const channel = String(d.channel || '');
+    const args = Array.isArray(d.args) ? d.args : [];
+    if (d.type === 'host') {
+      this.emit('ipc-message', { channel, args });
+    } else if (d.type === 'send') {
+      if (FRAME_SEND_CHANNELS.has(channel)) ipcRenderer.send(channel, ...args);
+    } else if (d.type === 'sub') {
+      if (!FRAME_LISTEN_CHANNELS.has(channel) || this.ipcSubscriptions.some((s) => s.channel === channel)) return;
+      const fn = (_event: any, ...a: any[]) => this.postToFrame({ type: 'ipc', channel, args: a });
+      this.ipcSubscriptions.push({ channel, fn });
+      ipcRenderer.on(channel, fn);
+    }
   };
 
-  canGoBack(): boolean {
+  private postToFrame(message: Record<string, unknown>): void {
+    const origin = this.previewOrigin();
+    if (!origin) return;
     try {
-      return (this.element.contentWindow?.history.length || 0) > 1;
+      this.element.contentWindow?.postMessage({ __xgPreviewHost: 1, ...message }, origin);
     } catch {
-      return false;
+      /* frame gone */
     }
+  }
+
+  private previewOrigin(): string | null {
+    try {
+      return new URL(this.element.src || this.lastUrl).origin;
+    } catch {
+      return null;
+    }
+  }
+
+  canGoBack(): boolean {
+    return this.historyLength > 1;
   }
 
   canGoForward(): boolean {
@@ -201,28 +307,18 @@ export class IframeViewer implements PreviewHost {
   }
 
   goBack(): void {
-    try {
-      this.element.contentWindow?.history.back();
-    } catch {
-      /* ignore */
-    }
+    this.executeJavaScript('history.back()').catch(() => undefined);
   }
 
   goForward(): void {
-    try {
-      this.element.contentWindow?.history.forward();
-    } catch {
-      /* ignore */
-    }
+    this.executeJavaScript('history.forward()').catch(() => undefined);
   }
 
   reload(): void {
-    try {
-      this.element.contentWindow?.location.reload();
-    } catch {
+    this.executeJavaScript('location.reload()').catch(() => {
       // eslint-disable-next-line no-self-assign
       this.src = this.src;
-    }
+    });
   }
 
   reloadIgnoringCache(): void {
@@ -246,17 +342,16 @@ export class IframeViewer implements PreviewHost {
   // ── scripting ─────────────────────────────────────────────────────────────
 
   async executeJavaScript(code: string): Promise<any> {
-    const win = this.element.contentWindow as any;
-    if (!win) throw new Error('Preview frame has no window');
     // Same semantics as webview.executeJavaScript: evaluate in the page's global scope and
-    // resolve with the completion value (awaiting a promise if the code returned one).
-    const result = win.eval(code);
-    return result && typeof result.then === 'function' ? await result : result;
+    // resolve with the completion value (awaiting a promise if the code returned one). Runs via
+    // the main process (main/src/preview-frame.js) because the frame is in another process.
+    const origin = this.previewOrigin();
+    if (!origin) throw new Error('Preview frame has no origin');
+    return ipcRenderer.invoke('preview-frame:exec', { origin, code });
   }
 
-  private injectPreload(): void {
-    const win = this.element.contentWindow as any;
-    if (!win || !this.preloadPath) return;
+  private async injectPreload(): Promise<void> {
+    if (!this.preloadPath) return;
     let source: string;
     try {
       source = readPreload(this.preloadPath.replace(/^file:\/\//, '').replace(/\?.*$/, ''));
@@ -267,37 +362,20 @@ export class IframeViewer implements PreviewHost {
     }
 
     this.dropIpcSubscriptions();
-    const adapter = this;
-    const shimIpc = {
-      send: (channel: string, ...args: any[]) => ipcRenderer.send(channel, ...args),
-      on: (channel: string, fn: (...a: any[]) => void) => {
-        const wrapped = (...a: any[]) => fn(...a);
-        adapter.ipcSubscriptions.push({ channel, fn: wrapped });
-        ipcRenderer.on(channel, wrapped);
-      },
-      once: (channel: string, fn: (...a: any[]) => void) => ipcRenderer.once(channel, fn),
-      removeListener: (channel: string, fn: (...a: any[]) => void) => ipcRenderer.removeListener(channel, fn),
-      // What the preload used to reach its embedder with; the embedder is us.
-      sendToHost: (channel: string, ...args: any[]) => adapter.emit('ipc-message', { channel, args })
-    };
     const nodePath = nodeRequire('path');
     const preloadDir = nodePath.dirname(this.preloadPath.replace(/^file:\/\//, '').replace(/\?.*$/, ''));
-    const shimRequire = (id: string) => {
-      if (id === 'electron') return { ipcRenderer: shimIpc, contextBridge: { exposeInMainWorld: () => undefined } };
-      if (id === 'path') return nodePath;
-      // Sibling files of the preload (its CSP config) resolve on disk, through Node's require.
-      if (id.startsWith('./') || id.startsWith('../')) return nodeRequire(nodePath.join(preloadDir, id));
-      return nodeRequire(id);
-    };
+    let csp: unknown = {};
+    try {
+      // The preload's sibling CSP config, read here on disk and handed over as data.
+      csp = nodeRequire(nodePath.join(preloadDir, 'webview-csp-config.js'));
+    } catch {
+      /* the preload falls back to its own CSP handling */
+    }
 
     try {
-      // Evaluate INSIDE the frame so `window`, `document` and the API it installs are the
-      // viewer's, not ours. The wrapper supplies the CommonJS globals the file assumes.
-      const factory = win.eval(
-        '(function (require, module, exports, process, __dirname, __filename) {\n' + source + '\n})'
-      );
-      const mod = { exports: {} };
-      factory(shimRequire, mod, mod.exports, { env: { NODE_ENV: process.env.NODE_ENV } }, preloadDir, this.preloadPath);
+      // Evaluated INSIDE the frame so `window`, `document` and the API it installs are the
+      // viewer's, not ours. bridgeSource supplies the CommonJS globals the file assumes.
+      await this.executeJavaScript(bridgeSource(source, csp, process.env.NODE_ENV || ''));
       debugState.injected++;
       debugState.lastError = null;
     } catch (e: any) {
@@ -323,12 +401,10 @@ export class IframeViewer implements PreviewHost {
   }
 
   private applyZoom(): void {
-    try {
-      const doc = this.element.contentDocument;
-      if (doc?.documentElement) (doc.documentElement.style as any).zoom = String(this.zoom);
-    } catch {
-      /* not reachable yet */
-    }
+    const zoom = JSON.stringify(String(this.zoom));
+    this.executeJavaScript(`document.documentElement && (document.documentElement.style.zoom = ${zoom}), true`).catch(
+      () => undefined /* not loaded yet: re-applied on the next load */
+    );
   }
 
   // ── capture / devtools / identity ─────────────────────────────────────────
