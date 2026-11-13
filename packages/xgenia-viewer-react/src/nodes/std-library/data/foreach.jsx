@@ -147,6 +147,10 @@ const ForEachDefinition = {
       set: function (value) {
         try {
           this._internal.templateFunction = new Function('item', 'var component;' + value + ';return component;');
+          // A script that compiles clears the syntax badge a broken one left (it was never cleared).
+          if (this.context.editorConnection) {
+            this.context.editorConnection.clearWarning(this.nodeScope.componentOwner.name, this.id, 'foreach-syntax-warning');
+          }
         } catch (e) {
           console.log(e);
           if (this.context.editorConnection) {
@@ -235,9 +239,14 @@ const ForEachDefinition = {
       if (!internal.templateFunction) return;
       try {
         var template = internal.templateFunction(model);
+        if (internal.dynamicWarningShown && this.context.editorConnection) {
+          internal.dynamicWarningShown = false;
+          this.context.editorConnection.clearWarning(this.nodeScope.componentOwner.name, this.id, 'foreach-dynamic-warning');
+        }
       } catch (e) {
         console.log(e);
         if (this.context.editorConnection) {
+          internal.dynamicWarningShown = true;
           this.context.editorConnection.sendWarning(
             this.nodeScope.componentOwner.name,
             this.id,

@@ -6,6 +6,7 @@ import React, { ReactNode } from 'react';
 import Layout from '../../../layout';
 import PointerListeners from '../../../pointerlisteners';
 import { XGENIA } from '../../../types';
+import { hasInertDesignSize, hasRealTranslate } from './design-size';
 import NestedScroll from './scroll-plugins/nested-scroll-plugin';
 import patchedMomentum from './scroll-plugins/patched-momentum-scroll';
 import Slide from './scroll-plugins/slide-scroll-plugin';
@@ -198,7 +199,8 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
     const s = m ? Number(m[1]) : NaN;
     return {
       scale: isFinite(s) && Math.abs(s - 1) > 1e-6 ? s : null,
-      translated: /translate(X|Y)?\(/.test(t)
+      // translateX(0px) is what Pos X = 0 writes: not a move (see design-size.ts hasRealTranslate).
+      translated: hasRealTranslate(t)
     };
   }
 
@@ -225,10 +227,10 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
     // A design size that decides nothing, because the mode is off. Reads as configured.
     this.uiScaleWarning(
       'ui-scale-inert-design-size',
-      !on && (this.props.designWidth !== undefined || this.props.designHeight !== undefined)
+      hasInertDesignSize(on, this.props.designWidth, this.props.designHeight)
         ? `"${label}" has Design Width/Height set but Scale Mode is "Off", so they do ` +
           `NOTHING — nothing is scaled and the numbers are inert. Set Scale Mode to Fit or Letterbox ` +
-          `for them to take effect.`
+          `for them to take effect, or clear both fields (or set them to 1920 × 1080).`
         : null
     );
 
