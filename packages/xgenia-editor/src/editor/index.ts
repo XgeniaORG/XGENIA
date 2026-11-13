@@ -40,6 +40,7 @@ import { warmPublishCredentials } from './src/utils/rgs/deployTokens';
 import { loadProjectExtensions } from './src/utils/extensions/projectExtensions';
 import { initRgsKeyVault } from './src/utils/rgs/rgsClient';
 import { decryptString, encryptString, isEncryptionAvailable } from './src/store/_internal/StorageApi';
+import { supabase } from './src/supabaseInit';
 
 try {
   const { falService } = require('@xgenia/image-editor');
@@ -60,7 +61,17 @@ console.log('[Editor] ProjectModel exposed to window at startup for chat history
 // The XGENIA RGS operator key lives in the OS keychain (Electron safeStorage via the
 // StorageApi bridge, G1-S14): decrypt it once into memory before anything reads it,
 // and move a plaintext key left by an older editor into the keychain.
-initRgsKeyVault({ isAvailable: isEncryptionAvailable, encrypt: encryptString, decrypt: decryptString });
+// The key belongs to the XGENIA account it was obtained under (rgsClient: "The key belongs to…"): it is
+// unusable while another account, or nobody, is signed in, and destroyed when a different account signs in.
+initRgsKeyVault(
+  { isAvailable: isEncryptionAvailable, encrypt: encryptString, decrypt: decryptString },
+  {
+    current: () => supabase.auth.getSession().then(({ data }) => data?.session?.user?.id ?? null),
+    onChange: (listener) => {
+      supabase.auth.onAuthStateChange((_event, session) => listener(session?.user?.id ?? null));
+    }
+  }
+);
 
 // Make Publish ready as early as possible. On a platform with /web-publish this
 // fetches nothing — the Vercel token stays on the server; only an older platform

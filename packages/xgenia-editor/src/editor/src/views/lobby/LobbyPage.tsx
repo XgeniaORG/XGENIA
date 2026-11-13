@@ -21,6 +21,7 @@ import { normalisePins, pinAll, prunePins, togglePin, unpinAll } from '../../mod
 import { backdropFor, sampleTint } from '../../models/lobby/lobbyTint';
 import { resolveThumbSrc } from '../../utils/thumbnails/thumbnail-store';
 import { supabase, signOut as supabaseSignOut } from '../../supabaseInit';
+import { forgetRgsKeyOnSignOut } from '../../utils/rgs/rgsClient';
 import { getUserProfile } from '../../utils/userUtils';
 import { ToastLayer } from '../ToastLayer/ToastLayer';
 import { LobbyBar, type LobbyUser } from './LobbyBar';
@@ -622,6 +623,8 @@ async function signOut(): Promise<void> {
       if (key && (key.includes('supabase') || key.includes('sb-') || key.includes('auth-token'))) doomed.push(key);
     }
     doomed.forEach((k) => window.localStorage.removeItem(k));
+    // The XGENIA RGS connection is the account's: it goes with the sign-out, before the reload.
+    forgetRgsKeyOnSignOut();
 
     try {
       await supabaseSignOut();

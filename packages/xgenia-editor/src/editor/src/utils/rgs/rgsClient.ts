@@ -300,6 +300,145 @@ let memoryKey: string | null = null;
 let keyReady: Promise<void> = Promise.resolve();
 let pendingKeyWrite: Promise<void> = Promise.resolve();
 
+// ─── The key belongs to the XGENIA account it was obtained under (2026-11-13) ──
+//
+// The stored key was the INSTALL's. It outlived the XGENIA sign-out, so the next
+// person to sign in to this editor published into the previous person's studio
+// without ever signing in to the RGS. Since every paid XGENIA person has a studio
+// of their own (XRGS SYSTEM_MAP I-224), "the previous person's studio" is the
+// normal case on a shared machine, not a corner.
+//
+// Now a key carries the id of the XGENIA account that was signed in when it was
+// saved (RGS_KEY_OWNER_KEY, next to the ciphertext; an id, not a secret) and is
+// usable only while THAT account is signed in:
+//
+//   the session lapsed, or nobody is signed in   not connected. The key stays in the
+//                                                keychain for its owner's return: a
+//                                                lapsed session is not a reason to
+//                                                make someone connect again;
+//   the same account signs in again              connected, as before;
+//   a DIFFERENT account signs in                 the key is destroyed, with the game
+//                                                selection that went with it;
+//   Sign out, on purpose                         destroyed (forgetRgsKeyOnSignOut,
+//                                                called by both sign-out paths).
+//
+// A key with NO owner — saved by an older editor, or while nobody was signed in —
+// works as it always did and is adopted by the next account to sign in. The first
+// sign-in after this update cannot be told from the person who connected; that is
+// the one inheritance left, once per install.
+//
+// The check is made where the key is READ (keyUsableNow in getRgsSettings), from
+// two facts kept in step synchronously — who is signed in, whose key it is — so no
+// ordering of the keychain's answer and the session's can show a key to the wrong
+// account. Without an account source (tests, a build with no XGENIA sign-in)
+// nothing here applies and the key behaves as it did.
+
+/** Who is signed in to XGENIA in this editor. The editor passes its session; tests pass a fake. */
+export interface RgsKeyAccount {
+  /** The restored session's user id; null when nobody is signed in. */
+  current(): Promise<string | null>;
+  /**
+   * Every later change: who is signed in now (null: nobody). The listener only records the fact and
+   * touches localStorage; anything that re-renders is handed to a later task (see `later`), because
+   * supabase-js calls this holding its auth lock.
+   */
+  onChange(listener: (userId: string | null) => void): void;
+}
+
+/** localStorage key of the XGENIA user id the stored key belongs to. An id, never the key. */
+export const RGS_KEY_OWNER_KEY = 'xgenia_rgs_key_owner_v1';
+
+let accountBound = false;
+/** undefined: not known yet (startup). null: nobody is signed in. */
+let accountUserId: string | null | undefined;
+/** An auth event has arrived: the startup snapshot, if it answers later, is older and is ignored. */
+let accountEventSeen = false;
+
+const later = (fn: () => void) => { setTimeout(fn, 0); };
+
+function storedKeyOwner(): string | null {
+  try {
+    return localStorage.getItem(RGS_KEY_OWNER_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+function hasStoredKey(): boolean {
+  const plaintext = readStoredSettings().apiKey;
+  return !!memoryKey || !!localStorage.getItem(RGS_KEY_CIPHER_KEY) || (typeof plaintext === 'string' && !!plaintext);
+}
+
+/** May the stored key be used right now? Always — unless it belongs to an account that is not the one signed in. */
+function keyUsableNow(): boolean {
+  if (!accountBound) return true;
+  const owner = storedKeyOwner();
+  return !owner || owner === accountUserId;
+}
+
+/** The owner of a key being saved now: whoever is signed in; nobody, if nobody is. */
+function stampKeyOwner(): void {
+  if (!accountBound) return;
+  if (accountUserId) localStorage.setItem(RGS_KEY_OWNER_KEY, accountUserId);
+  else localStorage.removeItem(RGS_KEY_OWNER_KEY);
+}
+
+/** Memory, keychain copy, owner and the settings that hung off the key. No event: callers say what changed. */
+function destroyStoredKey(): void {
+  memoryKey = null;
+  localStorage.removeItem(RGS_KEY_CIPHER_KEY);
+  localStorage.removeItem(RGS_KEY_OWNER_KEY);
+  localStorage.removeItem(RGS_SETTINGS_KEY);
+}
+
+/** The signed-in XGENIA account is now `userId` (null: nobody). Synchronous but for telling the panels. */
+function onRgsKeyAccount(userId: string | null): void {
+  const wasConnected = isRgsConnected();
+  accountUserId = userId;
+  let destroyed = false;
+  if (userId) {
+    const owner = storedKeyOwner();
+    if (owner && owner !== userId) {
+      // Another account's key. It never reaches this one, and it does not wait here for its owner
+      // either: on a machine two people use, that would be a studio's key kept for whoever asks next.
+      destroyStoredKey();
+      destroyed = true;
+      console.warn('[rgs] A different XGENIA account signed in: the previous account\'s XGENIA RGS connection was removed from this computer.');
+    } else if (!owner && hasStoredKey()) {
+      localStorage.setItem(RGS_KEY_OWNER_KEY, userId);
+    }
+  }
+  const connected = isRgsConnected();
+  if (destroyed) later(() => EventDispatcher.instance.emit('rgs.gameSelected', null));
+  else if (connected && !wasConnected) later(() => EventDispatcher.instance.emit('rgs.connected', { restored: true }));
+  else if (!connected && wasConnected) later(() => EventDispatcher.instance.emit('rgs.gameSelected', null));
+}
+
+/** Attach the account source. From this call on, an owned key is unusable until its owner is known to be signed in. */
+function bindRgsKeyAccount(account: RgsKeyAccount): Promise<void> {
+  accountBound = true;
+  accountUserId = undefined;
+  accountEventSeen = false;
+  account.onChange((userId) => {
+    accountEventSeen = true;
+    onRgsKeyAccount(userId || null);
+  });
+  return withVaultTimeout(account.current()).then(
+    (userId) => { if (!accountEventSeen) onRgsKeyAccount(userId || null); },
+    // Not known in time: an owned key stays locked until an auth event says who is signed in.
+    (e) => { console.warn('[rgs] Could not tell who is signed in to XGENIA yet:', (e as any)?.message || e); }
+  );
+}
+
+/**
+ * Sign out of XGENIA, on purpose: the RGS connection goes with it. Both sign-out paths call this
+ * (AuthContext.signOut, the lobby's). A session that merely lapses does not come through here.
+ */
+export function forgetRgsKeyOnSignOut(): void {
+  if (!hasStoredKey() && !storedKeyOwner()) return;
+  clearRgsSettings();
+}
+
 function withVaultTimeout<T>(p: Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error('the OS keychain did not answer')), VAULT_TIMEOUT_MS);
@@ -347,43 +486,54 @@ async function writeCipher(vault: RgsKeyVault, key: string): Promise<boolean> {
 /**
  * Install the OS-keychain bridge, migrate a plaintext key and decrypt the stored
  * one into memory. Call once at startup; rgsKeyReady() resolves when it is done.
+ * With `account`, the key is bound to the signed-in XGENIA account (see above) and
+ * "done" includes knowing who that is.
  */
-export function initRgsKeyVault(vault: RgsKeyVault): Promise<void> {
+export function initRgsKeyVault(vault: RgsKeyVault, account?: RgsKeyAccount): Promise<void> {
+  // Bound BEFORE the keychain is asked: an owned key is locked from the first instant.
+  const accountSettled = account ? bindRgsKeyAccount(account) : Promise.resolve();
   keyReady = (async () => {
-    let available = false;
-    try {
-      available = !!(await withVaultTimeout(vault.isAvailable()));
-    } catch {
-      available = false;
-    }
-    if (!available) {
-      console.warn('[rgs] OS secure storage is unavailable here; the XGENIA RGS key stays in local storage as before.');
-      return;
-    }
-    keyVault = vault;
-
-    const plaintext = readStoredSettings().apiKey;
-    if (typeof plaintext === 'string' && plaintext) {
-      // First run with a vault (or a key an older editor saved since): move it.
-      memoryKey = plaintext;
-      if (await writeCipher(vault, plaintext)) dropPlaintextKey();
-      else keyVault = null; // keep the plaintext rather than lose the key
-    } else {
-      const cipher = localStorage.getItem(RGS_KEY_CIPHER_KEY);
-      if (cipher) {
-        try {
-          const key = await withVaultTimeout(vault.decrypt(cipher));
-          if (typeof key === 'string' && key) memoryKey = key;
-          else console.error('[rgs] The stored XGENIA RGS key could not be decrypted; sign in again under Publish.');
-        } catch (e) {
-          console.error('[rgs] The stored XGENIA RGS key could not be decrypted; sign in again under Publish.', (e as any)?.message || e);
-        }
-      }
-    }
-    // Panels that read the key before it was decrypted re-read it now.
-    if (memoryKey) EventDispatcher.instance.emit('rgs.connected', { restored: true });
+    await loadStoredKey(vault);
+    await accountSettled;
+    // Panels that read the key before it was decrypted, or before its owner was known, re-read it now.
+    if (isRgsConnected()) EventDispatcher.instance.emit('rgs.connected', { restored: true });
   })();
   return keyReady;
+}
+
+async function loadStoredKey(vault: RgsKeyVault): Promise<void> {
+  let available = false;
+  try {
+    available = !!(await withVaultTimeout(vault.isAvailable()));
+  } catch {
+    available = false;
+  }
+  if (!available) {
+    console.warn('[rgs] OS secure storage is unavailable here; the XGENIA RGS key stays in local storage as before.');
+    return;
+  }
+  keyVault = vault;
+
+  const plaintext = readStoredSettings().apiKey;
+  if (typeof plaintext === 'string' && plaintext) {
+    // First run with a vault (or a key an older editor saved since): move it.
+    memoryKey = plaintext;
+    if (await writeCipher(vault, plaintext)) dropPlaintextKey();
+    else keyVault = null; // keep the plaintext rather than lose the key
+  } else {
+    const cipher = localStorage.getItem(RGS_KEY_CIPHER_KEY);
+    if (cipher) {
+      try {
+        const key = await withVaultTimeout(vault.decrypt(cipher));
+        // Destroyed while the keychain was answering (a different account signed in): it stays destroyed.
+        if (localStorage.getItem(RGS_KEY_CIPHER_KEY) !== cipher) return;
+        if (typeof key === 'string' && key) memoryKey = key;
+        else console.error('[rgs] The stored XGENIA RGS key could not be decrypted; sign in again under Publish.');
+      } catch (e) {
+        console.error('[rgs] The stored XGENIA RGS key could not be decrypted; sign in again under Publish.', (e as any)?.message || e);
+      }
+    }
+  }
 }
 
 /** Resolves once the stored key has been read (immediately when there is no vault). */
@@ -402,12 +552,16 @@ export function resetRgsKeyVaultForTests(): void {
   memoryKey = null;
   keyReady = Promise.resolve();
   pendingKeyWrite = Promise.resolve();
+  accountBound = false;
+  accountUserId = undefined;
+  accountEventSeen = false;
 }
 
 export function getRgsSettings(): RgsSettings | null {
   try {
     const parsed = readStoredSettings();
-    const apiKey = memoryKey || (typeof parsed.apiKey === 'string' ? parsed.apiKey : '');
+    // Another account's key (or one whose owner is signed out) reads as "not connected".
+    const apiKey = keyUsableNow() ? memoryKey || (typeof parsed.apiKey === 'string' ? parsed.apiKey : '') : '';
     if (apiKey) return { ...parsed, apiKey };
   } catch {
     /* ignore */
@@ -422,6 +576,8 @@ export function saveRgsSettings(settings: RgsSettings | string): void {
   const cur = readStoredSettings();
   const patch: any = typeof settings === 'string' ? { apiKey: settings } : { ...settings };
   const vault = keyVault;
+  // A new key is the signed-in account's from this moment (and replaces whoever's was there).
+  if (typeof patch.apiKey === 'string' && patch.apiKey) stampKeyOwner();
   if (vault && typeof patch.apiKey === 'string' && patch.apiKey) {
     // The key goes to memory now and to the keychain next; localStorage never sees it.
     const key: string = patch.apiKey;
@@ -443,9 +599,7 @@ export function saveRgsSettings(settings: RgsSettings | string): void {
 }
 
 export function clearRgsSettings(): void {
-  memoryKey = null;
-  localStorage.removeItem(RGS_KEY_CIPHER_KEY);
-  localStorage.removeItem(RGS_SETTINGS_KEY);
+  destroyStoredKey();
   // The active game is stored under the same key, so disconnecting clears the
   // selection too — say so, or a listener keeps showing the old game.
   EventDispatcher.instance.emit('rgs.gameSelected', null);

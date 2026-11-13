@@ -6,6 +6,7 @@ import Intercom, { update as intercomUpdate, shutdown as intercomShutdown } from
 
 import { useIsOnline } from '../hooks/useIsOnline';
 import { supabase, signInWithEmail, signOut as supabaseSignOut, refreshSessionShared } from '../supabaseInit';
+import { forgetRgsKeyOnSignOut } from '../utils/rgs/rgsClient';
 import type { AuthContextType, AuthState } from '../types/auth';
 import { AuthValidationService, ValidationResult } from '../utils/AuthValidationService';
 import { debugSessionState, testSessionStorage, cleanupLegacyStorage } from '../utils/userUtils';
@@ -325,6 +326,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (error) {
         throw error;
       }
+
+      // Signing out of XGENIA on purpose signs this computer out of the XGENIA RGS too: the key is the
+      // account's, not the install's (rgsClient, "The key belongs to the XGENIA account…").
+      forgetRgsKeyOnSignOut();
 
       // Clear validation state
       setAuthState((prev) => ({
