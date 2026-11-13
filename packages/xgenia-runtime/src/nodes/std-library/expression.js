@@ -203,12 +203,18 @@ const ExpressionNode = {
           console.log(`[Expression RUN] Node ID: ${this.id}, About to evaluate expression:`, expression);
           const result = internal.compiledFunction.apply(null, internal.inputValues);
           console.log(`[Expression RUN] Node ID: ${this.id}, Evaluation result:`, result);
+          // A run that works clears the badge an earlier failing run left (it was never cleared).
+          if (this._internal.runWarningShown && this.context.editorConnection) {
+            this._internal.runWarningShown = false;
+            this.context.editorConnection.clearWarning(this.nodeScope.componentOwner.name, this.id, 'expression-run-waring');
+          }
           return result;
         } catch (e) {
           console.error(`[Expression ERROR] Node ID: ${this.id}, Expression:`, this._internal.currentExpression, 'Error:', e);
           logJavaScriptNodeError(e); // Use existing helper for better formatting if needed
 
-          // Re-send warning to editor if possible
+          // Re-send warning to editor if possible (a later working run clears it, above)
+          this._internal.runWarningShown = true;
           if (this.context.editorConnection && this.context.isWarningTypeEnabled('javascriptExecution')) {
              this.context.editorConnection.sendWarning(
                this.nodeScope.componentOwner.name,

@@ -5,6 +5,7 @@ import { flexDirectionValues } from '../../constants/flex';
 import NodeSharedPortDefinitions from '../../node-shared-port-definitions';
 import { createNodeFromReactComponent } from '../../react-component-node';
 import { createTooltip } from '../../tooltips';
+import { designSizeValue } from '../../components/visual/Group/design-size';
 
 const GroupNode = {
   name: 'Group',
@@ -108,8 +109,8 @@ const GroupNode = {
       default: 1920,
       tooltip: 'The width you design at, in pixels. Children are positioned in these units and the whole group is scaled to fit. Only used when Scale Mode is on.',
       set(value) {
-        const n = Number(value);
-        this.props.designWidth = isFinite(n) && n > 0 ? n : 1920;
+        // Cleared (empty / null / 0) means unset, not 1920: see design-size.ts.
+        this.props.designWidth = designSizeValue(value);
         this.forceUpdate();
       }
     },
@@ -121,8 +122,7 @@ const GroupNode = {
       default: 1080,
       tooltip: 'The height you design at, in pixels. Only used when Scale Mode is on.',
       set(value) {
-        const n = Number(value);
-        this.props.designHeight = isFinite(n) && n > 0 ? n : 1080;
+        this.props.designHeight = designSizeValue(value);
         this.forceUpdate();
       }
     },
