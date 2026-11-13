@@ -127,6 +127,28 @@ describe('a Script that is a stale copy of an earlier engine', () => {
   });
 });
 
+describe('a copy saved from another bundle BUILD still matches (2026-11-13)', () => {
+  // "Script method _ensureTextureCache: lib is not defined — falling back to the built-in": the
+  // copy came from a build that named the pixi.js namespace lib_namespaceObject and the
+  // symbol-rig import symbol_rigs/* symbolRig */.xS; no recorded version carried those names.
+  const PLAIN = `_prep(url, path) { var tex = getCachedTexture(PIXI, url); PIXI.Assets.load(url); return symbolRig(renderer, getAbsoluteUrl(path)); }`;
+  const OLD_BUILD = `_prep(url, path) { var tex = getCachedTexture(lib_namespaceObject, url); lib_namespaceObject.Assets.load(url); return (0,symbol_rigs/* symbolRig */.xS)(renderer, (0,utils/* getAbsoluteUrl */.Ue)(path)); }`;
+  const NEW_BUILD = `_prep(url, path) { var tex = getCachedTexture(lib, url); lib.Assets.load(url); return (0,symbol_rigs/* symbolRig */.Qa)(renderer, (0,utils/* getAbsoluteUrl */.k9)(path)); }`;
+
+  test('the history form takes the build names out, and only those', () => {
+    const h = (src) => NodeScript.memberHash(NodeScript.historyForm(canon(src)));
+    expect(h(OLD_BUILD)).toBe(h(PLAIN));
+    expect(h(NEW_BUILD)).toBe(h(PLAIN));
+    // a real edit still differs
+    expect(h(PLAIN.replace('Assets.load(url)', 'Assets.load(url + "?v=2")'))).not.toBe(h(PLAIN));
+    // a property or a longer name that merely contains "lib" is left alone
+    expect(NodeScript.historyForm('{ a.lib.b; library(x); }')).toBe('{ a.lib.b; library(x); }');
+    // only webpack's `(0,X)(…)` wrapper loses its namespace, never an ordinary call's arguments
+    expect(NodeScript.historyForm('{ f(0, x); g(0,y)(z); return (0,utils.getAbsoluteUrl)(p); }'))
+      .toBe('{ f(0, x); g(0,y)(z); return getAbsoluteUrl(p); }');
+  });
+});
+
 describe('the generated history', () => {
   test('knows several versions of the reel column methods the 2026-10-04 fix changed', () => {
     const reel = History.types['pixi.ReelColumn'] || {};
