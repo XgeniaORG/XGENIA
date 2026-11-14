@@ -205,7 +205,8 @@ function main() {
         for (const [type, keys] of Object.entries(members)) {
             for (const [key, texts] of Object.entries(keys)) {
                 const t = (history[type] = history[type] || {});
-                for (const canon of texts) (t[key] = t[key] || new Set()).add(NS.memberHash(canon));
+                // Hashed in the lookup's history form (nodescript.js historyForm): build names out.
+                for (const canon of texts) (t[key] = t[key] || new Set()).add(NS.memberHash(NS.historyForm(canon)));
             }
         }
     };

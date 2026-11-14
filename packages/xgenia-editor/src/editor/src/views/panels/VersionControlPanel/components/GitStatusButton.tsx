@@ -3,12 +3,16 @@ import React, { useEffect, useState } from 'react';
 import { IconName } from '@xgenia-core-ui/components/common/Icon';
 import { ActionButton, ActionButtonProps, ActionButtonVariant } from '@xgenia-core-ui/components/inputs/ActionButton';
 
+import { ToastLayer } from '../../../ToastLayer/ToastLayer';
 import { useVersionControlContext } from '../context';
+import { CONFLICTS_BLOCK_MESSAGE } from './conflictListModel';
 
 export type GitStatusButtonProps = {
   openGitSettingsPopout: () => void;
   /** Opens the "Publish to GitHub" dialog, the action offered when there is no remote. */
   openPublishToGitHubDialog: () => void;
+  /** True while the panel's conflict list is not empty: push and sync are held back. */
+  hasListedConflicts?: boolean;
 };
 
 /**
@@ -17,7 +21,7 @@ export type GitStatusButtonProps = {
  * upstream yet, "Publish to GitHub" when the repository has no remote at all,
  * and pull/push/refresh otherwise.
  */
-export function GitStatusButton({ openGitSettingsPopout, openPublishToGitHubDialog }: GitStatusButtonProps) {
+export function GitStatusButton({ openGitSettingsPopout, openPublishToGitHubDialog, hasListedConflicts }: GitStatusButtonProps) {
   const { git, actions, fetch } = useVersionControlContext();
 
   const { gitStatus, currentBranch, lastFetchTime, localCommitCount, remoteCommitCount } = fetch;
@@ -171,6 +175,9 @@ export function GitStatusButton({ openGitSettingsPopout, openPublishToGitHubDial
   })();
 
   async function onAction() {
+    if (hasListedConflicts && (gitStatus.kind === 'push' || gitStatus.kind === 'sync')) {
+      return ToastLayer.showError(CONFLICTS_BLOCK_MESSAGE);
+    }
     switch (gitStatus.kind) {
       case 'default':
       case 'fetch':
@@ -200,5 +207,6 @@ export function GitStatusButton({ openGitSettingsPopout, openPublishToGitHubDial
     }
   }
 
-  return <ActionButton {...props} onClick={onAction} />;
+  const heldBack = Boolean(hasListedConflicts) && (gitStatus.kind === 'push' || gitStatus.kind === 'sync');
+  return <ActionButton {...props} isDisabled={props.isDisabled || heldBack} onClick={onAction} />;
 }

@@ -547,7 +547,13 @@ export const TIMED_OUT = Symbol('xgenia-mcp:pre-kill-read-timed-out');
  */
 export function withReadTimeout<T>(promise: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
   return Promise.race([
-    promise,
+    // A crashed renderer rejects ("Target crashed") instead of hanging. Same answer either way:
+    // the page is gone, so the caller reports it unresponsive and `force` still works.
+    // Any other rejection is a real error and propagates.
+    promise.catch((e: unknown): typeof TIMED_OUT => {
+      if (/Target (crashed|closed)|has been closed/i.test(String((e as Error)?.message ?? e))) return TIMED_OUT;
+      throw e;
+    }),
     new Promise<typeof TIMED_OUT>((resolve) => setTimeout(() => resolve(TIMED_OUT), ms))
   ]);
 }

@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const { optionalAlias } = require('../helpers/optional-alias');
 
 // NOTE: packagesDir will be resolved to packages by the build system too
 const editorDir = path.join(__dirname, '../../');
@@ -18,6 +19,20 @@ if (hasXgeniaAi) {
 } else {
   console.log('[Webpack] @xgenia-ai not found, using stubs for build compatibility');
 }
+
+// Optional project extensions: the stub keeps builds without the private checkout working.
+const projectExtensionsPath = optionalAlias(
+  path.join(rootDir, 'private/xgenia-puppet/editor-extension'),
+  path.join(editorDir, 'src/stubs/project-extensions/index.js')
+);
+console.log('[Webpack] @xgenia/project-extensions:', projectExtensionsPath);
+
+// The FX Studio (RevoltFX particle editor) is private; open-source builds get a stub that opens nothing.
+const fxStudioPath = optionalAlias(
+  path.join(rootDir, 'private/xgenia-fx-studio/src'),
+  path.join(editorDir, 'src/stubs/fx-studio/index.js')
+);
+console.log('[Webpack] @xgenia/fx-studio:', fxStudioPath);
 
 const alias = {
   '@xgenia-ai': hasXgeniaAi ? xgeniaAiSrcPath : path.join(editorDir, 'src/stubs/xgenia-ai'),
@@ -38,7 +53,10 @@ const alias = {
   '@xgenia-services': path.join(editorDir, 'src/editor/src/services'),
   '@xgenia-editor-views': path.join(editorDir, 'src/editor/src/views'),
   '@xgenia-editor': path.join(editorDir, 'src/editor/src'),
-  '@xgenia/image-editor': path.join(rootDir, 'private/xgenia-image-editor/src')
+  '@xgenia/image-editor': path.join(rootDir, 'private/xgenia-image-editor/src'),
+  '@xgenia/coach': path.join(rootDir, 'private/xgenia-coach/src'),
+  '@xgenia/project-extensions': projectExtensionsPath,
+  '@xgenia/fx-studio': fxStudioPath
 };
 
 console.log('> alias:');

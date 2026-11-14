@@ -1,12 +1,25 @@
 # Live engine
 
-Engine, slot nodes and the RGS compiler reach installed apps without an app release.
-Design: `docs/superpowers/specs/2026-10-03-live-engine-design.md`.
+**Manual only since 2026-10-06.** Engine and private changes now reach users as app builds:
 
-## How a change reaches users
+1. A push to private `main` → the private pointer bot (`.github/workflows/private-pointer.yml`)
+   runs `PR checks` with the new private commit, pushes the pointer bump to `develop` over a deploy
+   key, and starts `.github/workflows/nightly.yml`.
+2. The nightly (also startable by hand; its daily schedule is paused) builds `develop` and publishes a pre-release such as
+   `v3.0.2-beta.3` through `release.yml`, then moves `package.json` on to `3.0.2-beta.4`.
+3. Installs on the Beta channel (Settings → Editor → Updates) download it in the background and
+   install it on restart (`src/main/src/autoupdater.js`). Stable installs only take stable releases.
 
-1. Merge to `develop` (outer) or push to private `main` (pro/agent nodes).
-2. The `Live Engine` workflow tests, builds, signs and publishes the engine to **beta**.
+An app update drops any live engine installed under the previous app version (`select.js`), since
+the new build carries a newer engine. The workflow below is kept for an emergency engine hotfix
+between app builds: Actions → Live Engine → Run workflow → `action: build`.
+
+Design: `private/docs/live-engine/2026-10-03-live-engine-design.md`.
+
+## How a manual hotfix reaches users
+
+1. Run the `Live Engine` workflow with `action: build`.
+2. It tests, builds, signs and publishes the engine to **beta**.
 3. Apps on beta (`XGENIA_ENGINE_CHANNEL=beta`, or `<userData>/engine/settings.json` = `{"channel":"beta"}`)
    download it within 6 h (15 s after start) and run it from their next start.
 4. Promote to **stable** (everyone): Actions → Live Engine → Run workflow → `action: promote`

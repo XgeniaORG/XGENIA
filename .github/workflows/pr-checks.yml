@@ -1,0 +1,85 @@
+name: PR checks
+
+# Runs on every PR into develop, with private/ at the commit the PR pins; make "PR checks / Engine
+# tests" a required check on develop. The private pointer bot (private-pointer.yml) also calls it
+# before every bump, with private/ at the commit it is about to pin, and pushes only if it passes.
+on:
+  pull_request:
+    branches: [develop]
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Branch to test (default: the triggering commit)'
+        type: string
+        default: ''
+      private-sha:
+        description: 'Test with private/ at this commit instead of the one the branch pins'
+        type: string
+        default: ''
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  engine:
+    name: Engine tests
+    # Fork PRs get no secrets, so they cannot check out private/; a maintainer reviews those.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || '' }}
+
+      - name: Private
+        env:
+          PRIVATE_PAT: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
+          PRIVATE_SHA: ${{ inputs.private-sha || '' }}
+        run: |
+          test -n "$PRIVATE_PAT" || { echo "::error::PRIVATE_SUBMODULE_PAT is missing"; exit 1; }
+          git config --global url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf "https://github.com/"
+          git submodule update --init private
+          if [ -n "$PRIVATE_SHA" ]; then
+            git -C private fetch --quiet --depth 1 origin "$PRIVATE_SHA"
+            git -C private checkout --quiet "$PRIVATE_SHA"
+          fi
+          git config --global --unset-all url."https://x-access-token:${PRIVATE_PAT}@github.com/".insteadOf
+          echo "private at $(git -C private rev-parse --short HEAD)"
+          test -f private/xgenia-pro-nodes/src/index.js
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: npm install
+
+      # tests/deploy/stakeShell.browser.test.ts (#305) drives the Stake shell in a real browser. The
+      # playwright package comes with npm install, but its browser does not, so the test failed on
+      # every PR with "Executable doesn't exist". Install the browser of the locked playwright version.
+      - name: Playwright Chromium for the browser tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Engine tests
+        run: |
+          npm test -w @xgenia/runtime -- --ci
+          node --test 'packages/xgenia-editor/tests/live-engine/*.test.cjs' 'packages/xgenia-editor/tests/auto-update/*.test.cjs' 'packages/xgenia-editor/tests/updater/*.test.cjs' 'packages/xgenia-editor/tests/main/*.test.cjs' 'packages/xgenia-editor/tests/web-server-traversal.test.cjs'
+          # The editor's TypeScript tests (panels, undo, timeline, deploy, assets...). They resolve the
+          # editor's path aliases through its tsconfig; force-exit because some start retry timers.
+          TSX_TSCONFIG_PATH=packages/xgenia-editor/tsconfig.json npx tsx --test --test-force-exit 'packages/xgenia-editor/tests/**/*.test.ts' 'packages/xgenia-editor/tests/**/*.test.tsx'
+          node --test scripts/live-engine/pack.test.mjs scripts/live-engine/workflow.test.mjs scripts/live-engine/minify-viewer.test.mjs
+          node --test scripts/release/*.test.mjs
+          npm test -w @xgenia/pro-nodes
+          # Package suites that were not run anywhere (each a few seconds; puppet about a minute).
+          # character-jobs (~6 min) is left to its own runs.
+          CI=1 npm test -w @xgenia/mcp-server -w @xgenia/platform-node -w @xgenia/xgenia-viewer-react -w @xgenia/puppet -w xgenia-character-studio-app
+          npx tsx packages/xgenia-runtime/src/api/test-compiler-bundle-parity.ts
+
+      # The pro nodes are bundled into the viewer: a private change that breaks the bundle fails here,
+      # not in the nightly an hour later.
+      - name: Build the viewer
+        run: OUTPUT_PATH="$RUNNER_TEMP/viewer-check" npm run build -w @xgenia/xgenia-viewer-react

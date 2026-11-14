@@ -1,3 +1,4 @@
+import { keepWorkersRunning } from './worker-resume.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium, type Browser, type Page, type Frame } from 'playwright-core';
@@ -264,8 +265,20 @@ export async function connect(
     throw err;
   }
 
+  keepWorkersRunning(port);
   cached = { browser, page, target: classifyTarget(page.url()), port };
   return cached;
+}
+
+/**
+ * A fresh connection, for when the cached one has gone stale: after the chat panel reloaded in its own
+ * process (isolated remote frames), the cached page's frame list never showed it again, and every chat
+ * tool failed with chat-frame-missing while the panel sat on screen (2026-11-02). The old handle is NOT
+ * closed: closing a CDP-attached Electron browser closes the user's project.
+ */
+export async function reconnect(port = discoverPort()): Promise<Connection> {
+  cached = null;
+  return connect(port);
 }
 
 export function getChatFrame(page: Page): Frame | null {

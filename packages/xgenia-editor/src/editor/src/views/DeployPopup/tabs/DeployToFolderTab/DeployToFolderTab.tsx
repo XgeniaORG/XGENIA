@@ -76,7 +76,7 @@ export function DeployToFolderTab() {
     <>
       <PopupSection>
         <Text hasBottomSpacing textType={TextType.DefaultContrast}>
-          Deploy your frontend to a local folder
+          Save the game&rsquo;s files to a folder, to host it on your own website.
         </Text>
 
         {successMessage && <Text style={{ marginTop: '8px', fontSize: '12px', color: '#6f6' }}>{successMessage}</Text>}
@@ -85,14 +85,14 @@ export function DeployToFolderTab() {
           <Select
             options={environmentOptions}
             onChange={(value: string) => setEnvironmentId(value)}
-            placeholder="No cloud services"
+            placeholder="None"
             value={environmentId}
-            label="Connected cloud services"
+            label="Server the files use"
             hasBottomSpacing
           />
         )}
 
-        <PrimaryButton label="Pick folder" onClick={onPickFolderClicked} />
+        <PrimaryButton label="Choose a folder and save" onClick={onPickFolderClicked} />
       </PopupSection>
     </>
   );

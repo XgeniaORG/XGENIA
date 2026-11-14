@@ -26,6 +26,8 @@ import { tracker } from '../../utils/tracker';
 import { ToastLayer } from '../ToastLayer/ToastLayer';
 import { judgeDrop, type DroppedKind } from '../../models/lobby/lobbyDrop';
 import { setPendingSeed } from '../../models/lobby/lobbySeed';
+import { markNewGame } from '../../models/lobby/newGameArrival';
+import { fetchStarters, starterSeed, starterTemplates, starterTypeOfUrl } from './starters';
 import { SidebarModel } from '@xgenia-models/sidebar';
 import { ChatPanelIframe_ID } from '../panels/ChatPanelBridge/ChatPanelIframe';
 import { ChatPanel_ID as ChatPanelShell_ID } from '../panels/ChatPanelShell';
@@ -161,7 +163,35 @@ export async function chooseFolder(name: string): Promise<string | null> {
   }
 
   if (!parent) return null;
+  try {
+    localStorage.setItem(GAMES_FOLDER_KEY, parent);
+  } catch {
+    /* remembered next time only when storage works */
+  }
 
+  return filesystem.makeUniquePath(filesystem.join(parent, name || 'Untitled'));
+}
+
+const GAMES_FOLDER_KEY = 'xgenia.lobby.gamesFolder';
+
+/**
+ * Where new games go unless the user picks somewhere else: the last folder they chose, or
+ * Documents/XGENIA Games. A first game should not start with a folder dialog.
+ */
+export function defaultGamesFolder(): string {
+  try {
+    const saved = localStorage.getItem(GAMES_FOLDER_KEY);
+    if (saved) return saved;
+  } catch {
+    /* no storage: the default */
+  }
+  return filesystem.join(platform.getDocumentsPath(), 'XGENIA Games');
+}
+
+/** A unique folder for `name` inside the default games folder (created if missing). */
+export async function defaultGamePath(name: string): Promise<string> {
+  const parent = defaultGamesFolder();
+  if (!filesystem.exists(parent)) await filesystem.makeDirectory(parent);
   return filesystem.makeUniquePath(filesystem.join(parent, name || 'Untitled'));
 }
 
@@ -177,13 +207,19 @@ export async function createGame(args: CreateGameArgs): Promise<ProjectModel | n
   ToastLayer.showActivity('Creating new game', activityId);
 
   try {
-    const project = await new Promise<ProjectModel | null>((resolve) => {
-      LocalProjectsModel.instance.newProject((p: ProjectModel) => resolve(p || null), {
-        name: args.name,
-        path: args.path,
-        projectTemplate: args.templateUrl
+    // "Describe it" always starts from a blank canvas: the AI builds the game from the description.
+    // A playable starter is used only when the user picks its tile (2026-11-13: a typed description
+    // no longer pulls one in by its keywords).
+    const create = (projectTemplate?: string) =>
+      new Promise<ProjectModel | null>((resolve) => {
+        LocalProjectsModel.instance.newProject((p: ProjectModel) => resolve(p || null), {
+          name: args.name,
+          path: args.path,
+          projectTemplate
+        });
       });
-    });
+
+    const project = await create(args.templateUrl);
 
     if (!project) {
       ToastLayer.showError('Could not create the game.');
@@ -202,9 +238,16 @@ export async function createGame(args: CreateGameArgs): Promise<ProjectModel | n
 
     // The description the user typed is handed to the chat panel once the editor is up. See
     // models/lobby/lobbySeed.ts for why this is a stored intent rather than a direct call.
-    if (args.description?.trim()) setPendingSeed(project.id, args.description.trim());
+    if (args.description?.trim()) {
+      // A starter picked by its tile gets the starter's first message.
+      const starterType = starterTypeOfUrl(args.templateUrl);
+      setPendingSeed(project.id, starterType ? starterSeed(starterType, args.description) : args.description.trim());
+    }
+
+    markNewGame(project.id);
 
     tracker.track('Create New Project', {
+      starter: starterTypeOfUrl(args.templateUrl) || undefined,
       templateLabel: args.templateLabel,
       templateUrl: args.templateUrl,
       origin: args.origin
@@ -240,15 +283,20 @@ const OFFERED_TEMPLATE = /hello[\s_-]*world/i;
 
 /** The template feed. Returns an empty list rather than throwing, so the sheet still renders. */
 export async function listTemplates(): Promise<TemplateItem[]> {
+  // The playable starters come first (served next to the AI panel; none when offline).
+  const starters = starterTemplates(await fetchStarters());
   try {
     const templates = await templateRegistry.list({});
     // `type` marks the non-basic entries the old screen filtered out of the template grid.
-    return (templates || [])
+    return [
+      ...starters,
+      ...(templates || [])
       .filter((t) => (t as any).type === undefined)
-      .filter((t) => OFFERED_TEMPLATE.test(t.title || '') || OFFERED_TEMPLATE.test(t.projectURL || ''));
+      .filter((t) => OFFERED_TEMPLATE.test(t.title || '') || OFFERED_TEMPLATE.test(t.projectURL || ''))
+    ];
   } catch (e: any) {
     console.warn('[lobby] Failed to fetch templates:', e?.message || e);
-    return [];
+    return starters;
   }
 }
 
@@ -320,13 +368,16 @@ export async function duplicateGame(entry: ProjectItem): Promise<ProjectModel | 
   ToastLayer.showActivity('Duplicating game', activityId);
 
   try {
-    return await new Promise<ProjectModel | null>((resolve) => {
+    const project = await new Promise<ProjectModel | null>((resolve) => {
       LocalProjectsModel.instance.newProject((p: ProjectModel) => resolve(p || null), {
         name,
         path,
         projectTemplate: entry.retainedProjectDirectory
       });
     });
+    // newProject answers a failed copy with no project rather than throwing.
+    if (!project) ToastLayer.showError('Could not duplicate the game.');
+    return project;
   } catch {
     ToastLayer.showError('Could not duplicate the game.');
     return null;

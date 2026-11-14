@@ -10,7 +10,16 @@ import {
 
 import { IVector2, NodeGraphEditor } from './nodegrapheditor';
 import { ComponentsPanelFolder } from './panels/componentspanel/ComponentsPanelFolder';
-import { getOrAssignUid } from './panels/AssetPanel/assetMeta';
+import { getAssetMeta, getOrAssignUid } from './panels/AssetPanel/assetMeta';
+import {
+  nineSliceDropParams,
+  normalizeSlice,
+  resolvePlacement,
+  spriteDropParams
+} from './panels/AssetPanel/assetPlacement';
+import { getCachedProjectScreen } from './panels/AssetPanel/projectScreen';
+import { ancestorsOf, resolveNodeSpace } from './panels/AssetPanel/assetNodeSpace';
+import { ToastLayer } from './ToastLayer';
 import PopupLayer from './popuplayer';
 
 /** When enabled (localStorage 'xgenia.stableAssetIds' === 'true'), dropped assets store a
@@ -258,10 +267,12 @@ export function onDrop(editor: NodeGraphEditor, dragItem: DragItem, position: IV
     // Raw path, or a `uid://<id>` stable ref when stable-asset-ids is enabled.
     const imageRef = stableAssetRef(path);
 
-    // Dropped onto a known image node → replace its image port.
+    // Dropped onto a known image node → replace its image port. The node keeps its own position:
+    // swapping art on an existing sprite must never move it.
     const imagePortByType: Record<string, string> = {
       'pixi.Sprite': 'image',
-      'pixi.NineSlicePlane': 'image'
+      'pixi.NineSlicePlane': 'image',
+      Image: 'src'
     };
     const highlighted = editor.highlighted;
     const portKey = highlighted ? imagePortByType[(highlighted.model.type as TSFixme)?.name] : undefined;
@@ -270,13 +281,46 @@ export function onDrop(editor: NodeGraphEditor, dragItem: DragItem, position: IV
       return true;
     }
 
-    // Otherwise spawn a new Sprite displaying the image.
-    const spriteType = NodeLibrary.instance.types.find((x) => x.name === 'pixi.Sprite');
-    if (!spriteType) {
-      console.error("Asset drop: 'pixi.Sprite' node type not found.");
+    // Otherwise spawn a node that already sits where the asset belongs: the placement a person
+    // authored, else the rectangle its split recorded, on the project's declared screen — plus the
+    // sprite settings (pivot, nine-slice) set in the asset inspector. Without a declared screen
+    // only the pivot is carried; a guessed position is worse than the default one.
+    const meta = getAssetMeta(path);
+    const lineage = (meta.ai as TSFixme)?.layout ?? meta.lineage;
+    const placement = resolvePlacement({ placement: meta.placement, lineage });
+    const screen = getCachedProjectScreen();
+    const sliced = !!normalizeSlice(meta.sprite?.slice);
+
+    const typeName = sliced ? 'pixi.NineSlicePlane' : 'pixi.Sprite';
+    const nodeType = NodeLibrary.instance.types.find((x) => x.name === typeName);
+    if (!nodeType) {
+      console.error(`Asset drop: '${typeName}' node type not found.`);
       return false;
     }
-    editor.createNewNode(spriteType, position, { parameters: { image: imageRef } });
+    // The new node becomes a child of whatever it is dropped on, so its x/y live in THAT node's space
+    // (a Stage's design box, plus Container offsets). When the space is not computable only the
+    // pivot and borders are carried, and the reason is shown.
+    const parent = editor.highlighted?.model;
+    const space = resolveNodeSpace(parent ? [parent, ...ancestorsOf(parent)] : [], screen);
+    const usable = placement && !('refused' in space) ? space : null;
+    if (placement && 'refused' in space) ToastLayer.showInteraction(`Placed without its position: ${space.refused}`);
+    const placed = usable
+      ? (() => {
+          const p = sliced
+            ? nineSliceDropParams(placement, usable, meta.sprite)
+            : spriteDropParams(placement, usable, meta.sprite);
+          if (typeof p.x === 'number') p.x -= usable.offsetX;
+          if (typeof p.y === 'number') p.y -= usable.offsetY;
+          return p;
+        })()
+      : sliced
+        ? nineSliceDropParams(null, null, meta.sprite)
+        : spriteDropParams(null, null, meta.sprite);
+    const label = (path.split('/').pop() || '').replace(/\.[^.]+$/, '');
+    editor.createNewNode(nodeType, position, {
+      ...(label ? { label } : {}),
+      parameters: { image: imageRef, ...placed }
+    } as TSFixme);
     return true;
   }
 

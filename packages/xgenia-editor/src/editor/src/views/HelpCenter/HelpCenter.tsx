@@ -16,6 +16,8 @@ import { Title, TitleSize } from '@xgenia-core-ui/components/typography/Title';
 
 import css from './HelpCenter.module.scss';
 import getDocsEndpoint from '@xgenia-utils/getDocsEndpoint';
+import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
+import { OPEN_DOCS_CHAT_EVENT } from '../DocsChat/DocsChat';
 
 
 export function HelpCenter() {
@@ -28,13 +30,13 @@ export function HelpCenter() {
 
   const portalRoot = document.querySelector('.help-center-layer');
   const docsEndpoint = getDocsEndpoint();
-  const discordInviteUrl = (process && process.env && process.env.XGENIA_DISCORD_URL) || 'https://discord.com/invite/n4P5zkpvFE';
+  const discordInviteUrl = (process && process.env && process.env.XGENIA_DISCORD_URL) || 'https://xgenia.atlassian.net/helpcenter/XCS/';
 
   if (!portalRoot) return null;
 
   return (
     <Portal portalRoot={portalRoot}>
-      <div className={css['Root']} ref={rootRef} onClick={() => setIsDialogVisible(true)}>
+      <div className={css['Root']} ref={rootRef} onClick={() => setIsDialogVisible(true)} data-guide="help.button">
         <IconButton icon={IconName.QuestionFree} variant={IconButtonVariant.OpaqueOnHover} size={IconSize.Large} />
       </div>
 
@@ -51,6 +53,11 @@ export function HelpCenter() {
         isVisible={isDialogVisible}
         onClose={() => setIsDialogVisible(false)}
         items={[
+          {
+            label: 'Ask the docs (AI)',
+            icon: IconName.Chat,
+            onClick: () => EventDispatcher.instance.emit(OPEN_DOCS_CHAT_EVENT)
+          },
           {
             label: 'Quick search docs',
             icon: IconName.Search,

@@ -47,6 +47,10 @@ export interface SurfaceRect { x: number; y: number; w: number; h: number }
 export interface SurfaceProof {
     ok: boolean;
     reason?: SurfaceProofReason;
+    /** 'in-place': the preview was captured where it is on screen, scaled (measureInPlaceSurfaceProof). */
+    mode?: 'in-place';
+    /** For 'in-place': the element's on-screen width ÷ the requested width (its uniform CSS scale). */
+    scale?: number;
     /** The element's own box, in this document's CSS px, as getBoundingClientRect() reported it. */
     elementRect?: SurfaceRect;
     /** The box that was asked for — {0,0,width,height} at the window origin. */
@@ -145,6 +149,76 @@ export function measureSurfaceProof(el: any, width: number, height: number, env:
     } catch {
         // A measurement that threw proved nothing. Name it rather than omit the field.
         return { ok: false, reason: 'not_measured' };
+    }
+}
+
+// ─── In place: the preview where it already is, scaled to fit its pane ──────────────────────────
+//
+// (2026-10-13) The origin-pinned capture above moved the user's live preview over the whole editor
+// window at the full design size (bigger than the window on a laptop), hid the panels, made the game
+// re-lay itself out, and did it again at a reference size and at 75 / 50 / 35 % when the window was
+// too small — up to five jumps for one AI screenshot. The guest's own viewport is what decides the
+// layout, not where its box sits: an iframe whose CSS size is the design size lays the game out at
+// that size whatever `transform: scale()` then does to it on screen. Device-viewport ("Fit") mode
+// already keeps the preview exactly like that. So a capture can take the box where it is, scaled,
+// as long as three things hold at the moment of capture:
+//
+//   1. THE ONLY TRANSFORM IS A UNIFORM SCALE (no rotation, skew or unequal axes), so the visual box
+//      is the laid-out box shrunk, and its width ÷ the requested width IS the scale.
+//   2. THE WHOLE VISUAL BOX IS INSIDE THE WINDOW and has the requested shape — capturePage() only has
+//      the window's own pixels, and a box partly off-screen would come back cropped.
+//   3. NOTHING IS PAINTED OVER IT — the same hit-test grid as measureSurfaceProof (a pane that clips
+//      the scaled box hits its own edges here too).
+//
+// The guest reporting window.innerWidth/innerHeight equal to the request is checked by the caller
+// (CanvasView), which is what makes the CSS size the design size.
+
+/** A computed transform that is only a uniform positive scale (plus translation), or null. */
+export function uniformScaleOf(transform: string | null | undefined): number | null {
+    if (!transform || transform === 'none') return 1;
+    const m = /^matrix\(\s*([^)]+)\)$/.exec(transform.trim());
+    if (!m) return null;
+    const [a, b, c, d] = m[1].split(',').map((v) => Number(v.trim()));
+    if (![a, b, c, d].every(Number.isFinite)) return null;
+    if (Math.abs(b) > 1e-6 || Math.abs(c) > 1e-6 || !(a > 0) || Math.abs(a - d) > 1e-4 * Math.max(a, d)) return null;
+    return a;
+}
+
+export function measureInPlaceSurfaceProof(el: any, width: number, height: number, env: SurfaceProofEnv): SurfaceProof {
+    try {
+        if (uniformScaleOf(env.transformOf(el)) === null) {
+            return { ok: false, mode: 'in-place', reason: 'transform_present' };
+        }
+        const r = el.getBoundingClientRect();
+        const elementRect: SurfaceRect = { x: r.left, y: r.top, w: r.width, h: r.height };
+        const scale = r.width / width;
+        const inWindow = r.left >= -NEAR_PX && r.top >= -NEAR_PX
+            && r.left + r.width <= env.viewport.width + NEAR_PX && r.top + r.height <= env.viewport.height + NEAR_PX;
+        const sameShape = scale > 0 && Math.abs(r.height - height * scale) <= NEAR_PX + 1;
+        if (!inWindow || !sameShape) {
+            return { ok: false, mode: 'in-place', reason: 'rect_mismatch', elementRect, capturedRect: elementRect, scale };
+        }
+        const x0 = r.left + EDGE_INSET_PX;
+        const y0 = r.top + EDGE_INSET_PX;
+        const spanX = Math.max(0, r.width - 2 * EDGE_INSET_PX);
+        const spanY = Math.max(0, r.height - 2 * EDGE_INSET_PX);
+        for (let row = 0; row < GRID; row++) {
+            for (let col = 0; col < GRID; col++) {
+                const x = x0 + (spanX * col) / (GRID - 1);
+                const y = y0 + (spanY * row) / (GRID - 1);
+                const hit = env.elementFromPoint(x, y);
+                const isEl = hit === el || (!!hit && typeof el.contains === 'function' && el.contains(hit));
+                if (!isEl) {
+                    return {
+                        ok: false, mode: 'in-place', reason: 'occluded', elementRect, capturedRect: elementRect, scale,
+                        occlusion: { sample: sampleName(col, row), x: Math.round(x), y: Math.round(y), coveredBy: describeElement(hit) },
+                    };
+                }
+            }
+        }
+        return { ok: true, mode: 'in-place', elementRect, capturedRect: elementRect, scale };
+    } catch {
+        return { ok: false, mode: 'in-place', reason: 'not_measured' };
     }
 }
 

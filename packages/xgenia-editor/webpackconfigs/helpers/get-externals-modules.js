@@ -35,6 +35,11 @@ module.exports = function ({ production }) {
   // Force bundling of React and related critical UI libraries to prevent multiple instance issues
   externals = externals.filter((module) => !['react', 'react-dom', 'react-hot-toast', 'monaco-editor'].includes(module));
 
+  // ES-module-only packages: left external they are loaded with Node's require() at runtime and throw
+  // "Unexpected token 'export'" (revolt-fx made the FX Studio report it was "not part of this build").
+  const ESM_ONLY = ['revolt-fx'];
+  externals = externals.filter((module) => !ESM_ONLY.includes(module));
+
   // Scoped packages (e.g. @aws-sdk, @xgenia) appear as bare scope dirs in the
   // list above and never match actual imports like @aws-sdk/client-s3, so webpack
   // already bundles them. Add specific scoped packages that MUST stay external

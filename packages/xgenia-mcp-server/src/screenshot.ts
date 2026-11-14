@@ -169,3 +169,94 @@ export async function screenshot(
     bytes: buffer.length
   };
 }
+
+/** The editor's reply to 'preview-capture:design-offscreen' (packages/xgenia-editor/src/main/src/offscreen-capture.js). */
+export interface DesignCaptureReply {
+  success?: boolean;
+  image?: string;
+  width?: number;
+  height?: number;
+  settled?: boolean;
+  code?: string;
+  message?: string;
+}
+
+/**
+ * Turn the editor's offscreen capture reply into this server's result or {error, tried, hint}.
+ * An editor build without the handler rejects the invoke with "No handler registered"; that is an
+ * old editor, not a capture failure.
+ */
+export function designCaptureResult(
+  reply: DesignCaptureReply | { invokeError: string } | null | undefined,
+  width: number,
+  height: number
+) {
+  const tried = `offscreen design capture at ${width}x${height}`;
+  if (!reply) return { error: 'capture-failed', tried, hint: 'The editor returned nothing.' };
+  if ('invokeError' in reply) {
+    if (/no handler registered/i.test(reply.invokeError)) {
+      return {
+        error: 'unsupported-editor',
+        tried,
+        hint: "This editor build has no offscreen capture (added 2026-11-12). Update XGENIA, or use region 'canvas'."
+      };
+    }
+    return { error: 'capture-failed', tried, hint: reply.invokeError };
+  }
+  if (!reply.success || typeof reply.image !== 'string') {
+    return {
+      error: reply.code ?? 'capture-failed',
+      tried,
+      hint: reply.message ?? 'The offscreen capture failed without a reason.'
+    };
+  }
+  const m = /^data:(image\/[a-z]+);base64,(.*)$/s.exec(reply.image);
+  if (!m) return { error: 'capture-failed', tried, hint: 'The editor returned an image that is not a base64 data URL.' };
+  const buffer = Buffer.from(m[2], 'base64');
+  return {
+    image: m[2],
+    mimeType: m[1],
+    region: 'design' as const,
+    cssSize: { width, height },
+    imageSize: imageSize(buffer),
+    scale: 1,
+    contentSize: { width, height },
+    settled: reply.settled ?? null,
+    note:
+      reply.message ??
+      'Captured in a hidden window at the design size: a fresh load of the preview, so it shows the game as it starts, not the state the preview pane is in.',
+    bytes: buffer.length
+  };
+}
+
+/**
+ * The game at its design size (e.g. 1920x1080), drawn in a hidden offscreen window the editor
+ * opens for it. Works whatever the editor's layout, focus or window size — including when the
+ * preview pane is collapsed, hidden behind another panel, or the editor window is minimised.
+ */
+export async function designScreenshot(opts: { width: number; height: number; timeoutMs?: number }) {
+  const width = Math.round(Number(opts.width));
+  const height = Math.round(Number(opts.height));
+  if (!(width > 0) || !(height > 0)) {
+    return {
+      error: 'bad-size',
+      tried: 'design screenshot',
+      hint: "region 'design' needs width and height: the game's design size, e.g. 1920 and 1080."
+    };
+  }
+  const timeoutMs = opts.timeoutMs && opts.timeoutMs > 0 ? opts.timeoutMs : 20_000;
+  const { page } = await connect();
+  const reply = await page.evaluate(
+    async ({ width, height, timeoutMs }) => {
+      try {
+        // The editor page runs with nodeIntegration (main.js), so its own IPC is reachable here.
+        const { ipcRenderer } = (window as any).require('electron');
+        return await ipcRenderer.invoke('preview-capture:design-offscreen', { width, height, timeoutMs });
+      } catch (e: any) {
+        return { invokeError: String(e?.message ?? e) };
+      }
+    },
+    { width, height, timeoutMs }
+  );
+  return designCaptureResult(reply, width, height);
+}

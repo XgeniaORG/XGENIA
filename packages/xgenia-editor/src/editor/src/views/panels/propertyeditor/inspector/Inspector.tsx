@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 
 import { ScrollArea } from '@xgenia-core-ui/components/layout/ScrollArea';
+import { ComponentOverride, overriddenInputs } from '@xgenia-utils/componentOverrides';
 
 import { VariantsEditor } from '../components/VariantStates';
 import { VisualStates } from '../components/VisualStates';
@@ -130,6 +131,25 @@ export function Inspector({ node }: InspectorProps) {
 
   const changedNames = useMemo(() => changedPortNames(described, model), [described, model]);
 
+  /**
+   * Prefab-style overrides: the inputs a component instance sets for itself. Base
+   * values only — the component side has no per-state value for a state one to land
+   * in — and none at all while a variant is being edited, where the rows are the
+   * variant's and not the instance's.
+   */
+  const overrides = useMemo(
+    () => overriddenInputs(node as TSFixme).filter((entry) => entry.state === undefined),
+    // Same reasoning as `described`: the instance's values change without the views changing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [node, metaVersion, rebuildToken]
+  );
+  const isNeutralState = model.visualState === undefined || model.visualState === 'neutral';
+  const overrideByName = useMemo(() => {
+    const byName = new Map<string, ComponentOverride>();
+    if (!isEditingVariant && isNeutralState) overrides.forEach((entry) => byName.set(entry.name, entry));
+    return byName;
+  }, [overrides, isEditingVariant, isNeutralState]);
+
   // The Changed filter with nothing left to show would strand the user on an empty
   // panel with no obvious way back.
   useEffect(() => {
@@ -155,7 +175,13 @@ export function Inspector({ node }: InspectorProps) {
   return (
     <div className={css.Inspector} data-variant-edit={isEditingVariant || undefined}>
       {!isEditingVariant && (
-        <InspectorHeader node={node} model={model} changedNames={changedNames} onChanged={requestRebuild} />
+        <InspectorHeader
+          node={node}
+          model={model}
+          changedNames={changedNames}
+          overrides={overrides}
+          onChanged={requestRebuild}
+        />
       )}
 
       <ScrollArea UNSAFE_style={{ flex: 1 }}>
@@ -225,6 +251,8 @@ export function Inspector({ node }: InspectorProps) {
                 isGroupCollapsed(collapsed, group.name, { isSearching, isFiltering })
               }
               onToggle={isSingleAnonymousGroup ? undefined : () => onToggleGroup(group.name)}
+              overrideByName={overrideByName}
+              onChanged={requestRebuild}
             />
           ))}
 

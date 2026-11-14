@@ -3,6 +3,6 @@
   "version": "2.7.0",
   "main": "src/index.ts",
   "description": "Cross platform implementation of platform specific features.",
-  "author": "XGENIA <contact@xgenia.io>",
-  "homepage": "https://xgenia.io"
+  "author": "XGENIA <sales@xgenia.com>",
+  "homepage": "https://xgenia.com"
 }

@@ -3,6 +3,19 @@ const WebSocketServer = WebSocket.Server;
 const JSONStorage = require('../../shared/utils/jsonstorage');
 const { app } = require('electron');
 const fs = require('fs');
+const nodePath = require('path');
+
+/**
+ * Where an image the design-tool plugin sends is saved: a plain file name (the Figma plugin sends
+ * `<imageHash>.png`) inside the open project, or null. Anything with a directory part is refused.
+ */
+function imageTargetPath(projectDirectory, name) {
+  if (!projectDirectory || typeof name !== 'string') return null;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/.test(name) || name.includes('..')) return null;
+  const root = nodePath.resolve(projectDirectory);
+  const target = nodePath.resolve(root, name);
+  return nodePath.dirname(target) === root ? target : null;
+}
 
 let win;
 let clientSockets = [];
@@ -23,7 +36,8 @@ function sendProjectName(ws, name) {
 function start(projectGetInfo) {
   const port = Number(process.env.XGENIAPORT || 8574) + 1; //use standard XGENIA port + 1
 
-  var wss = new WebSocketServer({ port });
+  // Local only: the design-tool plugin connects to ws://localhost.
+  var wss = new WebSocketServer({ port, host: '127.0.0.1' });
 
   wss.on('connection', (ws) => {
     clientSockets.push(ws);
@@ -52,8 +66,12 @@ function start(projectGetInfo) {
         //got image
         const name = imageName; //async hax trickery
         projectGetInfo((local) => {
-          const path = local.projectDirectory + '/' + name;
-          fs.writeFileSync(path, message);
+          const target = imageTargetPath(local && local.projectDirectory, name);
+          if (!target) {
+            console.warn('[DesignToolImport] Refused an image name that is not a plain file name in the project:', String(name).slice(0, 100));
+            return;
+          }
+          fs.writeFileSync(target, message);
         });
       } else {
         const request = JSON.parse(message);
@@ -81,6 +99,7 @@ function setProjectName(name) {
 }
 
 module.exports = {
+  imageTargetPath,
   start,
   setWindow,
   setProjectName

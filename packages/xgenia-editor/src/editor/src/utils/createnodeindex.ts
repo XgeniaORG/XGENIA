@@ -3,6 +3,8 @@ import { ComponentModel } from '@xgenia-models/componentmodel';
 import { NodeLibrary, NodeLibraryNodeType } from '@xgenia-models/nodelibrary';
 import { RuntimeType } from '@xgenia-models/nodelibrary/NodeLibraryData';
 import { getComponentModelRuntimeType } from '@xgenia-utils/NodeGraph';
+import { ProjectModel } from '@xgenia-models/projectmodel';
+import { stakeBlockedNode } from '@xgenia-utils/stake/stakeRules';
 
 export interface INodeIndex {
   coreNodes: INodeIndexCategory[];
@@ -29,9 +31,21 @@ export function createNodeIndex(model: TSFixme, parentModel: TSFixme, runtimeTyp
   // (maths nodes are browser nodes, just with category restrictions)
   const effectiveRuntimeType = runtimeType === RuntimeType.Maths ? RuntimeType.Browser : runtimeType;
 
+  // A Stake game cannot use parts Stake does not allow (jackpot pools, nodes that call XGENIA's servers):
+  // they are left out of the palette, as the AI's tool gate refuses them (utils/stake/stakeRules.ts).
+  let forStake = false;
+  try {
+    forStake = (ProjectModel.instance as any)?.getMetaData?.('target') === 'stake';
+  } catch {
+    /* no project open: nothing to restrict */
+  }
+
   function isNodeCreatable(nodeType: NodeLibraryNodeType | ComponentModel): boolean {
     // @ts-expect-error Wrong to be both NodeLibraryNodeType and ComponentModel
     if (effectiveRuntimeType && nodeType.runtimeTypes && !nodeType.runtimeTypes.includes(effectiveRuntimeType)) {
+      return false;
+    }
+    if (forStake && stakeBlockedNode(String((nodeType as any)?.name ?? ''))) {
       return false;
     }
     const status = model.owner.getCreateStatus({

@@ -1,7 +1,7 @@
 // "Deployed" — what the platform is actually serving, and nothing else.
 //
-// A read-only mirror of the selected Server Version's components, read from
-// `game_edge_functions`. Not the project tree: a component sitting in the tree
+// A read-only mirror of the game's newest Server Version — the one Publish
+// deploys into — read from `game_edge_functions`. Not the project tree: a component sitting in the tree
 // undeployed does not appear here, and a component deleted from the tree but
 // still live does. That is the point of the tab — it answers "what will a player
 // hit?", which the working copy cannot.
@@ -9,7 +9,7 @@
 // Read-only throughout, deliberately. These rows describe code running on RGS;
 // editing them in place would either be a lie (changing a local graph that is not
 // what is deployed) or a live edit of production maths with no undo. Authoring
-// happens in Local, and Deploy is how a change gets here.
+// happens in Local, and Publish is how a change gets here.
 //
 // Three things a row does:
 //   * click — opens the graph AS DEPLOYED, in the read-only node-graph view. This
@@ -37,7 +37,7 @@
 // three-dot menu, where it compiled the working copy in the renderer and
 // reported an RTP for a script that had never been near the platform — a figure
 // indistinguishable, on screen, from a measurement of the live maths. To
-// simulate or document something you are still authoring, deploy it first: that
+// simulate or document something you are still authoring, publish it first: that
 // is a deliberate step, not a missing feature.
 
 import React, { useState } from 'react';
@@ -63,7 +63,7 @@ export interface MathsDeployedSectionProps {
   deployed: DeployedComponent[];
   /** "v3 · simple-adder" — which Server Version these came from. */
   versionLabel?: string | null;
-  /** False when there is no game / Server Version selected yet. */
+  /** False until the studio is signed in and this project has a game (both chosen in Publish). */
   isReady: boolean;
   error?: string | null;
   /**
@@ -124,7 +124,7 @@ export function MathsDeployedSection({
    */
   function simulate(entry: DeployedComponent) {
     if (!apiKey || !deploymentId) {
-      setRowError('Not connected to a Server Version — select a game and version above, then try again.');
+      setRowError('Nothing deployed to simulate yet — sign in and choose a game in Publish, then publish.');
       return;
     }
 
@@ -159,7 +159,7 @@ export function MathsDeployedSection({
     if (!model) {
       setRowError(
         `${entry.functionName} was deployed before graphs were stored, so there is nothing to preview. ` +
-          'Deploy it once from Local to record one.'
+          'Publish once with it in Local to record one.'
       );
       return;
     }
@@ -188,7 +188,7 @@ export function MathsDeployedSection({
     if (!model) {
       setRowError(
         `${entry.functionName} has no stored graph, so its ports cannot be read. ` +
-          'Deploy it once from Local, then drag it.'
+          'Publish once with it in Local, then drag it.'
       );
       return;
     }
@@ -213,7 +213,7 @@ export function MathsDeployedSection({
   if (!isReady) {
     return (
       <Section hasGutter variant={SectionVariant.PanelShy}>
-        <Label>Select a game and a Server Version to see what is deployed.</Label>
+        <Label>Sign in and choose a game in Publish to see what is deployed.</Label>
       </Section>
     );
   }
@@ -221,7 +221,7 @@ export function MathsDeployedSection({
   if (deployed.length === 0) {
     return (
       <Section hasGutter variant={SectionVariant.PanelShy}>
-        <Label>Nothing deployed in this version yet. Author in Local, then Deploy.</Label>
+        <Label>Nothing deployed yet. Author in Local, then Publish deploys it.</Label>
       </Section>
     );
   }

@@ -5,7 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 
-function selectEngine({ appPath, isPackaged, env, store, publicKeyPem, shellApi }) {
+function selectEngine({ appPath, isPackaged, env, store, publicKeyPem, shellApi, appVersion }) {
   const builtinRoot = path.join(appPath, 'src/external');
   const builtin = (reason, allowUpdates) => ({ root: builtinRoot, builtinRoot, version: 'builtin', source: 'builtin', reason, allowUpdates, trial: false });
   if (env.XGENIA_ENGINE === 'builtin') return builtin('forced by XGENIA_ENGINE=builtin', false);
@@ -22,6 +22,18 @@ function selectEngine({ appPath, isPackaged, env, store, publicKeyPem, shellApi 
     state.trialTimedOut = null;
   }
   state.cleanExit = false;
+
+  // A new app build ships the newest engine itself (nightly builds carry the latest private/), so an
+  // engine downloaded under the old build is older than the one now built in: start from the app's.
+  // (2026-10-06)
+  if (appVersion && state.appVersion !== appVersion) {
+    state.active = null;
+    state.previous = null;
+    state.pending = null;
+    state.trial = null;
+    state.trialTimedOut = null;
+    state.appVersion = appVersion;
+  }
 
   const usable = (v) => {
     if (!v || state.bad.includes(v)) return null;

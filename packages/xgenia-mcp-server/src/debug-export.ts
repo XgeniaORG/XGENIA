@@ -183,28 +183,40 @@ export async function debugExport(options: DebugExportOptions = {}) {
       };
     }
     const button = frame.locator('[aria-label="Debug Export"]');
-    if ((await button.count()) === 0) {
-      return {
-        error: 'selector-missing',
-        tried: '[aria-label="Debug Export"] inside the chat frame',
-        hint: 'The panel deploys independently of the editor, so its header controls move. Run xgenia_probe, then read ChatPanel.tsx for the current button.'
-      };
-    }
-    // The panel's header icons are hover-revealed:
-    //   .header-controls { opacity: 0; pointer-events: none; }
-    //   .chat-panel-root:hover .header-controls { pointer-events: auto; }
-    // Playwright's click hit-tests the topmost element at the point, which without a
-    // hover is the header row, not the button — the click was reported as intercepted
-    // by "<div class=\"flex items-center gap-3\"> intercepts pointer events" and timed
-    // out. Hover the panel root first so the controls become clickable; fall back to a
-    // forced click if the hover itself is not enough.
-    try {
-      await frame.locator('.chat-panel-root').first().hover({ timeout: 5_000 });
-    } catch { /* the panel may not use that class any more — the click below still tries */ }
-    try {
-      await button.click({ timeout: 10_000 });
-    } catch {
-      await button.click({ timeout: 10_000, force: true });
+    if ((await button.count()) > 0) {
+      // The panel's header icons are hover-revealed:
+      //   .header-controls { opacity: 0; pointer-events: none; }
+      //   .chat-panel-root:hover .header-controls { pointer-events: auto; }
+      // Playwright's click hit-tests the topmost element at the point, which without a
+      // hover is the header row, not the button — the click was reported as intercepted
+      // by "<div class=\"flex items-center gap-3\"> intercepts pointer events" and timed
+      // out. Hover the panel root first so the controls become clickable; fall back to a
+      // forced click if the hover itself is not enough.
+      try {
+        await frame.locator('.chat-panel-root').first().hover({ timeout: 5_000 });
+      } catch { /* the panel may not use that class any more — the click below still tries */ }
+      try {
+        await button.click({ timeout: 10_000 });
+      } catch {
+        await button.click({ timeout: 10_000, force: true });
+      }
+    } else {
+      // With "Show all tools" off the header has no Debug Export button (a newcomer's
+      // panel); the same export sits in Settings → Debug → "Export debug log".
+      const settings = frame.locator('[aria-label="Settings"]');
+      if ((await settings.count()) === 0) {
+        return {
+          error: 'selector-missing',
+          tried: '[aria-label="Debug Export"], then Settings → Debug → "Export debug log", inside the chat frame',
+          hint: 'The panel deploys independently of the editor, so its header controls move. Run xgenia_probe, then read the panel\'s HeaderBar.tsx for the current buttons.'
+        };
+      }
+      await settings.first().click({ timeout: 10_000 });
+      await frame.getByRole('tab', { name: 'Debug' }).click({ timeout: 10_000 });
+      await frame.getByRole('button', { name: 'Export debug log' }).click({ timeout: 10_000 });
+      try {
+        await frame.locator('[aria-label="Close settings"]').click({ timeout: 5_000 });
+      } catch { /* the export runs whether or not the sheet closes */ }
     }
     clicked = true;
 

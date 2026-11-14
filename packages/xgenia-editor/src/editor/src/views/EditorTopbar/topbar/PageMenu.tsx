@@ -7,6 +7,9 @@
 import classNames from 'classnames';
 import React from 'react';
 
+import { Keybindings } from '@xgenia-constants/Keybindings';
+
+import { keybindingLabel } from '../../ShortcutSheet/shortcutLabel';
 import { glassCss } from './GlassPopover';
 import { Hi } from './icons';
 import css from './PageMenu.module.scss';
@@ -15,20 +18,23 @@ import css from './PageMenu.module.scss';
 import pillCss from './StatusPill.module.scss';
 import { RouteInfo, TopbarMatch, suggestCommands } from './topbarCommands';
 
-const SHORTCUTS: Partial<Record<string, string[]>> = {
-  'preset:Mobile': ['⌘', '1'],
-  'preset:Tablet': ['⌘', '2'],
-  'preset:Desktop': ['⌘', '3'],
-  fit: ['⌘', '0'],
-  detach: ['⌘', '⇧', 'D'],
-  devtools: ['⌘', 'D'],
-  refresh: ['⌘', 'R'],
-  publish: ['⌘', '⏎']
+// Read from the bindings themselves: the hand-written copy said ⌘D for devtools (it is ⇧⌘I) and
+// ⌘0 for Fit (View > Actual Size owns ⌘0).
+const SHORTCUTS: Partial<Record<string, number>> = {
+  'preset:Mobile': Keybindings.PREVIEW_PRESET_PHONE.hash,
+  'preset:Tablet': Keybindings.PREVIEW_PRESET_TABLET.hash,
+  'preset:Desktop': Keybindings.PREVIEW_PRESET_DESKTOP.hash,
+  fit: Keybindings.PREVIEW_FIT.hash,
+  detach: Keybindings.DETACH_PREVIEW.hash,
+  devtools: Keybindings.OPEN_DEVTOOLS.hash,
+  refresh: Keybindings.REFRESH_PREVIEW.hash,
+  publish: Keybindings.PUBLISH.hash
 };
 
 function keyFor(m: TopbarMatch): string[] | undefined {
   if (m.kind !== 'command') return undefined;
-  return SHORTCUTS[m.id === 'preset' ? `preset:${m.group}` : m.id];
+  const binding = SHORTCUTS[m.id === 'preset' ? `preset:${m.group}` : m.id];
+  return binding === undefined ? undefined : [keybindingLabel(binding)];
 }
 
 /** The path as the user thinks of it: '/#/game' reads '/game', and the root reads '/'. */

@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 
 import { Keybindings } from '@xgenia-constants/Keybindings';
 import { Environment } from '@xgenia-models/CloudServices';
+import { CloudServiceType } from '@xgenia-models/CloudServices/type';
 import ParseDashboardServer from '@xgenia-utils/parsedashboardserver';
 
 import { Icon, IconName, IconSize } from '@xgenia-core-ui/components/common/Icon';
@@ -53,9 +54,11 @@ export function CloudServiceCard({
   if (isAlwaysOpen) isDrawerCollapsed = false;
 
   function onDashboardClicked() {
-    // Open Parse Dashboard
+    // Parse Dashboard, or for a Supabase environment the Supabase dashboard in the browser
     ParseDashboardServer.instance.openInWindow(environment);
   }
+
+  const isSupabase = environment.type === CloudServiceType.SUPABASE;
 
   const { name, description } = environment;
 
@@ -122,11 +125,15 @@ export function CloudServiceCard({
 
           {isEditorEnvironment && (
             <Tooltip
-              content="Open the Parse Dashboard"
-              fineType={[
-                `In Window: ${Keybindings.CLOUD_SERVICE_OPEN_DASHBOARD.label}`,
-                `In Browser: ${Keybindings.CLOUD_SERVICE_OPEN_DASHBOARD_BROWSER.label}`
-              ]}
+              content={isSupabase ? 'Open the Supabase dashboard in your browser' : 'Open the Parse Dashboard'}
+              fineType={
+                isSupabase
+                  ? Keybindings.CLOUD_SERVICE_OPEN_DASHBOARD_BROWSER.label
+                  : [
+                      `In Window: ${Keybindings.CLOUD_SERVICE_OPEN_DASHBOARD.label}`,
+                      `In Browser: ${Keybindings.CLOUD_SERVICE_OPEN_DASHBOARD_BROWSER.label}`
+                    ]
+              }
               renderDirection={DialogRenderDirection.Below}
             >
               <PrimaryButton

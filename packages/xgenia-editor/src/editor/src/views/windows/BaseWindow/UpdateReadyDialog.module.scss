@@ -1,0 +1,10 @@
+.Root {
+  max-width: 520px;
+  width: calc(100vw - 48px);
+}
+
+// No notes: the same size as the ConfirmationDialog it replaces.
+.RootNarrow {
+  max-width: 300px;
+  width: 100vw;
+}
