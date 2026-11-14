@@ -14,6 +14,13 @@ Default five canonical labels, strings equal names. See `docs/agents/triage-labe
 
 Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
+### Sizing, placing and scaling
+
+Four layers (box, placement, scaler, content fit) and ONE scale-mode vocabulary shared by
+Group's `uiScaleMode` and pixi.Stage's `fitMode`: `none, fit, fill, expand, matchWidth,
+matchHeight, stretch`. Read `docs/ui-scaling.md` before touching Dimensions, Alignment or
+UI Scaling ports, or before answering a "things move when I resize" report.
+
 ### Git workflow
 
 `develop` and `main` are protected. Never commit or push to them directly,

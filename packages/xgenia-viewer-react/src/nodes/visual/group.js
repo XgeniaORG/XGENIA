@@ -1,6 +1,7 @@
 // Import as named export to match how it's exported
 import { Group as GroupComponent } from '../../components/visual/Group';
 import { joinDimensionValue } from '../../dimension-value';
+import { SCALE_MODE_ALIASES, SCALE_MODE_ENUMS, normalizeScaleMode } from '../../components/visual/Group/scale-mode';
 import { flexDirectionValues } from '../../constants/flex';
 import NodeSharedPortDefinitions from '../../node-shared-port-definitions';
 import { createNodeFromReactComponent } from '../../react-component-node';
@@ -84,20 +85,19 @@ const GroupNode = {
       index: 6,
       displayName: 'Scale Mode',
       group: 'UI Scaling',
+      // (2026-11-14) ONE vocabulary, shared with pixi.Stage's Scale Mode: the list, its labels and
+      // the maths all live in components/visual/Group/scale-mode.ts. `letterbox` and `shrink` are
+      // what projects saved before this stored; the setter maps them and the editor's dropdown
+      // shows them under their new label (type.aliases), so nothing stored has to migrate.
       type: {
         name: 'enum',
-        enums: [
-          { label: 'Off', value: 'none' },
-          { label: 'Fit — fills the screen, grows the canvas', value: 'expand' },
-          { label: 'Fill — cover, crop edges', value: 'shrink' },
-          { label: 'Letterbox — exact aspect, bars if it does not match', value: 'letterbox' },
-          { label: 'Match width', value: 'matchWidth' },
-          { label: 'Match height', value: 'matchHeight' }
-        ]
+        enums: SCALE_MODE_ENUMS.map((e) => ({ label: e.label, value: e.value })),
+        aliases: { ...SCALE_MODE_ALIASES }
       },
       default: 'none',
+      tooltip: 'How this group maps its Design Width × Height onto the box it gets. Off = 1:1 pixels. Set it on ONE outer group per screen and place everything inside in design pixels.',
       set(value) {
-        this.props.uiScaleMode = value || 'none';
+        this.props.uiScaleMode = normalizeScaleMode(value);
         this.forceUpdate();
       }
     },
@@ -502,6 +502,12 @@ const GroupNode = {
     }
   },
   dynamicports: [
+    {
+      // Design Width/Height decide nothing while Scale Mode is Off, so they are not shown then.
+      // The stored values survive; they come back the moment a mode is picked.
+      condition: 'uiScaleMode != none',
+      inputs: ['designWidth', 'designHeight']
+    },
     {
       condition: 'flexDirection != none',
       inputs: ['scrollEnabled']

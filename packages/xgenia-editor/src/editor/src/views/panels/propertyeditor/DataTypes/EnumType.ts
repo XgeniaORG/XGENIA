@@ -28,8 +28,15 @@ export class EnumType extends TypeView {
   labelForValue(value) {
     if (value === undefined) return '';
 
+    // A value a port no longer lists may be an OLD SPELLING of one it does (a Group saved with
+    // uiScaleMode "letterbox" before the scale modes were unified under "fit"). The type's
+    // `aliases` map says which; show that entry's label rather than a blank field, so an old
+    // project reads correctly without being rewritten. Picking from the dropdown stores the new key.
+    const aliases = this.type.aliases;
+    const canonical = aliases && typeof aliases === 'object' && aliases[value] !== undefined ? aliases[value] : value;
+
     const e = find(this.type.enums, function (e) {
-      return e === value || e.value === value;
+      return e === canonical || e.value === canonical;
     });
     if (e === undefined) return;
 

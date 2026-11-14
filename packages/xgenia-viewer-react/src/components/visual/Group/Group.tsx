@@ -7,6 +7,7 @@ import Layout from '../../../layout';
 import PointerListeners from '../../../pointerlisteners';
 import { XGENIA } from '../../../types';
 import { hasInertDesignSize, hasRealTranslate } from './design-size';
+import { computeScaleLayout, normalizeScaleMode, ScaleMode } from './scale-mode';
 import NestedScroll from './scroll-plugins/nested-scroll-plugin';
 import patchedMomentum from './scroll-plugins/patched-momentum-scroll';
 import Slide from './scroll-plugins/slide-scroll-plugin';
@@ -41,10 +42,11 @@ export interface GroupProps extends XGENIA.ReactProps {
   layout: 'none' | 'row' | 'column';
 
   /**
-   * UI SCALING — Unity's CanvasScaler. See the long note on group.js's uiScaleMode port.
-   * 'none' (default) renders exactly as before.
+   * UI SCALING — Unity's CanvasScaler. See the long note on group.js's uiScaleMode port and the
+   * one vocabulary in ./scale-mode.ts. 'none' (default) renders exactly as before. `letterbox`
+   * and `shrink` are the spellings older projects stored; they read as `fit` and `fill`.
    */
-  uiScaleMode?: 'none' | 'expand' | 'shrink' | 'matchWidth' | 'matchHeight' | 'letterbox';
+  uiScaleMode?: ScaleMode | 'letterbox' | 'shrink';
   designWidth?: number;
   designHeight?: number;
   dom;
@@ -128,7 +130,7 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
    * not be authored at a design resolution at all.
    */
   private syncUiScaleObserver() {
-    const wants = !!this.props.uiScaleMode && this.props.uiScaleMode !== 'none';
+    const wants = normalizeScaleMode(this.props.uiScaleMode) !== 'none';
     const el = this.uiScaleOuterRef.current;
     if (!wants || !el) {
       if (this.uiScaleObserver) { this.uiScaleObserver.disconnect(); this.uiScaleObserver = undefined; }
@@ -209,7 +211,7 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
    * cannot honour exactly. Each one is a WARNING: nothing here rewrites the user's ports.
    */
   private warnUiScaleSetup() {
-    const mode = this.props.uiScaleMode;
+    const mode = normalizeScaleMode(this.props.uiScaleMode);
     const on = !!mode && mode !== 'none';
     const label = this.props.xgeniaNode?.name || this.props.xgeniaNode?.id || 'a Group';
 
@@ -229,7 +231,7 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
       'ui-scale-inert-design-size',
       hasInertDesignSize(on, this.props.designWidth, this.props.designHeight)
         ? `"${label}" has Design Width/Height set but Scale Mode is "Off", so they do ` +
-          `NOTHING — nothing is scaled and the numbers are inert. Set Scale Mode to Fit or Letterbox ` +
+          `NOTHING — nothing is scaled and the numbers are inert. Set Scale Mode to Fit or Expand ` +
           `for them to take effect, or clear both fields (or set them to 1920 × 1080).`
         : null
     );
@@ -579,14 +581,16 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
   }
 
   /**
-   * The scale factor, by Unity's CanvasScaler rules.
+   * The scale factor and the canvas children lay out in, by the one vocabulary in ./scale-mode.ts
+   * (Unity's CanvasScaler rules, with Godot's and CSS's names mapped onto them):
    *
-   *   expand      min(w/refW, h/refH) — Unity's Expand.
-   *   shrink      max(...)            — Unity's Shrink; the design overflows and is clipped.
-   *   matchWidth  w/refW              — width is exact, height follows.
-   *   matchHeight h/refH              — height is exact, width follows.
-   *   letterbox   min(...)            — like expand, but the canvas stays EXACTLY the reference
-   *                                     size, so a mismatched aspect shows bars.
+   *   fit          min(w/refW, h/refH) — canvas stays EXACTLY the reference size; a mismatched
+   *                                      aspect shows bars (Unity: Shrink on a fixed canvas).
+   *   expand       min(...)            — Unity's Expand: the canvas GROWS to box/scale.
+   *   fill         max(...)            — Unity's Shrink: the design overflows and is clipped.
+   *   matchWidth   w/refW              — width is exact, height follows.
+   *   matchHeight  h/refH              — height is exact, width follows.
+   *   stretch      (w/refW, h/refH)    — non-uniform; the only mode with two factors.
    *
    * ─── THE CANVAS GROWS; IT DOES NOT LEAVE BARS (2026-08-17, corrected) ────────────────────
    * The first version pinned the canvas at exactly refW x refH for every mode and called that
@@ -601,35 +605,20 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
    * the bottom sits on the real bottom edge at every aspect ratio, which is the entire point of
    * anchors.
    *
-   * `box / scale` is the general rule for every mode; only the scale formula differs. letterbox
-   * is the one deliberate exception, for art that must never gain extra space.
+   * `box / scale` is the general rule for every mode; only the scale formula differs. `fit` is
+   * the one deliberate exception, for art that must never gain extra space.
    *
    * Returns null when scaling is off or the box has not been measured yet, so the caller renders
    * exactly what it always did.
    */
-  private getUiLayout(): { scale: number; canvasW: number; canvasH: number } | null {
-    const mode = this.props.uiScaleMode;
-    if (!mode || mode === 'none') return null;
+  private getUiLayout(): { scaleX: number; scaleY: number; canvasW: number; canvasH: number } | null {
+    const mode = normalizeScaleMode(this.props.uiScaleMode);
+    if (mode === 'none') return null;
     const box = this.state?.uiScaleBox;
-    if (!box || !(box.width > 0) || !(box.height > 0)) return null;
+    if (!box) return null;
     const refW = this.props.designWidth && this.props.designWidth > 0 ? this.props.designWidth : 1920;
     const refH = this.props.designHeight && this.props.designHeight > 0 ? this.props.designHeight : 1080;
-    const sx = box.width / refW;
-    const sy = box.height / refH;
-
-    let scale: number;
-    switch (mode) {
-      case 'shrink': scale = Math.max(sx, sy); break;
-      case 'matchWidth': scale = sx; break;
-      case 'matchHeight': scale = sy; break;
-      case 'letterbox':
-      case 'expand':
-      default: scale = Math.min(sx, sy); break;
-    }
-    if (!isFinite(scale) || scale <= 0) return null;
-
-    if (mode === 'letterbox') return { scale, canvasW: refW, canvasH: refH };
-    return { scale, canvasW: box.width / scale, canvasH: box.height / scale };
+    return computeScaleLayout(mode, box, refW, refH);
   }
 
   render() {
@@ -685,7 +674,10 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
     // the letterboxing is symmetric.
     const uiLayout = this.getUiLayout();
     if (uiLayout !== null) {
-      const { scale: uiScale, canvasW: refW, canvasH: refH } = uiLayout;
+      const { scaleX: uiScaleX, scaleY: uiScaleY, canvasW: refW, canvasH: refH } = uiLayout;
+      // One argument for every uniform mode (which is what everything that reads this transform
+      // back — ownTransform(), the AI's layout tools — expects); two only for `stretch`.
+      const uiTransform = uiScaleX === uiScaleY ? `scale(${uiScaleX})` : `scale(${uiScaleX}, ${uiScaleY})`;
 
       // THE INNER BOX IS THE ONE CHILDREN LAY OUT IN, so it must carry the Group's LAYOUT — its
       // flex direction, alignment, wrapping, gaps and padding. Moving those to the outer element
@@ -708,7 +700,7 @@ export class Group extends React.Component<GroupProps, { uiScaleBox?: { width: n
         height: `${refH}px`,
         flexShrink: 0,
         flexGrow: 0,
-        transform: `scale(${uiScale})`,
+        transform: uiTransform,
         transformOrigin: 'center center'
       };
       for (const key of LAYOUT_KEYS) {

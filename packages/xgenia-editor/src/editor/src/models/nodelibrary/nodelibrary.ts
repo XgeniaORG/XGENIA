@@ -357,8 +357,12 @@ export class NodeLibrary extends Model {
     if (NodeLibrary.nameForPortType(port.type) === 'enum') {
       if (value === undefined) return 'none';
 
+      // An old spelling of a value the port still lists (type.aliases, e.g. a Group saved with
+      // uiScaleMode "letterbox" before it became "fit") shows the current entry's label.
+      const aliases = port.type.aliases;
+      const canonical = aliases && typeof aliases === 'object' && aliases[value] !== undefined ? aliases[value] : value;
       const e = _.find(port.type.enums, function (e) {
-        return e === value || e.value === value;
+        return e === canonical || e.value === canonical;
       });
       if (e === undefined) return;
 
