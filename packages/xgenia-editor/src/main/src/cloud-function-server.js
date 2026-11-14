@@ -2,7 +2,8 @@ const electron = require('electron');
 const { BrowserWindow, ipcMain } = electron;
 const http = require('http');
 const https = require('https');
-const URL = require('url');
+const { parseRequestUrl } = require('./request-url');
+const { originAllowed } = require('./relay-guard');
 
 var port = process.env.XGENIA_CLOUD_FUNCTIONS_PORT || 8577;
 
@@ -114,11 +115,17 @@ function startCloudFunctionServer(app, cloudServicesGetActive, mainWindow) {
 
   ipcMain.on('xgenia-cf-fetch', function (event, args) {
     const token = args.token;
-    const url = URL.parse(args.url, true);
+    let url;
+    try {
+      url = new URL(args.url);
+    } catch (error) {
+      sandbox.webContents.send('xgenia-cf-fetch-response', { token, error });
+      return;
+    }
 
     const _options = {
-      hostname: url.hostname,
-      port: url.port,
+      hostname: url.hostname.replace(/^\[|\]$/g, ''), // WHATWG keeps IPv6 brackets; http.request wants none
+      port: url.port || undefined,
       path: url.pathname,
       method: args.method || 'GET',
       headers: args.headers
@@ -165,17 +172,26 @@ function startCloudFunctionServer(app, cloudServicesGetActive, mainWindow) {
 
   function handleRequest(request, response) {
     const headers = {
-      'Access-Control-Allow-Origin': '*' /* @dev First, read about security */,
+      // Our own pages only (relay-guard.js): '*' let any web page the user had open call the project's
+      // cloud functions on this machine.
+      'Access-Control-Allow-Origin': request.headers.origin || '*',
+      Vary: 'Origin',
       'Access-Control-Allow-Methods': 'OPTIONS, POST',
       'Access-Control-Max-Age': 2592000, // 30 days
       'Access-Control-Allow-Headers': '*'
     };
 
+    if (!originAllowed(request.headers.origin)) {
+      response.writeHead(403, { 'Content-Type': 'text/plain' });
+      response.end('Forbidden');
+      return;
+    }
+
     if (request.method === 'OPTIONS') {
       response.writeHead(204, headers);
       response.end();
     } else if (request.method === 'POST') {
-      var parsedUrl = URL.parse(request.url, true);
+      var parsedUrl = parseRequestUrl(request.url);
 
       let path = decodeURI(parsedUrl.pathname);
 

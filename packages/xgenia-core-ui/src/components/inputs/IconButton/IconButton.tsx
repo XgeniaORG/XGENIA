@@ -47,6 +47,8 @@ export interface IconButtonProps extends UnsafeStyleProps {
   testId?: string;
   id?: string;
   'aria-label'?: string;
+  /** A stable name for the editor's coach layer to point at; see editor utils/guideIds.ts. */
+  'data-guide'?: string;
 
   onClick?: MouseEventHandler<HTMLButtonElement>;
 }
@@ -82,7 +84,8 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
       id,
       iconColor: iconColorOverride,
       selfPaintedIcon,
-      'aria-label': ariaLabel
+      'aria-label': ariaLabel,
+      'data-guide': dataGuide
     }: IconButtonProps,
     ref
   ) => {
@@ -111,6 +114,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
         disabled={isDisabled}
         style={UNSAFE_style}
         data-test={testId}
+        data-guide={dataGuide}
         aria-label={ariaLabel}
       >
         {isIconName ? (

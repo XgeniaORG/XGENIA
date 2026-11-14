@@ -22,17 +22,31 @@ pointer updates, config tweaks):
    ```bash
    git checkout develop
    git pull origin develop
-   git checkout -b feature/<short-description>
+   git checkout -b side/<short-description>
    ```
-4. **One branch per session, not one per change.** Accumulate all the work
-   for this piece of work on that single branch — follow-ups, fixes, review
-   feedback included. Don't spin up a dozen branches in one session; only
-   branch again for genuinely separate work.
+4. **One side branch per agent, not a feature branch per change.** Name it
+   `side/<short-description>` and put everything the session does on it:
+   follow-ups, fixes, review feedback. Don't open a new branch per feature;
+   the repo must not fill up with feature branches nobody merges. Only open a
+   second side branch for genuinely separate work, after the first is merged.
+   Never leave work sitting on a branch: a side branch exists to be merged
+   into `develop` the same day (squash, after approval) and is deleted on
+   merge (the repo deletes merged branches automatically).
+   Keep your own checkout on the latest `develop` too (`git pull` plus
+   `git -C private checkout -B main origin/main` and `npm install`), never
+   on an old branch: an old checkout runs an old editor.
+   **Clear out old or unwanted local branches** as well: a local branch
+   whose PR has been merged, or one that is stale and no longer wanted,
+   gets deleted with `git branch -D <branch-name>` so the checkout doesn't
+   accumulate dead branches. If the user runs Claude in auto mode, delete
+   them without asking; otherwise, list the branches you want to delete
+   and ask first. Never delete `develop` or `main`, and never delete a
+   branch that still has unpushed or unmerged work the user wants kept.
 5. **When you're done on the branch, open a PR** — a branch isn't finished
    until a PR exists for it. Push it and use the GitHub CLI, base always
    `develop`, never `main`:
    ```bash
-   git push -u origin feature/<short-description>
+   git push -u origin side/<short-description>
    gh pr create --base develop --title "<what it does>" --body "<summary>"
    ```
    More work on the same change after the PR is open goes on the same branch;
@@ -74,3 +88,19 @@ One thing still holds when you touch the submodule: bumping the submodule
 pointer is a change **in this repo**, so that commit goes on its own branch
 and through a PR against `develop` like any other. The "ask first" rule above
 applies to this repo only.
+
+You rarely need to bump it by hand: the private pointer bot
+(`.github/workflows/private-pointer.yml`, a workflow, not an App or a person)
+runs the PR checks against the latest private `main` and, if they pass, pushes
+the pointer bump to `develop` itself over a deploy key, then starts a nightly
+pre-release (`.github/workflows/nightly.yml`). Nightlies run after every private
+commit (or when started by hand), not on every push to `develop`.
+
+`packages/xgenia-editor/package.json`'s version is set by hand, through a normal
+PR: no workflow changes it. A manual release (`.github/workflows/release.yml`)
+drafts exactly that version and fails if it already has a release, so raise it
+before releasing. Nightlies start from it and skip versions already taken
+(`scripts/release/next-version.mjs`).
+
+Only the pointer bump lands on `develop` without a PR; see
+`docs/agents/git-workflow.md`.

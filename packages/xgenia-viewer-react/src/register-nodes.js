@@ -84,6 +84,7 @@ export default function registerNodes(xgeniaRuntime) {
     require('./nodes/std-library/data/foreachactions'),
     require('./nodes/std-library/colorblend'),
     require('./nodes/std-library/animate-to-value'),
+    require('./nodes/std-library/timeline'),
 
     //require('./nodes/std-library/variables/number'), // moved to runtime
     //require('./nodes/std-library/variables/string'),

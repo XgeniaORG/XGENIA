@@ -122,3 +122,15 @@ export function summariseChatIndex(raw: unknown): { tagline?: string; messageCou
 
   return { tagline: taglineFromTitle(first?.title), messageCount };
 }
+
+/**
+ * Lay what a disk read found over what the cache holds when the read lands.
+ *
+ * A read takes a while (it waits for idle, then for the file), and other fields arrive in the
+ * meantime: the weak-thumbnail measurement patches `weakThumb` in while the chat index is still
+ * being read. Writing back the copy taken when the read started threw that away, so an empty,
+ * black capture stayed on the card and on the Continue hero instead of the monogram (2026-11-02).
+ */
+export function mergeRead<T extends object>(current: T | undefined, found: Partial<T>): T {
+  return { ...(current || ({} as T)), ...found };
+}

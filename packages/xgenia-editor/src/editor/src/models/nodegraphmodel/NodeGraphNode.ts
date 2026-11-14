@@ -795,14 +795,17 @@ export class NodeGraphNode extends Model {
         oldValue = args.oldValue;
       }
 
+      // Replay against the same interaction state: without it, undoing a hover or pressed
+      // edit wrote the old value into the neutral parameters.
+      const replayArgs = args.state !== undefined ? { state: args.state } : undefined;
       undo.push({
         label: args.label,
         do: function () {
-          _this.setParameter(name, value);
+          _this.setParameter(name, value, replayArgs);
           _this.notifyListeners('modelParameterRedo');
         },
         undo: function () {
-          _this.setParameter(name, oldValue);
+          _this.setParameter(name, oldValue, replayArgs);
           _this.notifyListeners('modelParameterUndo');
         }
       });

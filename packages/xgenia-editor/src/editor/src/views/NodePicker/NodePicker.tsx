@@ -3,6 +3,7 @@ import React from 'react';
 
 import { Tabs, TabsVariant } from '@xgenia-core-ui/components/layout/Tabs';
 
+import { useShowAllTools } from '../Rail/useShowAllTools';
 import { NodePickerContextProvider, useNodePickerContext } from './NodePicker.context';
 import css from './NodePicker.module.scss';
 import { ImportFromProject } from './tabs/ImportFromProject/ImportFromProject';
@@ -23,6 +24,9 @@ const MCP_LIBRARY_LABEL = 'MCP';
 
 function NodePickerWithoutContext({ model, parentModel, pos, attachToRoot, runtimeType, className, style }: NodePickerProps) {
   const context = useNodePickerContext();
+  // Newcomers get Nodes and Prefabs. MCP, Modules (external libraries) and Import (from another
+  // project) are developer tools, and five tabs overflowed the panel, cutting "Import" in half.
+  const showAllTools = useShowAllTools();
 
   const tabs = [
     {
@@ -40,27 +44,31 @@ function NodePickerWithoutContext({ model, parentModel, pos, attachToRoot, runti
   ];
 
   // MCP Tab Implementation
-  tabs.push({
-    label: MCP_LIBRARY_LABEL,
-    content: <MCPNodePickerTab />
-  });
+  if (showAllTools) {
+    tabs.push({
+      label: MCP_LIBRARY_LABEL,
+      content: <MCPNodePickerTab />
+    });
+  }
 
   tabs.push({
     label: PREFAB_LIBRARY_LABEL,
     content: <NodePickerSearchView key="prefabs" itemType="prefab" searchInputPlaceholder="Search for a prefab" />
   });
 
-  tabs.push({
-    label: MODULE_LIBRARY_LABEL,
-    content: (
-      <NodePickerSearchView key="modules" itemType="module" searchInputPlaceholder="Search for an external library" />
-    )
-  });
+  if (showAllTools) {
+    tabs.push({
+      label: MODULE_LIBRARY_LABEL,
+      content: (
+        <NodePickerSearchView key="modules" itemType="module" searchInputPlaceholder="Search for an external library" />
+      )
+    });
 
-  tabs.push({
-    label: PROJECT_IMPORT_LABEL,
-    content: <ImportFromProject />
-  });
+    tabs.push({
+      label: PROJECT_IMPORT_LABEL,
+      content: <ImportFromProject />
+    });
+  }
 
   return (
     <div
@@ -71,7 +79,8 @@ function NodePickerWithoutContext({ model, parentModel, pos, attachToRoot, runti
         UNSAFE_className={css['TabOverride']}
         variant={TabsVariant.Text}
         tabs={tabs}
-        activeTab={context.activeTab}
+        // A tab hidden since it was picked (Show all tools turned off) falls back to Nodes.
+        activeTab={tabs.some((t) => t.label === context.activeTab) ? context.activeTab : NODE_LIBRARY_LABEL}
         onChange={(activeTab) => {
           context.setActiveTab(activeTab);
         }}

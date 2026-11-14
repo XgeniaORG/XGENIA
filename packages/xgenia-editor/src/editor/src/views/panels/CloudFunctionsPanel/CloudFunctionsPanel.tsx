@@ -34,7 +34,7 @@ export function CloudFunctionsPanel() {
   const componentPanelOptions = {
     showSheetList: false,
     lockCurrentSheetName: '__cloud__',
-    componentTitle: 'Cloud Components'
+    componentTitle: 'Server code'
   };
 
   const isSupabaseEnvironment = environment?.type === CloudServiceType.SUPABASE;
@@ -84,7 +84,7 @@ export function CloudFunctionsPanel() {
   }
 
   return (
-    <BasePanel title="Cloud Functions" isFill>
+    <BasePanel title="Server" isFill>
       <Container direction={ContainerDirection.Vertical} isFill>
         <ActionButton
           prefixText="Active cloud service"

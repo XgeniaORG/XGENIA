@@ -110,15 +110,18 @@ export class CodeEditorType extends TypeView {
   }
 
   dispose(): void {
-    this.disposePopout();
+    // The inspector disposes every view whenever the node's ports change, which saving
+    // a Function script does. An editor that is still open is left to its popout: the
+    // popout's onClose saves and disposes it. Unmounting it here left the empty popout
+    // (its arrow and shadow) on screen, and the close that followed threw on the null
+    // model before the popout could be removed.
+    if (!this.popoutRoot) this.disposePopout();
 
     // Properly unmount the property button React root
     if (this.propertyRoot) {
       this.propertyRoot.unmount();
       this.propertyRoot = null;
     }
-
-    WarningsModel.instance.off(this);
   }
 
   /** Dispose only the editor popout, keeping the property button intact. */
@@ -130,6 +133,8 @@ export class CodeEditorType extends TypeView {
       this.popoutRoot.unmount();
       this.popoutRoot = null;
     }
+
+    WarningsModel.instance.off(this);
   }
 
   render(): TSFixme {
@@ -255,7 +260,10 @@ export class CodeEditorType extends TypeView {
 
     const node = this.parent.model.model;
 
-    let value = this.value;
+    // Read from the model, not this.value: an editor kept open across a rebuild (see
+    // dispose) saves after this view was built, and opening its stale copy would
+    // write the old code back on close.
+    let value = this.parent.model.getParameter(this.name);
     if (typeof value !== 'string') {
       if (value === undefined || value === null) {
         value = '';

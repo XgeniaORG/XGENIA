@@ -111,8 +111,12 @@ dotenv.config();
   // comments for development and the engine drift tests. A release ships it minified instead:
   // mangled locals, no comments. Function and class names are kept (engine code reads them). The
   // readable copy is restored afterwards, so dev and tests never see the minified one.
-  // Opt-in (XGENIA_MINIFY_VIEWER=1) until a game has been played on a minified build; then make
-  // it the default. Measured 2026-09-24: 19.9 MB → 7.6 MB, readable pro-node lines 2,002 → 62.
+  // Opt-in (XGENIA_MINIFY_VIEWER=1) and NOT recommended for releases (tested 2026-09-25): node
+  // scripts are matched against the built-in functions' source text to decide which functions a
+  // user changed. Minified built-ins never match, so every script function gets applied, the
+  // untouched ones fail on build-time identifiers (external_window_React_default, ...) and fall
+  // back with a warning on every node. The game still plays, but the warnings mislead users and
+  // the AI. (Measured: 19.9 MB → 7.6 MB, readable pro-node lines 2,002 → 62.)
   const viewerPath = path.join(__dirname, '../src/external/viewer/xgenia.viewer.js');
   const viewerBackup = viewerPath + '.readable';
   const minifyViewer = process.env.XGENIA_MINIFY_VIEWER === '1' && existsSync(viewerPath);

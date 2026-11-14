@@ -9,6 +9,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { editorBridge } from './EditorBridge';
 import { PluginLoader, isVerdict, type EntitlementsResponse } from './PluginLoader';
+import { panelReloadDelayMs } from './panelLoadRetry';
 
 const PLUGIN_ID = 'ai-chat';
 
@@ -37,6 +38,8 @@ export function ChatPanelIframe() {
     // iframe to cover the whole editor (a CSS modal inside the iframe can only fill
     // the docked column). We restore on close.
     const [fullscreen, setFullscreen] = useState(false);
+    // Bumped to load the panel again when it never answered (see panelLoadRetry).
+    const [reloadKey, setReloadKey] = useState(0);
 
     // Listen for the plugin's full-screen requests (only from our own iframe).
     useEffect(() => {
@@ -142,6 +145,29 @@ export function ChatPanelIframe() {
         }, 1000);
         return () => clearInterval(checkConnection);
     }, []);
+
+    // A panel that never shook hands failed to load: load it again, and at once when the network returns.
+    useEffect(() => {
+        if (!pluginUrl) return;
+        let attempt = 0;
+        let timer: ReturnType<typeof setTimeout>;
+        const reloadIfSilent = () => {
+            if (editorBridge.isConnected()) return;
+            setReloadKey((k) => k + 1);
+            attempt += 1;
+            timer = setTimeout(reloadIfSilent, panelReloadDelayMs(attempt));
+        };
+        timer = setTimeout(reloadIfSilent, panelReloadDelayMs(attempt));
+        const onOnline = () => {
+            clearTimeout(timer);
+            reloadIfSilent();
+        };
+        window.addEventListener('online', onOnline);
+        return () => {
+            clearTimeout(timer);
+            window.removeEventListener('online', onOnline);
+        };
+    }, [pluginUrl]);
 
     const retryButtonStyle: React.CSSProperties = {
         padding: '6px 14px',
@@ -264,6 +290,7 @@ export function ChatPanelIframe() {
                     console.log('[ChatPanelIframe] Final iframe src:', iframeSrc);
                     return (
                         <iframe
+                            key={reloadKey}
                             ref={iframeRef}
                             src={iframeSrc}
                             onLoad={handleIframeLoad}
@@ -272,7 +299,7 @@ export function ChatPanelIframe() {
                                 width: '100%', height: '100%',
                                 border: 'none', background: '#1a1a1a',
                             }}
-                            allow="clipboard-read; clipboard-write; microphone"
+                            allow="clipboard-read; clipboard-write; microphone; fullscreen"
                             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-storage-access-by-user-activation allow-downloads"
                         />
                     );

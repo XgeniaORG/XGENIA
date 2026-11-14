@@ -4,14 +4,20 @@
 > **NOTICE REGARDING PREVIOUS VERSIONS**
 > Builds prior to v2.0.0 (including the v1.3.0 prototype) are deprecated due to build and packaging issues. They are strictly unsupported. This repository (v2.0.0+) is the only official source for the project.
 
-XGENIA is a low-code platform where designers and developers build custom applications and experiences. Designed as a visual programming environment, it aims to expedite your development process. It promotes the swift and efficient creation of applications, requiring minimal coding knowledge.
+**[XGENIA](https://xgenia.com/?utm_source=github&utm_medium=readme&utm_campaign=intro)** is an AI game creation engine and low-code visual editor. Describe a game and the XGENIA AI builds it in the editor — slot games, casino and iGaming titles (with certifiable maths and an RGS), HTML5 games, apps and interactive experiences — and every part stays editable as nodes, so designers and developers can take it from there with minimal coding.
+
+- **AI game builder** — from a prompt to a playable game: key art, screen, reels, maths, sound and effects.
+- **Slot and casino games** — cascades, free spins, provably fair random numbers (TRNG → ISAAC), RTP testing.
+- **Visual programming** — a node editor with a live preview; publish to the web in one click.
+
+Learn more, see games made with XGENIA and get the editor at **[xgenia.com](https://xgenia.com/?utm_source=github&utm_medium=readme&utm_campaign=learn-more)**.
 
 ## Documentation
 Documentation for how to use XGENIA can be found here
 [XGENIA Documentation](https://docsapp.xgenia.com/)
 
 ## Download releases
-Pre-built binaries can be [downloaded from Github]((https://github.com/XgeniaORG/XGENIA/Releases))
+Pre-built binaries can be [downloaded from GitHub](https://github.com/XgeniaORG/XGENIA/releases)
 
 ## Building from source test
 

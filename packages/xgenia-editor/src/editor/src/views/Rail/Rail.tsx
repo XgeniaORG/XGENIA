@@ -8,32 +8,47 @@ import { RailPresence } from '@xgenia-models/railpresence';
 import { GitStatus } from '@xgenia-models/gitstatus';
 import { AiActivity, AiActivitySnapshot } from '@xgenia-models/aiactivity';
 import { DialogRenderDirection } from '@xgenia-core-ui/components/layout/BaseDialog';
-import { MenuDialog } from '@xgenia-core-ui/components/popups/MenuDialog';
+import { MenuDialog, type MenuDialogItem } from '@xgenia-core-ui/components/popups/MenuDialog';
 
 import { Keybindings } from '../../constants/Keybindings';
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
 import { ToastLayer } from '../ToastLayer';
 import { importFiles } from '../panels/AssetPanel/assetOps';
-import { SideMore } from '../SidePanel/SidebarIcons';
+import { SideMore, SideWebPlugin } from '../SidePanel/SidebarIcons';
+import { WEB_PLUGIN_PANEL_PREFIX } from '../panels/WebPluginPanel/webPluginSidebar';
 import { AddNodeButton } from './AddNodeButton';
 import { IdentityChip } from './IdentityChip';
 import { RailButton, RailButtonProps } from './RailButton';
 import { activePanelId } from './railLayout';
+import { railGuideId } from '../../utils/guideIds';
 import { badgeFor, tooltipSuffixFor, type RailBadge } from './railBadges';
-import { arrangeRail, railCapacity, RAIL_SLOT } from './railOrder';
+import { arrangeGroupedRail, dedupeRailIcons, MORE_LABEL, railLabelFor, railTipFor, RAIL_SLOT } from './railGroups';
+import { setShowAllTools, useShowAllTools } from './useShowAllTools';
 import { useTooltipGroup } from './useTooltipGroup';
 import css from './Rail.module.scss';
+
+/** Dispatch on document with detail { guide } to open that rail tool (see the listener in Rail). */
+export const OPEN_RAIL_ITEM_EVENT = 'xgenia:open-rail-item';
 
 type PresenceState = Record<string, { unseen: number; lastAt: number }>;
 
 /** A press-and-hold reorder in progress. `from`/`to` are indices into the visible top
- *  cluster (`arrangement.top`) — the only items a hold can reach. `y` is the live pointer
- *  offset from the press-down point, driving the dragged item's transform directly. */
+ *  cluster (`top`, every group flattened) — the only items a hold can reach. `lo`/`hi` bound
+ *  `to` to the dragged item's own group: the groups are fixed, only the order inside one
+ *  moves. `y` is the live pointer offset from the press-down point, driving the dragged
+ *  item's transform directly. */
 interface RailDragState {
   id: string;
   from: number;
   to: number;
+  lo: number;
+  hi: number;
   y: number;
+}
+
+/** A registered icon, or the generic one for an IconName string (the rail draws components only). */
+function railIcon(icon: unknown): React.ElementType {
+  return icon && typeof icon !== 'string' ? (icon as React.ElementType) : SideWebPlugin;
 }
 
 /**
@@ -67,6 +82,11 @@ export function Rail() {
   const layout = sidebar.Layout;
   const active = layout.open ? activePanelId(layout) : null;
   const tips = useTooltipGroup();
+  // Off = the simple rail: a handful of tools, the rest behind More (railGroups.ts).
+  const showAll = useShowAllTools();
+  // No picture twice: a web plugin that asks for a built-in panel's icon gets the generic one.
+  const icons = dedupeRailIcons(items, (id) => id.startsWith(WEB_PLUGIN_PANEL_PREFIX), SideWebPlugin as unknown);
+  const iconFor = (id: string) => railIcon(icons.get(id));
 
   // Presence (Task 13): which panel's domain the AI just touched.
   const [presence, setPresence] = useState<PresenceState>(RailPresence.getSnapshot);
@@ -177,26 +197,25 @@ export function Rail() {
     return () => ro.disconnect();
   }, []);
 
-  const bottomCount = items.filter((i) => i.placement === 'bottom').length;
-  // 99 before the first ResizeObserver measurement: with no real height yet, `railCapacity`
-  // has nothing to divide, and a capacity of 0 would render everything into overflow (or,
-  // worse, nothing at all) for that first frame. 99 comfortably exceeds any real top
-  // cluster, so nothing folds until a real measurement replaces it.
-  const capacity = height ? railCapacity(height, bottomCount) : 99;
-  const arrangement = useMemo(() => {
-    const userOrder = sidebar.getUserOrder();
-    const first = arrangeRail(items, userOrder, capacity);
-    if (first.overflow.length === 0) return first;
-    // The ⋯ button that will hold the overflow is itself a slot in the same column — fit
-    // one fewer top item so it doesn't get pushed out by the very button meant to hold it.
-    // Overflow is already non-empty at `capacity`, so dropping one more slot can only ever
-    // keep it non-empty (never re-empty it) — a single recompute is enough, no loop needed.
-    return arrangeRail(items, userOrder, Math.max(0, capacity - 1));
-  }, [items, capacity, sidebar]);
-
-  // Sliding indicator: index of the active item within the rendered top cluster.
-  const activeTopIndex = arrangement.top.findIndex((i) => i.id === active);
-  const indicatorY = activeTopIndex >= 0 ? activeTopIndex * RAIL_SLOT + 7 : null;
+  // Groups in fixed order, the simple-rail filter (never hiding the open panel), then the
+  // tail folded into More if the window is too short. `height` is 0 before the first
+  // ResizeObserver measurement, and nothing folds for height until a real one lands.
+  const arrangement = useMemo(
+    () => arrangeGroupedRail(items, sidebar.getUserOrder(), { showAll, openId: active, railHeight: height }),
+    [items, height, sidebar, showAll, active]
+  );
+  // The visible top cluster as one list (⌘⌥1-9, the digits, press-and-hold), and for each
+  // index the [lo, hi] range of its group.
+  const top = arrangement.groups.flatMap((g) => g.items);
+  const groupRange: [number, number][] = [];
+  {
+    let start = 0;
+    for (const g of arrangement.groups) {
+      for (let k = 0; k < g.items.length; k++) groupRange.push([start, start + g.items.length - 1]);
+      start += g.items.length;
+    }
+  }
+  const topOverflow = arrangement.overflow.filter((i) => i.placement !== 'bottom');
 
   // ⌘⌥ held for 250ms reveals the shortcut digits on the top cluster; released, or the
   // window loses focus mid-hold, hides them immediately so nothing is left stuck on screen.
@@ -217,8 +236,8 @@ export function Rail() {
   // ⌘⌥1-9 opens the nth item of the top cluster. EditorPage owns the keybinding and emits
   // the zero-based index; read the live arrangement through a ref so this listener (attached
   // once) never dispatches against a stale top cluster.
-  const topRef = useRef(arrangement.top);
-  topRef.current = arrangement.top;
+  const topRef = useRef(top);
+  topRef.current = top;
   useEffect(() => {
     const group = {};
     EventDispatcher.instance.on('rail-shortcut', (i: number) => {
@@ -228,11 +247,11 @@ export function Rail() {
     return () => EventDispatcher.instance.off(group);
   }, []);
 
-  // Task 18: press-and-hold to reorder the top cluster. The FULL top-cluster order (visible
-  // + whatever Task 19 has folded into overflow), kept for persisting a reorder without
-  // dropping a currently-hidden panel's place in the list — see persistReorder below.
-  const topAllRef = useRef([...arrangement.top, ...arrangement.overflow]);
-  topAllRef.current = [...arrangement.top, ...arrangement.overflow];
+  // Task 18: press-and-hold to reorder inside a group. The FULL top-cluster order (visible
+  // + whatever is folded into More), kept for persisting a reorder without dropping a
+  // currently-hidden panel's place in the list — see persistReorder below.
+  const topAllRef = useRef([...top, ...topOverflow]);
+  topAllRef.current = [...top, ...topOverflow];
 
   // `dragRef` is the single source of truth read by the pointermove/pointerup listeners
   // below — those closures are created once, when the pointer goes down, and never see a
@@ -285,7 +304,7 @@ export function Rail() {
   // listeners — the effect reads gesture details from `gestureRef`, not from this state.
   const [gesturePointerId, setGesturePointerId] = useState<number | null>(null);
 
-  const onItemPointerDown = (id: string, index: number) => (e: React.PointerEvent<HTMLDivElement>) => {
+  const onItemPointerDown = (id: string, index: number, lo: number, hi: number) => (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     // Single-owner: a second pointer pressing a different item while a hold is pending or
     // a drag is running must not steal or corrupt the first gesture — ignore it outright.
@@ -315,7 +334,7 @@ export function Rail() {
         setGesturePointerId(null);
         return;
       }
-      applyDrag({ id, from: index, to: index, y: 0 });
+      applyDrag({ id, from: index, to: index, lo, hi, y: 0 });
     }, 400);
     // Triggers the effect below to attach the window listeners for this gesture; it stays
     // live through the pending-hold phase too, since an early move past the threshold has
@@ -343,7 +362,7 @@ export function Rail() {
       const current = dragRef.current;
       if (!current) return;
       const dy = ev.clientY - g.startY;
-      const to = Math.max(0, Math.min(topRef.current.length - 1, current.from + Math.round(dy / RAIL_SLOT)));
+      const to = Math.max(current.lo, Math.min(current.hi, current.from + Math.round(dy / RAIL_SLOT)));
       applyDrag({ ...current, y: dy, to });
     };
 
@@ -414,28 +433,85 @@ export function Rail() {
     return 'none';
   };
 
-  // Task 19: fold the tail of the top cluster into a ⋯ menu at short heights.
+  // More (⋯): whatever the rail is not showing — tools the simple rail leaves out, and the
+  // tail of the top cluster on a short window.
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
-  // The window growing tall enough that nothing overflows any more removes the ⋯ button
-  // (and its ref target) out from under an open menu — close it rather than leave a
-  // dialog anchored to nothing.
+  // The More button going away (everything fits, or "Show all tools" switched on) removes
+  // its ref target out from under an open menu — close it rather than leave a dialog
+  // anchored to nothing.
   useEffect(() => {
-    if (arrangement.overflow.length === 0) setOverflowOpen(false);
-  }, [arrangement.overflow.length]);
+    if (!arrangement.hasMore) setOverflowOpen(false);
+  }, [arrangement.hasMore]);
+
+  const badgeOf = (item: (typeof items)[number]) =>
+    badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai, showsAiActivity: item.showsAiActivity });
 
   // One badge per folded item, computed once via the shared composition helper (never a
   // second, divergent "does anything in here want attention" rule) and reused both for the
-  // ⋯ button's own rolled-up badge and for marking which menu row it came from.
+  // More button's own rolled-up badge and for marking which menu row it came from.
   const overflowItemBadges: Record<string, RailBadge> = {};
-  for (const item of arrangement.overflow) {
-    overflowItemBadges[item.id] = badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai, showsAiActivity: item.showsAiActivity });
-  }
+  for (const item of arrangement.overflow) overflowItemBadges[item.id] = badgeOf(item);
   const overflowBadge: RailBadge = {
     unseen: arrangement.overflow.some((item) => overflowItemBadges[item.id].unseen),
     ring: arrangement.overflow.some((item) => overflowItemBadges[item.id].ring)
   };
 
+  const clickItem = (item: (typeof items)[number]) => {
+    SidebarModel.instance.dispatch({ type: 'click', id: item.id });
+    item.onClick?.();
+  };
+
+  // "Take me to Styles" from a guide (the coach, Ask the docs' Show me): open a tool by its
+  // data-guide id, also when the simple rail keeps it under More. Already open = left as is (a
+  // click would close it). Sets detail.opened so the sender knows it worked.
+  const openRef = useRef({ items, active, clickItem });
+  openRef.current = { items, active, clickItem };
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ guide?: string; opened?: boolean }>).detail;
+      const { items: all, active: current, clickItem: click } = openRef.current;
+      const item = detail && all.find((i) => railGuideId(i.id) === detail.guide && !i.isDisabled);
+      if (!item) return;
+      if (item.id !== current) click(item);
+      detail.opened = true;
+    };
+    document.addEventListener(OPEN_RAIL_ITEM_EVENT, onOpen);
+    return () => document.removeEventListener(OPEN_RAIL_ITEM_EVENT, onOpen);
+  }, []);
+
+  const overflowMenuItems: (MenuDialogItem | 'divider')[] = [];
+  arrangement.overflow.forEach((item, i) => {
+    // A divider where the menu moves from top-cluster tools to bottom-cluster ones.
+    const prev = arrangement.overflow[i - 1];
+    if (prev && prev.placement !== 'bottom' && item.placement === 'bottom') overflowMenuItems.push('divider');
+    overflowMenuItems.push({
+      key: item.id,
+      label: overflowItemBadges[item.id].unseen ? `${railLabelFor(item)} •` : railLabelFor(item),
+      // The same picture and tip as on the rail, so a tool is recognisable once "Show all tools"
+      // moves it there.
+      iconComponent: iconFor(item.id),
+      tooltip: railTipFor(item),
+      isDisabled: item.isDisabled,
+      onClick: () => {
+        setOverflowOpen(false);
+        clickItem(item);
+      }
+    });
+  });
+  if (!showAll) {
+    overflowMenuItems.push('divider', {
+      key: 'rail-show-all-tools',
+      label: 'Show all tools',
+      testId: 'rail-show-all-tools',
+      onClick: () => {
+        setOverflowOpen(false);
+        setShowAllTools(true);
+      }
+    });
+  }
+
+  let flatIndex = 0;
   return (
     <div
       ref={rootRef}
@@ -446,64 +522,76 @@ export function Rail() {
       data-test="rail"
     >
       <IdentityChip />
-      <AddNodeButton showAfterMs={tips.showAfterMs} onTooltipClosed={tips.noteClosed} />
 
       <div className={css.Top}>
-        {indicatorY !== null && <span className={css.Indicator} style={{ transform: `translateY(${indicatorY}px)` }} aria-hidden="true" />}
-        {arrangement.top.map((item, index) => {
-          const isLifted = drag?.id === item.id;
-          const common = {
-            id: item.id,
-            name: item.name,
-            icon: item.icon as React.ElementType,
-            fineType: item.fineType ?? (index < 9 ? Keybindings.RAIL_ITEMS[index].label : undefined),
-            digit: showDigits ? index + 1 : undefined,
-            isActive: item.id === active,
-            isDisabled: item.isDisabled,
-            showAfterMs: tips.showAfterMs,
-            onTooltipClosed: tips.noteClosed,
-            isDropTarget: dropMode && item.id === 'assets',
-            isDropDimmed: dropMode && item.id !== 'assets',
-            onDrop: item.id === 'assets' ? onDropAssets : undefined,
-            onPointerDownCapture: onItemPointerDown(item.id, index),
-            onClick: () => {
-              // A completed hold must not also switch panels — justDraggedRef is set the
-              // instant that hold's pointerup/cancel/blur lands, synchronously, so this is
-              // never stale even if the re-render from setDrag(null) hasn't landed yet.
-              if (justDraggedRef.current) {
-                justDraggedRef.current = false;
-                return;
-              }
-              SidebarModel.instance.dispatch({ type: 'click', id: item.id });
-              item.onClick?.();
-            }
-          };
-          const button = item.showsAiActivity
-            ? <ChatRailButton {...common} badge={badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai, showsAiActivity: item.showsAiActivity })} ai={ai} aiSince={aiSince} />
-            : (
-              <RailButton
-                {...common}
-                badge={badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai, showsAiActivity: item.showsAiActivity })}
-                tooltipSuffix={tooltipSuffixFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count })}
-              />
-            );
-          return (
-            <div
-              key={item.id}
-              className={classNames(css.DragSlot, isLifted && css['is-lifting'])}
-              style={isLifted ? { transform: `translateY(${drag!.y}px) scale(1.06)`, zIndex: 2 } : { transform: shiftFor(index) }}
-            >
-              {button}
+        {arrangement.groups.map((group, gi) => (
+          <React.Fragment key={group.id}>
+            {gi > 0 && <span className={css.Separator} aria-hidden="true" />}
+            <div className={css.Group} data-rail-group={group.id}>
+              {group.items.map((item) => {
+                const index = flatIndex++;
+                const [lo, hi] = groupRange[index];
+                const isLifted = drag?.id === item.id;
+                const common = {
+                  id: item.id,
+                  name: item.name,
+                  label: railLabelFor(item),
+                  icon: iconFor(item.id),
+                  fineType: item.fineType ?? (index < 9 ? Keybindings.RAIL_ITEMS[index].label : undefined),
+                  digit: showDigits && index < 9 ? index + 1 : undefined,
+                  isActive: item.id === active,
+                  isDisabled: item.isDisabled,
+                  showAfterMs: tips.showAfterMs,
+                  onTooltipClosed: tips.noteClosed,
+                  isDropTarget: dropMode && item.id === 'assets',
+                  isDropDimmed: dropMode && item.id !== 'assets',
+                  onDrop: item.id === 'assets' ? onDropAssets : undefined,
+                  onPointerDownCapture: onItemPointerDown(item.id, index, lo, hi),
+                  onClick: () => {
+                    // A completed hold must not also switch panels — justDraggedRef is set the
+                    // instant that hold's pointerup/cancel/blur lands, synchronously, so this is
+                    // never stale even if the re-render from setDrag(null) hasn't landed yet.
+                    if (justDraggedRef.current) {
+                      justDraggedRef.current = false;
+                      return;
+                    }
+                    clickItem(item);
+                  }
+                };
+                const button = item.showsAiActivity
+                  ? <ChatRailButton {...common} badge={badgeOf(item)} ai={ai} aiSince={aiSince} />
+                  : (
+                    <RailButton
+                      {...common}
+                      badge={badgeOf(item)}
+                      tooltipSuffix={tooltipSuffixFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count })}
+                    />
+                  );
+                return (
+                  <div
+                    key={item.id}
+                    className={classNames(css.DragSlot, isLifted && css['is-lifting'])}
+                    style={isLifted ? { transform: `translateY(${drag!.y}px) scale(1.04)`, zIndex: 2 } : { transform: shiftFor(index) }}
+                  >
+                    {button}
+                  </div>
+                );
+              })}
+              {group.id === 'make' && (
+                <AddNodeButton isActive={active === 'node-picker'} showAfterMs={tips.showAfterMs} onTooltipClosed={tips.noteClosed} />
+              )}
             </div>
-          );
-        })}
-        {arrangement.overflow.length > 0 && (
+          </React.Fragment>
+        ))}
+        {arrangement.hasMore && <span className={css.Separator} aria-hidden="true" />}
+        {arrangement.hasMore && (
           <div ref={overflowRef}>
             <RailButton
               id="rail-overflow"
-              name="More panels"
+              name="More tools"
+              label={MORE_LABEL}
               icon={SideMore}
-              isActive={arrangement.overflow.some((item) => item.id === active)}
+              isActive={overflowOpen || arrangement.overflow.some((item) => item.id === active)}
               showAfterMs={tips.showAfterMs}
               onTooltipClosed={tips.noteClosed}
               badge={overflowBadge}
@@ -511,45 +599,37 @@ export function Rail() {
             />
           </div>
         )}
-        {arrangement.overflow.length > 0 && (
+        {arrangement.hasMore && (
           <MenuDialog
             isVisible={overflowOpen}
             onClose={() => setOverflowOpen(false)}
             triggerRef={overflowRef}
             renderDirection={DialogRenderDirection.Horizontal}
-            items={arrangement.overflow.map((item) => ({
-              key: item.id,
-              label: overflowItemBadges[item.id].unseen ? `${item.name} •` : item.name,
-              onClick: () => {
-                setOverflowOpen(false);
-                SidebarModel.instance.dispatch({ type: 'click', id: item.id });
-              }
-            }))}
+            items={overflowMenuItems}
           />
         )}
       </div>
 
       <div className={css.Bottom}>
+        <span className={css.Separator} aria-hidden="true" />
         {arrangement.bottom.map((item) => (
           <RailButton
             key={item.id}
             id={item.id}
             name={item.name}
-            icon={item.icon as React.ElementType}
+            label={railLabelFor(item)}
+            icon={iconFor(item.id)}
             fineType={item.fineType}
             isActive={item.id === active}
             isDisabled={item.isDisabled}
             showAfterMs={tips.showAfterMs}
             onTooltipClosed={tips.noteClosed}
-            badge={badgeFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count, ai, showsAiActivity: item.showsAiActivity })}
+            badge={badgeOf(item)}
             tooltipSuffix={tooltipSuffixFor({ itemId: item.id, presenceEntry: presence[item.id], gitCount: git.count })}
             isDropTarget={dropMode && item.id === 'assets'}
             isDropDimmed={dropMode && item.id !== 'assets'}
             onDrop={item.id === 'assets' ? onDropAssets : undefined}
-            onClick={() => {
-              SidebarModel.instance.dispatch({ type: 'click', id: item.id });
-              item.onClick?.();
-            }}
+            onClick={() => clickItem(item)}
           />
         ))}
       </div>

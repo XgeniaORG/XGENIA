@@ -2,25 +2,33 @@ const fs = require('fs');
 const path = require('path');
 
 module.exports = async function (params) {
-  if (process.platform !== 'darwin') {
+  // The platform being built, not the machine building it: a Mac cross-building Windows or Linux
+  // has nothing to notarize.
+  if ((params && params.electronPlatformName) !== 'darwin' || process.platform !== 'darwin') {
     return;
   }
+
+  // Preferred: an App Store Connect team API key. It belongs to the team, not to one person's
+  // Apple ID, so it keeps working when someone's account gets locked or leaves.
+  const apiKeyPath = process.env.APPLE_API_KEY;
+  const apiKeyId = process.env.APPLE_API_KEY_ID;
+  const apiIssuer = process.env.APPLE_API_ISSUER;
 
   const appleId = process.env.appleId ?? process.env.APPLE_ID;
   const appleIdPassword = process.env.appleIdPassword ?? process.env.APPLE_APP_SPECIFIC_PASSWORD;
   const appleTeamId = process.env.appleTeamId ?? process.env.APPLE_TEAM_ID;
 
-
-  // Check for required environment variables
-  if (!appleId || !appleIdPassword) {
-    console.log('❌ Apple ID credentials not set, skipping notarization');
-    console.log('📝 To enable notarization, set the following environment variables:');
-    console.log('   - appleId: Your Apple ID email address');
-    console.log('   - appleIdPassword: Your app-specific password');
-    console.log('   - appleTeamId: Your Apple Developer Team ID (optional)');
-    console.log('');
-    console.log('💡 You can create a .env file in the project root with these variables');
-    console.log('📋 See env-template.txt for an example');
+  let credentials;
+  if (apiKeyPath && apiKeyId && apiIssuer) {
+    credentials = { appleApiKey: apiKeyPath, appleApiKeyId: apiKeyId, appleApiIssuer: apiIssuer };
+    console.log('Notarizing with App Store Connect API key');
+  } else if (appleId && appleIdPassword) {
+    credentials = { appleId, appleIdPassword, teamId: appleTeamId };
+    console.log('Notarizing with Apple ID');
+  } else {
+    console.log('❌ No notarization credentials set, skipping notarization');
+    console.log('📝 Set APPLE_API_KEY (path to .p8), APPLE_API_KEY_ID and APPLE_API_ISSUER,');
+    console.log('   or APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID.');
     return;
   }
 
@@ -39,25 +47,12 @@ module.exports = async function (params) {
       tool: 'notarytool',
       appBundleId: appId,
       appPath: appPath,
-      appleId: appleId,
-      appleIdPassword: appleIdPassword,
-      teamId: appleTeamId
+      ...credentials
     });
     console.log(`✅ Successfully notarized ${appId} using notarytool`);
   } catch (notarytoolError) {
     console.error('❌ Notarization failed:', notarytoolError);
     throw notarytoolError;
-    // console.log('⚠️  notarytool failed, falling back to legacy notarization...');
-
-    // // Fallback to legacy electron-notarize
-    // const electron_notarize = require('electron-notarize');
-    // await electron_notarize.notarize({
-    //   appBundleId: appId,
-    //   appPath: appPath,
-    //   appleId: process.env.appleId,
-    //   appleIdPassword: process.env.appleIdPassword
-    // });
-    // console.log(`✅ Successfully notarized ${appId} using legacy method`);
   }
 
   console.log(`Done notarizing ${appId}`);

@@ -1,11 +1,11 @@
 // Deploys the project's Math Components (`/#__maths__/…`) into one RGS Server
 // Version, one backend component each.
 //
-// This is the "Math Components → Deploy" button in the Maths RGS panel, and it
-// replaces the old route where a component only became a backend at Publish time
-// (whole-project Compile → extract logic → deploy). Here the user authors a
-// component in the tree, presses Deploy, and it IS a backend component from then
-// on — Publish just points the frontend at it.
+// Publish runs it first (deployChangedMathsComponents), and it replaces the old
+// route where a component only became a backend at Publish time (whole-project
+// Compile → extract logic → deploy). Here the user authors a component in the
+// tree, it is deployed once, and it IS a backend component from then on —
+// publishing the frontend just points it at the component.
 //
 // Per component, in order:
 //   1. COMPILE — clone its graph and inline every nested component instance, so
@@ -28,6 +28,7 @@
 // which is exactly what an Aggregator node speaks — see mathsEndpointsForGame /
 // swapDeployedMathsInstances, used by Publish.
 
+import { publishBetOptions } from '../stake/stakeModes';
 import { ComponentModel } from '@xgenia-models/componentmodel';
 import { NodeGraphModel, NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 import { guid } from '@xgenia-utils/utils';
@@ -36,7 +37,10 @@ import { cloneRootsWithIdMap, inlineAll } from '../compile/flattenLogic';
 import { toFunctionSlug } from './functionSlug';
 import { generateFunctionArtifact, FunctionArtifact } from './generateFunctionArtifact';
 import { createEdgeDeployment, deployEdgeFunction, listEdgeDeployments } from './deployEdgeFunction';
-import { XRGS_URL, rgsHeaders } from './rgsClient';
+import { rgsFunctionsUrl, rgsHeaders } from './rgsClient';
+import { WIN_PORT_PRECEDENCE, platformWarningsFor, winPortFor } from './mathsPorts';
+import { MONEY_SCALE, MONEY_SCALE_FIELD, functionConvertsMoney, withMoneyScale } from './moneyScale';
+import { stakeAggregatorParameters, type StakeConnectorConfig } from '../stake/stakeConnector';
 
 /** Sheet every Math Component lives under. */
 export const MATHS_PREFIX = '/#__maths__/';
@@ -238,7 +242,7 @@ export async function uploadComponentProject(
   functionSlug: string,
   projectJson: Record<string, any>
 ): Promise<void> {
-  const res = await fetch(`${XRGS_URL}/maths-deployer`, {
+  const res = await fetch(`${rgsFunctionsUrl()}/maths-deployer`, {
     method: 'POST',
     headers: rgsHeaders(apiKey),
     body: JSON.stringify({
@@ -292,9 +296,25 @@ export async function uploadComponentProject(
 // caller reports it, so the mapping is set deliberately on the platform instead of
 // half-applied here.
 
-/** The input port the generated script reads as `ctx.bet`, if the component has one. */
+/**
+ * The input port that carries the stake, if the component has one — most telling name first.
+ *
+ * (2026-11-05) Only `betAmount` counted, so a component whose stake input was called `Bet` (Wheel Game
+ * Test Math: 15 components, `{ Bet, Nonce, ClientSeed, ServerSeed }`) deployed with NO mapping at all —
+ * its win port `spinWinnings` was found and then dropped, because the pair is sent only together. rgs-fn
+ * then played every round at a stake of 0, and the Stake export did not list the components. rgs-fn
+ * reads the stake as `payload[bet_input_port]` whatever the port is called, and withMoneyScale converts
+ * that port by name, so any numeric input named like a stake is the bet port.
+ */
+const BET_PORT_PRECEDENCE = ['betamount', 'bet', 'stake', 'wager', 'betsize', 'stakeamount', 'betvalue'];
+
 function betPortFor(payloadExample: Record<string, any>): string | null {
-  return Object.keys(payloadExample || {}).find((k) => k.toLowerCase() === 'betamount') || null;
+  const keys = Object.keys(payloadExample || {}).filter((k) => typeof payloadExample[k] === 'number' || payloadExample[k] == null);
+  for (const name of BET_PORT_PRECEDENCE) {
+    const hit = keys.find((k) => k.toLowerCase() === name);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 /**
@@ -303,17 +323,6 @@ function betPortFor(payloadExample: Record<string, any>): string | null {
  * fallbacks are deliberately not considered: a nested field is not a response
  * port, so there would be nothing for rgs-fn to read `data[win_output_port]` from.
  */
-const WIN_PORT_PRECEDENCE = ['win', 'winAmount', 'spinWinnings', 'totalPayout', 'totalWinnings'];
-
-function winPortFor(responseExample: Record<string, any>): string | null {
-  const keys = Object.keys(responseExample || {});
-  for (const candidate of WIN_PORT_PRECEDENCE) {
-    const hit = keys.find((k) => k === candidate) || keys.find((k) => k.toLowerCase() === candidate.toLowerCase());
-    if (hit) return hit;
-  }
-  return null;
-}
-
 /**
  * The bet/win mapping a deploy of this artifact WOULD store — the same two rules
  * as the deploy, exposed so a simulation of an undeployed component stakes and
@@ -354,14 +363,12 @@ export interface MathsDeployResult {
    */
   unsupportedNodeWarning?: string;
   /**
-   * Exactly what was sent to the platform — the compiled script and the authored
-   * graph. Returned so the caller can snapshot this deploy into a commit without
-   * compiling everything a second time, and without re-reading it back over the
-   * network (which would record whatever is live at THAT moment, not what this
-   * deploy pushed).
+   * What XGENIA RGS reported about the script on the way in — calls it rewrote
+   * (Math.random → the certified generator) and a component whose outcome does
+   * not respond to its random input. These were console.warn only, and the
+   * production build strips console output, so nobody ever saw them.
    */
-  script: string;
-  projectJson: Record<string, any>;
+  platformWarnings?: string[];
 }
 
 export interface MathsDeployOptions {
@@ -373,11 +380,10 @@ export interface MathsDeployOptions {
   /**
    * Deploy only these slugs, instead of every Math Component in the project.
    *
-   * This is how Deploy became a commit: only components that differ from what is
-   * deployed are pushed. Re-uploading an identical component would put a
-   * duplicate snapshot in the history and make every commit look like it touched
-   * the whole project. Omitted (or empty) deploys everything, which is what the
-   * button did before and what a first deploy still needs.
+   * deployChangedMathsComponents passes the components that differ from what is
+   * deployed (or all of them, for `redeployAll`), so an unchanged component is
+   * not recompiled and re-uploaded. Omitted (or empty)
+   * deploys everything, which is what a first deploy needs.
    */
   onlySlugs?: Set<string>;
   /** Progress line for the panel, e.g. "Compiling SlotMaths (1/3)…". */
@@ -515,15 +521,32 @@ export async function deployMathsComponents(
     const betWinWarning = betInputPort && !winOutputPort
       ? `${label} has a betAmount input but no recognisable win output ` +
         `(${WIN_PORT_PRECEDENCE.join(', ')}), so its bet/win mapping was left unset. ` +
-        `Until it is set on the platform, the script sees a stake of 0 and no rounds are recorded.`
+        `Rename its win output to one of those names and publish again — until then the script sees a stake of 0 and no rounds are recorded.`
       : undefined;
 
+    // What this component sells (feature buys, special bets) and which input its Bet Mode reads. Sent on every
+    // publish: a new version starts with no options, and null clears them.
+    const betMode = publishBetOptions(component?.toJSON?.() ?? component, artifact.payloadExample);
+    const betModeFields = {
+      betOptions: betMode.betOptions,
+      ...(betMode.modeInputPort ? { modeInputPort: betMode.modeInputPort, modeBaseValue: betMode.modeBaseValue } : {})
+    };
+
     onProgress?.(`Deploying ${label} ${position}…`);
-    const { url } = await deployEdgeFunction(apiKey, gameId, deploymentId, {
+    // A published page sends this component's bet in cents (moneyScale.ts): the script converts, and its
+    // response example says so — which is how Publish knows the page may send cents to it.
+    const { url, rewrites, rng } = await deployEdgeFunction(apiKey, gameId, deploymentId, {
       ...artifact,
+      ...(mapBoth
+        ? {
+            script: withMoneyScale(artifact.script, betInputPort!, winOutputPort!),
+            responseExample: { ...artifact.responseExample, [MONEY_SCALE_FIELD]: MONEY_SCALE }
+          }
+        : {}),
       slug,
       functionName: label,
-      ...(mapBoth ? { betInputPort: betInputPort!, winOutputPort: winOutputPort! } : {})
+      ...(mapBoth ? { betInputPort: betInputPort!, winOutputPort: winOutputPort! } : {}),
+      ...betModeFields
     });
 
     // 3. Upload the authored project.json for this component, separately.
@@ -555,8 +578,7 @@ export async function deployMathsComponents(
       winOutputPort: mapBoth ? winOutputPort : null,
       betWinWarning,
       unsupportedNodeWarning,
-      script: artifact.script,
-      projectJson
+      platformWarnings: platformWarningsFor(label, rewrites, rng)
     });
   }
 
@@ -583,6 +605,13 @@ export async function createEmptyServerVersion(
 export interface MathsEndpoint {
   slug: string;
   url: string;
+  /** Set when the deployed script takes its bet and pays its win in cents (moneyScale.ts). */
+  money?: { scale: number; betPort: string; winPort: string };
+  /**
+   * Stake Engine build (2026-11-09): no endpoint to call. The Aggregator plays the component from the Stake book
+   * (runtime stake-book-session.js) with this as its Stake Config — see utils/stake/stakeConnector.ts.
+   */
+  stake?: StakeConnectorConfig;
 }
 
 /**
@@ -603,13 +632,17 @@ export async function mathsEndpointsForGame(
   const deployments = await listEdgeDeployments(apiKey, gameId);
 
   // Newest active row per slug, by created_at.
-  const liveBySlug = new Map<string, { url: string; createdAt: string }>();
+  const liveBySlug = new Map<string, { url: string; createdAt: string; money?: MathsEndpoint['money'] }>();
   for (const deployment of deployments) {
     for (const fn of deployment.functions || []) {
       if (fn.status !== 'active' || !fn.function_url) continue;
       const current = liveBySlug.get(fn.function_slug);
       if (!current || String(fn.created_at) > current.createdAt) {
-        liveBySlug.set(fn.function_slug, { url: fn.function_url, createdAt: String(fn.created_at) });
+        const money =
+          functionConvertsMoney(fn.response_example) && fn.bet_input_port && fn.win_output_port
+            ? { scale: Number(fn.response_example[MONEY_SCALE_FIELD]), betPort: fn.bet_input_port, winPort: fn.win_output_port }
+            : undefined;
+        liveBySlug.set(fn.function_slug, { url: fn.function_url, createdAt: String(fn.created_at), money });
       }
     }
   }
@@ -618,7 +651,7 @@ export async function mathsEndpointsForGame(
   for (const component of listMathsComponents(project)) {
     const slug = mathsComponentSlug(component);
     const live = liveBySlug.get(slug);
-    if (live) endpoints[component.name] = { slug, url: live.url };
+    if (live) endpoints[component.name] = { slug, url: live.url, ...(live.money ? { money: live.money } : {}) };
   }
   return endpoints;
 }
@@ -761,15 +794,21 @@ export function mathsAggregatorParameters(args: {
   /** The component's signal outputs: declared as outputs too, and fired as signals. */
   signalOutputs?: string[];
   targetComponent: string;
-}): Record<string, string> {
+  /** The endpoint takes cents (MathsEndpoint.money): the node converts its bet and win. */
+  money?: MathsEndpoint['money'];
+  /** A Stake build: the node plays the Stake book instead of calling a URL. */
+  stake?: MathsEndpoint['stake'];
+}): Record<string, string | number> {
   const signalOutputs = args.signalOutputs || [];
+  if (args.stake) return stakeAggregatorParameters({ ...args, stake: args.stake });
   return {
     url: args.url,
     dataInputs: args.dataInputs.join(', '),
     triggers: args.triggers.join(', '),
     outputs: [...args.outputs, ...signalOutputs].join(', '),
     signalOutputs: signalOutputs.join(', '),
-    targetComponent: args.targetComponent
+    targetComponent: args.targetComponent,
+    ...(args.money ? { moneyScale: args.money.scale, betField: args.money.betPort, winField: args.money.winPort } : {})
   };
 }
 
@@ -867,7 +906,9 @@ export function swapDeployedMathsInstances(
           triggers: usedTriggers,
           outputs: usedOutputs,
           signalOutputs: usedSignals,
-          targetComponent: instance.typename
+          targetComponent: instance.typename,
+          money: endpoint.money,
+          stake: endpoint.stake
         }),
         ports: [],
         dynamicports: [
@@ -991,3 +1032,4 @@ export function repointMathsAggregators(
 
   return repointed;
 }
+

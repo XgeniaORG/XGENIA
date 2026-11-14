@@ -53,7 +53,7 @@ function initialize(app, options) {
   });
 
   var cookieSessionSecret = options.cookieSessionSecret || require('crypto').randomBytes(64).toString('hex');
-  app.use(require('connect-flash')());
+  app.use(require('./flash')());
   app.use(require('body-parser').urlencoded({ extended: true }));
   app.use(require('cookie-session')({
     key    : 'parse_dash',

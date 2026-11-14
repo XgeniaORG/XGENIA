@@ -6,6 +6,7 @@ const MonacoWebpackPlugin = require('monaco-editor-webpack-plugin');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const webpack = require('webpack');
+const { optionalAlias } = require('../helpers/optional-alias');
 
 const editorPath = path.resolve(__dirname, '../../');
 const rootPath = path.resolve(__dirname, '../../../../');
@@ -34,6 +35,11 @@ module.exports = merge(
         react: path.resolve(__dirname, '../../../../node_modules/react'),
         'react-dom': path.resolve(__dirname, '../../../../node_modules/react-dom'),
         '@xgenia/image-editor': path.resolve(rootPath, 'private/xgenia-image-editor/src'),
+        '@xgenia/coach': path.resolve(rootPath, 'private/xgenia-coach/src'),
+        '@xgenia/fx-studio': optionalAlias(
+          path.resolve(rootPath, 'private/xgenia-fx-studio/src'),
+          path.resolve(editorPath, 'src/stubs/fx-studio/index.js')
+        ),
       },
       fallback: {
         path: require.resolve('path-browserify'),

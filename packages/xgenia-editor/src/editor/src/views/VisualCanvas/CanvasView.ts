@@ -1,13 +1,20 @@
 import { ipcRenderer } from 'electron';
+import { captureEncoding } from './captureEncoding';
 import React from 'react';
 import { createRoot, Root } from 'react-dom/client';
 
 import { EventDispatcher } from '../../../../shared/utils/EventDispatcher';
+import KeyboardHandler, { type MenuZoomCommand } from '@xgenia-utils/keyboardhandler';
+import { EditorSceneVisibility } from '../../models/editorSceneVisibility';
+import { UndoQueue } from '../../models/undo-queue-model';
 import View from '../../../../shared/view';
+import { toggleShortcutSheet } from '../ShortcutSheet';
 import { InlineElementChat } from './InlineElementChat';
 import type { PreviewHost } from './IframeViewer';
 import { VisualCanvas } from './VisualCanvas';
-import { measureSurfaceProof, browserSurfaceProofEnv, sampleOccluders } from './surfaceProof';
+import { measureInPlaceSurfaceProof, browserSurfaceProofEnv, sampleOccluders } from './surfaceProof';
+import { waitUntilSettled, letterboxesSettled } from './paintWait';
+import { GUEST_UNSIZED, guestSizeVerdict, guestUnsizedMessage, type Dim } from './guestSize';
 
 /**
  * Chatter from the running preview, off by default.
@@ -108,6 +115,66 @@ export class CanvasView extends View {
       busy: true,
       holder
     };
+  }
+
+  /** The frame's layout box (CSS px, before the fit-scale transform) and what its guest reports. */
+  private async measureGuest(): Promise<{ box: Dim; guest: Dim }> {
+    const el = this.webview?.element;
+    const box = { w: el?.clientWidth || 0, h: el?.clientHeight || 0 };
+    let guest: Dim = { w: 0, h: 0 };
+    try {
+      const g = await this.webview!.executeJavaScript('({ w: window.innerWidth, h: window.innerHeight })');
+      guest = { w: Number(g?.w) || 0, h: Number(g?.h) || 0 };
+    } catch { /* no answer from the guest: it reports nothing */ }
+    return { box, guest };
+  }
+
+  /**
+   * Remount the preview frame in place: take the same <iframe> element out of the document and put
+   * it back, which gives it a new browsing context (and the out-of-process guest a new size) while
+   * React, IframeViewer and every listener keep the element they hold. Resolves once the new page is
+   * dom-ready, or false after `timeoutMs`.
+   */
+  private remountPreviewFrame(timeoutMs = 15000): Promise<boolean> {
+    const host = this.webview;
+    const el = host?.element;
+    const parent = el?.parentNode;
+    if (!host || !el || !parent) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (ok: boolean) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        host.removeEventListener('dom-ready', onReady);
+        resolve(ok);
+      };
+      const onReady = () => finish(true);
+      const timer = setTimeout(() => finish(false), timeoutMs);
+      host.addEventListener('dom-ready', onReady);
+      this.webviewDomReady = false;
+      const next = el.nextSibling;
+      parent.removeChild(el);
+      parent.insertBefore(el, next);
+    });
+  }
+
+  /**
+   * Before an in-place capture: the guest must have its frame's size. On a mismatch or 0x0, remount
+   * the frame once and measure again. Returns null when it is fine, or the fault to reply with.
+   */
+  private async guestSizeFault(what: string): Promise<{ code: typeof GUEST_UNSIZED; message: string; box: Dim; guest: Dim } | null> {
+    if (!this.webview || !this.webview.isConnected) return null;
+    const zoom = this.zoomFactor || 1;
+    let m = await this.measureGuest();
+    if (guestSizeVerdict(m.box, m.guest, zoom) === 'ok') return null;
+    console.warn(`[CanvasView] ${what}: guest ${m.guest.w}x${m.guest.h} vs frame ${m.box.w}x${m.box.h} — remounting the preview once`);
+    if (await this.remountPreviewFrame()) {
+      await new Promise((r) => setTimeout(r, 500));
+      m = await this.measureGuest();
+      if (guestSizeVerdict(m.box, m.guest, zoom) === 'ok') return null;
+    }
+    return { code: GUEST_UNSIZED, message: guestUnsizedMessage(what, m.box, m.guest), box: m.box, guest: m.guest };
   }
 
   private staleFrameMessage(reason: string): string {
@@ -214,6 +281,29 @@ export class CanvasView extends View {
   constructor({ onNavigationStateChanged }) {
     super();
 
+    EventDispatcher.instance.on(EditorSceneVisibility.EVENT, () => this.pushSceneVisibility(), this._sceneVisibilityGroup);
+    this.releaseMenuZoom = KeyboardHandler.instance.addMenuZoomClaimant((command) => this.claimMenuZoom(command));
+    // Undo and redo change the selected node behind the preview's back (its anchor, whether it
+    // may move): let the preview re-read what the selection can do.
+    for (const event of ['undoHistoryChanged', 'undo', 'redo']) {
+      UndoQueue.instance.on(event, () => this.scheduleCapsRefresh(), this._sceneVisibilityGroup);
+    }
+    // Editor panels (Timeline, slot tools) run code in the live preview through this one
+    // channel instead of each reaching for the CanvasView: { code, callback?(result, error) }.
+    EventDispatcher.instance.on(
+      'preview-eval',
+      (args: { code: string; callback?: (result: any, error?: any) => void }) => {
+        if (!args || typeof args.code !== 'string') return;
+        // More than one CanvasView can be alive (the editor keeps a spare without a frame);
+        // only the one with a live preview answers, or the spare's "no preview" wins the race.
+        if (!this.webview || !this.webview.isConnected) return;
+        Promise.resolve()
+          .then(() => this.webview.executeJavaScript(args.code))
+          .then((r) => args.callback?.(r), (e) => args.callback?.(undefined, e));
+      },
+      this._sceneVisibilityGroup
+    );
+
     this.zoomFactor = 1;
     this.viewportWidth = null;
     this.viewportHeight = null;
@@ -316,24 +406,6 @@ export class CanvasView extends View {
 
     webview.addEventListener('did-start-loading', () => {
       console.log('[CanvasView] Webview started loading');
-
-      // Enable @electron/remote for this webview as soon as it starts loading
-      // Note: This is optional and may not work in newer Electron versions
-      try {
-        const electron = require('electron');
-        if (electron?.remote && electron?.webContents) {
-          const remoteMain = electron.remote.require('@electron/remote/main');
-          const webviewContents = electron.webContents.fromId(webview.getWebContentsId());
-          if (webviewContents && remoteMain?.enable) {
-            remoteMain.enable(webviewContents);
-            console.log('[CanvasView] Enabled @electron/remote for webview');
-          }
-        }
-        // Silently skip if remote isn't available - it's not required for core functionality
-      } catch (error: any) {
-        // @electron/remote is optional - webview works fine without it
-        console.log('[CanvasView] @electron/remote not available (this is OK)');
-      }
     });
 
     webview.addEventListener('did-stop-loading', () => {
@@ -367,6 +439,12 @@ export class CanvasView extends View {
     webview.addEventListener('dom-ready', () => {
       console.log('[CanvasView] Webview DOM ready');
       this.webviewDomReady = true;
+      // Every load is a fresh frame with the inspector off. Without re-applying it, a refresh,
+      // a route change, or a project open that beat the mode effect left the toolbar saying
+      // Edit over a preview that ignored clicks.
+      if (this.inspectMode) this.callInspectorAPI(true);
+      else this.pushSceneVisibility();
+      this.pushFrameScale();
 
       // NO IPC message handling here - that's handled by editorapi.js
       // This keeps the architecture clean and avoids conflicts
@@ -421,19 +499,34 @@ export class CanvasView extends View {
             component: message.component
           });
         }
+      } else if (event.channel === 'inspector-chat-focus') {
+        // "Ask AI" on a viewport selection: the references are on their way to the chat; bring
+        // the chat panel forward so the user types what to do with them.
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const { SidebarModel } = require('@xgenia-models/sidebar');
+          const items = SidebarModel.instance.getItems() || [];
+          const chat = items.find((i: any) => i.id === 'ChatPanel' || i.id === 'chat-panel');
+          if (chat && SidebarModel.instance.getCurrent()?.id !== chat.id) SidebarModel.instance.switch(chat.id);
+        } catch (e) {
+          console.warn('[CanvasView] could not open the chat panel', e);
+        }
+      } else if (event.channel === 'editor-pan-viewport') {
+        if (!this.inspectMode || !message || !this.webview) return;
+        const container = this.webview.parentElement as HTMLElement | null;
+        if (!container) return;
+        // dx/dy are frame px; the pointer stays on the same frame point while the frame moves
+        // under it, so the frame px delta of the next event is measured against the moved frame.
+        const s = this.currentScale();
+        container.scrollLeft -= message.dx * s;
+        container.scrollTop -= message.dy * s;
       } else if (event.channel === 'editor-zoom-viewport') {
         // Canvas zoom — only in edit mode (inspect mode)
         if (!this.inspectMode) return; // Ignore zoom in preview mode
-        if (message) {
-          if (message.reset) {
-            this.zoomFactor = 1;
-          } else if (message.delta) {
-            this.zoomFactor = Math.min(5, Math.max(0.1, this.zoomFactor + message.delta));
-          }
-          // Use Chromium's native zoom — clean scaling with working scrollbars
-          this.tryWebviewCall(() => (this.webview as any).setZoomFactor(this.zoomFactor));
-          this.props.zoom = this.zoomFactor;
-        }
+        if (message && message.fromKey) this.lastKeyZoomAt = Date.now();
+        if (message) this.applyCanvasZoomGesture(message);
+      } else if (event.channel === 'editor-show-shortcuts') {
+        toggleShortcutSheet(); // ? pressed with focus in the preview
       }
     });
 
@@ -443,7 +536,9 @@ export class CanvasView extends View {
       }
 
       const protocol = process.env.ssl ? 'https://' : 'http://';
-      const port = process.env.NOODLPORT || 8574;
+      // XGENIAPORT, like the web server and every other preview URL here; the old NOODLPORT
+      // name meant a moved server port never reached the preview, which kept loading :8574.
+      const port = process.env.XGENIAPORT || 8574;
       const urlPrefix = protocol + 'localhost:' + port;
 
       const route = event.url.startsWith(urlPrefix) ? event.url.substring(urlPrefix.length) : event.url;
@@ -509,7 +604,7 @@ export class CanvasView extends View {
     // separate webContents and must keep the canvas zoom the user set in the
     // topbar, so re-assert it whenever the interface zoom changes.
     this.onIpc('ui-zoom-changed', () => {
-      this.tryWebviewCall(() => (this.webview as any).setZoomFactor(this.zoomFactor || 1));
+      this.tryWebviewCall(() => (this.webview as any).setZoomFactor(1));
     });
 
     // HTML capture listener
@@ -550,6 +645,8 @@ export class CanvasView extends View {
     // Keep only the screenshot capture listener - this is specific to webview functionality
     this.onIpc('embedded-viewer-capture-request', async (...args) => {
       console.log('[CanvasView] 📸 Received embedded-viewer-capture-request from main process, args:', args);
+      // args[0] is the IPC event; args[1] the requester's encoding options (captureEncoding.ts).
+      const encoding = captureEncoding(args[1]);
 
       {
         const stale = this.staleFrameReason();
@@ -565,6 +662,18 @@ export class CanvasView extends View {
       // capture resize the surface out from under a retry that is still going to run.
       this._activeCapture = 'thumb';
 
+      // (2026-11-12) A guest that lost its size captures as a black frame while the pane still shows
+      // the game: remount once, else refuse with GUEST_UNSIZED rather than send a black image.
+      if (this.webviewDomReady) {
+        let fault: Awaited<ReturnType<CanvasView['guestSizeFault']>> = null;
+        try { fault = await this.guestSizeFault('screenshot'); } catch { fault = null; }
+        if (fault) {
+          this._activeCapture = null;
+          ipcRenderer.send('viewer-capture-thumb-reply', { error: fault.message, code: fault.code, guest: fault.guest, box: fault.box });
+          return;
+        }
+      }
+
       const attemptCapture = async (attemptNumber = 1, maxAttempts = 3) => {
         // A retry scheduled before dispose() must not answer for a view that is gone — the live
         // view's reply is the one the requester should get.
@@ -576,7 +685,7 @@ export class CanvasView extends View {
           const result = await this.captureThumbnail();
 
           if (result && result.toDataURL) {
-            const dataURL = result.toDataURL();
+            const dataURL = encoding.mime ? result.toDataURL(encoding.mime, encoding.quality) : result.toDataURL();
             console.log('[CanvasView] Successfully captured thumbnail, sending reply');
             this._activeCapture = null; // terminal: success
             ipcRenderer.send('viewer-capture-thumb-reply', dataURL);
@@ -778,9 +887,16 @@ export class CanvasView extends View {
     // <webview>) would therefore clip to x=0 and capture whatever real editor UI sits at the
     // origin, not the resized preview — a capture that LOOKS like a correct 1920x1080 design
     // shot but is actually a screenshot of the wrong surface. So this listener keeps the host
-    // ON-SCREEN (position:fixed, top/left 0, top z-index) instead of shoving it into negative
-    // coordinates, and additionally verifies the CAPTURED pixel size against the requested size
-    // before calling it a success — see the comment above the size check below.
+    // ON-SCREEN.
+    //
+    // (2026-10-13) It used to keep it on screen by pinning it to the window origin at the full design
+    // size with the top z-index and the panels hidden — on a laptop a 1920x1080 box over a 1368x900
+    // window, the game re-laid out twice per capture, and the AI side then asked again at a reference
+    // size and at 75/50/35 % when that did not fit: up to five visible jumps per screenshot. The
+    // guest's viewport is what sets the layout, not where the box sits, so the capture is taken IN
+    // PLACE: as it is when the preview is already laid out at that size (device-viewport mode), or
+    // fitted into its own pane at that size for the frames it takes. measureInPlaceSurfaceProof()
+    // proves the box, and the pixels must match the scale that box predicts.
     this.onIpc('embedded-viewer-capture-design-request', async (_e: any, size: any) => {
       const reply = (payload: any) => ipcRenderer.send('viewer-capture-design-reply', payload);
       const width = Math.round(Number(size?.width));
@@ -827,171 +943,177 @@ export class CanvasView extends View {
       // Restore EXACTLY what was there, including "no inline value at all" — writing '' back over
       // a style the stylesheet owns would silently resize the user's preview.
       const saved = el.getAttribute('style');
-      const applySize = () => {
-        el.style.position = 'fixed';
-        el.style.top = '0px';
-        el.style.left = '0px';
+      let resized = false;
+      const guestSize = async (): Promise<{ w: number; h: number }> => {
+        try { return await this.webview!.executeJavaScript('({ w: window.innerWidth, h: window.innerHeight })'); } catch { return { w: 0, h: 0 }; }
+      };
+      const atSize = (s: { w: number; h: number }) => Math.abs(s.w - width) <= 2 && Math.abs(s.h - height) <= 2;
+      // Lay the guest out at the design size INSIDE its own pane, scaled to fit — the same thing
+      // device-viewport ("Fit") mode does in updateViewportSize(). It is never moved over the rest of
+      // the editor and no panel is hidden for it.
+      const fitInPane = () => {
+        const container = el.parentElement as HTMLElement | null;
+        let roomW = 0;
+        let roomH = 0;
+        if (container) {
+          const cs = getComputedStyle(container);
+          roomW = container.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+          roomH = container.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+        }
+        if (!(roomW > 0) || !(roomH > 0)) { roomW = window.innerWidth; roomH = window.innerHeight; }
+        const s = Math.min(1, roomW / width, roomH / height);
         el.style.width = `${width}px`;
         el.style.height = `${height}px`;
         el.style.maxWidth = 'none';
         el.style.maxHeight = 'none';
+        el.style.transformOrigin = 'top left';
+        el.style.transform = `scale(${s})`;
         el.style.margin = '0px';
-        // Above every other panel: capturePage() below reads OUR window's own compositor
-        // output clipped to this element's box, so anything else painted over that box would
-        // leak into the "design" screenshot.
-        el.style.zIndex = '2147483647';
-        // Device-viewport mode (see setDeviceMode below, ~:1289) leaves `transform:
-        // scale(fitScale)` on this SAME element (this.webview.style is this.element.style).
-        // A transformed element's getBoundingClientRect() reports its VISUAL box, not the
-        // box position:fixed/width/height above just set — so the rect handed to
-        // capturePage() would not be the element's real box, and this was never cleared
-        // here before. Clear it unconditionally; a fresh call restores it via
-        // setDeviceMode() on the next real resize.
-        el.style.transform = 'none';
+        // The scaled frame takes only its scaled room in the pane, as setFrameMargins() does.
+        el.style.marginRight = `${width * s - width}px`;
+        el.style.marginBottom = `${height * s - height}px`;
       };
-
-      // Proof, not assumption: capturePage() (IframeViewer.ts) clips OUR OWN window to
-      // `el.getBoundingClientRect()` taken at capture time, so "the image is the design surface"
-      // needs three things measured, not assumed from applySize() having run — no transform, the
-      // box at the window origin and inside the window, and NOTHING PAINTED OVER IT. The last one
-      // is a hit test, not a rect comparison: a stacking context that confines this element's
-      // z-index (the chat panel's .Card is z-index:10) leaves the rect exactly right while another
-      // element paints over it, so a rect match alone cannot see it. surfaceProof.ts has the full
-      // reasoning, including what the hit test cannot see.
-      //
-      // UNITS: getBoundingClientRect(), window.innerWidth/innerHeight and elementFromPoint() are all
-      // CSS px of THIS renderer's document — the space applySize() writes into — so none of these
-      // comparisons crosses the Electron zoom-factor boundary. That factor only scales the
-      // NativeImage buffer, checked separately below via scaleX/scaleY.
-      const measureProof = () => measureSurfaceProof(el, width, height, browserSurfaceProofEnv());
+      const frames = (n: number) => new Promise<void>((resolve) => {
+        const step = (left: number) => (left <= 0 ? resolve() : requestAnimationFrame(() => step(left - 1)));
+        step(n);
+      });
 
       try {
         // No await between the `_activeCapture` check above and this line, so the check-and-set
         // is still atomic — and now every exit, thrown or returned, reaches the finally.
         this._activeCapture = 'design';
-        applySize();
 
-        // Wait for the guest to actually report the new viewport before capturing, or the image is
-        // the OLD size scaled — which looks like a correct capture and is not.
-        const deadline = Date.now() + 3000;
-        let seen = { w: 0, h: 0 };
-        while (Date.now() < deadline) {
-          await new Promise((r) => requestAnimationFrame(() => r(null)));
-          // Defensive re-assert: VisualCanvas re-renders with a literal `style={{...}}` on this
-          // same iframe (see VisualCanvas.tsx), so an unrelated React re-render during this wait
-          // can silently overwrite the size/position we just set. Re-apply every tick rather than
-          // trust a single assignment to survive the whole wait.
-          if (el.style.width !== `${width}px` || el.style.position !== 'fixed') applySize();
-          try {
-            seen = await this.webview.executeJavaScript('({ w: window.innerWidth, h: window.innerHeight })');
-          } catch { /* the guest may be mid-navigation; keep waiting until the deadline */ }
-          if (Math.abs(seen.w - width) <= 2 && Math.abs(seen.h - height) <= 2) break;
+        // The guest must have its frame's size before it is resized to the design: a 0x0 guest never
+        // reaches it (remount once, else GUEST_UNSIZED — the bridge then captures offscreen).
+        {
+          const fault = await this.guestSizeFault('design capture');
+          if (fault) {
+            reply({ success: false, code: fault.code, guest: fault.guest, box: fault.box, message: fault.message });
+            return;
+          }
         }
-        if (Math.abs(seen.w - width) > 2 || Math.abs(seen.h - height) > 2) {
-          reply({ success: false, message: `design capture: the preview did not reach ${width}x${height} (it reports ${seen.w}x${seen.h}) — the image would be the wrong surface, so none was taken` });
-          return;
-        }
-        // Re-assert once more immediately before the capture: the wait loop's own awaits are a
-        // window a re-render could land in between the last size check and capturePage().
-        applySize();
 
-        // Measure the surface AFTER the last applySize() and BEFORE capturePage(), so this is
-        // the same box (modulo the JS-turn gap between here and IframeViewer's own
-        // getBoundingClientRect() call inside capturePage()) that ends up in the image.
-        // Measured with the occluders hidden as well: a panel that is not painted is not over it.
+        // Already laid out at that size (device-viewport mode at the declared screen) and wholly on
+        // screen: capture it as it is. Nothing moves, nothing re-lays out.
+        let seen = await guestSize();
+        const asIs = atSize(seen) ? measureInPlaceSurfaceProof(el, width, height, browserSurfaceProofEnv()) : null;
+        if (!asIs || !asIs.ok) {
+          resized = true;
+          // The game's own canvas, before the resize: it redraws on the guest's resize handler, after
+          // the viewport already reports the new size (waitUntilSettled in paintWait.ts, #192).
+          const CANVAS_SIZE_JS = '(() => { let w = 0, h = 0; for (const c of document.querySelectorAll("canvas")) { const r = c.getBoundingClientRect(); if (r.width * r.height > w * h) { w = r.width; h = r.height; } } return { w: Math.round(w), h: Math.round(h) }; })()';
+          let canvasBefore: { w: number; h: number } | null = null;
+          try { canvasBefore = await this.webview!.executeJavaScript(CANVAS_SIZE_JS); } catch { /* no guest yet: nothing to wait for */ }
+          fitInPane();
+          // Wait for the guest to report the new viewport, or the image is the OLD layout scaled.
+          // VisualCanvas re-renders with a literal style on this iframe, so re-assert every tick.
+          const deadline = Date.now() + 3000;
+          while (Date.now() < deadline) {
+            await frames(1);
+            if (el.style.width !== `${width}px` || !String(el.style.transform).startsWith('scale(')) fitInPane();
+            seen = await guestSize();
+            if (atSize(seen)) break;
+          }
+          if (!atSize(seen)) {
+            reply({
+              success: false,
+              ...(!(seen.w > 0) || !(seen.h > 0) ? { code: GUEST_UNSIZED } : {}),
+              guest: seen,
+              message: `design capture: the preview did not reach ${width}x${height} (it reports ${seen.w}x${seen.h}) — the image would be the wrong surface, so none was taken`
+            });
+            return;
+          }
+          // Then for the game's canvas to follow: resized from what it was, or filling the new
+          // viewport. (2026-10-16) #221 dropped this and the letterbox wait below when the capture
+          // moved in place; without them one capture in eleven showed the old small canvas, and a
+          // letterboxed game at the pane's scale (#192). A guest with no canvas has nothing to wait for.
+          // Each tick re-asserts the fit, as the viewport wait above does: a VisualCanvas re-render
+          // in between would put the old size back and the game would follow THAT.
+          const fitTick = async () => {
+            await frames(1);
+            if (el.style.width !== `${width}px` || !String(el.style.transform).startsWith('scale(')) fitInPane();
+          };
+          if (canvasBefore && canvasBefore.w > 0) {
+            const before = canvasBefore;
+            await waitUntilSettled(
+              async () => {
+                try { return await this.webview!.executeJavaScript(CANVAS_SIZE_JS); } catch { return before; }
+              },
+              (c: { w: number; h: number }) =>
+                !!c && (Math.abs(c.w - before.w) > 2 || Math.abs(c.h - before.h) > 2 || c.w >= width - 2 || c.h >= height - 2),
+              { timeoutMs: 1000, tick: fitTick }
+            );
+          }
+          // And for every letterboxed Group to re-scale for the new window: it measures with a
+          // ResizeObserver and re-renders after the resize (letterboxesSettled in paintWait.ts).
+          {
+            const LETTERBOX_SETTLED_JS = `(${letterboxesSettled.toString()})(document)`;
+            await waitUntilSettled(
+              async () => {
+                try { return await this.webview!.executeJavaScript(LETTERBOX_SETTLED_JS); } catch { return true; }
+              },
+              (ok: boolean) => ok === true,
+              { timeoutMs: 1000, tick: fitTick }
+            );
+          }
+          // Let the game paint at its new size before the frame is taken.
+          await frames(2);
+          fitInPane();
+        }
+
+        // Measured with the occluders hidden: a panel that is not painted is not over it.
         const { surfaceProof, nativeImage } = await this.withOccludersHidden(async () => ({
-          surfaceProof: measureProof(),
+          surfaceProof: measureInPlaceSurfaceProof(el, width, height, browserSurfaceProofEnv()),
           nativeImage: await this.webview!.capturePage(),
         }));
         if (!nativeImage || nativeImage.isEmpty()) {
           reply({ success: false, message: 'design capture: the captured image was empty' });
           return;
         }
-
-        // MEASURE what actually came back rather than trusting the request. capturePage() clips
-        // to this element's on-screen box; if the real editor window is smaller than the
-        // requested design size, or a display's scale factor inflates the buffer, the pixels we
-        // got differ from what was asked for and that difference must reach the caller, not be
-        // silently absorbed into a "success" that quietly reports the requested numbers back.
         const actual = nativeImage.getSize();
         if (!actual || !(actual.width > 0) || !(actual.height > 0)) {
           reply({ success: false, message: 'design capture: the captured image reported no size' });
           return;
         }
-
-        const scaleX = actual.width / width;
-        const scaleY = actual.height / height;
-        // A clean, roughly-equal integer (or half-integer) scale on both axes is a device pixel
-        // ratio, not a clipped/wrong capture — e.g. 3840x2160 for a requested 1920x1080 on a 2x
-        // display. Report the true pixel size in that case, not a silent lie back to 1920x1080.
-        const looksLikeUniformScale =
-          scaleX > 0.98 && scaleY > 0.98 &&
-          Math.abs(scaleX - scaleY) < 0.05 &&
-          Math.abs(scaleX - Math.round(scaleX * 2) / 2) < 0.05;
-
-        // A SCALE CAN BE LESS THAN ONE (2026-09-09, found on the live Olympus5x3 run).
-        // `looksLikeUniformScale` only ever anticipated scale-UP: it demands `scaleX > 0.98`,
-        // because the case in mind was a 2x display inflating the buffer. But this editor runs at
-        // an Electron ZOOM FACTOR, and at zoom 0.754 every capture comes back at 0.754x — a
-        // 1920x1080 request measured 1448x814, and a 384x216 request that fits the window several
-        // times over measured 290x162. THE SAME FACTOR AT BOTH SIZES, which is the signature of a
-        // resample and the one thing a clip cannot fake. Both were refused as "likely a crop", so
-        // on this machine no design capture could EVER succeed, at any size — and the panel's own
-        // two-size cross-check, which exists precisely to tell a uniform scale from a clip, never
-        // received a single pixel to judge.
-        //
-        // What makes accepting this safe is the check ~30 lines above: it has already confirmed the
-        // GUEST reports `window.innerWidth/innerHeight` equal to the requested size (±2), so the
-        // guest really did lay the screen out at the full design size. `webview.capturePage()`
-        // captures that guest's own contents, so what comes back is the whole composition
-        // resampled, not a corner of it. A capture that IS the wrong surface fails the guest-
-        // viewport check first, which is where that concern belongs.
-        //
-        // The axes must still agree: a genuine clip skews one axis against the other. An
-        // aspect-matched clip would survive this, and refusing it is not this listener's job —
-        // that is exactly what the caller's reference capture at a second size settles.
-        const axesAgree = Math.abs(scaleX - scaleY) < 0.02;
-        const looksLikeUniformDownScale = scaleX > 0.2 && scaleY > 0.2 && scaleX < 1 && axesAgree;
-        // (2026-09-16) IframeViewer.capturePage() now hands capturePage() a DIP rect (CSS x zoom),
-        // so a correct capture measures CSS x zoom x display scale = window.devicePixelRatio on
-        // each axis (1.6 at zoom 0.8 on a 2x display) — neither a half-integer nor sub-1.
+        // What the pixels must measure if the image is exactly that box: its on-screen CSS width ÷
+        // the design width, times this window's device pixels per CSS px (Electron zoom × display
+        // scale — window.devicePixelRatio). A crop, a stale frame of another size or the wrong
+        // surface cannot land on this prediction on both axes.
         const dpr = typeof window !== 'undefined' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
-        const matchesDevicePixels = Math.abs(scaleX - dpr) < 0.05 && Math.abs(scaleY - dpr) < 0.05;
-
-        if (!looksLikeUniformScale && !looksLikeUniformDownScale && !matchesDevicePixels
-            && (actual.width < width - 2 || actual.height < height - 2)) {
-          // Smaller than requested and not an even scale-up: the capture was clipped — almost
-          // certainly the real editor window is not big enough to show the full design size on
-          // screen. Returning this image would look like a correct 1920x1080 (etc.) capture while
-          // actually being a crop; fail instead.
+        const expectedScale = (surfaceProof.scale || 0) * dpr;
+        const kx = actual.width / width;
+        const ky = actual.height / height;
+        const near = (k: number) => expectedScale > 0 && Math.abs(k - expectedScale) / expectedScale <= 0.02;
+        if (!near(kx) || !near(ky)) {
           reply({
             success: false,
-            message: `design capture: asked for ${width}x${height} but only captured ${actual.width}x${actual.height} — the editor window is likely smaller than the requested design size, so the image would be a crop, not the full design; no image was returned`
+            surfaceProof,
+            message: `design capture: the image came back ${actual.width}x${actual.height}, but the preview box predicts `
+              + `x${expectedScale.toFixed(3)} of ${width}x${height} — it is not the box that was measured, so none was returned`,
           });
           return;
         }
-
-        const payload: any = { success: true, image: nativeImage.toDataURL(), width: actual.width, height: actual.height, surfaceProof };
-        if (actual.width !== width || actual.height !== height) {
-          // Name the direction. "a display scale factor" was written for the 2x case and reads as
-          // nonsense on a capture that came back SMALLER, where the cause is this window's zoom
-          // factor — and the caller decides what to do with the image partly on this sentence.
-          const factor = ((scaleX + scaleY) / 2).toFixed(3);
-          payload.message = scaleX < 1
-            ? `captured at ${actual.width}x${actual.height} (requested ${width}x${height}) — the guest reached the `
-              + `full ${width}x${height} viewport and the image is that whole surface resampled by x${factor}, this `
-              + `window's zoom factor, not a crop; width/height above are the true pixel dimensions of the image`
-            : `captured at ${actual.width}x${actual.height} (requested ${width}x${height}) — likely a display scale `
-              + `factor (x${factor}); width/height above are the true pixel dimensions of the image`;
-        }
-        reply(payload);
+        reply({
+          success: true,
+          image: nativeImage.toDataURL(),
+          width: actual.width,
+          height: actual.height,
+          surfaceProof,
+          inPlace: true,
+          expectedScale,
+          message: `captured in place: the game laid out at ${width}x${height}`
+            + (resized ? ' (fitted into its own pane for this capture, then put back)' : ' (the preview was already at that size — nothing was moved or resized)')
+            + ` and the image is that whole surface at x${((kx + ky) / 2).toFixed(3)}; width/height above are the true pixel dimensions of the image`,
+        });
       } catch (e: any) {
         reply({ success: false, message: `design capture failed: ${e?.message || e}` });
       } finally {
         // Release the lock FIRST: if restoring the style throws, the surface must not stay
         // locked behind it.
         this._activeCapture = null;
-        if (saved === null) el.removeAttribute('style'); else el.setAttribute('style', saved);
+        if (resized) {
+          if (saved === null) el.removeAttribute('style'); else el.setAttribute('style', saved);
+        }
       }
     });
 
@@ -1338,6 +1460,11 @@ export class CanvasView extends View {
     console.log('[CanvasView] Disposing CanvasView');
 
     this._disposed = true;
+    EventDispatcher.instance.off(this._sceneVisibilityGroup);
+    UndoQueue.instance.off(this._sceneVisibilityGroup);
+    if (this.capsRefreshTimer) clearTimeout(this.capsRefreshTimer);
+    this.releaseMenuZoom?.();
+    this.releaseMenuZoom = null;
     for (const [channel, fn] of this._ipcListeners) {
       try { ipcRenderer.removeListener(channel, fn); } catch { /* already gone */ }
     }
@@ -1406,7 +1533,9 @@ export class CanvasView extends View {
   }
 
   setZoomFactor(zoomFactor: number) {
+    // A zoom picked in the top bar is exact: it replaces any wheel/⌘± zoom.
     this.zoomFactor = zoomFactor;
+    this.canvasZoom = 1;
     this.updateViewportSize();
   }
 
@@ -1466,33 +1595,193 @@ export class CanvasView extends View {
       const scaleX = availableWidth / width;
       const scaleY = availableHeight / height;
       const fitScale = Math.min(1, Math.min(scaleX, scaleY));
+      // Fit, times the top bar's zoom (0 = Fit), times the Edit-mode canvas zoom (wheel, ⌘±, F).
+      const base = fitScale * (this.zoomFactor > 0 ? this.zoomFactor : 1);
+      const scale = base * this.canvasZoom;
+      this.lastBaseScale = base;
 
       // Set webview to the ACTUAL device dimensions
       // The content will render at true device resolution
       this.webview.style.width = width + 'px';
       this.webview.style.height = height + 'px';
 
-      // Use CSS transform to scale down visually to fit container
+      // Use CSS transform to scale visually; the game keeps its own size and layout.
       this.webview.style.transformOrigin = 'top left';
-      this.webview.style.transform = `scale(${fitScale})`;
+      this.webview.style.transform = `scale(${scale})`;
 
       // Adjust the container to prevent overflow issues
       // The scaled size is what actually takes up space
-      this.webview.style.marginRight = `-${width - (width * fitScale)}px`;
-      this.webview.style.marginBottom = `-${height - (height * fitScale)}px`;
+      this.setFrameMargins(width, height, scale, availableWidth, availableHeight);
 
-      this.props.zoom = fitScale;
+      this.props.zoom = scale;
+      this.renderReact();
+    } else if (this.canvasZoom !== 1 && this.zoomedFill) {
+      // No device, but zoomed in Edit mode: keep the game at the size it had when zooming
+      // started and magnify the frame, so the layout does not re-flow under the zoom.
+      const { width, height } = this.zoomedFill;
+      const scale = this.canvasZoom;
+      this.lastBaseScale = 1;
+      this.webview.style.width = width + 'px';
+      this.webview.style.height = height + 'px';
+      this.webview.style.transformOrigin = 'top left';
+      this.webview.style.transform = `scale(${scale})`;
+      const container = this.webview.parentElement as HTMLElement;
+      this.setFrameMargins(width, height, scale, container.clientWidth, container.clientHeight);
+      this.props.zoom = scale;
       this.renderReact();
     } else {
       // No device — webview fills the container, no transform scaling
+      this.zoomedFill = null;
+      this.lastBaseScale = 1;
       this.webview.style.width = '100%';
       this.webview.style.height = '100%';
       this.webview.style.transform = 'none';
       this.webview.style.transformOrigin = 'top left';
-      this.webview.style.marginRight = '0';
-      this.webview.style.marginBottom = '0';
-      this.props.zoom = this.zoomFactor || 1;
+      this.webview.style.margin = '0';
+      this.props.zoom = 1;
       this.renderReact();
+    }
+    this.pushFrameScale();
+  }
+
+  /**
+   * The transformed frame keeps its untransformed layout box, so the margins make up the
+   * difference. While zoomed in Edit mode, half a panel of room is added on every side, so
+   * zoom-to-cursor and F can bring any point of the game, edges included, to the middle.
+   */
+  private setFrameMargins(width: number, height: number, scale: number, roomW: number, roomH: number) {
+    const padX = this.canvasZoom !== 1 ? Math.round(roomW / 2) : 0;
+    const padY = this.canvasZoom !== 1 ? Math.round(roomH / 2) : 0;
+    this.webview.style.marginLeft = `${padX}px`;
+    this.webview.style.marginTop = `${padY}px`;
+    this.webview.style.marginRight = `${width * scale - width + padX}px`;
+    this.webview.style.marginBottom = `${height * scale - height + padY}px`;
+  }
+
+  /** Tell the preview how big it is on screen, so its selection chrome can stay screen-sized. */
+  private pushFrameScale() {
+    const scale = typeof this.props.zoom === 'number' && this.props.zoom > 0 ? this.props.zoom : 1;
+    this.tryWebviewCall(() => {
+      this.webview
+        .executeJavaScript(
+          `window.XgeniaEditorHighlightAPI && window.XgeniaEditorHighlightAPI.setFrameScale && window.XgeniaEditorHighlightAPI.setFrameScale(${scale})`
+        )
+        .catch(() => undefined);
+    });
+  }
+
+  // --- Edit-mode canvas zoom ---
+  // Scales the preview FRAME, like Figma or Unity's Scene view. It used to set CSS zoom inside
+  // the game, which a letterboxed (uiScale) game answers by re-fitting its canvas — on a slot,
+  // zoom did nothing visible — and which made every pointer coordinate in the preview carry a
+  // zoom factor. Now the game is untouched and the browser maps the pointer through the frame.
+  private canvasZoom = 1;
+  private lastBaseScale = 1;
+  private zoomedFill: { width: number; height: number } | null = null;
+
+  private currentScale() {
+    return this.lastBaseScale * this.canvasZoom;
+  }
+
+  private capsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private scheduleCapsRefresh() {
+    if (this.capsRefreshTimer) clearTimeout(this.capsRefreshTimer);
+    this.capsRefreshTimer = setTimeout(() => {
+      this.capsRefreshTimer = null;
+      if (!this.inspectMode) return;
+      this.tryWebviewCall(() => {
+        this.webview
+          .executeJavaScript('window.XgeniaEditorHighlightAPI && window.XgeniaEditorHighlightAPI.refreshCaps && window.XgeniaEditorHighlightAPI.refreshCaps()')
+          .catch(() => undefined);
+      });
+    }, 120);
+  }
+
+  /** Edit mode only: zoom and scroll the frame to the preview's selection (or the whole game). */
+  frameSelection() {
+    if (!this.inspectMode) return;
+    this.tryWebviewCall(() => {
+      this.webview
+        .executeJavaScript('window.XgeniaEditorHighlightAPI && window.XgeniaEditorHighlightAPI.frameSelection && window.XgeniaEditorHighlightAPI.frameSelection()')
+        .catch(() => undefined);
+    });
+  }
+
+  private releaseMenuZoom: (() => void) | null = null;
+  private lastKeyZoomAt = 0;
+
+  /**
+   * View > Zoom In / Out / Actual Size while the preview has focus in Edit mode zoom the canvas,
+   * not the editor UI. The menu accelerator swallows the key on macOS, so this is the path that
+   * actually runs; where the preview's own keydown arrives too, it already zoomed this press.
+   */
+  private claimMenuZoom(command: MenuZoomCommand): boolean {
+    if (!this.inspectMode || !this.webview || !this.webview.isConnected) return false;
+    if (document.activeElement !== this.webview.element) return false;
+    if (Date.now() - this.lastKeyZoomAt < 400) return true;
+    this.applyCanvasZoomGesture(command === 'zoomReset' ? { reset: true } : { delta: command === 'zoomIn' ? 0.1 : -0.1 });
+    return true;
+  }
+
+  /** message: { reset } | { delta, clientX?, clientY? } | { frame: {left, top, width, height} } (frame px). */
+  private applyCanvasZoomGesture(message: any) {
+    if (!this.webview) return;
+    const container = this.webview.parentElement as HTMLElement | null;
+    if (!container) return;
+    const s0 = this.currentScale();
+
+    // Remember the fill size before the first zoom away from 1.
+    if (this.viewportWidth === null && !this.zoomedFill) {
+      const r = this.webview.getBoundingClientRect();
+      this.zoomedFill = { width: Math.round(r.width / (s0 || 1)), height: Math.round(r.height / (s0 || 1)) };
+    }
+
+    if (message.reset) {
+      this.canvasZoom = 1;
+      this.updateViewportSize();
+      container.scrollLeft = 0;
+      container.scrollTop = 0;
+      return;
+    }
+
+    if (message.frame) {
+      const f = message.frame;
+      const style = getComputedStyle(container);
+      const availW = container.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
+      const availH = container.clientHeight - (parseFloat(style.paddingTop) || 0) - (parseFloat(style.paddingBottom) || 0);
+      if (!(f.width > 0 && f.height > 0 && availW > 0 && availH > 0)) return;
+      const target = Math.min(8, Math.max(0.1, 0.8 * Math.min(availW / f.width, availH / f.height)));
+      this.canvasZoom = target / (this.lastBaseScale || 1);
+      this.updateViewportSize();
+      const s1 = this.currentScale();
+      const fr = this.webview.getBoundingClientRect();
+      const cr = container.getBoundingClientRect();
+      const ox = fr.left - cr.left + container.scrollLeft;
+      const oy = fr.top - cr.top + container.scrollTop;
+      container.scrollLeft = ox + (f.left + f.width / 2) * s1 - container.clientWidth / 2;
+      container.scrollTop = oy + (f.top + f.height / 2) * s1 - container.clientHeight / 2;
+      return;
+    }
+
+    if (message.delta) {
+      // Multiplicative, so each step feels the same at any zoom.
+      const factor = 1 + Math.max(-0.5, Math.min(0.5, message.delta * 2));
+      const next = Math.min(8, Math.max(0.1, s0 * factor));
+      this.canvasZoom = next / (this.lastBaseScale || 1);
+      // Keep the point under the cursor (or the view centre, for ⌘±) where it is.
+      const fr0 = this.webview.getBoundingClientRect();
+      const cr = container.getBoundingClientRect();
+      const fx = typeof message.clientX === 'number' ? message.clientX : (cr.left + container.clientWidth / 2 - fr0.left) / (s0 || 1);
+      const fy = typeof message.clientY === 'number' ? message.clientY : (cr.top + container.clientHeight / 2 - fr0.top) / (s0 || 1);
+      const px = fr0.left + fx * s0;
+      const py = fr0.top + fy * s0;
+      this.updateViewportSize();
+      // Measure after the resize: a frame smaller than the panel is centred, so its corner moves.
+      const s1 = this.currentScale();
+      const fr1 = this.webview.getBoundingClientRect();
+      container.scrollLeft += fr1.left + fx * s1 - px;
+      container.scrollTop += fr1.top + fy * s1 - py;
     }
   }
 
@@ -1501,10 +1790,9 @@ export class CanvasView extends View {
     this.inspectMode = enabled;
 
     // When switching to preview mode, reset zoom to 100%
-    if (!enabled && this.zoomFactor !== 1) {
-      this.zoomFactor = 1;
-      this.tryWebviewCall(() => (this.webview as any).setZoomFactor(1));
-      this.props.zoom = 1;
+    if (!enabled && this.canvasZoom !== 1) {
+      this.canvasZoom = 1;
+      this.updateViewportSize();
     }
 
     this.callInspectorAPI(enabled);
@@ -1575,7 +1863,26 @@ export class CanvasView extends View {
     }
   }
 
+  private _sceneVisibilityGroup = {};
+
+  /** Hierarchy eye/lock state → the preview, which applies it in Edit mode only. */
+  private pushSceneVisibility() {
+    const value = JSON.stringify(EditorSceneVisibility.get());
+    this.tryWebviewCall(() => {
+      this.webview.executeJavaScript(`
+        (function() {
+          try {
+            if (typeof XgeniaEditorInspectorAPI !== 'undefined' && XgeniaEditorInspectorAPI.setEditorVisibility) {
+              XgeniaEditorInspectorAPI.setEditorVisibility(${value});
+            }
+          } catch (e) { /* preview not ready */ }
+        })();
+      `);
+    });
+  }
+
   private callInspectorAPI(enabled: boolean) {
+    this.pushSceneVisibility();
     this.tryWebviewCall(() => {
       // Check if APIs are available before calling them
       this.webview.executeJavaScript(`
@@ -1607,14 +1914,15 @@ export class CanvasView extends View {
     });
   }
 
-  setNodeSelected(nodeId: string) {
+  setNodeSelected(nodeId: string | null) {
     this.selectedNodeId = nodeId;
     this.tryWebviewCall(() => {
+      // JSON-encoded: quoted, a null id used to arrive as the string 'null'.
       this.webview.executeJavaScript(`
         (function() {
           try {
             if (typeof XgeniaEditorHighlightAPI !== 'undefined' && XgeniaEditorHighlightAPI.selectNode) {
-              XgeniaEditorHighlightAPI.selectNode('${nodeId}');
+              XgeniaEditorHighlightAPI.selectNode(${JSON.stringify(nodeId ?? null)});
             } else {
               console.warn('[CanvasView] XgeniaEditorHighlightAPI not available');
             }

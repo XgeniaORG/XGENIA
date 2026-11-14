@@ -74,8 +74,8 @@ test('a zero-area canvas never divides by zero and falls through to sprite', () 
   assert.equal(r.role, 'sprite');
 });
 
-test('folder beats lineage', () => {
-  const r = inferRole(at('assets/ui/plate.png', {
+test('a chosen folder beats lineage', () => {
+  const r = inferRole(at('assets/hud/plate.png', {
     lineage: {
       depth: 1,
       layerName: null,
@@ -119,4 +119,71 @@ test('roleLabel renders custom roles readably', () => {
   assert.equal(roleLabel('keyart'), 'Key art');
   assert.equal(roleLabel('sfx'), 'SFX');
   assert.equal(roleLabel('my-custom-role'), 'My custom role');
+});
+
+// (2026-09-17) The AI writes `canvasInRoot: null` whenever a layer's canvas could not be measured.
+// inferRole read `.width` off it, threw, and took the whole index scan down with it.
+test('lineage: a null canvasInRoot does not throw and still yields a role', () => {
+  const r = inferRole({
+    path: 'assets/pieces-out/thing.png',
+    kind: 'image',
+    lineage: {
+      depth: 1,
+      layerName: 'Glowing gem',
+      boxInRoot: { x: 0.1, y: 0.1, width: 0.1, height: 0.1 },
+      canvasInRoot: null as any
+    }
+  });
+  assert.equal(r.role, 'sprite');
+});
+
+// A layer cropped to its own art records canvasInRoot === boxInRoot. Coverage against that canvas
+// is always 100%, which labelled every small cropped button a background.
+test('lineage: a small cropped piece is a sprite, not a background', () => {
+  const box = { x: 0.044, y: 0.811, width: 0.042, height: 0.073 };
+  const r = inferRole({
+    path: 'assets/cut/minus.png',
+    kind: 'image',
+    lineage: { depth: 1, layerName: null, boxInRoot: box, canvasInRoot: box }
+  });
+  assert.equal(r.role, 'sprite');
+});
+
+// (2026-09-17) The AI's split tool drops every piece into assets/ui by default, so in a real project
+// (run 11) 19 of 20 assets read "UI": the background plate, every reel symbol. That folder is the
+// splitter's choice, not a person's, so the piece's own split evidence decides there.
+const piece = (layerName: string | null, box = { x: 0.3, y: 0.3, width: 0.1, height: 0.1 }) => ({
+  depth: 1,
+  layerName,
+  boxInRoot: box,
+  canvasInRoot: box
+});
+
+test("split default folder: the layer name decides", () => {
+  assert.equal(inferRole(at('assets/ui/bg.png', { lineage: piece('Background jungle', { x: 0, y: 0, width: 1, height: 0.88 }) })).role, 'background');
+  assert.equal(inferRole(at('assets/ui/k.png', { lineage: piece('Reel symbol blue K') })).role, 'sprite');
+  assert.equal(inferRole(at('assets/ui/spin.png', { lineage: piece('Spin button') })).role, 'ui');
+  assert.equal(inferRole(at('assets/ui/logo.png', { lineage: piece('Game logo title') })).role, 'logo');
+});
+
+test('split default folder: a big unnamed plate is a background, an unnamed small piece stays ui', () => {
+  assert.equal(inferRole(at('assets/ui/plate.png', { lineage: piece(null, { x: 0, y: 0, width: 1, height: 0.9 }) })).role, 'background');
+  assert.equal(inferRole(at('assets/ui/bit.png', { lineage: piece(null) })).role, 'ui');
+});
+
+test('split default folder only: a hand-made asset in assets/ui is still ui', () => {
+  assert.equal(inferRole(at('assets/ui/panel.png')).role, 'ui');
+});
+
+test('layer names: containers and icons beat the sprite nouns inside them; "scene" is not a background word', () => {
+  const role = (name: string) => inferRole(at('assets/ui/x.png', { lineage: piece(name) })).role;
+  assert.equal(role('Coin counter plate'), 'ui');
+  assert.equal(role('Chip bet button'), 'ui');
+  assert.equal(role('Card frame'), 'ui');
+  assert.equal(role('Gem icon'), 'icon');
+  assert.equal(role('Win HUD panel'), 'ui');
+  assert.equal(role('Title bar'), 'ui');
+  assert.equal(role('Reel symbol blue K'), 'sprite');
+  assert.equal(role('Game logo title'), 'logo');
+  assert.equal(role('Background jungle'), 'background');
 });

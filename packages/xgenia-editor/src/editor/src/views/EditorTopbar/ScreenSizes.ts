@@ -267,7 +267,6 @@ export const screenSizesWithDividers: (ScreenSize | 'divider')[] = [
   ...MACHINE_PRESETS
 ];
 
-//@ts-expect-error TODO: make proper type when i know it works
 export const screenSizes: ScreenSize[] = screenSizesWithDividers.filter((item) => typeof item !== 'string');
 
 export function surfaceOfGroup(group: ScreenSizeGroup): ScreenSurface {
