@@ -3250,8 +3250,8 @@
       "relativePath": "packages/xgenia-runtime/src/nodes/std-library/expression.js",
       "category": "CustomCode",
       "docs": "https://docsapp.xgenia.com/nodes/math/expression",
-      "lineCount": 388,
-      "byteSize": 12936,
+      "lineCount": 394,
+      "byteSize": 13394,
       "inputFormatHints": {
         "expression": {
           "displayName": "Expression",
@@ -7722,6 +7722,30 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -7802,6 +7826,17 @@
       "shortDesc": "Professional animated sprite for frame-based animations, optimized for slot machines.",
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
@@ -8098,6 +8133,30 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -8183,6 +8242,17 @@
       "shortDesc": "Displays text using pre-rendered bitmap fonts for performance.",
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
@@ -8518,6 +8588,30 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -8579,6 +8673,17 @@
       "description": "Draws highlights OVER reel-grid cells and multi-cell spans without touching the reel columns — the visual half of Sticky Symbols, Expand Symbols, Hold And Win Grid and Locked Reels. Place it in the SAME pixi.Container (or pixi.Stage) as the pixi.ReelColumn nodes, AFTER them in the tree so it renders on top (or turn on Sort Children by Z on that parent and give this node a higher zIndex). GEOMETRY MUST MATCH THE REELS: cellWidth / cellHeight / cellPadding / columnPadding are the PixiReelController values (its cellPadding is the ROW gap, columnPadding the COLUMN gap), and originX / originY are where column 0 and row 0 start inside that parent — with autoLayout on that is the controller's centring offset (read column 0's X and Y), with autoLayout off it is the first column's own x / y. A cell (row, col) covers x = originX + col * (cellWidth + columnPadding), y = originY + row * (cellHeight + cellPadding), size cellWidth x cellHeight; a span {row, col, rows, cols} covers rows x cols cells INCLUDING the gaps between them, anchored at its top-left cell. `cells` is an array of [row, col] pairs, 0-based, ROW FIRST (the Calculate Winnings / Cascade The Reels order); `spans` is an array of {row, col, rows, cols, symbol}. Styles: frame (a stroke of `thickness` px drawn INSIDE the cell edge, so it never spills onto a neighbour), glow (translucent bands bleeding outward from the cell, plus the frame), fill (a colour wash at `fillAlpha`, plus the frame; `fillAlpha` applies to this style only) and sprite (an image from `spriteImages`, keyed by symbol id — or by \"default\" for a plain cell — sized to the rectangle by `spriteFit`: contain letterboxes, cover crops to the rectangle). A span that carries a `symbol` draws its sprite under whichever style is active — that is how an expanding symbol is shown as one oversized image; a sprite whose URL is missing falls back to a frame and says so once in the console. Every redraw replaces everything drawn before it: set `cells` / `spans` per round, or fire `clear` (which also forgets the current cells and spans) and `redraw` (draws the current data again, e.g. after the layout changed). `pulse` breathes the whole overlay's alpha on the pixi ticker at `pulseSpeed` cycles per second; the ticker is released when pulse is off, nothing is drawn, or the node unmounts. IT DOES NOT HIDE OR FREEZE THE SYMBOL BENEATH IT: a fill or sprite covers the art only as far as its alpha allows, and the reel keeps spinning under a highlight — for a real lock the maths (Sticky Symbols / Hold And Win Grid) must keep the symbol in place and the reel controller must be told not to spin that column. Outputs: `container` (the PIXI.Container, for other pixi nodes), `drawnCount` (cells + spans drawn by the last redraw) and `onDrawn` (fires after every redraw, a clear included — read drawnCount to tell them apart).",
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
@@ -9329,6 +9434,30 @@
           "displayName": "Shadow Enabled",
           "type": "boolean",
           "group": "Box Shadow"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         },
         "alignX": {
           "displayName": "Align X",
@@ -10190,6 +10319,17 @@
       },
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
@@ -11251,6 +11391,30 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -11344,6 +11508,17 @@
       },
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
@@ -11471,6 +11646,30 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -11521,6 +11720,17 @@
       "shortDesc": "Rich formatted text using HTML-like markup (Pixi v8).",
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "initialize": [],
@@ -11760,6 +11970,30 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -11835,6 +12069,17 @@
       "shortDesc": "Creates a repeating mesh strip from a texture and a series of points.",
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
@@ -12097,6 +12342,30 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -12167,6 +12436,17 @@
       "shortDesc": "Scalable UI sprite with 9-slice borders.",
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
@@ -12308,6 +12588,30 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -12362,6 +12666,17 @@
       "shortDesc": "Optimized container for rendering a large number of simple sprites (particles).",
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
@@ -12542,6 +12857,30 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -12612,6 +12951,17 @@
       "description": "Particle emitter inside a pixi.Stage. Its own engine (not @pixi/particle-emitter), configured by emitterConfigJSON — see that port for every field it reads. Position the emitter with x/y (stage px); particles are children of the emitter, so by default they MOVE WITH IT — set \"particleSpace\": \"world\" in the config for a trail behind a moving emitter. startEmitter restarts emission and lets live particles finish, so repeated bursts stack; stopEmitter stops spawning; stopAndClear also removes live particles. The live engine is node.pixiEmitter (particlePool, each particle with _vx/_vy in px/s). An emitter cannot home onto a moving target: a particle's direction is fixed at spawn.",
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "constructor": [],
@@ -12659,8 +13009,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiPuppet.js",
       "category": "Pixi|Animation",
       "docs": null,
-      "lineCount": 2149,
-      "byteSize": 94151,
+      "lineCount": 2224,
+      "byteSize": 98027,
       "inputFormatHints": {
         "source": {
           "displayName": "Package URL",
@@ -13151,6 +13501,25 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -13446,6 +13815,17 @@
       "shortDesc": "Plays a rigged 2D character package (.xgc.json): clips, look-at, parameters and clip events.",
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
@@ -13478,7 +13858,10 @@
           "_attachTicker": [],
           "_detachTicker": [],
           "_tick": [],
-          "_advanceHidden": [],
+          "_advanceHidden": [
+            "ANCHOR_READ_FRAMES"
+          ],
+          "_poseHidden": [],
           "_hiddenNow": [],
           "_setTrackNumber": [],
           "_trackBlocked": [
@@ -13578,6 +13961,13 @@
           "_setPuppetName": [
             "RIDE_TARGETS"
           ],
+          "resolveAnchor": [
+            "_anchorPoint"
+          ],
+          "_anchorAt": [
+            "_anchorPage",
+            "_anchorPage2"
+          ],
           "_updatePointOutputs": [],
           "_applyRide": [
             "RIDE_TARGETS"
@@ -13594,6 +13984,7 @@
           "_clearError": []
         },
         "literals": {
+          "ANCHOR_READ_FRAMES": "2",
           "MACHINE_DRIVES": "'machine-drives: the state machine drives this character'"
         }
       }
@@ -13811,6 +14202,30 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -13905,6 +14320,17 @@
       "shortDesc": "A single cell in a reel grid. Place symbol sprites and effects as children.",
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
@@ -13960,8 +14386,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiReelColumn.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/graphics/pixi/reel-column",
-      "lineCount": 3364,
-      "byteSize": 170248,
+      "lineCount": 3486,
+      "byteSize": 176085,
       "inputFormatHints": {
         "visibleRows": {
           "displayName": "Visible Rows",
@@ -14386,6 +14812,30 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -14475,6 +14925,17 @@
       "shortDesc": "A scrolling, masked reel column. Children are cells that scroll as a strip.",
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
@@ -14593,6 +15054,23 @@
           "setIdleOnRigs": [],
           "playRigClipOnSymbol": [],
           "endRigClip": [],
+          "resolveAnchor": [
+            "anchorIndex"
+          ],
+          "_anchorHost": [],
+          "_anchorAt": [
+            "_anchorPt2"
+          ],
+          "_anchorRow": [],
+          "_anchorWindowLocal": [
+            "_anchorRect"
+          ],
+          "_anchorWindowPoint": [
+            "_anchorPt"
+          ],
+          "_anchorWindowBounds": [
+            "_anchorPt"
+          ],
           "setSymbolVideos": [],
           "setVideoReplaceImage": [],
           "setVideoSpeed": [],
@@ -14691,11 +15169,94 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiRevoltFX.js",
       "category": "Pixi|Effects",
       "docs": "https://github.com/bma73/revolt-fx-examples",
-      "lineCount": 754,
-      "byteSize": 26272,
+      "lineCount": 1002,
+      "byteSize": 37204,
       "inputFormatHints": {
+        "preset": {
+          "displayName": "Effect",
+          "tooltip": "A ready-made effect. Pick None to use your own bundle (Advanced).",
+          "type": "enum",
+          "group": "Effect"
+        },
+        "playMode": {
+          "displayName": "Play",
+          "tooltip": "Loop keeps it going; Once plays it one time when ready; On Play signal waits for the Play signal.",
+          "type": "enum",
+          "group": "Effect",
+          "enums": [
+            "loop",
+            "once",
+            "signal"
+          ]
+        },
+        "design": {
+          "displayName": "Studio",
+          "tooltip": "Opens the FX Studio: change how each part of the effect looks and moves.",
+          "type": "fx-design",
+          "group": "Effect"
+        },
+        "play": {
+          "displayName": "Play",
+          "type": "signal",
+          "group": "Effect",
+          "notSettableAsParameter": true
+        },
+        "stop": {
+          "displayName": "Stop",
+          "type": "signal",
+          "group": "Effect",
+          "notSettableAsParameter": true
+        },
+        "scale": {
+          "displayName": "Size",
+          "type": "number",
+          "group": "Look"
+        },
+        "amount": {
+          "displayName": "Amount",
+          "tooltip": "More or fewer particles. 1 = as designed.",
+          "type": "number",
+          "group": "Look"
+        },
+        "timeScale": {
+          "displayName": "Speed",
+          "type": "number",
+          "group": "Look"
+        },
+        "colour": {
+          "displayName": "Colour",
+          "tooltip": "Tints the whole effect. Leave empty for its own colours.",
+          "type": "color",
+          "group": "Look"
+        },
+        "glow": {
+          "displayName": "Glow",
+          "tooltip": "On: particles add light (bright on dark). Off: plain colour.",
+          "type": "enum",
+          "group": "Look",
+          "enums": [
+            "auto",
+            "on",
+            "off"
+          ]
+        },
+        "opacity": {
+          "displayName": "Opacity",
+          "type": "number",
+          "group": "Look"
+        },
+        "x": {
+          "displayName": "X",
+          "type": "number",
+          "group": "Position"
+        },
+        "y": {
+          "displayName": "Y",
+          "type": "number",
+          "group": "Position"
+        },
         "mode": {
-          "displayName": "Load Mode",
+          "displayName": "Source",
           "type": "enum",
           "enums": [
             "url",
@@ -14716,116 +15277,97 @@
         "reload": {
           "displayName": "Reload Bundle",
           "type": "signal",
-          "group": "Bundle",
+          "group": "Advanced",
           "notSettableAsParameter": true
         },
         "bundleUrl": {
           "displayName": "Bundle JSON URL",
+          "tooltip": "Leave both URLs empty for the built-in effects.",
           "type": "string",
-          "group": "Bundle | URL"
+          "group": "Bundle URL"
         },
         "spritesheetUrl": {
-          "displayName": "Spritesheet JSON URL",
+          "displayName": "Sheet JSON URL",
           "type": "string",
-          "group": "Bundle | URL"
+          "group": "Bundle URL"
         },
         "additionalAssetUrls": {
-          "displayName": "Additional Asset URLs",
+          "displayName": "Extra Asset URLs",
           "type": "array",
-          "group": "Bundle | URL"
+          "group": "Bundle URL"
         },
         "localBundleJson": {
-          "displayName": "Bundle JSON (text)",
+          "displayName": "Bundle JSON",
           "type": "string",
-          "group": "Bundle | Local"
+          "group": "Pasted Bundle"
         },
         "localSpritesheetJson": {
-          "displayName": "Spritesheet JSON (text)",
+          "displayName": "Sheet JSON",
           "type": "string",
-          "group": "Bundle | Local"
+          "group": "Pasted Bundle"
         },
         "localSpritesheetImageUrl": {
-          "displayName": "Spritesheet Image",
+          "displayName": "Sheet Image",
           "type": "image",
-          "group": "Bundle | Local"
+          "group": "Pasted Bundle"
         },
         "localAdditionalAssetUrls": {
-          "displayName": "Additional Asset URLs",
+          "displayName": "Extra Asset URLs",
           "type": "array",
-          "group": "Bundle | Local"
-        },
-        "effectName": {
-          "displayName": "Effect Name",
-          "type": "string",
-          "group": "Spawn"
-        },
-        "debugSpawnMarker": {
-          "displayName": "Debug Spawn Marker",
-          "type": "boolean",
-          "group": "Debug"
-        },
-        "effectIndex": {
-          "displayName": "Effect Index",
-          "type": "number",
-          "group": "Spawn"
+          "group": "Pasted Bundle"
         },
         "emitterName": {
           "displayName": "Emitter Name",
           "type": "string",
-          "group": "Spawn"
+          "group": "By Name"
+        },
+        "effectName": {
+          "displayName": "Sequence Name",
+          "type": "string",
+          "group": "By Name"
         },
         "emitterIndex": {
           "displayName": "Emitter Index",
           "type": "number",
-          "group": "Spawn"
+          "group": "By Name"
         },
-        "x": {
-          "displayName": "X",
+        "effectIndex": {
+          "displayName": "Sequence Index",
           "type": "number",
-          "group": "Spawn"
+          "group": "By Name"
         },
-        "y": {
-          "displayName": "Y",
-          "type": "number",
-          "group": "Spawn"
+        "autoSpawnEmitter": {
+          "displayName": "Auto Play Emitter",
+          "type": "boolean",
+          "group": "By Name"
         },
-        "scale": {
-          "displayName": "Scale",
-          "type": "number",
-          "group": "Spawn"
+        "autoSpawnEffect": {
+          "displayName": "Auto Play Sequence",
+          "type": "boolean",
+          "group": "By Name"
+        },
+        "debugSpawnMarker": {
+          "displayName": "Spawn Marker",
+          "type": "boolean",
+          "group": "Debug"
         },
         "spawnEffect": {
-          "displayName": "Spawn Effect",
+          "displayName": "Spawn Sequence",
           "type": "signal",
-          "group": "Spawn",
+          "group": "Advanced",
           "notSettableAsParameter": true
         },
         "spawnEmitter": {
           "displayName": "Spawn Emitter",
           "type": "signal",
-          "group": "Spawn",
+          "group": "Advanced",
           "notSettableAsParameter": true
-        },
-        "autoSpawnEmitter": {
-          "displayName": "Auto Spawn Emitter On Load",
-          "type": "boolean",
-          "group": "Spawn"
-        },
-        "autoSpawnEffect": {
-          "displayName": "Auto Spawn Effect On Load",
-          "type": "boolean",
-          "group": "Spawn"
         },
         "destroyAllEffects": {
           "displayName": "Destroy All",
           "type": "signal",
-          "group": "Control",
+          "group": "Advanced",
           "notSettableAsParameter": true
-        },
-        "timeScale": {
-          "displayName": "Time Scale",
-          "type": "number",
-          "group": "Control"
         },
         "functionScript": {
           "displayName": "Script",
@@ -14853,6 +15395,30 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -14860,6 +15426,16 @@
           "displayName": "Node Reference",
           "type": "node",
           "group": "General"
+        },
+        "finished": {
+          "displayName": "Finished",
+          "type": "signal",
+          "group": "State"
+        },
+        "playing": {
+          "displayName": "Playing",
+          "type": "boolean",
+          "group": "State"
         },
         "fxReady": {
           "displayName": "FX Ready",
@@ -14937,6 +15513,17 @@
       },
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
@@ -14958,10 +15545,20 @@
           "_resolveSequenceIdFromNameOrId": [],
           "_drawSpawnMarker": [],
           "_maybeAutoSpawn": [],
+          "_applyLook": [],
           "_guardReady": [],
+          "_setError": [],
+          "_spawn": [],
+          "_onEffectDone": [],
+          "_clearOrphans": [],
+          "_stopEntry": [],
+          "_play": [],
+          "_restartMain": [],
+          "_moveMain": [],
           "_spawnEffectNow": [],
           "_spawnEmitterNow": [],
-          "_destroyAll": []
+          "_destroyAll": [],
+          "_forgetAll": []
         }
       }
     },
@@ -15226,6 +15823,30 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -15316,6 +15937,17 @@
       "shortDesc": "Professional Spine skeleton animation for 2D skeletal animations.",
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
@@ -15751,6 +16383,30 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -15850,6 +16506,17 @@
       },
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
@@ -15951,32 +16618,49 @@
       "relativePath": "private/xgenia-pro-nodes/src/pixi/nodes/PixiStage.js",
       "category": "Pixi",
       "docs": "https://docsapp.xgenia.com/nodes/pixi-nodes/pixi-stage/",
-      "lineCount": 881,
-      "byteSize": 43196,
+      "lineCount": 917,
+      "byteSize": 45829,
       "inputFormatHints": {
         "width": {
           "displayName": "Design Width",
-          "tooltip": "The width you author your Pixi content at. Only used when Scale Content is on.",
+          "tooltip": "The width you author your Pixi content at. Only used when Scale Mode is on.",
           "type": "number",
-          "group": "Scaling"
+          "group": "UI Scaling",
+          "gatedBy": [
+            "fitMode"
+          ],
+          "gateCondition": "fitMode != none"
         },
         "height": {
           "displayName": "Design Height",
-          "tooltip": "The height you author your Pixi content at. Only used when Scale Content is on.",
+          "tooltip": "The height you author your Pixi content at. Only used when Scale Mode is on.",
           "type": "number",
-          "group": "Scaling"
+          "group": "UI Scaling",
+          "gatedBy": [
+            "fitMode"
+          ],
+          "gateCondition": "fitMode != none"
         },
         "fitMode": {
-          "displayName": "Scale Content",
-          "tooltip": "Scales your Pixi content to whatever size the Stage ends up. Leave Off for 1:1 pixels.",
+          "displayName": "Scale Mode",
+          "tooltip": "How the Design Width × Height box maps onto the Stage. Off = 1:1 pixels. Leave Off when a parent Group already scales the whole screen.",
           "type": "enum",
           "enums": [
             "none",
             "fit",
             "fill",
+            "expand",
+            "matchWidth",
+            "matchHeight",
             "stretch"
           ],
-          "group": "Scaling"
+          "aliases": {
+            "letterbox": "fit",
+            "contain": "fit",
+            "shrink": "fill",
+            "cover": "fill"
+          },
+          "group": "UI Scaling"
         },
         "backgroundColor": {
           "displayName": "Bg Color",
@@ -17310,6 +17994,38 @@
             }
           ],
           "source": "NodeSharedPortDefinitions.addShadowInputs"
+        },
+        "width": {
+          "direction": "input",
+          "condition": "fitMode != none",
+          "gatedBy": [
+            "fitMode"
+          ],
+          "combinator": "SINGLE",
+          "requires": [
+            {
+              "port": "fitMode",
+              "op": "!=",
+              "value": "none"
+            }
+          ],
+          "source": "registry.dynamicports"
+        },
+        "height": {
+          "direction": "input",
+          "condition": "fitMode != none",
+          "gatedBy": [
+            "fitMode"
+          ],
+          "combinator": "SINGLE",
+          "requires": [
+            {
+              "port": "fitMode",
+              "op": "!=",
+              "value": "none"
+            }
+          ],
+          "source": "registry.dynamicports"
         }
       },
       "portsSource": "registry",
@@ -17604,6 +18320,30 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -17684,6 +18424,17 @@
       "shortDesc": "Displays text using system fonts or loaded web fonts.",
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
@@ -17877,6 +18628,30 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -17957,6 +18732,17 @@
       "shortDesc": "Displays a texture that repeats across the sprite's dimensions.",
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
@@ -18198,6 +18984,30 @@
           "displayName": "Mounted",
           "type": "boolean",
           "group": "General"
+        },
+        "anchorName": {
+          "displayName": "Anchor Name",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachTo": {
+          "displayName": "Attach To",
+          "type": "string",
+          "group": "Attach"
+        },
+        "attachRotate": {
+          "displayName": "Attach Rotate",
+          "type": "boolean",
+          "group": "Attach"
+        },
+        "attachSpace": {
+          "displayName": "Attach Space",
+          "type": "enum",
+          "enums": [
+            "follow",
+            "once"
+          ],
+          "group": "Attach"
         }
       },
       "outputFormatHints": {
@@ -18274,6 +19084,17 @@
       "description": "The visual half of a wheel bonus: a segmented disc that spins to a segment the maths already chose. It decides NOTHING — wire Wheel Spin's `segmentIndex` (or any 0-based index) into `targetIndex`, then fire `spinTo`; the wheel turns clockwise for at least `extraTurns` whole turns over `durationMs` with the chosen `easing`, then snaps so the centre of segment `targetIndex` sits exactly under the pointer at 12 o'clock. Angle convention (shared with Wheel Spin): segment i spans [i, i + 1) * 360 / N degrees clockwise from 12 o'clock, its centre is at (i + 0.5) * 360 / N, and the pointer is fixed at 12 o'clock. `segments` is an array of strings or of {label, colour} objects (or a number N for N segments labelled 1..N); a segment without a colour takes the next entry of `colours`, cycled, or a built-in palette when `colours` is empty. Drawn with PIXI.Graphics and PIXI.Text, no GSAP; the spin runs on the pixi ticker and survives a hidden tab (PIXI clamps the frame delta, so a background spin simply takes longer). `spinTo` while already spinning restarts from the current angle toward the new target, and the abandoned spin fires no onSpinComplete. A `targetIndex` outside 0..N-1 is wrapped and warned about in the console — it means the maths and this wheel disagree on N; fix the segment list, not the index. Outputs: `container` (the root PIXI.Container, at x / y inside this node's pixi parent), `currentIndex` (the segment under the pointer once stopped; 0 at rest before any spin), `isSpinning`, `rotationDeg` (the disc's rotation, 0..360 clockwise, updated every frame — drive a tick sound or a light chase from it), `onSpinStart` and `onSpinComplete`. Fire the payout / next-step logic from `onSpinComplete`, never from Wheel Spin's own Done, or the win shows before the wheel has stopped.",
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "getReactComponent": [],
@@ -18302,8 +19123,8 @@
       "relativePath": "private/xgenia-pro-nodes/src/slot-games/PixiReelController.js",
       "category": "Slot Games",
       "docs": "https://docsapp.xgenia.com/nodes/slot-games/pixi-reel-controller",
-      "lineCount": 3714,
-      "byteSize": 209795,
+      "lineCount": 3866,
+      "byteSize": 217206,
       "inputFormatHints": {
         "reelStrips": {
           "displayName": "Reel Strips",
@@ -18813,7 +19634,7 @@
         },
         "fitMode": {
           "displayName": "Fit Mode",
-          "tooltip": "Auto Layout: scale the grid to its stage. none = as sized; fit = fit inside; fill = fill it. For a responsive game prefer the Stage's own Fit Mode and leave this none.",
+          "tooltip": "Auto Layout: scale the grid to its stage. none = as sized; fit = fit inside; fill = fill it. For a responsive game prefer the Stage's own Scale Mode and leave this none.",
           "type": "enum",
           "enums": [
             "none",
@@ -19259,6 +20080,17 @@
       },
       "portsSource": "registry",
       "portsComplete": true,
+      "instancePorts": {
+        "sources": [
+          "registerInputIfNeeded"
+        ],
+        "inputs": [
+          "label",
+          "nodeLabel"
+        ],
+        "outputs": [],
+        "opaque": false
+      },
       "closureRisk": {
         "byFunction": {
           "initialize": [
@@ -19270,6 +20102,29 @@
             "CELEBRATION_ARM_TIMEOUT_MS"
           ],
           "getter": [],
+          "resolveAnchor": [
+            "anchorAddress",
+            "anchorRegistry",
+            "ANCHOR_NO_PATH",
+            "_anchorOnePath",
+            "anchorIndex",
+            "anchorSegmentCell"
+          ],
+          "resolveCellAnchor": [
+            "anchorAddress",
+            "anchorRegistry",
+            "_anchorCellOpts"
+          ],
+          "_anchorReelRow": [],
+          "_anchorAreaPoint": [
+            "anchorAddress",
+            "_anchorArea",
+            "_anchorColRect"
+          ],
+          "_syncAnchorName": [
+            "anchorRegistry"
+          ],
+          "registerInputIfNeeded": [],
           "_getConnectedColumns": [],
           "_releaseAutoLayoutClaim": [],
           "_maybeAutoLayout": [],
@@ -19355,6 +20210,7 @@
         },
         "literals": {
           "MAX_COLUMNS": "12",
+          "ANCHOR_SEG_CACHE_MAX": "256",
           "STOP_ARM_TIMEOUT_MS": "250",
           "CELEBRATION_ARM_TIMEOUT_MS": "2000",
           "STOP_LATCH_MAX_MS": "1000",
@@ -45261,8 +46117,8 @@
       "relativePath": "std-library/data/foreach.jsx",
       "category": "Visual",
       "docs": "https://docsapp.xgenia.com/nodes/ui-controls/repeater",
-      "lineCount": 983,
-      "byteSize": 36883,
+      "lineCount": 992,
+      "byteSize": 37479,
       "inputFormatHints": {
         "items": {
           "displayName": "Items",
@@ -45501,8 +46357,8 @@
       "relativePath": "std-library/data/forloop.jsx",
       "category": "Visual",
       "docs": "https://docsapp.xgenia.com/nodes/ui-controls/repeater",
-      "lineCount": 1012,
-      "byteSize": 34272,
+      "lineCount": 1021,
+      "byteSize": 34868,
       "inputFormatHints": {
         "items": {
           "displayName": "Items",
@@ -51674,33 +52530,49 @@
       "relativePath": "visual/group.js",
       "category": "Visual",
       "docs": "https://docsapp.xgenia.com/nodes/basic-elements/group",
-      "lineCount": 631,
-      "byteSize": 19006,
+      "lineCount": 637,
+      "byteSize": 19748,
       "inputFormatHints": {
         "uiScaleMode": {
           "displayName": "Scale Mode",
+          "tooltip": "How this group maps its Design Width × Height onto the box it gets. Off = 1:1 pixels. Set it on ONE outer group per screen and place everything inside in design pixels.",
           "type": "enum",
           "enums": [
             "none",
+            "fit",
+            "fill",
             "expand",
-            "shrink",
-            "letterbox",
             "matchWidth",
-            "matchHeight"
+            "matchHeight",
+            "stretch"
           ],
+          "aliases": {
+            "letterbox": "fit",
+            "contain": "fit",
+            "shrink": "fill",
+            "cover": "fill"
+          },
           "group": "UI Scaling"
         },
         "designWidth": {
           "displayName": "Design Width",
           "tooltip": "The width you design at, in pixels. Children are positioned in these units and the whole group is scaled to fit. Only used when Scale Mode is on.",
           "type": "number",
-          "group": "UI Scaling"
+          "group": "UI Scaling",
+          "gatedBy": [
+            "uiScaleMode"
+          ],
+          "gateCondition": "uiScaleMode != none"
         },
         "designHeight": {
           "displayName": "Design Height",
           "tooltip": "The height you design at, in pixels. Only used when Scale Mode is on.",
           "type": "number",
-          "group": "UI Scaling"
+          "group": "UI Scaling",
+          "gatedBy": [
+            "uiScaleMode"
+          ],
+          "gateCondition": "uiScaleMode != none"
         },
         "flexDirection": {
           "displayName": "Layout",
@@ -52744,6 +53616,14 @@
       },
       "dynamicPorts": [
         {
+          "condition": "uiScaleMode != none",
+          "source": "definition.dynamicports",
+          "inputs": [
+            "designWidth",
+            "designHeight"
+          ]
+        },
+        {
           "condition": "flexDirection != none",
           "source": "definition.dynamicports",
           "inputs": [
@@ -52882,6 +53762,38 @@
         }
       ],
       "portGates": {
+        "designWidth": {
+          "direction": "input",
+          "condition": "uiScaleMode != none",
+          "gatedBy": [
+            "uiScaleMode"
+          ],
+          "combinator": "SINGLE",
+          "requires": [
+            {
+              "port": "uiScaleMode",
+              "op": "!=",
+              "value": "none"
+            }
+          ],
+          "source": "definition.dynamicports"
+        },
+        "designHeight": {
+          "direction": "input",
+          "condition": "uiScaleMode != none",
+          "gatedBy": [
+            "uiScaleMode"
+          ],
+          "combinator": "SINGLE",
+          "requires": [
+            {
+              "port": "uiScaleMode",
+              "op": "!=",
+              "value": "none"
+            }
+          ],
+          "source": "definition.dynamicports"
+        },
         "scrollEnabled": {
           "direction": "input",
           "condition": "flexDirection != none",
@@ -63709,6 +64621,10 @@
         "direction": "input"
       },
       {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      },
+      {
         "node": "Win Rollup",
         "direction": "input"
       },
@@ -66927,6 +67843,10 @@
         "direction": "input"
       },
       {
+        "node": "pixi.RevoltFX",
+        "direction": "output"
+      },
+      {
         "node": "pixi.Spine",
         "direction": "input"
       },
@@ -66946,6 +67866,10 @@
       },
       {
         "node": "pixi.Puppet",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.RevoltFX",
         "direction": "input"
       },
       {
@@ -66996,6 +67920,10 @@
       },
       {
         "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.RevoltFX",
         "direction": "input"
       },
       {
@@ -67904,6 +68832,314 @@
       },
       {
         "node": "Video",
+        "direction": "input"
+      }
+    ],
+    "anchorName": [
+      {
+        "node": "pixi.AnimatedSprite",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.BitmapText",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.CellOverlay",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Container",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Graphics",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.HTMLText",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.MeshRope",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.NineSlicePlane",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ParticleContainer",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ParticleEmitter",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ReelCell",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Spine",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Text",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.TilingSprite",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Wheel",
+        "direction": "input"
+      }
+    ],
+    "attachTo": [
+      {
+        "node": "pixi.AnimatedSprite",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.BitmapText",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.CellOverlay",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Container",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Graphics",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.HTMLText",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.MeshRope",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.NineSlicePlane",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ParticleContainer",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ParticleEmitter",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ReelCell",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Spine",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Text",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.TilingSprite",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Wheel",
+        "direction": "input"
+      }
+    ],
+    "attachRotate": [
+      {
+        "node": "pixi.AnimatedSprite",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.BitmapText",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.CellOverlay",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Container",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Graphics",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.HTMLText",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.MeshRope",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.NineSlicePlane",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ParticleContainer",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ParticleEmitter",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ReelCell",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Spine",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Text",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.TilingSprite",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Wheel",
+        "direction": "input"
+      }
+    ],
+    "attachSpace": [
+      {
+        "node": "pixi.AnimatedSprite",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.BitmapText",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.CellOverlay",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Container",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Graphics",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.HTMLText",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.MeshRope",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.NineSlicePlane",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ParticleContainer",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ParticleEmitter",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Puppet",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ReelCell",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.ReelColumn",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Spine",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Sprite",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Text",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.TilingSprite",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Wheel",
         "direction": "input"
       }
     ],
@@ -71619,6 +72855,10 @@
       {
         "node": "pixi.CellOverlay",
         "direction": "input"
+      },
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
       }
     ],
     "thickness": [
@@ -74566,6 +75806,10 @@
     "opacity": [
       {
         "node": "pixi.Container",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.RevoltFX",
         "direction": "input"
       },
       {
@@ -78613,6 +79857,74 @@
         "direction": "input"
       }
     ],
+    "preset": [
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      },
+      {
+        "node": "three.Environment",
+        "direction": "input"
+      }
+    ],
+    "playMode": [
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      }
+    ],
+    "design": [
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      }
+    ],
+    "scale": [
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Spine",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.UIScaler",
+        "direction": "output"
+      },
+      {
+        "node": "Paytable Modifier",
+        "direction": "input"
+      },
+      {
+        "node": "Paytable Modifier",
+        "direction": "output"
+      },
+      {
+        "node": "Drag",
+        "direction": "input"
+      }
+    ],
+    "timeScale": [
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      },
+      {
+        "node": "pixi.Spine",
+        "direction": "input"
+      },
+      {
+        "node": "net.xgenia.gsapAnimator",
+        "direction": "input"
+      }
+    ],
+    "glow": [
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      }
+    ],
     "autoLoad": [
       {
         "node": "pixi.RevoltFX",
@@ -78667,25 +79979,13 @@
         "direction": "input"
       }
     ],
-    "effectName": [
-      {
-        "node": "pixi.RevoltFX",
-        "direction": "input"
-      }
-    ],
-    "debugSpawnMarker": [
-      {
-        "node": "pixi.RevoltFX",
-        "direction": "input"
-      }
-    ],
-    "effectIndex": [
-      {
-        "node": "pixi.RevoltFX",
-        "direction": "input"
-      }
-    ],
     "emitterName": [
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      }
+    ],
+    "effectName": [
       {
         "node": "pixi.RevoltFX",
         "direction": "input"
@@ -78697,39 +79997,7 @@
         "direction": "input"
       }
     ],
-    "scale": [
-      {
-        "node": "pixi.RevoltFX",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.Spine",
-        "direction": "input"
-      },
-      {
-        "node": "pixi.UIScaler",
-        "direction": "output"
-      },
-      {
-        "node": "Paytable Modifier",
-        "direction": "input"
-      },
-      {
-        "node": "Paytable Modifier",
-        "direction": "output"
-      },
-      {
-        "node": "Drag",
-        "direction": "input"
-      }
-    ],
-    "spawnEffect": [
-      {
-        "node": "pixi.RevoltFX",
-        "direction": "input"
-      }
-    ],
-    "spawnEmitter": [
+    "effectIndex": [
       {
         "node": "pixi.RevoltFX",
         "direction": "input"
@@ -78747,24 +80015,46 @@
         "direction": "input"
       }
     ],
+    "debugSpawnMarker": [
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      }
+    ],
+    "spawnEffect": [
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      }
+    ],
+    "spawnEmitter": [
+      {
+        "node": "pixi.RevoltFX",
+        "direction": "input"
+      }
+    ],
     "destroyAllEffects": [
       {
         "node": "pixi.RevoltFX",
         "direction": "input"
       }
     ],
-    "timeScale": [
+    "finished": [
       {
         "node": "pixi.RevoltFX",
-        "direction": "input"
+        "direction": "output"
       },
       {
-        "node": "pixi.Spine",
-        "direction": "input"
+        "node": "Volume Ramp",
+        "direction": "output"
       },
       {
-        "node": "net.xgenia.gsapAnimator",
-        "direction": "input"
+        "node": "Win Rollup",
+        "direction": "output"
+      },
+      {
+        "node": "net.xgenia.timeline",
+        "direction": "output"
       }
     ],
     "fxReady": [
@@ -83541,20 +84831,6 @@
         "direction": "input"
       }
     ],
-    "finished": [
-      {
-        "node": "Volume Ramp",
-        "direction": "output"
-      },
-      {
-        "node": "Win Rollup",
-        "direction": "output"
-      },
-      {
-        "node": "net.xgenia.timeline",
-        "direction": "output"
-      }
-    ],
     "segmentIndex": [
       {
         "node": "Wheel Spin",
@@ -84778,12 +86054,6 @@
       },
       {
         "node": "three.Stage",
-        "direction": "input"
-      }
-    ],
-    "preset": [
-      {
-        "node": "three.Environment",
         "direction": "input"
       }
     ],
