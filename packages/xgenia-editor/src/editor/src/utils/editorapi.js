@@ -5,6 +5,7 @@ const { EventDispatcher } = require('../../../shared/utils/EventDispatcher');
 const { CloudService } = require('@xgenia-models/CloudServices');
 const KeyboardHandler = require('@xgenia-utils/keyboardhandler');
 const { resolveGesture, getCapabilities } = require('./TransformCommandResolver');
+const { scaleChildWrites, followsParent } = require('./scaleChildWrites');
 const { parentLayoutOf } = require('../../../../../../private/xgenia-ai/src/ChatPanel/StreamlinedToolRegistry/utils/layout-intent-resolver');
 const { GestureUndoGroups } = require('./gestureUndoGroups');
 const { recordingParamsFor, recordWrites } = require('./timelineRecord');
@@ -159,10 +160,48 @@ class EditorAPI {
         node.setParameter(w.param, w.value, { undo: group, label });
       }
       applied++;
+      // A resize takes the node's contents with it (same undo entry). Alt-resize sends no
+      // ratio and changes the box alone; pixi containers scale their children by themselves.
+      const k = target.gesture === 'resize' && (target.kind || 'dom') === 'dom' && target.scaleChildren;
+      if (k && (k.sx !== 1 || k.sy !== 1)) {
+        const scaleInside = (parent) => {
+          for (const child of parent.children || []) {
+            for (const w of scaleChildWrites(child.parameters || {}, k.sx, k.sy)) {
+              child.setParameter(w.param, w.value, { undo: group, label });
+            }
+            scaleInside(child);
+          }
+        };
+        scaleInside(node);
+      }
     }
 
     const groupId = gestureGroups.end(group, reused, evt);
     cb({ applied, blocked, groupId });
+  }
+
+  /**
+   * How a node's direct children take part in a resize, for the live preview: which axes the
+   * preview may scale (a % size already follows the parent) and the anchor each child holds to.
+   */
+  viewportScalePlan(evt, cb) {
+    const node = ProjectModel.instance && evt && evt.nodeId && ProjectModel.instance.findNodeWithId(evt.nodeId);
+    if (!node) {
+      cb({ error: 'not-found' });
+      return;
+    }
+    cb({
+      children: (node.children || []).map((child) => {
+        const p = child.parameters || {};
+        return {
+          nodeId: child.id,
+          x: !followsParent(p.width),
+          y: !followsParent(p.height),
+          alignX: p.alignX || 'left',
+          alignY: p.alignY || 'top'
+        };
+      })
+    });
   }
 
   viewportNodeInfo(evt, cb) {
