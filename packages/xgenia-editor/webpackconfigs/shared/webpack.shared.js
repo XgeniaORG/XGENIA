@@ -27,6 +27,13 @@ const projectExtensionsPath = optionalAlias(
 );
 console.log('[Webpack] @xgenia/project-extensions:', projectExtensionsPath);
 
+// The FX Studio (RevoltFX particle editor) is private; open-source builds get a stub that opens nothing.
+const fxStudioPath = optionalAlias(
+  path.join(rootDir, 'private/xgenia-fx-studio/src'),
+  path.join(editorDir, 'src/stubs/fx-studio/index.js')
+);
+console.log('[Webpack] @xgenia/fx-studio:', fxStudioPath);
+
 const alias = {
   '@xgenia-ai': hasXgeniaAi ? xgeniaAiSrcPath : path.join(editorDir, 'src/stubs/xgenia-ai'),
   '@scss-placeholders': path.join(editorDir, 'src/editor/src/styles/placeholders'),
@@ -48,7 +55,8 @@ const alias = {
   '@xgenia-editor': path.join(editorDir, 'src/editor/src'),
   '@xgenia/image-editor': path.join(rootDir, 'private/xgenia-image-editor/src'),
   '@xgenia/coach': path.join(rootDir, 'private/xgenia-coach/src'),
-  '@xgenia/project-extensions': projectExtensionsPath
+  '@xgenia/project-extensions': projectExtensionsPath,
+  '@xgenia/fx-studio': fxStudioPath
 };
 
 console.log('> alias:');

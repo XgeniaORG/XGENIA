@@ -23,6 +23,7 @@ import { IdentifierType } from './IdentifierType';
 import { ImageType } from './ImageType';
 import { AudioType } from './AudioType';
 import { SpineType } from './SpineType';
+import { FxDesignType } from './FxDesignType';
 import { MarginPaddingType } from './MarginPaddingType';
 import { NumberWithUnits } from './NumberWithUnits';
 import { PopoutGroup } from './PopoutGroup';
@@ -353,6 +354,11 @@ export class Ports extends View {
     }
 
     // Spine ref type
+    // pixi.RevoltFX's design port: opens the FX Studio
+    function isOfFxDesignType() {
+      return NodeLibrary.nameForPortType(type) === 'fx-design';
+    }
+
     function isOfSpineType() {
       return NodeLibrary.nameForPortType(type) === 'spine';
     }
@@ -463,6 +469,7 @@ export class Ports extends View {
     else if (isOfImageType()) return ImageType;
     else if (isOfAudioType()) return AudioType;
     else if (isOfSpineType()) return SpineType;
+    else if (isOfFxDesignType()) return FxDesignType;
     else if (isOfIconType()) return IconType;
     else if (isOfFontType()) return FontType;
     else if (isOfTextStyleType()) return TextStyleType;
