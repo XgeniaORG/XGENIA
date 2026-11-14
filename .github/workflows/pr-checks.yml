@@ -58,6 +58,12 @@ jobs:
 
       - run: npm install
 
+      # tests/deploy/stakeShell.browser.test.ts (#305) drives the Stake shell in a real browser. The
+      # playwright package comes with npm install, but its browser does not, so the test failed on
+      # every PR with "Executable doesn't exist". Install the browser of the locked playwright version.
+      - name: Playwright Chromium for the browser tests
+        run: npx playwright install --with-deps chromium
+
       - name: Engine tests
         run: |
           npm test -w @xgenia/runtime -- --ci
