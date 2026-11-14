@@ -31,3 +31,30 @@ test('a Bet Mode the game cannot reach (mode not wired from the inputs) declares
   assert.deepEqual(declaredStakeModes(maths({}, false)), []);
   assert.deepEqual(declaredStakeModes({ components: [{ name: '/App', graph: { roots: [{ id: 'bm', type: 'Bet Mode' }] } }] }), []);
 });
+
+// Publish sends each Math Component's own options and Bet Mode input; the RGS sets the mode on every round.
+import { publishBetOptions, componentModeInput } from '../../src/editor/src/utils/stake/stakeModes';
+
+test('publish: a wired Bet Mode sends its buy and ante as priced options, and the input the server writes the mode into', () => {
+  const comp = maths({ bonusBuyMultiplier: 80 }).components[0];
+  const out = publishBetOptions(comp, { stakeAmount: 100, mode: 'base' });
+  assert.deepEqual(out.betOptions, {
+    feature_buys: [{ id: 'bonus_buy', label: 'Bonus buy', cost_multiplier: 80 }],
+    special_bets: [{ id: 'ante', label: 'Ante bet', cost_multiplier: 1.25 }]
+  });
+  assert.equal(out.modeInputPort, 'mode');
+  assert.equal(out.modeBaseValue, 'base');
+  assert.equal(componentModeInput(comp), 'mode');
+});
+
+test('publish: a component with no wired Bet Mode sells nothing (null clears stored options) and names no mode input', () => {
+  const out = publishBetOptions(maths({}, false).components[0], { stakeAmount: 100 });
+  assert.equal(out.betOptions, null);
+  assert.equal(out.modeInputPort, null);
+});
+
+test('publish: a mode input missing from the request is not sent (the RGS refuses real money for it instead)', () => {
+  const out = publishBetOptions(maths({}).components[0], { stakeAmount: 100 });
+  assert.ok(out.betOptions);
+  assert.equal(out.modeInputPort, null);
+});

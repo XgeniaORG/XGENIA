@@ -89,6 +89,10 @@ export async function deployEdgeFunction(
       // keeps the bet/win ports the original publish stored.
       ...(artifact.betInputPort !== undefined ? { bet_input_port: artifact.betInputPort } : {}),
       ...(artifact.winOutputPort !== undefined ? { win_output_port: artifact.winOutputPort } : {}),
+      // The component's priced options (feature buys, special bets) and the input its Bet Mode reads. The RGS
+      // writes the bet mode into that input itself on every round, so the page never chooses it.
+      ...(artifact.betOptions !== undefined ? { bet_options: artifact.betOptions } : {}),
+      ...(artifact.modeInputPort ? { mode_input_port: artifact.modeInputPort, mode_base_value: artifact.modeBaseValue ?? 'base' } : {}),
       functions_base: rgsFunctionsUrl(),
       // Public anon key, embedded in the function URL so the deployed frontend
       // (Aggregator node) can call it through the gateway without extra headers.
