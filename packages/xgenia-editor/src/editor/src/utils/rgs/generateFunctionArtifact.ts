@@ -39,6 +39,14 @@ export interface FunctionArtifact {
   betInputPort?: string;
   winOutputPort?: string;
   /**
+   * The component's priced ways to bet and the input its Bet Mode reads (stakeModes.ts publishBetOptions),
+   * filled in by the deploy caller. `betOptions: null` tells the RGS the component sells nothing; undefined
+   * leaves what the RGS already has.
+   */
+  betOptions?: { feature_buys: Array<{ id: string; label: string; cost_multiplier: number }>; special_bets: Array<{ id: string; label: string; cost_multiplier: number }> } | null;
+  modeInputPort?: string | null;
+  modeBaseValue?: string;
+  /**
    * Nodes in the component that no code generator can compile — see
    * CloudFunctionConverter.getUnsupportedNodes(). Empty for a component built
    * out of convertible nodes. A node with a non-empty `feeds` list is fatal:

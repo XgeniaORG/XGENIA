@@ -28,6 +28,7 @@
 // which is exactly what an Aggregator node speaks — see mathsEndpointsForGame /
 // swapDeployedMathsInstances, used by Publish.
 
+import { publishBetOptions } from '../stake/stakeModes';
 import { ComponentModel } from '@xgenia-models/componentmodel';
 import { NodeGraphModel, NodeGraphNode } from '@xgenia-models/nodegraphmodel';
 import { guid } from '@xgenia-utils/utils';
@@ -523,6 +524,14 @@ export async function deployMathsComponents(
         `Rename its win output to one of those names and publish again — until then the script sees a stake of 0 and no rounds are recorded.`
       : undefined;
 
+    // What this component sells (feature buys, special bets) and which input its Bet Mode reads. Sent on every
+    // publish: a new version starts with no options, and null clears them.
+    const betMode = publishBetOptions(component?.toJSON?.() ?? component, artifact.payloadExample);
+    const betModeFields = {
+      betOptions: betMode.betOptions,
+      ...(betMode.modeInputPort ? { modeInputPort: betMode.modeInputPort, modeBaseValue: betMode.modeBaseValue } : {})
+    };
+
     onProgress?.(`Deploying ${label} ${position}…`);
     // A published page sends this component's bet in cents (moneyScale.ts): the script converts, and its
     // response example says so — which is how Publish knows the page may send cents to it.
@@ -536,7 +545,8 @@ export async function deployMathsComponents(
         : {}),
       slug,
       functionName: label,
-      ...(mapBoth ? { betInputPort: betInputPort!, winOutputPort: winOutputPort! } : {})
+      ...(mapBoth ? { betInputPort: betInputPort!, winOutputPort: winOutputPort! } : {}),
+      ...betModeFields
     });
 
     // 3. Upload the authored project.json for this component, separately.
