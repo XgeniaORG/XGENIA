@@ -22,6 +22,7 @@ export const CANVAS_SHORTCUTS: CanvasShortcut[] = [
   { group: GROUP, action: 'Box select', mac: '⌘-drag', other: 'Ctrl-drag' },
   { group: GROUP, action: 'Move · drag a layout child to reorder it', mac: 'Drag', other: 'Drag' },
   { group: GROUP, action: 'While dragging: lock to one axis · keep aspect · snap 15°', mac: '⇧', other: 'Shift' },
+  { group: GROUP, action: 'While resizing: change the box only (contents keep their size)', mac: '⌥', other: 'Alt' },
   { group: GROUP, action: 'While dragging: place freely (no smart guides)', mac: '⌘', other: 'Ctrl' },
   { group: GROUP, action: 'Nudge 1 px · with ⇧ 10 px', mac: '← ↑ → ↓', other: '← ↑ → ↓' },
   { group: GROUP, action: 'Duplicate', accelerator: 'CmdOrCtrl+D' },

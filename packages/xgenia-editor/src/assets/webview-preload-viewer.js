@@ -1570,16 +1570,151 @@ function _applySceneVisibilityStyle() {
   style.textContent = sel + ' { opacity: 0 !important; pointer-events: none !important; }';
 }
 
-/** The topmost pickable node at a window point: hits on locked nodes fall through. */
-function _pickNodeAt(clientX, clientY) {
+function _isClearColor(c) {
+  return !c || c === 'transparent' || /^rgba\([^)]*,\s*0(\.0+)?\s*\)$/.test(c) || /\/\s*0(\.0+)?%?\s*\)$/.test(c);
+}
+
+// A picture paints only where its pixels are not transparent: a reel frame's open middle, or
+// the empty margin around a cut-out button, lets the click through to what shows there.
+// Alpha is read once per picture from a downscaled copy; an unreadable one (cross-origin,
+// still loading) counts as solid everywhere, as before.
+const _alphaMaps = new Map(); // src → { w, h, data } | null
+const _ALPHA_MAX_SIDE = 512;
+const _ALPHA_CLEAR = 16; // of 255: anything fainter is a click-through pixel
+
+function _alphaMapOf(img) {
+  const src = img.currentSrc || img.src;
+  if (!src || !img.complete || !img.naturalWidth || !img.naturalHeight) return null;
+  if (_alphaMaps.has(src)) return _alphaMaps.get(src);
+  let entry = null;
+  try {
+    const k = Math.min(1, _ALPHA_MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * k));
+    const h = Math.max(1, Math.round(img.naturalHeight * k));
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, w, h);
+    entry = { w, h, data: ctx.getImageData(0, 0, w, h).data };
+  } catch (err) {
+    entry = null; // tainted or undecodable: treat as solid
+  }
+  _alphaMaps.set(src, entry);
+  return entry;
+}
+
+/** Does this picture draw a visible pixel at a window point? Rotation is not accounted for. */
+function _imagePaintsAt(img, clientX, clientY) {
+  const map = _alphaMapOf(img);
+  if (!map) return true;
+  const z = _docZoom();
+  const x = clientX / z;
+  const y = clientY / z;
+  const r = img.getBoundingClientRect();
+  if (!(r.width > 0) || !(r.height > 0)) return false;
+  // Where the picture is drawn inside its box (object-fit; object-position is taken as centred).
+  let dw = r.width;
+  let dh = r.height;
+  const fit = getComputedStyle(img).objectFit;
+  if (fit === 'contain' || fit === 'cover' || fit === 'scale-down' || fit === 'none') {
+    const nw = img.naturalWidth;
+    const nh = img.naturalHeight;
+    let k = fit === 'cover' ? Math.max(r.width / nw, r.height / nh) : Math.min(r.width / nw, r.height / nh);
+    if (fit === 'none') k = 1;
+    if (fit === 'scale-down') k = Math.min(1, k);
+    dw = nw * k;
+    dh = nh * k;
+  }
+  const u = (x - r.left - (r.width - dw) / 2) / dw;
+  const v = (y - r.top - (r.height - dh) / 2) / dh;
+  if (u < 0 || u >= 1 || v < 0 || v >= 1) return false;
+  const px = Math.min(map.w - 1, Math.floor(u * map.w));
+  const py = Math.min(map.h - 1, Math.floor(v * map.h));
+  return map.data[(py * map.w + px) * 4 + 3] > _ALPHA_CLEAR;
+}
+
+const _ALWAYS_PAINTS = new Set(['CANVAS', 'VIDEO', 'SVG', 'INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'IFRAME', 'PROGRESS']);
+
+/**
+ * Does this element itself draw anything? An empty container — a full-screen popup layer, a
+ * layout row — draws nothing between its children, and a click there means what shows through.
+ */
+function _paintsSomething(el, clientX, clientY) {
+  if (!el || el.nodeType !== 1) return false;
+  if (String(el.tagName).toUpperCase() === 'IMG') {
+    const cs = getComputedStyle(el);
+    if (cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) return false;
+    return _imagePaintsAt(el, clientX, clientY);
+  }
+  if (_ALWAYS_PAINTS.has(String(el.tagName).toUpperCase()) || el.ownerSVGElement) return true;
+  const cs = getComputedStyle(el);
+  if (cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) return false;
+  if (!_isClearColor(cs.backgroundColor)) return true;
+  if (cs.backgroundImage && cs.backgroundImage !== 'none') return true;
+  if (cs.boxShadow && cs.boxShadow !== 'none') return true;
+  if (cs.backdropFilter && cs.backdropFilter !== 'none') return true;
+  for (const side of ['Top', 'Right', 'Bottom', 'Left']) {
+    if (parseFloat(cs['border' + side + 'Width']) > 0 && cs['border' + side + 'Style'] !== 'none' &&
+      !_isClearColor(cs['border' + side + 'Color'])) return true;
+  }
+  for (let n = el.firstChild; n; n = n.nextSibling) {
+    if (n.nodeType === 3 && n.nodeValue && n.nodeValue.trim()) return true;
+  }
+  return false;
+}
+
+/** The root node's box: the whole game screen. */
+function _screenRect() {
+  const root = document.querySelector('[data-xgenia-node-id]');
+  return root ? root.getBoundingClientRect() : { width: window.innerWidth, height: window.innerHeight };
+}
+
+/**
+ * What a click at a window point means: { nodeId, el } for a DOM node, { bridge } when the
+ * point shows a sprite / 3D object through the DOM above it, or null.
+ *
+ * Locked and hidden nodes are passed over, and so is anything that draws nothing at that
+ * point: an empty panel lying over a button, or the see-through middle of a frame picture,
+ * no longer has to be moved out of the way. The selection
+ * itself stays solid (pressing a gap inside the selected row still drags the row), unless it
+ * fills the screen. With nothing drawn anywhere under the pointer, the topmost empty node is
+ * the pick, as before.
+ */
+function _pickAt(clientX, clientY) {
+  let empty = null;
+  let screen = null;
   for (const el of document.elementsFromPoint(clientX, clientY)) {
     if (el.closest(_CHROME_SELECTOR)) continue;
+    if (_bridgeOwns(el)) {
+      const bridge = _bridgeHitAt(clientX, clientY);
+      if (bridge) return { bridge };
+      break; // only the canvas backdrop is left: the empty node above it is the pick
+    }
     const id = findXgeniaNodeForElement(el);
     if (!id || id === 'none') continue;
     if (_isLocked(id) || _hiddenIds.has(id)) continue;
-    return { nodeId: id, el };
+    if (_paintsSomething(el, clientX, clientY)) return { nodeId: id, el };
+    const held = _selectedElement && _members().find((m) => m.el === el || m.el.contains(el));
+    if (held) {
+      screen = screen || _screenRect();
+      if (!_coversScreen(held.el, screen)) return { nodeId: id, el };
+    }
+    if (!empty) empty = { nodeId: id, el };
   }
-  return null;
+  return empty;
+}
+
+/** The DOM node a click at a window point means, or null (nothing, or a sprite shows through). */
+function _pickNodeAt(clientX, clientY) {
+  const pick = _pickAt(clientX, clientY);
+  return pick && pick.nodeId ? pick : null;
+}
+
+/** The bridge whose sprite / 3D object shows through the DOM at a window point, or null. */
+function _bridgeThroughAt(clientX, clientY) {
+  const pick = _pickAt(clientX, clientY);
+  return pick && pick.bridge ? pick.bridge : null;
 }
 
 // --- Click depth (Figma groups) ---
@@ -1647,6 +1782,22 @@ function _bridgeOwns(el) {
   if (!el) return false;
   for (const b of _bridges()) {
     try { if (typeof b.ownsElement === 'function' && b.ownsElement(el)) return true; } catch (err) { /* ignore */ }
+  }
+  return false;
+}
+
+/** The bridge with something to press at a window point (a sprite, or its selection's gizmo). */
+function _bridgeHitAt(clientX, clientY) {
+  for (const b of _bridges()) {
+    try { if (typeof b.hitsAt === 'function' && b.hitsAt(clientX, clientY)) return b; } catch (err) { /* ignore */ }
+  }
+  return null;
+}
+
+/** Double-click on a bridge canvas: one level deeper. True when the bridge went deeper. */
+function _bridgeDrillAt(e, only) {
+  for (const b of (only ? [only] : _bridges())) {
+    try { if (typeof b.drillAt === 'function' && b.drillAt(e)) return true; } catch (err) { /* ignore */ }
   }
   return false;
 }
@@ -1941,6 +2092,7 @@ function _applyLiveRotate(deltaDeg) {
  * value over it is what made elements revert until a manual refresh.
  */
 function _clearLivePreview() {
+  if (!_childScaleWatch) _clearChildScale();
   for (const x of _extraPreviews) {
     for (const prop of ['transform', 'willChange']) {
       if (prop in x.applied && x.el.style[prop] === x.applied[prop]) x.el.style[prop] = x.inline[prop];
@@ -1960,6 +2112,108 @@ function _clearLivePreview() {
   }
   _livePreviewInline = null;
   _livePreviewApplied = null;
+}
+
+// --- A resize takes the contents along ---
+// The commit scales the pixel sizes and offsets of everything inside (editorapi
+// viewportGesture, scaleChildren). Until it renders, each direct child is drawn scaled about
+// the anchor it holds to, so the picture in a button grows with the button as it is dragged.
+// Alt-resize changes the box alone. Entries: { el, x, y, ax, ay, base, inline, applied, seen }.
+let _childScale = null;
+let _childScaleWatch = 0;
+
+function _requestChildScalePlan() {
+  _clearChildScale();
+  const nodeId = _selectedNodeId;
+  const parentEl = _selectedElement;
+  if (!nodeId || !parentEl) return;
+  makeEditorAPIRequest('viewportScalePlan', { nodeId }, (res) => {
+    if (!_isResizing || _selectedNodeId !== nodeId || _selectedElement !== parentEl) return;
+    if (!res || !Array.isArray(res.children)) return;
+    const frac = { left: 0, top: 0, center: 0.5, right: 1, bottom: 1 };
+    const plan = [];
+    for (const c of res.children) {
+      if (!c.x && !c.y) continue;
+      const el = document.querySelector('[data-xgenia-node-id="' + String(c.nodeId).replace(/"/g, '') + '"]');
+      if (!el || el === parentEl || !parentEl.contains(el) || !_offsetIn(el, parentEl)) continue;
+      const t = getComputedStyle(el).transform;
+      plan.push({
+        el, x: !!c.x, y: !!c.y, ax: frac[c.alignX] || 0, ay: frac[c.alignY] || 0,
+        base: t && t !== 'none' ? t : '',
+        inline: { transform: el.style.transform, willChange: el.style.willChange },
+        applied: {}, seen: null
+      });
+    }
+    _childScale = plan;
+  });
+}
+
+/** Where layout put el inside parentEl, before any transform. Null when it cannot be told. */
+function _offsetIn(el, parentEl) {
+  if (el.offsetParent === parentEl) return { left: el.offsetLeft, top: el.offsetTop };
+  if (el.offsetParent && el.offsetParent === parentEl.offsetParent) {
+    return {
+      left: el.offsetLeft - parentEl.offsetLeft - parentEl.clientLeft,
+      top: el.offsetTop - parentEl.offsetTop - parentEl.clientTop
+    };
+  }
+  return null;
+}
+
+function _layoutBoxOf(el) {
+  return el.offsetLeft + ',' + el.offsetTop + ',' + el.offsetWidth + ',' + el.offsetHeight;
+}
+
+function _restoreChildScale(c) {
+  for (const prop of ['transform', 'willChange']) {
+    if (prop in c.applied && c.el.style[prop] === c.applied[prop]) c.el.style[prop] = c.inline[prop];
+  }
+  c.applied = {};
+}
+
+function _applyLiveChildScale(sx, sy) {
+  if (!_childScale || !_selectedElement) return;
+  const W = _selectedElement.clientWidth;
+  const H = _selectedElement.clientHeight;
+  for (const c of _childScale) {
+    const kx = c.x ? sx : 1;
+    const ky = c.y ? sy : 1;
+    const off = _offsetIn(c.el, _selectedElement);
+    if (!off || !(kx > 0) || !(ky > 0) || (Math.abs(kx - 1) < 1e-4 && Math.abs(ky - 1) < 1e-4)) {
+      _restoreChildScale(c);
+      continue;
+    }
+    // Scale about the parent's anchor point, written in the child's own coordinates. The
+    // browser wraps the whole list in the child's transform-origin, hence the subtraction.
+    const o = getComputedStyle(c.el).transformOrigin.split(' ').map(parseFloat);
+    const px = c.ax * W - off.left - (o[0] || 0);
+    const py = c.ay * H - off.top - (o[1] || 0);
+    c.el.style.willChange = 'transform';
+    c.el.style.transform = 'translate(' + px + 'px, ' + py + 'px) scale(' + kx + ', ' + ky + ') translate(' + (-px) + 'px, ' + (-py) + 'px) ' + c.base;
+    c.applied = { transform: c.el.style.transform, willChange: c.el.style.willChange };
+    c.seen = _layoutBoxOf(c.el);
+  }
+}
+
+function _clearChildScale() {
+  if (_childScaleWatch) { clearInterval(_childScaleWatch); _childScaleWatch = 0; }
+  if (_childScale) for (const c of _childScale) _restoreChildScale(c);
+  _childScale = null;
+}
+
+/** After the commit: keep the scaled look until a child's own box changes (the new sizes rendered). */
+function _releaseChildScaleWhenRendered() {
+  if (!_childScale || !_childScale.some((c) => 'transform' in c.applied)) { _clearChildScale(); return; }
+  const plan = _childScale;
+  const until = _now() + 1500;
+  if (_childScaleWatch) clearInterval(_childScaleWatch);
+  _childScaleWatch = setInterval(() => {
+    const rendered = plan.some((c) => !c.el.isConnected || (c.seen && _layoutBoxOf(c.el) !== c.seen));
+    if (rendered || _now() > until || _childScale !== plan) {
+      if (_childScale === plan) _clearChildScale();
+      else { clearInterval(_childScaleWatch); _childScaleWatch = 0; }
+    }
+  }, 16);
 }
 
 // --- Drag to move ---
@@ -2380,6 +2634,7 @@ function _startResize(e, handleName) {
   _gestureScale = _scalesOf(_selectedElement);
   _originalRect = _selectedElement.getBoundingClientRect();
   _captureLivePreviewBase();
+  _requestChildScalePlan();
   _hideActionTip();
   // Hide badges during resize — only the dynamic size badge will be shown
   if (_labelBadge) _labelBadge.style.display = 'none';
@@ -2434,11 +2689,22 @@ function _resizeGeometry(e) {
   };
 }
 
+/** How much the contents scale with this resize; null with Alt held (the box alone). */
+function _childScaleRatio(e, geom) {
+  if (e.altKey || !(_originalRect.width > 0) || !(_originalRect.height > 0)) return null;
+  return {
+    sx: Math.round((geom.rect.width / _originalRect.width) * 10000) / 10000,
+    sy: Math.round((geom.rect.height / _originalRect.height) * 10000) / 10000
+  };
+}
+
 function _onResize(e) {
   if (!_isResizing) return;
   const geom = _resizeGeometry(e);
   // Frame and element resize in tandem (inline preview, committed on release)
   const shown = _applyLiveResize(geom);
+  const k = _childScaleRatio(e, geom);
+  _applyLiveChildScale(k ? k.sx : 1, k ? k.sy : 1);
   const frame = Object.assign({}, shown, { right: shown.left + shown.width, bottom: shown.top + shown.height });
   _updateSelectionPosition(frame);
   _placeBadges(frame, Math.round(geom.localW) + ' × ' + Math.round(geom.localH));
@@ -2454,10 +2720,16 @@ function _endResize(e) {
 
   if (changed) {
     _suppressClickUntil = _now() + 400; // the release lands off the element: not a pick
-    _sendDomGesture('resize', { width: _round2(geom.localW), height: _round2(geom.localH) }, {
-      expect: _lastPreviewRect || geom.rect
+    const k = _childScaleRatio(e, geom);
+    _applyLiveChildScale(k ? k.sx : 1, k ? k.sy : 1);
+    const fields = { width: _round2(geom.localW), height: _round2(geom.localH) };
+    if (k) fields.scaleChildren = k;
+    _sendDomGesture('resize', fields, {
+      expect: _lastPreviewRect || geom.rect,
+      onCommitted: _releaseChildScaleWhenRendered
     });
   } else {
+    _clearChildScale();
     _clearLivePreview();
   }
   // Overlay stays at new size — preview will re-render when parameters update
@@ -2616,9 +2888,11 @@ function _sendDomGesture(gesture, fields, opts) {
   }, (res) => {
     const blocked = res && res.blocked && res.blocked[0];
     if (blocked) {
+      _clearChildScale();
       _clearLivePreview(); // snap back — nothing was written
       _flashBlocked(blocked.reason);
     } else if (!opts.noSettle) {
+      if (opts.onCommitted) opts.onCommitted();
       _settleAfterCommit({ gesture, expect: opts.expect || null, startRect, groupId: res && res.groupId, maxGap: opts.maxGap || null });
     }
   });
@@ -3457,6 +3731,12 @@ window.XgeniaEditorInspectorAPI = {
         // The pixi/three bridges pick sprites and 3D objects on their own canvas. Selecting
         // the DOM node under it here (the Stage) overwrote that pick on every click.
         if (_bridgeOwns(e.target)) return;
+        // A sprite showing through an empty DOM node was picked on mousedown, by its bridge.
+        if (!e.altKey && _bridgeThroughAt(e.clientX, e.clientY)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
 
         // The outermost node under the pointer (the button, not its picture) that is not locked
         // or hidden; inside the selection's group, a sibling at the same depth.
@@ -3541,7 +3821,16 @@ window.XgeniaEditorInspectorAPI = {
       // nothing deeper, add the selected node to the chat as a reference. ---
       const dblclickHandler = (e) => {
         if (_contextMenu && _contextMenu.contains(e.target)) return;
-        const bridgeNodeId = _bridgeOwns(e.target) ? _bridgeSelectedNodeId() : null;
+        const plainDbl = !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey;
+        const owned = _bridgeOwns(e.target);
+        const through = owned ? null : _bridgeThroughAt(e.clientX, e.clientY);
+        // Sprites: the bridge goes one level deeper on its own canvas.
+        if ((owned || through) && plainDbl && _bridgeDrillAt(e, through)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        const bridgeNodeId = (owned || through) ? _bridgeSelectedNodeId() : null;
         if (!bridgeNodeId && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
           const raw = _pickNodeAt(e.clientX, e.clientY);
           const inner = raw && _selectedNodeId ? _resolvePick(raw, true) : null;
@@ -3629,6 +3918,16 @@ window.XgeniaEditorInspectorAPI = {
         // Inside a bridge canvas a press picks or drags a sprite; the selected DOM node there
         // is the Stage, which still moves by its arrows and handles above.
         if (_bridgeOwns(e.target)) return;
+        // A sprite showing through an empty DOM node lying over the canvas: the bridge takes
+        // the press, exactly as if the node were not there.
+        if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+          const through = _bridgeThroughAt(e.clientX, e.clientY);
+          if (through && typeof through.pressAt === 'function') {
+            _hideSelection();
+            through.pressAt(e);
+            return;
+          }
+        }
         const pressSelection = () => {
           const caps = _effectiveCaps();
           if (caps && caps.movable) {
